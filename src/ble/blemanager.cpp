@@ -2861,7 +2861,14 @@ void BLEManager::scaleWarn(const QString& message, const QString& source) {
     SCALE_WARN_STDERR_DYN(source, message);
 }
 
+// This class's own convenience form. Private, so "BLEManager wrote it" is a
+// fact here rather than a default that any caller could inherit by omission.
 void BLEManager::scaleRepeatFailure(const QString& message) {
+    scaleRepeatFailure(message, RepeatTier::Warn, QStringLiteral("BLEManager"));
+}
+
+void BLEManager::scaleRepeatFailure(const QString& message, RepeatTier tier,
+                                    const QString& source) {
     // Counted PER MESSAGE, not per subsystem. A single subsystem counter looked
     // simpler and was wrong twice over:
     //
@@ -2873,15 +2880,55 @@ void BLEManager::scaleRepeatFailure(const QString& message) {
     //     "(repeat 4)" appeared on a line that had been printed twice.
     //
     // Per-message fixes both: each distinct failure gets its own first few
-    // warnings, and the count means what it says. Cardinality is bounded — these
-    // are literals with at most a host name interpolated.
+    // warnings, and the count means what it says.
+    //
+    // Cardinality WAS bounded — "literals with at most a host name interpolated"
+    // — and that is no longer true, so do not rely on it. DecentScaleWifi's
+    // failure line now interpolates the error string, an error code, the target,
+    // the phrase describing where the target came from, and the local address.
+    // The target-source phrase varies WITHIN one dead ladder (remembered, then
+    // freshly resolved, then remembered-after-a-failed-resolve), so a single
+    // repeating failure claims a separate budget per phrasing and can emit
+    // roughly three times the intended warnings before going quiet.
+    //
+    // Left as-is deliberately: the provenance on that line is what makes
+    // "the scale moved" separable from "the scale is off", which was the point of
+    // adding it, and three cycles of a real failure is a tolerable price. Keying
+    // the budget on a stable substring while logging the full line is the fix if
+    // it ever becomes a problem. Recorded rather than silently accepted, because
+    // the old sentence would have been read as a guarantee.
     const int count = ++m_repeatFailureCounts[message];
     if (count <= kScaleFailuresAtWarn) {
-        scaleWarn(message);
+        // At the caller's own tier, not always WARN. A failing cycle emits
+        // narrative as well as problems, and promoting the narrative to WARN to
+        // budget it would trade one kind of noise for a worse one.
+        if (tier == RepeatTier::Warn)
+            scaleWarn(message, source);
+        else
+            scaleInfo(message, source);
     } else {
-        // Same event, still true, nothing new. Kept at DEBUG so the log still
-        // proves the ladder is running without another alarm.
-        scaleDebug(QString("%1 (repeat %2)").arg(message).arg(count));
+        // Same event, still true, nothing new — DEBUG, so the log still proves the
+        // ladder is running without another alarm.
+        //
+        // But NOT DEBUG forever, and this is a correction to the first cut of this
+        // budget. Once DecentScaleWifi's warning was routed in here too, a
+        // permanently-absent scale produced nothing whatsoever above DEBUG — so at
+        // the tier debug_get_log's INFO view and the connections page both read,
+        // "retrying every 60 s for the last eight hours" and "gave up hours ago"
+        // became byte-identical: empty. That is the same fault this subsystem was
+        // just fixed for in the other direction. Silence is not honest while the
+        // condition persists; it only looks tidy.
+        //
+        // Milestones, not a period: the gaps widen, so an overnight failure costs a
+        // handful of INFO lines rather than one every 60 s, and the reader still
+        // gets proof of life with a repeat count that says how long it has been.
+        const bool milestone = (count == 10 || count == 30 || count == 100
+                                || (count % 500) == 0);
+        const QString line = QString("%1 (repeat %2)").arg(message).arg(count);
+        if (milestone)
+            scaleInfo(line, source);
+        else
+            scaleDebug(line, source);
     }
 }
 

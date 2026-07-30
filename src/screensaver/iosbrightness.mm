@@ -5,6 +5,8 @@
 #if TARGET_OS_IOS
 
 #import <UIKit/UIKit.h>
+#include "core/themelogging.h"
+#include "screensaver/screensaverlogging.h"
 #include <QDebug>
 
 static NSString * const kSavedBrightnessKey = @"DecenzaSavedBrightness";
@@ -22,10 +24,11 @@ void ios_setScreenBrightness(float brightness)
             // Persist so we can restore if app crashes while dimmed
             [[NSUserDefaults standardUserDefaults] setObject:@(s_savedBrightness)
                                                       forKey:kSavedBrightnessKey];
-            qDebug() << "[Screensaver] iOS: saved original brightness:" << s_savedBrightness;
+            SCREENSAVER_LOG_STDERR("Brightness", QStringLiteral("iOS: saved original brightness: %1")
+                                       .arg(s_savedBrightness));
         }
         [UIScreen mainScreen].brightness = clamped;
-        qDebug() << "[Screensaver] iOS: set brightness to" << clamped;
+        SCREENSAVER_LOG_STDERR("Brightness", QStringLiteral("iOS: set brightness to %1").arg(clamped));
     });
 }
 
@@ -34,7 +37,8 @@ void ios_restoreScreenBrightness()
     dispatch_async(dispatch_get_main_queue(), ^{
         if (s_savedBrightness >= 0) {
             [UIScreen mainScreen].brightness = s_savedBrightness;
-            qDebug() << "[Screensaver] iOS: restored brightness to" << s_savedBrightness;
+            SCREENSAVER_LOG_STDERR("Brightness", QStringLiteral("iOS: restored brightness to %1")
+                                           .arg(s_savedBrightness));
             s_savedBrightness = -1.0;
         }
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:kSavedBrightnessKey];
@@ -46,7 +50,8 @@ void ios_checkAndRestoreBrightness()
     NSNumber *saved = [[NSUserDefaults standardUserDefaults] objectForKey:kSavedBrightnessKey];
     if (saved != nil) {
         float brightness = [saved floatValue];
-        qDebug() << "[Screensaver] iOS: recovering brightness after crash:" << brightness;
+        SCREENSAVER_LOG_STDERR("Brightness",
+            QStringLiteral("iOS: recovering brightness after crash: %1").arg(brightness));
         dispatch_async(dispatch_get_main_queue(), ^{
             [UIScreen mainScreen].brightness = brightness;
             // Clear persisted key only after brightness is actually restored
@@ -59,7 +64,8 @@ void ios_setIdleTimerDisabled(bool disabled)
 {
     dispatch_async(dispatch_get_main_queue(), ^{
         [UIApplication sharedApplication].idleTimerDisabled = disabled ? YES : NO;
-        qDebug() << "[Screensaver] iOS: idleTimerDisabled =" << disabled;
+        SCREENSAVER_LOG_STDERR("IdleTimer", QStringLiteral("iOS: idleTimerDisabled = %1")
+                                       .arg(disabled ? 1 : 0));
     });
 }
 
@@ -76,7 +82,8 @@ void ios_setStatusBarStyle(bool isDarkTheme)
         }
         if (window) {
             window.overrideUserInterfaceStyle = isDarkTheme ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
-            qDebug() << "[Theme] iOS: set status bar style, isDark =" << isDarkTheme;
+            THEME_LOG_STDERR("StatusBar", QStringLiteral("iOS: set status bar style, isDark = %1")
+                                 .arg(isDarkTheme ? 1 : 0));
         }
     });
 }
@@ -93,6 +100,7 @@ void ios_setStatusBarStyle(bool) {}
 // --- Font probe (macOS + iOS) — detect Apple Color Emoji fallback for non-emoji chars ---
 #import <Foundation/Foundation.h>
 #import <CoreText/CoreText.h>
+#include "core/fontlogging.h"
 #include <QDebug>
 #include <QString>
 
@@ -118,7 +126,7 @@ void macos_probeEmojiFont()
 
     CTFontRef systemFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 16.0, NULL);
     if (!systemFont) {
-        qWarning() << "[FontProbe] Failed to create system font";
+        FONT_WARN_STDERR("Probe", QStringLiteral("Failed to create system font"));
         return;
     }
 
@@ -136,9 +144,12 @@ void macos_probeEmojiFont()
             // Check if it's Apple Color Emoji
             bool isEmoji = [name containsString:@"Emoji"] || [name containsString:@"emoji"];
             if (isEmoji) {
-                qInfo() << "[FontProbe] U+" << QString::number(p.ch, 16).toUpper()
-                        << p.name << "would resolve to" << QString::fromNSString(name)
-                        << "IF rendered as text — expected; the app renders it as a bundled SVG.";
+                FONT_LOG_STDERR("Probe", QStringLiteral("U+%1 %2 would resolve to %3 IF rendered as "
+                                                 "text — expected; the app renders it as a "
+                                                 "bundled SVG")
+                                      .arg(QString::number(p.ch, 16).toUpper(),
+                                           QString::fromLatin1(p.name),
+                                           QString::fromNSString(name)));
                 anyEmoji = true;
             }
 
@@ -148,7 +159,7 @@ void macos_probeEmojiFont()
     }
 
     if (!anyEmoji) {
-        qDebug() << "[FontProbe] All probed characters use non-emoji fonts (OK)";
+        FONT_LOG_STDERR("Probe", QStringLiteral("All probed characters use non-emoji fonts (OK)"));
     } else {
         // This used to say "CurveTextRendering should still prevent the CopyEmojiImage crash."
         // That is FALSE, and a crash on 2026-07-18 disproved it: curves cannot represent colour
@@ -156,11 +167,24 @@ void macos_probeEmojiFont()
         // are read by users' AIs via MCP and acted on, so a confidently wrong all-clear here would
         // get a real crash report dismissed. The actual defence is never letting a colour glyph
         // reach the renderer — Theme.replaceEmojiWithImg() rewrites emoji to bundled SVGs.
-        qInfo() << "[FontProbe] Probed characters have Apple Color Emoji coverage. That is normal "
-                   "and NOT a crash indicator: the app renders emoji as bundled SVG images, so "
-                   "these glyphs never reach the text renderer. A crash here would mean some "
-                   "string bypassed Theme.replaceEmojiWithImg() — that is the thing to look for, "
-                   "not this line.";
+        //
+        // DEBUG, not INFO, and the audience rule is why: every line of this is
+        // addressed to whoever is investigating a suspected render crash, and to
+        // nobody else. It also fires on essentially every Apple-platform startup —
+        // the probe set includes ⚡ ☀ ☁ ❄, which Apple Color Emoji covered on every
+        // macOS and iOS version this was checked against (not asserted for all
+        // future ones; nothing here depends on it being universal) — so at
+        // INFO it was two paragraphs of "this is normal" standing permanently in
+        // the user-facing narrative. Demoting costs the intended reader nothing:
+        // debug_get_log returns DEBUG by default, so the AI reading a submitted
+        // log still sees it exactly when it is looking here.
+        FONT_LOG_STDERR("Probe",
+                 QStringLiteral("Probed characters have Apple Color Emoji coverage. That is "
+                                "normal and NOT a crash indicator: the app renders emoji as "
+                                "bundled SVG images, so these glyphs never reach the text "
+                                "renderer. A crash here would mean some string bypassed "
+                                "Theme.replaceEmojiWithImg() — that is the thing to look for, "
+                                "not this line."));
     }
 
     CFRelease(systemFont);

@@ -2439,7 +2439,11 @@ private slots:
         theme->resetFontSizesToDefault();
         // The reject is now loud, not silent — assert the warning fires too, otherwise
         // failOnWarning turns intended diagnostics into a red test.
-        QTest::ignoreMessage(QtWarningMsg, "[Font] Ignoring unknown font role: \"bogusSize\"");
+        // [Font][Overrides] now, via the registered helper. The quotes are gone with
+        // the stream operator: the message is one QString built with .arg(), so the
+        // role name is no longer wrapped by qDebug's QString quoting.
+        QTest::ignoreMessage(QtWarningMsg,
+                             "[Font][Overrides] Ignoring unknown font role: bogusSize");
         theme->setFontSize("bogusSize", 99);
         QVERIFY(!theme->effectiveFontSizes().contains("bogusSize"));
         QVERIFY(!theme->fontSizeOverrides().contains("bogusSize"));
@@ -2454,11 +2458,11 @@ private slots:
         theme->resetFontSizesToDefault();
         const auto& role = SettingsTheme::fontRoles().value("timerSize");
 
-        QTest::ignoreMessage(QtWarningMsg, "[Font] Clamped \"timerSize\" 100000 -> 120");
+        QTest::ignoreMessage(QtWarningMsg, "[Font][Overrides] Clamped timerSize 100000 -> 120");
         theme->setFontSize("timerSize", 100000);
         QCOMPARE(theme->effectiveFontSizes().value("timerSize").toInt(), role.max);
 
-        QTest::ignoreMessage(QtWarningMsg, "[Font] Clamped \"labelSize\" 1 -> 8");
+        QTest::ignoreMessage(QtWarningMsg, "[Font][Overrides] Clamped labelSize 1 -> 8");
         theme->setFontSize("labelSize", 1);
         QCOMPARE(theme->effectiveFontSizes().value("labelSize").toInt(), role.min > 0
                  ? SettingsTheme::fontRoles().value("labelSize").min : 8);

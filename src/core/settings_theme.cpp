@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include "backgroundpresets.h"
+#include "core/fontlogging.h"
+#include "core/themelogging.h"
 #include "settings.h"
 
 #include <QStandardPaths>
@@ -102,9 +104,10 @@ QString SettingsTheme::backgroundPreset() const {
         // starts from the log.
         if (!m_warnedUnknownIds.contains(id)) {
             m_warnedUnknownIds.insert(id);
-            qWarning() << "[Theme] Stored background colour" << id
-                       << "is not in this build's catalogue - showing no background colour."
-                          " Pick one again in Settings > Machine > Theme Mode.";
+            THEME_WARN_STDERR("Background",
+                QStringLiteral("Stored background colour %1 is not in this build's "
+                               "catalogue - showing no background colour. Pick one again "
+                               "in Settings > Machine > Theme Mode.").arg(id));
         }
         return QString();
     }
@@ -118,15 +121,16 @@ void SettingsTheme::setBackgroundPreset(const QString& id) {
     // colour the device already had — and reported success. Empty is how a caller asks
     // for none; anything else unknown is refused and logged, as setFontSize does.
     if (!id.isEmpty() && !BackgroundPresets::hasColour(id)) {
-        qWarning() << "[Theme] Ignoring unknown background colour id:" << id
-                   << "- keeping" << (backgroundPreset().isEmpty() ? QStringLiteral("none")
-                                                                   : backgroundPreset());
+        THEME_WARN_STDERR("Background",
+            QStringLiteral("Ignoring unknown background colour id: %1 - keeping %2")
+                .arg(id, backgroundPreset().isEmpty() ? QStringLiteral("none")
+                                                      : backgroundPreset()));
         return;
     }
     if (backgroundPreset() != id) {
         if (!id.isEmpty() || !backgroundPreset().isEmpty()) {
-            qInfo() << "[Theme] Background colour:"
-                    << (id.isEmpty() ? QStringLiteral("none") : id);
+            THEME_INFO_STDERR("Background", QStringLiteral("Background colour: %1")
+                .arg(id.isEmpty() ? QStringLiteral("none") : id));
         }
         m_settings.setValue("theme/backgroundPreset", id);
         emit backgroundPresetChanged();
@@ -194,8 +198,9 @@ QString SettingsTheme::backgroundSource() const {
         const QString note = stored + QStringLiteral("->") + derived;
         if (!m_warnedUnknownIds.contains(note)) {
             m_warnedUnknownIds.insert(note);
-            qInfo() << "[Theme] Stored background source" << stored
-                    << "is not backed by a value this build can draw - using" << derived;
+            THEME_INFO_STDERR("Background",
+                QStringLiteral("Stored background source %1 is not backed by a value this "
+                               "build can draw - using %2").arg(stored, derived));
         }
     }
     return derived;
@@ -212,8 +217,9 @@ void SettingsTheme::storeBackgroundSource(const QString& source) {
         && source != kBackgroundSourceImage && source != kBackgroundSourceShot) {
         // Same stance as an unknown colour id: a bad value is a caller bug, not a request
         // to wipe the user's background.
-        qWarning() << "[Theme] Ignoring unknown background source:" << source
-                   << "- keeping" << backgroundSource();
+        THEME_WARN_STDERR("Background",
+            QStringLiteral("Ignoring unknown background source: %1 - keeping %2")
+                .arg(source, backgroundSource()));
         return;
     }
     m_settings.setValue("theme/backgroundSource", source);
@@ -239,7 +245,8 @@ void SettingsTheme::selectShotChartBackground(bool advanced) {
     if (advancedChanged)
         m_settings.setValue("theme/backgroundShotAdvanced", advanced);
 
-    qInfo() << "[Theme] Background: last shot chart" << (advanced ? "(advanced)" : "(basic)");
+    THEME_INFO_STDERR("Background", QStringLiteral("Background: last shot chart %1")
+        .arg(advanced ? QStringLiteral("(advanced)") : QStringLiteral("(basic)")));
     storeBackgroundSource(QString::fromLatin1(kBackgroundSourceShot));
     clearBackgroundPreset("the last-shot chart was chosen instead");
     setBackgroundImagePath(QString());
@@ -272,7 +279,8 @@ void SettingsTheme::clearBackground() {
 void SettingsTheme::clearBackgroundPreset(const char* reason) {
     if (backgroundPreset().isEmpty())
         return;
-    qInfo() << "[Theme] Clearing background colour" << backgroundPreset() << "-" << reason;
+    THEME_INFO_STDERR("Background", QStringLiteral("Clearing background colour %1 - %2")
+        .arg(backgroundPreset(), reason));
     setBackgroundPreset(QString());
 }
 
@@ -283,7 +291,8 @@ QString SettingsTheme::backgroundPattern() const {
 
 void SettingsTheme::setBackgroundPattern(const QString& id) {
     if (!id.isEmpty() && !BackgroundPresets::hasPattern(id)) {
-        qWarning() << "[Theme] Ignoring unknown background pattern id:" << id;
+        THEME_WARN_STDERR("Background",
+            QStringLiteral("Ignoring unknown background pattern id: %1").arg(id));
         return;
     }
     if (backgroundPattern() != id) {
@@ -994,10 +1003,11 @@ QVariantMap SettingsTheme::customFontSizes() const {
     QJsonParseError err{};
     const QJsonDocument doc = QJsonDocument::fromJson(data, &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-        qWarning() << "[Font] Stored font-size overrides are corrupt at offset" << err.offset
-                   << ":" << err.errorString()
-                   << "— falling back to default sizes. The stored value will be overwritten"
-                      " on the next font-size change.";
+        FONT_WARN_STDERR("Overrides",
+            QStringLiteral("Stored font-size overrides are corrupt at offset %1: %2 — falling "
+                           "back to default sizes. The stored value will be overwritten on the "
+                           "next font-size change.")
+                .arg(err.offset).arg(err.errorString()));
         return QVariantMap();
     }
     return doc.object().toVariantMap();
@@ -1016,12 +1026,14 @@ void SettingsTheme::setFontSize(const QString& fontName, int size) {
     // an unknown key writes junk nothing will ever surface or clean up.
     auto it = fontRoles().constFind(fontName);
     if (it == fontRoles().constEnd()) {
-        qWarning() << "[Font] Ignoring unknown font role:" << fontName;
+        FONT_WARN_STDERR("Overrides",
+            QStringLiteral("Ignoring unknown font role: %1").arg(fontName));
         return;
     }
     const int clamped = std::clamp(size, it->min, it->max);
     if (clamped != size)
-        qWarning() << "[Font] Clamped" << fontName << size << "->" << clamped;
+        FONT_WARN_STDERR("Overrides", QStringLiteral("Clamped %1 %2 -> %3")
+                                          .arg(fontName).arg(size).arg(clamped));
 
     QVariantMap sizes = customFontSizes();
     sizes[fontName] = clamped;

@@ -71,6 +71,11 @@
 #define DECENZA_LOG_MARKER_DE1           "DE1"
 #define DECENZA_LOG_MARKER_REFRACTOMETER "Refractometer"
 #define DECENZA_LOG_MARKER_BLUETOOTH     "Bluetooth"
+#define DECENZA_LOG_MARKER_SAW           "SAW"
+#define DECENZA_LOG_MARKER_FONT          "Font"
+#define DECENZA_LOG_MARKER_NETWORK       "Network"
+#define DECENZA_LOG_MARKER_SCREENSAVER   "Screensaver"
+#define DECENZA_LOG_MARKER_THEME         "Theme"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -91,7 +96,39 @@
       "and automatic recovery, and platform capability problems. Separate from " \
       "Scale and DE1 because it is BENEATH both — when the adapter is off or "   \
       "wedged, neither device can connect, and attributing that to one of them " \
-      "sends a reader looking for a fault in the wrong place")
+      "sends a reader looking for a fault in the wrong place")                   \
+    X(DECENZA_LOG_MARKER_SAW,                                                  \
+      "Stop-at-weight: deciding when to stop a shot so it lands on the target "  \
+      "weight, and learning each profile+scale pair's drip and lag from past "   \
+      "shots. Answers \"why did my shot stop where it did\" and \"why is it "    \
+      "consistently over or under\". Separate from Scale, which answers whether " \
+      "the weight readings arrived at all — a correct reading the stop logic "   \
+      "then acts on wrongly is a different fault from a reading that never came") \
+    X(DECENZA_LOG_MARKER_FONT,                                                 \
+      "Font loading and text rendering: which bundled families registered, "     \
+      "which text fell back to a platform font, and glyph-coverage problems. "   \
+      "Users report these as layout or language bugs, so this is the first "     \
+      "thing to check for clipped or garbled text in a non-Latin locale")       \
+    X(DECENZA_LOG_MARKER_NETWORK,                                              \
+      "Local network reachability — whether this device can reach the LAN at "   \
+      "all — as opposed to any one device's link. Separate from Scale and DE1 "  \
+      "because a routing or permission failure is not a fault in the scale "     \
+      "driver, and filing it under Scale sends a reader to the wrong file. "     \
+      "NOTE: currently reachability only. The app's own servers (ShotServer, "   \
+      "MQTT) still log under hand-rolled prefixes and are NOT reachable through " \
+      "this marker yet")                                                         \
+    X(DECENZA_LOG_MARKER_SCREENSAVER,                                            \
+      "The screensaver: when it engages and releases, screen dimming and "        \
+      "brightness restore, the idle timer, and video playback. Users report "     \
+      "these as \"the screen went dark mid-shot\" or \"it never woke up\", and "  \
+      "the answer is usually which of several independent things (idle timer, "   \
+      "brightness, video) did or did not fire")                                   \
+    X(DECENZA_LOG_MARKER_THEME,                                                  \
+      "Appearance: theme selection and switching, custom colours, background "    \
+      "images and presets, and per-role font-size overrides. Separate from Font, " \
+      "which is about which typeface actually resolved — a size the user chose "  \
+      "and a family the platform substituted are different faults with the same " \
+      "symptom of text that looks wrong")
 
 // ---- The one place a log line's shape is built -------------------------
 //

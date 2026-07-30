@@ -24,26 +24,41 @@ A grep finds both in milliseconds. Guidance did not.
 
 WHAT IT ENFORCES
 ----------------
-Within the covered files (see COVERED_GLOBS):
+There are TWO coverage sets, because the rules do not all generalise the same way:
+
+  COVERED_GLOBS      all rules. Files wholly about one subsystem, where "use the
+                     helper" is always the right instruction.
+  MARKER_ONLY_GLOBS  rules 2 and 5 only. Files that HOST a subsystem's lines beside
+                     unrelated code — main.cpp and SAW's three. Rule 1 there produced
+                     over a hundred "violations" that were lines with no subsystem to
+                     belong to, and a check reporting that many non-defects is one
+                     people switch off.
 
   1. No bare qDebug/qInfo/qWarning/qCritical. Log through the subsystem's helper,
      which is the only place the marker and tier are applied. Suppressible per line
      with a `// log-marker-exempt: <reason>` comment on or above the call.
   2. No REGISTERED marker typed into a log message. `HELPER("[Scale] ...")` means the
      marker was applied twice, once by hand and once by the helper — the
-     `[Scale] [BLE DecentScaleWifi] …` shape. Note the narrowness: an UNregistered
-     prefix (`"[Foo] ..."`) is deliberately not flagged, because `[M]` is a DE1
-     protocol byte and `[observe]` is a mode qualifier. The consequence is real
-     though — `HELPER("[R2-diag] foo")` would pass rule 1 (it uses the helper) and
-     rule 2 (unregistered), so a hand-rolled prefix inside a helper call is caught
-     by nothing here. Rule 1 caught the historical cases only because they sat on
-     bare qDebug calls, which is a fact about the past, not an invariant.
+     `[Scale] [BLE DecentScaleWifi] …` shape.
   3. Every marker literal a helper header applies is one the registry declares, so a
      helper cannot quietly invent a subsystem. The header set is derived from the
      tree, not listed — see helper_headers().
   4. Every bracketed marker literal in qml/ is one the registry declares. The two
      on-screen log views name their subsystems as plain QML strings, so a rename
      would otherwise pass rules 1-3 and leave a view silently empty.
+  5. No UNREGISTERED bracketed token opening a log message. `HELPER("[R2-diag] …")`
+     passes rules 1 and 2 — it uses the helper, and the token is not a registered
+     marker — yet it advertises a subsystem query that returns an incomplete answer
+     while looking exactly like one that works.
+
+     This block previously documented rule 5's absence as a known hole ("caught by
+     nothing here"), and kept saying so after the rule existed. Two descriptions of
+     one policy, one of them false, is the drift this script exists to catch — worth
+     leaving on the record, since the stale text read as a deliberate decision.
+
+  Every marker literal must also carry a DECENZA_LOG_SUBSYSTEMS row; see
+  registered_markers(). Without one the marker works everywhere in the code and is
+  still missing from debug_get_log's description, so nobody knows to search for it.
 
 The registry is PARSED from src/core/logtags.h, never restated here. A copy of the
 marker list in this script would be one more thing to drift, which is the exact
@@ -77,6 +92,51 @@ COVERED_GLOBS = [
     # the one place nobody would think to check.
     "src/network/wifiscalediscovery.cpp",
     "src/core/settings_hardware.cpp",
+    # Wholly about the screensaver: every log line in it is a screensaver line.
+    "src/screensaver/screensavervideomanager.cpp",
+]
+
+# Files that HOST a registered subsystem's lines alongside unrelated code.
+#
+# Rules 2 and 5 apply (do not fake a marker); rule 1 does not (not every line here
+# belongs to a marked subsystem, so "route it through a helper" has no answer).
+#
+# The distinction is real, not a concession. COVERED_GLOBS above are files that are
+# WHOLLY about their subsystem — every log line in src/ble/scales/acaiascale.cpp is a
+# scale line, so "use the helper" is always the right instruction. main.cpp is not
+# like that: it drives the scale and refractometer reconnect ladders AND initialises
+# fonts, translations, TTS and accessibility. Applying rule 1 there produced 118
+# "violations" that were mostly lines with no subsystem to belong to — a check
+# reporting a hundred non-defects is one people switch off, which is how the previous
+# generation of this convention died.
+#
+# What DOES hold everywhere is the marker invariant: if you write a bracketed prefix,
+# it must be a registered marker applied by its helper. That is what rules 2 and 5
+# enforce, and it is what caught the real finds here — seven device lines under a
+# hand-typed "[USB Scale]"/"[BLE DE1]" that no [Scale]/[DE1] search returned, and two
+# lines that applied [Refractometer] twice.
+MARKER_ONLY_GLOBS = [
+    # Drives both reconnect ladders through BLEManager's public tier helpers, so a
+    # device subsystem's most-asked-about narrative is written here, in a file that is
+    # not about logging at all.
+    "src/main.cpp",
+    # SAW's own files, now that [SAW] is registered and has a helper header. Each
+    # also carries unrelated lines (frame transitions, flow calibration), which is
+    # why they are here rather than in COVERED_GLOBS.
+    "src/controllers/shottimingcontroller.cpp",
+    "src/core/settings_calibration.cpp",
+    "src/machine/weightprocessor.cpp",
+    # Added after the fact: this file gained [SAW] lines in the same change that
+    # added these rules and was left out of both sets, so rules 2 and 5 did not run
+    # on the file carrying the [SAW][HotWater] narrative. The check for "does every
+    # file using a helper appear in a glob" is one nobody ran, because the script
+    # has no way to ask it of itself — worth remembering before adding a subsystem.
+    "src/machine/machinestate.cpp",
+    # Both found by rule 6 below, on its first run, having been given [Font] lines
+    # in this same change and added to no glob — which is the whole argument for
+    # rule 6 existing rather than for adding files by hand.
+    "src/core/settings_theme.cpp",
+    "src/screensaver/iosbrightness.mm",
 ]
 
 # Helper headers define the macros; they are allowed to name markers and to contain
@@ -123,36 +183,101 @@ EXEMPT_RE = re.compile(r"log-marker-exempt")
 # the call site, which is what produced "[Scale] [BLE DecentScaleWifi] …" — a marker
 # applied twice, once by hand and once by the helper.
 #
-# Hand-rolled prefixes that are NOT registered markers (`[R2-diag]`, `DE1Simulator:`)
-# are caught by rule 1 instead: they lived on bare qDebug calls, which is how they
-# escaped the marker in the first place.
+# Hand-rolled prefixes that are NOT registered markers are caught by RULE 5 below.
+# They used to be caught by nothing: rule 1 only reaches them when they sit on a bare
+# qDebug call, which is a fact about how the historical ones happened to be written
+# rather than an invariant. `HELPER("[R2-diag] …")` passed rule 1 (it used the helper)
+# and rule 2 (unregistered token), and that hole was documented in prose instead of
+# closed.
 def build_inline_prefix_re(tokens):
     alt = "|".join(re.escape(t) for t in sorted(tokens))
     return re.compile(r'"\s*\[(' + alt + r')\]')
+
+# Rule 5: an unregistered bracketed token opening a log message.
+#
+# Why any bracketed prefix is a defect and not merely untidy: `[Subsystem]` is the
+# grammar of a registered marker, and a reader cannot tell `[SAW]` from `[Scale]` by
+# looking at it. An unregistered one therefore advertises a subsystem query that
+# silently returns an incomplete answer, or none — while looking exactly like one that
+# works.
+#
+# Two discriminators, both learned from this rule's own first run, which produced two
+# kinds of false positive alongside a real find (a sixth hand-rolled family,
+# "[Weight-Worker]", that every other rule had missed):
+#
+#   1. THE LINE MUST CONTAIN A LOG CALL. `m_probeBuffer.contains("[M]")` is a DE1
+#      protocol-response comparison, not a message. Leading position alone does not
+#      separate a log message from any other string literal — an earlier draft of this
+#      comment claimed it did, and the run disproved it immediately.
+#   2. THE TOKEN MUST LOOK LIKE A SUBSYSTEM NAME, i.e. start uppercase. Every
+#      registered marker does. `[observe]` is a lowercase mode qualifier sitting after
+#      a marker the helper already applied; it impersonates nothing.
+#
+# Neither is an allowlist, deliberately. An allowlist of permitted tokens would be a
+# second registry, free to drift from the first — the exact failure this convention
+# exists to prevent.
+LEADING_BRACKET_RE = re.compile(r'"\s*\[([A-Z][A-Za-z0-9 _.-]*)\]')
+
+# A logging call: a bare Qt one, or any subsystem helper macro (FOO_LOG, SCALE_WARN,
+# SAW_INFO_STDERR, DECENZA_SUBSYS_LOG…). Derived from the naming convention rather
+# than listed, for the same reason helper_headers() is derived.
+LOG_CALL_RE = re.compile(
+    r"\bq(Debug|Info|Warning|Critical)\s*\(|\b[A-Z][A-Z0-9_]*_(LOG|INFO|WARN)[A-Z0-9_]*\s*\(")
 
 # Where a marker literal is applied by a helper: DECENZA_LOG_MARKER_<NAME>.
 MARKER_USE_RE = re.compile(r"\bDECENZA_LOG_MARKER_([A-Z0-9_]+)\b")
 
 
 def registered_markers():
-    """Parse the registry: #define DECENZA_LOG_MARKER_<NAME> "<Token>"."""
+    """Parse the registry: #define DECENZA_LOG_MARKER_<NAME> "<Token>".
+
+    Also enforce that every literal has a DECENZA_LOG_SUBSYSTEMS row. The two are
+    separate lists in logtags.h and only the #defines are load-bearing for
+    compilation, so a marker declared without a row works perfectly at runtime —
+    and is simply ABSENT from debug_get_log's tool description, which is built
+    from the rows. logtags.h states that exact hazard ("a marker the description
+    does not mention is invisible to the assistant that would have used it"), and
+    the errors this script already emits tell people to add the row, which reads
+    as a promise that the row is checked. It was not. Now it is.
+    """
     text = LOGTAGS.read_text(encoding="utf-8")
     pairs = re.findall(r'#define\s+DECENZA_LOG_MARKER_([A-Z0-9_]+)\s+"([^"]+)"', text)
     if not pairs:
         sys.exit(f"error: no DECENZA_LOG_MARKER_* definitions found in {LOGTAGS}. "
                  "The registry moved or its shape changed; fix this parser rather "
                  "than deleting the check.")
+
+    # Rows look like:  X(DECENZA_LOG_MARKER_SCALE,  \n  "description…")
+    described = set(re.findall(r'X\(\s*DECENZA_LOG_MARKER_([A-Z0-9_]+)\s*,', text))
+    undescribed = [name for name, _ in pairs if name not in described]
+    if undescribed:
+        listed = ", ".join(f"DECENZA_LOG_MARKER_{n}" for n in undescribed)
+        sys.exit(f"error: {listed} defined in {LOGTAGS} but missing from "
+                 "DECENZA_LOG_SUBSYSTEMS. The marker would work everywhere in the "
+                 "code and still never appear in debug_get_log's description, so "
+                 "nobody would know to search for it. Add a row with a description "
+                 "written for someone who has never read this code.")
+
     return {name: token for name, token in pairs}
+
+
+def _expand(globs):
+    seen = {}
+    for pattern in globs:
+        for path in REPO.glob(pattern):
+            seen[path.relative_to(REPO).as_posix()] = path
+    return sorted(seen.items())
 
 
 def covered_files():
     # COVERED_GLOBS matches only .cpp/.mm, so helper headers cannot appear here and
-    # need no exclusion.
-    seen = {}
-    for pattern in COVERED_GLOBS:
-        for path in REPO.glob(pattern):
-            seen[path.relative_to(REPO).as_posix()] = path
-    return sorted(seen.items())
+    # need no exclusion. Yields (rel, path, all_rules) — all_rules False for the
+    # marker-only set, where rule 1 does not apply (see MARKER_ONLY_GLOBS).
+    full = [(rel, path, True) for rel, path in _expand(COVERED_GLOBS)]
+    full_rels = {rel for rel, _, _ in full}
+    marker_only = [(rel, path, False) for rel, path in _expand(MARKER_ONLY_GLOBS)
+                   if rel not in full_rels]
+    return sorted(full + marker_only)
 
 
 def qml_files():
@@ -182,15 +307,57 @@ def strip_block_comments(text):
     return "".join(out)
 
 
+def statement_starts(lines):
+    """For each line index, the text of the logical STATEMENT it belongs to.
+
+    Rule 5 has to know whether a bracketed literal sits inside a log call, and a
+    log call is very often split across lines:
+
+        FONT_WARN_STDERR("Bundled",
+            QStringLiteral("[R2-diag] …"));
+
+    Matching per physical line, the second line carries the prefix but no log
+    call, so the rule saw nothing and the prefix passed. That was not a corner
+    case — 16 call sites in the scanned files already put their message literal
+    on a continuation line, and renaming the Font/Network helpers to their longer
+    *_STDERR forms pushed more of them onto two lines, so the rule was quietly
+    weakened by an edit in the same change that added it.
+
+    Accumulate lines until parentheses balance, and give every line of the
+    statement the whole statement's text.
+    """
+    result = [""] * len(lines)
+    start = 0
+    depth = 0
+    buf = []
+    for i, line in enumerate(lines):
+        code = line.split("//", 1)[0]
+        buf.append(code)
+        depth += code.count("(") - code.count(")")
+        if depth <= 0:
+            joined = " ".join(buf)
+            for j in range(start, i + 1):
+                result[j] = joined
+            start = i + 1
+            depth = 0
+            buf = []
+    if buf:  # unbalanced tail — treat what we have as one statement
+        joined = " ".join(buf)
+        for j in range(start, len(lines)):
+            result[j] = joined
+    return result
+
+
 def main():
     markers = registered_markers()
     tokens = set(markers.values())
     inline_prefix_re = build_inline_prefix_re(tokens)
     failures = []
 
-    for rel, path in covered_files():
+    for rel, path, all_rules in covered_files():
         raw = path.read_text(encoding="utf-8")
         lines = strip_block_comments(raw).splitlines()
+        statements = statement_starts(lines)
 
         for n, line in enumerate(lines, 1):
             code = line.split("//", 1)[0]
@@ -202,7 +369,7 @@ def main():
             # worthwhile exemption states WHY, and a real reason rarely fits on one
             # line — a 1-line window would push people toward terse, useless reasons
             # or toward giving up and deleting the check.
-            if BARE_LOG_RE.search(code):
+            if all_rules and BARE_LOG_RE.search(code):
                 context = "\n".join(lines[max(0, n - 7):n])
                 if not EXEMPT_RE.search(context):
                     failures.append(
@@ -220,6 +387,25 @@ def main():
                     f"by hand. The helper already applies it, so this produces it twice — the "
                     f"\"[Scale] [BLE DecentScaleWifi] …\" shape. Drop it and let the helper's "
                     f"source tag name the source.")
+
+            # Rule 5: an UNREGISTERED bracketed token opening a log message. Rule 2
+            # already covered the registered ones with a better message, so skip
+            # those here rather than reporting one line twice.
+            # The log call is looked for in the whole STATEMENT, not this line —
+            # see statement_starts(). The bracket itself is still located on this
+            # line, so the reported line number stays the useful one.
+            m5 = LEADING_BRACKET_RE.search(code)
+            if (m5 and m5.group(1) not in tokens
+                    and LOG_CALL_RE.search(statements[n - 1])
+                    and not EXEMPT_RE.search(line)):
+                inner = m5.group(1)
+                failures.append(
+                    f"{rel}:{n}: message starts with \"[{inner}]\", which the registry does not "
+                    f"declare. A leading bracketed token is the grammar of a subsystem marker, "
+                    f"and a reader cannot tell it from a real one — so it advertises a "
+                    f"`debug_get_log filter=\"[{inner}]\"` that returns an incomplete answer. "
+                    f"Either register it in src/core/logtags.h and give it a helper, or write "
+                    f"the prefix so it cannot be mistaken for a marker.")
 
     # Rule 3: helper headers may only apply registered markers.
     for rel in helper_headers():
@@ -244,6 +430,42 @@ def main():
                         f"shows NOTHING, and reads as \"this subsystem never logged\" — add "
                         f"it to DECENZA_LOG_SUBSYSTEMS in src/core/logtags.h, or fix the "
                         f"spelling.")
+
+    # Rule 6: a file that USES a logging helper must be in a glob set.
+    #
+    # The globs are hand-maintained lists, and nothing made them keep up with the
+    # code. machinestate.cpp gained [SAW] lines in the same change that wrote these
+    # rules and was added to neither set, so rules 2 and 5 did not run on the file
+    # carrying the [SAW][HotWater] narrative — found by review, not by the gate.
+    # Adding that one file back would have fixed the instance and left the class.
+    #
+    # Including a helper header is the signal: it is what a file does when it joins
+    # a subsystem, it cannot be done by accident, and it is exactly the moment the
+    # file starts being able to violate rules 2 and 5.
+    covered_set = {rel for rel, _, _ in covered_files()}
+    helper_set = set(helper_headers())
+    # logtags.h is the REGISTRY, not a helper. Files include it to read the
+    # subsystem table (mcpresources.cpp builds the MCP tool description from it),
+    # which is not logging and must not drag them into the rules.
+    include_signal = {h for h in helper_set if Path(h).name != "logtags.h"}
+    helper_includes = re.compile(
+        r'#include\s+"(?:[^"]*/)?(' + "|".join(
+            re.escape(Path(h).name) for h in sorted(include_signal)) + r')"')
+    for path in sorted(REPO.glob("src/**/*")):
+        if path.suffix not in (".cpp", ".mm"):
+            continue
+        rel = path.relative_to(REPO).as_posix()
+        if rel in covered_set or rel in helper_set:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        m = helper_includes.search(text)
+        if m:
+            failures.append(
+                f"{rel}: includes the logging helper \"{m.group(1)}\" but is in neither "
+                f"COVERED_GLOBS nor MARKER_ONLY_GLOBS in scripts/check_log_markers.py, so "
+                f"the marker rules do not run on it. Add it to MARKER_ONLY_GLOBS if it hosts "
+                f"a subsystem's lines beside unrelated code, or to COVERED_GLOBS if every log "
+                f"line in it belongs to one subsystem.")
 
     if failures:
         print("Log-marker invariant violated:\n")

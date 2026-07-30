@@ -604,8 +604,9 @@ private:
     // reports about this device is a problem — the failures all belong to the
     // driver, which has R2_WARN. Add one when a call site needs it, not before.
 
-    // A connect failure that REPEATS while nothing changes. Warns for the first
-    // few, then drops to DEBUG until the next successful connect.
+    // A connect failure that REPEATS while nothing changes. Logs at its normal
+    // tier for the first few, then drops to DEBUG until the next successful
+    // connect.
     //
     // The failure is real every time, but the reconnect ladder retries forever,
     // so at a flat WARN an absent scale produced 46 "connection timeout" and 24
@@ -613,7 +614,62 @@ private:
     // skim past the tier that is supposed to mean "look here". The first ones
     // carry the diagnosis; the rest only carry "still absent", which the ladder
     // lines already say.
+    //
+    // `tier` is the level the message would carry if it were not repeating, so
+    // the budget suppresses WITHOUT re-tiering: a WARN-only budget would have to
+    // promote any narrative routed through it, making the quiet lines loud.
+    //
+    // Accuracy note, because the first version of this comment justified `tier`
+    // with lines that do not use it: it cited the WiFi driver's "resolving again"
+    // and "dialing remembered address" as the INFO half of a failing cycle. Those
+    // are DEBUG (WIFI_LOG), were demoted in the same change that wrote this, and
+    // do not go through the sink at all. RepeatTier::Info is therefore reachable
+    // in source (main.cpp translates the sink's bool) but never produced at
+    // runtime — the sole sink call passes warn=true. The enum is kept because the
+    // no-re-tiering property is the right design and a second caller is cheap to
+    // add; it is NOT kept because something currently needs it. Wire a narrative
+    // line through the sink or delete the enum, but do not read this paragraph as
+    // evidence that the INFO path is exercised.
+    //
+    // `source` names who wrote the line, so a driver routing through this class's
+    // budget still reads as the driver. Without it the driver's suppressed lines
+    // would be stamped "BLEManager" and a reader would go looking in the wrong
+    // file.
+    // Public for the same reason scaleDebug/Info/Warn are: code outside this
+    // class emits lines belonging to this subsystem's failing cycle, and the
+    // budget only works if it sees ALL of them.
+    //
+    // That was the defect. The manager's three ladder lines were budgeted and
+    // DecentScaleWifi's three were not, so past the budget the manager fell
+    // silent while the driver kept warning every 60 s — a repeating fragment
+    // carrying neither the attempt number nor the outcome. Noisier than
+    // suppressing nothing and less useful than suppressing everything.
+    //
+    // ONE store, deliberately: a second counter in the driver would be a second
+    // policy, and resetRepeatFailureBudget() would not reach it, so a scale that
+    // reconnected would re-arm half its messages.
+    //
+    // Two overloads, and the split is the point: the defaults that are correct
+    // for this class are WRONG for everyone else, and a default cannot tell which
+    // caller it has. While `source` defaulted on the public signature,
+    // `scaleRepeatFailure(msg)` from any other file compiled cleanly and stamped
+    // the line "BLEManager" — sending a reader to the wrong file, which is
+    // verbatim the hazard logtags.h documents for a shared forwarder that
+    // hard-codes its own name. The default was safe only while this was private,
+    // and it stopped being private in the same change that kept it.
+    //
+    // So: the convenience form is private and means "this class wrote it"; every
+    // caller outside states both tier and source, because outside this class
+    // neither has a defensible default.
+private:
     void scaleRepeatFailure(const QString& message);
+
+public:
+    enum class RepeatTier { Info, Warn };
+    void scaleRepeatFailure(const QString& message,
+                            RepeatTier tier,
+                            const QString& source);
+private:
     // The DE1 equivalent, sharing the budget map. Same shape, [DE1] marker.
     void de1RepeatFailure(const QString& message);
     // Clears every message's warn budget. Call on a successful connect (either

@@ -3514,7 +3514,14 @@ void MainController::onShotEnded() {
     // "did not start" cases. See openspec/specs/shot-save-filter/spec.md.
     {
         const bool aborted = decenza::isAbortedShot(duration, finalWeight);
-        qInfo().noquote() << QStringLiteral("[discard-classifier] extractionDurationSec=%1 finalWeightG=%2 verdict=%3 action=%4")
+        // Prefix is deliberately NOT bracketed. A leading "[token]" is the
+        // grammar of a registered subsystem marker, and a reader cannot tell
+        // "[discard-classifier]" from "[Scale]" by looking at it — so a
+        // bracketed prefix here advertises a subsystem query that returns one
+        // line per shot and nothing else. This is a single decision record, not
+        // a subsystem anyone greps as a group; it does not want a marker, so it
+        // must not look like it has one.
+        qInfo().noquote() << QStringLiteral("Shot save filter: extractionDurationSec=%1 finalWeightG=%2 verdict=%3 action=%4")
             .arg(QString::number(duration, 'f', 3),
                  QString::number(finalWeight, 'f', 1),
                  aborted ? QStringLiteral("aborted") : QStringLiteral("kept"),

@@ -1,6 +1,7 @@
 #include "de1device.h"
 #include "bledeviceid.h"
 #include "de1logging.h"
+#include "machine/sawlogging.h"
 #include "de1transport.h"
 #include "bletransport.h"
 #include "protocol/binarycodec.h"
@@ -313,12 +314,15 @@ void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteA
 
 void DE1Device::onTransportWriteComplete(const QBluetoothUuid& uuid, const QByteArray& data) {
     // SAW stop latency instrumentation (worker trigger -> urgent write -> BLE ack).
-    // Deliberately still bare "[SAW-Latency]" and not a [DE1] helper: this
-    // measures stop-at-weight, which is shot logic, not the machine. Whether SAW
-    // earns a marker of its own is an open decision — task 2b.9 of the openspec
-    // change replace-scale-log-with-system-log-filter. Note this is a THIRD SAW
-    // prefix, distinct from the `[SAW]` and `[SAW-Worker]` that task counts, and
-    // this is its only site. Not an oversight in this file.
+    // Carries [SAW], not [DE1]: it measures stop-at-weight, which is shot logic
+    // rather than the machine. SAW is now a registered subsystem — the open
+    // decision this site used to point at (task 2b.9 of the
+    // replace-scale-log-with-system-log-filter change) was resolved in favour of
+    // registering it, so the exemption that stood here is gone and the line goes
+    // through the helper like any other.
+    //
+    // STDERR form on purpose: this class's logMessage feeds the DE1 connections
+    // view, and a SAW line does not belong there.
     if (m_sawStopWritePending
         && uuid == DE1::Characteristic::REQUESTED_STATE
         && data.size() == 1
@@ -327,14 +331,8 @@ void DE1Device::onTransportWriteComplete(const QBluetoothUuid& uuid, const QByte
         qint64 dispatchMs = m_lastSawWriteMs - m_lastSawTriggerMs;
         qint64 bleAckMs = ackMs - m_lastSawWriteMs;
         qint64 totalMs = ackMs - m_lastSawTriggerMs;
-        // log-marker-exempt: deliberately kept as a standalone [SAW-Latency] tag.
-        // SAW spans the DE1, the scale and the predictor, so it is not one
-        // subsystem's line; whether SAW becomes a registered marker of its own is
-        // task 2b.9 of the openspec change, and stamping it [DE1] first would
-        // prejudge that and split the SAW story across two prefixes.
-        qDebug() << "[SAW-Latency] dispatch=" << dispatchMs
-                 << "ms, bleAck=" << bleAckMs
-                 << "ms, total=" << totalMs << "ms";
+        SAW_LOG_STDERR("Latency", QStringLiteral("dispatch=%1 ms, bleAck=%2 ms, total=%3 ms")
+                                      .arg(dispatchMs).arg(bleAckMs).arg(totalMs));
         m_sawStopWritePending = false;
         m_lastSawTriggerMs = 0;
         m_lastSawWriteMs = 0;

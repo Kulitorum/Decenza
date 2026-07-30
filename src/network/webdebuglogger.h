@@ -196,6 +196,27 @@ private:
     static WebDebugLogger* s_instance;
 
     mutable QMutex m_mutex;
+
+    // Serialises everything that touches the FILE — the append in writeToFile(),
+    // the truncate-and-rewrite in trimLogFile(), and the truncate in clear().
+    //
+    // Not m_mutex, which guards the in-memory ring buffer and is deliberately
+    // RELEASED before writeToFile() (see handleMessage(): holding it across the
+    // emit self-deadlocks when a slot logs). That release is what leaves the file
+    // unprotected: handleMessage() runs on the database and network threads as
+    // well as the main one, so two threads can enter trimLogFile() together, both
+    // read the whole file, both truncate, and both write their own tail — second
+    // writer wins and the first one's lines are gone. A third thread appending
+    // during the truncate window writes into a file being rewritten from offset 0.
+    //
+    // That damage is indistinguishable from the forged-session-marker bug this
+    // class was just fixed for: lines from one moment appearing where they do not
+    // belong. Different cause, same wrong answer to the reader.
+    //
+    // RECURSIVE because writeToFile() calls trimLogFile() while holding it, and
+    // trimLogFile() is also called directly (tests, and any future caller) where
+    // it must lock for itself.
+    mutable QRecursiveMutex m_fileMutex;
     QStringList m_lines;
     int m_maxLines = 500;   // Ring buffer size
     QElapsedTimer m_timer;
@@ -211,6 +232,14 @@ private:
     // debug_get_log/Share reporting nothing, none of it explained anywhere. This
     // latches so the failure is reported once rather than once per line.
     bool m_writeFailureWarned = false;
+    // Same latch for the TRIM path, and separate from the one above on purpose:
+    // the two failures are different diagnoses. An unwritable file loses new
+    // lines; a file that cannot be opened to trim keeps every line and grows past
+    // the 2 MB cap without bound, because writeToFile() re-checks the size after
+    // every line and so retries the trim forever. The user's symptom there is a
+    // huge debug.log whose recent past is unreachable — the opposite shape, and it
+    // was previously a bare `return` that said nothing at all.
+    bool m_trimFailureWarned = false;
 
     // Session-index cache (see sessionIndex()). Separate mutex from m_mutex,
     // which guards the in-memory ring buffer, not the persisted file.

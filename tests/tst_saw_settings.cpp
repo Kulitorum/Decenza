@@ -261,7 +261,9 @@ private slots:
         // 2 tight entries at lag=0.4s and 1 wild outlier at lag=2.5s (N=3 batch).
         // Median lag = 0.4s, deviation of the outlier = 2.1s > 1.5s → batch rejected.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(R"(\[SAW\] batch rejected — outlier lag=\S+ deviates \S+ > \S+ from median)"));
+            // [SAW] now carries a source tag — [SAW][Learning] — so the marker is
+            // no longer immediately followed by the message.
+            QRegularExpression(R"(\[SAW\]\[Learning\] batch rejected — outlier lag=\S+ deviates \S+ > \S+ from median)"));
         m_settings.calibration()->addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
         m_settings.calibration()->addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
         m_settings.calibration()->addSawLearningPoint(3.75, 1.5, kScale, 0.0, kProfileA);  // lag 2.50 → reject

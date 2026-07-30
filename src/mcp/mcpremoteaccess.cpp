@@ -393,17 +393,34 @@ void McpRemoteAccess::doReachabilityProbe()
         // Rate-limited: a Funnel that is never granted fails forever at the 6 s
         // probe interval, which is 600 warnings an hour against a 500-line
         // in-memory ring (WebDebugLogger) — it evicts the very startup lines a
-        // reader needs. Warn through the grace window (so the run-up to the
-        // Error status is fully visible), then once a minute. errStr is
-        // effectively constant across cycles, so the dropped lines carry nothing
-        // the kept ones don't.
+        // reader needs. errStr is effectively constant across cycles, so dropped
+        // lines carry nothing the kept ones don't.
+        //
+        // Tiering, corrected: this used to WARN through the whole grace window
+        // "so the run-up to the Error status is fully visible". But the window is
+        // five attempts and a healthy start recovers on the third — a real
+        // startup logged two WARNs and then went Active, which is warning about a
+        // configuration that is working. That is the habit this codebase is
+        // trying to break, and it was being taught by the retry ladder itself.
+        //
+        // So: DEBUG while the outcome is still open, and the FIRST warning is the
+        // one that accompanies the Error status. It carries the attempt count, so
+        // the run-up is still in the log — as one line that means something
+        // rather than five that pre-announce a verdict not yet reached.
         ++m_probeFailCount;
+        constexpr int kProbeFailuresBeforeError = 5;
         constexpr int kProbeWarnEveryNAfterGrace = 10;  // 10 × 6 s = once a minute
-        if (m_probeFailCount <= 5 || m_probeFailCount % kProbeWarnEveryNAfterGrace == 0) {
-            qWarning().noquote() << "McpRemoteAccess: Funnel reachability probe failed:" << errStr
-                                 << "(attempt" << m_probeFailCount << ")";
+        const QString probeLine =
+            QStringLiteral("McpRemoteAccess: Funnel reachability probe failed: %1 (attempt %2)")
+                .arg(errStr).arg(m_probeFailCount);
+        if (m_probeFailCount < kProbeFailuresBeforeError) {
+            // Still inside the window where this routinely resolves by itself.
+            qDebug().noquote() << probeLine;
+        } else if (m_probeFailCount == kProbeFailuresBeforeError
+                   || m_probeFailCount % kProbeWarnEveryNAfterGrace == 0) {
+            qWarning().noquote() << probeLine;
         }
-        if (m_probeFailCount >= 5 && m_status != Error) {
+        if (m_probeFailCount >= kProbeFailuresBeforeError && m_status != Error) {
             setStatus(Error, QStringLiteral(
                 "Public Funnel URL isn't reachable yet. Make sure Funnel is enabled for this "
                 "device in the Tailscale admin console (see “Set up Tailscale Funnel”). "

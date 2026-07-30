@@ -99,6 +99,7 @@ extern "C" const char* __ubsan_default_options()
 #include <vector>
 #include <QElapsedTimer>
 #include <QNetworkAccessManager>
+#include <QMetaEnum>
 #include <QNetworkInformation>
 #ifdef Q_OS_MACOS
 #include <QProcess>
@@ -164,7 +165,10 @@ extern "C" const char* __ubsan_default_options()
 #else
 #include "ble/transport/qtscalebletransport.h" // IWYU pragma: keep
 #endif
+#include "core/fontlogging.h"
+#include "core/networklogging.h"
 #include "machine/machinestate.h"
+#include "machine/sawlogging.h"
 #include "machine/weightprocessor.h"
 #include "models/shotdatamodel.h"
 #include "widget/machinestatussnapshot.h"
@@ -229,6 +233,32 @@ bool scaleAddressIsLadderDialable(const QString& address)
     return !address.isEmpty()
         && !address.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)
         && !address.startsWith(QStringLiteral("sim:"), Qt::CaseInsensitive);
+}
+
+// Wires a WiFi scale driver to its collaborators. Called from BOTH places that
+// create or re-adopt one, because the set of things a driver needs injected is a
+// property of the driver, not of the call site — and it was already drifting:
+// the two sites each hand-rolled the same resolver/cache pair, so a third
+// dependency meant remembering to add it twice.
+void wireWifiScaleDriver(DecentScaleWifi* wifi, Settings& settings, BLEManager& bleManager)
+{
+    wifi->setIpResolver([&settings](const QString& host) {
+        return settings.network()->wifiScaleIp(host);
+    });
+    wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
+        settings.network()->setWifiScaleIp(host, ip);
+    });
+    // Repeating connect failures share BLEManager's per-message warn budget, so
+    // the driver's half of a dead reconnect cycle goes quiet at the same point
+    // the manager's half does. Previously only the manager's was budgeted, which
+    // left this driver warning once per 60 s forever with no attempt number and
+    // no outcome beside it.
+    wifi->setRepeatFailureSink([&bleManager](const QString& message, bool warn) {
+        bleManager.scaleRepeatFailure(
+            message,
+            warn ? BLEManager::RepeatTier::Warn : BLEManager::RepeatTier::Info,
+            QStringLiteral("BLE DecentScaleWifi"));
+    });
 }
 
 constexpr const char* kAppNameOld = "Decenza DE1";
@@ -626,7 +656,8 @@ int main(int argc, char *argv[])
                 }
             }
             if (!competing.isEmpty())
-                qDebug() << "[Font] Host families that could collide with the bundled family:" << competing;
+                FONT_LOG_STDERR("Bundled", QStringLiteral("Host families that could collide with the bundled "
+                                           "family: %1").arg(competing.join(QStringLiteral(", "))));
         }
 
         // Log EVERY file's outcome. Taking families.first() from the first success and
@@ -638,25 +669,28 @@ int main(int argc, char *argv[])
         for (const QString& path : fontFiles) {
             const int id = QFontDatabase::addApplicationFont(path);
             if (id < 0) {
-                qWarning() << "[Font] Failed to register bundled font:" << path;
+                FONT_WARN_STDERR("Bundled", QStringLiteral("Failed to register bundled font: %1").arg(path));
                 continue;
             }
             const QStringList families = QFontDatabase::applicationFontFamilies(id);
             if (families.isEmpty()) {
                 // A valid id with no families: registration "succeeded" and contributed
                 // nothing. This weight is unreachable at runtime.
-                qWarning() << "[Font] Registered but exposed NO family:" << path
-                           << "— this weight will not be reachable";
+                FONT_WARN_STDERR("Bundled",
+                    QStringLiteral("Registered but exposed NO family: %1 — this weight will "
+                                   "not be reachable").arg(path));
                 continue;
             }
-            qDebug() << "[Font] Registered" << path << "->" << families;
+            FONT_LOG_STDERR("Bundled", QStringLiteral("Registered %1 -> %2")
+                     .arg(path, families.join(QStringLiteral(", "))));
             ++registeredCount;
             if (bundledFamily.isEmpty())
                 bundledFamily = families.first();
         }
         if (registeredCount != fontFiles.size()) {
-            qWarning() << "[Font] PARTIAL registration —" << registeredCount << "of"
-                       << fontFiles.size() << "files usable; some weights unavailable";
+            FONT_WARN_STDERR("Bundled",
+                QStringLiteral("PARTIAL registration — %1 of %2 files usable; some weights "
+                               "unavailable").arg(registeredCount).arg(fontFiles.size()));
         }
 
         if (!bundledFamily.isEmpty()) {
@@ -664,7 +698,7 @@ int main(int argc, char *argv[])
             // Publish to Theme.qml so every font role can state the family explicitly
             // rather than relying on application-font inheritance.
             SettingsTheme::setBundledFontFamily(bundledFamily);
-            qDebug() << "[Font] Bundled application font set:" << bundledFamily;
+            FONT_INFO_STDERR("Bundled", QStringLiteral("Bundled application font set: %1").arg(bundledFamily));
 
             // Probe the weights Theme.qml actually requests THROUGH THIS FAMILY: the
             // default, and bold (five of the eight roles set bold: true). A single
@@ -694,24 +728,32 @@ int main(int argc, char *argv[])
                 // These logs are read by users' AI assistants, which act on them.
                 const bool familyOk = (fi.family() == bundledFamily);
                 if (familyOk) {
-                    qDebug() << "[Font] Resolved" << p.label << "-> family=" << fi.family()
-                             << "exactMatch=" << fi.exactMatch();
+                    FONT_LOG_STDERR("Resolve",
+                        QStringLiteral("Resolved %1 -> family=%2 exactMatch=%3")
+                            .arg(p.label, fi.family(),
+                                 fi.exactMatch() ? QStringLiteral("true")
+                                                 : QStringLiteral("false")));
                 } else {
                     allWeightsResolved = false;
-                    qWarning() << "[Font]" << p.label << "did NOT resolve to" << bundledFamily
-                               << "— got" << fi.family()
-                               << "; text metrics are not deterministic for this weight";
+                    FONT_WARN_STDERR("Resolve",
+                        QStringLiteral("%1 did NOT resolve to %2 — got %3; text metrics are "
+                                       "not deterministic for this weight")
+                            .arg(p.label, bundledFamily, fi.family()));
                 }
             }
-            qDebug() << "[Font] Styles available for" << bundledFamily << "="
-                     << QFontDatabase::styles(bundledFamily);
+            FONT_LOG_STDERR("Bundled",
+                QStringLiteral("Styles available for %1 = %2")
+                    .arg(bundledFamily,
+                         QFontDatabase::styles(bundledFamily).join(QStringLiteral(", "))));
             // Light/Medium are their own families by design; report presence without
             // letting their absence contaminate allWeightsResolved. Nothing in Theme.qml
             // requests them today, so absence is informational, not a fault.
             for (const char* suffix : {" Light", " Medium"}) {
                 const QString sub = bundledFamily + QString::fromLatin1(suffix);
-                qDebug() << "[Font] Sub-family" << sub
-                         << (QFontDatabase::families().contains(sub) ? "present" : "ABSENT");
+                FONT_LOG_STDERR("Bundled",
+                    QStringLiteral("Sub-family %1 %2").arg(sub,
+                        QFontDatabase::families().contains(sub) ? QStringLiteral("present")
+                                                                : QStringLiteral("ABSENT")));
             }
 
             // Probe metric, deliberately at a FIXED 14px and a fixed string rather
@@ -729,12 +771,16 @@ int main(int argc, char *argv[])
             metricFont.setPixelSize(14);
             const qreal probe = QFontMetricsF(metricFont)
                                     .horizontalAdvance(QStringLiteral("Extraction yield (%)"));
-            qDebug().noquote() << "[Font] Probe advance \"Extraction yield (%)\" @14px ="
-                               << QString::number(probe, 'f', 2)
-                               << (allWeightsResolved ? QString()
-                                                      : QStringLiteral("[FALLBACK FONT — not comparable]"));
+            FONT_LOG_STDERR("Probe",
+                QStringLiteral("Probe advance \"Extraction yield (%)\" @14px = %1%2")
+                    .arg(probe, 0, 'f', 2)
+                    .arg(allWeightsResolved
+                             ? QString()
+                             : QStringLiteral(" [FALLBACK FONT — not comparable]")));
         } else {
-            qWarning() << "[Font] No bundled font registered (bundled font resource missing from build) — falling back to platform default";
+            FONT_WARN_STDERR("Bundled",
+                QStringLiteral("No bundled font registered (bundled font resource missing "
+                               "from build) — falling back to platform default"));
         }
     }
 
@@ -757,11 +803,12 @@ int main(int argc, char *argv[])
             // Not fatal: symbols revert to the platform fallback they used before this
             // font existed. Warn, because the failure is otherwise invisible — the glyphs
             // still draw, just not from the bundle, and not identically across machines.
-            qWarning() << "[Font] Symbol fallback did not register — symbols will come from"
-                       << "the platform fallback and vary between machines";
+            FONT_WARN_STDERR("Symbol",
+                QStringLiteral("Symbol fallback did not register — symbols will come from the "
+                               "platform fallback and vary between machines"));
         } else {
             SettingsTheme::setSymbolFontFamily(families.first());
-            qDebug() << "[Font] Symbol fallback registered:" << families.first();
+            FONT_LOG_STDERR("Symbol", QStringLiteral("Symbol fallback registered: %1").arg(families.first()));
 
             // Also chain it on the APPLICATION font. Theme's roles cover everything that
             // asks for one, but an element setting only font.pixelSize inherits this font
@@ -813,10 +860,12 @@ int main(int argc, char *argv[])
     QQuickWindow::setTextRenderType(QQuickWindow::CurveTextRendering);
     {
         auto actual = QQuickWindow::textRenderType();
-        qDebug() << "[TextRender] Requested CurveTextRendering, active type:"
-                 << (actual == QQuickWindow::CurveTextRendering ? "Curve" :
-                     actual == QQuickWindow::QtTextRendering ? "QtText" : "Native")
-                 << "(" << static_cast<int>(actual) << ")";
+        FONT_LOG_STDERR("TextRender",
+            QStringLiteral("Requested CurveTextRendering, active type: %1 (%2)")
+                .arg(actual == QQuickWindow::CurveTextRendering ? QStringLiteral("Curve")
+                     : actual == QQuickWindow::QtTextRendering  ? QStringLiteral("QtText")
+                                                                : QStringLiteral("Native"))
+                .arg(static_cast<int>(actual)));
     }
 #endif
 
@@ -1065,7 +1114,10 @@ int main(int argc, char *argv[])
     QElapsedTimer startupTimer;
     startupTimer.start();
     auto checkpoint = [&startupTimer](const char* label) {
-        qDebug() << "[Startup]" << label << "-" << startupTimer.elapsed() << "ms";
+        // Not bracketed: a leading "[token]" is subsystem-marker grammar, and this is
+        // one timing label, not a subsystem anyone retrieves as a group.
+        qDebug().noquote() << QStringLiteral("Startup timing: %1 - %2 ms")
+                                  .arg(label).arg(startupTimer.elapsed());
     };
 
     // Check for crash log from previous run (don't clear yet - QML will clear after user dismisses)
@@ -1099,7 +1151,7 @@ int main(int argc, char *argv[])
                              .arg(it.value().toInt())
                              .arg(SettingsTheme::fontSizeDefaults().value(it.key()));
             }
-            qDebug().noquote() << "[Font] Font size overrides:" << parts.join(QStringLiteral(", "));
+            FONT_LOG_STDERR("Overrides", QStringLiteral("Font size overrides: %1").arg(parts.join(QStringLiteral(", "))));
         }
     }
 
@@ -1113,16 +1165,37 @@ int main(int argc, char *argv[])
     // Monitor network reachability so the debug log captures connectivity
     // changes that race with long-running downloads (issue #1089). Best-effort:
     // load fails on platforms without a backend, in which case we just don't log.
+    // The enum's NAME, not its ordinal. Reachability is a Q_ENUM, so streaming it
+    // with qDebug used to print "Reachability(Online)"; routing it through a
+    // helper made it a QString and a static_cast<int> turned that into
+    // "Initial reachability: 4", which means nothing to the person or the AI
+    // reading the log. CLAUDE.md states the rule for MCP payloads ("use
+    // human-readable strings for enums") and the reason is identical here.
+    const auto reachabilityName = [](QNetworkInformation::Reachability r) {
+        const char* key = QMetaEnum::fromType<QNetworkInformation::Reachability>()
+                              .valueToKey(static_cast<int>(r));
+        return key ? QString::fromLatin1(key)
+                   : QStringLiteral("Unknown(%1)").arg(static_cast<int>(r));
+    };
     if (QNetworkInformation::loadDefaultBackend()) {
         if (auto* info = QNetworkInformation::instance()) {
-            qDebug() << "[Network] initial reachability:" << info->reachability();
+            NETWORK_LOG_STDERR("Reachability", QStringLiteral("Initial reachability: %1")
+                    .arg(reachabilityName(info->reachability())));
             QObject::connect(info, &QNetworkInformation::reachabilityChanged,
-                             [](QNetworkInformation::Reachability r) {
-                qDebug() << "[Network] reachability changed ->" << r;
+                             [reachabilityName](QNetworkInformation::Reachability r) {
+                NETWORK_LOG_STDERR("Reachability", QStringLiteral("Reachability changed -> %1")
+                            .arg(reachabilityName(r)));
             });
         }
     } else {
-        qDebug() << "[Network] QNetworkInformation backend unavailable";
+        // DEBUG, not WARN. The comment above calls this best-effort, and on any
+        // platform with no backend it is a permanent, unfixable, once-per-startup
+        // condition — a WARN that can never be acted on trains readers to skim the
+        // tier that is supposed to mean "look here". That is this change's own
+        // argument, and promoting this line contradicted it.
+        NETWORK_LOG_STDERR("Reachability",
+            QStringLiteral("QNetworkInformation backend unavailable on this platform — "
+                           "connectivity changes will not be logged"));
     }
 
     TranslationManager translationManager(&sharedNetworkManager, &settings);
@@ -1296,19 +1369,20 @@ int main(int argc, char *argv[])
                              // under — but it means the serving scale changed mid-shot,
                              // which is worth seeing in the shot log rather than inferring
                              // later from a pool that drifted.
-                             qWarning() << "[SAW] scale changed mid-shot: predicted with"
-                                        << sawScaleKeyForShot << "but now serving"
-                                        << liveScaleType << "- learning under the former";
+                             SAW_WARN_STDERR("Learning",
+                                 QStringLiteral("Scale changed mid-shot: predicted with %1 but now "
+                                                "serving %2 — learning under the former")
+                                     .arg(sawScaleKeyForShot, liveScaleType));
                          }
                          const QString profileFilename = mainController.profileManager()->baseProfileName();
                          const double predictedDrip = settings.calibration()->getExpectedDripFor(profileFilename, scaleType, flowAtStop);
-                         qDebug() << "[SAW] accuracy: predictedDrip=" << predictedDrip
-                                  << "actualDrip=" << drip
-                                  << "delta=" << (drip - predictedDrip)
-                                  << "overshoot=" << overshoot
-                                  << "flow=" << flowAtStop
-                                  << "scale=" << scaleType
-                                  << "profile=" << profileFilename;
+                         SAW_LOG_STDERR("Learning",
+                             QStringLiteral("Accuracy: predictedDrip=%1 g actualDrip=%2 g "
+                                            "delta=%3 g overshoot=%4 g flow=%5 g/s "
+                                            "scale=%6 profile=%7")
+                                 .arg(predictedDrip, 0, 'f', 2).arg(drip, 0, 'f', 2)
+                                 .arg(drip - predictedDrip, 0, 'f', 2).arg(overshoot, 0, 'f', 2)
+                                 .arg(flowAtStop, 0, 'f', 2).arg(scaleType, profileFilename));
                          settings.calibration()->addSawLearningPoint(drip, flowAtStop, scaleType, overshoot, profileFilename);
                      });
 
@@ -1442,11 +1516,10 @@ int main(int argc, char *argv[])
                          const auto entries = settings.calibration()->sawLearningEntriesFor(profileFilename, scaleType, maxEntries);
                          const QString modelSource = settings.calibration()->sawModelSource(profileFilename, scaleType);
                          const double currentLag = settings.calibration()->sawLearnedLagFor(profileFilename, scaleType);
-                         qDebug() << "[SAW] model: source=" << modelSource
-                                  << "lag=" << currentLag
-                                  << "profile=" << profileFilename
-                                  << "scale=" << scaleType
-                                  << "historyN=" << entries.size();
+                         SAW_LOG_STDERR("Learning",
+                             QStringLiteral("Model: source=%1 lag=%2 s profile=%3 scale=%4 historyN=%5")
+                                 .arg(modelSource).arg(currentLag, 0, 'f', 3)
+                                 .arg(profileFilename, scaleType).arg(entries.size()));
                          QVector<double> drips, flows;
                          drips.reserve(entries.size());
                          flows.reserve(entries.size());
@@ -1998,7 +2071,8 @@ int main(int argc, char *argv[])
 #ifndef Q_OS_IOS
         // Don't connect via BLE if already connected via USB
         if (usbManager.isDe1Connected()) {
-            qDebug().noquote() << "[BLE DE1] de1Discovered: skipping BLE connect - USB already connected";
+            bleManager.de1Debug(QStringLiteral("de1Discovered: skipping BLE connect - USB already "
+                                               "connected"), QStringLiteral("main"));
             return;
         }
 #endif
@@ -2676,14 +2750,9 @@ int main(int argc, char *argv[])
                 scaleProxy.setTarget(physicalScale.get());
                 if (type == QStringLiteral("decent-wifi")) {
                     if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
-                        // (Re-wire the cache callbacks each time — cheap, and
-                        // ensures they reference the live Settings instance.)
-                        wifi->setIpResolver([&settings](const QString& host) {
-                            return settings.network()->wifiScaleIp(host);
-                        });
-                        wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
-                            settings.network()->setWifiScaleIp(host, ip);
-                        });
+                        // (Re-wire each time — cheap, and ensures the callbacks
+                        // reference the live Settings instance.)
+                        wireWifiScaleDriver(wifi, settings, bleManager);
                         // If BLEManager just resolved this hostname (a scan
                         // selection), hand the IP to connectToHost() as its
                         // preferredIp so it dials the known IP directly instead
@@ -2931,12 +3000,7 @@ int main(int argc, char *argv[])
             if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
                 // Wire the mDNS-resilience cache to Settings so a successful
                 // hostname connect persists the peer IP for next time.
-                wifi->setIpResolver([&settings](const QString& host) {
-                    return settings.network()->wifiScaleIp(host);
-                });
-                wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
-                    settings.network()->setWifiScaleIp(host, ip);
-                });
+                wireWifiScaleDriver(wifi, settings, bleManager);
                 // For manual entries: commit the deferred persistence ONLY
                 // after the WS endpoint validates as HDS, and surface a
                 // user-visible failure if validation fails. Both connections
@@ -3173,7 +3237,8 @@ int main(int argc, char *argv[])
                              refPtr, applyAutoTest);
         }
 
-        qDebug() << "[Refractometer] Created and connecting to" << device.name();
+        bleManager.refractometerDebug(QStringLiteral("Created and connecting to %1").arg(device.name()),
+                                      QStringLiteral("main"));
     });
 
     // Handle Forget Refractometer — disconnect and clean up
@@ -3181,7 +3246,8 @@ int main(int argc, char *argv[])
                      [&refractometer, &refractometerProxy, &bleManager,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
         if (refractometer) {
-            qDebug() << "[Refractometer] Forget requested, disconnecting";
+            bleManager.refractometerDebug(QStringLiteral("Forget requested, disconnecting"),
+                                          QStringLiteral("main"));
             refractometer->disconnectFromDevice();
             bleManager.setRefractometerDevice(nullptr);
             refractometerProxy.setTarget(nullptr);
@@ -3292,8 +3358,9 @@ int main(int argc, char *argv[])
                    && !refractometerReconnectTimer.isActive()) {
             refractometerReconnectAttempt = 0;
             refractometerReconnectTimer.start(reconnectDelays[0]);
-            qDebug() << "Refractometer reconnect: scheduled first retry in"
-                     << reconnectDelays[0] << "ms";
+            bleManager.refractometerDebug(
+                QStringLiteral("Reconnect: scheduled first retry in %1 ms").arg(reconnectDelays[0]),
+                QStringLiteral("main"));
         }
     });
 
@@ -3320,8 +3387,10 @@ int main(int argc, char *argv[])
             && !refractometerReconnectTimer.isActive()) {
             refractometerReconnectAttempt = 0;
             refractometerReconnectTimer.start(reconnectDelays[0]);
-            qDebug() << "Refractometer reconnect: review page opened — arming recovery tick in"
-                     << reconnectDelays[0] << "ms";
+            bleManager.refractometerDebug(
+                QStringLiteral("Reconnect: review page opened — arming recovery tick in %1 ms")
+                    .arg(reconnectDelays[0]),
+                QStringLiteral("main"));
         }
     });
 
@@ -3340,8 +3409,10 @@ int main(int argc, char *argv[])
             return;
         refractometerReconnectAttempt = 0;
         refractometerReconnectTimer.start(reconnectDelays[0]);
-        qDebug() << "Refractometer reconnect: BLE re-enabled, resuming retries in"
-                 << reconnectDelays[0] << "ms";
+        bleManager.refractometerDebug(
+            QStringLiteral("Reconnect: BLE re-enabled, resuming retries in %1 ms")
+                .arg(reconnectDelays[0]),
+            QStringLiteral("main"));
     });
 
     // No refractometer auto-connect at startup: the R2 is only used on the
@@ -3358,7 +3429,8 @@ int main(int argc, char *argv[])
                       &bleManager, &timingController, &weightProcessor, &settings](UsbDecentScale* usbScale) {
         // Don't connect if we already have a connected BLE scale
         if (physicalScale && physicalScale->isConnected()) {
-            qDebug() << "[USB Scale] BLE scale already connected, ignoring USB scale";
+            bleManager.scaleDebug(QStringLiteral("USB scale available but a BLE scale is already "
+                                                 "connected — ignoring"), QStringLiteral("main"));
             return;
         }
 
@@ -3420,7 +3492,8 @@ int main(int argc, char *argv[])
             mainController.mqttClient()->onScaleConnectedChanged(true);
         }
 
-        qDebug() << "[USB Scale] Switched to USB scale:" << usbScale->name();
+        bleManager.scaleInfo(QStringLiteral("Switched to USB scale: %1").arg(usbScale->name()),
+                             QStringLiteral("main"));
     });
 
     // When USB scale lost: fall back to FlowScale (or BLE scale if available)
@@ -3440,7 +3513,8 @@ int main(int argc, char *argv[])
             machineState.setScale(physicalScale.get());
             timingController.setScale(physicalScale.get());
             scaleProxy.setTarget(physicalScale.get());
-            qDebug() << "[USB Scale] Lost — falling back to BLE scale";
+            bleManager.scaleInfo(QStringLiteral("USB scale lost — falling back to BLE scale"),
+                                 QStringLiteral("main"));
         } else {
             machineState.setScale(&flowScale);
             timingController.setScale(&flowScale);
@@ -3450,7 +3524,8 @@ int main(int argc, char *argv[])
                              &mainController, &MainController::onScaleWeightChanged);
             QObject::connect(&flowScale, &ScaleDevice::weightSampleReceived,
                              &weightProcessor, &WeightProcessor::processWeight);
-            qDebug() << "[USB Scale] Lost — falling back to FlowScale";
+            bleManager.scaleInfo(QStringLiteral("USB scale lost — falling back to FlowScale"),
+                                 QStringLiteral("main"));
             // Surface a "scale disconnected" UI notice — same as the BLE/WiFi
             // disconnect path (see the connectedChanged handler that emits this
             // when a physical scale drops to FlowScale). Only on the FlowScale
@@ -3473,10 +3548,12 @@ int main(int argc, char *argv[])
                      [&bleManager, &usbScaleManager, &settings]() {
         bleManager.setUsbScaleAvailable(true, QStringLiteral("Half Decent Scale (USB)"));
         if (settings.scaleAddress() == QStringLiteral("usb:decent")) {
-            qDebug() << "[USB Scale] Available and is saved primary — auto-connecting";
+            bleManager.scaleInfo(QStringLiteral("USB scale available and is saved primary — "
+                                                "auto-connecting"), QStringLiteral("main"));
             usbScaleManager.connectToScale();
         } else {
-            qDebug() << "[USB Scale] Available — listed as selectable (not auto-connecting)";
+            bleManager.scaleDebug(QStringLiteral("USB scale available — listed as selectable "
+                                                 "(not auto-connecting)"), QStringLiteral("main"));
         }
     });
     QObject::connect(&usbScaleManager, &UsbScaleManager::usbScaleUnavailable,
@@ -4135,7 +4212,8 @@ int main(int argc, char *argv[])
             case Qt::ApplicationInactive:  name = "Inactive";  break;
             case Qt::ApplicationActive:    name = "Active";    break;
         }
-        qDebug() << "[AppState] applicationStateChanged ->" << name;
+        // Not bracketed, for the same reason as the startup timing line above.
+            qDebug().noquote() << QStringLiteral("App state changed -> %1").arg(name);
 
         // Gate BatteryManager's poll while suspended; re-arm on any other state
         // so a missed Active transition can't strand it (see m_appActive in
