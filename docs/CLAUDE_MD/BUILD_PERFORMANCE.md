@@ -97,6 +97,45 @@ Four for four. And single-QML-file edits across months of history rebuilt exactl
 one unit each — `QuickRatingRow_qml.cpp`, `ConnectionStatusItem_qml.cpp`,
 `RecipeComposerPage_qml.cpp`.
 
+## Cross-file QML cache staleness
+
+That last sentence is also a **correctness** problem, not just a cost note. "One
+QML edit rebuilds exactly one unit" is wrong whenever the edited file is one that
+other files resolve types through — a singleton, or any type used by name.
+
+The dependency list for a cachegen output names only the file's own source:
+
+```
+build .rcc/qmlcache/Decenza_qml/pages/RecipeEditorPage_qml.cpp: CUSTOM_COMMAND
+    <that .qml>  <4 .qrc files>  Decenza/Decenza.qmltypes  Decenza/qmldir
+```
+
+`Decenza.qmltypes` covers the **C++** registrations. QML-declared types are resolved
+by reading the other file's source, reached through `<builddir>/Decenza/qml/…`, the
+copy staged by `Decenza_copy_qml` — and that target is wired as an **order-only**
+dependency (`||`), which ninja deliberately does not treat as a reason to rebuild.
+So editing `qml/Theme.qml` changes how all ~215 other units *should* compile and
+rebuilds none of them. The stale cache persists across as many incremental builds
+as you like.
+
+This is not theoretical. Adding `: string` to `Theme.tempUnitSuffix()` produced a
+build where `Theme_qml.cpp` called it as a typed QString function and every caller
+still called it as `var`. That mixed state turns out to be benign, but the class is
+not, and it burns investigation time in a nastier way: **you cannot A/B a QML type
+annotation with an incremental build.** Two experiments on the same day produced
+byte-identical generated code for "before" and "after" purely because the staged
+copy already held the "after" text.
+
+Force a consistent cache before believing any cross-file result:
+
+```bash
+find qml -name '*.qml' -exec touch {} +
+```
+
+Then build. Cost is the full QML regen (~80 s here), against ~16 s for one unit.
+The same caution applies to `.aotstats`: coverage numbers read after a two-file
+build describe those two files plus whatever the last full build left behind.
+
 ## Where the time goes
 
 Two full-rebuild events, from the same log:
