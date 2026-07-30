@@ -57,9 +57,17 @@ T.Button {
     implicitHeight: Theme.scaled(120)
 
     // From qtdeclarative/src/quickcontrols/material/Button.qml — see AccessibleButton.qml.
-    // Both implicit sizes are set explicitly above, so only the insets carry over.
+    // Both implicit sizes are set explicitly above, so the formulas do not carry over, but
+    // the insets and padding do. The padding is inert here as it happens (the contentItem
+    // is anchored with centerIn, which overrides the geometry the control would assign it)
+    // — restated anyway rather than reasoned away. leftPadding/rightPadding are what
+    // Material.buttonLeftPadding/RightPadding resolve to for this button: not flat, no
+    // icon.source, non-empty text.
     topInset: 6
     bottomInset: 6
+    verticalPadding: 14
+    leftPadding: 24
+    rightPadding: 24
 
     contentItem: Column {
         spacing: Theme.scaled(10)

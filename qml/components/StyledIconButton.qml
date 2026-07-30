@@ -42,6 +42,10 @@ T.RoundButton {
     bottomInset: 6
     leftInset: 6
     rightInset: 6
+    // Also Material's (RoundButton.qml:23). Inert here as it happens — the contentItem
+    // sizes itself from the root and centers its children — but restated rather than
+    // reasoned away, because "it should not matter" is not a verification.
+    padding: 12
 
     // Default icon styling - override with icon.width/height/color as needed
     icon.width: Theme.scaled(18)
