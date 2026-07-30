@@ -167,10 +167,14 @@ private slots:
         SimFixture f;
         f.simulator.wakeUp();
 
-        // Matches the source TAG, not the old "SAW-HotWater" hyphenated prefix:
-        // that family collapsed into the registered [SAW] marker with a
-        // [HotWater] source tag, so one search on [SAW] now returns it.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("HotWater"));
+        // The old "SAW-HotWater" hyphenated family collapsed into the registered
+        // [SAW] marker with a [HotWater] source tag. Match the full new shape, not
+        // a bare "HotWater" substring — that would also swallow an unrelated
+        // warning from any other subsystem that mentions hot water, and
+        // ignoreMessage silently passing the wrong line is indistinguishable from
+        // it passing the right one.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[HotWater\] Tare not completed)"));
         f.simulator.startHotWater();
         QTRY_VERIFY_WITH_TIMEOUT(f.scale.weight() > 50.0, 8000);
         f.simulator.stop();

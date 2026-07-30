@@ -1,4 +1,6 @@
 #include "screensavervideomanager.h"
+
+#include "screensaver/screensaverlogging.h"
 #include "core/settings.h"
 #include "core/settings_theme.h"
 #include "core/profilestorage.h"
@@ -132,14 +134,14 @@ void ScreensaverVideoManager::setKeepScreenOn(bool on)
 
         QJniObject activity = QNativeInterface::QAndroidApplication::context();
         if (!activity.isValid()) {
-            qWarning() << "[Screensaver] setKeepScreenOn: activity not valid";
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("setKeepScreenOn: activity not valid"));
             return;
         }
 
         QJniObject window = activity.callObjectMethod(
             "getWindow", "()Landroid/view/Window;");
         if (!window.isValid()) {
-            qWarning() << "[Screensaver] setKeepScreenOn: window not valid";
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("setKeepScreenOn: window not valid"));
             return;
         }
 
@@ -151,7 +153,7 @@ void ScreensaverVideoManager::setKeepScreenOn(bool on)
 
         QJniEnvironment env;
         if (env.checkAndClearExceptions()) {
-            qWarning() << "[Screensaver] JNI exception in setKeepScreenOn(" << on << ")";
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("JNI exception in setKeepScreenOn( %1 )").arg(on));
         }
     });
 #elif defined(Q_OS_IOS)
@@ -167,26 +169,26 @@ void ScreensaverVideoManager::setKeepScreenOn(bool on)
 
 void ScreensaverVideoManager::restoreScreenBrightness()
 {
-    qDebug() << "[Screensaver] Restoring screen brightness to system default";
+    SCREENSAVER_LOG_STDERR("Video", QStringLiteral("Restoring screen brightness to system default"));
 #ifdef Q_OS_ANDROID
     QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
         QJniObject activity = QNativeInterface::QAndroidApplication::context();
         if (!activity.isValid()) {
-            qWarning() << "[Screensaver] restoreScreenBrightness: activity not valid";
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("restoreScreenBrightness: activity not valid"));
             return;
         }
 
         QJniObject window = activity.callObjectMethod(
             "getWindow", "()Landroid/view/Window;");
         if (!window.isValid()) {
-            qWarning() << "[Screensaver] restoreScreenBrightness: window not valid";
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("restoreScreenBrightness: window not valid"));
             return;
         }
 
         QJniObject layoutParams = window.callObjectMethod(
             "getAttributes", "()Landroid/view/WindowManager$LayoutParams;");
         if (!layoutParams.isValid()) {
-            qWarning() << "[Screensaver] restoreScreenBrightness: layoutParams not valid";
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("restoreScreenBrightness: layoutParams not valid"));
             return;
         }
 
@@ -197,7 +199,7 @@ void ScreensaverVideoManager::restoreScreenBrightness()
 
         QJniEnvironment env;
         if (env.checkAndClearExceptions()) {
-            qWarning() << "[Screensaver] JNI exception restoring screen brightness";
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("JNI exception restoring screen brightness"));
         }
     });
 #elif defined(Q_OS_IOS)
@@ -221,27 +223,27 @@ void ScreensaverVideoManager::setScreenDimming(int dimPercent)
             brightness = 0.01f;
     }
 
-    qDebug() << "[Screensaver] setScreenDimming: dim=" << dimPercent << "% brightness=" << brightness;
+    SCREENSAVER_LOG_STDERR("Video", QStringLiteral("setScreenDimming: dim=%1% brightness=%2").arg(dimPercent).arg(brightness));
 
 #ifdef Q_OS_ANDROID
     QNativeInterface::QAndroidApplication::runOnAndroidMainThread([brightness]() {
         QJniObject activity = QNativeInterface::QAndroidApplication::context();
         if (!activity.isValid()) {
-            qWarning() << "[Screensaver] setScreenDimming: activity not valid";
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("setScreenDimming: activity not valid"));
             return;
         }
 
         QJniObject window = activity.callObjectMethod(
             "getWindow", "()Landroid/view/Window;");
         if (!window.isValid()) {
-            qWarning() << "[Screensaver] setScreenDimming: window not valid";
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("setScreenDimming: window not valid"));
             return;
         }
 
         QJniObject layoutParams = window.callObjectMethod(
             "getAttributes", "()Landroid/view/WindowManager$LayoutParams;");
         if (!layoutParams.isValid()) {
-            qWarning() << "[Screensaver] setScreenDimming: layoutParams not valid";
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("setScreenDimming: layoutParams not valid"));
             return;
         }
 
@@ -252,7 +254,7 @@ void ScreensaverVideoManager::setScreenDimming(int dimPercent)
 
         QJniEnvironment env;
         if (env.checkAndClearExceptions()) {
-            qWarning() << "[Screensaver] JNI exception setting screen brightness to" << brightness;
+            SCREENSAVER_WARN_STDERR("Video", QStringLiteral("JNI exception setting screen brightness to %1").arg(brightness));
         }
     });
 #elif defined(Q_OS_IOS)
@@ -995,9 +997,7 @@ bool ScreensaverVideoManager::saveCacheIndex()
     QFile file(indexPath);
 
     if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "[Screensaver] Could not write cache index" << indexPath
-                   << "-" << file.errorString()
-                   << "— cached videos will be re-downloaded on next start";
+        SCREENSAVER_WARN_STDERR("Video", QStringLiteral("Could not write cache index %1 - %2 — cached videos will be re-downloaded on next start").arg(indexPath).arg(file.errorString()));
         return false;
     }
 
@@ -1019,9 +1019,7 @@ bool ScreensaverVideoManager::saveCacheIndex()
     const bool closedOk = file.flush();
     file.close();
     if (written != payload.size() || !closedOk) {
-        qWarning() << "[Screensaver] Cache index write incomplete" << indexPath
-                   << "- wrote" << written << "of" << payload.size() << "bytes"
-                   << "-" << file.errorString();
+        SCREENSAVER_WARN_STDERR("Video", QStringLiteral("Cache index write incomplete %1 - wrote %2 of %3 bytes - %4").arg(indexPath).arg(written).arg(payload.size()).arg(file.errorString()));
         return false;
     }
     return true;
@@ -1160,14 +1158,14 @@ bool ScreensaverVideoManager::hasHardwareVideoDecoder() const
     // Get MediaCodecList with ALL_CODECS
     QJniObject codecList("android/media/MediaCodecList", "(I)V", 1); // ALL_CODECS = 1
     if (!codecList.isValid()) {
-        qWarning() << "[Screensaver] Failed to create MediaCodecList";
+        SCREENSAVER_WARN_STDERR("Video", QStringLiteral("Failed to create MediaCodecList"));
         return true; // Assume available if we can't check
     }
 
     QJniObject codecInfos = codecList.callObjectMethod(
         "getCodecInfos", "()[Landroid/media/MediaCodecInfo;");
     if (!codecInfos.isValid()) {
-        qWarning() << "[Screensaver] Failed to get codec infos";
+        SCREENSAVER_WARN_STDERR("Video", QStringLiteral("Failed to get codec infos"));
         return true;
     }
 
@@ -1207,16 +1205,14 @@ bool ScreensaverVideoManager::hasHardwareVideoDecoder() const
         bool isSoftware = name.startsWith("c2.goldfish.") ||
                           name.startsWith("c2.android.") ||
                           name.startsWith("OMX.google.");
-        qDebug() << "[Screensaver] H.264 decoder:" << name
-                 << "hwAccel:" << info.callMethod<jboolean>("isHardwareAccelerated")
-                 << "software:" << isSoftware;
+        SCREENSAVER_LOG_STDERR("Video", QStringLiteral("H.264 decoder: %1 hwAccel: %2 software: %3").arg(name).arg(info.callMethod<jboolean>("isHardwareAccelerated") ? 1 : 0).arg(isSoftware ? 1 : 0));
         if (!isSoftware) {
             return true;
         }
     }
 
     // No hardware H.264 decoder found — software-only (e.g. emulator)
-    qWarning() << "[Screensaver] No hardware H.264 decoder found — video playback disabled";
+    SCREENSAVER_WARN_STDERR("Video", QStringLiteral("No hardware H.264 decoder found — video playback disabled"));
     return false;
 #else
     return true; // Desktop/iOS always have hardware decoders
@@ -1619,7 +1615,8 @@ void ScreensaverVideoManager::markVideoCorrupt(const QString& source)
         }
 
         const int catalogId = it.value().catalogId;
-        qWarning() << "ScreensaverVideoManager: marking corrupt and deleting" << localPath;
+        SCREENSAVER_WARN_STDERR("Cache",
+            QStringLiteral("Marking corrupt and deleting %1").arg(localPath));
         QFile::remove(localPath);
         m_cacheIndex.erase(it);
         // updateCacheUsedBytes() emits cacheUsedBytesChanged() itself when the
@@ -1737,8 +1734,7 @@ void ScreensaverVideoManager::migrateCacheToExternal()
     // that does not exist — that combination silently discards the whole index.
     QDir externalDir(externalPath);
     if (!externalDir.exists() && !externalDir.mkpath(".")) {
-        qWarning() << "[Screensaver] Cannot create external cache dir" << externalPath
-                   << "— staying on" << fallbackPath << "and leaving the cache intact";
+        SCREENSAVER_WARN_STDERR("Video", QStringLiteral("Cannot create external cache dir %1 — staying on %2 and leaving the cache intact").arg(externalPath).arg(fallbackPath));
         return;
     }
 
@@ -1770,10 +1766,7 @@ void ScreensaverVideoManager::migrateCacheToExternal()
                 migrated++;
             } else {
                 failedToMove.insert(file);
-                qWarning() << "[Screensaver] Cache migration: could not move" << file
-                           << "to" << externalPath << "- rename and copy both failed."
-                           << "Leaving it in" << fallbackPath << "and keeping the index"
-                           << "entry pointed there.";
+                SCREENSAVER_WARN_STDERR("Video", QStringLiteral("Cache migration: could not move %1 to %2 - rename and copy both failed. Leaving it in %3 and keeping the index entry pointed there.").arg(file).arg(externalPath).arg(fallbackPath));
             }
         }
     }
@@ -1795,9 +1788,7 @@ void ScreensaverVideoManager::migrateCacheToExternal()
     }
 
     if (!failedToMove.isEmpty()) {
-        qWarning() << "[Screensaver] Cache migration incomplete:" << migrated << "moved,"
-                   << failedToMove.size() << "left in" << fallbackPath
-                   << "- those remain usable from there.";
+        SCREENSAVER_WARN_STDERR("Video", QStringLiteral("Cache migration incomplete: %1 moved, %2 left in %3 - those remain usable from there.").arg(migrated).arg(failedToMove.size()).arg(fallbackPath));
     }
 
     // Update cache directory and save index. If the index cannot be persisted,
@@ -1807,8 +1798,7 @@ void ScreensaverVideoManager::migrateCacheToExternal()
     const QString previousCacheDir = m_cacheDir;
     m_cacheDir = externalPath;
     if (!saveCacheIndex()) {
-        qWarning() << "[Screensaver] Cache index could not be saved after migration"
-                   << "— reverting cache dir to" << previousCacheDir;
+        SCREENSAVER_WARN_STDERR("Video", QStringLiteral("Cache index could not be saved after migration — reverting cache dir to %1").arg(previousCacheDir));
         m_cacheDir = previousCacheDir;
     }
 

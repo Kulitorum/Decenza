@@ -191,7 +191,7 @@ void WeightProcessor::processWeight(double weight)
         // DEBUG, not INFO: it exists to prove a NON-bug (a static reading is a
         // live feed, not a stalled one). 59 of them in a 48 h capture, on a 2 s
         // dedupe window, none of which a user needs.
-        SCALE_LOG_STDERR_TAGGED("ScaleFeed",
+        SCALEFEED_LOG(
             QStringLiteral("alive: constant weight %1 g still streaming via "
                            "weightSampleReceived (pre-#1176 this static window read "
                            "as a stalled feed)").arg(weight, 0, 'f', 1));

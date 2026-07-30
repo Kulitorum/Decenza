@@ -99,6 +99,7 @@ extern "C" const char* __ubsan_default_options()
 #include <vector>
 #include <QElapsedTimer>
 #include <QNetworkAccessManager>
+#include <QMetaEnum>
 #include <QNetworkInformation>
 #ifdef Q_OS_MACOS
 #include <QProcess>
@@ -655,7 +656,7 @@ int main(int argc, char *argv[])
                 }
             }
             if (!competing.isEmpty())
-                FONT_LOG("Bundled", QStringLiteral("Host families that could collide with the bundled "
+                FONT_LOG_STDERR("Bundled", QStringLiteral("Host families that could collide with the bundled "
                                            "family: %1").arg(competing.join(QStringLiteral(", "))));
         }
 
@@ -668,26 +669,26 @@ int main(int argc, char *argv[])
         for (const QString& path : fontFiles) {
             const int id = QFontDatabase::addApplicationFont(path);
             if (id < 0) {
-                FONT_WARN("Bundled", QStringLiteral("Failed to register bundled font: %1").arg(path));
+                FONT_WARN_STDERR("Bundled", QStringLiteral("Failed to register bundled font: %1").arg(path));
                 continue;
             }
             const QStringList families = QFontDatabase::applicationFontFamilies(id);
             if (families.isEmpty()) {
                 // A valid id with no families: registration "succeeded" and contributed
                 // nothing. This weight is unreachable at runtime.
-                FONT_WARN("Bundled",
+                FONT_WARN_STDERR("Bundled",
                     QStringLiteral("Registered but exposed NO family: %1 — this weight will "
                                    "not be reachable").arg(path));
                 continue;
             }
-            FONT_LOG("Bundled", QStringLiteral("Registered %1 -> %2")
+            FONT_LOG_STDERR("Bundled", QStringLiteral("Registered %1 -> %2")
                      .arg(path, families.join(QStringLiteral(", "))));
             ++registeredCount;
             if (bundledFamily.isEmpty())
                 bundledFamily = families.first();
         }
         if (registeredCount != fontFiles.size()) {
-            FONT_WARN("Bundled",
+            FONT_WARN_STDERR("Bundled",
                 QStringLiteral("PARTIAL registration — %1 of %2 files usable; some weights "
                                "unavailable").arg(registeredCount).arg(fontFiles.size()));
         }
@@ -697,7 +698,7 @@ int main(int argc, char *argv[])
             // Publish to Theme.qml so every font role can state the family explicitly
             // rather than relying on application-font inheritance.
             SettingsTheme::setBundledFontFamily(bundledFamily);
-            FONT_INFO("Bundled", QStringLiteral("Bundled application font set: %1").arg(bundledFamily));
+            FONT_INFO_STDERR("Bundled", QStringLiteral("Bundled application font set: %1").arg(bundledFamily));
 
             // Probe the weights Theme.qml actually requests THROUGH THIS FAMILY: the
             // default, and bold (five of the eight roles set bold: true). A single
@@ -727,20 +728,20 @@ int main(int argc, char *argv[])
                 // These logs are read by users' AI assistants, which act on them.
                 const bool familyOk = (fi.family() == bundledFamily);
                 if (familyOk) {
-                    FONT_LOG("Resolve",
+                    FONT_LOG_STDERR("Resolve",
                         QStringLiteral("Resolved %1 -> family=%2 exactMatch=%3")
                             .arg(p.label, fi.family(),
                                  fi.exactMatch() ? QStringLiteral("true")
                                                  : QStringLiteral("false")));
                 } else {
                     allWeightsResolved = false;
-                    FONT_WARN("Resolve",
+                    FONT_WARN_STDERR("Resolve",
                         QStringLiteral("%1 did NOT resolve to %2 — got %3; text metrics are "
                                        "not deterministic for this weight")
                             .arg(p.label, bundledFamily, fi.family()));
                 }
             }
-            FONT_LOG("Bundled",
+            FONT_LOG_STDERR("Bundled",
                 QStringLiteral("Styles available for %1 = %2")
                     .arg(bundledFamily,
                          QFontDatabase::styles(bundledFamily).join(QStringLiteral(", "))));
@@ -749,7 +750,7 @@ int main(int argc, char *argv[])
             // requests them today, so absence is informational, not a fault.
             for (const char* suffix : {" Light", " Medium"}) {
                 const QString sub = bundledFamily + QString::fromLatin1(suffix);
-                FONT_LOG("Bundled",
+                FONT_LOG_STDERR("Bundled",
                     QStringLiteral("Sub-family %1 %2").arg(sub,
                         QFontDatabase::families().contains(sub) ? QStringLiteral("present")
                                                                 : QStringLiteral("ABSENT")));
@@ -770,14 +771,14 @@ int main(int argc, char *argv[])
             metricFont.setPixelSize(14);
             const qreal probe = QFontMetricsF(metricFont)
                                     .horizontalAdvance(QStringLiteral("Extraction yield (%)"));
-            FONT_LOG("Probe",
+            FONT_LOG_STDERR("Probe",
                 QStringLiteral("Probe advance \"Extraction yield (%)\" @14px = %1%2")
                     .arg(probe, 0, 'f', 2)
                     .arg(allWeightsResolved
                              ? QString()
                              : QStringLiteral(" [FALLBACK FONT — not comparable]")));
         } else {
-            FONT_WARN("Bundled",
+            FONT_WARN_STDERR("Bundled",
                 QStringLiteral("No bundled font registered (bundled font resource missing "
                                "from build) — falling back to platform default"));
         }
@@ -802,12 +803,12 @@ int main(int argc, char *argv[])
             // Not fatal: symbols revert to the platform fallback they used before this
             // font existed. Warn, because the failure is otherwise invisible — the glyphs
             // still draw, just not from the bundle, and not identically across machines.
-            FONT_WARN("Symbol",
+            FONT_WARN_STDERR("Symbol",
                 QStringLiteral("Symbol fallback did not register — symbols will come from the "
                                "platform fallback and vary between machines"));
         } else {
             SettingsTheme::setSymbolFontFamily(families.first());
-            FONT_LOG("Symbol", QStringLiteral("Symbol fallback registered: %1").arg(families.first()));
+            FONT_LOG_STDERR("Symbol", QStringLiteral("Symbol fallback registered: %1").arg(families.first()));
 
             // Also chain it on the APPLICATION font. Theme's roles cover everything that
             // asks for one, but an element setting only font.pixelSize inherits this font
@@ -859,7 +860,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setTextRenderType(QQuickWindow::CurveTextRendering);
     {
         auto actual = QQuickWindow::textRenderType();
-        FONT_LOG("TextRender",
+        FONT_LOG_STDERR("TextRender",
             QStringLiteral("Requested CurveTextRendering, active type: %1 (%2)")
                 .arg(actual == QQuickWindow::CurveTextRendering ? QStringLiteral("Curve")
                      : actual == QQuickWindow::QtTextRendering  ? QStringLiteral("QtText")
@@ -1150,7 +1151,7 @@ int main(int argc, char *argv[])
                              .arg(it.value().toInt())
                              .arg(SettingsTheme::fontSizeDefaults().value(it.key()));
             }
-            FONT_LOG("Overrides", QStringLiteral("Font size overrides: %1").arg(parts.join(QStringLiteral(", "))));
+            FONT_LOG_STDERR("Overrides", QStringLiteral("Font size overrides: %1").arg(parts.join(QStringLiteral(", "))));
         }
     }
 
@@ -1164,18 +1165,37 @@ int main(int argc, char *argv[])
     // Monitor network reachability so the debug log captures connectivity
     // changes that race with long-running downloads (issue #1089). Best-effort:
     // load fails on platforms without a backend, in which case we just don't log.
+    // The enum's NAME, not its ordinal. Reachability is a Q_ENUM, so streaming it
+    // with qDebug used to print "Reachability(Online)"; routing it through a
+    // helper made it a QString and a static_cast<int> turned that into
+    // "Initial reachability: 4", which means nothing to the person or the AI
+    // reading the log. CLAUDE.md states the rule for MCP payloads ("use
+    // human-readable strings for enums") and the reason is identical here.
+    const auto reachabilityName = [](QNetworkInformation::Reachability r) {
+        const char* key = QMetaEnum::fromType<QNetworkInformation::Reachability>()
+                              .valueToKey(static_cast<int>(r));
+        return key ? QString::fromLatin1(key)
+                   : QStringLiteral("Unknown(%1)").arg(static_cast<int>(r));
+    };
     if (QNetworkInformation::loadDefaultBackend()) {
         if (auto* info = QNetworkInformation::instance()) {
-            NETWORK_LOG("Reachability", QStringLiteral("Initial reachability: %1")
-                    .arg(static_cast<int>(info->reachability())));
+            NETWORK_LOG_STDERR("Reachability", QStringLiteral("Initial reachability: %1")
+                    .arg(reachabilityName(info->reachability())));
             QObject::connect(info, &QNetworkInformation::reachabilityChanged,
-                             [](QNetworkInformation::Reachability r) {
-                NETWORK_LOG("Reachability", QStringLiteral("Reachability changed -> %1")
-                            .arg(static_cast<int>(r)));
+                             [reachabilityName](QNetworkInformation::Reachability r) {
+                NETWORK_LOG_STDERR("Reachability", QStringLiteral("Reachability changed -> %1")
+                            .arg(reachabilityName(r)));
             });
         }
     } else {
-        NETWORK_WARN("Reachability", QStringLiteral("QNetworkInformation backend unavailable"));
+        // DEBUG, not WARN. The comment above calls this best-effort, and on any
+        // platform with no backend it is a permanent, unfixable, once-per-startup
+        // condition — a WARN that can never be acted on trains readers to skim the
+        // tier that is supposed to mean "look here". That is this change's own
+        // argument, and promoting this line contradicted it.
+        NETWORK_LOG_STDERR("Reachability",
+            QStringLiteral("QNetworkInformation backend unavailable on this platform — "
+                           "connectivity changes will not be logged"));
     }
 
     TranslationManager translationManager(&sharedNetworkManager, &settings);

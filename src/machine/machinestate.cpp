@@ -355,7 +355,7 @@ void MachineState::updatePhase() {
     // a spurious transition from m_previousSubState's init value.
     if (state == DE1::State::Steam && oldPhase == Phase::Steaming
         && subState != previousSubState) {
-        qDebug().noquote() << QString("[Steam] substate: %1 -> %2")
+        qDebug().noquote() << QString("MachineState: steam substate: %1 -> %2")
             .arg(DE1::subStateToString(previousSubState),
                  DE1::subStateToString(subState));
     }
@@ -722,11 +722,11 @@ void MachineState::updatePhase() {
 
             if (isFlowing() && !wasFlowing) {
                 if (m_phase == Phase::Steaming)
-                    qDebug().noquote() << "[Steam] flow started (phase entered Steaming)";
+                    qDebug().noquote() << "MachineState: steam flow started (phase entered Steaming)";
                 emit shotStarted();
             } else if (!isFlowing() && wasFlowing) {
                 if (oldPhase == Phase::Steaming)
-                    qDebug().noquote() << "[Steam] flow stopped (phase left Steaming)";
+                    qDebug().noquote() << "MachineState: steam flow stopped (phase left Steaming)";
                 emit shotEnded();
             }
         }, Qt::QueuedConnection);
@@ -737,7 +737,7 @@ void MachineState::updatePhase() {
     if (!isFlowing() && m_shotTimer->isActive()) {
         qDebug() << "=== TIMER STOP: isFlowing() became false (substate change) ===";
         if (m_device && m_device->state() == DE1::State::Steam) {
-            qDebug().noquote() << QString("[Steam] flow stopped via substate change (substate=%1)")
+            qDebug().noquote() << QString("MachineState: steam flow stopped via substate change (substate=%1)")
                 .arg(DE1::subStateToString(m_device->subState()));
         }
         stopShotTimer();
@@ -803,8 +803,11 @@ void MachineState::onScaleWeightChanged(double weight) {
                      << "baseline=" << m_hotWaterTareBaseline;
         } else {
             // First sample past 2s — log whether tare succeeded
-            qDebug() << "[HW-Tare] 2s summary: baseline="
-                     << (m_hotWaterTareBaseline == 0.0 ? "cleared (tare OK)" : QString::number(m_hotWaterTareBaseline, 'f', 1) + "g (tare FAILED, using baseline)");
+            SAW_LOG_STDERR("HotWater", QStringLiteral("Tare 2s summary: baseline=%1")
+                .arg(m_hotWaterTareBaseline == 0.0
+                         ? QStringLiteral("cleared (tare OK)")
+                         : QString::number(m_hotWaterTareBaseline, 'f', 1)
+                               + QStringLiteral("g (tare FAILED, using baseline)")));
             m_hotWaterTareTimeMs = 0;  // Stop burst logging
         }
     }

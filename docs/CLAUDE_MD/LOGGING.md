@@ -67,9 +67,11 @@ The helper headers, one per subsystem:
 | `[DE1]` | `src/ble/de1logging.h` | `DE1_LOG/INFO/WARN_TAGGED` | |
 | `[Refractometer]` | `src/ble/refractometers/refractometerlogging.h` | `REFRACTOMETER_LOG/INFO/WARN` | same `"BLE "` short form |
 | `[Bluetooth]` | `src/ble/bluetoothlogging.h` | `BT_LOG/INFO/WARN_TAGGED` | **stderr-only by construction** — nothing here has a `logMessage`, so there is no `BT_*_STDERR_TAGGED` and `BT_*_TAGGED` does not emit |
-| `[SAW]` | `src/machine/sawlogging.h` | `SAW_LOG/INFO/WARN[_STDERR]` | mostly stderr in practice — SAW lives in controllers, a settings store and a worker thread, none of which carry `logMessage` |
-| `[Font]` | `src/core/fontlogging.h` | `FONT_LOG/INFO/WARN` | stderr-only by construction — font setup runs before any object with a `logMessage` exists |
-| `[Network]` | `src/core/networklogging.h` | `NETWORK_LOG/INFO/WARN[_TAGGED]` | |
+| `[SAW]` | `src/machine/sawlogging.h` | `SAW_{LOG,INFO,WARN}_{TAGGED,STDERR}` | mostly stderr in practice — SAW lives in controllers, a settings store and a worker thread, none of which carry `logMessage` |
+| `[Font]` | `src/core/fontlogging.h` | `FONT_{LOG,INFO,WARN}_STDERR` | stderr-only by construction — font setup runs before any object with a `logMessage` exists |
+| `[Network]` | `src/core/networklogging.h` | `NETWORK_{LOG,INFO,WARN}_{TAGGED,STDERR}` | reachability only so far — the app's servers still use hand-rolled prefixes |
+| `[Screensaver]` | `src/screensaver/screensaverlogging.h` | `SCREENSAVER_{LOG,INFO,WARN}_{TAGGED,STDERR}` | |
+| `[Theme]` | `src/core/themelogging.h` | `THEME_{LOG,INFO,WARN}_{TAGGED,STDERR}` | appearance: themes, colours, backgrounds, font SIZES (vs `[Font]`, which is which family resolved) |
 
 All families stop at `WARN`. There is no marked CRITICAL/FATAL tier — a genuine
 `qCritical` in a covered file has to take an exemption, which is deliberate: nothing
@@ -267,6 +269,11 @@ Two traps if you touch this code:
   fresh log is blank and the marker is on line 1. A headless-fragment test of "line 0
   is not a marker" invents a phantom one-blank-line session on every new log — the
   same defect class. Require a non-blank line before the first marker.
+- **And skip the trim banner**, which `trimLogFile()` writes unconditionally. A trim
+  landing just before a marker leaves banner-then-marker with nothing orphaned, and
+  counting the banner reported a session whose entire content was the banner. That
+  shipped in the first cut of this fix and its own tests missed it, because every
+  fixture put a real orphaned line after the banner.
 - `debug_get_log` reports an unknown start as JSON `null` plus a flag and a reason,
   never as `""`. An empty string reads as a parse failure in the tool and sends the
   reader looking for a bug there instead of understanding that the information was
@@ -318,9 +325,11 @@ registry rather than restating it, and checks:
 Rule 5 replaces a documented hole. Rule 2 matches only *registered* tokens, so
 `SCALE_LOG("Acaia", "[R2-diag] …")` passed rule 1 (it uses the helper) and rule 2
 (unregistered) and was caught by nothing. This file used to say so and leave it there.
-On its first run rule 5 found a **sixth** hand-rolled family (`[Weight-Worker]`) plus
-seven device lines under a hand-typed `[USB Scale]`/`[BLE DE1]` that no `[Scale]` or
-`[DE1]` search returned.
+On its first run rule 5 found **six** unregistered bracketed families
+(`[Weight-Worker]`, `[SAW-Worker]`, `[SAW-Latency]`, `[TextRender]`, `[Startup]`,
+`[AppState]`) plus seven device lines under a hand-typed `[USB Scale]`/`[BLE DE1]`
+that no `[Scale]` or `[DE1]` search returned. A later run, after rule 6 widened the
+covered set, found `[Steam]`, `[HW-Tare]`, `[Screensaver]` and `[Theme]` as well.
 
 Two things rule 5 needs in order not to cry wolf, both learned by running it:
 
@@ -346,7 +355,10 @@ believed converted — including 37 `DE1Simulator:` lines, all at DEBUG, which l
 connections page's DE1 view **completely empty** on a simulator session. Every one was
 found by a person reading a running app's log, not by the tree. A grep finds them in
 milliseconds. (The families are gone from `main`, so the count of nine is no longer
-checkable from a checkout; it is the tally across commits `460fb8e9` and `3d022dd5`.)
+checkable from a checkout. The reachable citation is the squash-merge `01679eb4`
+(#1707); two branch-local hashes cited here earlier were pre-squash objects that no
+`git merge-base --is-ancestor` accepts and that vanish on `gc` — a verification path
+that does not exist, in the paragraph explaining that the count cannot be verified.)
 
 The gate is not the whole invariant, and the difference matters. There are **two**
 coverage sets, because the rules do not all generalise the same way:
@@ -361,17 +373,21 @@ coverage sets, because the rules do not all generalise the same way:
 
 The split is a correction, not a concession. `main.cpp` drives both reconnect ladders
 *and* initialises fonts, translations, TTS and accessibility; applying rule 1 there
-produced 112 "violations" that were overwhelmingly lines with **no subsystem to belong
+produced 118 "violations" that were overwhelmingly lines with **no subsystem to belong
 to**, for which "route it through a helper" has no answer. A check reporting a hundred
 non-defects is one people switch off — which is how the generation of this convention
 before the gate died. What does hold everywhere is the marker invariant: if you write a
 bracketed prefix, it must be registered and applied by its helper. Rules 2 and 5
 enforce exactly that, and they are what found the real defects in `main.cpp`.
 
-Still uncovered, and known: roughly 40 non-device subsystems using hand-rolled `Class:`
-prefixes (`SteamPage:`, `MqttClient:`, `ShotDataModel:`, `Visualizer:`, `BatteryManager:`
-…), and the bare `console.log` lines from QML (`Phase Idle/Ready:`, `FRAME CHANGE:`,
-`Auto flow cal:`). These have no registry entry and no helper; covering them would only
+Still uncovered, and known: **89 distinct** `Class:`-prefixed families across ~1,140
+lines in `src/` (44 of them with five or more lines each — the biggest are
+`ShotHistoryStorage:` 190, `ShotServer:` 116, `DatabaseBackupManager:` 62), and the bare
+`console.log` lines from QML (`Phase Idle/Ready:`, `SteamPage:`). An earlier "roughly 40"
+here was only defensible at an unstated five-line cutoff and understated the scope about
+twofold; two of its three QML examples were wrong (`FRAME CHANGE:` is C++, in a file now
+covered; `Auto flow cal:` does not exist). These have no registry entry and no helper;
+covering them would only
 teach people to write exemptions. "Every line carries its marker" is the rule you
 follow; the gate enforces it where a subsystem has somewhere to log to.
 

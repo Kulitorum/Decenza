@@ -10,6 +10,12 @@
 
 namespace {
 const QString kSessionMarker = QStringLiteral("========== SESSION START:");
+// Written by trimLogFile() at the head of what survives a trim. Named because
+// it is produced at one site and READ at another (the headless-fragment scan in
+// sessionIndex(), which must not mistake it for log content) — and a banner
+// those two spelled differently would resurrect the phantom session it exists
+// to keep out.
+const QString kTrimBanner = QStringLiteral("... [log trimmed] ...");
 }
 
 #ifdef Q_OS_ANDROID
@@ -135,7 +141,11 @@ void WebDebugLogger::handleMessage(QtMsgType type, const QString& message)
         m_lines.removeFirst();
     }
 
-    // Also write to file (outside mutex to avoid blocking)
+    // Write to file with m_mutex released — holding it across the write would
+    // block every other logging thread on disk I/O, and the emit below must not
+    // run under it at all (see the re-entrancy note). writeToFile() is not
+    // unsynchronised as a result: it takes m_fileMutex, which orders the file
+    // operations without ordering the buffer.
     locker.unlock();
     writeToFile(line);
 
@@ -187,6 +197,9 @@ void WebDebugLogger::handleMessage(QtMsgType type, const QString& message)
 
 void WebDebugLogger::writeToFile(const QString& line)
 {
+    // Held across the append AND the trim below — see m_fileMutex's declaration.
+    QMutexLocker fileLocker(&m_fileMutex);
+
     QFile file(m_logFilePath);
     if (file.open(QIODevice::Append | QIODevice::Text)) {
         QTextStream stream(&file);
@@ -214,8 +227,26 @@ void WebDebugLogger::writeToFile(const QString& line)
 
 void WebDebugLogger::trimLogFile()
 {
+    // Recursive: writeToFile() already holds this when it calls us, and a direct
+    // caller does not.
+    QMutexLocker fileLocker(&m_fileMutex);
+
     QFile file(m_logFilePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        // Latched, for the same reason as the write path below: writeToFile()
+        // re-checks the size after EVERY line, so a trim that cannot read the
+        // file is retried on every subsequent line, forever, while the file grows
+        // past its 2 MB cap without bound. This was a bare `return` — the failure
+        // with the largest user-visible consequence in this class said nothing at
+        // all, and the symptom (a huge debug.log whose recent past is unreachable)
+        // points nowhere near the cause.
+        if (!m_trimFailureWarned) {
+            m_trimFailureWarned = true;
+            qWarning() << "WebDebugLogger: cannot open" << m_logFilePath
+                       << "to read for trimming -" << file.errorString()
+                       << "- the log will keep growing past its" << MAX_LOG_FILE_SIZE
+                       << "byte cap. This warning is not repeated.";
+        }
         return;
     }
 
@@ -241,7 +272,7 @@ void WebDebugLogger::trimLogFile()
     // This used to re-emit a session marker here, "so it survives the trim". It
     // did the opposite. The only start time this function holds is m_startTime —
     // the CURRENTLY RUNNING session's — while the content it was introducing
-    // belongs to whatever older session survived the cut. rebuildSessionIndex()
+    // belongs to whatever older session survived the cut. sessionIndex()
     // treats every SESSION START line as a boundary, so the forgery became a real
     // session in every enumeration, carrying a timestamp from a different day
     // than its own lines.
@@ -254,12 +285,41 @@ void WebDebugLogger::trimLogFile()
     //
     // The concern the old comment named is real: a trim CAN remove the running
     // session's own marker, if that session alone exceeds keepSize. The remedy is
-    // in rebuildSessionIndex(), which reports a headless leading fragment as a
+    // in sessionIndex(), which reports a headless leading fragment as a
     // session with an UNKNOWN start rather than borrowing one — an absent
     // timestamp is recoverable, a wrong one is not.
+    // Both writes are checked, because by the time they run the truncate has
+    // ALREADY happened and the original file is unrecoverable. A short write here
+    // — a full disk, a full quota on Android external storage — amputates the log
+    // mid-line, and QFile::write is not [[nodiscard]], so -Werror=unused-result
+    // never said a word. CLAUDE.md's note about unannotated APIs is this case
+    // exactly: check the result yourself, because the compiler will not.
     if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        file.write("... [log trimmed] ...\n");
-        file.write(content.mid(newlinePos + 1));
+        const QByteArray banner = (kTrimBanner + "\n").toUtf8();
+        const QByteArray tail = content.mid(newlinePos + 1);
+        const qint64 wroteBanner = file.write(banner);
+        const qint64 wroteTail = file.write(tail);
+        if (!file.flush() || wroteBanner != banner.size() || wroteTail != tail.size()) {
+            qWarning() << "WebDebugLogger: log trim wrote" << wroteTail << "of"
+                       << tail.size() << "bytes to" << m_logFilePath << "-"
+                       << file.errorString()
+                       << "- the persisted log is now truncated and the lost lines are "
+                          "unrecoverable.";
+        }
+    } else {
+        // Warn once, not per line. writeToFile() re-checks the size after EVERY
+        // line, so a trim that cannot open the file is retried forever while the
+        // file grows past its cap without bound — a multi-hundred-megabyte
+        // debug.log and a debug_get_log that never reaches the recent past, with
+        // nothing anywhere saying why. A transient share violation on Windows or a
+        // remounted SD card on Android is enough to start it.
+        if (!m_trimFailureWarned) {
+            m_trimFailureWarned = true;
+            qWarning() << "WebDebugLogger: cannot open" << m_logFilePath
+                       << "to trim -" << file.errorString()
+                       << "- the log will keep growing past its size cap. This warning "
+                          "is not repeated.";
+        }
     }
 }
 
@@ -349,12 +409,24 @@ QList<WebDebugLogger::SessionBoundary> WebDebugLogger::sessionIndex(qsizetype* t
         // carries its own marker.
         //
         // "Content before the first marker" is NOT the same as "line 0 is not a
-        // marker". The marker is written with a leading newline (see the
-        // constructor), so line 0 of a perfectly healthy fresh log is BLANK and
-        // the marker is on line 1. Testing line 0 alone would invent a
-        // one-blank-line fragment on every new log, which is a phantom session in
-        // every enumeration — the same class of defect this is here to fix.
-        // Require a non-blank line before the first marker instead.
+        // marker", and it is not "line 0 is not blank" either. TWO lines can
+        // legitimately precede the first marker without any orphaned content
+        // existing, and counting either one invents a session:
+        //
+        //   - A BLANK line, on a healthy fresh log. The marker is written with a
+        //     leading newline (see the constructor), so line 0 is empty and the
+        //     marker sits on line 1.
+        //   - The TRIM BANNER, on any trimmed log. trimLogFile() writes it
+        //     unconditionally at the head of what survives.
+        //
+        // The banner case is not hypothetical and was shipped: on a real 21,553
+        // line log the trim landed just before a marker, so the surviving head was
+        // banner-then-marker with no orphaned lines at all, and this scan reported
+        // a session whose entire content was the banner. It read as a genuine
+        // one-line session in every enumeration.
+        //
+        // Skip both, and require something that is neither before concluding a
+        // fragment is real.
         qsizetype firstMarkerLine = -1;
         for (qsizetype i = 0; i < allLines.size(); ++i) {
             if (allLines[i].contains(kSessionMarker)) {
@@ -366,7 +438,8 @@ QList<WebDebugLogger::SessionBoundary> WebDebugLogger::sessionIndex(qsizetype* t
             (firstMarkerLine >= 0) ? firstMarkerLine : allLines.size();
         bool hasHeadlessFragment = false;
         for (qsizetype i = 0; i < fragmentEnd; ++i) {
-            if (!allLines[i].trimmed().isEmpty()) {
+            const QString trimmed = allLines[i].trimmed();
+            if (!trimmed.isEmpty() && trimmed != kTrimBanner) {
                 hasHeadlessFragment = true;
                 break;
             }
@@ -511,10 +584,36 @@ void WebDebugLogger::clear(bool clearFile)
 
     if (clearFile && !m_logFilePath.isEmpty()) {
         locker.unlock();
+        // Truncates the same file writeToFile() appends to, so it takes the same
+        // lock — otherwise a concurrent append lands in a file being emptied.
+        QMutexLocker fileLocker(&m_fileMutex);
         QFile file(m_logFilePath);
         if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
             QTextStream stream(&file);
             stream << "========== LOG CLEARED: " << QDateTime::currentDateTime().toString(Qt::ISODate) << " ==========\n";
+            // A session marker IS legitimate here, and the asymmetry with
+            // trimLogFile() is the whole point rather than an inconsistency.
+            //
+            // A trim must not write one because the content it precedes belongs
+            // to an OLDER session, so m_startTime would be a borrowed timestamp
+            // — the forgery this class was fixed to stop. After a clear, every
+            // line that follows belongs to the RUNNING session, so m_startTime is
+            // that content's true start and writing it states a fact.
+            //
+            // Without it the clear banner alone reads as a headless fragment, and
+            // the running session gets reported with an unknown start time and a
+            // note blaming a trim that never happened. The user pressed Clear.
+            stream << "\n========== SESSION START: " << m_startTime.toString(Qt::ISODate)
+                   << " ==========\n";
+        } else {
+            // Never silent: the in-memory buffer is now empty, so the user has
+            // been shown a cleared log while the file still holds every line.
+            // Believing a log is gone when it is not is the wrong direction to be
+            // wrong in.
+            qWarning() << "WebDebugLogger: could not clear" << m_logFilePath << "-"
+                       << file.errorString()
+                       << "- the in-memory buffer was cleared but the file still holds "
+                          "the old log.";
         }
     }
 }

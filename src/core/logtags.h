@@ -74,6 +74,8 @@
 #define DECENZA_LOG_MARKER_SAW           "SAW"
 #define DECENZA_LOG_MARKER_FONT          "Font"
 #define DECENZA_LOG_MARKER_NETWORK       "Network"
+#define DECENZA_LOG_MARKER_SCREENSAVER   "Screensaver"
+#define DECENZA_LOG_MARKER_THEME         "Theme"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -108,10 +110,25 @@
       "Users report these as layout or language bugs, so this is the first "     \
       "thing to check for clipped or garbled text in a non-Latin locale")       \
     X(DECENZA_LOG_MARKER_NETWORK,                                              \
-      "Local network reachability and the app's own servers, as opposed to one " \
-      "device's link. Separate from Scale and DE1 because \"the WiFi scale is "  \
-      "unreachable\" and \"the shot server will not bind\" are the same question " \
-      "asked about different things, and neither belongs to a device")
+      "Local network reachability — whether this device can reach the LAN at "   \
+      "all — as opposed to any one device's link. Separate from Scale and DE1 "  \
+      "because a routing or permission failure is not a fault in the scale "     \
+      "driver, and filing it under Scale sends a reader to the wrong file. "     \
+      "NOTE: currently reachability only. The app's own servers (ShotServer, "   \
+      "MQTT) still log under hand-rolled prefixes and are NOT reachable through " \
+      "this marker yet")                                                         \
+    X(DECENZA_LOG_MARKER_SCREENSAVER,                                            \
+      "The screensaver: when it engages and releases, screen dimming and "        \
+      "brightness restore, the idle timer, and video playback. Users report "     \
+      "these as \"the screen went dark mid-shot\" or \"it never woke up\", and "  \
+      "the answer is usually which of several independent things (idle timer, "   \
+      "brightness, video) did or did not fire")                                   \
+    X(DECENZA_LOG_MARKER_THEME,                                                  \
+      "Appearance: theme selection and switching, custom colours, background "    \
+      "images and presets, and per-role font-size overrides. Separate from Font, " \
+      "which is about which typeface actually resolved — a size the user chose "  \
+      "and a family the platform substituted are different faults with the same " \
+      "symptom of text that looks wrong")
 
 // ---- The one place a log line's shape is built -------------------------
 //

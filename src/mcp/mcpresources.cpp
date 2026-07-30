@@ -387,11 +387,13 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
         "(2) session=N: address session N (-1=most recent, -2=previous, 0=first). "
         "(3) Default: address the whole log. "
         "Sessions are listed in the order they were recorded, so index 0 is the oldest "
-        "surviving session and -1 is the run happening now. The log file is capped and "
-        "trimmed from the front, which can remove the oldest session's start marker while "
-        "leaving its lines; that session is reported with `timestamp` null and "
-        "`startTimeKnown` false. Its lines are intact — only its start time is "
-        "unrecoverable — so treat null as \"unknown\", never as \"just now\". "
+        "surviving session and -1 is the run happening now. A session may be reported with "
+        "`timestamp` null and `startTimeKnown` false; its lines are intact and only its "
+        "start time is unknown, so treat null as \"unknown\", never as \"just now\". There "
+        "is more than one cause — the log is capped and trimmed from the front, which can "
+        "remove the oldest session's marker, and a marker can also be left unparseable by a "
+        "run that ended abruptly — so read `startTimeNote` on that session rather than "
+        "assuming which happened. "
         "Within modes 2/3, `filter` (substring, or regex when `regex` is true; case-insensitive) "
         "and `minLevel` (DEBUG/INFO/WARN/ERROR/FATAL, mode-2/3 app log only) narrow which lines "
         "qualify before pagination. `dedupe` collapses consecutive qualifying lines that are "
@@ -480,15 +482,35 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 // consumer as a parse failure in the tool, which sends the reader
                 // looking for a bug here instead of understanding that the
                 // information was destroyed by a log trim before they arrived.
+                // The note must not assert a CAUSE it cannot know. An empty
+                // timestamp has two sources, and only the first is a trim:
+                //
+                //   startLine == 0  the leading fragment, whose marker the trim
+                //                   took. Oldest in the file, by construction.
+                //   startLine  > 0  a marker that parsed as a boundary but whose
+                //                   timestamp did not read — a line truncated by
+                //                   a killed process, say. Nothing to do with
+                //                   trimming, and NOT the oldest session.
+                //
+                // The note used to state the trim story unconditionally, so a
+                // torn mid-file marker was reported with a confident wrong
+                // explanation and a false claim about its position. Writing a
+                // cause you have not established is the same defect as the forged
+                // timestamp this whole change exists to remove; it is just harder
+                // to catch, because prose does not fail a test.
                 const auto describeStart = [](const WebDebugLogger::SessionBoundary& b,
                                               QJsonObject& into) {
                     if (b.timestamp.isEmpty()) {
                         into["timestamp"] = QJsonValue();  // null
                         into["startTimeKnown"] = false;
-                        into["startTimeNote"] =
-                            "This session's start marker was removed when the log file was "
-                            "trimmed from the front. Its lines are intact; only its start "
-                            "time is unrecoverable. It is the oldest session in the file.";
+                        into["startTimeNote"] = b.startLine == 0
+                            ? "This session's start marker was removed when the log file was "
+                              "trimmed from the front. Its lines are intact; only its start "
+                              "time is unrecoverable. It is the oldest session in the file."
+                            : "This session's start marker is present but its timestamp did "
+                              "not parse — most likely a line truncated when the previous run "
+                              "ended abruptly. Its lines are intact; only its start time is "
+                              "unreadable.";
                     } else {
                         into["timestamp"] = b.timestamp;
                         into["startTimeKnown"] = true;

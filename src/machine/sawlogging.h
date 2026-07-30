@@ -36,21 +36,30 @@
 //
 // ---- Choosing a helper --------------------------------------------------
 //
-//   SAW_LOG   / SAW_LOG_TAGGED    qDebug   developer detail
-//   SAW_INFO  / SAW_INFO_TAGGED   qInfo    the user-facing narrative
-//   SAW_WARN  / SAW_WARN_TAGGED   qWarning problems
+//   SAW_LOG_TAGGED  / SAW_LOG_STDERR    qDebug   developer detail
+//   SAW_INFO_TAGGED / SAW_INFO_STDERR   qInfo    the user-facing narrative
+//   SAW_WARN_TAGGED / SAW_WARN_STDERR   qWarning problems
+//
+// Those six are the whole set — there is deliberately no bare SAW_LOG /
+// SAW_INFO / SAW_WARN. Every caller must say which of the two forms it means,
+// because the choice is not cosmetic: _TAGGED also emits logMessage and reaches
+// the in-app view, _STDERR does not. A bare name would have to silently pick
+// one. (This table listed those three names for a while and the header never
+// defined them, which is the failure mode CLAUDE.md names directly — a stated
+// fact gets believed, and here it would have been believed by someone reaching
+// for a macro that does not exist.)
 //
 // Pick by AUDIENCE, not by how important the event feels:
 //
 //   - Per-sample settling ticks, de-jitter internals, model inputs, batch
-//     bookkeeping                                   -> SAW_LOG (DEBUG).
+//     bookkeeping                                   -> SAW_LOG_* (DEBUG).
 //     These fire many times per shot and would bury everything else.
-//   - The stop itself, and what the shot actually settled at -> SAW_INFO.
+//   - The stop itself, and what the shot actually settled at -> SAW_INFO_*.
 //     Once per shot, and it is the answer to "why did it stop there".
 //   - Learning skipped, cup removed, drip out of range, a corrupt store
-//                                                    -> SAW_WARN.
+//                                                    -> SAW_WARN_*.
 //
-// Note the shape of the mistake this subsystem started with: 27 WARN, 36 DEBUG
+// Note the shape of the mistake this subsystem started with: 29 WARN, 36 DEBUG
 // and ZERO INFO, so a user-level read of a log showed SAW only when something
 // went wrong and never showed a shot stopping normally. A subsystem that is
 // silent when it is working is the hardest kind of gap to notice, because
@@ -58,9 +67,8 @@
 //
 // ---- Mechanics ---------------------------------------------------------
 //
-// *_TAGGED is the base; `tag` is a string LITERAL naming the source. SAW_LOG /
-// SAW_INFO / SAW_WARN are shorthand for callers that pass a bare source name.
-// Alias these per file rather than copying a body:
+// `tag` is a string LITERAL naming the source. Alias these per file rather than
+// copying a body:
 //   #define SAWW_LOG(msg)  SAW_LOG_STDERR("Worker", msg)
 //
 // The plain (non-STDERR) forms require `emit logMessage(QString)` in scope. Most

@@ -616,11 +616,20 @@ private:
     // lines already say.
     //
     // `tier` is the level the message would carry if it were not repeating, so
-    // the budget suppresses WITHOUT re-tiering. A repeating cycle emits both
-    // problems (WARN) and narrative (INFO) — the WiFi driver's "resolving again"
-    // and "dialing remembered address" are INFO — and routing those through a
-    // WARN-only budget would have made the quiet ones loud, which is the opposite
-    // of the point.
+    // the budget suppresses WITHOUT re-tiering: a WARN-only budget would have to
+    // promote any narrative routed through it, making the quiet lines loud.
+    //
+    // Accuracy note, because the first version of this comment justified `tier`
+    // with lines that do not use it: it cited the WiFi driver's "resolving again"
+    // and "dialing remembered address" as the INFO half of a failing cycle. Those
+    // are DEBUG (WIFI_LOG), were demoted in the same change that wrote this, and
+    // do not go through the sink at all. RepeatTier::Info is therefore reachable
+    // in source (main.cpp translates the sink's bool) but never produced at
+    // runtime — the sole sink call passes warn=true. The enum is kept because the
+    // no-re-tiering property is the right design and a second caller is cheap to
+    // add; it is NOT kept because something currently needs it. Wire a narrative
+    // line through the sink or delete the enum, but do not read this paragraph as
+    // evidence that the INFO path is exercised.
     //
     // `source` names who wrote the line, so a driver routing through this class's
     // budget still reads as the driver. Without it the driver's suppressed lines
@@ -639,11 +648,27 @@ private:
     // ONE store, deliberately: a second counter in the driver would be a second
     // policy, and resetRepeatFailureBudget() would not reach it, so a scale that
     // reconnected would re-arm half its messages.
+    //
+    // Two overloads, and the split is the point: the defaults that are correct
+    // for this class are WRONG for everyone else, and a default cannot tell which
+    // caller it has. While `source` defaulted on the public signature,
+    // `scaleRepeatFailure(msg)` from any other file compiled cleanly and stamped
+    // the line "BLEManager" — sending a reader to the wrong file, which is
+    // verbatim the hazard logtags.h documents for a shared forwarder that
+    // hard-codes its own name. The default was safe only while this was private,
+    // and it stopped being private in the same change that kept it.
+    //
+    // So: the convenience form is private and means "this class wrote it"; every
+    // caller outside states both tier and source, because outside this class
+    // neither has a defensible default.
+private:
+    void scaleRepeatFailure(const QString& message);
+
 public:
     enum class RepeatTier { Info, Warn };
     void scaleRepeatFailure(const QString& message,
-                            RepeatTier tier = RepeatTier::Warn,
-                            const QString& source = QStringLiteral("BLEManager"));
+                            RepeatTier tier,
+                            const QString& source);
 private:
     // The DE1 equivalent, sharing the budget map. Same shape, [DE1] marker.
     void de1RepeatFailure(const QString& message);

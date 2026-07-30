@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QDateTime>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QSet>
@@ -237,6 +238,70 @@ private slots:
         QCOMPARE(sessions[0].timestamp, QStringLiteral("2026-01-01T09:00:00"));
     }
 
+    // The blank line above is not the only thing that can precede the first
+    // marker without any orphaned content existing. trimLogFile() writes
+    // "... [log trimmed] ..." unconditionally, so when a trim lands just before a
+    // marker the surviving head is banner-then-marker with nothing orphaned.
+    //
+    // Counting the banner as content reported a session whose entire content was
+    // the banner, indistinguishable from a real one-line session. This SHIPPED in
+    // the first cut of this change and survived its own tests, because every
+    // fixture above puts a real orphaned line after the banner — so the banner was
+    // never the only thing in the fragment. It was caught by enumerating a live
+    // 21,553-line log and asking why session 0 had lineCount 1.
+    void sessionIndex_trimBannerAloneIsNotAFragment()
+    {
+        writeFile(logPath(),
+            "... [log trimmed] ...\n"
+            "========== SESSION START: 2026-01-01T09:00:00 ==========\n"
+            "[   0.100] INFO  line\n");
+
+        WebDebugLogger logger(logPath());
+        const auto sessions = logger.sessionIndex();
+
+        // One real session, not a phantom banner session ahead of it.
+        QCOMPARE(sessions.size(), 1);
+        QCOMPARE(sessions[0].startLine, qsizetype(1));
+        QCOMPARE(sessions[0].timestamp, QStringLiteral("2026-01-01T09:00:00"));
+    }
+
+    // Belt and braces on the two skip rules TOGETHER: a trimmed log whose
+    // surviving head is banner + blank + marker. Each rule alone passes the two
+    // tests above and still fabricates here.
+    void sessionIndex_bannerAndBlankLineTogetherAreNotAFragment()
+    {
+        writeFile(logPath(),
+            "... [log trimmed] ...\n"
+            "\n"
+            "========== SESSION START: 2026-01-01T09:00:00 ==========\n"
+            "[   0.100] INFO  line\n");
+
+        WebDebugLogger logger(logPath());
+        const auto sessions = logger.sessionIndex();
+
+        QCOMPARE(sessions.size(), 1);
+        QCOMPARE(sessions[0].startLine, qsizetype(2));
+        QCOMPARE(sessions[0].timestamp, QStringLiteral("2026-01-01T09:00:00"));
+    }
+
+    // The banner is skipped, but it must not mask a fragment that is genuinely
+    // there — the common trim, which cuts mid-session and leaves real orphans.
+    void sessionIndex_bannerDoesNotMaskARealFragment()
+    {
+        writeFile(logPath(),
+            "... [log trimmed] ...\n"
+            "[   0.100] INFO  orphaned line whose marker the trim took\n"
+            "========== SESSION START: 2026-01-01T10:00:00 ==========\n"
+            "[   0.100] INFO  line\n");
+
+        WebDebugLogger logger(logPath());
+        const auto sessions = logger.sessionIndex();
+
+        QCOMPARE(sessions.size(), 2);
+        QVERIFY(sessions[0].timestamp.isEmpty());
+        QCOMPARE(sessions[1].timestamp, QStringLiteral("2026-01-01T10:00:00"));
+    }
+
     // Enumeration is in recorded order and no two sessions claim the same start.
     // Both were false in a real log: five sessions enumerated 07-29 18:17,
     // 07-28 10:23, 07-29 08:21, 07-29 18:17, 07-30 08:20.
@@ -254,16 +319,80 @@ private slots:
         const auto sessions = logger.sessionIndex();
         QCOMPARE(sessions.size(), 3);
 
+        // `first`, not previous.isEmpty(), as the sentinel. Emptiness is a REAL
+        // value here — an undated fragment has it — so using it to mean "no
+        // previous yet" silently switches the ordering check off for the rest of
+        // the loop the moment one appears. The check would then pass on a log it
+        // was written to reject, which is worse than not having it.
         QSet<QString> seen;
         QString previous;
+        bool first = true;
         for (const auto& s : sessions) {
-            QVERIFY2(!seen.contains(s.timestamp),
-                     "two sessions reported the same start time");
-            seen.insert(s.timestamp);
-            QVERIFY2(previous.isEmpty() || previous < s.timestamp,
-                     "sessions are not in recorded (chronological) order");
+            if (!s.timestamp.isEmpty()) {
+                QVERIFY2(!seen.contains(s.timestamp),
+                         "two sessions reported the same start time");
+                seen.insert(s.timestamp);
+            }
+            if (!first && !previous.isEmpty() && !s.timestamp.isEmpty())
+                QVERIFY2(previous < s.timestamp,
+                         "sessions are not in recorded (chronological) order");
             previous = s.timestamp;
+            first = false;
         }
+    }
+
+    // The reported symptom was FIVE sessions enumerated out of order with one
+    // timestamp appearing twice — a shape that needs a surviving marker beside
+    // the forgery. Every other trim test here uses a single-session fixture, so
+    // the old code produced one wrongly-stamped session and the duplicate-and-
+    // reorder itself was never reproduced. This drives the real writer over a
+    // multi-session file and asserts the thing that actually rejects a forgery:
+    // no surviving session carries the RUNNING process's start time.
+    void trim_multiSessionKeepsOrderAndInventsNoTimestamp()
+    {
+        const QString filler = QStringLiteral("[   0.100] INFO  [Scale][BLEManager] padding\n");
+        QString content;
+        content.reserve(4 * 1024 * 1024);
+        for (const char* ts : {"2026-01-01T09:00:00", "2026-01-02T10:00:00",
+                               "2026-01-03T11:00:00"}) {
+            content += QStringLiteral("========== SESSION START: %1 ==========\n")
+                           .arg(QLatin1String(ts));
+            const qsizetype target = content.size() + 900 * 1024;
+            while (content.size() < target)
+                content += filler;
+        }
+        writeFile(logPath(), content);
+
+        WebDebugLogger logger(logPath());
+        QCOMPARE(logger.sessionIndex().size(), 3);
+
+        logger.trimLogFile();
+        const auto after = logger.sessionIndex();
+
+        // Whatever survived, it is fewer than we started with and strictly
+        // ordered, with no timestamp invented for the fragment.
+        QVERIFY(after.size() >= 1);
+        QVERIFY(after.size() <= 3);
+        QString previous;
+        for (qsizetype i = 0; i < after.size(); ++i) {
+            if (after[i].timestamp.isEmpty()) {
+                // Only ever the leading fragment.
+                QCOMPARE(i, qsizetype(0));
+                continue;
+            }
+            if (!previous.isEmpty())
+                QVERIFY2(previous < after[i].timestamp, "trim reordered sessions");
+            previous = after[i].timestamp;
+        }
+
+        // The forgery's signature: a surviving session stamped with the time the
+        // trimming process started. None of the fixture's dates are in 2026-01
+        // by accident — the running process's start is "now", so any session
+        // claiming it is one this trim invented.
+        const QString runningStart = QDateTime::currentDateTime().toString(Qt::ISODate).left(10);
+        for (const auto& s : after)
+            QVERIFY2(!s.timestamp.startsWith(runningStart),
+                     "a surviving session carries the trimming run's start time");
     }
 
     // ---- sessionLinesMatching(): the query the connections-page views run ----
