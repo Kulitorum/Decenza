@@ -311,8 +311,8 @@ void UsbScaleManager::onPollTimerTickAndroid()
     // Log when a scale first appears
     if (!m_hasLoggedInitialPorts && devicePresent) {
         m_hasLoggedInitialPorts = true;
-        QString info = AndroidUsbScaleHelper::deviceInfo();
-        info(QStringLiteral("Device found: %1").arg(info));
+        QString deviceInfo = AndroidUsbScaleHelper::deviceInfo();
+        info(QStringLiteral("Device found: %1").arg(deviceInfo));
     }
 
     // Check if connected scale disappeared
