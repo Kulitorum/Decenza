@@ -1138,12 +1138,31 @@ void MqttClient::publishDiscoveryConfig(const QString& component, const QString&
     QString payload = QJsonDocument(config).toJson(QJsonDocument::Compact);
 
     publish(topic, payload, true);
-    qDebug() << "MqttClient: Published discovery for" << objectId;
+
+    // COUNTED, not logged one line per entity.
+    //
+    // This was a qDebug() naming each objectId, so a startup carried 22 lines
+    // emitted inside 50 ms, followed by a summary line that already said the same
+    // thing. On a real tablet that made MqttClient the single largest class prefix
+    // in a startup session — 30 of 247 lines, 12% — and it repeats on every
+    // reconnect, not just launch.
+    //
+    // The list carries no per-run information: it is a fixed set compiled into
+    // publishHomeAssistantDiscovery(), identical every time, so a reader learns
+    // nothing from the 22nd line that the 1st did not tell them. What IS per-run
+    // is a FAILURE to publish one, and publish() already reports that at WARN
+    // (see its MQTTASYNC_SUCCESS check) — which the DEBUG line never did, since
+    // it printed unconditionally whether or not the send succeeded.
+    ++m_discoveryEntityCount;
 }
 
 void MqttClient::publishHomeAssistantDiscovery()
 {
     if (!m_settingsMqtt) return;
+
+    // Reset per call, not per process: this runs again on every reconnect, and a
+    // cumulative count would report 44 entities on the second pass.
+    m_discoveryEntityCount = 0;
 
     QString baseTopic = m_settingsMqtt->mqttBaseTopic();
     QJsonObject device = buildDeviceInfo();
@@ -1436,5 +1455,9 @@ void MqttClient::publishHomeAssistantDiscovery()
     }
 
     m_discoveryPublished = true;
-    qDebug() << "MqttClient: Home Assistant discovery published";
+    // The count is the part a reader can act on: it says the set was complete
+    // without spending a line per member. A short count is the signal that
+    // something returned early.
+    qDebug() << "MqttClient: Home Assistant discovery published —"
+             << m_discoveryEntityCount << "entities";
 }
