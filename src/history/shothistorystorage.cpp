@@ -3,6 +3,7 @@
 #include "shothistorystorage_internal.h"
 #include "coffeebagstorage.h"
 #include "equipmentstorage.h"
+#include "equipmentlogging.h"
 #include "core/settings.h"   // Settings::testQSettingsPath() under DECENZA_TESTING
 #include "recipestorage.h"
 #include "ai/conductance.h"
@@ -1808,6 +1809,95 @@ bool ShotHistoryStorage::runMigrations()
             currentVersion = 34;
         } else {
             qWarning() << "ShotHistoryStorage: migration 34 incomplete - will retry next launch";
+        }
+    }
+
+    // Migration 35: heal packages split by a pre-enrichment identity fork
+    // (fix-equipment-enrichment-fork). Until this change, recording burrs on a
+    // grinder that already had shots forked a new package and retired the old
+    // one — and because grinder calibration matches on model AND burrs while
+    // dial-in grouping keys on equipment_id, the grinder read as brand new with
+    // no history (#1713). The fork rule is fixed going forward; this repairs the
+    // users it already happened to, which is most of them: the signature is
+    // narrow (a lineage pair differing ONLY by empty-vs-set burrs) and everything
+    // else is left alone. See EquipmentStorage::healEnrichmentForksStatic.
+    //
+    // Data-only and NOT idempotent in effect (a second run simply finds nothing),
+    // so the heal commits together with the version bump.
+    //
+    // DbWriteTxn, not the raw m_db.transaction() the migrations around this one
+    // use: the heal SELECTs its lineage pairs before it writes, and that is
+    // exactly the read-then-write shape a DEFERRED BEGIN cannot upgrade under
+    // contention (dbutils.h). It also removes the failure mode a plain
+    // transaction() has here — a false return there would have let the merges run
+    // and autocommit one by one, with the `if (txn) rollback()` guard doing
+    // nothing, so a mid-heal failure left a half-applied merge behind. A guard
+    // that failed to begin now aborts before anything is written.
+    //
+    // The heal itself uses the UNLOCKED merge, because DbWriteTxn refuses to nest
+    // (adopting an outer transaction would let an inner rejection leave partial
+    // writes staged in it).
+    if (currentVersion >= 34 && currentVersion < 35) {
+        EQUIP_LOG_STDERR("Migration", "35: healing enrichment forks");
+
+        // Release the schema_version read at the top of this function before taking
+        // the write lock. That SELECT ends in LIMIT 1 and is stepped exactly once,
+        // so it never reaches SQLITE_DONE and Qt never resets it
+        // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:326-332 resets only
+        // on SQLITE_DONE or error) — the connection is therefore still inside an
+        // implicit read transaction. DbWriteTxn says so in its PRECONDITION: a
+        // SELECT that returned rows and was not stepped to exhaustion blocks
+        // BEGIN IMMEDIATE, and SQLite skips the busy handler entirely while the
+        // connection sits in one, so the failure is instant and a retry cannot fix
+        // it. The migrations in between only re-exec `query` when they RUN, and on
+        // the common upgrade path (a database already at 34) not one of them does.
+        // The older migrations get away with it because QSqlDatabase::transaction()
+        // is a DEFERRED BEGIN that takes no write lock; this is the first one that
+        // takes the lock up front.
+        query.finish();
+        // attempts = 1: this runs on the GUI thread during startup, before any
+        // other storage has opened the file, so there is no writer to wait out.
+        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 35 enrichment-fork heal", 1);
+        if (!txn.ok()) {
+            EQUIP_WARN_STDERR("Migration",
+                              "35 could not start a transaction - will retry next launch");
+        } else {
+            QHash<qint64, qint64> remap;
+            qsizetype healed = 0;
+            // A failed heal leaves its writes staged for this transaction to roll
+            // back, and the version must NOT advance — otherwise the split packages
+            // are never looked at again and the user is left repairing them by hand
+            // over MCP.
+            bool ok = EquipmentStorage::healEnrichmentForksStatic(m_db, &remap, &healed);
+            if (ok) {
+                query.exec ("DELETE FROM schema_version");
+                ok = query.exec ("INSERT INTO schema_version (version) VALUES (35)");
+            }
+            if (ok && txn.commit()) {
+                currentVersion = 35;
+                // Logged even at zero: "ran, found nothing" and "never ran" are the
+                // same silence otherwise, and this migration is the first thing to
+                // check when a user reports the grinder still looks split.
+                EQUIP_INFO_STDERR("Migration",
+                                  QString("35 complete - merged %1 package(s) that a burr edit had split off")
+                                      .arg(healed));
+                if (healed > 0) {
+                    // The active selection lives in QSettings, not this database, so a
+                    // merged-away id would leave the app pointing at a deleted package.
+                    // Resolved here and adopted through SettingsDye's setter by
+                    // MainController (a raw write would bypass the cache and NOTIFY).
+                    AppSettings settings;
+                    const qint64 activeId = settings.value("dye/activeEquipmentId", -1).toLongLong();
+                    if (activeId > 0 && remap.contains(activeId)) {
+                        m_healedActiveEquipmentId = remap.value(activeId);
+                        EQUIP_INFO_STDERR("Migration",
+                                          QString("35 moved the active equipment from package %1 to %2")
+                                              .arg(activeId).arg(m_healedActiveEquipmentId));
+                    }
+                }
+            } else {
+                EQUIP_WARN_STDERR("Migration", "35 incomplete - will retry next launch");
+            }
         }
     }
 
@@ -3639,7 +3729,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // map — bags/shots then null their equipment_id, same as before.
             QHash<qint64, qint64> packageIdMap;
             if (!EquipmentStorage::importEquipmentStatic(srcDb, destDb, merge, packageIdMap)) {
-                qWarning() << "ShotHistoryStorage::importDatabaseStatic: Equipment import failed";
+            EQUIP_WARN_STDERR("Import", QStringLiteral("database import failed - equipment packages not imported"));
                 destDb.rollback();
                 goto cleanup;
             }

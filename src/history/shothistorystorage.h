@@ -352,6 +352,12 @@ public:
     // directly without bypassing the settings cache and NOTIFY.
     qint64 migratedActiveBagId() const { return m_migratedActiveBagId; }
 
+    // Equipment package the active selection was moved to when migration 35
+    // merged an enrichment fork away, or -1. Adopted through SettingsDye's setter
+    // by MainController for the same reason as the bag id above: the selection is
+    // a QSettings value, and the merged-away id now names a deleted row.
+    qint64 healedActiveEquipmentId() const { return m_healedActiveEquipmentId; }
+
     // Invalidate all cached getDistinct*() results (call after save/delete/import/update)
     void invalidateDistinctCache();
 
@@ -502,6 +508,7 @@ private:
     bool m_schemaVersionAtStartKnown = false;  // false until read successfully; suppresses phantom crossings
     qint64 m_lastSavedShotId = 0;
     qint64 m_migratedActiveBagId = -1;
+    qint64 m_healedActiveEquipmentId = -1;
     std::atomic<bool> m_backupInProgress{false};  // Prevent concurrent backup/export operations (thread-safe)
     std::atomic<bool> m_importInProgress{false};   // Prevent concurrent import/restore operations (thread-safe)
 

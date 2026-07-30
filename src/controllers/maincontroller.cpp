@@ -252,6 +252,11 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // packages the active bag points at via equipment_id.
     m_equipmentStorage = new EquipmentStorage(this);
     m_equipmentStorage->initialize(m_shotHistory->databasePath());
+    // Adopt the package that migration 35 merged the active selection into, if it
+    // healed one — through the setter, so the settings cache and NOTIFY fire.
+    // Before setEquipmentStorage(), so the storage resolves the surviving id.
+    if (m_shotHistory->healedActiveEquipmentId() > 0)
+        m_settings->dye()->setActiveEquipmentId(m_shotHistory->healedActiveEquipmentId());
     m_settings->dye()->setEquipmentStorage(m_equipmentStorage);
 
     // Recipe storage shares the same database (recipes table, migration 25).

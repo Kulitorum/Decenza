@@ -921,9 +921,18 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         // dropped per-shot grinder_model/grinder_burrs columns (add-equipment-
         // packages migration 23). Match the grinder item (model + burrs from its
         // attrs blob) then keep shots pointing at one of those packages.
+        //
+        // Case- and whitespace-folded, so this read agrees with the identity LOOKUP
+        // that decides two packages are the same gear
+        // (EquipmentStorage::findPackageByGrinderIdentityStatic, which folds case in
+        // SQL and trims its search values in C++ — this trims both sides, so it is
+        // if anything more forgiving). An exact compare here meant a model string
+        // differing only in case or padding silently matched no history at all, and
+        // a calibration built on no history is indistinguishable from a grinder
+        // that has never been used.
         "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "    WHERE kind = 'grinder' AND model = ? "
-        "    AND COALESCE(json_extract(attrs, '$.burrs'), '') = COALESCE(?, '')) "
+        "    WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(?)) "
+        "    AND LOWER(TRIM(COALESCE(json_extract(attrs, '$.burrs'), ''))) = LOWER(TRIM(COALESCE(?, '')))) "
         "  AND (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
         "  AND COALESCE(final_weight, 0) >= 15 "
         "  AND COALESCE(grind_issue_detected, 0) = 0 "
