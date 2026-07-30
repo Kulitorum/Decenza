@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-Dialog {
+DecenzaDialog {
     id: migrationDialog
     parent: Overlay.overlay
     anchors.centerIn: parent

@@ -10,7 +10,7 @@ import QtQuick.Layouts
 import Decenza
 import "DateUtils.js" as DateUtils
 
-Dialog {
+DecenzaDialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent

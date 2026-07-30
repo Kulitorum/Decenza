@@ -906,7 +906,7 @@ Rectangle {
 
     // Fullscreen input dialog for mobile — avoids keyboard thrashing the conversation layout.
     // Opens above the keyboard with a large text area; Send dismisses and returns to conversation.
-    Dialog {
+    DecenzaDialog {
         id: inputDialog
         parent: Overlay.overlay
         modal: true
@@ -1099,7 +1099,7 @@ Rectangle {
     }
 
     // Report bad advice — directs to web interface
-    Dialog {
+    DecenzaDialog {
         id: reportWebDialog
         anchors.centerIn: parent
         width: Theme.scaled(380)
@@ -1220,7 +1220,7 @@ Rectangle {
     }
 
     // Unsupported beverage type dialog (used by openWithShot)
-    Dialog {
+    DecenzaDialog {
         id: unsupportedBeverageDialog
         property string beverageType: ""
         title: TranslationManager.translate("shotdetail.unsupportedbeverage.title", "AI Not Available")

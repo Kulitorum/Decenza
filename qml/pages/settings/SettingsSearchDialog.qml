@@ -10,7 +10,7 @@ import QtQuick.Layouts
 import Decenza
 import "../../components/SettingsSearchIndex.js" as SearchIndex
 
-Dialog {
+DecenzaDialog {
     id: searchDialog
     parent: Overlay.overlay
     anchors.centerIn: parent

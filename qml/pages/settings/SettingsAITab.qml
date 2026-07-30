@@ -1395,7 +1395,7 @@ KeyboardAwareContainer {
 
     // Discuss Shot app selector
     // Advanced endpoint dialog (OpenAI / Anthropic custom endpoint)
-    Dialog {
+    DecenzaDialog {
         id: advancedEndpointDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -1470,7 +1470,7 @@ KeyboardAwareContainer {
 
     // MCP Help Dialog
     // Confirm rotating the remote-access token (revokes the current URL).
-    Dialog {
+    DecenzaDialog {
         id: rotateTokenDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -1531,7 +1531,7 @@ KeyboardAwareContainer {
     }
 
     // Confirm signing out of Tailscale (wipes the embedded node's identity).
-    Dialog {
+    DecenzaDialog {
         id: tailscaleSignoutDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -1594,7 +1594,7 @@ KeyboardAwareContainer {
     }
 
     // Step-by-step Tailscale Funnel setup instructions.
-    Dialog {
+    DecenzaDialog {
         id: tailscaleSetupDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -1752,7 +1752,7 @@ KeyboardAwareContainer {
         }
     }
 
-    Dialog {
+    DecenzaDialog {
         id: mcpHelpDialog
         parent: Overlay.overlay
         anchors.centerIn: parent

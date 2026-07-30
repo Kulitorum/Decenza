@@ -817,7 +817,7 @@ KeyboardAwareContainer {
         }
 
         // Extracting popup - shows during ZIP extraction
-        Dialog {
+        DecenzaDialog {
             id: extractingPopup
             modal: true
             dim: true
@@ -879,7 +879,7 @@ KeyboardAwareContainer {
         }
 
         // Import result feedback dialog
-        Dialog {
+        DecenzaDialog {
             id: importResultDialog
             modal: true
             dim: true
@@ -997,7 +997,7 @@ KeyboardAwareContainer {
     }
 
     // Import complete popup
-    Dialog {
+    DecenzaDialog {
         id: importCompletePopup
         parent: Overlay.overlay
         // qmllint disable Quick.layout-positioning
@@ -1223,7 +1223,7 @@ KeyboardAwareContainer {
     }
 
     // Restore confirmation dialog
-    Dialog {
+    DecenzaDialog {
         id: restoreConfirmDialog
         parent: Overlay.overlay
         // qmllint disable Quick.layout-positioning
@@ -1552,7 +1552,7 @@ KeyboardAwareContainer {
     }
 
     // TOTP Setup Dialog
-    Dialog {
+    DecenzaDialog {
         id: totpSetupDialog
         parent: Overlay.overlay
         // qmllint disable Quick.layout-positioning
@@ -1811,7 +1811,7 @@ KeyboardAwareContainer {
     }
 
     // TOTP Reset Confirmation Dialog
-    Dialog {
+    DecenzaDialog {
         id: totpResetDialog
         parent: Overlay.overlay
         // qmllint disable Quick.layout-positioning
@@ -1902,7 +1902,7 @@ KeyboardAwareContainer {
     }
 
     // Factory Reset - Confirmation Dialog 1
-    Dialog {
+    DecenzaDialog {
         id: factoryResetDialog1
         parent: Overlay.overlay
         // qmllint disable Quick.layout-positioning
@@ -1993,7 +1993,7 @@ KeyboardAwareContainer {
     }
 
     // Factory Reset - Confirmation Dialog 2 (the fun one)
-    Dialog {
+    DecenzaDialog {
         id: factoryResetDialog2
         parent: Overlay.overlay
         // qmllint disable Quick.layout-positioning

@@ -1021,7 +1021,7 @@ T.Page {
         onBackClicked: AppShell.backRequested()
     }
 
-    Dialog {
+    DecenzaDialog {
         id: bulkDeleteConfirmDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -1106,7 +1106,7 @@ T.Page {
     }
 
     // Saved searches dialog
-    Dialog {
+    DecenzaDialog {
         id: savedSearchesDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -1272,7 +1272,7 @@ T.Page {
     }
 
     // Search syntax help dialog
-    Dialog {
+    DecenzaDialog {
         id: searchHelpDialog
         parent: Overlay.overlay
         anchors.centerIn: parent

@@ -11,7 +11,7 @@ import QtQml.Models
 import Decenza
 import "ShotPlanConfig.js" as ShotPlanConfig
 
-Dialog {
+DecenzaDialog {
     id: popup
 
     property string itemId: ""

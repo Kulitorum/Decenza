@@ -289,7 +289,7 @@ T.Page {
     }
 
     // Save Theme Dialog
-    Dialog {
+    DecenzaDialog {
         id: saveThemeDialog
         modal: true
         x: (parent.width - width) / 2

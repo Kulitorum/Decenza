@@ -11,7 +11,7 @@ import Decenza
 // beanBaseJson blob. Shared by BeanInfoPage (live DYE state), the post-shot
 // review page, and the shot detail page (per-shot snapshots), so a historical
 // shot always shows the bean it was actually pulled with.
-Popup {
+DecenzaDialog {
     id: root
 
     // Compact-JSON blob; parse failures render as an empty popup body, never throw.

@@ -847,7 +847,7 @@ T.Page {
     // proper modal Dialog. Menus don't surface role/focus to screen readers
     // reliably; Dialog does. Follows the same shape as the bean-info preset
     // dialogs: centered, modal, AccessibleButton stack.
-    Dialog {
+    DecenzaDialog {
         id: profileActionsDialog
         x: (parent.width - width) / 2
         y: (parent.height - height) / 2
@@ -994,7 +994,7 @@ T.Page {
     }
 
     // Delete confirmation dialog
-    Dialog {
+    DecenzaDialog {
         id: deleteDialog
         anchors.centerIn: parent
         width: Theme.scaled(350)
@@ -1083,7 +1083,7 @@ T.Page {
     }
 
     // New profile type picker dialog
-    Dialog {
+    DecenzaDialog {
         id: newProfileDialog
         anchors.centerIn: parent
         width: Theme.scaled(350)
@@ -1188,7 +1188,7 @@ T.Page {
     }
 
     // Copy profile dialog
-    Dialog {
+    DecenzaDialog {
         id: copyProfileDialog
         anchors.centerIn: parent
         width: Theme.scaled(400)
@@ -1321,7 +1321,7 @@ T.Page {
     }
 
     // Rename profile dialog
-    Dialog {
+    DecenzaDialog {
         id: renameProfileDialog
         anchors.centerIn: parent
         width: Theme.scaled(400)

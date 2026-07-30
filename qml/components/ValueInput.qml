@@ -531,7 +531,7 @@ Item {
     }
 
     // Full-width dialog with blur - same as compact but bigger
-    Dialog {
+    DecenzaDialog {
         id: scrubberPopup
         parent: Overlay.overlay
         anchors.centerIn: parent

@@ -238,7 +238,7 @@ Rectangle {
     }
 
     // Expanded editor dialog
-    Dialog {
+    DecenzaDialog {
         id: expandDialog
         parent: Overlay.overlay
         modal: true

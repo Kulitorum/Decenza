@@ -18,7 +18,7 @@ Item {
     readonly property bool usbAvailable: Qt.platform.os !== "ios"
 
     // Share Log Dialog
-    Dialog {
+    DecenzaDialog {
         id: shareLogDialog
         modal: true
         anchors.centerIn: parent
@@ -214,7 +214,7 @@ Item {
 
     // Add WiFi Scale Dialog — enter an IP address or mDNS name to connect a
     // WiFi scale that isn't being advertised/discovered right now.
-    Dialog {
+    DecenzaDialog {
         id: addWifiScaleDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -437,7 +437,7 @@ Item {
     // the user would silently end up with a poisoned saved primary that the
     // app keeps redialing on every reconnect cycle (see #1281).
     property string lastManualWifiHost: ""
-    Dialog {
+    DecenzaDialog {
         id: manualWifiFailedDialog
         parent: Overlay.overlay
         anchors.centerIn: parent

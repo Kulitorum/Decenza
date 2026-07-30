@@ -7,7 +7,7 @@ import Decenza
 // Opened from the info button on any equipment line (Brew Settings, Shot Review,
 // Edit Bag). Call openFor(packageId) — it resolves the package async and shows
 // its name, grinder identity, RPM capability, and last dial.
-Dialog {
+DecenzaDialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent

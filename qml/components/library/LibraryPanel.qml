@@ -227,7 +227,7 @@ Rectangle {
                     onClicked: addMenu.open()
                 }
 
-                Dialog {
+                DecenzaDialog {
                     id: addMenu
                     modal: true
                     parent: Overlay.overlay
@@ -799,7 +799,7 @@ Rectangle {
     }
 
     // Delete confirmation dialog
-    Dialog {
+    DecenzaDialog {
         id: deleteConfirm
         anchors.centerIn: parent
         modal: true

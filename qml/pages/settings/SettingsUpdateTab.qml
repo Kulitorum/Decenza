@@ -664,7 +664,7 @@ Item {
     }
 
     // Firmware update dialog (full-screen) — hosts the SettingsFirmwareTab panel
-    Dialog {
+    DecenzaDialog {
         id: firmwareDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -753,7 +753,7 @@ Item {
     }
 
     // Release notes popup
-    Dialog {
+    DecenzaDialog {
         id: releaseNotesPopup
         modal: true
         dim: true
@@ -946,7 +946,7 @@ Item {
     }
 
     // Donate dialog
-    Dialog {
+    DecenzaDialog {
         id: donateDialog
         parent: Overlay.overlay
         anchors.centerIn: parent

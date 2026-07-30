@@ -188,7 +188,7 @@ LayoutWidgetItem {
     // Popup leaks focus and the pills are unreachable by swipe. modal traps
     // focus; dim:false keeps it looking like a dropdown, header/footer:null
     // strip the Dialog chrome so it renders like the old bare popup.
-    Dialog {
+    DecenzaDialog {
         id: presetPopup
         modal: true
         dim: false

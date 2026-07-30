@@ -948,7 +948,7 @@ T.Page {
     }
 
     // API Key missing popup
-    Dialog {
+    DecenzaDialog {
         id: apiKeyPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -1051,7 +1051,7 @@ T.Page {
     }
 
     // All translated popup
-    Dialog {
+    DecenzaDialog {
         id: allTranslatedPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -1117,7 +1117,7 @@ T.Page {
     }
 
     // Clear AI translations confirmation popup
-    Dialog {
+    DecenzaDialog {
         id: clearAiPopup
         parent: Overlay.overlay
         anchors.centerIn: parent

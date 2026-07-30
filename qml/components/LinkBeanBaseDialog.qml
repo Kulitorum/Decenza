@@ -10,7 +10,7 @@ import Decenza
 // metadata-enrichment path for a (historical) shot whose bean simply isn't
 // linked to Bean Base yet. The heavyweight Change Beans dialog remains the
 // path for actually creating or re-pointing a bag.
-Dialog {
+DecenzaDialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent

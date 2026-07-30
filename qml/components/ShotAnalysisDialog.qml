@@ -10,7 +10,7 @@ import Decenza
 // Brief shot quality summary dialog — no AI, computed from curve data.
 // Shows only noteworthy observations + a verdict.
 // Analysis logic lives in C++ (ShotAnalysis) — this is a thin display layer.
-Dialog {
+DecenzaDialog {
     id: analysisDialog
 
     property var shotData: ({})

@@ -12,7 +12,7 @@ import Decenza
 // exactly the option keys the widget type declares in the readout capability
 // schema (Settings.network.optionKeysForType): dataMode, displayMode,
 // showRatio, color. Persists via Settings.network.setItemProperty.
-Dialog {
+DecenzaDialog {
     id: popup
 
     property string itemId: ""

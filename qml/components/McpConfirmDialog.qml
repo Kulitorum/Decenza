@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-Dialog {
+DecenzaDialog {
     id: root
     anchors.centerIn: parent
     width: Theme.dialogWidth + 2 * padding

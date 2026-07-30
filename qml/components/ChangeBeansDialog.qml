@@ -23,7 +23,7 @@ import "DateUtils.js" as DateUtils
 //
 // Extra entry point (bag inventory page): openForEdit(bag) updates the same
 // bag row in place.
-Dialog {
+DecenzaDialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent
@@ -658,7 +658,7 @@ Dialog {
 
     // Revert confirmation: local edits (including a user-added URL the
     // canonical entry lacked) are discarded and the bag saved immediately.
-    Dialog {
+    DecenzaDialog {
         id: revertConfirmDialog
         parent: Overlay.overlay
         anchors.centerIn: parent

@@ -429,7 +429,7 @@ Rectangle {
                 accessibleName: TranslationManager.translate("layoutEditor.addWidgetTo", "Add widget to %1").arg(root.zoneLabel)
                 onClicked: addPopup.open()
 
-                Dialog {
+                DecenzaDialog {
                     id: addPopup
                     modal: true
                     parent: Overlay.overlay

@@ -5,7 +5,18 @@ import QtQuick.Templates as T
 import QtQuick.Window
 import Decenza
 
-ApplicationWindow {
+// Rooted at QtQuick.Templates.ApplicationWindow for the same reason the pages and the
+// button family are: a Controls root resolves to the style's composite, whose base chain
+// qmlcachegen cannot walk, so every `root.<prop>` in this file lost AOT compilation --
+// 583 skips, the whole of the remaining id class.
+//
+// Nothing is lost. Material's ApplicationWindow.qml is three lines and its only content is
+// `color: Material.backgroundColor`, which the `color:` below already overrode. The Qt 6.9+
+// safe-area padding the `topPadding` block fights is C++ (QQuickApplicationWindow), not the
+// style, so those four lines are still doing their job.
+//
+// `import QtQuick.Controls` stays -- this file has 16 inline Dialogs and a StackView.
+T.ApplicationWindow {
     id: root
     visible: true
     visibility: Qt.platform.os === "android" ? Window.FullScreen : Window.AutomaticVisibility
@@ -154,7 +165,7 @@ ApplicationWindow {
         scaleSleepTimer.start()
     }
 
-    Dialog {
+    DecenzaDialog {
         id: firmwareFlashExitDialog
         modal: true
         dim: true
@@ -260,7 +271,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    DecenzaDialog {
         id: firmwareRebootRequiredDialog
         modal: true
         dim: true
@@ -1464,7 +1475,7 @@ ApplicationWindow {
     }
 
     // Global error dialog for BLE issues
-    Dialog {
+    DecenzaDialog {
         id: bleErrorDialog
         modal: true
         dim: true
@@ -1633,7 +1644,7 @@ ApplicationWindow {
     }
 
     // FlowScale fallback dialog (no scale found at startup)
-    Dialog {
+    DecenzaDialog {
         id: flowScaleDialog
         modal: true
         dim: true
@@ -1687,7 +1698,7 @@ ApplicationWindow {
     }
 
     // Scale disconnected dialog
-    Dialog {
+    DecenzaDialog {
         id: scaleDisconnectedDialog
         modal: true
         dim: true
@@ -1748,7 +1759,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    DecenzaDialog {
         id: noScaleAbortDialog
         modal: true
         dim: true
@@ -1804,7 +1815,7 @@ ApplicationWindow {
     // Charging mismatch warning dialog
     // Shown when smart charging commands the DE1 USB port ON but Android still reports
     // DISCHARGING — the port is not delivering power (DE1 asleep, BLE command failed, cable issue).
-    Dialog {
+    DecenzaDialog {
         id: chargingMismatchDialog
         modal: true
         dim: true
@@ -1877,7 +1888,7 @@ ApplicationWindow {
     }
 
     // Water tank refill dialog
-    Dialog {
+    DecenzaDialog {
         id: refillDialog
         modal: true
         dim: true
@@ -1946,7 +1957,7 @@ ApplicationWindow {
 
 
     // Update notification dialog
-    Dialog {
+    DecenzaDialog {
         id: updateDialog
         modal: true
         dim: true
@@ -2505,7 +2516,7 @@ ApplicationWindow {
     // is random or public and rejects connections to the DE1 (which uses a
     // random static address) with UnknownRemoteDeviceError. The capability
     // is granted via `sudo setcap` and is frequently cleared by OS updates.
-    Dialog {
+    DecenzaDialog {
         id: linuxBleCapabilityDialog
         modal: true
         dim: true
@@ -2609,7 +2620,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    DecenzaDialog {
         id: linuxBleBluezCacheDialog
         modal: true
         dim: true
@@ -2702,7 +2713,7 @@ ApplicationWindow {
     }
 
     // First-run welcome dialog
-    Dialog {
+    DecenzaDialog {
         id: firstRunDialog
         modal: true
         dim: true
@@ -2758,7 +2769,7 @@ ApplicationWindow {
     }
 
     // Storage setup dialog (Android 11+ - request MANAGE_EXTERNAL_STORAGE permission)
-    Dialog {
+    DecenzaDialog {
         id: storageSetupDialog
         modal: true
         dim: true
@@ -2860,7 +2871,7 @@ ApplicationWindow {
     // so next week's update reopens automatically. Same pattern as the GPS /
     // storage permission prompts: surfaced at the teachable moment, no
     // permanent in-app UI. Dismissed permanently after either button.
-    Dialog {
+    DecenzaDialog {
         id: autoRelaunchPromptDialog
         modal: true
         dim: true
@@ -2951,7 +2962,7 @@ ApplicationWindow {
     // via MainController; decline/dismiss just records that the offer was
     // answered. Dismiss (escape) counts as decline (recipes-idle-layout-upgrade
     // design.md decision 8) — it must be dismissible, per ACCESSIBILITY.md.
-    Dialog {
+    DecenzaDialog {
         id: recipesUpgradeDialog
         modal: true
         dim: true
@@ -4954,7 +4965,7 @@ ApplicationWindow {
     }
 
     // Empty database + backups exist: ask user if they want to restore
-    Dialog {
+    DecenzaDialog {
         id: emptyDatabaseDialog
         modal: true
         dim: true

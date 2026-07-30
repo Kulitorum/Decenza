@@ -1427,7 +1427,7 @@ T.Page {
     }
 
     // Debug log dialog
-    Dialog {
+    DecenzaDialog {
         id: debugLogDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -1493,7 +1493,7 @@ T.Page {
     }
 
     // Delete confirmation dialog
-    Dialog {
+    DecenzaDialog {
         id: deleteConfirmDialog
         parent: Overlay.overlay
         anchors.centerIn: parent

@@ -148,15 +148,45 @@ updated, the suite passed, and of 217 `.aotstats` exactly **one** was newer than
 wrappers as `var`. Knowing about this section is not protection: an ordinary
 rebuild does not clear it, and nothing in the build output says so.
 
-Force a consistent cache before believing any cross-file result:
+### This is FIXED as of #1717 — but know what the fix is and how it can silently die
+
+`CMakeLists.txt` now makes every QML unit depend on every `.qml` source, using
+`add_custom_command(OUTPUT ... APPEND DEPENDS ...)` to add inputs to the commands
+**Qt** created. Editing `Theme.qml` rebuilds all 221. No `touch` step, and the
+mixed-cache failure above cannot happen.
+
+It is coarse on purpose. The precise graph would mean reimplementing QML type
+resolution, and getting *that* subtly wrong reintroduces silent staleness, which
+is the thing being fixed.
+
+It is affordable because of `restat = 1` on the cachegen edges. Measured from this
+project's `.ninja_log`: qmlcachegen is **205 ms** median per file, while compiling
+the `.cpp` it emits is **3387 ms** — 16.5x more. A one-file QML edit re-runs
+cachegen on all 221 (seconds of wall time, in parallel), then ninja compares the
+regenerated `.cpp` against the old one and prunes every unit whose output came out
+byte-identical. The expensive half still only happens where the code really changed.
+
+**The failure mode to know about:** `add_custom_command(APPEND)` against an OUTPUT
+that does not match an existing command is a **silent no-op**. The path is
+reconstructed from Qt's own formula (`Qt6QmlMacros.cmake:3841-3847` — the reason
+the directory is `Decenza_qml/` is that the `Decenza_` target prefix is glued onto
+the leading `qml/` of the relative path). If Qt ever changes that formula, the
+wiring detaches, CMake still prints a healthy `wired for 221 units`, and the mixed
+cache comes back. Hence:
 
 ```bash
-find qml -name '*.qml' -exec touch {} +
+cmake --build <builddir> --target qml_dep_wiring_check
 ```
 
-Then build. Cost is the full QML regen (~80 s here), against ~16 s for one unit.
-The same caution applies to `.aotstats`: coverage numbers read after a two-file
-build describe those two files plus whatever the last full build left behind.
+`cmake/CheckQmlDepWiring.cmake` does not inspect the wiring; it exercises it. It
+touches `Theme.qml`, asks ninja what is now dirty, and fails unless all 221 units
+are. Run it after any Qt upgrade. A count printed by the thing being tested is not
+evidence — the whole of this file's history says so.
+
+The real fix is `qmlcachegen --depfile` upstream. The tool has no such flag today
+(check `tools/qmlcachegen/qmlcachegen.cpp`; there is no dependency output of any
+kind), and Qt's own `add_custom_command` has no `DEPFILE`, so the information does
+not exist to be used. This is the local stand-in until it does.
 
 ## Where the time goes
 
@@ -178,12 +208,15 @@ again after #1698 (`FINAL` on the settings/controller accessors, type annotation
 in `Theme.qml` and `IdlePage.qml`).
 
 ```
-                          post-cleanup      post-#1698      post-#1715     post-#1717
-total bindings/functions       29097           29097           29087           29088
-  AOT compiled            13017 (44.7%)   17631 (60.6%)   18168 (62.5%)   18853 (64.8%)
-  skipped -> interpreter  14665 (50.4%)   10051 (34.5%)    9504 (32.7%)    8820 (30.3%)
+                          post-cleanup      post-#1698      post-#1715      post-#1717
+total bindings/functions       29097           29097           29087           29097
+  AOT compiled            13017 (44.7%)   17631 (60.6%)   18168 (62.5%)   20459 (70.3%)
+  skipped -> interpreter  14665 (50.4%)   10051 (34.5%)    9504 (32.7%)    7223 (24.8%)
   partial                  1415 ( 4.9%)    1415 ( 4.9%)    1415 ( 4.9%)    1415 ( 4.9%)
 ```
+
+The post-#1717 column is the whole of that PR: the button family, `main.qml`'s
+`ApplicationWindow`, and the dialogs. Its three parts are described below in that order.
 
 #1715 rooted 31 pages at `QtQuick.Templates.Page`; **id skips went 1,464 -> 510**.
 
@@ -202,6 +235,31 @@ qmllint effect in `QML_GOTCHAS.md` ("a count going UP after a fix is usually the
 working") showing up in the AOT stats. **Diff per-cause, never on the total** — judged on
 the total alone this migration looks half as effective as it is, and the +335 looks like a
 regression it introduced.
+
+#1717 then did `main.qml`'s `ApplicationWindow` and the dialogs, which were the two classes
+left. The window was a one-line change worth 583 skips: Material's `ApplicationWindow.qml`
+is **three lines** whose only content is `color: Material.backgroundColor`, and `main.qml`
+already set its own `color`.
+
+The dialogs were 131 sites — 27 file roots and 104 inline `Dialog {}` blocks across 39 more
+files — and they are the case where re-rooting each one directly would have been WRONG.
+Unlike the buttons, the style's `Dialog.qml` contributed things that were genuinely on
+screen and that no dialog in the app overrode: the grow-fade `enter`/`exit` transitions and
+the modal dim. Not one of the 131 declared `enter` or `exit`. Re-rooting each at `T.Dialog`
+would have meant 131 copies of both. `DecenzaDialog.qml` carries them once.
+
+Two facts made that safe, and both were checked rather than assumed:
+
+- **All 104 inline blocks override `background`** — established by walking each block's
+  braces, not by grepping the file, because a file can contain a `background:` belonging to
+  something else entirely. Had any block relied on the style's background, re-rooting would
+  have rendered it invisible: the base supplies none.
+- **The only `Dialog`-specific API in the whole tree is `BrewDialog`'s `onRejected`**, which
+  `T.Dialog` has. That is what made one base sufficient where two looked necessary.
+
+Three inline `Popup {}` blocks were deliberately left alone: Material's `Popup` is non-modal
+with `padding: 12`, while the base carries `Dialog`'s `modal: true` and `padding: 24`, so
+re-rooting them would start dimming the screen and blocking input behind them.
 
 The post-#1715 column is measured on a **consistent** cache — all 213 units regenerated
 together, after #1714's `Theme.qml` annotations. #1715's own commit message reports
@@ -280,37 +338,43 @@ described below, paying off in the direction the ratio predicted. The `FINAL`
 work, by contrast, was worth 429 skips: real, but an order of magnitude smaller.
 
 Grouped by root cause. Re-derived post-#1717 on a consistent cache, by exact
-`message` string out of the `.aotstats` (8,820 hard skips; shares are of that):
+`message` string out of the `.aotstats` (7,223 hard skips; shares are of that):
 
 | Skips | Share | `message` |
 |---|---|---|
-| 2168 | 24.6 % | `Type TranslationManager does not have a property translate for calling` |
-| 1107 | 12.6 % | `Could not find property "X".` |
-| 593 | 6.7 % | `Cannot generate efficient code for call to untyped JavaScript function` |
-| 524 | 5.9 % | `Functions without type annotations won't be compiled` |
-| 434 | 4.9 % | `Cannot access value for name root` |
-| 180 | 2.0 % | `Could not find signal "X".` |
-| 149 | 1.7 % | `Cannot retrieve a non-object type by ID: root` |
-| 144 | 1.6 % | `Cannot generate efficient code for storing an array in a non-sequence type` |
-| 87 | 1.0 % | `Cannot access value for name popup` |
-| 76 | 0.9 % | `Cannot retrieve a non-object type by ID: popup` |
+| 2253 | 31.2 % | `Type TranslationManager does not have a property translate for calling` |
+| 754 | 10.4 % | `Cannot generate efficient code for call to untyped JavaScript function` |
+| 598 | 8.3 % | `Could not find property "X".` |
+| 524 | 7.3 % | `Functions without type annotations won't be compiled` |
+| 157 | 2.2 % | `Cannot generate efficient code for storing an array in a non-sequence type` |
+| 131 | 1.8 % | `...incompatible or ambiguous types: conversion to QVariant` |
+| 83 | 1.1 % | `Cannot access value for name Overlay` |
+| 78 | 1.1 % | `Could not find signal "X".` |
+| 73 | 1.0 % | `Cannot access value for name Dialog` |
 | **0** | — | **context property** (was 3351 / 19.0 %) |
+| **0** | — | **`root`** (was 583 across two rows) |
 
 What is left, in the order worth taking:
 
-- **`TranslationManager.translate` is now the single largest class at 2,168.** It grew as
-  the Controls-composite work shrank the classes in front of it (see above). Do not touch
-  it without reading `tst_translationreactivity.cpp` first — `translate` is a `Q_PROPERTY`
-  holding a callable precisely so a binding records a dependency on it, and that
-  reactivity is worth more than the skips.
-- **`Could not find property` + `signal` is down to 1,287 from 2,669**, and what remains
-  is the same defect in the next tier of types: **`Dialog` 572**, `Label` 204,
-  `StyledComboBox` 69, `ColoredIcon` 38. `Dialog` is the big one and the risky one — a
-  Material `Dialog` supplies header, footer, dim and an elevated background, so it is
-  nothing like the drop-in the buttons were.
-- **The `root` id is 583 across its two rows**, essentially all `main.qml`'s
-  `ApplicationWindow` — Controls-rooted for exactly the reason the pages were. One file,
-  same migration, but it is the shell, so the visual risk is concentrated.
+- **`TranslationManager.translate` is the single largest class at 2,253, now 31 % of all
+  that remains.** It has GROWN at every step, because each Controls-composite fix lets
+  qmlcachegen reach further into bindings and land on this instead. Do not touch it
+  without reading `tst_translationreactivity.cpp` first — `translate` is a `Q_PROPERTY`
+  holding a callable precisely so that a binding records a dependency on it, and that
+  reactivity is worth more than the skips. 3,248 call sites depend on it. Treat this
+  number as the floor of the program, not the next target.
+- **The untyped-JS classes together are 1,278** (754 calls + 524 definitions) and are now
+  the largest *actionable* group. This is annotation work with no UI surface — the same
+  lever that took `Theme.qml` from 4,681 skips to 499. It is the obvious next move.
+- **`Could not find property` + `signal` is down to 676 from 2,669.** What is left is the
+  long tail of the same defect: `Label`, `StyledComboBox`, `ColoredIcon`, `TextArea`,
+  `ScrollView`. Individually small, and `ColoredIcon` in particular must NOT be migrated
+  (see "What the style's QML supplies that Templates does not").
+- **`Overlay` 83 and `Dialog` 73 are new, and are the dialog migration's own residue** —
+  files that still import `QtQuick.Controls` only to name `Overlay.overlay` or a
+  `Dialog.CloseOnEscape` enum. Cheap to clear, but check each one: three files' imports
+  became genuinely unused in #1717 and the qmllint gate caught them, which is what a
+  mechanical re-rooting always leaves behind.
 - To attribute a `Could not find property/signal` skip to the type that caused it, walk
   back from the reported line to the enclosing `Type {` and count by that. The message
   names the member, never the type — counting by message alone tells you `text` is a
@@ -318,6 +382,37 @@ What is left, in the order worth taking:
 
 Re-derive rather than hand-adjusting these rows, and only from a cache you have just
 forced consistent — see the staleness section above for why that is not optional.
+
+### AOT buys speed with binary size, and macOS has a shelf at 16 MiB
+
+#1717 crossed it. The Debug link now prints:
+
+```
+ld: warning: __eh_frame section too large (max 16MB) to encode dwarf unwind offsets
+    in compact unwind table, performance of exception handling might be affected
+```
+
+Measured on that binary — `size -m` — `__eh_frame` is **16,859,952 bytes** against a
+16,777,216-byte cap: over by 82 KB, 0.5 %. AOT-compiled functions went 18,168 -> 20,459
+(+12.6 %) in the same change, and every one of them is real generated C++ carrying unwind
+data, so back-computing puts the previous build around 15 MB — under. This change tipped it.
+
+**What it costs is small and specific.** macOS's compact-unwind table stores offsets INTO
+`__eh_frame`; past 16 MiB the offset no longer fits, so affected functions fall back to the
+unwinder parsing DWARF. That is slower only while an exception is being thrown and unwound.
+Not correctness, not normal execution, and Decenza does not throw on any hot path.
+
+**What matters is the direction.** "0 hard skips" means strictly more generated C++, so this
+number only rises, and we hit a hard platform limit at 70.3 % coverage with a quarter of the
+tree still interpreted. Two things worth knowing before anyone panics or acts:
+
+- This is the **Debug** build, with ASan *and* UBSan — `__text` alone is 213 MB. Release has
+  neither and is far smaller, so it very likely sits under the cap. That is expectation, not
+  measurement: **nobody has checked a Release link.** Do that before treating it as a
+  release-affecting problem.
+- If Release ever does cross it, the lever is `-fno-asynchronous-unwind-tables` scoped to the
+  generated QML units. That is a real tradeoff, not a free win, and needs its own
+  justification — do not reach for it on the strength of a warning that costs nothing today.
 
 **Untyped JS functions — was 32 %, now 5 %, and still the best lever.** Of 1,107
 `function` declarations under `qml/`, **54** now carry a return-type annotation and

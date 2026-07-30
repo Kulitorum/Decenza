@@ -347,7 +347,7 @@ Item {
             }
 
             // Profile conversion result dialog
-            Dialog {
+            DecenzaDialog {
                 id: profileConvertResultDialog
                 modal: true
                 dim: true
@@ -499,7 +499,7 @@ Item {
             }
 
             // Import result feedback dialog
-            Dialog {
+            DecenzaDialog {
                 id: importResultDialog
                 modal: true
                 dim: true

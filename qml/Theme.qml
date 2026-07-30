@@ -606,6 +606,18 @@ QtObject {
     // this one state instead of just fixing the underlying contrast problem.
     readonly property real backgroundScrimAlpha: 0.4
 
+    // The dimmer drawn behind a modal dialog. Distinct from backgroundScrimAlpha above,
+    // which is the light "tinted glass" wash over chrome — this one IS a heavy dimmer,
+    // and it is what pushes the page back when a dialog is open.
+    //
+    // The value is Material's, carried over verbatim rather than re-invented, because
+    // that is what every dialog in the app has always drawn: QQuickMaterialStyle::
+    // backgroundDimColor() returns 0x99303030 for the LIGHT theme, and Material's theme
+    // is Light here (nothing sets Material.theme; only main.cpp's QQuickStyle::setStyle
+    // picks the style). Material's Dialog.qml and Popup.qml each declared it as an
+    // Overlay.modal component; DecenzaDialog now declares it once for the whole app.
+    readonly property color dialogDimColor: Qt.rgba(0x30 / 255, 0x30 / 255, 0x30 / 255, 0x99 / 255)
+
     // True when there is a PICTURE behind the chrome — a photo, or the last shot's chart —
     // which is the only case where translucency has anything to show through. The name
     // predates the shot chart and is kept because ~70 call sites read it; what it means is

@@ -217,7 +217,7 @@ LayoutWidgetItem {
     // --- RECIPE PILL POPUP ---
     // Dialog (not Popup) so TalkBack can trap focus inside the pill list —
     // same reasoning as BeansItem's bag pill popup.
-    Dialog {
+    DecenzaDialog {
         id: presetPopup
         modal: true
         dim: false

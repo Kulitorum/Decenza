@@ -694,7 +694,7 @@ Item {
         }
 
     // Delete confirmation popup
-    Dialog {
+    DecenzaDialog {
         id: deleteConfirmPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -789,7 +789,7 @@ Item {
     }
 
     // Submission result popup
-    Dialog {
+    DecenzaDialog {
         id: submitResultPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -948,7 +948,7 @@ Item {
         }
     }
 
-    Dialog {
+    DecenzaDialog {
         id: aiTranslateOfferPopup
         parent: Overlay.overlay
         anchors.centerIn: parent

@@ -18,7 +18,7 @@ Item {
     property int autoSleepMinutes: Settings.value("autoSleepMinutes", 60)
 
     // Dialog to offer clearing video cache when switching away from videos
-    Dialog {
+    DecenzaDialog {
         id: clearCacheDialog
         modal: true
         anchors.centerIn: parent
@@ -125,7 +125,7 @@ Item {
     }
 
     // Dialog to confirm clearing personal media
-    Dialog {
+    DecenzaDialog {
         id: clearPersonalMediaDialog
         modal: true
         anchors.centerIn: parent

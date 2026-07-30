@@ -1768,7 +1768,7 @@ KeyboardAwareContainer {
     }
 
     // Map Test Popup
-    Dialog {
+    DecenzaDialog {
         id: mapTestPopup
         parent: Overlay.overlay
         anchors.centerIn: parent

@@ -327,7 +327,7 @@ T.Page {
     // recipe (recipe-bag-lifecycle "manual re-point"). Selecting a bag only
     // moves the bag link (the recipe's own grind is untouched by construction).
     property var _repointRecipe: null
-    Dialog {
+    DecenzaDialog {
         id: repointPicker
         modal: true
         anchors.centerIn: parent

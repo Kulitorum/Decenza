@@ -863,7 +863,7 @@ T.Page {
 
 
     // Edit vessel preset popup
-    Dialog {
+    DecenzaDialog {
         id: editVesselPopup
         x: (parent.width - width) / 2
         y: editVesselPopup.editVesselPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
@@ -1000,7 +1000,7 @@ T.Page {
     }
 
     // Add vessel dialog
-    Dialog {
+    DecenzaDialog {
         id: addVesselDialog
         x: (parent.width - width) / 2
         y: addVesselDialog.addVesselDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2

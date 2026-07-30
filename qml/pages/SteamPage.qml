@@ -556,7 +556,7 @@ T.Page {
     }
 
     // Post-session warning dialog
-    Dialog {
+    DecenzaDialog {
         id: steamWarningDialog
         property string warningMessage: ""
         title: TranslationManager.translate("steam.warning.title", "Steam Warning")
@@ -2448,7 +2448,7 @@ T.Page {
 
 
     // Edit Pitcher Popup (rename/delete)
-    Dialog {
+    DecenzaDialog {
         id: editPitcherPopup
         x: (parent.width - width) / 2
         y: editPitcherPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
@@ -2587,7 +2587,7 @@ T.Page {
     }
 
     // Add Pitcher Dialog
-    Dialog {
+    DecenzaDialog {
         id: addPitcherDialog
         x: (parent.width - width) / 2
         y: addPitcherDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2
