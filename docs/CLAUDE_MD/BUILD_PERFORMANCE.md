@@ -213,7 +213,12 @@ file unblocked roughly 4,200 call sites elsewhere. This is the 8:1 ratio
 described below, paying off in the direction the ratio predicted. The `FINAL`
 work, by contrast, was worth 429 skips: real, but an order of magnitude smaller.
 
-Grouped by root cause:
+Grouped by root cause. **This breakdown is the post-#1698 sweep and has NOT been
+re-derived since** — #1714 and #1715 both moved the totals (see the coverage block
+above), so read the rows as shape rather than as current counts. The two that
+certainly moved: `unresolved id / model role` shed the 954 id skips #1715 fixed, and
+`untyped function definition` shed the seven `Theme.qml` wrappers #1714 annotated.
+Re-derive before citing a number here; do not hand-adjust these rows.
 
 | Skips | Share | Cause |
 |---|---|---|
@@ -226,18 +231,25 @@ Grouped by root cause:
 | 72 | 0.7 % | shadowable base type (was 574) |
 | **0** | — | **context property** (was 3351 / 19.0 %) |
 
-**Untyped JS functions — was 32 %, now 5 %, and still the best lever.** Of 1,111
-`function` declarations under `qml/`, **46** now carry a return-type annotation and
-**51** a typed parameter (13 and 15 before #1698). qmlcachegen will not compile an
+**Untyped JS functions — was 32 %, now 5 %, and still the best lever.** Of 1,107
+`function` declarations under `qml/`, **54** now carry a return-type annotation and
+**57** a typed parameter (13 and 15 before #1698). qmlcachegen will not compile an
 untyped function, and will not compile a *call* to one either, so definitions poison
 call sites at roughly 8:1. #1698 spent that ratio deliberately: ~32 annotations in
 `Theme.qml` plus 11 in `IdlePage.qml` cut the bucket from 4,681 to 499.
 
-**The remaining 530 untyped definitions are NOT all free to annotate.** Seven in
-`Theme.qml` (`tempUnitSuffix`, `cToDisplay`, …) are unannotated deliberately —
-annotating them made qmlcachegen produce a function returning `undefined` at
-runtime, and the mechanism is unexplained. See the comment at `qml/Theme.qml:406`.
-Annotations also change runtime semantics, not just codegen: a `string` parameter
+**The remaining untyped definitions are NOT all free to annotate — but the most
+cited reason not to was false.** Seven wrappers in `Theme.qml` (`tempUnitSuffix`,
+`cToDisplay`, …) carried a "DO NOT ADD TYPE ANNOTATIONS" ban for a release, on the
+strength of a real runtime failure, and this document repeated it as an unexplained
+qmlcachegen defect. #1714 established there was no defect: the failure was the
+cross-file cache staleness described above — `Theme.qml` recompiled typed while
+every caller's cached unit still called it as `var`. All seven are annotated now.
+See `qml/Theme.qml:413`, which keeps the account so the ban is not reinstated from
+memory. **An unexplained mechanism is a reason to keep investigating, not a reason
+to write a ban into a reference doc.**
+
+Annotations do still change runtime semantics, not just codegen: a `string` parameter
 converts `undefined` to the literal `"undefined"` (`qv4jscall_p.h:337` ->
 `qv4runtime.cpp:618`), which silently defeats an `if (!x) return ""` guard. Optional
 parameters and guarded ones must be `var`, which coerces nothing
