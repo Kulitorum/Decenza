@@ -1586,10 +1586,10 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     // wedge investigation reads (#1309), so they always print. The keepalive is the one that says
     // the same thing every minute for as long as the app runs.
     if (tag == QLatin1String("keepalive")) {
-        int suppressed = 0;
+        LogCollapse::Collapsed collapsed;
         const QString key = QString::number(address, 16);
-        if (m_keepaliveLog.shouldLog(key, msg, QDateTime::currentMSecsSinceEpoch(), &suppressed))
-            MMR_LOG(msg + m_keepaliveLog.suffix(suppressed));
+        if (m_keepaliveLog.shouldLog(key, msg, QDateTime::currentMSecsSinceEpoch(), &collapsed))
+            MMR_LOG(msg + m_keepaliveLog.suffix(collapsed));
     } else {
         MMR_LOG(msg);
     }

@@ -2,6 +2,7 @@
 #include "translationmanager.h"
 #include "settings.h"
 #include "settings_ai.h"
+#include "network/webdebuglogger.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QDirIterator>
@@ -946,22 +947,64 @@ void TranslationManager::applyScanResults(const QList<ScannedString>& found, con
         // So the signal a reader can actually use ("560 of 3,858") stays inline,
         // and the payload moves to a file that is named in the line, which keeps
         // the maintenance use exactly and costs the log one line instead of 561.
-        const QString dumpPath =
-            QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-            + QStringLiteral("/translation-keys-not-in-qml.txt");
-        QString written = QStringLiteral("could not be written");
-        QFile dump(dumpPath);
-        if (dump.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-            QTextStream out(&dump);
-            out << notInQml.join(QLatin1Char('\n')) << '\n';
-            if (dump.flush())
-                written = dumpPath;
+        // BESIDE debug.log, not in AppDataLocation.
+        //
+        // Those are the same directory on desktop and NOT on Android, where
+        // WebDebugLogger asks StorageHelper.getLogsPath() for external storage
+        // precisely so a user can retrieve the file. A dump written to internal
+        // app data on Android is unreachable without adb — it would exist, be
+        // named in the log, and be impossible for the person reading that log to
+        // open. Deriving the directory from the logger that already resolved it
+        // keeps the two in one place rather than duplicating the Android branch.
+        // instance() is null until install() runs, which is true in unit tests and
+        // during very early startup, so the desktop-correct location is the
+        // fallback rather than a crash.
+        QString dumpDir;
+        if (const WebDebugLogger* logger = WebDebugLogger::instance()) {
+            const QString logPath = logger->logFilePath();
+            const qsizetype slash = logPath.lastIndexOf(QLatin1Char('/'));
+            if (slash > 0)
+                dumpDir = logPath.left(slash);
         }
+        if (dumpDir.isEmpty())
+            dumpDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        QDir().mkpath(dumpDir);
+        const QString dumpPath = dumpDir + QStringLiteral("/translation-keys-not-in-qml.txt");
+
+        // QSaveFile, so a failed write leaves the PREVIOUS dump intact. With
+        // Truncate a full disk or a revoked permission destroys the good copy and
+        // replaces it with nothing, at the exact moment someone is trying to read
+        // it. commit() is also the honest success signal: QFile::flush() only
+        // pushes QFile's own buffer, and QTextStream has a separate one on top of
+        // it, so flushing the file while the stream still holds the payload
+        // returns true having written nothing.
+        QString written;
+        QString failure;
+        QSaveFile dump(dumpPath);
+        if (dump.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            {
+                QTextStream out(&dump);
+                out << notInQml.join(QLatin1Char('\n')) << '\n';
+            }  // stream destroyed -> its buffer is in the file's
+            if (dump.commit())
+                written = dumpPath;
+            else
+                failure = dump.errorString();
+        } else {
+            failure = dump.errorString();
+        }
+
+        // Name the path and the reason on failure. "could not be written" with
+        // neither is unactionable: the reader cannot tell a missing directory from
+        // a permission denial from a full disk, and cannot even look for the file.
+        const QString where = written.isEmpty()
+            ? QStringLiteral("could not be written to %1 - %2").arg(dumpPath, failure)
+            : written;
         qDebug().noquote()
             << "TranslationManager:" << notInQml.size() << "of" << m_stringRegistry.size()
             << "registry keys were not found in any QML file. Live C++-registered strings look"
             << "like this too, so this is a candidate list and not garbage — verify before"
-            << "removing any. Full list:" << written;
+            << "removing any. Full list:" << where;
     }
 }
 

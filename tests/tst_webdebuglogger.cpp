@@ -133,15 +133,23 @@ private slots:
         QVERIFY(after[0].timestamp.isEmpty());
     }
 
-    // The line prefix is a WALL CLOCK, not seconds since start.
+    // The line prefix is SECONDS SINCE SESSION START, inside ONE bracket.
     //
-    // Pinned because the whole point is joining a log line to a shot's ISO
-    // timestamp without arithmetic, and because the format is load-bearing for
-    // two parsers: lineLevel() and stripTimestampPrefix() both match "[^]]*"
-    // inside ONE bracket, so a second bracket here would silently break both and
-    // every log already on disk. A future change to this shape should have to
-    // delete a test rather than discover the breakage in a user's log.
-    void handleMessage_prefixesLinesWithWallClockTime()
+    // Both halves are load-bearing and neither was pinned before.
+    //
+    // Elapsed rather than a wall clock, deliberately: this branch tried the swap
+    // and reverted it. A wall clock carries no date, so on the 73-hour session in
+    // the log that motivated the change, "09:04" matched three different days
+    // with nothing on the line to choose between them — it looked like a
+    // zero-arithmetic join and was actually an ambiguous one. Elapsed is
+    // monotone and unambiguous within a session, and the absolute anchor already
+    // exists once per session on the SESSION START marker. It is also 4 bytes per
+    // line cheaper, which is ~5% of the 2 MB cap over a full buffer.
+    //
+    // One bracket, because lineLevel() and stripTimestampPrefix() both match
+    // "[^]]*" inside a single bracket. A second bracket here would silently break
+    // both parsers and every log already on disk.
+    void handleMessage_prefixesLinesWithElapsedSeconds()
     {
         WebDebugLogger logger(logPath());
         logger.handleMessage(QtWarningMsg, QStringLiteral("hello"));
@@ -150,11 +158,11 @@ private slots:
         QVERIFY(!lines.isEmpty());
         const QString line = lines.last();
 
-        // [HH:mm:ss.zzz] LEVEL message — one bracket, 12 chars of time.
-        QRegularExpression shape(QStringLiteral(R"(^\[\d{2}:\d{2}:\d{2}\.\d{3}\] WARN\s+hello$)"));
+        // [ SSSS.mmm] LEVEL message — right-aligned to 8, three decimals.
+        QRegularExpression shape(QStringLiteral(R"(^\[\s*\d+\.\d{3}\] WARN\s+hello$)"));
         QVERIFY2(shape.match(line).hasMatch(), qPrintable("unexpected line shape: " + line));
 
-        // And the shared parsers still read it.
+        // And the shared parsers read it.
         QCOMPARE(McpLogFilter::lineLevel(line), QStringLiteral("WARN"));
         QCOMPARE(McpLogFilter::stripTimestampPrefix(line), QStringLiteral("WARN  hello"));
     }

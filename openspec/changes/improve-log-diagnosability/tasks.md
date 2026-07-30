@@ -1,11 +1,11 @@
 # Tasks
 
-## 1. Make every line placeable in time
+## 1. Make every line placeable in time — ATTEMPTED AND REVERTED
 
-- [x] 1.1 Replace the elapsed-seconds prefix with a wall clock (`[HH:mm:ss.zzz]`) in `WebDebugLogger::handleMessage()`. Keep it inside ONE bracket so `lineLevel()` and `stripTimestampPrefix()` (`mcp/mcplogfilter.h`) are unchanged and logs already on disk still parse.
-- [x] 1.2 Remove `m_timer` (`QElapsedTimer`), now dead, rather than leaving a member nothing reads.
-- [x] 1.3 Update the format comments in `mcplogfilter.h` that name `[<elapsed>]`.
-- [x] 1.4 Add a `tst_webdebuglogger` case pinning the emitted prefix shape, so a future format change has to be deliberate.
+- [x] 1.1 **Wall clock written, then withdrawn.** The prefix stays `[<elapsed>]`. The change replaced it with `[HH:mm:ss.zzz]` on the argument that joining a log line to a shot's ISO timestamp should not cost arithmetic. It does not deliver that: time of day carries no date, and `debug-2.log` — the log used to justify the change — is a single **73.4-hour** session in which `09:04` matches three different days with nothing on the line to disambiguate. The zero-arithmetic join was an ambiguous one. It also cost 4 bytes/line (~5% of the 2 MB cap over a full buffer) and was harder for the maintainer to read. Reverted whole: `webdebuglogger.{h,cpp}` back to `main`, `m_timer` restored, `mcplogfilter.h` comment restored.
+- [x] 1.2 Keep the pinning test, rewritten for the elapsed shape and carrying the reason the wall clock was rejected — so the next person to have this idea reads the outcome before repeating it. It also pins the ONE-BRACKET contract, which was never covered and is what both shared parsers depend on.
+- [x] 1.3 Switch the `linePrefix()` test inputs to the real elapsed format. They were written against the wall clock; `linePrefix()` matches `[^\]]*` so both parse, and test data that does not look like the log is how a parser drifts from what it parses.
+- [ ] 1.4 **Recorded, not done.** If the ISO join is wanted later, the zero-cost shape is for `debug_get_log` to render wall clock ON DEMAND — it already reads the session marker's full ISO start, so absolute time costs nothing on disk and is available when asked for.
 
 ## 2. Tell the reader what it cannot see
 
@@ -19,8 +19,8 @@
 
 - [x] 3.1 `TranslationManager`: the post-scan report joined 560 registry keys into ONE `qDebug()` with embedded newlines — 561 physical lines, only the first carrying a timestamp and level. Count stays inline; the list goes to a file named in the line. Fires for any user who opens the Language settings tab.
 - [x] 3.2 `BatteryManager`: 643 BYTE-IDENTICAL poll lines in one user capture (2.5% of the whole log) — a tablet that sat on the charger. The existing "log every 5th cycle" throttles rate, not redundancy. Now `LogCollapse`, which is silent while nothing changes and immediate when something does.
-- [x] 3.3 `MqttClient`: 1,582 lines across three messages, 527 of them at WARN, for a broker deliberately switched off. `LogCollapse` on all three, keyed on text so a CHANGED reason still warns at once. The one-shot "backing off" warning is untouched — it is the line that says the ladder stopped trying.
-- [x] 3.4 `McpRemoteAccess`: the funnel probe warned through its whole five-attempt grace window, but a healthy start recovers on the third — so a working configuration logged two warnings. DEBUG while the outcome is open; the first WARN is the one that accompanies the Error status and carries the attempt count.
+- [x] 3.3 `MqttClient`: `LogCollapse` on all three retry-ladder messages, keyed on text so a CHANGED reason still warns at once. The one-shot "backing off" warning is untouched — it is the line that says the ladder stopped trying. **Provenance, corrected:** the hundreds-of-WARNs figure is a MAINTAINER's machine with an unreachable broker left configured. A real user's log is the opposite shape — 262 `MqttClient` lines, 5 of them WARN, and the four `TCP/TLS connect failure` ones RECOVERED. The first version of this entry sized the problem from the maintainer's log alone and asserted a cause ("a broker deliberately switched off") the user log does not support; both the entry and the code comment now say which log each number is from.
+- [x] 3.4 **`McpRemoteAccess` — NOT this change.** The funnel-probe demotion (DEBUG while the outcome is open; WARN only at the attempt that accompanies the Error status) landed in #1716, commit `e569107b`, and `src/mcp/mcpremoteaccess.cpp` is untouched on this branch. Recorded rather than deleted because it was verified running on the live build during this session and the observation is easy to mistake for evidence that this PR did it. See 4.4 for the separate `McpRemoteAccess` item that WAS in scope and was dropped.
 - [ ] 3.5 **Not written, deliberately.** `LogCollapse` itself is already covered by `tst_logcollapse` (the decision logic, including that a changed text always emits). Testing the MqttClient wiring means standing up a client and provoking real connection failures, which tests Qt's MQTT stack more than our three call sites. Recorded rather than silently skipped.
 
 ## 4. Group 10, carried from #1716 — validated against a real user log first
@@ -28,8 +28,8 @@
 Four of the seven had a wrong stated symptom, and two were artifacts of one machine. Recorded because the list was written from a single developer's log, and that is exactly what benchmarking against a user's log corrected.
 
 - [x] 4.1 **10.9 `ScaleDevice DISCONNECTED` at WARN.** Half wrong: all eight disconnects in the user log are preceded by a genuine `CONTROLLER ERROR: ConnectionError` and are correctly WARN. The maintainer's log has the opposite — `WebSocket disconnected (expected) — scale power-off` followed immediately by the same line at WARN. A blanket demotion breaks the first, a blanket WARN breaks the second. Tiered on intent instead: `markExpectedDisconnect()`, set by the driver that already computes it.
-- [x] 4.2 **10.4 `BatteryManager` "cycle 1 of 5" never reaching 2.** Not a counter bug. The count is right and the condition is genuinely transient — five separate one-minute blips that each cleared. The real defect was the tier: each blip raised a WARN while the line saying it resolved was DEBUG, so a user saw five power warnings and not one of the five resolutions. Below-threshold is now DEBUG; the resolution is INFO, matching the tier that would have announced it.
-- [x] 4.3 **10.5 unattributed `QIODevice::read (QSslSocket): device not open`.** Not a logging defect — a read-after-close. `UpdateChecker::onDownloadFinished()` guards only against null pointers, then calls `readAll()` unconditionally, including after a `TimeoutError` where Qt has already closed the device. The flush is now guarded on `error() == NoError`; the error branch below already discarded the file.
+- [x] 4.2 **10.4 `BatteryManager` "cycle 1 of 5" never reaching 2.** Not a counter bug. The count is right and the condition is genuinely transient — five separate one-minute blips that each cleared. The real defect was the tier: each blip raised a WARN while the line saying it resolved was DEBUG, so a reader filtered to INFO and above saw five power warnings and not one of the five resolutions. Below-threshold is now DEBUG; the resolution is INFO. **Two corrections to the first version of this entry**: the "five times, 2.5 h apart" observation is from the MAINTAINER's 24-hour capture — the user log has **zero** — and INFO is *not* "matching the tier that announced it", since a WARN-only filter still misses the retraction. INFO is right by audience (a resolution is not a problem) and the WARN-level signal is the ALERT ceasing, which it does every cycle it holds. Both stated plainly in the code now instead of glossed.
+- [x] 4.3 **10.5 unattributed `device not open` — PARTIALLY, and the first version of this entry overclaimed.** One real defect found and fixed: `UpdateChecker::onDownloadFinished()` guarded only against null pointers, then called `readAll()` unconditionally, including after a `TimeoutError` where Qt has already closed the device. Now guarded on `error() == NoError`. But that accounts for the `(QNetworkReplyHttpImpl)` instance ONLY — **1 of 6** in the user log. The other 5 are `(QSslSocket)`, a different cause that `updatechecker.cpp` **already documents 480 lines earlier** (Qt's HTTP/2 `handleConnectionClosure` reading a socket GitHub closed), and the code comment written for this change re-attributed them to our `readAll()` in contradiction of its own file. Comment corrected to state the scope; item 10.5 is NOT resolved.
 - [x] 4.4 **10.6 `McpRemoteAccess` rejections** — ZERO occurrences in the user log. A localhost-MCP artifact of one machine. Dropped from scope rather than "fixed" for nobody.
 - [x] 4.5 **10.8 float noise in payloads** — ZERO occurrences. Same. Dropped.
 - [x] 4.6 **10.7 steam logged from two places** — ZERO steam events in the user log, so unvalidatable. Reading the code, both call sites pass a distinct `reason` and the parameter exists precisely to attribute them, so two lines may be correct. The real question is whether both should fire `setShotSettings` + `writeMMR` (duplicate BLE traffic, #1711) — a behaviour question, not a logging one. Left alone.
@@ -47,20 +47,35 @@ Four of the seven had a wrong stated symptom, and two were artifacts of one mach
 
 - [x] 6.1 Full suite green via Qt Creator (Jeff runs it; QC is shared).
 - [x] 6.2 `scripts/check_log_markers.py` clean.
-- [x] 6.3 Read a live session at `minLevel="INFO"` and confirm the wall clock and the quieter ladders. Done: 18 INFO+ lines for a startup, `[13:05:49.776]` prefixes, and the funnel probe now silent until attempt 5.
+- [x] 6.3 Read a live session at `minLevel="INFO"` and confirm the quieter ladders. Done: 18 INFO+ lines for a whole startup. (The wall-clock prefix was live at that point and has since been reverted — see 1.1 — and the funnel-probe silence observed in the same read belongs to #1716, see 3.4.)
+- [ ] 6.6 Re-read a live session after the review fixes, since the build under 6.3 predates all of §7.
 - [x] 6.4 Run `families=true` against a real log. Done, and it caught the wrong note in 2.4.
 - [ ] 6.5 Re-run `families=true` after a fresh log has accumulated, to confirm the collapsed families actually shrank rather than merely moving.
 
-## 7. Ship
+## 7. Defects found by reviewing this change's own logging
 
-- [ ] 7.1 Open the PR.
-- [ ] 7.2 Run `/pr-review-toolkit:review-pr` and address findings.
-- [ ] 7.3 Archive and sync specs as the final commit on the PR.
-- [ ] 7.4 Squash-merge and delete the branch.
+Four review agents ran against the PR. The recurring finding was not a bug in the mechanisms but **overclaiming in the comments describing them** — the same failure this change is about, committed while fixing it. Recorded individually because "fixed review comments" hides which claims were wrong.
 
-## 8. Recorded, not started
+- [x] 7.1 **`LogCollapse`'s suffix reported the WINDOW, not the elapsed span.** `(+N identical in the last 600 s)` is true only for a source that repeats steadily. For a bursty one the window is a MINIMUM: five repeats over 5 s, silence, then one line an hour later, and the suffix dated the hour-old burst to the last ten minutes. `shouldLog()` now fills a `Collapsed{suppressed, spanMs}` and `suffix()` prints the measured span. Signature change, so all five callers are compiler-checked rather than silently left behind.
+- [x] 7.2 **A recovered MQTT outage never printed its tally.** The collapse ladders stop being called the moment the broker answers, so the pending count sat in the table until the NEXT outage — stapling an old repeat count onto a new first failure. `LogCollapse::flush(key, now)` ends a run; `onInternalConnected()` calls it and, when there were failures, announces the recovery at INFO with the count that was never printed. Previously the outage was WARN and its resolution DEBUG — the same asymmetry as the BatteryManager threshold, in a second subsystem.
+- [x] 7.3 **The `TranslationManager` dump could destroy the previous one and lie about succeeding.** `QFile::flush()` returns true while `QTextStream` still holds the payload, `Truncate` wipes a good dump before a failing write, the directory was never created, and a failure reported neither path nor reason. Now `QSaveFile` + scoped stream + `mkpath`, and the failure text names both.
+- [x] 7.4 **The dump was unreachable on Android.** It used `AppDataLocation` while `debug.log` uses `StorageHelper.getLogsPath()` — so on the primary platform the file existed, was named in the log, and could not be opened without adb. It is now written beside `debug.log`, derived from the logger that already resolved that path rather than duplicating the Android branch.
+- [x] 7.5 **`grindStepForGrinder()`'s cold/empty return logged nothing** — and 0 is exactly the #1713 value. The one path a reader most needs was the silent one, and a derivation line that appears only sometimes reads as the function not having run. Both returns now go through one `reportGrindStep()`.
+- [x] 7.6 **`families=true` could not distinguish an unreadable log from an empty one.** All-zero lists read as "quiet log" — absence looking like evidence, in the tool built to prevent exactly that. An `emptyBecause` field now names the path and which of the three states it is in.
+- [x] 7.7 **`QTest::ignoreMessage` is a permission, not an assertion.** An unmatched pattern is reported by `printUnhandledIgnoreMessages()` as an Info line (`qtbase/src/testlib/qtestlog.cpp:397-419`), never a failure — so all three disconnect-tier tests would have passed if the line were demoted a tier or deleted, which is the only thing they exist to catch. Replaced with a capturing handler that asserts on `QtMsgType`.
+- [x] 7.8 **`families=true` had no test at all**, despite being testable through the existing `installForTesting()` + `registerDebugTools()` fixture that 15 other `debug_get_log` cases already use. Three added: the four-way split, the volume ordering, and the empty-vs-unreadable distinction.
+- [x] 7.9 **Comment claims that were not true**, each corrected in place rather than deleted, since the wrong version is the useful record: the `UpdateChecker` comment re-attributed `(QSslSocket)` warnings to our `readAll()` in contradiction of the same file (see 4.3); `BatteryManager`'s "cycle 1 of 5" was stated as observed in the log this change was benchmarked against, which has **zero** (it is the maintainer's log); the mismatch retraction claimed INFO was "matching the WARN that announced it", which it is not; `scaledevice.h` said two log cases appeared back to back in one capture when they are from two different machines; and `batterymanager.h` kept the "every 5th cycle" comment directly above its replacement.
 
-- [ ] 8.1 The remaining `Class:` families — argued against converting rather than merely deferred. The device story is complete on `main`; the domains where user bugs live have too few lines to mark, and a marker over 26 lines repeats the `[Network]` defect.
-- [ ] 8.2 QML `console.log` lines — still need a QML-side helper that does not exist.
-- [ ] 8.3 **4,406 lines with no prefix at all** (19% of the census) — now the single largest attribution gap, larger than any family except `[Scale]`.
-- [ ] 8.4 A granularity field on `GrinderEntry`. `notation`, `positionsPerRev`, `burrSizeMm` and `variableRpm` do not say how fine a dial goes, which is why 5.3 had to guess twice and stop. It would let the grind fallback and the calibration block both stop inferring.
+## 8. Ship
+
+- [ ] 8.1 Open the PR.
+- [ ] 8.2 Run `/pr-review-toolkit:review-pr` and address findings.
+- [ ] 8.3 Archive and sync specs as the final commit on the PR.
+- [ ] 8.4 Squash-merge and delete the branch.
+
+## 9. Recorded, not started
+
+- [ ] 9.1 The remaining `Class:` families — argued against converting rather than merely deferred. The device story is complete on `main`; the domains where user bugs live have too few lines to mark, and a marker over 26 lines repeats the `[Network]` defect.
+- [ ] 9.2 QML `console.log` lines — still need a QML-side helper that does not exist.
+- [ ] 9.3 **4,406 lines with no prefix at all** (19% of the census) — now the single largest attribution gap, larger than any family except `[Scale]`.
+- [ ] 9.4 A granularity field on `GrinderEntry`. `notation`, `positionsPerRev`, `burrSizeMm` and `variableRpm` do not say how fine a dial goes, which is why 5.3 had to guess twice and stop. It would let the grind fallback and the calibration block both stop inferring.

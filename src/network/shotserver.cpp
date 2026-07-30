@@ -1136,9 +1136,9 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
                           || path == "/api/power/status";
     if (!neverLog) {
         const QString line = QStringLiteral("ShotServer: %1 %2").arg(method, path);
-        int suppressed = 0;
-        if (m_requestLog.shouldLog(line, line, QDateTime::currentMSecsSinceEpoch(), &suppressed))
-            qDebug().noquote() << line + m_requestLog.suffix(suppressed);
+        LogCollapse::Collapsed collapsed;
+        if (m_requestLog.shouldLog(line, line, QDateTime::currentMSecsSinceEpoch(), &collapsed))
+            qDebug().noquote() << line + m_requestLog.suffix(collapsed);
     }
 
     // Auth middleware: when security is enabled, check session before routing

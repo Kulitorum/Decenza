@@ -33,20 +33,20 @@ private slots:
     {
         const QSet<QString> reg = {QStringLiteral("Scale"), QStringLiteral("DE1")};
 
-        const auto marker = linePrefix("[13:05:49.776] INFO  [Scale][BLEManager] connecting", reg);
+        const auto marker = linePrefix("[  57.208] INFO  [Scale][BLEManager] connecting", reg);
         QCOMPARE(marker.kind, PrefixKind::RegisteredMarker);
         QCOMPARE(marker.token, QStringLiteral("Scale"));
 
         // Bracketed but not in the registry — the case the census exists for.
-        const auto bracket = linePrefix("[13:05:49.776] DEBUG [R2-diag] scanForDevices", reg);
+        const auto bracket = linePrefix("[  57.208] DEBUG [R2-diag] scanForDevices", reg);
         QCOMPARE(bracket.kind, PrefixKind::UnregisteredBracket);
         QCOMPARE(bracket.token, QStringLiteral("R2-diag"));
 
-        const auto cls = linePrefix("[13:05:49.776] WARN  MqttClient: Connection failed", reg);
+        const auto cls = linePrefix("[  57.208] WARN  MqttClient: Connection failed", reg);
         QCOMPARE(cls.kind, PrefixKind::ClassPrefix);
         QCOMPARE(cls.token, QStringLiteral("MqttClient"));
 
-        const auto none = linePrefix("[13:05:49.776] DEBUG Simulation mode: ON", reg);
+        const auto none = linePrefix("[  57.208] DEBUG Simulation mode: ON", reg);
         QCOMPARE(none.kind, PrefixKind::None);
         QVERIFY(none.token.isEmpty());
     }
@@ -59,9 +59,9 @@ private slots:
     void linePrefix_toleratesThePaddedLevelField()
     {
         const QSet<QString> reg = {QStringLiteral("Font")};
-        for (const char* line : {"[13:05:49.776] INFO  [Font][Bundled] set",
-                                 "[13:05:49.776] WARN  [Font][Bundled] failed",
-                                 "[13:05:49.776] DEBUG [Font][Probe] probing"}) {
+        for (const char* line : {"[  57.208] INFO  [Font][Bundled] set",
+                                 "[  57.208] WARN  [Font][Bundled] failed",
+                                 "[  57.208] DEBUG [Font][Probe] probing"}) {
             const auto p = linePrefix(QString::fromLatin1(line), reg);
             QCOMPARE(p.kind, PrefixKind::RegisteredMarker);
             QCOMPARE(p.token, QStringLiteral("Font"));
@@ -87,7 +87,7 @@ private slots:
     void linePrefix_doesNotTreatALongerTokenAsRegistered()
     {
         const QSet<QString> reg = {QStringLiteral("Font")};
-        const auto p = linePrefix("[13:05:49.776] DEBUG [FontProbe] U+26A1 would resolve", reg);
+        const auto p = linePrefix("[  57.208] DEBUG [FontProbe] U+26A1 would resolve", reg);
         QCOMPARE(p.kind, PrefixKind::UnregisteredBracket);
         QCOMPARE(p.token, QStringLiteral("FontProbe"));
     }

@@ -45,7 +45,7 @@ inline int levelRank(const QString& level)
 }
 
 // Extracts the level tag from a line in WebDebugLogger's persisted format
-// ("[<HH:mm:ss.zzz>] <LEVEL> <message>", written by handleMessage()). Returns an
+// ("[<elapsed>] <LEVEL> <message>", written by handleMessage()). Returns an
 // empty string for lines with no level tag.
 inline QString lineLevel(const QString& line)
 {
@@ -158,10 +158,16 @@ inline QList<LineMatch> filterLines(const QStringList& lines, qsizetype startLin
     return result;
 }
 
-// Strips a leading "[<HH:mm:ss.zzz>] " field (WebDebugLogger's persisted line
-// format — see lineLevel() above) so two lines that differ only in when they
-// were logged compare equal. Lines with no such prefix (shot debug log lines,
-// session markers) are returned unchanged.
+// Strips a leading "[<elapsed>] " field (WebDebugLogger's persisted line format —
+// see lineLevel() above) so two lines that differ only in when they were logged
+// compare equal. Lines with no such prefix (shot debug log lines, session
+// markers) are returned unchanged.
+//
+// This said "[<HH:mm:ss.zzz>]", which is the CONSOLE pattern
+// (qSetMessagePattern in main.cpp), not the persisted one — two different
+// timestamps for the same message, and only the elapsed one ever reaches here.
+// The regex is "[^]]*" so it worked either way; the comment was the part that
+// misled.
 inline QString stripTimestampPrefix(const QString& line)
 {
     static const QRegularExpression re(QStringLiteral(R"(^\[[^\]]*\]\s*)"));

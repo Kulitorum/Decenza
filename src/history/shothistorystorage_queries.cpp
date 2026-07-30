@@ -1620,14 +1620,61 @@ QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QStri
     return {};
 }
 
+// Say what was derived and from how much, ONCE per (grinder, sample size, answer).
+//
+// This line exists because #1713 could not be diagnosed from the 25,720-line log
+// attached to it: "grind" appeared three times, none of them reporting the step,
+// and the reported symptom (whole numbers only, no 1.2) is entirely a consequence
+// of what grindStepForGrinder() returns. That value is derived from the user's OWN
+// history, so it differs per install and cannot be inferred from the version number
+// — exactly the kind of fact a log has to carry, because nobody can reconstruct it
+// afterwards.
+//
+// One function rather than one call site per return, because grindStepForGrinder()
+// has two ways to answer 0 and they must not describe it in two wordings.
+//
+// Deduped: the caller is a QML binding that re-evaluates on every
+// distinctCacheReady() and grinder change. The answer is what matters, not how
+// often it was asked.
+void ShotHistoryStorage::reportGrindStep(const QString& grinderModel, qsizetype sampleCount,
+                                         double step)
+{
+    const QString observed = QStringLiteral("%1:%2:%3")
+                                 .arg(grinderModel).arg(sampleCount).arg(step);
+    if (m_lastGrindStepReport == observed)
+        return;
+    m_lastGrindStepReport = observed;
+    qDebug().noquote()
+        << QStringLiteral("ShotHistoryStorage: grind step for %1 = %2, derived from %3 "
+                          "distinct numeric setting(s)%4")
+               .arg(grinderModel.isEmpty() ? QStringLiteral("(no grinder)") : grinderModel)
+               .arg(step)
+               .arg(sampleCount)
+               .arg(step > 0.0 ? QString()
+                               : QStringLiteral(" — too thin to derive; the caller's "
+                                                "fallback step is used instead"));
+}
+
 double ShotHistoryStorage::grindStepForGrinder(const QString& grinderModel)
 {
     // Reuse the cache-backed distinct-settings getter (empty model → all
     // grinders). On a cold cache it returns {} and kicks off the async fetch;
     // we return 0 and QML recomputes when distinctCacheReady() fires.
     const QStringList settings = getDistinctGrinderSettingsForGrinder(grinderModel);
-    if (settings.isEmpty())
+    if (settings.isEmpty()) {
+        // Report this return too. It is the SAME answer as the thin-history case
+        // below — 0, the value behind #1713 — and leaving it silent means the one
+        // path a reader most needs to see is the one that says nothing. A log
+        // showing the derivation line only sometimes reads as the function not
+        // having run, when in fact it ran and returned the interesting value.
+        //
+        // Cold cache and genuinely-no-history are deliberately not separated
+        // here: the caller behaves identically for both, and a cold cache
+        // resolves into a second line moments later, which is a clearer signal
+        // than a word this function would have to guess at.
+        reportGrindStep(grinderModel, 0, 0.0);
         return 0.0;
+    }
 
     // Numeric subset only — letter/compound notations don't define a numeric
     // step and are stepped by their own path in the widget.
@@ -1641,34 +1688,7 @@ double ShotHistoryStorage::grindStepForGrinder(const QString& grinderModel)
     QList<double> numeric(numericSet.begin(), numericSet.end());
     std::sort(numeric.begin(), numeric.end());
     const double step = deriveGrindStep(numeric);
-
-    // Say what was derived and from how much, ONCE per (grinder, answer).
-    //
-    // This line exists because #1713 could not be diagnosed from the 25,720-line
-    // log attached to it: "grind" appeared three times, none of them reporting
-    // the step, and the reported symptom (whole numbers only, no 1.2) is
-    // entirely a consequence of what this function returns. That value is
-    // derived from the user's OWN history, so it differs per install and cannot
-    // be inferred from the version number — which is exactly the kind of fact a
-    // log has to carry, because nobody can reconstruct it afterwards.
-    //
-    // Deduped: this is called from a QML binding that re-evaluates on every
-    // distinctCacheReady() and grinder change. The answer is what matters, not
-    // how often it was asked.
-    const QString observed = QStringLiteral("%1:%2:%3")
-                                 .arg(grinderModel).arg(numeric.size()).arg(step);
-    if (m_lastGrindStepReport != observed) {
-        m_lastGrindStepReport = observed;
-        qDebug().noquote()
-            << QStringLiteral("ShotHistoryStorage: grind step for %1 = %2, derived from %3 "
-                              "distinct numeric setting(s)%4")
-                   .arg(grinderModel.isEmpty() ? QStringLiteral("(no grinder)") : grinderModel)
-                   .arg(step)
-                   .arg(numeric.size())
-                   .arg(step > 0.0 ? QString()
-                                   : QStringLiteral(" — too thin to derive; the caller's "
-                                                    "fallback step is used instead"));
-    }
+    reportGrindStep(grinderModel, numeric.size(), step);
     return step;
 }
 

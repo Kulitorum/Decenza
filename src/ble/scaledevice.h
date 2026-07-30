@@ -102,12 +102,16 @@ protected:
     //
     // The base class cannot work this out. Only the driver knows a close was
     // app-initiated — DecentScaleWifi already computes exactly this for its own
-    // "(expected)" wording — and without it every teardown reads WARN. A real
-    // log shows the two cases back to back and indistinguishable at WARN: a
-    // deliberate DE1-sleep close ("Scale shut down: disabled — app-initiated")
-    // and a genuine "CONTROLLER ERROR: ConnectionError". Warning on the first
-    // teaches the reader to skim the tier that means "look here" — which is
-    // the failure this subsystem was audited for.
+    // "(expected)" wording — and without it every teardown reads WARN.
+    //
+    // The two cases came from two DIFFERENT logs, not one (the .cpp says which,
+    // and an earlier version of this comment claimed they appeared back to back
+    // in a single capture, which is not true of either): a user's log has eight
+    // disconnects, every one preceded by a genuine "CONTROLLER ERROR:
+    // ConnectionError", while a maintainer's has a deliberate DE1-sleep close
+    // reported at the same WARN. Indistinguishable at that tier in both. Warning
+    // on the deliberate one teaches the reader to skim the tier that means "look
+    // here" — the failure this subsystem was audited for.
     void markExpectedDisconnect() { m_expectedDisconnect = true; }
     void setWeight(double weight);
     void setFlowRate(double rate);

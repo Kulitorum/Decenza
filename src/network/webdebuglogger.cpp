@@ -56,6 +56,7 @@ WebDebugLogger::WebDebugLogger(QObject* parent)
     : QObject(parent)
     , m_startTime(QDateTime::currentDateTime())
 {
+    m_timer.start();
 
     // Set up log file path — use external storage on Android so logs survive APK updates.
     // Falls back to internal app data if external storage is unavailable.
@@ -92,6 +93,7 @@ WebDebugLogger::WebDebugLogger(const QString& testLogFilePath, QObject* parent)
     : QObject(parent)
     , m_startTime(QDateTime::currentDateTime())
 {
+    m_timer.start();
     m_logFilePath = testLogFilePath;
 }
 
@@ -125,28 +127,9 @@ void WebDebugLogger::handleMessage(QtMsgType type, const QString& message)
     case QtFatalMsg:    category = "FATAL"; break;
     }
 
-    // WALL CLOCK, not seconds-since-start.
-    //
-    // Both are derivable from the other given the session marker, so this is not
-    // about information — it is about which direction costs the reader
-    // arithmetic. Every other record in the app (shots, bags, notes) carries an
-    // ISO timestamp, so the question actually asked of a log is "what happened
-    // during the 09:04 shot". With an elapsed field that means finding the
-    // session marker, parsing its ISO start, and adding an offset to every line
-    // being considered — arithmetic an assistant reading the log does badly and
-    // reports confidently, and the gap is invisible because every line already
-    // LOOKS timestamped. With a wall clock the join is a string comparison.
-    //
-    // The reverse question ("how long after startup") is now the one needing the
-    // session marker, and it is asked far less often.
-    //
-    // Time of day only: the date is on the session marker, and repeating it 21,000
-    // times would cost more of the 2 MB cap than it informs. The single bracket is
-    // deliberate — lineLevel() and stripTimestampPrefix() in mcp/mcplogfilter.h
-    // both match "[^]]*" inside one bracket, so this stays parseable by everything
-    // that already reads the old format, including logs already on disk.
+    double seconds = m_timer.elapsed() / 1000.0;
     QString line = QString("[%1] %2 %3")
-        .arg(QDateTime::currentDateTime().time().toString(QStringLiteral("HH:mm:ss.zzz")))
+        .arg(seconds, 8, 'f', 3)
         .arg(category, -5)
         .arg(message);
 

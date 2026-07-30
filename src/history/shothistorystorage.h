@@ -507,7 +507,9 @@ private:
 
     // Cache for getDistinct*() results (invalidated on save/delete/import)
     QHash<QString, QStringList> m_distinctCache;
-    // Last "<grinder>:<count>:<step>" reported by grindStepForGrinder(), so the
+    // Deduped narration of what grindStepForGrinder() derived — see its definition.
+    void reportGrindStep(const QString& grinderModel, qsizetype sampleCount, double step);
+    // Last "<grinder>:<count>:<step>" passed to reportGrindStep(), so the
     // derivation is logged when it CHANGES rather than on every QML binding
     // re-evaluation. Not a cache — it is only ever compared, never read back.
     QString m_lastGrindStepReport;

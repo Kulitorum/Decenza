@@ -78,6 +78,18 @@ void ScaleDevice::disconnectFromScale() {
         m_controller = nullptr;
     }
 
+    // This method IS the deliberate close — every caller reached it by choosing
+    // to disconnect (DE1 going to sleep, app exit, the user disconnecting in
+    // Settings). Marking here rather than at each call site is what makes the
+    // tier correct for all 13 drivers instead of the one that happened to be
+    // wired first: markExpectedDisconnect() had a single caller in
+    // DecentScaleWifi, so every Bluetooth scale still reported a deliberate
+    // DE1-sleep close as a fault, while this class's own comment claimed
+    // otherwise.
+    //
+    // The destructor path also arrives here, and stays silent regardless —
+    // setConnected() returns early on m_destroying before any logging.
+    markExpectedDisconnect();
     setConnected(false);
 }
 
@@ -90,6 +102,12 @@ void ScaleDevice::setConnected(bool connected) {
             return;
         }
         if (connected) {
+            // Any pending expected-disconnect mark is stale by definition once we
+            // are connected again — it described a close that never happened.
+            // Defence in depth: the drivers now hand the flag over immediately
+            // before the transition, but a mark orphaned by an early return would
+            // otherwise sit until the next drop and downgrade it.
+            m_expectedDisconnect = false;
             // qInfo, not qDebug: this is the canonical "the scale is usable now"
             // line for EVERY driver, so it is the one event a user most needs in
             // the connections view — and the view shows INFO and above. Its

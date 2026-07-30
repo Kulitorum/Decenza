@@ -484,23 +484,34 @@ void DecentScaleWifi::onDisconnected() {
     // attempt to an unreachable scale. This is DEBUG, not INFO: the attempt
     // itself was already announced, and the WARN that follows one line later
     // carries the actual reason, so an INFO here only contradicts it.
+    // Whether THIS close was deliberate. Recorded as a local and handed to the
+    // base class only immediately before setConnected(false), never here.
+    //
+    // Setting the base-class flag at classification time leaked it: the
+    // hostname-fallback branch below returns WITHOUT calling setConnected(false)
+    // (the intermediate disconnect is deliberately not propagated), and the flag
+    // is only consumed by that call. onRecognitionTimeout() sets both
+    // m_userInitiatedShutdown and m_pendingHostnameFallback, so a cached IP that
+    // completes a WebSocket handshake but is not an HDS took exactly that path —
+    // and left the flag set indefinitely, so the NEXT genuine drop (cable pulled,
+    // scale batteries dead) would have logged INFO "(expected)" instead of WARN.
+    // A log-honesty fix that hides real faults is worse than the thing it fixed.
+    bool expectedClose = false;
+
     QString disconnectLog;
     if (!m_wsHandshakeDone) {
         WIFI_LOG(QStringLiteral("Connect attempt ended without a WebSocket handshake"));
         // Fall through to the normal post-disconnect bookkeeping below — the
         // fallback and reconnect paths must still run for a failed connect.
     } else if (!m_lastPowerEventReason.isEmpty()) {
-        // This classification already exists for the wording; tell the base class
-        // too, so its DISCONNECTED line agrees instead of calling the same event
-        // a fault one line later.
-        markExpectedDisconnect();
+        expectedClose = true;
         disconnectLog = QStringLiteral("WebSocket disconnected (expected) — scale power-off: ")
                         + m_lastPowerEventReason;
     } else if (m_socketErrorThisConnect) {
         disconnectLog = QStringLiteral("WebSocket disconnected (unexpected) — transport error: ")
                         + m_lastSocketErrorString;
     } else if (m_userInitiatedShutdown) {
-        markExpectedDisconnect();
+        expectedClose = true;
         disconnectLog = QStringLiteral("WebSocket disconnected (expected)");
     } else {
         const int closeCode = m_socket ? static_cast<int>(m_socket->closeCode()) : -1;
@@ -531,6 +542,8 @@ void DecentScaleWifi::onDisconnected() {
         return;
     }
 
+    if (expectedClose)
+        markExpectedDisconnect();
     setConnected(false);
 
     // Clear per-connect state so the next connect re-captures it fresh.

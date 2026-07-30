@@ -13,6 +13,8 @@
 #include "../network/webdebuglogger.h"
 #include "mcplogfilter.h"
 
+#include <QFile>
+#include <QFileInfo>
 #include <QMap>
 #include <QSet>
 #include <algorithm>
@@ -527,7 +529,30 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                     return out;
                 };
 
-                return QJsonObject{
+                // An empty census has two causes and MUST NOT report them the same
+                // way. "Every list is empty" reads as a quiet log — a reader draws
+                // the conclusion that nothing happened and moves on — when the
+                // actual state may be that the file is missing or unreadable and
+                // NOTHING has been examined. That is the same
+                // absence-looks-like-evidence failure the census exists to fix, so
+                // it would be a poor thing for the census itself to commit.
+                QString emptyReason;
+                if (all.isEmpty()) {
+                    const QString path = logger->logFilePath();
+                    QFile probe(path);
+                    if (!QFileInfo::exists(path))
+                        emptyReason = QStringLiteral("no log file exists at %1 — nothing was "
+                                                     "examined").arg(path);
+                    else if (!probe.open(QIODevice::ReadOnly))
+                        emptyReason = QStringLiteral("log file %1 could not be opened (%2) — "
+                                                     "nothing was examined")
+                                          .arg(path, probe.errorString());
+                    else
+                        emptyReason = QStringLiteral("log file %1 exists and is readable, and "
+                                                     "genuinely holds no lines").arg(path);
+                }
+
+                QJsonObject census{
                     {"linesScanned", static_cast<double>(all.size())},
                     {"registeredMarkers", toArray(reg, QStringLiteral("filter=\"[%1]\""))},
                     {"unregisteredBracketPrefixes",
@@ -547,6 +572,9 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                      "longer occurs — it is evidence about the lines in front of you, not about "
                      "what the code still does."},
                 };
+                if (!emptyReason.isEmpty())
+                    census["emptyBecause"] = emptyReason;
+                return census;
             }
 
             // Mode 1/2: sessions=true or session=N — resolve via the cached index.

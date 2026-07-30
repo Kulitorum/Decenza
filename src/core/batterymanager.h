@@ -182,8 +182,6 @@ private:
     int  m_chargingMismatchCount = 0;
     bool m_chargingMismatch      = false;  // true while mismatch signal is active
 
-    // Throttle the periodic status log to every 5th cycle (~5 min at 60s intervals).
-    // State-change logs (threshold crossings, mismatch alerts) always print immediately.
     // One line per window while the poll result is unchanged; a change emits at
     // once. 15 min: the poll runs every ~60 s and a plugged-in tablet never
     // varies, so the window only decides how often "still the same" is restated.

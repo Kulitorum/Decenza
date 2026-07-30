@@ -400,11 +400,11 @@ void BatteryManager::applySmartCharging() {
                                  .arg(m_discharging ? QStringLiteral("true") : QStringLiteral("false"))
                                  .arg(osStatus)
                                  .arg(osPlugged);
-    int suppressed = 0;
+    LogCollapse::Collapsed collapsed;
     if (m_pollCollapse.shouldLog(QStringLiteral("poll"), pollText,
-                                 QDateTime::currentMSecsSinceEpoch(), &suppressed)) {
+                                 QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
         qDebug().noquote() << QStringLiteral("BatteryManager: ") + pollText
-                                  + m_pollCollapse.suffix(suppressed);
+                                  + m_pollCollapse.suffix(collapsed);
     }
 
     // ── Step 3: send the command to the DE1 ──────────────────────────────────
@@ -469,15 +469,18 @@ void BatteryManager::applySmartCharging() {
                 // DEBUG, not WARN: below the threshold this has NOT yet gone
                 // wrong, and in practice it usually never does.
                 //
-                // A real capture shows "cycle 1 of 5" five times, 2.5 h apart,
-                // never reaching cycle 2 — i.e. five separate one-minute blips
-                // that each cleared by themselves. That reads as a counter bug
-                // and is not one; the count is correct and the condition is
-                // simply transient. What was wrong is the tier: each blip raised
-                // a WARN, while the line saying it resolved was DEBUG. At INFO
-                // and above a user therefore saw five power warnings and not one
-                // of the five resolutions — the alarming half visible, the
-                // reassuring half hidden.
+                // Where the observation comes from, stated precisely because it is
+                // one machine's: a MAINTAINER's 24-hour capture showed "cycle 1 of
+                // 5" five times, ~2.5 h apart, never reaching cycle 2 — five
+                // separate one-minute blips that each cleared by themselves. That
+                // reads as a counter bug and is not one; the count is correct and
+                // the condition is simply transient.
+                //
+                // A user's 25,720-line log has ZERO of these, so the frequency
+                // above is not something to generalise from. What generalises is
+                // the tier error it exposed: each blip raised a WARN while the
+                // line saying it resolved was DEBUG, so the alarming half was
+                // visible at INFO and above and the reassuring half was not.
                 //
                 // The threshold already encodes when this becomes news. Below it,
                 // say so quietly; the escalation below is the event worth a WARN.
@@ -497,9 +500,18 @@ void BatteryManager::applySmartCharging() {
         } else {
             // Charging is working as expected (or we deliberately have the port off).
             if (m_chargingMismatch) {
-                // INFO, matching the WARN that announced it. A fault reported at
-                // one tier and retracted at a quieter one leaves every reader who
-                // filters by tier believing it is still happening.
+                // INFO, up from DEBUG. Not the same tier as the WARN that
+                // announced it, and saying so rather than claiming a match: a
+                // reader filtered to WARN and above still will not see this line.
+                // What they see instead is the ALERT above ceasing — it repeats
+                // every cycle for as long as the mismatch holds, so its stopping
+                // is the WARN-level signal.
+                //
+                // INFO is nonetheless the correct tier by audience: a resolution
+                // is not a problem, and WARN is reserved for things that are. The
+                // defect being fixed is the previous DEBUG, which put the
+                // retraction below the connections view that had shown the user
+                // the fault in the first place.
                 qInfo() << "BatteryManager: Charging mismatch resolved after"
                         << m_chargingMismatchCount << "min";
                 m_chargingMismatch = false;
