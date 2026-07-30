@@ -40,7 +40,7 @@ Tasks 1.1–4.2 are already implemented on branch `fix/equipment-enrichment-no-f
 
 - [x] 6.1 `docs/CLAUDE_MD/MCP_SERVER.md`: `equipment_merge` row, `equipment_update` fork/enrichment wording, `settings` access-level list
 - [x] 6.2 Wiki manual: not needed — the fix removes a behaviour the manual never documented, and merge is an MCP repair tool, not a user-facing feature (maintainer call)
-- [ ] 6.3 Archive this change with `openspec archive fix-equipment-enrichment-fork` as the last commit on the branch
+- [x] 6.3 Archive this change with `openspec archive fix-equipment-enrichment-fork` as the last commit on the branch
 
 ## 7. Deferred — decide before merging
 
