@@ -175,7 +175,9 @@ T.Page {
     // caught well before it reaches SIGBUS territory.
     readonly property real videoRssCeilingMB: MemoryMonitor.instrumentedBuild ? 2000 : 500
     property string pendingVideoSource: ""  // Source queued for next video after decoder teardown
-    property real preDestroyRss: 0  // RSS before MediaPlayer destroy (for delta logging)
+    property real preDestroyRss: 0  // RSS at the last transition line PRINTED (for delta logging)
+    property int videoLoggedRssBucket: -1     // 5 MB bucket the last printed line reported
+    property int videoTransitionsSinceLog: 0  // transitions folded into the next line that speaks
 
     // Track app suspend state to stop rendering when display is off.
     // On Android, the EGL surface is destroyed when the display turns off
@@ -273,11 +275,41 @@ T.Page {
                 // decoded frame's CVPixelBuffer/IOSurface on macOS.
                 videoTransitionCount++
                 var liveRss = MemoryMonitor.liveRssMB()
-                var delta = videoTransitionCount > 1 ? " delta:" + (liveRss - preDestroyRss).toFixed(1) + " MB" : ""
-                console.log("[Screensaver] Video transition #" + videoTransitionCount +
-                            " RSS:" + liveRss.toFixed(1) + " MB" + delta +
-                            " src:" + source.substring(source.lastIndexOf("/") + 1))
-                preDestroyRss = liveRss
+
+                // Speak only when RSS MOVED. This logged every transition, and a
+                // screensaver left running overnight put 176 lines into one session
+                // (and 3,190 across a real tablet's whole 24,000-line buffer — the
+                // single largest subsystem in it) to report that memory was flat.
+                //
+                // Flat is the expected outcome, so it is the one thing not worth
+                // 176 lines. What this exists to catch is the Qt FFmpeg/VideoToolbox
+                // leak, i.e. RSS CLIMBING across transitions, and a 5 MB bucket makes
+                // exactly that case loud while a stable run goes quiet after the
+                // first line. Same shape as MemoryMonitor's own gate
+                // (src/core/memorymonitor.cpp), deliberately: this is the C++
+                // LogCollapse behaviour hand-rolled, because no QML-side helper for
+                // it exists yet. If one is ever added, this is a caller for it.
+                //
+                // The transitions that stayed silent are still counted and reported
+                // on the next line that speaks, so the record never implies the
+                // screensaver stopped cycling.
+                var rssBucket = Math.floor(liveRss / 5)
+                videoTransitionsSinceLog++
+                if (rssBucket !== videoLoggedRssBucket) {
+                    // Delta is measured against the last line PRINTED, not the last
+                    // transition — with intervening lines suppressed, a one-hop delta
+                    // would understate the growth this is looking for.
+                    var delta = videoTransitionCount > 1
+                        ? " delta:" + (liveRss - preDestroyRss).toFixed(1) + " MB" : ""
+                    var folded = videoTransitionsSinceLog > 1
+                        ? " (+" + (videoTransitionsSinceLog - 1) + " transitions at this RSS)" : ""
+                    console.log("[Screensaver] Video transition #" + videoTransitionCount +
+                                " RSS:" + liveRss.toFixed(1) + " MB" + delta + folded +
+                                " src:" + source.substring(source.lastIndexOf("/") + 1))
+                    videoLoggedRssBucket = rssBucket
+                    videoTransitionsSinceLog = 0
+                    preDestroyRss = liveRss
+                }
 
                 // Qt's FFmpeg/VideoToolbox backend leaks ~5-10 MB per video transition
                 // on macOS (CVPixelBufferPool not fully released). Restart the screensaver

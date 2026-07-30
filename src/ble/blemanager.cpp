@@ -450,7 +450,21 @@ void BLEManager::setSettings(SettingsHardware* settings)
     if (observeNow != m_loggedObserveMode) {
         m_loggedObserveMode = observeNow;
         if (observeNow) {
-            SCALE_WARN_STDERR_TAGGED("ConnectionPriority",
+            // INFO, not WARN. This is a SETTING reporting itself, and the tier is
+            // chosen by audience: WARN means something went wrong, and a mode the
+            // user or a developer deliberately persisted did not.
+            //
+            // Found on a real tablet, where it was the ONLY WARN in an otherwise
+            // clean 26-line startup — so the one line at the tier that means "look
+            // here" was the line that had nothing to report. That is precisely how
+            // a reader learns to skim WARN.
+            //
+            // It was also asymmetric with its own else-branch: ENFORCE has always
+            // been INFO. Reporting one arm of a binary setting as a fault and the
+            // other as narrative is the same defect as a WARN whose retraction is
+            // DEBUG. Visibility is unchanged — the connections view shows INFO and
+            // above — and the dedupe above still limits this to once per transition.
+            SCALE_INFO_STDERR_TAGGED("ConnectionPriority",
                 QStringLiteral("Backoff policy mode = OBSERVE (persisted) — "
                     "connection-priority detection runs but takes NO action and "
                     "the scale link is forced HIGH (any latch is overridden, not "
