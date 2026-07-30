@@ -665,7 +665,7 @@ T.Page {
 
 
     // Edit preset popup
-    Dialog {
+    DecenzaDialog {
         id: editPresetPopup
         x: (parent.width - width) / 2
         y: editPresetPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
@@ -790,7 +790,7 @@ T.Page {
     }
 
     // Add preset dialog
-    Dialog {
+    DecenzaDialog {
         id: addPresetDialog
         x: (parent.width - width) / 2
         y: addPresetDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2

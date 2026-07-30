@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Effects
 import Decenza
 
@@ -8,7 +7,7 @@ import Decenza
 // grind guidance). ONE implementation shared by the profile selector, the
 // shot detail / post-shot review pages, and the recipe wizard's profile
 // tiles — call openFor(title), or set profileTitle/content and open().
-Dialog {
+DecenzaDialog {
     id: knowledgeDialog
     anchors.centerIn: parent
     width: Math.min(Theme.scaled(500), parent.width - Theme.scaled(40))

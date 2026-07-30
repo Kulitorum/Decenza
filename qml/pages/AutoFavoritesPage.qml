@@ -533,7 +533,7 @@ T.Page {
     }
 
     // Settings dialog
-    Dialog {
+    DecenzaDialog {
         id: settingsPopup
         parent: Overlay.overlay
         anchors.centerIn: parent

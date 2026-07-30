@@ -75,10 +75,21 @@ private:
     // timing. QTRY_VERIFY spins the event loop (which is what delivers the result
     // callbacks) and fails loudly if the work never completes, instead of
     // continuing regardless the way the sleep did.
-    static void drainDbWork(ShotHistoryStorage& storage) {
+    // Drain, THEN close -- in that order, and only if the drain succeeded.
+    //
+    // The two were previously written as a `drainDbWork(storage); storage.close();` pair at
+    // all 12 call sites. That is a drift opportunity (nothing enforces the order, or that
+    // both are present), and it also mishandles failure: QTRY_VERIFY inside a non-slot
+    // helper returns from the HELPER, so a timed-out drain fell straight through to the
+    // close() it exists to protect, whose warning then became a second, louder failure that
+    // buried the first. Returning early here instead leaves the close to
+    // ~ShotHistoryStorage, which resets the worker (and WAITS) before closing -- so the
+    // teardown is safe even on the failure path.
+    static void drainDbWorkAndClose(ShotHistoryStorage& storage) {
         QTRY_VERIFY(storage.isDbWorkIdle());
         // One more pass for anything the final callback itself posted.
         QCoreApplication::processEvents();
+        storage.close();
     }
 
     // Load a minimal D-Flow profile
@@ -422,8 +433,7 @@ private slots:
         // qWarns "connection is still in use" if background work still holds one —
         // and failOnWarning makes that a failure. Closing first was the original
         // order, with the sleep afterwards hoping the work had already finished.
-        drainDbWork(storage);
-        storage.close();
+        drainDbWorkAndClose(storage);
     }
 
     // equipment_update: a name-only rename must be REPORTED as a success, not
@@ -475,8 +485,7 @@ private slots:
         // qWarns "connection is still in use" if background work still holds one —
         // and failOnWarning makes that a failure. Closing first was the original
         // order, with the sleep afterwards hoping the work had already finished.
-        drainDbWork(storage);
-        storage.close();
+        drainDbWorkAndClose(storage);
     }
 
     // bag_create (add-recipe-wizard-tea): kind stamped at creation, gated in
@@ -531,8 +540,7 @@ private slots:
         // qWarns "connection is still in use" if background work still holds one —
         // and failOnWarning makes that a failure. Closing first was the original
         // order, with the sleep afterwards hoping the work had already finished.
-        drainDbWork(storage);
-        storage.close();
+        drainDbWorkAndClose(storage);
     }
 
     // bag_update kind gate runs on the static path (nullptr bagStorage): tea
@@ -575,8 +583,7 @@ private slots:
         // qWarns "connection is still in use" if background work still holds one —
         // and failOnWarning makes that a failure. Closing first was the original
         // order, with the sleep afterwards hoping the work had already finished.
-        drainDbWork(storage);
-        storage.close();
+        drainDbWorkAndClose(storage);
     }
 
     // The linked-bag case is where the MCP wiring does real work: the tool
@@ -636,8 +643,7 @@ private slots:
         // qWarns "connection is still in use" if background work still holds one —
         // and failOnWarning makes that a failure. Closing first was the original
         // order, with the sleep afterwards hoping the work had already finished.
-        drainDbWork(storage);
-        storage.close();
+        drainDbWorkAndClose(storage);
     }
 
     // ===== recipe_get/set/clear_auto_load (recipe-auto-load) =====
@@ -688,6 +694,7 @@ private slots:
         QCOMPARE(result["recipeId"].toInteger(), recipeId);
         QCOMPARE(result["name"].toString(), QString("Morning Latte"));
         QCOMPARE(result["revertMinutes"].toInt(), 15);
+        drainDbWorkAndClose(storage);
     }
 
     void recipeGetAutoLoadStaleIdReturnsNullNotError()
@@ -705,6 +712,7 @@ private slots:
         QJsonObject result = f.callAsyncTool("recipe_get_auto_load", {});
         QVERIFY(result["recipeId"].isNull());
         QVERIFY(!result.contains("error"));
+        drainDbWorkAndClose(storage);
     }
 
     void recipeGetAutoLoadConfiguredButStorageUnavailableIsError()
@@ -747,6 +755,7 @@ private slots:
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), static_cast<int>(recipeId));
         // Mutual exclusion: setting a recipe auto-load clears the profile side.
         QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QString());
+        drainDbWorkAndClose(storage);
     }
 
     void recipeSetAutoLoadMissingRecipeIdIsError()
@@ -809,6 +818,7 @@ private slots:
         QJsonObject result = f.callAsyncTool("recipe_set_auto_load", args);
         QCOMPARE(result["error"].toString(), QString("Recipe not found: 99999"));
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), before);
+        drainDbWorkAndClose(storage);
     }
 
     void recipeSetAutoLoadArchivedIsError()
@@ -828,6 +838,7 @@ private slots:
         QJsonObject result = f.callAsyncTool("recipe_set_auto_load", args);
         QCOMPARE(result["error"].toString(), QString("Recipe is archived"));
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), before);
+        drainDbWorkAndClose(storage);
     }
 
     void recipeSetAutoLoadOverwritesExistingPin()
@@ -857,6 +868,7 @@ private slots:
         QVERIFY2(resultSecond["success"].toBool(), qPrintable(QJsonDocument(resultSecond).toJson()));
         QCOMPARE(resultSecond["recipeId"].toInteger(), second);
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), static_cast<int>(second));
+        drainDbWorkAndClose(storage);
     }
 
     void recipeSetAutoLoadOptionalRevertMinutesUpdatesSharedSetting()
@@ -878,6 +890,7 @@ private slots:
         QCOMPARE(result["revertMinutes"].toInt(), 33);
         // Shared with the profile side.
         QCOMPARE(f.settings.app()->autoLoadRevertMinutes(), 33);
+        drainDbWorkAndClose(storage);
     }
 
     void recipeClearAutoLoadSuccessPreservesRevertMinutes()

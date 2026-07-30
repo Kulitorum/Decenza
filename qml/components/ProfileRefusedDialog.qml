@@ -17,7 +17,7 @@ import Decenza
 // Driven by ProfileManager.profileRefusedUnreadable. Either key list may be
 // empty (a profile can also be refused for having no steps, or too many), so the
 // detail block hides rather than showing an empty parenthesis.
-Dialog {
+DecenzaDialog {
     id: root
 
     property string profileTitle: ""

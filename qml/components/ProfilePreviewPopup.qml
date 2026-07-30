@@ -8,7 +8,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-Dialog {
+DecenzaDialog {
     id: root
     parent: Overlay.overlay
     x: (parent.width - width) / 2

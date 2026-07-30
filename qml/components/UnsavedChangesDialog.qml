@@ -1,9 +1,8 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-Dialog {
+DecenzaDialog {
     id: root
     anchors.centerIn: parent
     width: Theme.scaled(400)

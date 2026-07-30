@@ -358,8 +358,14 @@ public:
     // Close the database (for factory reset before file deletion)
     void close();
 
-    // True when no background CRUD work is queued, running, or waiting to deliver
-    // its result. False only while something is in flight.
+    // True when no background DB work is queued, running, or waiting to deliver
+    // its result — covering BOTH the FIFO CRUD worker and the one-shot read
+    // threads from runDetachedDbThread(). False only while something is in flight.
+    //
+    // "Waiting to deliver its result" is exact for the CRUD worker. For a detached
+    // read thread it means the thread has finished touching the DB FILE; its
+    // result callback is already posted and m_destroyed guards it. That is the
+    // granularity callers actually need — it is what makes deleting the file safe.
     //
     // For callers that must not continue until the DB work has really finished —
     // a test tearing this object down, a factory reset about to delete the file —
@@ -422,6 +428,16 @@ private:
     // marshals results back to the main thread itself. Heavy one-shot ops
     // (backup/import) deliberately stay on their own threads.
     void runOnDbThread(std::function<void()> task);
+
+    // Run `body` on a one-shot background thread for a read query that does NOT
+    // need the FIFO ordering runOnDbThread() provides (and for the two heavy
+    // one-shot ops, backup and import). The thread deletes itself when it
+    // finishes and is counted, so isDbWorkIdle() covers it.
+    //
+    // ALWAYS spawn through this, never a bare QThread::create — that boilerplate
+    // was hand-copied at eleven sites, none of which was counted, and one of which
+    // had already drifted to calling start() before the deleteLater connect.
+    void runDetachedDbThread(std::function<void()> body);
 
     bool createTables();
     bool runMigrations();
@@ -503,6 +519,11 @@ private:
     // Atomic because the flag is written on the main thread (destructor) and
     // read on background threads (before QMetaObject::invokeMethod).
     std::shared_ptr<std::atomic<bool>> m_destroyed = std::make_shared<std::atomic<bool>>(false);
+
+    // Number of runDetachedDbThread() threads currently touching the DB file.
+    // shared_ptr for the same reason as m_destroyed — a thread may outlive `this`
+    // and still has to decrement. Read by isDbWorkIdle().
+    std::shared_ptr<std::atomic<int>> m_detachedDbThreads = std::make_shared<std::atomic<int>>(0);
 
     // Serializes shot-CRUD background work onto one FIFO worker thread so
     // successive writes to the same shot row apply in submission order

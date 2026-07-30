@@ -19,7 +19,7 @@ import Decenza
 // Descriptions are original but the ratio styles/learning are adapted from
 // La Marzocco Home's article "Brew Ratios Around the World" (credited in the
 // footer).
-Dialog {
+DecenzaDialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent

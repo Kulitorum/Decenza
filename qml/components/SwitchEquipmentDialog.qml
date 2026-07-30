@@ -17,7 +17,7 @@ import Decenza
 //             registry-backed suggestions; rpmCapable is derived in storage)
 // Opening with open() shows the picker; openForCreate()/openForEdit() jump
 // straight to the form.
-Dialog {
+DecenzaDialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent

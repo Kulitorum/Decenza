@@ -385,7 +385,7 @@ T.Page {
     }
 
     // Duplicate dialog
-    Dialog {
+    DecenzaDialog {
         id: duplicateDialog
         anchors.centerIn: parent
         width: Theme.scaled(400)

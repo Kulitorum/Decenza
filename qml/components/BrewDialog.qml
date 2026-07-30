@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
 
-Dialog {
+DecenzaDialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent

@@ -6,13 +6,12 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
 
 // Dialog for selecting espresso extraction view mode: Shot Chart or Cup Fill.
-Dialog {
+DecenzaDialog {
     id: selectorDialog
 
     property string currentMode: "chart"

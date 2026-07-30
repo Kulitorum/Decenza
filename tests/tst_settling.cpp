@@ -31,6 +31,49 @@ private:
         }
     }
 
+    // Feed a stable plateau until the clean-avg capture gate fires, then stop.
+    //
+    // The gate needs SETTLING_CLEAN_CAPTURE_MS (250 ms) of continuous stability,
+    // but the WHOLE loop has to finish inside SETTLING_STABLE_MS (1000 ms) — or the
+    // stability timer completes settling on its own and the post-settling path the
+    // caller exists to test never runs at all.
+    //
+    // Three tests each hand-rolled `for (i < 14 or 15) { sample; qWait(50) }` and
+    // budgeted it in a comment as 700-750 ms against that 1000 ms ceiling. But
+    // QTest::qWait waits AT LEAST its argument: in the parallel ASan/UBSan suite the
+    // 15-iteration one measured **1015 ms**, settling completed by timer, and the test
+    // failed on an unrelated final-weight assertion that said nothing about why. That
+    // is the "timers as guards" anti-pattern CLAUDE.md names by name, living in a test.
+    //
+    // Looping on the CONDITION instead spends the minimum wall time, so it cannot
+    // overshoot by feeding samples nobody needs. The isSawSettling() check is the point of
+    // the helper: if the ceiling is hit anyway, the failure says so instead of surfacing
+    // as a wrong final weight three assertions later.
+    //
+    // TIMING, derived from the constants rather than guessed. The window fills on the 6th
+    // sample (SETTLING_WINDOW_SIZE = 6), which is when the stability clock STARTS; the gate
+    // then needs SETTLING_CLEAN_CAPTURE_MS (250 ms) more, i.e. 5 further samples at 50 ms.
+    // So capture lands on roughly the 11th sample, ~500 ms — against a 1000 ms ceiling.
+    // An earlier version of this comment said "around sample 7, ~350 ms", which was wrong
+    // in the direction that matters: it made the margin look twice as large as it is.
+    //
+    // Hence the cap of 16 rather than 20. Twenty iterations is 1000 ms, exactly
+    // SETTLING_STABLE_MS — a bound sitting precisely on the threshold it exists to stay
+    // under, which is no bound at all. Sixteen leaves ~300 ms of headroom past the ~500 ms
+    // the gate actually needs, and still stops short of the ceiling.
+    void feedPlateauUntilCaptured(ShotTimingController& tc, double grams, double flow) {
+        for (int i = 0; i < 16 && tc.m_lastCleanSettlingAvg <= 0.0; ++i) {
+            tc.onWeightSample(grams, flow);
+            QTest::qWait(50);
+        }
+        QVERIFY2(tc.m_lastCleanSettlingAvg > 0.0,
+                 "Capture gate never fired on the plateau");
+        QVERIFY2(tc.isSawSettling(),
+                 "Settling completed on the stability timer before the plateau loop "
+                 "finished, so the path under test never ran. The machine was too "
+                 "loaded for the loop to stay inside SETTLING_STABLE_MS.");
+    }
+
 private slots:
     void init() { QTest::failOnWarning(); }
 
@@ -354,21 +397,17 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("rejected as scale fault"));
 
-        // Simulate a frozen-scale fault: a long run of identical samples
-        // at 74.8 g (35+ g above stop weight). The gate fires once the
-        // rolling window fills (SETTLING_WINDOW_SIZE = 6) and then
-        // consecutively. We need the post-window-fill cumulative qWait
-        // to exceed SETTLING_CLEAN_CAPTURE_MS (250 ms): 15 samples × 50 ms
-        // = 750 ms total wall time; subtracting the first 6 samples that
-        // fill the window leaves 9 post-fill intervals × 50 ms = 450 ms,
-        // comfortably above the 250 ms capture threshold.
-        for (int i = 0; i < 15; ++i) {
-            tc.onWeightSample(74.8, 0.0);
-            QTest::qWait(50);
-        }
-        // Confirm the capture did happen (we DON'T want to silently rely
-        // on the capture gate having filtered it — the plausibility cap
-        // is the layer being tested).
+        // Simulate a frozen-scale fault: a run of identical samples at 74.8 g
+        // (35+ g above stop weight), held until the capture gate fires.
+        feedPlateauUntilCaptured(tc, 74.8, 0.0);
+        // QVERIFY2 inside a non-slot helper returns from the HELPER, not the test, so
+        // without this the test would keep asserting against state the helper just
+        // reported as bad -- and the failure it printed would be buried under the
+        // downstream one. That is the same diagnosis problem the helper exists to fix.
+        QVERIFY(!QTest::currentTestFailed());
+        // Confirm the capture landed on the GLITCH value (we DON'T want to
+        // silently rely on the capture gate having filtered it — the
+        // plausibility cap is the layer being tested).
         QVERIFY2(tc.m_lastCleanSettlingAvg > 70.0,
                  "Capture gate should have fired on the frozen plateau");
 
@@ -436,17 +475,17 @@ private slots:
         DE1Device device;
         ShotTimingController tc(&device);
 
-        // Shot N: capture a clean avg via the same QTest::qWait pattern
-        // the _1280 plateau test uses.
+        // Shot N: capture a clean avg via the same plateau helper the _1280
+        // test uses.
         tc.startShot();
         tc.onSawTriggered(35.0, 2.5, 36.0);
         tc.endShot();
-        for (int i = 0; i < 14; ++i) {
-            tc.onWeightSample(36.0, 0.5);
-            QTest::qWait(50);
-        }
-        QVERIFY2(tc.m_lastCleanSettlingAvg > 0.0,
-                 "Capture gate should have fired on the plateau");
+        feedPlateauUntilCaptured(tc, 36.0, 0.5);
+        // QVERIFY2 inside a non-slot helper returns from the HELPER, not the test, so
+        // without this the test would keep asserting against state the helper just
+        // reported as bad -- and the failure it printed would be buried under the
+        // downstream one. That is the same diagnosis problem the helper exists to fix.
+        QVERIFY(!QTest::currentTestFailed());
 
         // Starting shot N+1 while shot N is still settling warns that it's
         // cancelling the settling timer and saving the previous shot — exactly
@@ -485,10 +524,12 @@ private slots:
             QRegularExpression("Cup removed during settling"));
 
         // Establish the captured value with a stable plateau.
-        for (int i = 0; i < 14; ++i) {
-            tc.onWeightSample(42.3, 0.5);
-            QTest::qWait(50);
-        }
+        feedPlateauUntilCaptured(tc, 42.3, 0.5);
+        // QVERIFY2 inside a non-slot helper returns from the HELPER, not the test, so
+        // without this the test would keep asserting against state the helper just
+        // reported as bad -- and the failure it printed would be buried under the
+        // downstream one. That is the same diagnosis problem the helper exists to fix.
+        QVERIFY(!QTest::currentTestFailed());
         const double capturedAvg = tc.m_lastCleanSettlingAvg;
         QVERIFY2(capturedAvg > 41.0 && capturedAvg < 43.0,
                  "Plateau should produce a clean avg near 42.3 g");

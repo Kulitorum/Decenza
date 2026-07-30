@@ -1362,6 +1362,7 @@ set(QML_FILES
     qml/components/UnsavedChangesDialog.qml
     qml/components/DatePickerDialog.qml
     qml/components/SwipeableArea.qml
+    qml/components/DecenzaDialog.qml
     qml/components/CrashReportDialog.qml
     qml/components/McpConfirmDialog.qml
     qml/components/De1CommunicationErrorDialog.qml
@@ -1806,6 +1807,75 @@ endif()
 
 # Also add QML files as sources so IDE can find them
 set_property(TARGET Decenza APPEND PROPERTY SOURCES ${QML_FILES})
+
+# ---------------------------------------------------------------------------
+# Cross-file QML cache dependencies
+#
+# qmlcachegen resolves QML-DECLARED types (singletons like Theme, and every
+# component used by name) by READING those files through `-I <builddir>`. It does
+# not declare them as inputs, and it has no --depfile, so it cannot report them
+# either: Qt's own add_custom_command (Qt6QmlMacros.cmake:3864) lists only the
+# file's own source, the .qrc files, Decenza.qmltypes and qmldir.
+#
+# The result is a build that is quietly WRONG rather than merely stale. Editing
+# Theme.qml changes how all ~214 other units should compile and rebuilds none of
+# them; the app then runs on a mixed cache, which is not cosmetic — it produced
+# `Unable to assign [undefined] to QString` at runtime, the exact failure that
+# once got type annotations banned from Theme's temperature wrappers for a
+# release. Until now the only defence was remembering to run
+# `find qml -name '*.qml' -exec touch {} +`, which is not a defence.
+#
+# So: every unit depends on every QML source. Coarse on purpose — the precise
+# graph would mean reimplementing QML type resolution, and getting THAT subtly
+# wrong reintroduces silent staleness, which is the thing being fixed.
+#
+# It is affordable because of `restat = 1` on the cachegen edges. Measured from
+# this project's .ninja_log: qmlcachegen is ~205 ms median per file, while
+# compiling the .cpp it emits is ~3387 ms — 16.5x more. A one-file QML edit now
+# re-runs cachegen on all of them (a few seconds wall, in parallel) and ninja
+# then prunes every unit whose generated .cpp came out byte-identical, so the
+# expensive compile still only happens where the output actually changed.
+#
+# The real fix is `qmlcachegen --depfile` upstream. This is the local stand-in.
+set(_decenza_qml_abs "")
+foreach(_qml_file IN LISTS QML_FILES)
+    get_filename_component(_abs "${_qml_file}" ABSOLUTE)
+    list(APPEND _decenza_qml_abs "${_abs}")
+endforeach()
+
+# Path formula copied from Qt6QmlMacros.cmake:3841-3847 — keep in step with it.
+# `${target}_${relative}` is why the directory is "Decenza_qml/": the "Decenza_"
+# prefix is glued straight onto the leading "qml/" of the relative path.
+set(_decenza_qml_units_wired 0)
+foreach(_qml_file IN LISTS QML_FILES)
+    get_filename_component(_abs "${_qml_file}" ABSOLUTE)
+    file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}" "${_abs}")
+    string(REGEX REPLACE "\\.(js|mjs|qml)$" "_\\1" _compiled "${_rel}")
+    string(REGEX REPLACE "[$#?]+" "_" _compiled "${_compiled}")
+    set(_compiled "${CMAKE_CURRENT_BINARY_DIR}/.rcc/qmlcache/Decenza_${_compiled}.cpp")
+    add_custom_command(OUTPUT "${_compiled}" APPEND DEPENDS ${_decenza_qml_abs})
+    math(EXPR _decenza_qml_units_wired "${_decenza_qml_units_wired} + 1")
+endforeach()
+message(STATUS "QML cross-file cache deps wired for ${_decenza_qml_units_wired} units")
+
+# The gate. NOTE: `add_custom_command(APPEND)` against an OUTPUT that does not match an
+# existing command is a hard configure-time error, NOT a silent no-op — verified by
+# reproduction with this project's CMake 3.30.5. So path drift fails the build by itself,
+# and this target covers the other half: that the accepted dependencies actually reach the
+# generator and cause a rebuild. Exercise it rather than reading the count above:
+#
+#   cmake --build <builddir> --target qml_dep_wiring_check
+#
+# It touches Theme.qml and asserts the generator re-runs cachegen on every unit.
+add_custom_target(qml_dep_wiring_check
+    COMMAND ${CMAKE_COMMAND}
+            -DQML_DIR=${CMAKE_CURRENT_SOURCE_DIR}/qml
+            -DBUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DEXPECTED_UNITS=${_decenza_qml_units_wired}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckQmlDepWiring.cmake
+    VERBATIM
+    USES_TERMINAL
+)
 
 # Android deployment
 if(ANDROID)

@@ -10,7 +10,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-Dialog {
+DecenzaDialog {
     id: popup
 
     property string itemId: ""
@@ -1056,7 +1056,7 @@ Dialog {
     }
 
     // === Color picker popup (deferred via Loader) ===
-    Dialog {
+    DecenzaDialog {
         id: colorPickerPopup
         property string mode: "text"  // "text" or "bg"
         property color initialColor: "#ffffff"

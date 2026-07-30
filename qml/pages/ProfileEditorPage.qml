@@ -417,7 +417,7 @@ T.Page {
     }
 
     // Profile Settings Popup
-    Dialog {
+    DecenzaDialog {
         id: profileSettingsPopup
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -570,7 +570,7 @@ T.Page {
     }
 
     // Limits Popup
-    Dialog {
+    DecenzaDialog {
         id: limitsPopup
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -822,7 +822,7 @@ T.Page {
     } // KeyboardAwareContainer
 
     // Save As dialog - just title input, filename derived automatically
-    Dialog {
+    DecenzaDialog {
         id: saveAsDialog
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -944,7 +944,7 @@ T.Page {
     }
 
     // Overwrite confirmation dialog
-    Dialog {
+    DecenzaDialog {
         id: overwriteDialog
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -1020,7 +1020,7 @@ T.Page {
     }
 
     // Built-in profile name collision dialog
-    Dialog {
+    DecenzaDialog {
         id: builtInNameDialog
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -1079,7 +1079,7 @@ T.Page {
     }
 
     // Save error dialog
-    Dialog {
+    DecenzaDialog {
         id: saveErrorDialog
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -1469,7 +1469,7 @@ T.Page {
     }
 
     // Profile name edit dialog
-    Dialog {
+    DecenzaDialog {
         id: profileNameDialog
         parent: Overlay.overlay
         anchors.centerIn: parent

@@ -172,7 +172,7 @@ Item {
 
     // Confirm wiping the whole custom layout — a single tap is otherwise
     // irreversible.
-    Dialog {
+    DecenzaDialog {
         id: resetConfirm
         anchors.centerIn: Overlay.overlay
         modal: true
@@ -224,7 +224,7 @@ Item {
 
     // Confirm removing a configured widget so a set-up widget isn't lost by an
     // accidental tap.
-    Dialog {
+    DecenzaDialog {
         id: removeConfirm
         anchors.centerIn: Overlay.overlay
         modal: true

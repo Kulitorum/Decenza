@@ -659,7 +659,7 @@ Item {
     }
 
     // Heater Calibration Warning Dialog
-    Dialog {
+    DecenzaDialog {
         id: calibrationWarningDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -720,7 +720,7 @@ Item {
     }
 
     // Heater Calibration Popup
-    Dialog {
+    DecenzaDialog {
         id: calibrationPopup
         parent: Overlay.overlay
         anchors.centerIn: parent

@@ -149,7 +149,7 @@ LayoutWidgetItem {
     // dialog role that screen readers use to trap focus, which `Popup { modal }`
     // alone (already set below) does not provide. header/footer null strip the
     // Dialog chrome so it still renders as the same bare dropdown.
-    Dialog {
+    DecenzaDialog {
         id: presetPopup
         modal: true
         dim: false

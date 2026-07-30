@@ -693,7 +693,7 @@ T.Page {
     } // KeyboardAwareContainer
 
     // === Temperature Steps Dialog ===
-    Dialog {
+    DecenzaDialog {
         id: tempStepsDialog
         anchors.centerIn: parent
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
@@ -844,7 +844,7 @@ T.Page {
     }
 
     // Save error dialog
-    Dialog {
+    DecenzaDialog {
         id: saveErrorDialog
         anchors.centerIn: parent
         width: Theme.scaled(350)
@@ -947,7 +947,7 @@ T.Page {
     }
 
     // Save As dialog
-    Dialog {
+    DecenzaDialog {
         id: saveAsDialog
         anchors.centerIn: parent
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
@@ -1101,7 +1101,7 @@ T.Page {
     }
 
     // Overwrite confirmation dialog
-    Dialog {
+    DecenzaDialog {
         id: overwriteDialog
         anchors.centerIn: parent
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
@@ -1210,7 +1210,7 @@ T.Page {
     }
 
     // Built-in profile name collision dialog
-    Dialog {
+    DecenzaDialog {
         id: builtInNameDialog
         anchors.centerIn: parent
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))

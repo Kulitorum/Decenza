@@ -23,7 +23,7 @@ import Decenza
 //       currentValue: root.text     // highlights matching item
 //       onSelected: function(index, value) { root.selectSuggestion(value) }
 //   }
-Dialog {
+DecenzaDialog {
     id: root
 
     property var options: []        // Array of display strings

@@ -49,7 +49,7 @@ void ShotHistoryStorage::requestDistinctCache()
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, destroyed]() {
+    runDetachedDbThread([this, dbPath, destroyed]() {
         QHash<QString, QStringList> results;
         bool opened = withTempDb(dbPath, "shs_distinct", [&](QSqlDatabase& db) {
             static const QStringList columns = {
@@ -94,8 +94,6 @@ void ShotHistoryStorage::requestDistinctCache()
             }
         }, Qt::QueuedConnection);
     });
-    thread->start();
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
 }
 
 void ShotHistoryStorage::requestDistinctValueAsync(const QString& cacheKey, const QString& sql,
@@ -108,7 +106,7 @@ void ShotHistoryStorage::requestDistinctValueAsync(const QString& cacheKey, cons
     auto destroyed = m_destroyed;
     bool needsGrinderSort = cacheKey.startsWith("grinder_setting");
 
-    QThread* thread = QThread::create([this, dbPath, cacheKey, sql, bindValues, needsGrinderSort, destroyed]() {
+    runDetachedDbThread([this, dbPath, cacheKey, sql, bindValues, needsGrinderSort, destroyed]() {
         QStringList values;
         bool opened = withTempDb(dbPath, "shs_dv", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
@@ -146,8 +144,6 @@ void ShotHistoryStorage::requestDistinctValueAsync(const QString& cacheKey, cons
             emit distinctCacheReady();
         }, Qt::QueuedConnection);
     });
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
@@ -440,7 +436,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
     }
 
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create(
+    runDetachedDbThread(
         [this, dbPath, sql, countSql, bindValues, countBindValues, serial, isAppend, destroyed]() {
             QVariantList results;
             int totalCount = 0;
@@ -513,8 +509,6 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                 Qt::QueuedConnection);
         });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 
@@ -527,7 +521,7 @@ void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, kbId, limit, destroyed]() {
+    runDetachedDbThread([this, dbPath, kbId, limit, destroyed]() {
         QVariantList results;
         withTempDb(dbPath, "shs_kbid", [&](QSqlDatabase& db) {
             results = loadRecentShotsByKbIdStatic(db, kbId, limit);
@@ -543,8 +537,6 @@ void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId)
@@ -660,7 +652,7 @@ void ShotHistoryStorage::requestRankedProfilesForBean(const QString& beanBrand,
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, beanBrand, beanType, roastLevel, teaType, destroyed]() {
+    runDetachedDbThread([this, dbPath, beanBrand, beanType, roastLevel, teaType, destroyed]() {
         QVariantMap result;
         withTempDb(dbPath, "shs_rankedprof", [&](QSqlDatabase& db) {
             result = loadRankedProfilesForBeanStatic(db, beanBrand, beanType, roastLevel, teaType);
@@ -677,8 +669,6 @@ void ShotHistoryStorage::requestRankedProfilesForBean(const QString& beanBrand,
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 QVariantMap ShotHistoryStorage::loadRankedProfilesForBeanStatic(QSqlDatabase& db,
@@ -776,7 +766,7 @@ void ShotHistoryStorage::requestLatestShotForBeanProfile(const QString& beanBran
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, beanBrand, beanType, profileName, destroyed]() {
+    runDetachedDbThread([this, dbPath, beanBrand, beanType, profileName, destroyed]() {
         QVariantMap shot;
         withTempDb(dbPath, "shs_beanprof", [&](QSqlDatabase& db) {
             shot = loadLatestShotForBeanProfileStatic(db, beanBrand, beanType, profileName);
@@ -789,8 +779,6 @@ void ShotHistoryStorage::requestLatestShotForBeanProfile(const QString& beanBran
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 QVariantMap ShotHistoryStorage::loadLatestShotForBeanProfileStatic(QSqlDatabase& db,
@@ -860,7 +848,7 @@ void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, beanBrand, beanType, roastLevel, destroyed]() {
+    runDetachedDbThread([this, dbPath, beanBrand, beanType, roastLevel, destroyed]() {
         QVariantMap grind;
         withTempDb(dbPath, "shs_beangrind", [&](QSqlDatabase& db) {
             grind = loadLatestGrindForBeanStatic(db, beanBrand, beanType, roastLevel);
@@ -879,8 +867,6 @@ void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
@@ -1352,7 +1338,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         "LIMIT %4"
     ).arg(selectColumns, groupColumns, joinConditions).arg(maxItems).arg(yieldCol, bucketCol);
 
-    QThread* thread = QThread::create([this, dbPath, sql, destroyed]() {
+    runDetachedDbThread([this, dbPath, sql, destroyed]() {
         QVariantList results;
         if (!withTempDb(dbPath, "shs_raf", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
@@ -1397,8 +1383,6 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
@@ -1484,7 +1468,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         " AND espresso_notes IS NOT NULL AND espresso_notes != '' "
         "ORDER BY timestamp DESC";
 
-    QThread* thread = QThread::create([this, dbPath, statsSql, notesSql, bindValues, destroyed]() {
+    runDetachedDbThread([this, dbPath, statsSql, notesSql, bindValues, destroyed]() {
         QVariantMap result;
         if (!withTempDb(dbPath, "shs_ragd", [&](QSqlDatabase& db) {
             // Stats query
@@ -1538,8 +1522,6 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 

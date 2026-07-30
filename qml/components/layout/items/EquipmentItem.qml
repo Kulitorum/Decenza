@@ -179,7 +179,7 @@ LayoutWidgetItem {
     // Dialog (not Popup) so TalkBack can trap focus inside the pill list, mirroring
     // BeansItem. modal traps focus; dim:false keeps the dropdown look; header/footer
     // null strip the Dialog chrome.
-    Dialog {
+    DecenzaDialog {
         id: presetPopup
         modal: true
         dim: false

@@ -636,7 +636,7 @@ T.Page {
     } // KeyboardAwareContainer
 
     // Save error dialog
-    Dialog {
+    DecenzaDialog {
         id: saveErrorDialog
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -736,7 +736,7 @@ T.Page {
     }
 
     // Save As dialog
-    Dialog {
+    DecenzaDialog {
         id: saveAsDialog
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -873,7 +873,7 @@ T.Page {
     }
 
     // Overwrite confirmation dialog
-    Dialog {
+    DecenzaDialog {
         id: overwriteDialog
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -950,7 +950,7 @@ T.Page {
     }
 
     // Built-in profile name collision dialog
-    Dialog {
+    DecenzaDialog {
         id: builtInNameDialog
         parent: Overlay.overlay
         x: (parent.width - width) / 2

@@ -5,7 +5,7 @@ import Decenza
 
 // Per-instance editor for the Sleep widget (composable-status-bar): toggle
 // whether long-press quits the app. Persists via Settings.network.setItemProperty.
-Dialog {
+DecenzaDialog {
     id: popup
 
     property string itemId: ""

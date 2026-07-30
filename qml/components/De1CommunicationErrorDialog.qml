@@ -10,7 +10,7 @@ import Decenza
 //
 // Bound to ProfileManager.de1CommunicationFailure. The single OK button
 // calls acknowledgeDe1CommunicationFailure() to clear the flag.
-Dialog {
+DecenzaDialog {
     id: root
     anchors.centerIn: parent
     width: Theme.dialogWidth + 2 * padding

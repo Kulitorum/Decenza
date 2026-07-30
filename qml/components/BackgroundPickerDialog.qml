@@ -22,7 +22,7 @@ import Decenza
 // One selection covers both sections — a preset and an image are mutually exclusive, and
 // the highlighted candidate only updates the live preview. Nothing is saved until
 // "Apply". Modal shell modeled on CustomEditorPopup.qml.
-Dialog {
+DecenzaDialog {
     id: popup
 
     // Currently highlighted candidate — previewed live but not yet saved. Exactly one of

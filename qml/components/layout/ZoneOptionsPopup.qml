@@ -12,7 +12,7 @@ import Decenza
 // and a one-tap "populate from preset". Opened from the layout editor by the
 // zone options button / long-press. Writes via Settings.network.setZoneOption,
 // so the live layout re-renders immediately.
-Dialog {
+DecenzaDialog {
     id: popup
 
     property string zoneName: ""

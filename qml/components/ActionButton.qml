@@ -4,11 +4,13 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Effects
 import Decenza
 
-Button {
+// Templates.Button, not Controls.Button — see the note in AccessibleButton.qml for why a
+// style-composite root costs every binding on this type its AOT compilation.
+T.Button {
     id: control
 
     property string iconSource: ""
@@ -28,15 +30,11 @@ Button {
 
     // Auto-compute text from translation if translationKey is set (reactive to translation changes)
     text: translationKey !== "" ? _computedText : ""
-    readonly property string _computedText: {
-        var _ = TranslationManager.translationVersion  // Trigger re-evaluation
-        return TranslationManager.translate(translationKey, translationFallback)
-    }
+    // No `var _ = TranslationManager.translationVersion` line: `translate` is a Q_PROPERTY
+    // holding a callable, so reading it is itself the binding dependency. See CLAUDE.md.
+    readonly property string _computedText: TranslationManager.translate(control.translationKey, control.translationFallback)
 
-    readonly property string _computedAccessibleDescription: {
-        var _ = TranslationManager.translationVersion
-        return TranslationManager.translate(accessibleDescriptionKey, accessibleDescriptionFallback)
-    }
+    readonly property string _computedAccessibleDescription: TranslationManager.translate(control.accessibleDescriptionKey, control.accessibleDescriptionFallback)
 
     // Track pressed state for visual feedback
     property bool _isPressed: false
@@ -57,6 +55,19 @@ Button {
 
     implicitWidth: Theme.scaled(150)
     implicitHeight: Theme.scaled(120)
+
+    // From qtdeclarative/src/quickcontrols/material/Button.qml — see AccessibleButton.qml.
+    // Both implicit sizes are set explicitly above, so the formulas do not carry over, but
+    // the insets and padding do. The padding is inert here as it happens (the contentItem
+    // is anchored with centerIn, which overrides the geometry the control would assign it)
+    // — restated anyway rather than reasoned away. leftPadding/rightPadding are what
+    // Material.buttonLeftPadding/RightPadding resolve to for this button: not flat, no
+    // icon.source, non-empty text.
+    topInset: 6
+    bottomInset: 6
+    verticalPadding: 14
+    leftPadding: 24
+    rightPadding: 24
 
     contentItem: Column {
         spacing: Theme.scaled(10)

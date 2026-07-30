@@ -33,7 +33,7 @@ import Decenza
 // (NoAutoClose) so a stray tap can't drop a half-made change. In text mode an
 // empty grind or RPM at Done is an EXPLICIT clear — grindPicked("") /
 // rpmPicked("") — and every host applies it, with no exceptions.
-Dialog {
+DecenzaDialog {
     id: root
     parent: Overlay.overlay
     // Explicit x/y instead of anchors.centerIn: a Popup's anchors group has
