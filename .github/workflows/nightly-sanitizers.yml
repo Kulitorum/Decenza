@@ -157,7 +157,18 @@ jobs:
           # override was discarded on every run and the early-exit below was
           # dead code. Written as an implication instead, which has no falsy-B
           # hole.
-          MANUAL: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
+          #
+          # Also NOT a bare `inputs.use_cache` on the workflow_dispatch side.
+          # A manual dispatch via `gh workflow run` / the REST API with no `-f
+          # use_cache=...` sends the input unset, and an unset boolean input
+          # reads as an empty string here — falsy — regardless of the `default:
+          # true` declared below. That default is a UI-form convenience only;
+          # 30502511739 (2026-07-30) built stone cold from exactly this, with
+          # no `-f` on the dispatch. Comparing against the literal string
+          # 'false' means only an EXPLICIT opt-out goes cold; missing, empty,
+          # or 'true' all mean "use the cache" — nightly and every manual
+          # dispatch, unless someone deliberately asks for a cold build.
+          MANUAL: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.use_cache != 'false' }}
           # Must carry the prefix ccache-action puts in front of whatever key it
           # is handed — its own VARIANT name, so `ccache-` here and `sccache-`
           # on the Windows job (visible in the store as
@@ -285,7 +296,13 @@ jobs:
         with:
           key: ${{ env.CACHE_KEY }}
           use_cache: ${{ steps.cachefit.outputs.use_cache }}
-          max-size: 600M
+          # 600M kept this permanently at 100% full (measured 2026-07-29: 0.6/0.6 GB,
+          # 869 cacheable calls, only 56.62% hit rate) — too small for ~870 sanitizer-
+          # instrumented compilation units, which run well past normal object size.
+          # 1.5G per leg (ASan + UBSan can't share — see the matrix comment above) fits
+          # comfortably: repo sat at 6.07/10 GB with this leg's old 0.6G included, so
+          # the extra ~1.8G total is well inside the cap.
+          max-size: 1.5G
 
       # Hash on file CONTENT rather than mtime, so a fresh checkout (every run
       # here) still hits. Mirrors linux-release.yml.
