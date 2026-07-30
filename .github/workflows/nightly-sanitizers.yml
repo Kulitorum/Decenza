@@ -158,16 +158,18 @@ jobs:
           # dead code. Written as an implication instead, which has no falsy-B
           # hole.
           #
-          # Also NOT a bare `inputs.use_cache` on the workflow_dispatch side.
-          # A manual dispatch via `gh workflow run` / the REST API with no `-f
-          # use_cache=...` sends the input unset, and an unset boolean input
-          # reads as an empty string here — falsy — regardless of the `default:
-          # true` declared below. That default is a UI-form convenience only;
-          # 30502511739 (2026-07-30) built stone cold from exactly this, with
-          # no `-f` on the dispatch. Comparing against the literal string
-          # 'false' means only an EXPLICIT opt-out goes cold; missing, empty,
-          # or 'true' all mean "use the cache" — nightly and every manual
-          # dispatch, unless someone deliberately asks for a cold build.
+          # `github.event.inputs.use_cache` rather than the bare `inputs.use_cache`
+          # used before — belt-and-braces, not a fix for an observed bug. Run
+          # 30502511739 (2026-07-30) was checked as the suspected case of a
+          # workflow_dispatch losing the declared `default: true` above when
+          # dispatched with no `-f use_cache=...`: its own step-env dump showed
+          # `MANUAL: true`, so that was never the mechanism — GitHub does apply
+          # the declared default to an omitted input, dispatch or UI alike. That
+          # run went cold from the SPACE-based yield a few lines down (free space
+          # was under CACHE_HEADROOM_MIN_GB at the time), working exactly as
+          # intended. Comparing against the literal string 'false' here is still
+          # the more explicit form — immune to `inputs` ever being empty/absent
+          # for some future trigger type — but it is not what made that run cold.
           MANUAL: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.use_cache != 'false' }}
           # Must carry the prefix ccache-action puts in front of whatever key it
           # is handed — its own VARIANT name, so `ccache-` here and `sccache-`
@@ -299,10 +301,20 @@ jobs:
           # 600M kept this permanently at 100% full (measured 2026-07-29: 0.6/0.6 GB,
           # 869 cacheable calls, only 56.62% hit rate) — too small for ~870 sanitizer-
           # instrumented compilation units, which run well past normal object size.
-          # 1.5G per leg (ASan + UBSan can't share — see the matrix comment above) fits
-          # comfortably: repo sat at 6.07/10 GB with this leg's old 0.6G included, so
-          # the extra ~1.8G total is well inside the cap.
-          max-size: 1.5G
+          #
+          # 800M per leg (ASan + UBSan can't share — see the matrix comment above),
+          # not more: this job's OWN yield threshold above (CACHE_HEADROOM_MIN_GB=2)
+          # is the real constraint, not the 10 GB cap. Measured 2026-07-30: repo at
+          # 7.15/10 GB with the two sanitizer entries at their old ~0.6G each
+          # (1.07G combined) — so non-sanitizer usage is ~6.1G, leaving only ~1.9G of
+          # headroom above the 2G yield floor for BOTH legs combined. At 1.5G/leg
+          # (2.8G combined) or even 1G/leg (2.0G combined) that headroom goes
+          # negative and the very first night both caches fill up, the yield fires,
+          # and it deletes what it's holding to hand the space back — self-defeating.
+          # 800M/leg (1.6G combined) leaves ~300M of real margin instead. Re-check
+          # this arithmetic if CACHE_HEADROOM_MIN_GB or the other caches' baseline
+          # footprint changes.
+          max-size: 800M
 
       # Hash on file CONTENT rather than mtime, so a fresh checkout (every run
       # here) still hits. Mirrors linux-release.yml.
