@@ -84,8 +84,8 @@
       **The gap that hid most of it is now rule 6**: any file including a logging helper must be in a glob set. Its first run caught two files added by this change, then exposed `[Steam]`, `[HW-Tare]`, `[Screensaver]` and `[Theme]`. `[Screensaver]` and `[Theme]` were registered properly (37 sites); `[HW-Tare]` folded into `[SAW]`; `[Steam]`'s four DEBUG lines were rewritten non-marker-shaped rather than minting a marker that would carry only part of its story.
 
       No review comment was posted to the PR: every finding was fixed in the same PR, so a list of resolved issues would be noise.
-- [ ] 9.3 Archive this change (`/opsx:archive`) and sync `openspec/specs/` as the **final commit on this PR**, not a separate one.
-- [ ] 9.4 Squash-merge and delete the branch (`/merge-pr`).
+- [x] 9.3 Archive this change and sync `openspec/specs/` as the **final commit on this PR**, not a separate one. — 9 requirements added, 1 modified, across `device-log-views`, `log-session-boundaries` (new), `log-tagging-convention`, `wifi-scale-discovery`.
+- [x] 9.4 Squash-merge and delete the branch.
 
 ## 10. Recorded but deferred
 
@@ -107,8 +107,8 @@ Kept here so they are decisions rather than oversights.
       **Also accepted:** `m_weightFlowRatePoints` is appended before the filter, so a rejected sample survives in flow-by-weight but not in the weight curve — 36 vs 41 points on shot 1076, and the Visualizer export ships them mismatched. Only reachable on shots whose data you would discard anyway. Judged not worth fixing (Jeff, 2026-07-30).
 
       **The SAW overshoot was not the filter.** SAW reads the scale path, not `ShotDataModel` — its settling trace records 63.9/64.5/64.6 g, the exact samples the filter rejected. Cause is `[SAW-Worker] Flow became valid: … weight=60.61 at "8.6" s`: the flow-validity gate opened after 60.61 g had already passed a 31.79 g threshold. Separate subsystem, separate defect, still open.
-- [ ] 10.2 Decide the fate of ~40 non-device `Class:` prefixes (`SteamPage:` 44 lines/session, `MqttClient:` 30, `ShotDataModel:` 22, `Visualizer:`, `BatteryManager:`, `ShotReporter:`, `ShotHistoryStorage:`, `LocationProvider:`, `WeatherManager:`, …).
-- [ ] 10.3 Decide the fate of bare QML `console.log` lines (`Phase Idle/Ready:`, `FRAME CHANGE:`, `Auto flow cal:`, `Stop overlay:`) — needs a QML-side helper that does not exist.
+- [ ] 10.2 Decide the fate of the non-device `Class:` prefixes — **89 distinct families over ~1,140 lines**, 44 of them with five or more lines each (the original "~40" was only defensible at an unstated five-line cutoff). Biggest: `ShotHistoryStorage:` 190, `ShotServer:` 116, `DatabaseBackupManager:` 62. Previously listed (`SteamPage:` 44 lines/session, `MqttClient:` 30, `ShotDataModel:` 22, `Visualizer:`, `BatteryManager:`, `ShotReporter:`, `ShotHistoryStorage:`, `LocationProvider:`, `WeatherManager:`, …).
+- [ ] 10.3 Decide the fate of bare QML `console.log` lines (`Phase Idle/Ready:`, `SteamPage:`, `Stop overlay:`) — needs a QML-side helper that does not exist. **Two examples originally listed here were wrong**, found while fact-checking the docs: `FRAME CHANGE:` is C++ (`shottimingcontroller.cpp`, now inside a covered glob) and `Auto flow cal:` does not exist anywhere as a log prefix.
 - [ ] 10.4 `BatteryManager`'s "cycle 1 of 5" that never reaches cycle 2 across five firings 2.5 h apart.
 - [ ] 10.5 `QIODevice::read (QSslSocket): device not open` — read after close, unattributed.
 - [ ] 10.6 `McpRemoteAccess: rejected unauthorized request from "127.0.0.1"` — 21 in 8 s, never says what was rejected.
