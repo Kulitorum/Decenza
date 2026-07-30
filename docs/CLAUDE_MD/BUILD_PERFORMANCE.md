@@ -120,11 +120,26 @@ as you like.
 
 This is not theoretical. Adding `: string` to `Theme.tempUnitSuffix()` produced a
 build where `Theme_qml.cpp` called it as a typed QString function and every caller
-still called it as `var`. That mixed state turns out to be benign, but the class is
-not, and it burns investigation time in a nastier way: **you cannot A/B a QML type
-annotation with an incremental build.** Two experiments on the same day produced
-byte-identical generated code for "before" and "after" purely because the staged
-copy already held the "after" text.
+still called it as `var`. It also burns investigation time in a nastier way: **you
+cannot A/B a QML type annotation with an incremental build.** Two experiments on the
+same day produced byte-identical generated code for "before" and "after" purely
+because the staged copy already held the "after" text.
+
+**That mixed state is NOT benign. This document said it was; running the app
+disproved it.** Exercising espresso and steam on a mixed build logged
+
+```
+EspressoPage.qml:882:21:  Unable to assign [undefined] to QString
+SteamGraph.qml:213:13:    Unable to assign [undefined] to QString
+```
+
+both on `text: Theme.tempUnitSuffix()`, in units last generated **before** the
+annotation landed while `Theme_qml.cpp` was generated after it. That is the same
+function and the same message as the original report which got annotations banned
+from those seven wrappers for a release. So the mixed cache does not merely fail to
+prove things — **it reproduces, exactly, the runtime failure that the ban was
+founded on.** The annotations are still fine; the stale cache is the whole defect,
+and it is user-visible, not cosmetic.
 
 **It caught the fix for itself, on the day that fix merged.** Merging #1714 into
 #1715 brought the newly annotated `Theme.qml`; the staged copy and the binary both
