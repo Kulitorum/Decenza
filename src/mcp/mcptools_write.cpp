@@ -2734,7 +2734,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "grinder got split in two — historically, editing a package that had shots always forked a new "
         "one, so recording burrs on a long-used grinder left the history stranded on the retired "
         "package. Either package may already be retired; the surviving target is returned to the "
-        "inventory. DESTRUCTIVE and not undoable: the source's identity is gone afterwards and its "
+        "inventory UNLESS a third package has already replaced it, in which case it stays retired "
+        "(it holds the history either way — check equipment_list rather than assuming the merge "
+        "failed). DESTRUCTIVE and not undoable: the source's identity is gone afterwards and its "
         "shots then report the target's grinder, basket and puck prep — so confirm with the user which "
         "package survives (target) before calling, and only merge packages that describe the SAME "
         "physical gear. Two genuinely different grinders must stay separate.",

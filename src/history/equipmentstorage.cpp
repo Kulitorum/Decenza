@@ -1170,6 +1170,13 @@ EquipmentMergeResult EquipmentStorage::mergePackagesStatic(QSqlDatabase& db, qin
         EQUIP_WARN_STDERR("Merge", QString("merge commit failed: %1").arg(txn.commitError()));
         return EquipmentMergeResult{false, 0, 0, 0, QStringLiteral("sqlFailed")};
     }
+    EQUIP_INFO_STDERR("Merge",
+                      QString("package %1 folded into %2 and deleted - %3 shots, %4 bags, %5 recipes moved")
+                          .arg(sourceId)
+                          .arg(targetId)
+                          .arg(result.shotsMoved)
+                          .arg(result.bagsMoved)
+                          .arg(result.recipesMoved));
     return result;
 }
 
@@ -1290,15 +1297,16 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
         return result;
     }
     result.ok = true;
-    // Logged here, in the shared body, so both entry points report it identically —
-    // the explicit MCP repair and the migration's automatic heal.
-    EQUIP_INFO_STDERR("Merge",
-                      QString("package %1 folded into %2 and deleted - %3 shots, %4 bags, %5 recipes moved")
-                          .arg(sourceId)
-                          .arg(targetId)
-                          .arg(result.shotsMoved)
-                          .arg(result.bagsMoved)
-                          .arg(result.recipesMoved));
+    // DEBUG, and worded as staged rather than done: this body writes inside SOMEONE
+    // ELSE'S transaction and has committed nothing. The outcome line belongs to
+    // whoever commits — mergePackagesStatic below, or migration 35 for the heal.
+    EQUIP_LOG_STDERR("Merge",
+                     QString("staged fold of package %1 into %2 - %3 shots, %4 bags, %5 recipes")
+                         .arg(sourceId)
+                         .arg(targetId)
+                         .arg(result.shotsMoved)
+                         .arg(result.bagsMoved)
+                         .arg(result.recipesMoved));
     return result;
 }
 
@@ -1369,11 +1377,19 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
         }
         while (q.next())
             pairs.append({q.value(0).toLongLong(), q.value(1).toLongLong()});
-        // Release the scan before the merges write. The loop above stepped it to
-        // exhaustion, so this is NOT the DbWriteTxn precondition (that one is about
-        // a SELECT left mid-iteration, and this path opens no transaction of its
-        // own anyway) — it is SQLite refusing a write to a table this same
-        // connection still holds an unfinalized cursor on.
+        // Defensive only, and deliberately not justified by a mechanism. The loop
+        // above steps the scan to exhaustion, and Qt resets the statement itself
+        // the moment sqlite3_step returns SQLITE_DONE
+        // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:326-332), so there
+        // is no live cursor left to block the merges below — QSqlQuery::finish()'s
+        // own documentation says there is normally no need to call it.
+        //
+        // Two WRONG explanations have been attached to this call already: the
+        // DbWriteTxn precondition (which is about a SELECT left mid-iteration, and
+        // this path opens no transaction of its own), and SQLite refusing a write
+        // under an unfinalized cursor (measured against libsqlite3 — it does not).
+        // Kept because it is free and makes the read/write boundary explicit; if
+        // you need it to be load-bearing, find the mechanism first.
         q.finish();
         if (pairs.isEmpty())
             return true;   // nothing left to match — the normal exit
@@ -1403,11 +1419,13 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
                         it.value() = newer;
                 remap->insert(older, newer);
             }
-            EQUIP_INFO_STDERR("Heal",
-                              QString("package %1 was an enrichment fork of %2 (same gear, burrs recorded "
-                                      "on the newer one only) - reuniting them")
-                                  .arg(older)
-                                  .arg(newer));
+            // DEBUG: still inside the migration's transaction, which has not
+            // committed. The INFO outcome is migration 35's post-commit total.
+            EQUIP_LOG_STDERR("Heal",
+                             QString("package %1 is an enrichment fork of %2 (same gear, burrs recorded "
+                                     "on the newer one only) - reuniting them")
+                                 .arg(older)
+                                 .arg(newer));
         }
     }
     // Falling out of the loop with pairs still matching means a chain deeper than
@@ -1606,11 +1624,13 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         } else if (!softDelete(packageId, mergeTarget)) {
             return -1;
         }
-        EQUIP_INFO_STDERR("Identity",
-                          QString("package %1 edit matched existing package %2 - merged into it")
-                              .arg(packageId)
-                              .arg(mergeTarget));
-        return done(mergeTarget);
+        const qint64 mergedId = done(mergeTarget);
+        if (mergedId > 0)
+            EQUIP_INFO_STDERR("Identity",
+                              QString("package %1 edit matched existing package %2 - merged into it")
+                                  .arg(packageId)
+                                  .arg(mergeTarget));
+        return mergedId;
     }
 
     // Edit in place: an unused package (nothing to preserve), or an enrichment on
@@ -1626,15 +1646,22 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
             return -1;
         if (!setPuckPrepItemStatic(db, packageId, puck))
             return -1;
+        // Logged only once the commit has actually landed. done() rolls back and
+        // returns -1 on a failed commit, and a line that states an outcome the
+        // database then discarded is worse than no line — it is the "report a
+        // transition that did not happen" failure mode LOGGING.md names.
+        //
         // Which of the two reasons applies is the whole question when a user asks
         // why their grinder did (or did not) turn into a new one, so the line says
         // it rather than leaving the reader to infer it from the shot count.
-        EQUIP_INFO_STDERR("Identity",
-                          QString("package %1 edit applied in place (%2)")
-                              .arg(packageId)
-                              .arg(enrichment ? QStringLiteral("enrichment - filled in a component that was empty")
-                                              : QStringLiteral("package has no shots")));
-        return done(packageId);
+        const qint64 editedId = done(packageId);
+        if (editedId > 0)
+            EQUIP_INFO_STDERR("Identity",
+                              QString("package %1 edit applied in place (%2)")
+                                  .arg(packageId)
+                                  .arg(enrichment ? QStringLiteral("enrichment - filled in a component that was empty")
+                                                  : QStringLiteral("package has no shots")));
+        return editedId;
     }
 
     // Used package: fork (copy name + last dial), repoint bags, retire the old.
@@ -1657,19 +1684,26 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     // INFO with both ids and what actually changed. Without this line, "the app
     // thinks I have a new grinder" (#1713) leaves no trace at all in a submitted
     // log; with it, one [Equipment] search answers the question.
-    EQUIP_INFO_STDERR("Identity",
-                      QString("package %1 identity CHANGED - forked to package %2 "
-                              "(grinder \"%3 %4\" burrs \"%5\" -> \"%6 %7\" burrs \"%8\"); "
-                              "earlier shots stay on %1")
-                          .arg(packageId)
-                          .arg(newId)
-                          .arg(cur.brand)
-                          .arg(cur.model)
-                          .arg(cur.burrs)
-                          .arg(brand)
-                          .arg(model)
-                          .arg(burrs));
-    return done(newId);
+    const qint64 forkedId = done(newId);
+    if (forkedId > 0) {
+        // ONE multi-arg call, not a chain. Six of these values are free text the
+        // user typed, and chained .arg() fills the lowest-numbered placeholder
+        // remaining ANYWHERE in the string — including inside text a previous
+        // .arg() just substituted. A burrs field containing a literal "%7" would
+        // therefore capture the model, corrupting exactly the before/after
+        // comparison this line exists to record. The multi-arg overload computes
+        // every replacement from the original template in one pass, so a % in a
+        // value is inert. (The ids go through QString::number because that
+        // overload takes QStrings.)
+        EQUIP_INFO_STDERR("Identity",
+                          QString("package %1 identity CHANGED - forked to package %2 "
+                                  "(grinder \"%3 %4\" burrs \"%5\" -> \"%6 %7\" burrs \"%8\"); "
+                                  "earlier shots stay on %1")
+                              .arg(QString::number(packageId), QString::number(newId),
+                                   cur.brand, cur.model, cur.burrs,
+                                   brand, model, burrs));
+    }
+    return forkedId;
 }
 
 bool EquipmentStorage::deriveRpmCapable(const QString& brand, const QString& model)

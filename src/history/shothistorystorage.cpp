@@ -1840,6 +1840,21 @@ bool ShotHistoryStorage::runMigrations()
     if (currentVersion >= 34 && currentVersion < 35) {
         EQUIP_LOG_STDERR("Migration", "35: healing enrichment forks");
 
+        // Release the schema_version read at the top of this function before taking
+        // the write lock. That SELECT ends in LIMIT 1 and is stepped exactly once,
+        // so it never reaches SQLITE_DONE and Qt never resets it
+        // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:326-332 resets only
+        // on SQLITE_DONE or error) — the connection is therefore still inside an
+        // implicit read transaction. DbWriteTxn says so in its PRECONDITION: a
+        // SELECT that returned rows and was not stepped to exhaustion blocks
+        // BEGIN IMMEDIATE, and SQLite skips the busy handler entirely while the
+        // connection sits in one, so the failure is instant and a retry cannot fix
+        // it. The migrations in between only re-exec `query` when they RUN, and on
+        // the common upgrade path (a database already at 34) not one of them does.
+        // The older migrations get away with it because QSqlDatabase::transaction()
+        // is a DEFERRED BEGIN that takes no write lock; this is the first one that
+        // takes the lock up front.
+        query.finish();
         // attempts = 1: this runs on the GUI thread during startup, before any
         // other storage has opened the file, so there is no writer to wait out.
         DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 35 enrichment-fork heal", 1);
@@ -3714,7 +3729,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // map — bags/shots then null their equipment_id, same as before.
             QHash<qint64, qint64> packageIdMap;
             if (!EquipmentStorage::importEquipmentStatic(srcDb, destDb, merge, packageIdMap)) {
-                qWarning() << "ShotHistoryStorage::importDatabaseStatic: Equipment import failed";
+            EQUIP_WARN_STDERR("Import", QStringLiteral("database import failed - equipment packages not imported"));
                 destDb.rollback();
                 goto cleanup;
             }
