@@ -1624,6 +1624,67 @@ private slots:
         QVERIFY2(why.contains(missing), "the cause must name the path that was checked");
     }
 
+    // The census can be scoped to ONE session, and its searchWith strings say so.
+    //
+    // Unscoped it sums every app version that ever wrote to the ring buffer, which
+    // is honest about the file and cannot answer the question that actually gets
+    // asked after a change — "did that subsystem get quieter". The first real use
+    // of this tool on a device wanted exactly that comparison and could not make it.
+    void debugGetLog_familiesCensusCanBeScopedToOneSession() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "\n========== SESSION START: 2026-01-01T09:00:00 ==========\n"
+            "[   0.100] DEBUG [Loud] a\n"
+            "[   0.200] DEBUG [Loud] b\n"
+            "[   0.300] DEBUG [Loud] c\n"
+            "\n========== SESSION START: 2026-01-02T09:00:00 ==========\n"
+            "[   0.100] DEBUG [Loud] a\n"
+            "[   0.200] DEBUG [Quiet] x\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        // Whole file: both sessions summed.
+        const QJsonObject whole =
+            f.callTool("debug_get_log", QJsonObject{{"families", true}});
+        QVERIFY(!whole.contains("session"));
+        const QJsonArray wholeRows = whole["unregisteredBracketPrefixes"].toArray();
+        QCOMPARE(wholeRows[0].toObject()["prefix"].toString(), QStringLiteral("Loud"));
+        QCOMPARE(wholeRows[0].toObject()["lines"].toInt(), 4);
+        QCOMPARE(wholeRows[0].toObject()["searchWith"].toString(),
+                 QStringLiteral("filter=\"[Loud]\""));
+
+        // Most recent session only — the count drops, which is the whole point.
+        const QJsonObject scoped =
+            f.callTool("debug_get_log", QJsonObject{{"families", true}, {"session", -1}});
+        QCOMPARE(scoped["session"].toInt(), 1);
+        const QJsonArray scopedRows = scoped["unregisteredBracketPrefixes"].toArray();
+        QCOMPARE(scopedRows.size(), 2);
+        QCOMPARE(scopedRows[0].toObject()["lines"].toInt(), 1);
+        // Pasteable: a filter that addressed the whole log would hand back counts
+        // from one session and lines from both.
+        QCOMPARE(scopedRows[0].toObject()["searchWith"].toString(),
+                 QStringLiteral("filter=\"[Loud]\", session=1"));
+    }
+
+    // A session index outside the range is an error, not an empty census.
+    void debugGetLog_familiesCensusRejectsABadSessionIndex() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "\n========== SESSION START: 2026-01-01T09:00:00 ==========\n"
+            "[   0.100] DEBUG [Loud] a\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        const QJsonObject r =
+            f.callTool("debug_get_log", QJsonObject{{"families", true}, {"session", 7}});
+        QVERIFY(r.contains("error"));
+        QCOMPARE(r["sessionCount"].toInt(), 1);
+    }
+
     // === QML binding smoke test ===
     // Verifies that ProfileManager properties resolve to real values when
     // registered as a QML context property. Would have caught the 3 QML bugs

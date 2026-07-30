@@ -436,7 +436,9 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                      "The registered markers are the only ones this tool's description names, and "
                      "they are a minority of the log — a subsystem missing from that list is not "
                      "absent from the log, it is just not searchable by marker, and this census "
-                     "is how you find out it exists at all."}
+                     "is how you find out it exists at all. Combine with `session` to census ONE "
+                     "run — unscoped it sums every app version that ever wrote to the ring "
+                     "buffer, which cannot show whether a subsystem got quieter."}
                 }},
                 {"session", QJsonObject{
                     {"type", "integer"},
@@ -500,8 +502,39 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 for (const auto& s : DecenzaLog::subsystems())
                     registered.insert(QString::fromUtf8(s.marker));
 
+                // Honours `session`, because a whole-file census answers the wrong
+                // question after a change. The log is a ring buffer spanning app
+                // versions, so "did that subsystem get quieter" is only answerable
+                // by comparing ONE session against another — and the first real use
+                // of this tool wanted exactly that and could not do it. Without
+                // `session` the census reports the sum of every build that ever
+                // wrote to the file, which is honest about the file and useless for
+                // the comparison.
+                QJsonObject scopeFields;
+                qsizetype scanFrom = 0;
+                qsizetype scanCount = 1000000;
+                if (args.contains("session")) {
+                    qsizetype total = 0;
+                    const QList<WebDebugLogger::SessionBoundary> sessions =
+                        logger->sessionIndex(&total);
+                    qsizetype idx = static_cast<qsizetype>(args["session"].toInt(0));
+                    if (idx < 0)
+                        idx = sessions.size() + idx;
+                    if (idx < 0 || idx >= sessions.size()) {
+                        return QJsonObject{{"error", "Session index out of range"},
+                                           {"sessionCount", static_cast<int>(sessions.size())}};
+                    }
+                    scanFrom = sessions[idx].startLine;
+                    scanCount = sessions[idx].lineCount;
+                    scopeFields["session"] = static_cast<int>(idx);
+                    scopeFields["sessionLines"] = static_cast<int>(scanCount);
+                    if (!sessions[idx].timestamp.isEmpty())
+                        scopeFields["sessionTimestamp"] = sessions[idx].timestamp;
+                }
+
                 qsizetype scanned = 0;
-                const QStringList all = logger->getPersistedLogChunk(0, 1000000, &scanned);
+                const QStringList all =
+                    logger->getPersistedLogChunk(scanFrom, scanCount, &scanned);
                 QMap<QString, int> reg, unreg, cls;
                 int none = 0;
                 for (const QString& l : all) {
@@ -513,7 +546,15 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                     case McpLogFilter::PrefixKind::None:                 ++none;           break;
                     }
                 }
-                const auto toArray = [](const QMap<QString, int>& m, const QString& how) {
+                // Carried into every `searchWith` so the string stays pasteable: a
+                // scoped census whose filters silently addressed the whole log
+                // would hand the reader counts from one session and lines from all
+                // of them.
+                const QString scopeSuffix = scopeFields.contains("session")
+                    ? QStringLiteral(", session=%1").arg(scopeFields["session"].toInt())
+                    : QString();
+
+                const auto toArray = [&scopeSuffix](const QMap<QString, int>& m, const QString& how) {
                     // Descending by line count: the families worth knowing about are
                     // the ones with volume, and an alphabetical list buries them.
                     QList<QPair<int, QString>> rows;
@@ -525,7 +566,7 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                     QJsonArray out;
                     for (const auto& r : rows)
                         out.append(QJsonObject{{"prefix", r.second}, {"lines", r.first},
-                                               {"searchWith", how.arg(r.second)}});
+                                               {"searchWith", how.arg(r.second) + scopeSuffix}});
                     return out;
                 };
 
@@ -537,7 +578,14 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 // absence-looks-like-evidence failure the census exists to fix, so
                 // it would be a poor thing for the census itself to commit.
                 QString emptyReason;
-                if (all.isEmpty()) {
+                if (all.isEmpty() && scopeFields.contains("session")) {
+                    // A scoped census that found nothing says nothing about the
+                    // FILE — the file is plainly readable, since the session index
+                    // came out of it. Running the file probe here would report
+                    // "genuinely holds no lines" about a log with thousands.
+                    emptyReason = QStringLiteral("session %1 contains no lines")
+                                      .arg(scopeFields["session"].toInt());
+                } else if (all.isEmpty()) {
                     const QString path = logger->logFilePath();
                     QFile probe(path);
                     if (!QFileInfo::exists(path))
@@ -566,12 +614,19 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                      "substring over one hand-written prefix, so it may be incomplete where the "
                      "same subsystem logs under more than one spelling. `linesWithNoPrefix` are "
                      "attributable to nothing and can only be found by content. "
-                     "IMPORTANT: this census describes THIS FILE, not the current build. The log "
-                     "is a ring buffer spanning many runs and possibly several app versions, so an "
+                     "IMPORTANT: a census describes LINES, not the current build. The log is a "
+                     "ring buffer spanning many runs and possibly several app versions, so an "
                      "unregistered prefix here may be one that has since been converted and no "
                      "longer occurs — it is evidence about the lines in front of you, not about "
-                     "what the code still does."},
+                     "what the code still does. Pass `session` (e.g. -1) to scope the census to "
+                     "ONE run: an unscoped census sums every build that ever wrote to the file, "
+                     "which cannot answer whether a subsystem got quieter."},
                 };
+                for (auto it = scopeFields.constBegin(); it != scopeFields.constEnd(); ++it)
+                    census[it.key()] = it.value();
+                census["scope"] = scopeFields.contains("session")
+                    ? QStringLiteral("one session")
+                    : QStringLiteral("whole log — pass `session` to scope to a single run");
                 if (!emptyReason.isEmpty())
                     census["emptyBecause"] = emptyReason;
                 return census;

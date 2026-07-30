@@ -78,6 +78,9 @@ private:
     // Collapses the per-sample log line while a plateau holds — see onSampleTimerTick(). Sampling
     // itself is untouched; this only decides whether the sample is worth a line.
     LogCollapse m_logCollapse{10 * 60 * 1000};
+    // RSS as of the last line PRINTED — the anchor the 5 MB band is measured from, so a value
+    // sitting on a fixed bucket edge cannot oscillate across it. Negative until the first line.
+    double m_lastLoggedRssMB = -1.0;
 
     // Per-class QObject tracking
     QHash<QString, int> m_classCounts;          // Current snapshot
