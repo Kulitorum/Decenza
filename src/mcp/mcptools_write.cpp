@@ -249,7 +249,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 QMetaObject::invokeMethod(qApp, [respond, result, shotHistory, shotId, ok,
                                                   visualizerId, vizShot, vizOverrides, settings, visualizerUploader]() mutable {
                     if (ok) {
-                        shotHistory->invalidateDistinctCache();
                         emit shotHistory->shotMetadataUpdated(shotId, true);
                     }
 

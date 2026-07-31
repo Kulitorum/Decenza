@@ -269,10 +269,6 @@ DecenzaDialog {
     // types in the roaster/coffee fields (C++ debounces + caches).
     property var formCanonicalEntries: []
     property string _formCanonicalQuery: ""
-    // Bumped when the shot-history distinct cache refreshes (suggestions
-    // re-evaluate, mirroring BrewDialog's pattern).
-    property int _distinctVersion: 0
-
     function requestFormCanonical(q) {
         // Tea mode: no canonical autosuggest either (coffee-only database).
         if (isTea) {
@@ -291,7 +287,6 @@ DecenzaDialog {
     }
 
     function roasterSuggestions() {
-        var _ = _distinctVersion
         var out = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanBrands().slice() : []
         for (var i = 0; i < formCanonicalEntries.length; i++) {
             var name = formCanonicalEntries[i].roasterName
@@ -301,7 +296,6 @@ DecenzaDialog {
     }
 
     function coffeeSuggestions() {
-        var _ = _distinctVersion
         var out = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanTypesForBrand(fRoaster).slice() : []
         for (var i = 0; i < formCanonicalEntries.length; i++) {
             var entry = formCanonicalEntries[i]
@@ -330,11 +324,6 @@ DecenzaDialog {
             MainController.beanbase.fetchCanonicalDetails(entry)
             return
         }
-    }
-
-    Connections {
-        target: MainController.shotHistory
-        function onDistinctCacheReady() { root._distinctVersion++ }
     }
 
     Connections {

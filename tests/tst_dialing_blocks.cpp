@@ -40,10 +40,10 @@
 
 namespace {
 
-using ShotFixtures::ShotRow;
-using ShotFixtures::withRawDb;
-using ShotFixtures::insertShot;
-using ShotFixtures::projectionForShot;
+using ShotRowFixtures::ShotRow;
+using ShotRowFixtures::withRawDb;
+using ShotRowFixtures::insertShot;
+using ShotRowFixtures::projectionForShot;
 
 
 constexpr qint64 kSecPerDay = 24 * 3600;

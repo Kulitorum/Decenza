@@ -1908,7 +1908,6 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, shotId, success, dbOpened]() {
                 if (*destroyed) return;
                 if (success) {
-                    m_storage->invalidateDistinctCache();
                     emit m_storage->shotMetadataUpdated(shotId, true);
                 }
                 if (!socketGuard) return;
@@ -2002,7 +2001,6 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, deleted, deletedIds, dbOpened]() {
                 if (*destroyed) return;
                 if (deleted > 0) {
-                    m_storage->invalidateDistinctCache();
                     m_storage->refreshTotalShots();
                     for (qint64 id : deletedIds)
                         emit m_storage->shotDeleted(id);

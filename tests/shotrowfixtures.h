@@ -28,7 +28,7 @@
 #include "history/shotprojection.h"
 #include "history/equipmentstorage.h"
 
-namespace ShotFixtures {
+namespace ShotRowFixtures {
 
 // One shot's input fields. Keep this near-identical to ShotSaveData so
 // the parameter list is grep-able from the production save path.
@@ -175,4 +175,49 @@ inline ShotProjection projectionForShot(QSqlDatabase& db, qint64 shotId)
         ShotHistoryStorage::loadShotRecordStatic(db, shotId));
 }
 
-}  // namespace ShotFixtures
+// Schema introspection. Previously hand-copied byte-for-byte into tst_dbmigration
+// and tst_coffeebags; hasIndex existed once and belongs with its siblings.
+inline bool hasColumn(QSqlDatabase& db, const QString& table, const QString& column)
+{
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table)))
+        return false;
+    while (q.next()) {
+        if (q.value(1).toString() == column)
+            return true;
+    }
+    return false;
+}
+
+inline bool hasTable(QSqlDatabase& db, const QString& table)
+{
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("SELECT name FROM sqlite_master WHERE type='table' AND name=?"));
+    q.addBindValue(table);
+    return q.exec() && q.next();
+}
+
+inline bool hasIndex(QSqlDatabase& db, const QString& indexName)
+{
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("SELECT name FROM sqlite_master WHERE type='index' AND name=?"));
+    q.addBindValue(indexName);
+    return q.exec() && q.next();
+}
+
+// Initialize, close, and let background DB work drain.
+//
+// Drains on the real condition (isDbWorkIdle) rather than a fixed sleep. The
+// three hand-copied versions this replaces each spun `20 x msleep(25)` — half a
+// second per call, and a timer standing in for a condition, which CLAUDE.md
+// forbids precisely because it breaks on a slow device.
+inline void initAndCloseStorage(const QString& path, ShotHistoryStorage& storage)
+{
+    // close() resets its m_db handle before removeDatabase, so there is no
+    // "connection still in use" warning to ignore here.
+    QVERIFY(storage.initialize(path));
+    storage.close();
+    QTRY_VERIFY(storage.isDbWorkIdle());
+}
+
+}  // namespace ShotRowFixtures

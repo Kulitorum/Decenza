@@ -36,20 +36,18 @@ QtObject {
     readonly property bool rpmCapable:
         Settings.dye.grinderRpmCapable(root.grinderBrand, root.grinderModel)
 
-    // Bumped when the async distinct-value cache refreshes, so derived steps and
-    // the history fallback re-evaluate once shot history finishes loading.
-    property int distinctCacheVersion: 0
-    readonly property Connections _historyConn: Connections {
-        target: MainController.shotHistory
-        function onDistinctCacheReady() { root.distinctCacheVersion++ }
-    }
-
     // Per-grinder grind step, derived from the user's own shot history for the
     // INJECTED grinder by the same noise-filtered estimator the AI dialing
-    // context uses. Falls back to 1.0 when history is too thin or the cache is
-    // cold. With no grinder, grindStepForGrinder("") derives from full history.
+    // context uses. Falls back to 1.0 when history is too thin. With no grinder,
+    // grindStepForGrinder("") derives from full history.
+    //
+    // These read the database directly and depend only on grinderModel, so each
+    // runs once per grinder per GrindRowSource. They used to also depend on a
+    // distinctCacheVersion counter bumped by distinctCacheReady() — which fired
+    // on every single-key cache fill, re-running both queries across every live
+    // GrindRowSource for an answer that could not have changed. The cache is gone
+    // and so is the counter.
     readonly property double grindStep: {
-        var __ = root.distinctCacheVersion
         var s = MainController.shotHistory
             ? MainController.shotHistory.grindStepForGrinder(root.grinderModel) : 0
         return s > 0 ? s : 1.0
@@ -57,9 +55,11 @@ QtObject {
 
     // RPM step from the injected grinder's observed RPMs; the 50 default keeps
     // adjacent rows a meaningful ~50 RPM apart across the ~600–1400 working
-    // range.
+    // range. Gated on rpmCapable: only rpmRowsFor() reads this, and the picker
+    // only calls that for an RPM grinder, so querying otherwise is pure waste.
     readonly property int rpmStep: {
-        var __ = root.distinctCacheVersion
+        if (!root.rpmCapable)
+            return 50
         var s = MainController.shotHistory
             ? MainController.shotHistory.grindRpmStepForGrinder(root.grinderModel) : 0
         return s > 0 ? Math.round(s) : 50
@@ -321,6 +321,6 @@ QtObject {
     // consume rows reactively, because a rebuild under an open Tumbler resets
     // the view mid-interaction (see GrindPickerDialog's snapshot rationale).
     // Callers take an explicit snapshot via grindRowsFor()/rpmRowsFor() and
-    // rebuild at defined moments, listening to distinctCacheVersion for the
-    // async warm-up.
+    // rebuild at defined moments. Nothing to listen for any more: the getters
+    // read the database directly, so a snapshot is current when it is taken.
 }

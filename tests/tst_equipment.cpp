@@ -15,7 +15,7 @@
 // package CRUD, identity dedup, and the migration-22 data step
 // (add-equipment-packages).
 
-using ShotFixtures::withRawDb;
+using ShotRowFixtures::withRawDb;
 
 // Minimal shots table carrying just the columns the migration reads/writes.
 static void createMinimalShots(QSqlDatabase& db) {

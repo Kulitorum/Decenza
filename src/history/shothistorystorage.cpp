@@ -242,9 +242,6 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     m_ready = true;
     emit readyChanged();
 
-    // Pre-warm the distinct cache on a background thread
-    requestDistinctCache();
-
     qDebug() << "ShotHistoryStorage: Database initialized with" << m_totalShots << "shots";
     return true;
 }
@@ -2186,7 +2183,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 
             if (shotId > 0) {
                 m_lastSavedShotId = shotId;
-                refreshTotalShots();  // already calls invalidateDistinctCache() internally
+                refreshTotalShots();
 
                 qDebug() << "ShotHistoryStorage: Saved shot" << shotId
                          << "- Profile:" << profileName
@@ -3114,7 +3111,7 @@ bool ShotHistoryStorage::deleteShotStatic(QSqlDatabase& db, qint64 shotId)
         return false;
     }
 
-    // Note: no updateTotalShots()/invalidateDistinctCache()/shotDeleted() here.
+    // Note: no updateTotalShots()/shotDeleted() here.
     // This is only called from the import overwrite path, which handles refresh
     // (refreshTotalShots) after the full batch.
     qDebug() << "ShotHistoryStorage: Deleted shot" << shotId;
@@ -3161,7 +3158,6 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
             }
             if (success) {
                 updateTotalShots();
-                invalidateDistinctCache();
                 for (const auto& id : shotIds)
                     emit shotDeleted(id.toLongLong());
                 emit shotsDeleted(shotIds);
@@ -3203,7 +3199,6 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
             }
             if (success) {
                 refreshTotalShots();
-                invalidateDistinctCache();
                 emit shotDeleted(shotId);
                 qDebug() << "ShotHistoryStorage: Async deleted shot" << shotId;
             } else {
@@ -3352,7 +3347,6 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
                 return;
             }
             if (success) {
-                invalidateDistinctCache();
             } else {
                 // User-facing (surfaced as a toast): no internal shot id, no
                 // "metadata" jargon. The id + success are logged at qDebug below.
@@ -3571,7 +3565,6 @@ void ShotHistoryStorage::requestImportDatabase(const QString& filePath, bool mer
             m_importInProgress = false;
             if (success) {
                 refreshTotalShots();
-                invalidateDistinctCache();
             } else {
                 emit errorOccurred("Database import failed. The file may be corrupt or the disk may be full.");
             }
@@ -4408,7 +4401,6 @@ void ShotHistoryStorage::backfillBeverageType()
 void ShotHistoryStorage::refreshTotalShots()
 {
     // Refresh distinct cache asynchronously
-    invalidateDistinctCache();
 
     // Run COUNT query on background thread to avoid blocking the main thread
     QString dbPath = m_dbPath;

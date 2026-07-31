@@ -324,9 +324,6 @@ T.Page {
     TapHandler {
         onTapped: postShotReviewPage.resetAutoCloseTimer()
     }
-    // Incremented when async distinct cache refreshes; referenced in suggestion bindings
-    // to force QML re-evaluation (the >= 0 condition is always true by design)
-    property int _distinctCacheVersion: 0
     // Persisted graph height (like ShotComparisonPage)
     property real graphHeight: Settings.value("postShotReview/graphHeight", Theme.scaled(200))
 
@@ -449,9 +446,6 @@ T.Page {
             // refreshed in place by onUploadSucceededForShot / onUpdateSuccess below.
             if (!success)
                 console.warn("PostShotReviewPage: Failed to save visualizer info for shot", shotId)
-        }
-        function onDistinctCacheReady() {
-            postShotReviewPage._distinctCacheVersion++
         }
     }
 
@@ -1945,7 +1939,7 @@ T.Page {
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
                     text: postShotReviewPage.editBarista
                     suggestions: {
-                        var list = postShotReviewPage._distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                        var list = MainController.shotHistory.getDistinctBaristas()
                         if (postShotReviewPage.editBarista.length > 0 && list.indexOf(postShotReviewPage.editBarista) === -1) list = [postShotReviewPage.editBarista].concat(list)
                         return list
                     }

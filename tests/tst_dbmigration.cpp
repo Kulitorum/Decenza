@@ -26,33 +26,13 @@
 
 // withRawDb / ShotRow / insertShot are shared fixtures — this file used to carry
 // its own near-identical withRawDb, differing only in not asserting the open.
-using ShotFixtures::withRawDb;
-using ShotFixtures::ShotRow;
-using ShotFixtures::insertShot;
+using ShotRowFixtures::withRawDb;
+using ShotRowFixtures::ShotRow;
+using ShotRowFixtures::insertShot;
 
-static bool hasColumn(QSqlDatabase& db, const QString& table, const QString& column) {
-    QSqlQuery q(db);
-    q.exec(QString("PRAGMA table_info(%1)").arg(table));
-    while (q.next()) {
-        if (q.value(1).toString() == column)
-            return true;
-    }
-    return false;
-}
-
-static bool hasTable(QSqlDatabase& db, const QString& table) {
-    QSqlQuery q(db);
-    q.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?");
-    q.addBindValue(table);
-    return q.exec() && q.next();
-}
-
-static bool hasIndex(QSqlDatabase& db, const QString& indexName) {
-    QSqlQuery q(db);
-    q.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name=?");
-    q.addBindValue(indexName);
-    return q.exec() && q.next();
-}
+using ShotRowFixtures::hasColumn;
+using ShotRowFixtures::hasTable;
+using ShotRowFixtures::hasIndex;
 
 static int getSchemaVersion(QSqlDatabase& db) {
     QSqlQuery q(db);
@@ -139,20 +119,9 @@ private:
         return m_tempDir.path() + QString("/test_%1.db").arg(++counter);
     }
 
-    // Run initialize, close, and wait for background threads to finish.
-    // ShotHistoryStorage::initialize() launches requestDistinctCache() on a
-    // background thread. We must let that thread complete its callback before
-    // the ShotHistoryStorage is destroyed, otherwise SIGSEGV.
+    // Run initialize, close, and let background DB work drain.
     void initAndClose(const QString& path, ShotHistoryStorage& storage) {
-        // close() resets its m_db handle before removeDatabase, so there is no
-        // "connection still in use" warning to ignore here.
-        QVERIFY(storage.initialize(path));
-        storage.close();
-        // Give background thread time to finish SQL + deliver callback
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
+        ShotRowFixtures::initAndCloseStorage(path, storage);
     }
 
     // Like initAndClose(), but for an initialize() that is expected to emit a
@@ -162,10 +131,7 @@ private:
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warnRegex));
         QVERIFY(storage.initialize(path));
         storage.close();
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
+        QTRY_VERIFY(storage.isDbWorkIdle());
     }
 
     // Seed `count` settings stepping by 0.25 on one grinder, so deriveGrindStep's
@@ -1066,7 +1032,7 @@ private slots:
             QVERIFY2(!s1.crossedSchemaVersion(25),
                      "a stalled chain must not report crossing 25 either");
             s1.close();
-            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
+            QTRY_VERIFY(s1.isDbWorkIdle());
         }
 
         // Launch two: the fault is one-shot and cleared itself, so the chain
@@ -2009,10 +1975,13 @@ private slots:
     // was then lost: it lived behind a distinct-cache key, an invalidation cleared
     // that key, and the re-fetch racing the next refresh was discarded in silence.
     // The widget sat on its 1.0 fallback for the rest of the session while the AI
-    // payload still reported 0.25 for the same grinder. Reading straight after an
-    // invalidation is exactly that window; it now reads the database instead of a
-    // cache, so there is no key to lose.
-    void grindStepSurvivesInvalidation() {
+    // payload still reported 0.25 for the same grinder.
+    //
+    // The trigger was a data change — every shot save wiped the cache. So that is
+    // what this drives: derive, write a shot, derive again. There is no longer a
+    // cache to invalidate (the method is gone), which is the point; what has to
+    // keep holding is that a write cannot cost the reader its answer.
+    void grindStepSurvivesDataChange() {
         QString path = freshDbPath();
         { ShotHistoryStorage init; initAndClose(path, init); }
         seedQuarterStepHistory(path, QStringLiteral("Zero"), 28);
@@ -2021,8 +1990,51 @@ private slots:
         QVERIFY(s.initialize(path));
         QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
 
-        s.invalidateDistinctCache();
+        // A new shot on the same lattice: the step is unchanged, and a reader that
+        // depended on a cache being refilled would now see 0.
+        withRawDb(path, "step_after_write", [](QSqlDatabase& db) {
+            ShotRow r;
+            r.uuid = QStringLiteral("uuid-after-write");
+            r.timestamp = QDateTime::currentSecsSinceEpoch() + 1;
+            r.profileName = QStringLiteral("p");
+            r.grinderBrand = QStringLiteral("Niche");
+            r.grinderModel = QStringLiteral("Zero");
+            r.grinderSetting = QStringLiteral("9.75");
+            QVERIFY(insertShot(db, r) > 0);
+        });
         QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
+        s.close();
+        QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
+    // The getters read the database, so a write is visible to the very next call
+    // with no signal in between. Before this change they returned a cached list
+    // and the new value appeared only once an async refresh had landed — and for
+    // composite keys like this one, often never.
+    void distinctSettingsSeeWritesImmediately() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage init; initAndClose(path, init); }
+        seedQuarterStepHistory(path, QStringLiteral("Zero"), 6);
+
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        const qsizetype before = s.getDistinctGrinderSettingsForGrinder("Zero").size();
+        QVERIFY(before > 0);
+
+        withRawDb(path, "distinct_after_write", [](QSqlDatabase& db) {
+            ShotRow r;
+            r.uuid = QStringLiteral("uuid-distinct-new");
+            r.timestamp = QDateTime::currentSecsSinceEpoch() + 1;
+            r.profileName = QStringLiteral("p");
+            r.grinderBrand = QStringLiteral("Niche");
+            r.grinderModel = QStringLiteral("Zero");
+            r.grinderSetting = QStringLiteral("42.5");   // not on the seeded lattice
+            QVERIFY(insertShot(db, r) > 0);
+        });
+
+        const QStringList after = s.getDistinctGrinderSettingsForGrinder("Zero");
+        QCOMPARE(after.size(), before + 1);
+        QVERIFY2(after.contains("42.5"), "a live getter must see a write immediately");
         s.close();
         QTRY_VERIFY(s.isDbWorkIdle());
     }

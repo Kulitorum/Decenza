@@ -17,7 +17,7 @@
 // matching helper + migration-29 data pass), and the relink lifecycle
 // (roll-on-finish, wake-on-restock, dup-guard).
 
-using ShotFixtures::withRawDb;
+using ShotRowFixtures::withRawDb;
 
 // Minimal shots table carrying just the columns the recipe queries read
 // (the shot-count aggregate and the delete guard both key on recipe_id).
