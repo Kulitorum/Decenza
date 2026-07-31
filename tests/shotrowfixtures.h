@@ -1,0 +1,173 @@
+#pragma once
+
+// Shared DB fixtures: stand up a real SQLite shot row from a designated
+// initialiser, and run work against a scoped raw connection.
+//
+// Extracted from tst_dialing_blocks.cpp when a second test file needed the same
+// seeding. `withRawDb` had already been copied once (tst_dbmigration.cpp carried
+// a near-identical version that differed only in not asserting the open), which
+// is the drift this collapses — see CLAUDE.md's rule about centralising anything
+// produced at more than one site.
+//
+// Include from a QTest translation unit: withRawDb uses QVERIFY2, and
+// insertShot's failure path emits a qWarning that QTest::failOnWarning() will
+// surface.
+
+#include <QtTest>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
+#include <QVariant>
+
+#include "history/shothistorystorage.h"
+#include "history/shotprojection.h"
+#include "history/equipmentstorage.h"
+
+namespace ShotFixtures {
+
+// One shot's input fields. Keep this near-identical to ShotSaveData so
+// the parameter list is grep-able from the production save path.
+// Every member carries an explicit default initializer, including the QStrings.
+// A bare `QString x;` has no default member initializer, so GCC's
+// -Wmissing-field-initializers (part of -Wextra) fires on every designated
+// initialisation below that omits it — and omitting most fields is the entire
+// point of these fixtures. clang does not warn here, so this only showed up on
+// the Linux build.
+struct ShotRow {
+    QString uuid{};
+    qint64 timestamp = 0;
+    QString profileName{};
+    QString profileKbId{};
+    QString beverageType = QStringLiteral("espresso");
+    double duration = 30.0;
+    double finalWeight = 36.0;
+    double doseWeight = 18.0;
+    QString beanBrand{};
+    QString beanType{};
+    QString roastLevel{};
+    QString grinderBrand{};
+    QString grinderModel{};
+    QString grinderBurrs{};
+    QString grinderSetting{};
+    // Grinder RPM → shots.rpm. 0 by default, which is also what "not
+    // recorded" looks like, so existing fixtures are unaffected and the
+    // adherence comparison skips the field exactly as it does in the wild.
+    qint64 rpm = 0;
+    int enjoyment = 0;
+    QString espressoNotes{};
+    // Issue #1158: profile recipe snapshot + SAW target. Empty/0 by
+    // default so existing fixtures are unaffected (pourControl /
+    // targetWeightG simply stay absent, exactly as before this PR).
+    QString profileJson{};
+    double targetWeight = 0.0;  // → shots.yield_override
+    // #1164 finding #3: per-shot temperature override → shots
+    // .temperature_override. 0 by default so existing fixtures are
+    // unaffected (the field stays absent / hoist-neutral, as before).
+    double temperatureOverride = 0.0;
+    // #1161: why the shot ended → shots.stopped_by. "" by default so
+    // existing fixtures are unaffected (sparse-omitted from the blocks).
+    QString stoppedBy{};
+    // Bean storage lifecycle snapshot (bean-freshness-followup) → shots
+    // frozen_date/defrost_date/storage_hint/opened_date. "" by default so
+    // existing fixtures are unaffected (sparse-omitted from the blocks).
+    QString frozenDate{};
+    QString defrostDate{};
+    QString storageHint{};
+    QString openedDate{};
+};
+
+// Run work with a scoped raw SQLite connection on `path`. The connection is
+// removed deterministically when `work` returns so Qt does not warn about open
+// connections.
+template<typename Work>
+void withRawDb(const QString& path, const QString& connName, Work&& work)
+{
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connName);
+        db.setDatabaseName(path);
+        QVERIFY2(db.open(), qPrintable(db.lastError().text()));
+        QSqlQuery (db).exec(QStringLiteral("PRAGMA foreign_keys = ON"));
+        work(db);
+    }
+    QSqlDatabase::removeDatabase(connName);
+}
+
+inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
+{
+    // Grinder identity is no longer a per-shot column (migration 23) — it
+    // resolves through equipment_id to a package's grinder item. Mirror the
+    // production save path: find-or-create a package for this row's grinder
+    // identity and link the shot to it. The per-shot grind setting stays on the
+    // row. An empty identity leaves equipment_id NULL.
+    qint64 equipmentId = 0;
+    if (!(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty() && r.grinderBurrs.isEmpty())) {
+        equipmentId = EquipmentStorage::findPackageByGrinderIdentityStatic(
+            db, r.grinderBrand, r.grinderModel, r.grinderBurrs);
+        if (equipmentId <= 0) {
+            EquipmentPackage pkg;
+            equipmentId = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs);
+        }
+    }
+
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(R"(
+        INSERT INTO shots (
+            uuid, timestamp, profile_name, beverage_type,
+            duration_seconds, final_weight, dose_weight,
+            bean_brand, bean_type, roast_level,
+            grinder_setting, rpm, equipment_id,
+            enjoyment, espresso_notes, profile_kb_id,
+            profile_json, yield_override, temperature_override, stopped_by,
+            frozen_date, defrost_date, storage_hint, opened_date
+        ) VALUES (
+            :uuid, :timestamp, :profile_name, :beverage_type,
+            :duration, :final_weight, :dose_weight,
+            :bean_brand, :bean_type, :roast_level,
+            :grinder_setting, :rpm, :equipment_id,
+            :enjoyment, :espresso_notes, :profile_kb_id,
+            :profile_json, :yield_override, :temperature_override, :stopped_by,
+            :frozen_date, :defrost_date, :storage_hint, :opened_date
+        )
+    )"));
+    q.bindValue(":uuid", r.uuid);
+    q.bindValue(":timestamp", r.timestamp);
+    q.bindValue(":profile_name", r.profileName);
+    q.bindValue(":beverage_type", r.beverageType);
+    q.bindValue(":duration", r.duration);
+    q.bindValue(":final_weight", r.finalWeight);
+    q.bindValue(":dose_weight", r.doseWeight);
+    q.bindValue(":bean_brand", r.beanBrand);
+    q.bindValue(":bean_type", r.beanType);
+    q.bindValue(":roast_level", r.roastLevel);
+    q.bindValue(":grinder_setting", r.grinderSetting);
+    // NULL when unset, matching a shot with no recorded RPM — a 0 here
+    // would still read as "not recorded" downstream, but NULL is what the
+    // app actually writes.
+    q.bindValue(":rpm", r.rpm > 0 ? QVariant(r.rpm) : QVariant());
+    q.bindValue(":equipment_id", equipmentId > 0 ? QVariant(equipmentId) : QVariant());
+    q.bindValue(":enjoyment", r.enjoyment);
+    q.bindValue(":espresso_notes", r.espressoNotes);
+    q.bindValue(":profile_kb_id", r.profileKbId.isEmpty() ? QVariant() : r.profileKbId);
+    q.bindValue(":profile_json", r.profileJson);
+    q.bindValue(":yield_override", r.targetWeight);
+    q.bindValue(":temperature_override", r.temperatureOverride);
+    q.bindValue(":stopped_by", r.stoppedBy);
+    q.bindValue(":frozen_date", r.frozenDate.isEmpty() ? QVariant() : r.frozenDate);
+    q.bindValue(":defrost_date", r.defrostDate.isEmpty() ? QVariant() : r.defrostDate);
+    q.bindValue(":storage_hint", r.storageHint.isEmpty() ? QVariant() : r.storageHint);
+    q.bindValue(":opened_date", r.openedDate.isEmpty() ? QVariant() : r.openedDate);
+    if (!q.exec ()) {
+        qWarning() << "insertShot failed:" << q.lastError().text();
+        return -1;
+    }
+    return q.lastInsertId().toLongLong();
+}
+
+inline ShotProjection projectionForShot(QSqlDatabase& db, qint64 shotId)
+{
+    return ShotHistoryStorage::convertShotRecord(
+        ShotHistoryStorage::loadShotRecordStatic(db, shotId));
+}
+
+}  // namespace ShotFixtures

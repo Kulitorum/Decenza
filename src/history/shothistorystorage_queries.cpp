@@ -76,14 +76,38 @@ void ShotHistoryStorage::requestDistinctCache()
             if (*destroyed) return;
             m_distinctCacheRefreshing = false;
             if (opened) {
-                // Clear entire cache (including composite keys like "bean_type:SomeRoaster")
-                // so stale filtered entries are also refreshed on next access
+                // Composite keys ("bean_type:<brand>", "eq_grinder_burrs:…") are
+                // cleared like everything else, but this refresh only carries the
+                // six bare columns — so remember which ones were resident and put
+                // them back. Dropping them silently narrowed the cache on every
+                // shot save, and made a composite key's availability depend on
+                // some consumer noticing and re-asking.
+                //
+                // Only keys that were actually resident: re-requesting every key
+                // the app could ever ask for would turn each invalidation into a
+                // burst of queries for values this session has never used.
+                QStringList compositeToRefetch;
+                for (auto it = m_distinctCache.constBegin(); it != m_distinctCache.constEnd(); ++it) {
+                    if (!results.contains(it.key()) && m_distinctQueries.contains(it.key()))
+                        compositeToRefetch << it.key();
+                }
+
                 m_distinctCache.clear();
                 // Discard any in-flight single-key fetches — they queried before invalidation
                 // and would overwrite fresh cache data with stale results
                 m_pendingDistinctKeys.clear();
                 for (auto it = results.constBegin(); it != results.constEnd(); ++it)
                     m_distinctCache.insert(it.key(), it.value());
+
+                // After the clear, so the re-request is not immediately wiped by it.
+                // This is also what makes the discard path below safe to leave as a
+                // notification rather than a retry: the refresh that discarded an
+                // in-flight fetch is the same refresh that re-issues it, so there is
+                // no way to spin.
+                for (const QString& key : std::as_const(compositeToRefetch)) {
+                    const DistinctQuery q = m_distinctQueries.value(key);
+                    requestDistinctValueAsync(key, q.sql, q.binds);
+                }
             } else
                 qWarning() << "ShotHistoryStorage: Distinct cache refresh failed, keeping stale cache";
             emit distinctCacheReady();
@@ -101,6 +125,10 @@ void ShotHistoryStorage::requestDistinctValueAsync(const QString& cacheKey, cons
 {
     if (m_pendingDistinctKeys.contains(cacheKey)) return;
     m_pendingDistinctKeys.insert(cacheKey);
+    // Remember how to run this again, so a refresh can restore the key instead of
+    // just dropping it. Recorded on every call (not only the first) because the
+    // binds travel with the key and a re-request must use the same ones.
+    m_distinctQueries.insert(cacheKey, DistinctQuery{sql, bindValues});
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
@@ -108,6 +136,13 @@ void ShotHistoryStorage::requestDistinctValueAsync(const QString& cacheKey, cons
 
     runDetachedDbThread([this, dbPath, cacheKey, sql, bindValues, needsGrinderSort, destroyed]() {
         QStringList values;
+        // Distinct from `opened`: the database can open fine and the query still
+        // fail. Both must suppress caching — an empty list cached after a failed
+        // query is indistinguishable from "this grinder/brand has no history", and
+        // nothing would ever correct it. Before this flag existed, a prepare or
+        // exec failure returned from the inner lambda leaving `opened` true and
+        // cached exactly that.
+        bool queryOk = false;
         bool opened = withTempDb(dbPath, "shs_dv", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             if (!query.prepare(sql)) {
@@ -125,17 +160,37 @@ void ShotHistoryStorage::requestDistinctValueAsync(const QString& cacheKey, cons
                 QString v = query.value(0).toString();
                 if (!v.isEmpty()) values << v;
             }
+            queryOk = true;
         });
+        opened = opened && queryOk;
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, cacheKey, values = std::move(values), needsGrinderSort, opened, destroyed]() mutable {
             if (*destroyed) return;
-            // If a full cache refresh cleared m_pendingDistinctKeys while we were in flight,
-            // this key is gone — discard the stale result
-            if (!m_pendingDistinctKeys.remove(cacheKey)) return;
+            // If a full cache refresh cleared m_pendingDistinctKeys while we were in
+            // flight, this key is gone — discard the stale result, which queried
+            // before the invalidation.
+            //
+            // Discarding is right; returning in SILENCE was the bug. Nothing was
+            // pending and no consumer was told, so a binding that had already
+            // rendered its fallback never re-evaluated — the grind step sat on 1.0
+            // for the rest of the session, and an open dialog's suggestion list
+            // stayed empty until it was closed and reopened. The refresh that
+            // cleared this key now re-issues the fetch itself (see
+            // requestDistinctCache), so all that is owed here is the notification.
+            if (!m_pendingDistinctKeys.remove(cacheKey)) {
+                emit distinctCacheReady();
+                return;
+            }
             if (!opened) {
-                qWarning() << "ShotHistoryStorage::requestDistinctValueAsync: DB open failed for"
+                // Caching an empty result would be worse — it reads as "no such
+                // history" forever — but consumers must still be told to re-ask
+                // rather than left waiting on a signal that is not coming.
+                // (Covers both a failed open and a failed prepare/exec; the
+                // specific cause is already warned about on the worker thread.)
+                qWarning() << "ShotHistoryStorage::requestDistinctValueAsync: fetch failed for"
                            << cacheKey << "- not caching empty result";
+                emit distinctCacheReady();
                 return;
             }
             if (needsGrinderSort)
@@ -971,67 +1026,116 @@ static double deriveGrindStep(const QList<double>& sortedDistinct)
     return smallest < 0.05 ? 0.05 : smallest;
 }
 
-// Grinder-wide step for a grinder MODEL, across ALL beans and beverages. The
-// step is a property of the grinder (its effective dial resolution), not of the
-// bean or the drink — so it is deliberately not scoped to either. This is the
-// SAME model-wide distinct-settings scope the widget's grindStepForGrinder uses
-// (getDistinctGrinderSettingsForGrinder), fed to the SAME deriveGrindStep, so
-// for any identified grinder the widget and the AI grinderContext report the
-// same step. (An empty model — no grinder selected — is not reached here:
-// queryGrinderContext returns early on an empty model.) Returns 0 when it
-// cannot derive.
-static double grinderWideStep(QSqlDatabase& db, const QString& grinderModel)
+// THE derivation. Every grind/RPM step in the app comes from here: the dialing
+// payload calls it with a model filter, the store's resident map calls it with
+// none, and both feed the same deriveGrindStep() estimator. It replaced a pair
+// of per-model helpers (grinderWideStep / grinderWideRpmStep) that ran the same
+// SQL through the same estimator as the widget's cache-backed path — two
+// implementations of one number, which is exactly how the widget came to report
+// 1.0 for a grinder whose history plainly derived 0.25 while the AI payload
+// reported 0.25 for the same grinder in the same session.
+//
+// Keys are the model name FOLDED (lower-cased, trimmed) so lookups agree with
+// findPackageByGrinderIdentityStatic, which decides whether two packages are the
+// same gear. An exact compare meant a model differing only in case or padding
+// read back as a grinder with no history — invisible, because an empty result is
+// indistinguishable from a new grinder.
+//
+// The empty key "" is the all-grinders bucket, and it is deliberately NOT the
+// join's aggregate: grindStepForGrinder("") has always derived from the FULL
+// shot history, including shots with no equipment row at all, and the ShotServer
+// /beans form depends on that (a new bag has no equipment selected yet). It gets
+// its own unjoined pass.
+//
+// Costs what one grinder costs — both shapes are dominated by the same index
+// walk — which is what makes deriving everything up front the cheaper design.
+// Returns an empty hash on query failure, never a partially-filled one: a caller
+// cannot tell a half-answer from a thin history.
+QHash<QString, GrinderSteps> ShotHistoryStorage::deriveGrinderSteps(
+    QSqlDatabase& db, const QString& modelFilter)
 {
-    QSqlQuery q(db);
-    q.prepare(QStringLiteral(
-        "SELECT DISTINCT grinder_setting FROM shots "
-        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(:model))) "
-        "AND grinder_setting IS NOT NULL AND grinder_setting != ''"));
-    q.bindValue(":model", grinderModel);
-    if (!q.exec()) {
-        qWarning() << "ShotHistoryStorage::grinderWideStep: query failed:"
-                   << q.lastError().text() << "grinderModel=" << grinderModel;
-        return 0.0;
-    }
-    QSet<double> numericSet;
-    while (q.next()) {
-        bool ok = false;
-        const double v = q.value(0).toString().trimmed().toDouble(&ok);
-        if (ok)
-            numericSet.insert(v);
-    }
-    QList<double> numeric(numericSet.begin(), numericSet.end());
-    std::sort(numeric.begin(), numeric.end());
-    return deriveGrindStep(numeric);
-}
+    QHash<QString, QSet<double>> settingsByModel;
+    QHash<QString, QSet<double>> rpmsByModel;
 
-// RPM counterpart of grinderWideStep: the grinder's typical RPM step across all
-// beans and beverages (the shots.rpm column), so it matches the widget's
-// grindRpmStepForGrinder scope and the two never disagree. Returns 0 when it
-// cannot derive.
-static double grinderWideRpmStep(QSqlDatabase& db, const QString& grinderModel)
-{
+    // Covered by idx_shots_equipment_grind (equipment_id, grinder_setting, rpm):
+    // SQLite answers this from the index and never visits a row page, so the cost
+    // does not track the debug_log / profile_json blobs that dominate the table.
+    QString sql = QStringLiteral(
+        "SELECT DISTINCT LOWER(TRIM(IFNULL(m.model,''))) AS folded_model, "
+        "       s.grinder_setting, s.rpm "
+        "FROM shots s "
+        "JOIN equipment_items m ON s.equipment_id = m.package_id "
+        "                      AND m.kind = 'grinder' "
+        "WHERE (s.grinder_setting IS NOT NULL AND s.grinder_setting != '') "
+        "   OR s.rpm > 0");
+    if (!modelFilter.isEmpty())
+        sql += QStringLiteral(" AND LOWER(TRIM(IFNULL(m.model,''))) = LOWER(TRIM(:model))");
+
     QSqlQuery q(db);
-    q.prepare(QStringLiteral(
-        "SELECT DISTINCT rpm FROM shots "
-        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(:model))) "
-        "AND rpm > 0"));
-    q.bindValue(":model", grinderModel);
+    q.prepare(sql);
+    if (!modelFilter.isEmpty())
+        q.bindValue(":model", modelFilter);
     if (!q.exec()) {
-        qWarning() << "ShotHistoryStorage::grinderWideRpmStep: query failed:"
-                   << q.lastError().text() << "grinderModel=" << grinderModel;
-        return 0.0;
+        qWarning() << "ShotHistoryStorage::deriveGrinderSteps: query failed:"
+                   << q.lastError().text() << "modelFilter=" << modelFilter;
+        return {};
     }
-    QList<double> rpms;
     while (q.next()) {
-        const int r = q.value(0).toInt();
-        if (r > 0)
-            rpms.append(r);
+        const QString folded = q.value(0).toString();
+        // Filtered per axis, not in SQL: a shot carrying an RPM but a blank grind
+        // setting still tells us about the RPM axis, and vice versa.
+        bool ok = false;
+        const double setting = q.value(1).toString().trimmed().toDouble(&ok);
+        if (ok)
+            settingsByModel[folded].insert(setting);
+        const int rpm = q.value(2).toInt();
+        if (rpm > 0)
+            rpmsByModel[folded].insert(rpm);
     }
-    std::sort(rpms.begin(), rpms.end());
-    return deriveGrindStep(rpms);
+
+    QHash<QString, GrinderSteps> out;
+    const auto derive = [](const QSet<double>& values) {
+        QList<double> sorted(values.begin(), values.end());
+        std::sort(sorted.begin(), sorted.end());
+        return deriveGrindStep(sorted);
+    };
+    for (auto it = settingsByModel.constBegin(); it != settingsByModel.constEnd(); ++it) {
+        out[it.key()].grindStep = derive(it.value());
+        out[it.key()].settingCount = it.value().size();
+    }
+    for (auto it = rpmsByModel.constBegin(); it != rpmsByModel.constEnd(); ++it) {
+        out[it.key()].rpmStep = derive(it.value());
+        out[it.key()].rpmCount = it.value().size();
+    }
+
+    // All-grinders bucket. Only when deriving everything — a model-filtered call
+    // is answering for that model, and giving it a cross-grinder entry it did not
+    // ask for would let a caller read one when it meant the other.
+    //
+    // No join and no rpm: this mirrors getDistinctGrinderSettings() (every shot,
+    // equipment or not), and grindRpmStepForGrinder("") has always returned 0
+    // because pooling RPMs across different grinders is meaningless.
+    if (modelFilter.isEmpty()) {
+        QSqlQuery allQ(db);
+        if (!allQ.exec(QStringLiteral(
+                "SELECT DISTINCT grinder_setting FROM shots "
+                "WHERE grinder_setting IS NOT NULL AND grinder_setting != ''"))) {
+            qWarning() << "ShotHistoryStorage::deriveGrinderSteps: all-grinders query failed:"
+                       << allQ.lastError().text();
+            return {};
+        }
+        QSet<double> allSettings;
+        while (allQ.next()) {
+            bool ok = false;
+            const double v = allQ.value(0).toString().trimmed().toDouble(&ok);
+            if (ok)
+                allSettings.insert(v);
+        }
+        out[QString()].grindStep = derive(allSettings);
+        out[QString()].settingCount = allSettings.size();
+    }
+
+    return out;
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
@@ -1107,7 +1211,11 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     // moves on the current bean still gets the fine step their grinder can do.
     // (settingsObserved / min / max stay bean-scoped below — those are per-bean
     // context, unlike the step.)
-    ctx.stepSize = grinderWideStep(db, grinderModel);
+    // One model-filtered call answers BOTH axes; the rpmStepSize assignment below
+    // reads the same result rather than issuing a second query.
+    const GrinderSteps steps =
+        deriveGrinderSteps(db, grinderModel).value(grinderModel.trimmed().toLower());
+    ctx.stepSize = steps.grindStep;
     // min/max stay gated on an all-numeric history — a mixed list has no
     // meaningful numeric range to report.
     if (ctx.allNumeric && numeric.size() >= 2) {
@@ -1153,7 +1261,8 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     }
     // rpmStepSize is a GRINDER property like stepSize — grinder-model-wide, not
     // bean/beverage-scoped — so it matches the widget's grindRpmStepForGrinder.
-    ctx.rpmStepSize = grinderWideRpmStep(db, grinderModel);
+    // From the same deriveGrinderSteps() result read above.
+    ctx.rpmStepSize = steps.rpmStep;
 
     return ctx;
 }
@@ -1187,8 +1296,15 @@ void ShotHistoryStorage::invalidateDistinctCache()
 {
     // Keep stale cache until async refresh completes — avoids a window where
     // getDistinctValues() returns empty. Composite cache keys (e.g. "bean_type:SomeRoaster")
-    // are cleared by requestDistinctCache() and re-populated async on next access.
+    // are re-requested by requestDistinctCache() rather than merely dropped.
     requestDistinctCache();
+
+    // The derived grinder steps are invalidated by the same events (a shot saved,
+    // edited or imported can move a grinder's dial resolution) but live outside
+    // that cache, so they need their own rebuild. This is the single hook: every
+    // path that changes shot history already funnels through here, including the
+    // bulk import at the end of importDatabaseStatic().
+    refreshGrinderSteps();
 }
 
 QStringList ShotHistoryStorage::getDistinctBeanBrands()
@@ -1631,6 +1747,36 @@ QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QStri
     return {};
 }
 
+void ShotHistoryStorage::refreshGrinderSteps()
+{
+    if (!m_ready) return;
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, destroyed]() {
+        QHash<QString, GrinderSteps> derived;
+        const bool opened = withTempDb(dbPath, "shs_gsteps", [&](QSqlDatabase& db) {
+            derived = deriveGrinderSteps(db);
+        });
+
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, derived = std::move(derived), opened, destroyed]() {
+            if (*destroyed) return;
+            if (!opened) {
+                // Keep the previous map. A failed open says nothing about the
+                // history, and replacing good steps with an empty map would push
+                // every reader onto its fallback — the exact failure this map
+                // exists to prevent.
+                qWarning() << "ShotHistoryStorage: grinder step refresh could not open the "
+                              "database - keeping the previously derived steps";
+                return;
+            }
+            m_grinderSteps = derived;
+            emit distinctCacheReady();
+        }, Qt::QueuedConnection);
+    });
+}
+
 // Say what was derived and from how much, ONCE per (grinder, sample size, answer).
 //
 // This line exists because #1713 could not be diagnosed from the 25,720-line log
@@ -1648,97 +1794,67 @@ QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QStri
 // distinctCacheReady() and grinder change. The answer is what matters, not how
 // often it was asked.
 void ShotHistoryStorage::reportGrindStep(const QString& grinderModel, qsizetype sampleCount,
-                                         double step)
+                                         double step, const char* source)
 {
-    const QString observed = QStringLiteral("%1:%2:%3")
-                                 .arg(grinderModel).arg(sampleCount).arg(step);
+    const QString observed = QStringLiteral("%1:%2:%3:%4")
+                                 .arg(grinderModel).arg(sampleCount).arg(step)
+                                 .arg(QLatin1String(source));
     if (m_lastGrindStepReport == observed)
         return;
     m_lastGrindStepReport = observed;
     qDebug().noquote()
-        << QStringLiteral("ShotHistoryStorage: grind step for %1 = %2, derived from %3 "
-                          "distinct numeric setting(s)%4")
+        << QStringLiteral("ShotHistoryStorage: grind step for %1 = %2 [%3], from %4 "
+                          "distinct numeric value(s)%5")
                .arg(grinderModel.isEmpty() ? QStringLiteral("(no grinder)") : grinderModel)
                .arg(step)
+               .arg(QLatin1String(source))
                .arg(sampleCount)
                .arg(step > 0.0 ? QString()
-                               : QStringLiteral(" — too thin to derive; the caller's "
-                                                "fallback step is used instead"));
+                               : QStringLiteral(" — the caller's fallback step is used instead"));
 }
 
 double ShotHistoryStorage::grindStepForGrinder(const QString& grinderModel)
 {
-    // Reuse the cache-backed distinct-settings getter (empty model → all
-    // grinders). On a cold cache it returns {} and kicks off the async fetch;
-    // we return 0 and QML recomputes when distinctCacheReady() fires.
-    const QStringList settings = getDistinctGrinderSettingsForGrinder(grinderModel);
-    if (settings.isEmpty()) {
-        // Report this return too. It is the SAME answer as the thin-history case
-        // below — 0, the value behind #1713 — and leaving it silent means the one
-        // path a reader most needs to see is the one that says nothing. A log
-        // showing the derivation line only sometimes reads as the function not
-        // having run, when in fact it ran and returned the interesting value.
-        //
-        // Cold cache and genuinely-no-history are deliberately not separated
-        // here: the caller behaves identically for both, and a cold cache
-        // resolves into a second line moments later, which is a clearer signal
-        // than a word this function would have to guess at.
-        reportGrindStep(grinderModel, 0, 0.0);
+    Q_ASSERT_X(thread() == QThread::currentThread(), "grindStepForGrinder",
+               "m_grinderSteps is main-thread-only — derive from a background "
+               "connection with the static deriveGrinderSteps(db, model) instead");
+
+    const QString key = foldGrinderModel(grinderModel);
+
+    // Three distinguishable states, because a log that reports only the number
+    // cannot tell a correct fallback from a broken one — which is precisely why
+    // #1713 was undiagnosable from a 25,720-line log.
+    if (!m_grinderSteps.contains(key)) {
+        // Either the first derivation has not landed yet (startup), or this
+        // grinder has no shots at all. Both are honestly "nothing derived for
+        // this grinder", and unlike the old cold-cache return this one cannot
+        // become permanent: refreshGrinderSteps() emits distinctCacheReady() when
+        // it publishes, so every reader re-asks.
+        reportGrindStep(grinderModel, 0, 0.0,
+                        m_grinderSteps.isEmpty() ? "not yet derived" : "no history");
         return 0.0;
     }
 
-    // Numeric subset only — letter/compound notations don't define a numeric
-    // step and are stepped by their own path in the widget.
-    QSet<double> numericSet;
-    for (const QString& s : settings) {
-        bool ok = false;
-        const double v = s.trimmed().toDouble(&ok);
-        if (ok)
-            numericSet.insert(v);
-    }
-    QList<double> numeric(numericSet.begin(), numericSet.end());
-    std::sort(numeric.begin(), numeric.end());
-    const double step = deriveGrindStep(numeric);
-    reportGrindStep(grinderModel, numeric.size(), step);
-    return step;
+    const GrinderSteps steps = m_grinderSteps.value(key);
+    reportGrindStep(grinderModel, steps.settingCount, steps.grindStep,
+                    steps.grindStep > 0.0 ? "derived" : "no derivable history");
+    return steps.grindStep;
 }
 
 double ShotHistoryStorage::grindRpmStepForGrinder(const QString& grinderModel)
 {
+    Q_ASSERT_X(thread() == QThread::currentThread(), "grindRpmStepForGrinder",
+               "m_grinderSteps is main-thread-only — derive from a background "
+               "connection with the static deriveGrinderSteps(db, model) instead");
+
     // RPM mode always has an identified grinder; an empty model has no
-    // meaningful RPM history to pool.
+    // meaningful RPM history to pool. (deriveGrinderSteps leaves the
+    // all-grinders bucket's rpmStep at 0 for the same reason, so this early
+    // return only saves the lookup.)
     if (grinderModel.isEmpty())
         return 0.0;
 
-    // Cache-backed like getDistinctGrinderSettingsForGrinder, but over the
-    // integer shots.rpm column (rpm > 0 = a real dial-in). Cold cache → kick off
-    // the async fetch and return 0; QML recomputes on distinctCacheReady().
-    const QString cacheKey = "grinder_rpm:" + grinderModel;
-    QStringList values;
-    if (m_distinctCache.contains(cacheKey)) {
-        values = m_distinctCache.value(cacheKey);
-    } else {
-        if (!m_ready) return 0.0;
-        requestDistinctValueAsync(cacheKey,
-            "SELECT DISTINCT rpm FROM shots "
-            "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-            "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(?))) "
-            "AND rpm > 0 "
-            "ORDER BY rpm",
-            {grinderModel});
-        return 0.0;
-    }
-
-    QSet<double> numericSet;
-    for (const QString& s : values) {
-        bool ok = false;
-        const double v = s.trimmed().toDouble(&ok);
-        if (ok && v > 0)
-            numericSet.insert(v);
-    }
-    QList<double> numeric(numericSet.begin(), numericSet.end());
-    std::sort(numeric.begin(), numeric.end());
-    return deriveGrindStep(numeric);
+    return m_grinderSteps.value(foldGrinderModel(grinderModel)).rpmStep;
 }
 
 void ShotHistoryStorage::sortGrinderSettings(QStringList& settings)

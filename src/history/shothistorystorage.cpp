@@ -245,6 +245,13 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     // Pre-warm the distinct cache on a background thread
     requestDistinctCache();
 
+    // Derive every grinder's steps up front, on a background thread. Costs what
+    // deriving a single grinder costs (same covering-index walk), and having the
+    // whole set resident is what lets grindStepForGrinder() answer synchronously
+    // — the property the grind picker and the ShotServer endpoint both need and
+    // the async cache could not provide.
+    refreshGrinderSteps();
+
     qDebug() << "ShotHistoryStorage: Database initialized with" << m_totalShots << "shots";
     return true;
 }
@@ -1898,6 +1905,63 @@ bool ShotHistoryStorage::runMigrations()
             } else {
                 EQUIP_WARN_STDERR("Migration", "35 incomplete - will retry next launch");
             }
+        }
+    }
+
+    // Covering index for the grinder step derivation (deriveGrinderSteps). The
+    // derivation reads only (equipment_id, grinder_setting, rpm), but without an
+    // index SQLite answers it by scanning `shots` — and a scan reads whole pages,
+    // including the debug_log / profile_json / steam_json blobs it never looks at.
+    // Cost therefore tracked table BYTES, not the handful of dial-in values that
+    // matter: measured 1.7 ms over 1,123 shots but 33.9 ms (peak 702 ms) over a
+    // 20x copy of the same database, which on a tablet is a visible hitch every
+    // time the grind picker opens. Listing all three columns makes the index
+    // COVERING - EXPLAIN QUERY PLAN reports "SEARCH ... USING COVERING INDEX" and
+    // SQLite never visits a row page - which brings the same 20x case to 1.18 ms
+    // and, more importantly, decouples it from blob growth entirely.
+    //
+    // Deliberately NOT added to createTables(): its CREATE TABLE shots has
+    // grinder_setting but not equipment_id or rpm (both arrive by ALTER TABLE in
+    // earlier migrations), so creating it there would fail "no such column" on
+    // every fresh launch - the same trap idx_shots_grinder documents above. A
+    // fresh database is stamped version 1 and runs every migration, so this
+    // covers new and existing databases alike.
+    if (currentVersion >= 35 && currentVersion < 36) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 36 (grind step covering index)";
+
+        // Release the schema_version read from the top of this function before
+        // issuing DDL. That SELECT ends in LIMIT 1 and is stepped exactly once, so
+        // it never reaches SQLITE_DONE and Qt never resets it
+        // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:326-332 resets only
+        // on SQLITE_DONE or error) - leaving the connection inside an implicit read
+        // transaction that a CREATE INDEX on the same table can trip over. Migration
+        // 35 learned this the expensive way; the finish() is one line.
+        query.finish();
+
+        // equipment_id and rpm are added by earlier migrations, so on any database
+        // that reached 35 they exist. Guard anyway and retry next launch rather than
+        // bumping the version past an index that was never built.
+        if (hasColumn("shots", "equipment_id") && hasColumn("shots", "rpm")) {
+            query.exec("CREATE INDEX IF NOT EXISTS idx_shots_equipment_grind "
+                       "ON shots(equipment_id, grinder_setting, rpm)");
+
+            QSqlQuery check(m_db);
+            const bool indexPresent =
+                check.exec("SELECT 1 FROM sqlite_master WHERE type = 'index' "
+                           "AND name = 'idx_shots_equipment_grind'")
+                && check.next();
+
+            if (indexPresent) {
+                query.exec ("DELETE FROM schema_version");
+                query.exec ("INSERT INTO schema_version (version) VALUES (36)");
+                currentVersion = 36;
+            } else {
+                qWarning() << "ShotHistoryStorage: migration 36 could not create "
+                              "idx_shots_equipment_grind - will retry next launch";
+            }
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 36 skipped - shots is missing "
+                          "equipment_id and/or rpm - will retry next launch";
         }
     }
 
