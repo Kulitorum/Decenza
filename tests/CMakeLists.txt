@@ -830,11 +830,11 @@ target_compile_definitions(tst_blefidelity PRIVATE
 # .ninja_log (tests/-attributable cpu):
 #
 #     today, 9 duplicate compiles ......... 77.0 s   (measured)
-#     folded into decenza_testlib ......... 67.0 s   (1 compile + 107 relinks)
+#     folded into decenza_testlib ......... 67.0 s   (1 compile + 106 relinks)
 #     here, in a narrow library ........... 23.0 s   (1 compile + 9 relinks)
 #
 # decenza_testlib is linked by every test target, so putting a source there
-# trades a compile fan-out of 9 for a relink fan-out of 107. That still beats
+# trades a compile fan-out of 9 for a relink fan-out of 106. That still beats
 # the duplication — link is cheap, 0.53 s mean — but it recovers a seventh of
 # what this does, and its fan-out grows with every test target added while this
 # one's does not. Do not "simplify" this into decenza_testlib.
@@ -861,7 +861,8 @@ target_link_libraries(decenza_profilelib PUBLIC decenza_testlib paho-mqtt3a-stat
 # --- The rest of the narrow libraries, same rule: consumer set no wider than
 # the targets that need the sources. Each replaced a source list pasted into
 # three or four targets. Costs are the duplicate cpu they removed, from the
-# clean-rebuild audit in openspec/changes/cut-test-build-cost/baseline.md.
+# clean-rebuild audit in
+# openspec/changes/archive/2026-07-31-cut-test-build-cost/baseline.md.
 
 # weightprocessor + stepexitarbiter: tst_saw, tst_scalefeedliveness,
 # tst_weightprocessor (11.1 s). Plain Qt Core, no extra link requirements.
@@ -1089,13 +1090,17 @@ add_decenza_test(tst_difluidr1
     ${CMAKE_SOURCE_DIR}/src/ble/refractometers/difluidr1.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/refractometers/aes128.cpp
 )
+# RefractometerDevice is needed on EVERY platform — keep this outside the IOS
+# branch below. It briefly lived on the OpenSSL line inside else(), which links
+# fine on desktop and would have failed only on an iOS build.
+target_link_libraries(tst_difluidr1 PRIVATE decenza_refractometerlib)
 # Crypto backend: OpenSSL on desktop+Android, CommonCrypto (in libSystem) on iOS.
 # Match the Q_OS_IOS branch in aes128.cpp exactly — macOS desktop still uses OpenSSL.
 if(IOS)
     # CommonCrypto is part of libSystem — no extra linkage needed.
 else()
     find_package(OpenSSL REQUIRED)
-    target_link_libraries(tst_difluidr1 PRIVATE decenza_refractometerlib OpenSSL::Crypto)
+    target_link_libraries(tst_difluidr1 PRIVATE OpenSSL::Crypto)
 endif()
 
 # --- tst_logcollapse: the shared repeat-collapsing log gate (header-only, so no extra sources) ---

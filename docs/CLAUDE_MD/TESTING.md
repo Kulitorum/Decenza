@@ -432,7 +432,7 @@ intermediate library linked by **exactly those targets**. Do not reach for
 worse than the duplication it fixes.
 
 Measured — `touch src/controllers/profilemanager.cpp`, rebuild, cpu from the `.ninja_log`
-diff, `tests/`-attributable only. Nine consumers; 0.53 s mean link across all 107 targets:
+diff, `tests/`-attributable only. Nine consumers; 0.53 s mean link across all 106 targets that link it:
 
 | | Today (9 duplicate compiles) | Into `decenza_testlib` | Into a narrow library |
 |---|---|---|---|
