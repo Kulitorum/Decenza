@@ -132,7 +132,7 @@ Each entry in the array SHALL carry:
     - `"partial"` — at least one but not all recommended fields match.
     - `"ignored"` — none of the recommended fields match.
     - `"unclear"` — at least one recommended field was present but **unscoreable**, so adherence cannot be determined. A field is unscoreable when its JSON type is wrong for the schema (e.g. `grinderSetting` emitted as a bare number rather than a string, `rpm` as a string rather than a number), when a numeric field is present but non-positive, or when `grinderSetting` is prose rather than a dial value (e.g. `"a touch coarser than 9"`). `"unclear"` SHALL take precedence over the other three values whenever any field is unscoreable.
-    - When `structuredNext` had no parameter recommendations (only ranges/successCondition), `adherence` SHALL be `"ignored"` only when the actual shot is on different parameters from the prior turn's shot; otherwise `"followed"`. An unscoreable field is NOT "no parameter recommendation" — it SHALL yield `"unclear"`, never fall through to this rule.
+    - When `structuredNext` had no parameter recommendations (only ranges/successCondition), `adherence` SHALL be `"ignored"` only when the actual shot is on different parameters from the prior turn's shot; otherwise `"followed"`. The comparison SHALL use the same tolerances as scoring (grinderSetting equal as string, as compound notation ignoring spacing, or within 0.25 of a step on the leading dial number; rpm within ±25; doseG within ±0.3g; profileTitle equal), so measurement noise does not read as a deliberate change. A field SHALL be compared only when BOTH shots record it — a blank grinder setting or an unrecorded dose is missing data, and SHALL NOT be reported as a change. An unscoreable field is NOT "no parameter recommendation" — it SHALL yield `"unclear"`, never fall through to this rule.
   - `outcomeRating0to100` (number, 0-100) — `enjoyment0to100` from the actual shot. OMITTED when the actual shot's enjoyment is `<= 0`.
   - `outcomeNotes` (string) — `espressoNotes` from the actual shot. OMITTED when empty.
   - `outcomeInPredictedRange` (object) — booleans for each range that was on the prior turn's `structuredNext`:
@@ -189,6 +189,28 @@ The block SHALL be stable across calls for identical inputs (same conversation, 
 - **WHEN** the follow-up shot is attributed
 - **THEN** `adherence` SHALL be `"unclear"`
 - **AND** SHALL NOT be `"followed"`
+
+#### Scenario: A ranges-only turn repeated on the same setup is followed
+
+- **GIVEN** a prior turn whose `structuredNext` recommends no parameter changes, only ranges
+- **AND** the follow-up shot is on the same grinder setting, dose and profile as the prior shot
+- **WHEN** the follow-up shot is attributed
+- **THEN** `adherence` SHALL be `"followed"` — the predicted repeat happened
+
+#### Scenario: A ranges-only turn whose setup changed is ignored
+
+- **GIVEN** a prior turn whose `structuredNext` recommends no parameter changes, only ranges
+- **AND** the follow-up shot changed the grinder setting, dose or profile beyond tolerance
+- **WHEN** the follow-up shot is attributed
+- **THEN** `adherence` SHALL be `"ignored"`
+- **AND** SHALL NOT be `"followed"` — the prediction was made about a shot that did not happen, so the model SHALL NOT be told the experiment ran
+
+#### Scenario: Missing setup data on a ranges-only turn does not read as a change
+
+- **GIVEN** a prior turn whose `structuredNext` recommends no parameter changes, only ranges
+- **AND** either the prior or the follow-up shot has no recorded grinder setting
+- **WHEN** the follow-up shot is attributed
+- **THEN** `adherence` SHALL be `"followed"` — absence of evidence is not evidence of a change
 
 #### Scenario: Equivalent notations of the same setting count as followed
 

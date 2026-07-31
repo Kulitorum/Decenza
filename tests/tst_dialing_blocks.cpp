@@ -1391,8 +1391,13 @@ private slots:
     // Shared driver for the grinderSetting adherence cases. Seeds a prior shot
     // and a follow-up, runs one recommendation through buildRecentAdviceBlock,
     // and returns the adherence verdict.
+    // priorDose/nextDose default to the same value so every existing caller
+    // varies only the grind, as before. The ranges-only cases need a second
+    // axis: with nothing recommended, the dose is one of the things that
+    // decides whether the predicted repeat actually happened.
     QString adherenceForStructured(const QString& tag, const QJsonObject& sn,
-                                   const QString& priorGrind, const QString& nextGrind)
+                                   const QString& priorGrind, const QString& nextGrind,
+                                   double priorDose = 18, double nextDose = 18)
     {
         const QString dbPath = freshDbPath();
         initAndClose(dbPath);
@@ -1403,13 +1408,13 @@ private slots:
             const qint64 priorId = insertShot(db, ShotRow{
                 .uuid = "u-prior", .timestamp = nowSec - 7200,
                 .profileName = "P", .profileKbId = "kb",
-                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .duration = 30, .finalWeight = 36, .doseWeight = priorDose,
                 .grinderSetting = priorGrind
             });
             insertShot(db, ShotRow{
                 .uuid = "u-next", .timestamp = nowSec - 3600,
                 .profileName = "P", .profileKbId = "kb",
-                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .duration = 30, .finalWeight = 36, .doseWeight = nextDose,
                 .grinderSetting = nextGrind
             });
 
@@ -1433,6 +1438,74 @@ private slots:
         QJsonObject sn = sampleStructuredNext();
         sn["grinderSetting"] = recommendedGrind;
         return adherenceForStructured(tag, sn, priorGrind, nextGrind);
+    }
+
+    // A ranges-only turn recommends no parameter change, so the implicit
+    // instruction is "run this again, here is what I expect". That is an
+    // experiment, and the verdict has to say whether it ran.
+    //
+    // Repeat on the same setup: it ran. This is the case that must keep
+    // working — most ranges-only turns are ordinary "try that again" advice.
+    void recentAdvice_rangesOnlyRepeatOnSameSetupIsFollowed()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove("grinderSetting");
+        QCOMPARE(adherenceForStructured("adh_ranges_same", sn, "9.0", "9.0"),
+                 QStringLiteral("followed"));
+    }
+
+    // Changed the grind nobody asked them to change: the predicted repeat did
+    // not happen, so the prediction was never tested. Asserting BOTH verdicts
+    // because "followed" is the specific wrong answer this replaced — it told
+    // the model "the experiment ran and failed", so a bad outcome made it
+    // revise a direction its prediction never covered.
+    void recentAdvice_rangesOnlyWithChangedGrindIsIgnored()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove("grinderSetting");
+        const QString verdict =
+            adherenceForStructured("adh_ranges_grind", sn, "9.0", "7.5");
+        QCOMPARE(verdict, QStringLiteral("ignored"));
+        QVERIFY2(verdict != QStringLiteral("followed"),
+                 "a regrind is not the controlled repeat that was predicted");
+    }
+
+    // Same for a dose change, and the tolerance has to hold: 18.0 -> 19.5 is a
+    // decision, 18.0 -> 18.2 is scale noise and must stay "followed".
+    void recentAdvice_rangesOnlyDoseChangeRespectsTolerance()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove("grinderSetting");
+        QCOMPARE(adherenceForStructured("adh_ranges_dose_big", sn, "9.0", "9.0", 18.0, 19.5),
+                 QStringLiteral("ignored"));
+        QCOMPARE(adherenceForStructured("adh_ranges_dose_noise", sn, "9.0", "9.0", 18.0, 18.2),
+                 QStringLiteral("followed"));
+    }
+
+    // Notation is not a setup change. "1 + 4" and "1+4" are the same dial
+    // position, and a shot recorded with the RPM annotation is the same
+    // setting as one recorded without it — neither may read as a regrind.
+    void recentAdvice_rangesOnlyNotationIsNotAChange()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove("grinderSetting");
+        QCOMPARE(adherenceForStructured("adh_ranges_compound", sn, "1 + 4", "1+4"),
+                 QStringLiteral("followed"));
+        QCOMPARE(adherenceForStructured("adh_ranges_annot", sn, "23.5", "23.5 1400rpm"),
+                 QStringLiteral("followed"));
+    }
+
+    // A blank grinder setting is missing data, not proof of a regrind. Older
+    // shots have no recorded setting, and downgrading those to "ignored" would
+    // rewrite long-settled history on no evidence at all.
+    void recentAdvice_rangesOnlyUnknownSettingStaysFollowed()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove("grinderSetting");
+        QCOMPARE(adherenceForStructured("adh_ranges_blank_next", sn, "9.0", ""),
+                 QStringLiteral("followed"));
+        QCOMPARE(adherenceForStructured("adh_ranges_blank_prior", sn, "", "9.0"),
+                 QStringLiteral("followed"));
     }
 
     // Prose in `grinderSetting` — "a touch coarser than 9" (GPT-5.6 Terra,

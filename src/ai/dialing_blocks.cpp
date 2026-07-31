@@ -683,6 +683,39 @@ RecommendationKind classifyStringField(const QJsonObject& sn, const char* key,
     return RecommendationKind::Scoreable;
 }
 
+// Are two recorded dial settings the same position? Accepts every form
+// looksLikeSetting() admits, so notation cannot decide it: "1 + 4" is "1+4",
+// and "23.5 1400rpm" is "23.5".
+//
+// Unknown compares as "same". Only a POSITIVE difference counts as a change,
+// because the one caller that asks this question (setupChangedFromPrior)
+// downgrades a verdict on the answer, and a blank grinderSetting — common on
+// older shots — is absence of evidence, not evidence the user regrinded.
+//
+// grinderMatches() below asks a related but different question and keeps its
+// own guards: it compares against what was RECOMMENDED, not merely whether
+// two shots sit on the same setting.
+bool sameGrinderSetting(const QString& aRaw, const QString& bRaw)
+{
+    const QString a = aRaw.trimmed();
+    const QString b = bRaw.trimmed();
+    if (a.isEmpty() || b.isEmpty()) return true;   // unknown — no change proven
+    if (a == b) return true;
+
+    // Compound notation compares normalized, so spacing cannot decide it. If
+    // either side is compound they both must be, or they are not comparable
+    // and we decline to call it a change.
+    const QString aKey = GrinderAliases::compoundKey(a);
+    const QString bKey = GrinderAliases::compoundKey(b);
+    if (!aKey.isEmpty() || !bKey.isEmpty())
+        return aKey.isEmpty() || bKey.isEmpty() || aKey == bKey;
+
+    const std::optional<double> an = GrinderAliases::leadingDialNumber(a);
+    const std::optional<double> bn = GrinderAliases::leadingDialNumber(b);
+    if (!an || !bn) return true;                   // not numerically comparable
+    return std::abs(*an - *bn) <= kGrinderStepTolerance + 1e-9;
+}
+
 // Match `actual` against `recommended` for adherence purposes. Also
 // guard against "the user kept the prior shot's setting" registering
 // as followed when the recommendation happens to be within tolerance
@@ -747,6 +780,33 @@ bool rpmMatches(int recommended, int actual, int prior)
     return true;
 }
 
+// Did the user change the setup between the prior shot and this one?
+//
+// Only for the ranges-only case, where nothing was recommended and the
+// implicit instruction is "repeat this shot, here is what I predict". Any
+// deliberate change means the predicted repeat did not happen.
+//
+// Tolerances are the same ones adherence scoring uses elsewhere, so scale
+// noise and RPM rounding do not read as a decision. Every field requires
+// evidence on BOTH sides before it can report a change: an unrecorded dose or
+// a blank profile name is missing data, and treating it as a change would
+// flip long-settled turns to "ignored" on nothing.
+bool setupChangedFromPrior(const ShotProjection& prior, const ShotProjection& actual)
+{
+    if (!sameGrinderSetting(prior.grinderSetting, actual.grinderSetting))
+        return true;
+    if (prior.rpm > 0 && actual.rpm > 0
+        && std::abs(actual.rpm - prior.rpm) > kRpmTolerance)
+        return true;
+    if (prior.doseWeightG > 0.0 && actual.doseWeightG > 0.0
+        && std::abs(actual.doseWeightG - prior.doseWeightG) > kDoseToleranceG + 1e-9)
+        return true;
+    if (!prior.profileName.isEmpty() && !actual.profileName.isEmpty()
+        && prior.profileName != actual.profileName)
+        return true;
+    return false;
+}
+
 QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
                           const ShotProjection& prior)
 {
@@ -806,9 +866,19 @@ QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
             && recommendedProfile != prior.profileName;
     });
     if (!anyRecommendation) {
-        // The recommendation was ranges-only (no parameter changes
-        // requested). Treat that as "followed" by default — the user
-        // didn't violate anything since nothing was requested.
+        // Ranges-only: no parameter changes were requested, so the implicit
+        // instruction is "run this again, here is the range I expect". That
+        // IS an experiment, and "followed" tells the model it ran.
+        //
+        // So a repeat on the same setup is "followed", but a shot the user
+        // regrinded or redosed is "ignored" — the prediction was made about a
+        // shot that never happened. Returning "followed" there made the model
+        // REVISE DIRECTION ("the experiment ran and failed", per the prompt)
+        // on an outcome its prediction never covered. Same false-"followed"
+        // class the unscoreable guard below prevents; this was the one path
+        // still exempt from it.
+        if (setupChangedFromPrior(prior, actual))
+            return QStringLiteral("ignored");
         return QStringLiteral("followed");
     }
     // Something was recommended in a form we cannot check, so we cannot claim
