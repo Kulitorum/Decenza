@@ -54,4 +54,4 @@
 - [x] 6.3 Revert-if-no-saving check. **Not triggered — the saving materialised.** Duplicate compilation went to zero, which is the load-independent claim the restructuring rests on, and the incremental case improved 6×. Keeping sections 2 and 3.
 - [x] 6.4 Note the September test-lines-per-source-line check as a follow-up for the maintainer — it cannot be verified in this change, and the proposal states it as a bet. **Command and July figures are in `baseline.md` under 'Growth ratio — the September check'.**
 - [x] 6.5 Wiki manual — **not applicable**, no user-visible surface changes. Recorded rather than skipped, per the CLAUDE.md rule.
-- [ ] 6.6 Archive with `openspec archive cut-test-build-cost` as the final commit on the branch, before merge.
+- [x] 6.6 Archive with `openspec archive cut-test-build-cost` as the final commit on the branch, before merge.
