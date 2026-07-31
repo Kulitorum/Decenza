@@ -243,10 +243,24 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     m_ready = true;
     emit readyChanged();
 
+#ifndef DECENZA_TESTING
     // After m_ready, deliberately: the census reads through its own connection
     // on the worker, and queueing it earlier would only widen the window in
     // which a reader could see a half-initialised object.
+    //
+    // Skipped in test builds, like importLegacyBeanPresets() above, and for a
+    // sharper reason than "tests don't need it". Posting here CREATES the FIFO
+    // worker and increments its outstanding count, and ~SerialDbWorker warns
+    // "those writes are being discarded" for anything still queued
+    // (core/dbutils.h). A read-only storage never created that worker before,
+    // so the warning was unreachable; arming it on every initialize() would
+    // make a census that writes NOTHING claim a user lost writes, and would
+    // race QTest::failOnWarning() in every test that constructs a storage and
+    // lets it fall out of scope without draining. The failure would surface
+    // named "ShotHistoryStorageWorker", in whichever test happened to be
+    // running — see the same hazard documented in tst_coffeebags.cpp.
     logGrinderCensus();
+#endif
 
     qDebug() << "ShotHistoryStorage: Database initialized with" << m_totalShots << "shots";
     return true;

@@ -475,10 +475,16 @@ private:
     //
     // Runs on the shared DB worker rather than a detached thread: it is a full
     // scan of `shots` with a join, so it must not sit on the main thread at
-    // startup, and the FIFO worker keeps it behind work that matters while
-    // still being covered by isDbWorkIdle() — which is what stops a test's
-    // QTemporaryDir vanishing under it. A detached pre-warm started from
-    // initialize() is precisely what broke tst_mcptools_write once.
+    // startup, and the FIFO worker keeps it behind work that matters. The
+    // reason to prefer it is that the worker is JOINED in the destructor, so
+    // the census cannot outlive this object — NOT that only it is covered by
+    // isDbWorkIdle(), which counts detached threads too and has since the
+    // tst_mcptools_write failure that a detached pre-warm from initialize()
+    // caused. An earlier draft of this comment gave that wrong reason.
+    //
+    // Not called at all in test builds — see the call site for why posting it
+    // there would arm a "writes are being discarded" warning about a task that
+    // writes nothing.
     void logGrinderCensus();
 
     bool createTables();

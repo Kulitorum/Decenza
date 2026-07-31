@@ -1725,11 +1725,23 @@ void ShotHistoryStorage::logGrinderCensus()
             // every query this census is meant to explain, and reporting them
             // as two rows would invent a discrepancy that does not exist. The
             // first spelling seen is kept for display.
+            // Numeric settings are deduped as DOUBLES, not as strings, because
+            // that is what deriveGrindStep() sees: grinderWideNumericSettings
+            // parses into a QSet<double>, so "3", "3.0" and "03" are ONE sample
+            // to the step and would be three to a string count. That is not
+            // hypothetical here — GrindRowSource writes the setting with
+            // toFixed() at a width derived from the current step, so one dial
+            // position genuinely lands in history at several decimal widths as
+            // the step changes. Both log lines say "distinct numeric setting(s)"
+            // precisely so a reader can compare them; if they counted different
+            // things, the census would manufacture the false diagnosis it exists
+            // to prevent. Deduping here also makes the case-folded key hold: two
+            // spellings of one grinder collapse instead of counting twice.
             struct Row {
                 QString display;
                 qint64 shots = 0;
-                int numeric = 0;
-                int nonNumeric = 0;
+                QSet<double> numeric;
+                QSet<QString> nonNumeric;
             };
             QMap<QString, Row> byModel;
             const auto fold = [](const QString& m) { return m.trimmed().toLower(); };
@@ -1740,7 +1752,13 @@ void ShotHistoryStorage::logGrinderCensus()
             // when a scoped query "found nothing".
             QSqlQuery q(db);
             if (!q.exec(QStringLiteral(
-                    "SELECT COALESCE(eg.model, ''), COUNT(*) FROM shots s "
+                    // COUNT(DISTINCT s.id), not COUNT(*): nothing constrains
+                    // equipment_items to one grinder row per package (no unique
+                    // key on (package_id, kind), which is why readers elsewhere
+                    // use ORDER BY id LIMIT 1), and a second grinder row would
+                    // double-count every shot on that package — making this line
+                    // disagree with the shot total logged beside it at startup.
+                    "SELECT COALESCE(eg.model, ''), COUNT(DISTINCT s.id) FROM shots s "
                     "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id "
                     "AND eg.kind = 'grinder' "
                     "GROUP BY LOWER(TRIM(COALESCE(eg.model, '')))"))) {
@@ -1782,12 +1800,16 @@ void ShotHistoryStorage::logGrinderCensus()
                 const QString model = s.value(0).toString().trimmed();
                 if (model.isEmpty())
                     continue;
-                bool numeric = false;
-                s.value(1).toString().toDouble(&numeric);
                 Row& row = byModel[fold(model)];
                 if (row.display.isEmpty())
                     row.display = model;
-                (numeric ? row.numeric : row.nonNumeric)++;
+                const QString setting = s.value(1).toString().trimmed();
+                bool numeric = false;
+                const double v = setting.toDouble(&numeric);
+                if (numeric)
+                    row.numeric.insert(v);
+                else
+                    row.nonNumeric.insert(setting);
             }
 
             // Grinders that exist as equipment but own no shots. Without this a
@@ -1795,15 +1817,24 @@ void ShotHistoryStorage::logGrinderCensus()
             // such grinder" when the truth is "nothing was ever attributed to
             // it" — the fork-detaches-history failure in one line.
             QSqlQuery g(db);
-            if (g.exec(QStringLiteral(
+            if (!g.exec(QStringLiteral(
                     "SELECT DISTINCT COALESCE(model, '') FROM equipment_items "
                     "WHERE kind = 'grinder' AND TRIM(COALESCE(model, '')) != ''"))) {
-                while (g.next()) {
-                    const QString model = g.value(0).toString().trimmed();
-                    Row& row = byModel[fold(model)];
-                    if (row.display.isEmpty())
-                        row.display = model;
-                }
+                // Warn but carry on, unlike the two above: their results ARE the
+                // census, while this query only ADDS zero-shot grinders. What must
+                // not happen is losing it silently — a census that quietly drops
+                // the row proving "this grinder owns nothing" fails at exactly the
+                // job it was added for.
+                EQUIP_WARN_STDERR("Census",
+                                  QStringLiteral("grinder list query failed, zero-shot "
+                                                 "grinders omitted below: %1")
+                                      .arg(g.lastError().text()));
+            }
+            while (g.next()) {
+                const QString model = g.value(0).toString().trimmed();
+                Row& row = byModel[fold(model)];
+                if (row.display.isEmpty())
+                    row.display = model;
             }
 
             EQUIP_LOG_STDERR("Census", QStringLiteral(
@@ -1816,8 +1847,8 @@ void ShotHistoryStorage::logGrinderCensus()
                                                "setting(s), %4 non-numeric")
                                                .arg(row.display)
                                                .arg(row.shots)
-                                               .arg(row.numeric)
-                                               .arg(row.nonNumeric));
+                                               .arg(row.numeric.size())
+                                               .arg(row.nonNumeric.size()));
             }
         });
     });
