@@ -938,11 +938,16 @@ static double deriveGrindStep(const QList<double>& sortedDistinct)
 // (17,984 shots / 157 MB). The more expensive of the two read shapes in this file
 // — a correlated equipment_id IN (SELECT ...) subquery over `shots`, whose cost
 // tracks table BYTES because a page read drags the profile_json and debug_log
-// blobs along. Its callers are GrindRowSource.grindStep() and the ShotServer's
-// grind-candidates endpoint, both of which run when a picker's rows are built —
-// not per frame, not per keystroke, not on a binding. (Until #1725 the QML side
-// WAS a binding, and this sentence described it as one; the cost is unchanged
-// but the frequency is not, so do not read the old shape back into it.)
+// blobs along. Two call paths reach it, and the frequency argument has to cover
+// both: GrindRowSource.grindStep() and the ShotServer's grind-candidates
+// endpoint build a picker's rows, while queryGrinderContext (below) builds the
+// AI dialing/advisor context. Neither is per frame, per keystroke, or a binding.
+//
+// (Until #1725 the QML side WAS a binding, and this sentence described it as
+// one; the cost is unchanged but the frequency is not, so do not read the old
+// shape back into it. It then listed only the two picker callers, which read as
+// exhaustive and was not — queryGrinderContext returns early on an EMPTY model,
+// which is a narrower thing than never calling this.)
 //
 // `queryOk` reports whether the QUERY ran, not whether it found anything. A failed
 // query and a grinder with no numeric history both yield an empty list, and the
