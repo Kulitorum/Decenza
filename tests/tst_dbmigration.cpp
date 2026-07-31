@@ -190,16 +190,26 @@ private:
     // derivation lands via a queued callback from a background thread, so a test
     // that reads immediately after initialize() is reading a map that has not been
     // published yet — which is the "not yet derived" state, not the bug.
-    template<typename Pred>
-    bool pumpUntil(Pred&& pred, int maxMs = 5000) {
-        for (int waited = 0; waited < maxMs; waited += 25) {
-            if (pred()) return true;
+    // Drive the event loop until all background DB work has completed and its
+    // callbacks have been delivered. This is what lets an assertion READ ONCE:
+    // polling the getter instead makes the poll itself the consumer that re-asks,
+    // and re-asking is precisely what the pre-change code needed a human to do.
+    // A test whose predicate is the getter therefore passes against the bug.
+    // Settled means settled: this machinery CHAINS. A refresh's completion callback
+    // runs on the main thread and can itself re-request composite keys, so
+    // isDbWorkIdle() is momentarily true between a worker finishing and its queued
+    // callback starting the next one. A single idle check therefore returns while
+    // the cache is mid-rebuild — which looks exactly like the bug under test.
+    // Require idle to HOLD across several pumped rounds instead.
+    void quiesce(ShotHistoryStorage& s) {
+        int consecutiveIdle = 0;
+        for (int i = 0; i < 600 && consecutiveIdle < 5; ++i) {
             QCoreApplication::processEvents();
-            QThread::msleep(25);
+            QThread::msleep(10);
+            consecutiveIdle = s.isDbWorkIdle() ? consecutiveIdle + 1 : 0;
         }
-        return pred();
+        QVERIFY2(s.isDbWorkIdle(), "background DB work never settled");
     }
-
 
 private slots:
 
@@ -2056,18 +2066,21 @@ private slots:
 
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
-        QVERIFY(pumpUntil([&] { return s.grindStepForGrinder("Zero") > 0.0; }));
+        quiesce(s);
         QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
 
+        // Read ONCE, after the invalidation has fully settled. Against the
+        // pre-change code this is the assertion that goes red: the refresh had
+        // cleared the composite cache key and nothing re-populated it, so this
+        // single read misses and returns 0. Polling the getter here instead would
+        // pass on BOTH branches, because each poll re-issues the fetch the old code
+        // needed a consumer to re-issue — the poll would be standing in for the
+        // human whose absence was the bug.
         s.invalidateDistinctCache();
-        // No pumping: the point is that the value is correct at the instant of the
-        // read, with the rebuild still in flight.
-        QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
-
-        QVERIFY(pumpUntil([&] { return s.grindStepForGrinder("Zero") == 0.25; }));
+        quiesce(s);
         QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
         s.close();
-        pumpUntil([] { return false; }, 200);
+        QTRY_VERIFY(s.isDbWorkIdle());
     }
 
     void grindStepThinHistoryReturnsZero() {
@@ -2082,12 +2095,13 @@ private slots:
         // history gives the publication something observable to hang on.
         seedQuarterStepHistory(path, QStringLiteral("Zero"), 6);
         s.invalidateDistinctCache();
-        QVERIFY(pumpUntil([&] { return s.grindStepForGrinder("Zero") > 0.0; }));
+        quiesce(s);
+        QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
 
         // Published, and this grinder still cannot derive: one distinct setting.
         QCOMPARE(s.grindStepForGrinder("Solo"), 0.0);
         s.close();
-        pumpUntil([] { return false; }, 200);
+        QTRY_VERIFY(s.isDbWorkIdle());
     }
 
     void grindStepFoldsModelCaseAndWhitespace() {
@@ -2097,14 +2111,44 @@ private slots:
 
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
-        QVERIFY(pumpUntil([&] { return s.grindStepForGrinder("Zero") > 0.0; }));
+        quiesce(s);
         // Same grinder, differently typed. An exact compare read this back as a
         // grinder with no history — invisible, because empty is indistinguishable
         // from new.
         QCOMPARE(s.grindStepForGrinder("  zero  "), 0.25);
         QCOMPARE(s.grindStepForGrinder("ZERO"), 0.25);
         s.close();
-        pumpUntil([] { return false; }, 200);
+        QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
+    // A model-filtered derivation must return ONLY that model. The filter is
+    // appended to a WHERE whose axis test is a disjunction, so without brackets
+    // `A OR B AND C` parses as `A OR (B AND C)` and the filter constrains only the
+    // RPM branch — every grinder with a grind setting comes back. The requested
+    // model's own number stays right (the caller reads one key), so nothing that
+    // reads through .value() can see this; assert on the hash itself.
+    void derivationFilterReturnsOnlyThatModel() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage init; initAndClose(path, init); }
+        seedQuarterStepHistory(path, QStringLiteral("Zero"), 6);
+        seedQuarterStepHistory(path, QStringLiteral("DF64"), 6);
+
+        withRawDb(path, "filter_scope", [](QSqlDatabase& db) {
+            QHash<QString, GrinderSteps> filtered;
+            QVERIFY(ShotHistoryStorage::deriveGrinderSteps(db, filtered,
+                                                           QStringLiteral("Zero")));
+            QCOMPARE(filtered.size(), 1);
+            QVERIFY(filtered.contains("zero"));
+            QVERIFY2(!filtered.contains("df64"),
+                     "a filtered derivation must not return other grinders");
+
+            // Unfiltered: both models plus the all-grinders bucket.
+            QHash<QString, GrinderSteps> all;
+            QVERIFY(ShotHistoryStorage::deriveGrinderSteps(db, all));
+            QVERIFY(all.contains("zero"));
+            QVERIFY(all.contains("df64"));
+            QVERIFY(all.contains(QString()));
+        });
     }
 
     // An empty model means "no grinder selected" and must keep deriving from the
@@ -2115,12 +2159,33 @@ private slots:
         { ShotHistoryStorage init; initAndClose(path, init); }
         seedQuarterStepHistory(path, QStringLiteral("Zero"), 28);
 
+        // Shots with NO equipment row at all, stepping by 0.1. Only the unjoined
+        // all-grinders pass can see these — rewriting the "" bucket as a fold over
+        // the joined per-model buckets would still answer 0.25 and look correct, so
+        // without them the test cannot tell the two implementations apart.
+        withRawDb(path, "no_equipment", [](QSqlDatabase& db) {
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            for (int i = 0; i < 6; ++i) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-bare-%1").arg(i);
+                r.timestamp = now - i * 60;
+                r.profileName = QStringLiteral("p");
+                // No grinder brand/model/burrs => insertShot leaves equipment_id NULL.
+                r.grinderSetting = QString::number(2.0 + 0.1 * i);
+                QVERIFY(insertShot(db, r) > 0);
+            }
+        });
+
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
-        QVERIFY(pumpUntil([&] { return s.grindStepForGrinder("") > 0.0; }));
-        QCOMPARE(s.grindStepForGrinder(""), 0.25);
+        quiesce(s);
+        // 0.1 is now the smallest repeated gap across the full history, and it is
+        // only reachable if equipment-less shots are included.
+        QCOMPARE(s.grindStepForGrinder(""), 0.1);
+        // The per-grinder answer is unchanged — the buckets are independent.
+        QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
         s.close();
-        pumpUntil([] { return false; }, 200);
+        QTRY_VERIFY(s.isDbWorkIdle());
     }
 
     // The widget read and the AI payload must be the same number by construction,
@@ -2133,7 +2198,7 @@ private slots:
 
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
-        QVERIFY(pumpUntil([&] { return s.grindStepForGrinder("Zero") > 0.0; }));
+        quiesce(s);
         const double widgetStep = s.grindStepForGrinder("Zero");
 
         double payloadStep = -1.0;
@@ -2144,7 +2209,7 @@ private slots:
         QCOMPARE(widgetStep, 0.25);
         QCOMPARE(payloadStep, widgetStep);
         s.close();
-        pumpUntil([] { return false; }, 200);
+        QTRY_VERIFY(s.isDbWorkIdle());
     }
 
     // A composite distinct-cache key must survive an invalidation. Before this
@@ -2159,24 +2224,31 @@ private slots:
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
         // First read is a miss that starts the fetch; the values land async.
-        QVERIFY(pumpUntil([&] {
-            return !s.getDistinctGrinderSettingsForGrinder("Zero").isEmpty();
-        }));
+        (void)s.getDistinctGrinderSettingsForGrinder("Zero");
+        quiesce(s);
         const qsizetype before = s.getDistinctGrinderSettingsForGrinder("Zero").size();
         QVERIFY(before > 0);
 
+        // The refresh must put the composite key back by itself. Reading once after
+        // quiescence is what tests that: a polled read would re-request the key on
+        // its own miss and pass whether or not the refresh restored anything.
         s.invalidateDistinctCache();
-        QVERIFY2(pumpUntil([&] {
-            return s.getDistinctGrinderSettingsForGrinder("Zero").size() == before;
-        }), "composite key must be restored by the refresh, not left for a consumer to notice");
+        quiesce(s);
+        QCOMPARE(s.getDistinctGrinderSettingsForGrinder("Zero").size(), before);
         s.close();
-        pumpUntil([] { return false; }, 200);
+        QTRY_VERIFY(s.isDbWorkIdle());
     }
 
-    // The race itself: a single-key fetch in flight when a full refresh lands. The
-    // refresh clears the pending marker, so the in-flight result is discarded —
-    // correctly. What used to follow was silence: no retry, no distinctCacheReady,
-    // and a consumer left on its fallback forever.
+    // A fetch issued immediately before an invalidation must still end with the key
+    // populated, without a consumer re-asking.
+    //
+    // Scope, stated honestly: this does NOT deterministically force the discard
+    // branch. Whether the single-key result or the refresh callback lands first is
+    // up to the scheduler, so on some runs the fetch simply completes and is
+    // cleared. What it does pin is the outcome either way — which is the property
+    // that matters and the one that was broken. Forcing the branch itself would need
+    // a fault-injection seam; the earlier version of this test claimed to force it
+    // and did not, which is worse than not claiming it.
     void racedFetchStillResolves() {
         QString path = freshDbPath();
         { ShotHistoryStorage init; initAndClose(path, init); }
@@ -2186,17 +2258,17 @@ private slots:
         QVERIFY(s.initialize(path));
         QSignalSpy ready(&s, &ShotHistoryStorage::distinctCacheReady);
 
-        // Start the fetch, then invalidate immediately so the refresh lands while
-        // it is still in flight.
+        // Start the fetch, then invalidate immediately so the refresh has a chance to
+        // land while it is still in flight.
         (void)s.getDistinctGrinderSettingsForGrinder("Zero");
         s.invalidateDistinctCache();
+        quiesce(s);
 
-        QVERIFY2(pumpUntil([&] {
-            return !s.getDistinctGrinderSettingsForGrinder("Zero").isEmpty();
-        }), "a discarded in-flight fetch must still end with the key populated");
+        QVERIFY2(!s.getDistinctGrinderSettingsForGrinder("Zero").isEmpty(),
+                 "a fetch overtaken by a refresh must still end with the key populated");
         QVERIFY2(ready.count() > 0, "consumers must be notified so they re-ask");
         s.close();
-        pumpUntil([] { return false; }, 200);
+        QTRY_VERIFY(s.isDbWorkIdle());
     }
 };
 

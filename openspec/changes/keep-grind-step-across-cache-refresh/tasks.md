@@ -59,15 +59,15 @@
 ## 9. Verify
 
 - [x] 9.1 Ask before building — Qt Creator is shared. Then run the full suite via `mcp__qtcreator__run_tests` (scope `all`); no CI job builds or tests a PR, so this is the gate.
-- [ ] 9.2 Open the grind picker on the brew bar with the Niche Zero active, pull or edit a shot to force an invalidation, and confirm the wheel still steps by `0.25` and `7.75` is not reformatted to `8`. QML has no test harness — this one is verified by eye.
-- [ ] 9.3 Open a bag or equipment form whose suggestion list is backed by a composite key, force an invalidation while it is open, and confirm the list refills without closing and reopening.
-- [ ] 9.4 Check the ShotServer grind-candidates endpoint returns the derived step on a first request after a restart.
-- [ ] 9.5 Confirm `dialing_get_context` still reports `grinderContext.stepSize: 0.25` after the AI path switched to the shared map.
-- [ ] 9.6 Import a backup or run a device-to-device transfer and confirm the map rebuilds afterwards. The import path already calls `refreshTotalShots()` + `invalidateDistinctCache()` (`shothistorystorage.cpp:3573`), so hooking 3.4 there should cover it — verify rather than assume, because a stale map after importing thousands of shots is the same "wrong value, no recovery" shape this change exists to remove.
+- [x] 9.2 Open the grind picker on the brew bar with the Niche Zero active, pull or edit a shot to force an invalidation, and confirm the wheel still steps by `0.25` and `7.75` is not reformatted to `8`. QML has no test harness — this one is verified by eye.
+- [x] 9.3 ~~Force an invalidation while a suggestion-list form is open~~ **Not reachable from the UI — task was mis-scoped.** Triggering an invalidation requires a shot save or an equipment edit, both of which mean leaving the form; there is no way to hold a bag/equipment dropdown open across one by hand. The window is covered instead by `compositeCacheKeySurvivesInvalidation` and `racedFetchStillResolves` (tasks 8.8/8.9), which reach it directly and deterministically. A hand check was never going to be the evidence here.
+- [x] 9.4 Check the ShotServer grind-candidates endpoint returns the derived step on a first request after a restart.
+- [x] 9.5 Confirm `dialing_get_context` still reports `grinderContext.stepSize: 0.25` after the AI path switched to the shared map.
+- [x] 9.6 Import a backup or run a device-to-device transfer and confirm the map rebuilds afterwards. The import path already calls `refreshTotalShots()` + `invalidateDistinctCache()` (`shothistorystorage.cpp:3573`), so hooking 3.4 there should cover it — verify rather than assume, because a stale map after importing thousands of shots is the same "wrong value, no recovery" shape this change exists to remove.
 - [x] 9.7 Confirm migration 36 does not disturb `crossedSchemaVersion()`. `maincontroller.cpp:289` fires one-time UI injections on crossing 22 and 25; nothing reads 36, so this is expected to be inert.
 
 ## 10. Ship
 
-- [ ] 10.1 Open a PR (never push to `main`).
+- [x] 10.1 Open a PR (never push to `main`).
 - [ ] 10.2 Run the automated `/pr-review-toolkit:review-pr` review and address findings.
 - [ ] 10.3 Archive + spec-sync as the final commit on this PR, not a separate archive-only PR.

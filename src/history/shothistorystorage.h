@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QSqlDatabase>
 #include <QHash>
+#include <optional>
 #include <QSet>
 #include <QVariantList>
 #include <QDateTime>
@@ -212,16 +213,18 @@ public:
                                               const QString& beanBrand = QString());
 
     // THE grind/RPM step derivation — the only place either number is computed.
-    // Keys are FOLDED model names (lower-cased, trimmed), matching the identity
-    // folding used to decide two packages are the same gear; the empty key is the
-    // all-grinders bucket, derived from the full shot history including shots with
-    // no equipment row.
+    // Keys are FOLDED model names (lower-cased and trimmed) — slightly more
+    // permissive than findPackageByGrinderIdentityStatic, which lower-cases but does
+    // NOT trim, so " Niche Zero" and "Niche Zero" are two packages to the identity
+    // check and one key here. The empty key is the all-grinders bucket, derived from
+    // the full shot history including shots with no equipment row.
     //
-    // An empty `modelFilter` derives every grinder, which measures the same cost as
-    // deriving one (both are dominated by the same covering-index walk over
-    // idx_shots_equipment_grind) — that equality is why the store derives the whole
-    // set up front instead of one model at a time. A non-empty filter returns just
-    // that model, and no all-grinders bucket.
+    // An empty `modelFilter` derives every grinder: ~4x the cost of deriving one
+    // (5.12 ms vs 1.18 ms measured at 20x the current shot count), because the
+    // unfiltered path additionally runs a second, unjoined pass for the all-grinders
+    // bucket. Cheap enough in absolute terms that deriving the whole set up front
+    // still beats a per-model async round-trip — which is the trade, not an equality.
+    // A non-empty filter returns just that model, and no all-grinders bucket.
     //
     // Static and db-scoped on purpose: the dialing payload path
     // (DialingBlocks::buildGrinderContextBlock) has no ShotHistoryStorage instance
@@ -230,9 +233,17 @@ public:
     // filter — same function, one WHERE clause apart, so the widget and the AI
     // cannot report different numbers for the same grinder.
     //
-    // Returns an empty hash on query failure — never a partial one.
-    static QHash<QString, GrinderSteps> deriveGrinderSteps(QSqlDatabase& db,
-                                                           const QString& modelFilter = QString());
+    // Returns false on query failure, leaving `out` untouched; true with `out`
+    // filled otherwise. Same shape as reconcileVisualizerLinksStatic, and for the
+    // same reason: the caller MUST be able to tell "the query failed" from
+    // "nothing has history". An earlier draft returned the hash by value and let
+    // the caller infer failure from withTempDb's bool — but that only reports
+    // whether the DATABASE OPENED, so a failed query returned an empty hash that
+    // read as "no grinder has any history" and overwrote a good map. That is the
+    // identical mistake requestDistinctValueAsync's `queryOk` flag exists to
+    // prevent, in the same file.
+    static bool deriveGrinderSteps(QSqlDatabase& db, QHash<QString, GrinderSteps>& out,
+                                   const QString& modelFilter = QString());
 
     // Convert ShotRecord to a typed ShotProjection (shared by requestShot,
     // ShotServer, AIManager, MCP). Returns a default-constructed ShotProjection
@@ -296,12 +307,14 @@ public:
     // memory lookup, no query on the calling thread, and NOT routed through the
     // async distinct-value cache.
     //
-    // Returns 0 ONLY when the grinder has no derivable history (<2 distinct
-    // numeric settings), which is what licenses the caller's own fallback. It
-    // does NOT return 0 because a cache is cold or a fetch is in flight: that is
-    // what it used to do, and it is why a Niche Zero with 28 observed settings
-    // spent whole sessions stepping by the widget's 1.0 fallback while the AI
-    // payload reported the correct 0.25 for the same grinder.
+    // Returns 0 when the grinder has no derivable history (<2 distinct numeric
+    // settings), and transiently at startup before the first derivation has been
+    // published. The NEW property is not that the 0 never happens — it is that it
+    // cannot persist: refreshGrinderSteps() emits distinctCacheReady() when it
+    // publishes, so every reader re-asks. The old cache-backed 0 could and did
+    // persist, which is why a Niche Zero with 28 observed settings spent whole
+    // sessions stepping by the widget's 1.0 fallback while the AI payload reported
+    // the correct 0.25 for the same grinder.
     //
     // MAIN THREAD ONLY (see m_grinderSteps).
     Q_INVOKABLE double grindStepForGrinder(const QString& grinderModel);
@@ -564,22 +577,51 @@ private:
     // QThread::create lambdas). The dialing payload never reads this map: it calls
     // the static deriveGrinderSteps() on its own background connection. No mutex,
     // because no sharing — a future worker-thread caller should trip the assertion
-    // in the readers rather than race silently, which no sanitizer we run would
-    // catch (LSan is Linux-only and a data race is not a leak).
+    // in stepsFor() rather than race silently, which nothing in our build would
+    // catch: ThreadSanitizer is not configured (CMakeLists.txt enables ASan + UBSan
+    // only). Note the assertion is debug-only, so it is a development guard, not a
+    // production one.
     QHash<QString, GrinderSteps> m_grinderSteps;
     // Re-derive m_grinderSteps on a background thread and publish on the main one.
     void refreshGrinderSteps();
+    // Serial of the most recently STARTED derivation. Each run captures it and its
+    // completion callback publishes only if it is still the newest — otherwise two
+    // overlapping refreshes publish last-to-FINISH rather than last-to-start, and a
+    // stale snapshot can win with nothing scheduled to correct it. invalidateDistinct
+    // Cache() fires on every shot save, edit, delete and import, so overlap is
+    // ordinary, not exotic. (requestDistinctCache() solves the same problem with a
+    // refreshing/dirty pair; a serial is the smaller fit here because a superseded
+    // derivation can simply be dropped — the newer one already covers it.)
+    quint64 m_grinderStepsSerial = 0;
     // Folded lookup key for m_grinderSteps — one helper so the write and read
     // sides cannot fold differently.
     static QString foldGrinderModel(const QString& model) { return model.trimmed().toLower(); }
 
-    // Deduped narration of what grindStepForGrinder() answered — see its definition.
-    void reportGrindStep(const QString& grinderModel, qsizetype sampleCount, double step,
-                         const char* source);
-    // Last "<grinder>:<count>:<step>:<source>" passed to reportGrindStep(), so the
-    // derivation is logged when it CHANGES rather than on every QML binding
-    // re-evaluation. Not a cache — it is only ever compared, never read back.
-    QString m_lastGrindStepReport;
+    // The ONLY way to read m_grinderSteps. Returns nullopt when nothing has been
+    // derived for this grinder — either the first derivation has not landed yet or
+    // the grinder has no shots — which is a different state from a derived entry
+    // whose step is 0 ("has history, not derivable"). Both getters go through this
+    // so neither can take the `.value()` shortcut and silently collapse the two;
+    // the RPM getter did exactly that in its first draft.
+    //
+    // A NON-EMPTY model that folds to empty (e.g. "   ", reachable from the
+    // ShotServer `?model=` query string) is a malformed request, not a request for
+    // the cross-grinder bucket, and returns nullopt rather than colliding with it —
+    // otherwise a caller whose grinder field failed to populate gets a plausible
+    // number for the wrong question.
+    std::optional<GrinderSteps> stepsFor(const QString& grinderModel) const;
+
+    // Deduped narration of what the step getters answered — see grindStepForGrinder().
+    // One function for both axes rather than a near-copy per axis: the two must not
+    // drift into describing the same event in different words, which is exactly the
+    // failure documented for usbscalemanager in CLAUDE.md.
+    void reportStep(const char* axis, const QString& grinderModel, qsizetype sampleCount,
+                    double step, const char* source);
+    // Last "<grinder>:<count>:<step>:<source>" reported per axis, so a derivation is
+    // logged when it CHANGES rather than on every QML binding re-evaluation. Keyed by
+    // axis so grind and RPM reads cannot alternate and defeat each other's dedupe.
+    // Not a cache — only ever compared, never read back.
+    QHash<QByteArray, QString> m_lastStepReport;
     bool m_distinctCacheRefreshing = false;  // Debounce guard for requestDistinctCache()
     bool m_distinctCacheDirty = false;       // Re-queue flag: set when invalidation arrives during refresh
     QSet<QString> m_pendingDistinctKeys;     // De-duplicate in-flight requestDistinctValueAsync() calls
@@ -596,6 +638,20 @@ private:
         QVariantList binds;
     };
     QHash<QString, DistinctQuery> m_distinctQueries;
+
+    // Keys whose last fetch FAILED (bad open, bad prepare, bad exec). Notifying
+    // consumers on a failure is necessary — otherwise a binding sits on its
+    // fallback forever — but notifying alone re-arms them: the binding re-asks, the
+    // getter misses, it re-issues the same failing fetch, which notifies again. For
+    // a deterministic failure (SQL naming a dropped column) that is an unbounded
+    // loop spawning a thread and a DB open per turn, which is worse than the
+    // stranding it replaced. So a failed key is notified ONCE and then refused
+    // until conditions could actually have changed.
+    //
+    // Cleared by requestDistinctCache()'s success branch: an invalidation is the
+    // honest "the database moved" signal, and it is already the retry hook the rest
+    // of this machinery hangs on. Event-driven, not a timer — see CLAUDE.md.
+    QSet<QString> m_failedDistinctKeys;
 
     // Async filter support
     bool m_loadingFiltered = false;
