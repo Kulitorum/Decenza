@@ -335,10 +335,55 @@ discriminating.
 
 ## Adding New Tests
 
-1. Create `tests/tst_yourtest.cpp` with `QTEST_GUILESS_MAIN(tst_YourTest)` and `#include "tst_yourtest.moc"`
-2. Add to `tests/CMakeLists.txt` using `add_decenza_test(tst_yourtest tst_yourtest.cpp ...source files...)`
-3. If accessing private members, add `friend class tst_YourTest;` behind `#ifdef DECENZA_TESTING` in the production header
-4. Run `mcp__qtcreator__run_tests` to verify (`scope: "named"`, `names: ["tst_YourTest"]`; if a freshly added target isn't in the Autotest model yet, just retry — it re-parses)
+**A test costs BUILD time, not run time. Budget accordingly.** The whole suite runs
+in ~31 s and an individual test is 50-80 ms — that is noise. What is not noise is
+that there are already **106 test targets**, and each one is a compile *and a link*
+of a binary against Qt and `decenza_shotlib`, paid on every build that touches the
+library, forever. A full build is ~90-150 s and the test targets are most of it.
+
+So, in order:
+
+1. **Add to an EXISTING target whose fixtures already fit.** This is the default and
+   it is nearly free — one TU recompiles, and only when you touch it. Look for a
+   binary that already links what you need and already has the setup: `tst_dbmigration`
+   (schema/migration chain), `tst_dialing_blocks` (DB-backed reads, and it copies a
+   prebuilt schema template per test instead of re-running migrations), `tst_coffeebags`,
+   `tst_equipment`, `tst_recipestorage`.
+2. **Only create a new target when no existing one fits** — a genuinely new subsystem,
+   or a link footprint the existing binaries do not have. Creating one to get a tidier
+   filename is not a reason; it buys a name and costs a compile+link on every build.
+   If you do: `tests/tst_yourtest.cpp` with `QTEST_GUILESS_MAIN(tst_YourTest)` and
+   `#include "tst_yourtest.moc"`, then `add_decenza_test(...)` in `tests/CMakeLists.txt`.
+3. If accessing private members, add `friend class tst_YourTest;` behind
+   `#ifdef DECENZA_TESTING` in the production header
+4. Run `mcp__qtcreator__run_tests` to verify (`scope: "named"`, `names: ["tst_YourTest"]`;
+   if a freshly added target isn't in the Autotest model yet, just retry — it re-parses)
+
+### A test has to be able to fail
+
+Before you keep a test, **break the code it covers and watch it go red.** This is not
+ceremony; it is the only thing that distinguishes a test from a comment that compiles.
+Three shapes that pass forever and protect nothing, all shipped here:
+
+- **Tautological.** `grindStepAgreesWithDialingContext` asserted that the widget and the
+  AI payload return the same number — after a refactor made both call the same function.
+  `f(x) == f(x)`. Deleted.
+- **Asserting the universal failure value.** A function whose error path, not-ready path
+  and no-data path all return `0` cannot be tested by asserting `0`. Pair it with a case
+  in the same database that returns a real value, so the assertion proves the query ran.
+- **The predicate is the fix.** A poll loop whose condition calls the getter re-issues the
+  work the bug was about not re-issuing, so it passes on both branches. Read once after
+  quiescing instead.
+
+When a test would only pass, say so and don't write it. Deleting a test that cannot fail
+is a strict improvement — it removes build cost and a false sense of coverage at once.
+
+### Prefer fixtures that amortise
+
+`tst_dialing_blocks` builds the schema **once** in `initTestCase()` and copies the file
+per test (a few ms) rather than running `createTables()` + the migration chain each time
+(~300 ms × 37 call sites). If you are adding DB-backed tests, use a binary with that
+shape rather than paying the chain per test.
 
 ## Handling Warnings
 
