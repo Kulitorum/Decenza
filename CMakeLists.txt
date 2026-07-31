@@ -928,6 +928,7 @@ set(HEADERS
     src/network/beanbase_blob.h
     src/ai/aimanager.h
     src/ai/aiprovider.h
+    src/ai/airequestshape.h
     src/ai/conductance.h
     src/ai/livesteamcoach.h
     src/ai/shotanalysis.h

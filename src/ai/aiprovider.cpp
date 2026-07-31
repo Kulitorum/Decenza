@@ -1,4 +1,5 @@
 #include "aiprovider.h"
+#include "airequestshape.h"
 #include "../core/translationmanager.h"
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -300,24 +301,10 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     // the accepted cap. Live-caught July 2026: stage-1 extraction and the
     // advisor both 400'd on gpt-5.4/gpt-5.4-mini.
     requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
-    // GPT-5 family are reasoning models; keep reasoning off. Dial-in advice
-    // needs little chain-of-thought, and reasoning measurably COSTS us the
-    // trailing nextShot JSON block: a 4-model x 4-scenario x 2-effort replay
-    // (2026-07-30) emitted the block 16/16 at "none" and lost 5 of 16 at "low",
-    // Luna and full 5.4 losing two apiece. Mirrors Gemini's thinking=off.
-    //
-    // NOT because reasoning tokens overrun the output cap — that was this
-    // comment's original claim and the replay refuted it. No run hit
-    // finish_reason "length"; reasoning ran 208-1245 tokens against a 4096 cap
-    // and the models simply chose to omit the block while reasoning. Keep the
-    // setting, don't repeat the old rationale.
-    //
-    // The 5.4 generation REPLACED the value "minimal" with "none" (live-caught
-    // 400: supported = none/low/medium/high); the 5.6 generation accepts "none"
-    // too (verified live, all three tiers). INVARIANT: assumes every
-    // availableModels() entry is a reasoning model that accepts "none" —
-    // guard/branch here if the catalog ever gains one that doesn't.
-    requestBody["reasoning_effort"] = "none";
+    // Reasoning off — rationale and INVARIANT in
+    // AIRequestShape::disableOpenAIReasoning() (src/ai/airequestshape.h),
+    // shared with the bulk translator so the two cannot drift.
+    AIRequestShape::disableOpenAIReasoning(requestBody);
 
     sendRequest(requestBody);
 }
@@ -641,40 +628,12 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
 // Anthropic Provider
 // ============================================================================
 
-// Turn extended thinking OFF, explicitly, on every request.
-//
-// This has to be explicit because the default is NOT stable across models.
-// Per Anthropic's thinking documentation (checked 2026-07-29): omitting the
-// `thinking` field runs NO thinking on claude-sonnet-4-6, but runs ADAPTIVE
-// thinking on claude-sonnet-5. Since max_tokens caps thinking + response text
-// together, omitting it on Sonnet 5 lets thinking consume the entire budget
-// and the reply carries no text block at all.
-//
-// That is the mechanism behind #1691, whose user-visible symptom was
-// "Anthropic returned empty response content" on every request. Note the issue
-// itself reports only the symptom — it names no model and carries no wire
-// capture, and the block-type logging that would show a thinking-only reply is
-// added by this same change. The mechanism is inferred from the documented
-// defaults, not observed in that report; the logging exists so the next one
-// can be settled from the log instead.
-//
-// Off (not merely bounded) is the right setting here for the same reason the
-// OpenAI and Gemini paths force reasoning/thinking off: dial-in advice needs
-// little chain-of-thought, and hidden thinking tokens are billed at the output
-// rate.
-//
-// INVARIANT: assumes every availableModels() entry accepts thinking type
-// "disabled" — guard/branch here if the catalog ever gains one that doesn't.
-// This is not theoretical: newer Anthropic models reject the disabled form
-// outright (thinking is always on, omit the field instead) or accept it only
-// at or below a given effort level. Adding such a model to the catalog would
-// turn EVERY Anthropic request into a 400, which is a worse #1691 than #1691.
-static void disableAnthropicThinking(QJsonObject& requestBody)
-{
-    QJsonObject thinking;
-    thinking["type"] = QStringLiteral("disabled");
-    requestBody["thinking"] = thinking;
-}
+// Thinking-off lives in AIRequestShape::disableAnthropicThinking()
+// (src/ai/airequestshape.h) — the rationale, the #1691 mechanism and the
+// INVARIANT are documented there. It is shared rather than local because the
+// bulk translator builds its own Anthropic bodies and has to apply the same
+// rule; it previously did not. Do not reintroduce a local copy.
+using AIRequestShape::disableAnthropicThinking;
 
 AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
                                      const QString& apiKey,
@@ -1170,6 +1129,18 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     // enum and ignores thinkingBudget — sending the wrong knob lets thinking
     // default to "medium" (billed at the $9/MTok output rate). Pick by family
     // so each selectable model keeps thinking minimal/off.
+    //
+    // VERIFIED live 2026-07-30 for both catalog entries — not merely accepted,
+    // but actually off: gemini-2.5-flash with thinkingBudget 0 and
+    // gemini-3.5-flash with thinkingLevel "minimal" each reported
+    // usageMetadata.thoughtsTokenCount == 0. Checking the status alone would
+    // not have been enough; a silently ignored knob still bills thinking.
+    //
+    // INVARIANT for anything added later: the legal thinkingLevel values VARY
+    // BY MODEL (Google's thinking docs — gemini-3-pro-preview accepts only
+    // low/high, while 3.6 Flash accepts minimal/low/medium/high). "minimal" is
+    // NOT a safe default for every 3.x model. Probe a new entry before adding
+    // it; tools/ai_model_eval/ has the shape.
     QJsonObject bodyWithConfig = requestBody;
     QJsonObject thinkingConfig;
     // Gate on the gemini-2.x prefix — 2.5 Flash is the only 2.x model in the

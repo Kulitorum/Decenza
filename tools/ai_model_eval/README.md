@@ -47,6 +47,16 @@ emission. `scenarios.json` marks this with `hasTasteFeedback`, and
 `max_completion_tokens`, same `reasoning_effort`. If that shape changes in
 `src/ai/aiprovider.cpp`, update the constants at the top of `replay.py`.
 
+It also mirrors the app's **acceptance** rule, which is a separate thing and
+easy to get wrong. `extract_structured_next()` is a port of
+`AIManager::parseStructuredNext`: the **last** fence pair, whose closer is the
+final non-whitespace content, tagged `json` case-insensitively. The first
+version of this harness took the *first* ```` ```json ```` block found
+anywhere, so a model echoing an example mid-prose and emitting no trailing
+block would have scored as compliant when the app would reject it. Keep the two
+in step — a harness that measures a block the app won't accept is measuring
+nothing.
+
 ### 4. Blind the judging properly
 
 `blind` mode shuffles labels per scenario. It also deliberately prints **no
@@ -89,8 +99,11 @@ scenarios, single runs. Total spend $1.03.
 64.3 g / 8.5 s blowout in recent history and refused to dial on it; **both 5.4
 models missed it entirely**. `gpt-5.4-mini` additionally invented a grind trend
 that did not exist — plausibly the blowout contaminating its average without it
-ever registering the blowout as an event. This reproduced mini's documented
-failure mode from the `fix-multishot-advice-tracking` A/B.
+ever registering the blowout as an event. That is consistent with mini's
+documented weakness in multi-shot trend reasoning from the
+`fix-multishot-advice-tracking` A/B, though not the same symptom: there it
+*missed* a real trend (false negative), here it *invented* one (false
+positive).
 
 **`reasoning_effort` — `"none"` is correct, `"low"` is a regression.** A
 4-model × 4-scenario × 2-effort matrix emitted the `nextShot` block **16/16 at
@@ -118,8 +131,20 @@ promote the smallest tier against prior evidence that small tiers are weak —
 which is precisely the belief this run undermined. **Open question worth
 settling: 8–10 more rated scenarios, 2 runs each, Luna vs Terra only.**
 
-`gpt-5.6-sol` was never tested. `gpt-5.4-nano` is now strictly dominated by
+`gpt-5.6-sol` was **not evaluated for advice quality** — its API parameter
+acceptance *was* verified live (it takes `reasoning_effort: "none"` and
+`web_search` at both `"none"` and `"low"`, same as Terra and Luna), but it was
+never run through the scenarios. `gpt-5.4-nano` is now strictly dominated by
 Luna (same input price, higher output price, older generation).
 
-**Method bug to avoid repeating:** the blind was broken by printing per-call
-cost. Fixed in `replay.py`; do not add cost printing back to `blind` mode.
+**Method bugs to avoid repeating**, both found in review of this run rather
+than during it:
+
+- The blind was broken by printing per-call cost — the cheapest response is
+  unmistakable. Fixed; do not add cost printing back to `blind` mode.
+- The emission audit used a first-fence regex instead of the app's last-fence
+  acceptance rule (see "Replay byte-for-byte"). The 16/16 and 5-of-16 counts
+  above were **re-derived from the saved responses under the corrected rule and
+  did not change** — every rejection was a genuinely absent block, not a
+  malformed one — but the harness would have mismeasured a model that wrapped
+  its block in prose.

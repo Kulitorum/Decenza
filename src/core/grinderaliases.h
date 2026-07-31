@@ -392,6 +392,59 @@ inline const GrinderEntry* findEntryByAlias(const QString& raw)
 //     numeric (some users record decimal positions like "0.5" on a
 //     Mignon), interpreted as a direct linear value, so we don't drop
 //     the cohort that collapses notation.
+// The two notation regexes, defined once so every consumer agrees on what a
+// setting looks like. parseGrinderSetting() and looksLikeSetting() both read
+// them; a copy in either would be free to drift.
+namespace detail {
+inline const QRegularExpression& compoundRe()
+{
+    static const QRegularExpression re(QStringLiteral(R"(^(-?\d+)\s*\+\s*(\d+(?:\.\d+)?)$)"));
+    return re;
+}
+inline const QRegularExpression& numRe()
+{
+    static const QRegularExpression re(QStringLiteral(R"(^(-?\d+(?:\.\d+)?)(?:\s+(\S.*))?$)"));
+    return re;
+}
+}  // namespace detail
+
+// Syntactic check: could a user have RECORDED this string as their dial
+// setting? Notation-agnostic on purpose — it takes no GrinderEntry, because
+// callers that only have a setting string (adherence scoring) have no grinder
+// to look up, and the answer does not depend on one.
+//
+// This exists to tell a setting from PROSE. Models do write prose into the
+// advisor's `structuredNext.grinderSetting` — "a touch coarser than 9"
+// (GPT-5.6 Terra), "slightly coarser than 9" (GPT-5.4 mini), observed live
+// 2026-07-30 — and prose can never match a recorded setting, so scoring it as
+// a followed-or-ignored recommendation is meaningless.
+//
+// Whitespace alone does NOT mean prose: Compound notation accepts "1 + 4" as
+// readily as "1+4" (see the notation rules below), and 19 catalog entries use
+// it — the whole Eureka Mignon and 1Zpresso families. An earlier version of
+// this check rejected on any whitespace and would have silently stopped
+// scoring every one of those grinders.
+inline bool looksLikeSetting(const QString& raw)
+{
+    const QString s = raw.trimmed();
+    if (s.isEmpty())
+        return false;
+
+    // Single token covers plain numerics ("8.25"), lettered dials ("3F"), and
+    // compound written closed-up ("1+4").
+    bool hasSpace = false;
+    for (const QChar c : s) {
+        if (c.isSpace()) { hasSpace = true; break; }
+    }
+    if (!hasSpace)
+        return true;
+
+    // Spaced compound ("1 + 4"), or a number with a recorded annotation
+    // ("24 1400rpm"). Prose fails both: it does not begin with a dial number.
+    return detail::compoundRe().match(s).hasMatch()
+        || detail::numRe().match(s).hasMatch();
+}
+
 inline std::optional<double> parseGrinderSetting(const GrinderEntry& g,
                                                  const QString& raw)
 {
@@ -399,9 +452,7 @@ inline std::optional<double> parseGrinderSetting(const GrinderEntry& g,
     if (s.isEmpty()) return std::nullopt;
 
     if (g.notation == SettingNotation::Compound && g.positionsPerRev > 0) {
-        static const QRegularExpression compoundRe(
-            QStringLiteral(R"(^(-?\d+)\s*\+\s*(\d+(?:\.\d+)?)$)"));
-        const auto m = compoundRe.match(s);
+        const auto m = detail::compoundRe().match(s);
         if (m.hasMatch()) {
             const double a = m.captured(1).toDouble();
             const double b = m.captured(2).toDouble();
@@ -410,9 +461,7 @@ inline std::optional<double> parseGrinderSetting(const GrinderEntry& g,
         // fall through: accept plain numeric on compound grinders too
     }
 
-    static const QRegularExpression numRe(
-        QStringLiteral(R"(^(-?\d+(?:\.\d+)?)(?:\s+(\S.*))?$)"));
-    const auto m = numRe.match(s);
+    const auto m = detail::numRe().match(s);
     if (!m.hasMatch()) return std::nullopt;
     const QString suffix = m.captured(2).trimmed();
     if (!suffix.isEmpty()

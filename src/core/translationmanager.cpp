@@ -3,6 +3,9 @@
 #include "settings.h"
 #include "settings_ai.h"
 #include "logpaths.h"
+// Header-only, no AI-stack dependency — see the note in airequestshape.h about
+// why this file must not include aiprovider.h.
+#include "../ai/airequestshape.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QDirIterator>
@@ -2611,6 +2614,10 @@ void TranslationManager::sendNextAutoTranslateBatch()
 
         QJsonObject json;
         json["model"] = translationModelFor(provider, QString());
+        // temperature survives on the reasoning models this now defaults to —
+        // verified live 2026-07-30 on gpt-5.6-terra alongside
+        // reasoning_effort "none". Worth having checked: reasoning models have
+        // rejected temperature != 1 before, and that would 400 every batch.
         json["temperature"] = 0.3;
         QJsonArray messages;
         QJsonObject msg;
@@ -2618,6 +2625,12 @@ void TranslationManager::sendNextAutoTranslateBatch()
         msg["content"] = prompt;
         messages.append(msg);
         json["messages"] = messages;
+        // Same reasoning-off rule the advisor applies. This body is hand-built
+        // rather than routed through OpenAIProvider (decenza_testlib compiles
+        // this file but not the AI stack), which is exactly how it came to be
+        // missing — the model id was kept in step with the catalog by
+        // tst_aiproviders, the request SHAPE was not.
+        AIRequestShape::disableOpenAIReasoning(json);
         postData = QJsonDocument(json).toJson();
 
     } else if (provider == "anthropic") {
@@ -2635,6 +2648,13 @@ void TranslationManager::sendNextAutoTranslateBatch()
         msg["content"] = prompt;
         messages.append(msg);
         json["messages"] = messages;
+        // Thinking OFF, explicitly. Without this, claude-sonnet-5 runs ADAPTIVE
+        // thinking, which shares the max_tokens budget above and can consume all
+        // of it — returning a reply with no text block at all (#1691). The model
+        // here comes from the SAME setting the advisor's model picker writes, so
+        // a user who selects Sonnet 5 for advice would otherwise hit that on
+        // every translation batch while being billed for it.
+        AIRequestShape::disableAnthropicThinking(json);
         postData = QJsonDocument(json).toJson();
 
     } else if (provider == "gemini") {

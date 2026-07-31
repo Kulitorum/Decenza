@@ -1388,92 +1388,115 @@ private slots:
         });
     }
 
-    // A model may write prose into `grinderSetting` instead of a setting — a
-    // live replay (2026-07-30) caught GPT-5.6 Terra emitting "a touch coarser
-    // than 9". Prose can never string-match a real setting nor parse as a
-    // number, so before the guard it scored matched == 0 and reported
-    // "ignored", falsely telling the next turn the user disregarded advice.
-    // It must be treated as unscoreable instead.
-    void recentAdvice_proseGrinderSettingIsNotScoredAsIgnored()
+    // Shared driver for the grinderSetting adherence cases. Seeds a prior shot
+    // and a follow-up, runs one recommendation through buildRecentAdviceBlock,
+    // and returns the adherence verdict.
+    QString adherenceFor(const QString& tag, const QJsonValue& recommendedGrind,
+                         const QString& priorGrind, const QString& nextGrind)
     {
         const QString dbPath = freshDbPath();
         initAndClose(dbPath);
         const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+        QString verdict;
 
-        qint64 priorId = -1;
-        withRawDb(dbPath, "rec_advice_prose", [&](QSqlDatabase& db) {
-            priorId = insertShot(db, ShotRow{
+        withRawDb(dbPath, tag, [&](QSqlDatabase& db) {
+            const qint64 priorId = insertShot(db, ShotRow{
                 .uuid = "u-prior", .timestamp = nowSec - 7200,
                 .profileName = "P", .profileKbId = "kb",
                 .duration = 30, .finalWeight = 36, .doseWeight = 18,
-                .grinderSetting = "9.0"
+                .grinderSetting = priorGrind
             });
-            // The user DID act on "a touch coarser than 9" — they moved to 8.75.
             insertShot(db, ShotRow{
                 .uuid = "u-next", .timestamp = nowSec - 3600,
                 .profileName = "P", .profileKbId = "kb",
                 .duration = 30, .finalWeight = 36, .doseWeight = 18,
-                .grinderSetting = "8.75"
+                .grinderSetting = nextGrind
             });
 
             QJsonObject sn = sampleStructuredNext();
-            sn["grinderSetting"] = "a touch coarser than 9";
+            sn["grinderSetting"] = recommendedGrind;
 
             DialingBlocks::RecentAdviceInputs in;
             in.turns = {AIConversation::HistoricalAssistantTurn{priorId, "advice", sn}};
             in.currentProfileKbId = "kb";
             in.currentShotId = 99999;
 
-            QTest::ignoreMessage(QtWarningMsg,
-                QRegularExpression("grinderSetting is prose"));
-
             const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
             QCOMPARE(out.size(), 1);
-            const QJsonObject ur = out.first().toObject().value("userResponse").toObject();
-            QVERIFY2(ur.value("adherence").toString() != QStringLiteral("ignored"),
-                     "prose grinderSetting must not be scored as ignored — the user "
-                     "cannot follow a recommendation that names no setting");
-            QCOMPARE(ur.value("adherence").toString(), QStringLiteral("followed"));
+            verdict = out.first().toObject().value("userResponse").toObject()
+                          .value("adherence").toString();
         });
+        return verdict;
     }
 
-    // A non-numeric but real setting (some grinders use these) still scores
-    // normally via exact string equality — the guard targets prose, not
-    // non-numeric values.
+    // Prose in `grinderSetting` — "a touch coarser than 9" (GPT-5.6 Terra,
+    // observed live 2026-07-30). It matches no setting and parses as no number,
+    // so whether the user followed it is UNKNOWABLE.
+    //
+    // It must not report "ignored" (the user may have complied) and must not
+    // report "followed" (they may have changed nothing) — "followed" is the
+    // worse of the two, because the system prompt reads it as "the experiment
+    // ran" and tells the model to revise direction or commit harder on that
+    // basis. Both wrong answers are asserted against here, because the first
+    // version of this fix produced the second one.
+    void recentAdvice_proseGrinderSettingIsUnclear()
+    {
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("grinderSetting is prose"));
+        // User DID move — still unknowable, because the advice named no value.
+        QCOMPARE(adherenceFor("adh_prose_moved", "a touch coarser than 9", "9.0", "8.75"),
+                 QStringLiteral("unclear"));
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("grinderSetting is prose"));
+        // User did NOT move. Same verdict — the point is that the recommendation
+        // is unscoreable, so the follow-up shot cannot change the answer. If this
+        // case ever diverges from the one above, scoring is reading the seeded
+        // data it must not be able to reach.
+        QCOMPARE(adherenceFor("adh_prose_still", "slightly coarser than 9", "9.0", "9.0"),
+                 QStringLiteral("unclear"));
+    }
+
+    // Compound notation ("1 + 4") is a REAL setting for 19 catalog grinders —
+    // the Eureka Mignon and 1Zpresso families — not prose, despite the spaces.
+    // An earlier version of the guard rejected on any whitespace and silently
+    // stopped scoring every one of them.
+    void recentAdvice_compoundNotationScoresNormally()
+    {
+        QCOMPARE(adherenceFor("adh_compound_followed", "1 + 4", "1 + 2", "1 + 4"),
+                 QStringLiteral("followed"));
+        QCOMPARE(adherenceFor("adh_compound_ignored", "1 + 4", "1 + 2", "1 + 2"),
+                 QStringLiteral("ignored"));
+    }
+
+    // A non-numeric single-token setting ("3F") scores via exact string
+    // equality. Both verdicts are exercised so the test cannot pass by simply
+    // never scoring.
     void recentAdvice_nonNumericSettingStillScores()
     {
-        const QString dbPath = freshDbPath();
-        initAndClose(dbPath);
-        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+        QCOMPARE(adherenceFor("adh_3f_followed", "3F", "3C", "3F"),
+                 QStringLiteral("followed"));
+        QCOMPARE(adherenceFor("adh_3f_ignored", "3F", "3C", "3C"),
+                 QStringLiteral("ignored"));
+    }
 
-        qint64 priorId = -1;
-        withRawDb(dbPath, "rec_advice_nonnumeric", [&](QSqlDatabase& db) {
-            priorId = insertShot(db, ShotRow{
-                .uuid = "u-prior", .timestamp = nowSec - 7200,
-                .profileName = "P", .profileKbId = "kb",
-                .duration = 30, .finalWeight = 36, .doseWeight = 18,
-                .grinderSetting = "3C"
-            });
-            insertShot(db, ShotRow{
-                .uuid = "u-next", .timestamp = nowSec - 3600,
-                .profileName = "P", .profileKbId = "kb",
-                .duration = 30, .finalWeight = 36, .doseWeight = 18,
-                .grinderSetting = "3F"
-            });
+    // Incidental padding is not prose. " 8.75 " is the same dial position as
+    // "8.75" and must score, not fall into the unscoreable path.
+    void recentAdvice_paddedSettingIsTrimmedNotRejected()
+    {
+        QCOMPARE(adherenceFor("adh_padded", " 8.75 ", "9.0", "8.75"),
+                 QStringLiteral("followed"));
+    }
 
-            QJsonObject sn = sampleStructuredNext();
-            sn["grinderSetting"] = "3F";
-
-            DialingBlocks::RecentAdviceInputs in;
-            in.turns = {AIConversation::HistoricalAssistantTurn{priorId, "advice", sn}};
-            in.currentProfileKbId = "kb";
-            in.currentShotId = 99999;
-
-            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
-            QCOMPARE(out.size(), 1);
-            const QJsonObject ur = out.first().toObject().value("userResponse").toObject();
-            QCOMPARE(ur.value("adherence").toString(), QStringLiteral("followed"));
-        });
+    // The schema says grinderSetting is a string, but a model may emit it
+    // unquoted. QJsonValue::toString() returns an EMPTY QString for a non-string
+    // type, which previously read as "no grind change" and scored the turn as
+    // fully followed — a recommendation nobody could check, reported as complied
+    // with. It must be unscoreable instead.
+    void recentAdvice_numericJsonGrinderSettingIsUnclear()
+    {
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("grinderSetting is not a JSON string"));
+        QCOMPARE(adherenceFor("adh_numeric_json", QJsonValue(8.75), "9.0", "9.0"),
+                 QStringLiteral("unclear"));
     }
 
     void recentAdvice_emptyTurnsOmitsBlock()

@@ -564,29 +564,62 @@ namespace {
 constexpr double kGrinderStepTolerance = 0.25;
 constexpr double kDoseToleranceG = 0.3;
 
-// A `grinderSetting` we can actually judge adherence against. The field is a
-// free string authored by an LLM, and models do sometimes write prose into it
-// — a live replay (2026-07-30) caught GPT-5.6 Terra emitting "a touch coarser
-// than 9" and GPT-5.4 mini "slightly coarser than 9". Left unguarded, prose
-// fails both arms of grinderMatches() (never string-equal to a real setting,
-// never QString::toDouble-parseable), so computeAdherence() scores it
-// matched == 0 and reports **"ignored"** — telling the NEXT turn's prompt the
-// user disregarded advice they may have followed exactly.
+// What a `structuredNext` field asks of adherence scoring. The fields are
+// authored by an LLM, so "the model recommended something we can check" is not
+// a given and must be a distinct state from "recommended nothing".
+enum class RecommendationKind {
+    None,         // field absent, or explicitly empty — nothing was asked for
+    Scoreable,    // a value we can compare against the shot
+    Unscoreable,  // something was asked for, but not in a form we can check
+};
+
+// Classify `structuredNext.grinderSetting`.
 //
-// Non-numeric is not by itself the defect: some grinders use settings like
-// "3F", and grinderMatches() handles those via exact string equality. Prose is
-// what cannot work, and whitespace separates the two cleanly — a real setting
-// is a single token.
-bool isJudgeableGrinderRecommendation(const QString& recommended)
+// Models do write prose here — "a touch coarser than 9" (GPT-5.6 Terra),
+// "slightly coarser than 9" (GPT-5.4 mini), observed live 2026-07-30 — and
+// prose matches no recorded setting, so it cannot be scored either way.
+//
+// Two traps this has to avoid, both found in review of the first attempt:
+//
+//   1. Whitespace does NOT mean prose. Compound notation writes "1 + 4" as
+//      readily as "1+4" and 19 catalog grinders use it (the Eureka Mignon and
+//      1Zpresso families). Rejecting on any space silently stopped scoring all
+//      of them. GrinderAliases::looksLikeSetting() is the shared authority.
+//   2. The JSON type is not guaranteed. The schema says string, but a model may
+//      emit `"grinderSetting": 4.75` unquoted, and QJsonValue::toString()
+//      returns an EMPTY QString for a non-string type
+//      (qtbase/src/corelib/serialization/qjsonvalue.cpp — "If type() is not
+//      String, a null QString will be returned"). Read as empty that reads as
+//      "no grind change", and grinderMatches() returns true on its isEmpty()
+//      early-out — scoring a recommendation nobody can check as fully followed.
+RecommendationKind classifyGrinderRecommendation(const QJsonObject& sn,
+                                                 QString& outRecommended)
 {
-    // Empty means "no grind change recommended", which IS judgeable (trivially).
-    if (recommended.isEmpty())
-        return true;
-    for (const QChar c : recommended) {
-        if (c.isSpace())
-            return false;
+    outRecommended.clear();
+    if (!sn.contains(QStringLiteral("grinderSetting")))
+        return RecommendationKind::None;
+
+    const QJsonValue v = sn.value(QStringLiteral("grinderSetting"));
+    if (!v.isString()) {
+        qWarning() << "computeAdherence: grinderSetting is not a JSON string (type"
+                   << int(v.type()) << ") — cannot score it";
+        return RecommendationKind::Unscoreable;
     }
-    return true;
+
+    // Trim before anything else: a padded "4.75 " is the same dial position as
+    // "4.75", and grinderMatches() compares against untrimmed database values.
+    const QString s = v.toString().trimmed();
+    if (s.isEmpty())
+        return RecommendationKind::None;   // explicit "grind unchanged"
+
+    if (!GrinderAliases::looksLikeSetting(s)) {
+        qWarning() << "computeAdherence: grinderSetting is prose, not a setting —"
+                   << "cannot score it:" << s;
+        return RecommendationKind::Unscoreable;
+    }
+
+    outRecommended = s;
+    return RecommendationKind::Scoreable;
 }
 
 // Match `actual` against `recommended` for adherence purposes. Also
@@ -632,23 +665,25 @@ QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
                           const ShotProjection& prior)
 {
     bool anyRecommendation = false;
+    bool anyUnscoreable = false;
     int matched = 0;
     int total = 0;
 
-    if (sn.contains(QStringLiteral("grinderSetting"))) {
-        const QString recommended = sn.value("grinderSetting").toString();
-        if (isJudgeableGrinderRecommendation(recommended)) {
-            anyRecommendation = true;
-            ++total;
-            if (grinderMatches(recommended, actual.grinderSetting, prior.grinderSetting))
-                ++matched;
-        } else {
-            // Unscoreable rather than unfollowed: scoring it would report
-            // "ignored" for a recommendation the user could not have followed
-            // literally, and that verdict feeds the next turn's prompt.
-            qWarning() << "computeAdherence: grinderSetting is prose, not a setting —"
-                       << "not scoring it:" << recommended;
-        }
+    QString recommendedGrind;
+    switch (classifyGrinderRecommendation(sn, recommendedGrind)) {
+    case RecommendationKind::None:
+        break;
+    case RecommendationKind::Unscoreable:
+        anyRecommendation = true;   // something WAS asked for
+        anyUnscoreable = true;
+        break;
+    case RecommendationKind::Scoreable:
+        anyRecommendation = true;
+        ++total;
+        if (grinderMatches(recommendedGrind, actual.grinderSetting.trimmed(),
+                           prior.grinderSetting.trimmed()))
+            ++matched;
+        break;
     }
     if (sn.contains(QStringLiteral("rpm"))) {
         anyRecommendation = true;
@@ -682,6 +717,13 @@ QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
         // didn't violate anything since nothing was requested.
         return QStringLiteral("followed");
     }
+    // Something was recommended in a form we cannot check, so we cannot claim
+    // the experiment ran. This must NOT fall through to the ranges-only
+    // "followed" above: the system prompt reads "followed" as "the experiment
+    // ran" and tells the model to revise direction or commit harder on that
+    // basis, when in fact the user may have changed nothing. "unclear" is the
+    // conservative verdict and has its own instruction in the prompt.
+    if (anyUnscoreable) return QStringLiteral("unclear");
     if (matched == total) return QStringLiteral("followed");
     if (matched == 0) return QStringLiteral("ignored");
     return QStringLiteral("partial");

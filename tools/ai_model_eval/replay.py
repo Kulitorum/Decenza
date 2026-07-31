@@ -55,7 +55,51 @@ DEFAULT_EFFORT = "none"           # src/ai/aiprovider.cpp analyze()
 # structuredNext contract — src/ai/shotsummarizer.cpp, "Response Format".
 REQUIRED_FIELDS = ["expectedDurationSec", "expectedFlowMlPerSec",
                    "successCondition", "reasoning"]
-FENCE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
+def extract_structured_next(text):
+    """Port of AIManager::parseStructuredNext (src/ai/aimanager.cpp).
+
+    Must match the app exactly, or the harness measures a block the app would
+    reject. A naive "first ```json fence" regex does NOT: the app takes the
+    LAST fence pair and requires its closer to be the final non-whitespace
+    content, so a model that echoes an example block mid-prose and emits no
+    trailing block scores a block here and none in the app.
+
+    Returns (obj, reason). obj is None when no acceptable block exists, and
+    reason says which rule rejected it.
+    """
+    if not text:
+        return None, "empty response"
+
+    fences, pos = [], 0
+    while True:
+        i = text.find("```", pos)
+        if i < 0:
+            break
+        fences.append(i)
+        pos = i + 3
+    if len(fences) < 2:
+        return None, "no fenced block"
+
+    # Last two fences unconditionally — an odd count (a stray ``` earlier in
+    # the prose) must not silently drop a structurally valid trailing block.
+    opener, closer = fences[-2], fences[-1]
+
+    if text[closer + 3:].strip():
+        return None, "block is not trailing (content after closing fence)"
+
+    nl = text.find("\n", opener + 3)
+    if nl < 0 or nl >= closer:
+        return None, "malformed opening fence"
+    if text[opener + 3:nl].strip().lower() != "json":
+        return None, "trailing fence is not tagged json"
+
+    inner = text[nl + 1:closer].strip()
+    if not inner:
+        return None, "empty block body"
+    try:
+        return json.loads(inner), ""
+    except json.JSONDecodeError as e:
+        return None, f"invalid JSON ({str(e)[:60]})"
 
 CAPTURE_HELP = """\
 Capture step — do this before any replay.
@@ -130,44 +174,66 @@ def call(key: str, model: str, effort: str, system: str, user: str):
         "https://api.openai.com/v1/chat/completions",
         data=json.dumps(body).encode(),
         headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    # Catch broadly. A run is paid for and partly irreplaceable (blind labels
+    # are only meaningful alongside the key), so one socket timeout or one
+    # refusal with a null content must degrade to a recorded per-call error,
+    # never abort the run.
     try:
         with urllib.request.urlopen(req, timeout=300) as r:
             payload = json.loads(r.read())
+        choice = payload["choices"][0]
+        content = choice["message"]["content"]
+        if content is None:
+            return None, "null content (refusal?)", payload.get("usage", {}), None
+        return content, None, payload.get("usage", {}), choice.get("finish_reason")
     except urllib.error.HTTPError as e:
         return None, f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}", {}, None
-    choice = payload["choices"][0]
-    return (choice["message"]["content"], None, payload.get("usage", {}),
-            choice.get("finish_reason"))
+    except Exception as e:                       # noqa: BLE001 — see above
+        return None, f"{type(e).__name__}: {str(e)[:200]}", {}, None
 
 
 def audit_block(text: str) -> dict:
-    """Mechanical compliance of an emitted nextShot block."""
-    m = FENCE.search(text)
-    if not m:
-        return {"block": False}
-    try:
-        obj = json.loads(m.group(1))
-    except json.JSONDecodeError as e:
-        return {"block": True, "valid": False, "error": str(e)[:80]}
+    """Would the app accept this response's nextShot block, and is it usable?"""
+    obj, reason = extract_structured_next(text)
+    if obj is None:
+        return {"block": False, "reason": reason}
+
     grind = obj.get("grinderSetting", "")
+    # Models write prose here ("a touch coarser than 9"). Mirrors
+    # GrinderAliases::looksLikeSetting(): whitespace alone is NOT prose, because
+    # compound notation writes "1 + 4" and 19 catalog grinders use it.
+    prose = False
+    if isinstance(grind, str) and grind.strip():
+        s = grind.strip()
+        prose = any(c.isspace() for c in s) and not (
+            re.fullmatch(r"-?\d+\s*\+\s*\d+(?:\.\d+)?", s)
+            or re.fullmatch(r"-?\d+(?:\.\d+)?(?:\s+\S.*)?", s))
     return {
-        "block": True, "valid": True,
+        "block": True,
         "missing": [f for f in REQUIRED_FIELDS if f not in obj],
-        "grinderSetting": grind or "(omitted)",
-        # Models do write prose here ("a touch coarser than 9"). A real setting
-        # is a single token; see isJudgeableGrinderRecommendation() in
-        # src/ai/dialing_blocks.cpp, which now refuses to score prose.
-        "grind_is_prose": bool(grind) and any(c.isspace() for c in grind),
-        "clean_tail": text[m.end():].strip() == "",
+        "grinderSetting": grind if grind != "" else "(omitted)",
+        "grind_is_prose": prose,
+        # Schema says string. An unquoted number reads as empty via
+        # QJsonValue::toString() in the app and used to score as full adherence.
+        "grind_wrong_type": "grinderSetting" in obj and not isinstance(grind, str),
     }
 
 
 def spend(model: str, usage: dict) -> float:
     if model not in PRICES:
+        # Silence here would report $0.0000 for exactly the case this harness
+        # exists to serve: a model too new to be in the table.
+        print(f"  warning: no price for {model} — its spend is NOT counted",
+              file=sys.stderr)
         return 0.0
     pin, pout = PRICES[model]
     return (usage.get("prompt_tokens", 0) * pin
             + usage.get("completion_tokens", 0) * pout) / 1_000_000
+
+
+def write_key(outdir: str, keymap: dict) -> None:
+    with open(os.path.join(outdir, "key.json"), "w") as f:
+        json.dump(keymap, f, indent=2)
 
 
 def run(args) -> None:
@@ -199,7 +265,15 @@ def run(args) -> None:
             text, err, usage, finish = call(key, model, effort, system, user)
             tag = f"{model}/{effort}"
             if err:
+                # Record it. Skipping made an errored call print as "n" in the
+                # summary — indistinguishable from the model omitting the block,
+                # i.e. a 429 read as a capability failure in the table the
+                # catalog decision rests on.
                 print(f"  {tag:24s} ERROR {err}")
+                results[(scen["key"], model, effort)] = {"block": None, "error": err}
+                if args.mode == "blind":
+                    keymap[scen["key"]][labels[i]] = tag
+                    write_key(outdir, keymap)
                 continue
             total += spend(model, usage)
             reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
@@ -209,6 +283,10 @@ def run(args) -> None:
             if args.mode == "blind":
                 label = labels[i]
                 keymap[scen["key"]][label] = tag
+                # Persist after EVERY call. Written only at the end, an abort
+                # left labelled responses with no mapping — a paid run that
+                # cannot be judged.
+                write_key(outdir, keymap)
                 # Deliberately NOT printing cost or token counts here: on the
                 # 2026-07-30 run those fingerprinted the model (the cheapest
                 # response is unmistakable) and broke the blind.
@@ -217,17 +295,15 @@ def run(args) -> None:
                 header = f"# {scen['key']} — {scen['description']}\n\n"
             else:
                 if not a["block"]:
-                    verdict = "NO BLOCK"
-                elif not a.get("valid"):
-                    verdict = f"INVALID JSON ({a['error']})"
+                    verdict = f"NO BLOCK ({a['reason']})"
                 else:
                     parts = [f"grind={a['grinderSetting']}"]
+                    if a["grind_wrong_type"]:
+                        parts.append("NOT-A-JSON-STRING")
                     if a["grind_is_prose"]:
                         parts.append("PROSE-NOT-SETTING")
                     if a["missing"]:
                         parts.append("MISSING " + ",".join(a["missing"]))
-                    if not a["clean_tail"]:
-                        parts.append("TRAILING-CONTENT")
                     verdict = "block " + " ".join(parts)
                 flag = "  <-- TRUNCATED" if finish == "length" else ""
                 print(f"  {tag:24s} {verdict} [reasoning={reasoning}]{flag}")
@@ -239,21 +315,34 @@ def run(args) -> None:
                 f.write(header + text + "\n")
 
     if args.mode == "blind":
-        with open(os.path.join(outdir, "key.json"), "w") as f:
-            json.dump(keymap, f, indent=2)
+        write_key(outdir, keymap)
         print(f"\nResponses: {outdir}/<scenario>__<label>.md")
         print("Key:       key.json — do NOT open until judgments are written down.")
     else:
-        print("\n=== block emitted? (scenarios in order) ===")
+        # Y = app would accept the block, n = it would not, E = the call failed.
+        # E must stay distinct from n: an error is not evidence about the model.
+        print("\n=== block accepted by the app's parser? (scenarios in order) ===")
+        print("    Y = accepted   n = no usable block   E = call failed\n")
         for model in models:
             for effort in efforts:
-                marks = " ".join(
-                    "Y" if results.get((s["key"], model, effort), {}).get("block") else "n"
-                    for s in scenarios)
+                cells = []
+                for s in scenarios:
+                    r = results.get((s["key"], model, effort))
+                    if r is None or r.get("block") is None:
+                        cells.append("E")
+                    else:
+                        cells.append("Y" if r["block"] else "n")
+                flags = []
                 prose = sum(1 for s in scenarios
                             if results.get((s["key"], model, effort), {}).get("grind_is_prose"))
-                extra = f"   prose-grind={prose}" if prose else ""
-                print(f"  {model:15s} {effort:5s} {marks}{extra}")
+                wrong = sum(1 for s in scenarios
+                            if results.get((s["key"], model, effort), {}).get("grind_wrong_type"))
+                if prose:
+                    flags.append(f"prose-grind={prose}")
+                if wrong:
+                    flags.append(f"grind-not-a-string={wrong}")
+                extra = ("   " + "  ".join(flags)) if flags else ""
+                print(f"  {model:15s} {effort:5s} {' '.join(cells)}{extra}")
 
     print(f"\nTotal spend: ${total:.4f}")
 
