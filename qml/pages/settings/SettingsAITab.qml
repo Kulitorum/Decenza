@@ -428,22 +428,24 @@ KeyboardAwareContainer {
                     color: Theme.borderColor
                 }
 
-                // Cost info
+                // Cost info. Comes from AIProvider::costHint() so the estimate
+                // sits beside the model catalog it prices — the previous
+                // per-provider strings hardcoded here understated Anthropic and
+                // OpenAI by roughly 5x and went stale unnoticed, because nothing
+                // tied them to the models they were describing.
+                //
+                // costHint() depends on the SELECTED MODEL, so this reads
+                // configTick to re-evaluate when the model changes (see the
+                // property's declaration — these are non-reactive invokables).
                 Text {
                     visible: Settings.ai.aiProvider !== "ollama"
                     text: {
-                        var perShot = TranslationManager.translate("settings.ai.pershot", "shot")
-                        switch(Settings.ai.aiProvider) {
-                            case "openai": return TranslationManager.translate("settings.ai.cost.openai",
-                                "Estimated cost: ~$0.006/" + perShot + " — under $1/month at 3 shots per day")
-                            case "anthropic": return TranslationManager.translate("settings.ai.cost.anthropic",
-                                "Estimated cost: ~$0.01/" + perShot + " — under $1/month at 3 shots per day")
-                            case "gemini": return TranslationManager.translate("settings.ai.cost.gemini",
-                                "Estimated cost: <$0.001/" + perShot + " — about $0.05/month at 3 shots per day")
-                            case "openrouter": return TranslationManager.translate("settings.ai.cost.openrouter",
+                        var _ = aiTab.configTick
+                        if (Settings.ai.aiProvider === "openrouter")
+                            return TranslationManager.translate("settings.ai.cost.openrouter",
                                 "Cost varies by model")
-                            default: return ""
-                        }
+                        return MainController.aiManager
+                            ? MainController.aiManager.costHint(Settings.ai.aiProvider) : ""
                     }
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)

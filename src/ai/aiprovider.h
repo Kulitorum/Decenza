@@ -52,6 +52,23 @@ public:
     // single source and can't drift between UIs. Empty = no hint.
     virtual QString modelHint() const { return {}; }
 
+    // One-line running-cost estimate for a specific model, shown under the
+    // model picker. Takes the model explicitly rather than reading the current
+    // selection so a caller can price a model the user has not chosen yet —
+    // the ShotServer page needs the whole catalog priced up front, because it
+    // switches models client-side with no round trip.
+    //
+    // Must depend on the model, not just the provider: the OpenAI catalog alone
+    // spans 10x. The per-provider strings this replaced understated Anthropic
+    // and OpenAI by roughly 5x and claimed "under $1/month" for a combination
+    // that actually costs about $5.
+    //
+    // Empty when the provider has no catalog to price (OpenRouter, Ollama).
+    virtual QString costHintFor(const QString& modelId) const { Q_UNUSED(modelId); return {}; }
+
+    // The estimate for whatever model is selected right now.
+    QString costHint() const { return costHintFor(modelName()); }
+
     Status status() const { return m_status; }
 
     // Main analysis method
@@ -188,6 +205,7 @@ public:
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
+    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL
@@ -245,6 +263,7 @@ public:
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
+    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL
@@ -304,6 +323,7 @@ public:
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
+    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL. Matches OpenAI/Anthropic; exists so

@@ -630,6 +630,7 @@ QString ShotServer::generateSettingsPage() const
                     <label class="form-label">Model</label>
                     <select class="form-input" id="providerModelSelect" onchange="onModelSelected()"></select>
                     <div class="help-text" id="modelHint" style="display:none;"></div>
+                    <div class="help-text" id="modelCost" style="display:none;"></div>
                 </div>
                 <div id="openrouterGroup" style="display:none;">
                     <div class="form-group">
@@ -851,6 +852,7 @@ QString ShotServer::generateSettingsPage() const
         let selectedModels = {};     // providerId -> selected model id ('' = provider default)
         let modelDisplayNames = {};  // providerId -> current model short label
         let modelHints = {};         // providerId -> guidance line under the model picker
+        let modelCosts = {};         // providerId -> { modelId -> running-cost line }
 
         async function loadSettings() {
             try {
@@ -874,6 +876,7 @@ QString ShotServer::generateSettingsPage() const
                 selectedModels = data.providerModels || {};
                 modelDisplayNames = data.providerModelNames || {};
                 modelHints = data.providerModelHints || {};
+                modelCosts = data.providerModelCosts || {};
                 selectProvider(data.aiProvider || '');
 
                 document.getElementById('mqttEnabled').checked = data.mqttEnabled || false;
@@ -941,6 +944,9 @@ QString ShotServer::generateSettingsPage() const
             const hint = document.getElementById('modelHint');
             hint.textContent = modelHints[selectedProvider] || '';
             hint.style.display = hint.textContent ? 'block' : 'none';
+            // Before the early return: a single-model provider still needs the
+            // stale line from the previous provider cleared.
+            updateModelCost();
             if (catalog.length <= 1) return;
             const sel = document.getElementById('providerModelSelect');
             sel.innerHTML = '';
@@ -955,8 +961,23 @@ QString ShotServer::generateSettingsPage() const
             });
         }
 
+        // Running-cost line for the SELECTED model. Keyed by model, not
+        // provider: the OpenAI catalog alone spans 10x, so one figure per
+        // provider is wrong for most of it.
+        function updateModelCost() {
+            const el = document.getElementById('modelCost');
+            const perModel = modelCosts[selectedProvider] || {};
+            const catalog = modelCatalogs[selectedProvider] || [];
+            const stored = selectedModels[selectedProvider];
+            const current = catalog.some(m => m.id === stored)
+                ? stored : (catalog.length ? catalog[0].id : '');
+            el.textContent = perModel[current] || '';
+            el.style.display = el.textContent ? 'block' : 'none';
+        }
+
         function onModelSelected() {
             selectedModels[selectedProvider] = document.getElementById('providerModelSelect').value;
+            updateModelCost();
             updateProviderButtons();
         }
 
@@ -1410,6 +1431,7 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
             QJsonObject selections;
             QJsonObject names;
             QJsonObject hints;
+            QJsonObject costs;   // providerId -> { modelId -> cost line }
             const QStringList providers = m_aiManager->availableProviders();
             for (const QString& p : providers) {
                 const QVariantList models = m_aiManager->availableModels(p);
@@ -1418,6 +1440,18 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
                 const QString hint = m_aiManager->modelHint(p);
                 if (!hint.isEmpty())
                     hints[p] = hint;
+                // Cost is keyed by provider AND model, not provider alone: the
+                // page switches models client-side with no round trip, and a
+                // per-provider figure is wrong across a catalog spanning 10x.
+                QJsonObject perModel;
+                for (const QVariant& m : models) {
+                    const QString modelId = m.toMap().value("id").toString();
+                    const QString cost = m_aiManager->costHint(p, modelId);
+                    if (!cost.isEmpty())
+                        perModel[modelId] = cost;
+                }
+                if (!perModel.isEmpty())
+                    costs[p] = perModel;
                 selections[p] = a->providerModel(p);
                 names[p] = m_aiManager->modelDisplayName(p);
             }
@@ -1425,6 +1459,7 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
             obj["providerModels"] = selections;
             obj["providerModelNames"] = names;
             obj["providerModelHints"] = hints;
+            obj["providerModelCosts"] = costs;
         } else {
             // Unreachable with the current main.cpp wiring order, but if that
             // ever regresses the model picker vanishes from the web page with

@@ -211,6 +211,14 @@ QString AIManager::modelHint(const QString& providerId) const
     return provider ? provider->modelHint() : QString();
 }
 
+QString AIManager::costHint(const QString& providerId, const QString& modelId) const
+{
+    AIProvider* provider = providerById(providerId);
+    if (!provider)
+        return {};
+    return modelId.isEmpty() ? provider->costHint() : provider->costHintFor(modelId);
+}
+
 void AIManager::setSelectedProvider(const QString& provider)
 {
     if (selectedProvider() != provider) {

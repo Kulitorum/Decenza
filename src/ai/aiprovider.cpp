@@ -221,6 +221,33 @@ QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
     };
 }
 
+// Per-shot cost estimates.
+//
+// Derived from a measured shot-analysis request — ~17K input tokens (the
+// assembled system + user prompt) and ~300 output — priced at each model's
+// published rate. Cold cache: repeat shots on the same profile cost less,
+// because the system prompt is cached at ~90% off. Rounded to the cent the
+// user would actually notice.
+//
+// These WILL rot. They live beside availableModels() so a catalog change puts
+// the cost line in the same diff; docs/CLAUDE_MD/AI_ADVISOR.md carries the
+// per-million rates they were computed from.
+QString OpenAIProvider::costHintFor(const QString& modelId) const
+{
+    if (modelId == QLatin1String("gpt-5.6-luna"))
+        return tr_("ai.cost.openai.luna",
+                   "About $0.004 per shot — roughly $0.35/month at 3 shots a day.");
+    if (modelId == QLatin1String("gpt-5.4-mini"))
+        return tr_("ai.cost.openai.mini",
+                   "About $0.01 per shot — roughly $1.25/month at 3 shots a day.");
+    if (modelId == QLatin1String("gpt-5.4"))
+        return tr_("ai.cost.openai.gpt54",
+                   "About $0.05 per shot — roughly $4.25/month at 3 shots a day.");
+    // gpt-5.6-terra, and the default for anything added without a case here.
+    return tr_("ai.cost.openai.terra",
+               "About $0.04 per shot — roughly $3.40/month at 3 shots a day.");
+}
+
 QString OpenAIProvider::modelHint() const
 {
     return QStringLiteral(
@@ -655,18 +682,47 @@ AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> AnthropicProvider::availableModels() const
 {
-    // Order = UI order; first entry is the recommended default. Sonnet 4.6 leads
-    // as the established default so upgrading users keep their current behavior;
-    // Sonnet 5 is the opt-in "more capable" choice. Revisit as new models land.
+    // Order = UI order; first entry is the recommended default. Sonnet 5 leads:
+    // it is both more capable and CHEAPER than Sonnet 4.6 at its current rate
+    // ($2/$10 vs $3/$15 per 1M), so there is no longer a reason to lead with the
+    // older model. See costHintFor() for why the promotional rate is treated as
+    // the working number.
+    //
+    // Safe to default to specifically because of the #1691 mechanism: omitting
+    // the `thinking` field runs ADAPTIVE thinking on Sonnet 5, which can consume
+    // the whole max_tokens budget and return no text block. Every Anthropic
+    // request goes through AIRequestShape::disableAnthropicThinking(), and that
+    // Sonnet 5 accepts `{"type": "disabled"}` AND still returns a text block was
+    // verified live (2026-07-30) rather than assumed — see
+    // tools/ai_model_eval/probe_request_shape.py.
     return {
-        { "claude-sonnet-4-6", "Sonnet 4.6" },
         { "claude-sonnet-5", "Sonnet 5" },
+        { "claude-sonnet-4-6", "Sonnet 4.6" },
     };
+}
+
+// See the note above OpenAIProvider::costHintFor() for how these are derived.
+//
+// Sonnet 5 is priced here at its introductory $2/$10 per 1M rather than the
+// $3/$15 list rate. That is a judgement call, not an oversight: the intro rate
+// is nominally dated, but the GPT-5.6 generation reset the price floor
+// underneath it, so list is treated as a ceiling that is unlikely to be
+// charged. If Anthropic does revert, this number goes UP — which is the safe
+// direction for a promise made to a user about spend.
+QString AnthropicProvider::costHintFor(const QString& modelId) const
+{
+    if (modelId == QLatin1String("claude-sonnet-5"))
+        return tr_("ai.cost.anthropic.sonnet5",
+                   "About $0.04 per shot — roughly $3.35/month at 3 shots a day.");
+    return tr_("ai.cost.anthropic.sonnet46",
+               "About $0.06 per shot — roughly $5/month at 3 shots a day. "
+               "Sonnet 5 is both newer and cheaper.");
 }
 
 QString AnthropicProvider::modelHint() const
 {
-    return QStringLiteral("Sonnet 5 is the most capable. Sonnet 4.6 is the established default.");
+    return QStringLiteral("Sonnet 5 is recommended — more capable than Sonnet 4.6 and currently cheaper. "
+                          "Sonnet 4.6 is the previous generation.");
 }
 
 void AnthropicProvider::setModel(const QString& modelId)
@@ -1080,6 +1136,17 @@ QList<AIProvider::ModelOption> GeminiProvider::availableModels() const
         { "gemini-2.5-flash", "2.5 Flash" },
         { "gemini-3.5-flash", "3.5 Flash" },
     };
+}
+
+// See the note above OpenAIProvider::costHintFor() for how these are derived.
+QString GeminiProvider::costHintFor(const QString& modelId) const
+{
+    if (modelId.startsWith(QStringLiteral("gemini-2")))
+        return tr_("ai.cost.gemini.flash25",
+                   "About $0.006 per shot — roughly $0.55/month at 3 shots a day. "
+                   "The cheapest of the three cloud providers.");
+    return tr_("ai.cost.gemini.flash35",
+               "About $0.03 per shot — roughly $2.50/month at 3 shots a day.");
 }
 
 QString GeminiProvider::modelHint() const

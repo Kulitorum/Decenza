@@ -255,8 +255,8 @@ private slots:
     {
         QNetworkAccessManager nam;
         checkProvider<AnthropicProvider>(nam, {
-            { "claude-sonnet-4-6", "Sonnet 4.6" },
             { "claude-sonnet-5", "Sonnet 5" },
+            { "claude-sonnet-4-6", "Sonnet 4.6" },
         });
     }
 

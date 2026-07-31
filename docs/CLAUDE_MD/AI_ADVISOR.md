@@ -61,7 +61,7 @@ still works, exactly as before.
 
 | Provider | Model | Caching | Cost |
 |----------|-------|---------|------|
-| Anthropic | User-selected (Sonnet 4.6 default, or Sonnet 5) | Explicit `cache_control` on system prompt. 5-min TTL, ~90% discount on cached input | Cloud |
+| Anthropic | User-selected (Sonnet 5 default, or Sonnet 4.6) | Explicit `cache_control` on system prompt. 5-min TTL, ~90% discount on cached input | Cloud |
 | OpenAI | User-selected (GPT-5.6 Terra default; Luna, GPT-5.4, GPT-5.4 mini); `reasoning_effort: none` | Automatic for prefixes >1024 tokens. ~90% discount on cached input | Cloud |
 | Google Gemini | 3.5 Flash | Implicit caching automatic (stable system prompt sent first); explicit Context Caching not implemented | Cloud |
 | OpenRouter | User-selected | Passes through to underlying provider | Cloud |
@@ -86,9 +86,28 @@ Each provider's `availableModels()` catalog lists the recommended model first (e
   Two traps, both found in review of the first attempt at this guard, both worth not repeating:
   - **It must not fall through to the ranges-only `"followed"`.** The prompt reads `"followed"` as "the experiment ran", so a false `"followed"` is *worse* than the false `"ignored"` the guard was written to prevent — it makes the model revise direction or commit harder on an experiment that never ran.
   - **Whitespace does not mean prose.** Compound notation writes `"1 + 4"`, used by every Eureka Mignon and 1Zpresso entry in the catalog. `GrinderAliases::looksLikeSetting()` is the shared authority for what a setting looks like; it shares its regexes with `parseGrinderSetting()` so the two cannot drift.
-- **Anthropic**: `claude-sonnet-4-6` default → `claude-sonnet-5` opt-in. No `thinking` field is sent, so extended thinking stays off by default (the Messages API opt-in behavior).
+- **Anthropic**: `claude-sonnet-5` default → `claude-sonnet-4-6` opt-in. Sonnet 5 leads because it is both more capable and **cheaper** at its current $2/$10 per 1M (vs $3/$15 for 4.6) — that rate is nominally introductory, but the GPT-5.6 generation reset the floor beneath it, so list is treated as a ceiling. Thinking is explicitly DISABLED on every request via `AIRequestShape::disableAnthropicThinking()`; omitting the field would run adaptive thinking on Sonnet 5 and can return a reply with no text block at all (#1691). That Sonnet 5 accepts the disabled form *and* still returns text was verified live (2026-07-30, `tools/ai_model_eval/probe_request_shape.py`), which is what makes defaulting to it safe.
 
 Pricing figures are current as of the change that added these catalogs and will drift — treat them as guidance, not a live source of truth. Verify against <https://developers.openai.com/api/docs/pricing>; third-party pricing pages were checked and found **wrong** (one listed Terra at $2.50/$15).
+
+#### Running-cost estimates (`AIProvider::costHintFor`)
+
+The AI settings tab and the ShotServer settings page both show a per-shot cost line under the model picker. It comes from `costHintFor(modelId)`, which lives beside `availableModels()` so a catalog change puts the price in the same diff.
+
+Derived from a measured shot-analysis request — **~17K input tokens, ~300 output**, cold cache — at each model's published rate. Repeat shots on the same profile cost less (the system prompt caches at ~90% off). Monthly figures assume 3 shots/day.
+
+| Model | Per shot | Per month |
+|---|---|---|
+| `gpt-5.6-luna` | $0.004 | $0.34 |
+| `gemini-2.5-flash` | $0.006 | $0.53 |
+| `gpt-5.4-mini` | $0.014 | $1.27 |
+| `gemini-3.5-flash` | $0.028 | $2.54 |
+| `claude-sonnet-5` | $0.037 | $3.33 |
+| `gpt-5.6-terra` | $0.038 | $3.38 |
+| `gpt-5.4` | $0.047 | $4.23 |
+| `claude-sonnet-4-6` | $0.056 | $4.99 |
+
+**These replaced per-provider hardcoded strings in QML that were wrong by ~5×** — they claimed `~$0.01/shot` for Anthropic (actually $0.056) and "under $1/month at 3 shots per day" for a combination costing about $5. The lesson is structural, not arithmetic: a figure keyed on *provider* cannot survive a catalog that spans 10×, and nothing tied those strings to the models they described. Keep the estimate keyed by model, and keep it next to the catalog.
 
 #### How to re-run the model comparison
 
