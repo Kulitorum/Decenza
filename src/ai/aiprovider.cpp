@@ -227,13 +227,23 @@ QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
 // assembled system + user prompt) and ~300 output — priced at each model's
 // published rate. Cold cache: repeat shots on the same profile cost less,
 // because the system prompt is cached at ~90% off. Rounded to the cent the
-// user would actually notice.
+// user would actually notice — except Luna, quoted to a tenth of a cent
+// because rounding $0.004 to "$0.00" would say nothing at all.
 //
 // These WILL rot. They live beside availableModels() so a catalog change puts
 // the cost line in the same diff; docs/CLAUDE_MD/AI_ADVISOR.md carries the
 // per-million rates they were computed from.
+//
+// Every catalogued model gets its OWN case and an unknown id returns nothing.
+// The tempting shape — fall through to the default model's price — quietly
+// promises a specific spend for a model nobody priced, and the size of that
+// error is unbounded: Luna and GPT-5.4 differ by 12x inside this one catalog.
+// A missing cost line is a gap the user can see; a wrong one is not.
 QString OpenAIProvider::costHintFor(const QString& modelId) const
 {
+    if (modelId == QLatin1String("gpt-5.6-terra"))
+        return tr_("ai.cost.openai.terra",
+                   "About $0.04 per shot — roughly $3.40/month at 3 shots a day.");
     if (modelId == QLatin1String("gpt-5.6-luna"))
         return tr_("ai.cost.openai.luna",
                    "About $0.004 per shot — roughly $0.35/month at 3 shots a day.");
@@ -243,9 +253,7 @@ QString OpenAIProvider::costHintFor(const QString& modelId) const
     if (modelId == QLatin1String("gpt-5.4"))
         return tr_("ai.cost.openai.gpt54",
                    "About $0.05 per shot — roughly $4.25/month at 3 shots a day.");
-    // gpt-5.6-terra, and the default for anything added without a case here.
-    return tr_("ai.cost.openai.terra",
-               "About $0.04 per shot — roughly $3.40/month at 3 shots a day.");
+    return {};
 }
 
 QString OpenAIProvider::modelHint() const
@@ -714,9 +722,14 @@ QString AnthropicProvider::costHintFor(const QString& modelId) const
     if (modelId == QLatin1String("claude-sonnet-5"))
         return tr_("ai.cost.anthropic.sonnet5",
                    "About $0.04 per shot — roughly $3.35/month at 3 shots a day.");
-    return tr_("ai.cost.anthropic.sonnet46",
-               "About $0.06 per shot — roughly $5/month at 3 shots a day. "
-               "Sonnet 5 is both newer and cheaper.");
+    // The comparative line is why this case must be exact rather than a
+    // fallthrough: "Sonnet 5 is both newer and cheaper" is a claim ABOUT
+    // Sonnet 4.6, and shown against any other model it is simply false.
+    if (modelId == QLatin1String("claude-sonnet-4-6"))
+        return tr_("ai.cost.anthropic.sonnet46",
+                   "About $0.06 per shot — roughly $5/month at 3 shots a day. "
+                   "Sonnet 5 is both newer and cheaper.");
+    return {};
 }
 
 QString AnthropicProvider::modelHint() const
@@ -1141,12 +1154,18 @@ QList<AIProvider::ModelOption> GeminiProvider::availableModels() const
 // See the note above OpenAIProvider::costHintFor() for how these are derived.
 QString GeminiProvider::costHintFor(const QString& modelId) const
 {
-    if (modelId.startsWith(QStringLiteral("gemini-2")))
+    // Deliberately NOT "the cheapest of the three cloud providers" — that was
+    // true when Gemini's catalog was the only cheap one, and the same change
+    // that wrote it added GPT-5.6 Luna at $0.004. Compare within Gemini, where
+    // the claim stays true without tracking every other provider's catalog.
+    if (modelId == QLatin1String("gemini-2.5-flash"))
         return tr_("ai.cost.gemini.flash25",
                    "About $0.006 per shot — roughly $0.55/month at 3 shots a day. "
-                   "The cheapest of the three cloud providers.");
-    return tr_("ai.cost.gemini.flash35",
-               "About $0.03 per shot — roughly $2.50/month at 3 shots a day.");
+                   "The cheaper of Gemini's two models.");
+    if (modelId == QLatin1String("gemini-3.5-flash"))
+        return tr_("ai.cost.gemini.flash35",
+                   "About $0.03 per shot — roughly $2.50/month at 3 shots a day.");
+    return {};
 }
 
 QString GeminiProvider::modelHint() const

@@ -430,17 +430,28 @@ KeyboardAwareContainer {
 
                 // Cost info. Comes from AIProvider::costHint() so the estimate
                 // sits beside the model catalog it prices — the previous
-                // per-provider strings hardcoded here understated Anthropic and
-                // OpenAI by roughly 5x and went stale unnoticed, because nothing
-                // tied them to the models they were describing.
+                // per-provider strings hardcoded here understated the cost by
+                // 5x to 8x depending on the model, and went stale unnoticed,
+                // because nothing tied them to the models they described.
                 //
-                // costHint() depends on the SELECTED MODEL, so this reads
-                // configTick to re-evaluate when the model changes (see the
-                // property's declaration — these are non-reactive invokables).
+                // TWO dependencies have to be spelled out, because costHint()
+                // is a plain invokable and a binding records nothing from
+                // calling one:
+                //   configTick  — re-evaluate when the SELECTED MODEL changes.
+                //   translate   — re-evaluate on a LANGUAGE change. costHint()
+                //                 translates C++-side via translateString(),
+                //                 which is not the reactive Q_PROPERTY, so
+                //                 without this read the line stays in the old
+                //                 language until the model happens to change.
+                //                 This is the 3,248-call-site freeze described
+                //                 in QML_GOTCHAS.md, one binding at a time.
+                // Empty when the selected model has no priced entry, so bind
+                // visible to the text rather than to the provider alone.
                 Text {
-                    visible: Settings.ai.aiProvider !== "ollama"
+                    visible: Settings.ai.aiProvider !== "ollama" && text.length > 0
                     text: {
-                        var _ = aiTab.configTick
+                        var _model = aiTab.configTick
+                        var _lang = TranslationManager.translate
                         if (Settings.ai.aiProvider === "openrouter")
                             return TranslationManager.translate("settings.ai.cost.openrouter",
                                 "Cost varies by model")

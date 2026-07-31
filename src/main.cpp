@@ -1777,15 +1777,30 @@ int main(int argc, char *argv[])
     // the AIManager was attached. Forwards to every provider + the conversation.
     aiManager.setTranslationManager(&translationManager);
 
-    // Register the per-provider model-hint strings with the translation
-    // registry. SettingsAITab.qml builds these keys dynamically
+    // Register the per-provider model-hint strings and the per-MODEL cost
+    // strings with the translation registry.
+    //
+    // Model hints: SettingsAITab.qml builds these keys dynamically
     // ("settings.ai.modelHint." + provider), which the QML string scanner
     // cannot see; registering here keeps the batch-translation registry
     // complete while the English copy stays in AIProvider::modelHint().
+    //
+    // Cost lines: the keys are static (ai.cost.<provider>.<model>) and live in
+    // C++, but translateString() only registers a key when it is CALLED, and
+    // the app only ever calls costHintFor() for the model currently selected.
+    // Without this loop a user translates the app, switches models, and gets
+    // an English cost line for a model whose string was never offered to the
+    // translator. Priced models are enumerated rather than assumed, so a model
+    // with no costHintFor() case simply contributes no key.
     for (const QString& providerId : aiManager.availableProviders()) {
         const QString hint = aiManager.modelHint(providerId);
         if (!hint.isEmpty())
             translationManager.translateString("settings.ai.modelHint." + providerId, hint);
+        for (const QVariant& model : aiManager.availableModels(providerId)) {
+            const QString modelId = model.toMap().value("id").toString();
+            if (!modelId.isEmpty())
+                (void)aiManager.costHint(providerId, modelId);
+        }
     }
 
     // Connect FlowScale to graph initially (will be disconnected if physical scale found)

@@ -37,7 +37,8 @@ until 2026-07-30:
   bills thinking at the output rate. Note Gemini's legal `thinking_level` values
   **vary by model**, so a new 3.x entry must be probed, not assumed.
 - OpenAI accepts the translator's body shape (`temperature` alongside
-  `reasoning_effort`), which reasoning models have rejected in the past.
+  `reasoning_effort`). Sampling parameters are accepted per-model, and a
+  rejected one 400s every batch rather than degrading.
 
 Run it whenever a catalog gains an entry.
 

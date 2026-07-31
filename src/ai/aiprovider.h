@@ -59,9 +59,11 @@ public:
     // switches models client-side with no round trip.
     //
     // Must depend on the model, not just the provider: the OpenAI catalog alone
-    // spans 10x. The per-provider strings this replaced understated Anthropic
-    // and OpenAI by roughly 5x and claimed "under $1/month" for a combination
-    // that actually costs about $5.
+    // spans 10x. The per-provider strings this replaced understated the cost by
+    // 5x to 8x depending on which model was selected — Anthropic claimed
+    // ~$0.01/shot against $0.056 for Sonnet 4.6 (5.6x), OpenAI claimed
+    // ~$0.006/shot against $0.038 for Terra (6.3x) and $0.047 for GPT-5.4
+    // (7.8x) — and claimed "under $1/month" for a combination costing about $5.
     //
     // Empty when the provider has no catalog to price (OpenRouter, Ollama).
     virtual QString costHintFor(const QString& modelId) const { Q_UNUSED(modelId); return {}; }
@@ -294,8 +296,12 @@ private:
     // Wrap the first user message's content in a structured block carrying
     // cache_control: ephemeral when its content is currently a plain string.
     // Multi-turn conversations on the same shot reuse the cached per-shot
-    // payload across follow-up turns within the 5-minute TTL, paying the
-    // ~25% cache-write surcharge once and amortizing it across reads.
+    // payload across follow-up turns within the 1-hour TTL, paying the 2x
+    // cache-write surcharge once and amortizing it across reads (break-even
+    // is 2 reads per write). This said "5-minute TTL" and "~25% surcharge"
+    // for as long as it took someone to open the .cpp: the implementation
+    // has sent ttl="1h" since the switch away from the 5-minute tier, and
+    // 1h writes cost 2x base, not the 1.25x the 5-minute tier charges.
     static QJsonArray messagesWithCachedFirstUser(const QJsonArray& messages);
 
     QString m_apiKey;

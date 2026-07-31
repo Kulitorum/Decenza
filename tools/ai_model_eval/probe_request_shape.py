@@ -14,9 +14,10 @@ Three INVARIANTs are asserted in code but were never checked against the API:
      low/high). If 3.5 Flash rejects "minimal" that's a 400; if it ignores it,
      thinking runs at the default and is billed at the output rate.
 
-  3. src/core/translationmanager.cpp sends temperature 0.3 to OpenAI. Reasoning
-     models have rejected temperature != 1 in the past, and the translator's
-     model now defaults to gpt-5.6-terra.
+  3. src/core/translationmanager.cpp sends temperature 0.3 to OpenAI, and the
+     translator's model now defaults to gpt-5.6-terra. Sampling parameters are
+     accepted per-model; a rejected one 400s every batch instead of degrading,
+     so the pairing is probed rather than assumed.
 
 Prints PASS/FAIL per check. Never echoes a key. Costs a few cents.
 """

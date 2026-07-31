@@ -16,9 +16,12 @@
 //
 // It is header-only and depends on nothing but QJsonObject ON PURPOSE.
 // `decenza_testlib` compiles translationmanager.cpp but not the AI stack, so
-// pulling in aiprovider.h would drag the provider classes into forty-odd test
-// targets to read two lines of JSON. Keep it that way: no provider types, no
-// networking, no settings.
+// pulling in aiprovider.h would drag the provider classes into every test
+// target that links it — 106 of them at last count — to read two lines of
+// JSON. Keep it that way: no provider types, no networking, no settings.
+// (Stated as "forty-odd" when written, copying a "~30" figure from
+// tests/CMakeLists.txt that was already years stale. Count it, don't recall
+// it: `grep -c "add_decenza_test(" tests/CMakeLists.txt`.)
 
 namespace AIRequestShape {
 

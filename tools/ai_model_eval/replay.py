@@ -209,14 +209,25 @@ def audit_block(text: str) -> dict:
 
     grind = obj.get("grinderSetting", "")
     # Models write prose here ("a touch coarser than 9"). Mirrors
-    # GrinderAliases::looksLikeSetting(): whitespace alone is NOT prose, because
-    # compound notation writes "1 + 4", used by every Eureka/1Zpresso entry.
+    # GrinderAliases::looksLikeSetting(): a setting must BEGIN WITH A DIAL
+    # NUMBER, and whitespace decides nothing either way — compound notation
+    # writes "1 + 4" (every Eureka/1Zpresso entry) and is a real setting, while
+    # a bare "coarser" has no whitespace and is not.
+    #
+    # This mirrored the app on the whitespace rule alone, which the app had
+    # already abandoned for exactly this reason: it scored "coarser" as a valid
+    # setting, so the harness reported prose-grind=0 on responses the app was
+    # correctly refusing to score. Because the per-model prose counts are what
+    # the catalog-default decision rests on, a harness that under-counts here
+    # argues for the wrong model. Keep all three shapes in step with
+    # looksLikeSetting(); tst_dialing_blocks.cpp is the C++ side of the pair.
     prose = False
     if isinstance(grind, str) and grind.strip():
         s = grind.strip()
-        prose = any(c.isspace() for c in s) and not (
-            re.fullmatch(r"-?\d+\s*\+\s*\d+(?:\.\d+)?", s)
-            or re.fullmatch(r"-?\d+(?:\.\d+)?(?:\s+\S.*)?", s))
+        prose = not (
+            re.fullmatch(r"-?\d+\s*\+\s*\d+(?:\.\d+)?", s)          # compoundRe
+            or re.fullmatch(r"-?\d+(?:\.\d+)?(?:\s+\S.*)?", s)      # numRe
+            or re.fullmatch(r"-?\d+(?:\.\d+)?[A-Za-z]{1,3}", s))    # letteredRe
     return {
         "block": True,
         "missing": [f for f in REQUIRED_FIELDS if f not in obj],

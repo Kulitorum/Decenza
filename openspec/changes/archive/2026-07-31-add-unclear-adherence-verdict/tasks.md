@@ -33,4 +33,4 @@
 
 ## 6. Archive
 
-- [ ] 6.1 Archive this change and sync the delta into `openspec/specs/advisor-user-prompt/spec.md` as the final commit on the PR.
+- [x] 6.1 Archive this change and sync the delta into `openspec/specs/advisor-user-prompt/spec.md` as the final commit on the PR.

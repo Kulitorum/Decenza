@@ -2616,8 +2616,15 @@ void TranslationManager::sendNextAutoTranslateBatch()
         json["model"] = translationModelFor(provider, QString());
         // temperature survives on the reasoning models this now defaults to —
         // verified live 2026-07-30 on gpt-5.6-terra alongside
-        // reasoning_effort "none". Worth having checked: reasoning models have
-        // rejected temperature != 1 before, and that would 400 every batch.
+        // reasoning_effort "none" (tools/ai_model_eval/probe_request_shape.py).
+        //
+        // Worth checking rather than assuming, because sampling parameters are
+        // accepted per-model and a rejected one 400s every batch rather than
+        // degrading. Re-probe when the translator's default model changes.
+        // (This previously justified the check by asserting reasoning models
+        // "have rejected temperature != 1 before". No such rejection is on
+        // record here, and it was cited to nothing — removed rather than
+        // repeated. The live probe is the evidence that matters.)
         json["temperature"] = 0.3;
         QJsonArray messages;
         QJsonObject msg;
@@ -3480,8 +3487,8 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
 //
 // Deliberately a literal rather than a call into AIProvider: decenza_testlib compiles
 // translationmanager.cpp but not the AI stack, so reaching for the catalog at runtime would
-// drag the provider classes into forty-odd test targets to read one string. The test carries
-// the coupling instead of the link line.
+// drag the provider classes into all 106 test targets that link it, to read one string. The
+// test carries the coupling instead of the link line.
 //
 // This is what had gone stale. All three cloud providers hard-coded a model and ignored both
 // the user's choice and the catalog: Anthropic on claude-3-5-haiku-20241022 (RETIRED

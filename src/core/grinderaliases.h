@@ -435,8 +435,16 @@ inline bool looksLikeSetting(const QString& raw)
     if (detail::numRe().match(s).hasMatch() || detail::compoundRe().match(s).hasMatch())
         return true;
 
-    // Lettered dials ("3F", "C2") — a leading number with a short alphanumeric
+    // Lettered dials ("3F", "8C") — a leading number with a short letter
     // suffix and no whitespace. Bounded length so a word cannot qualify.
+    // NOT letter-first ("C2"): the leading-dial-number rule above admits no
+    // exception, and this regex has never matched that form despite an
+    // earlier version of this comment offering it as an example.
+    //
+    // Declared here rather than in detail:: on purpose — parseGrinderSetting()
+    // rejects lettered dials outright, so unlike numRe/compoundRe this one has
+    // no second caller to stay in step with. Lettered settings are compared
+    // downstream by exact string equality in grinderMatches().
     static const QRegularExpression letteredRe(QStringLiteral(R"(^-?\d+(?:\.\d+)?[A-Za-z]{1,3}$)"));
     return letteredRe.match(s).hasMatch();
 }
