@@ -27,6 +27,18 @@
 #include "../models/shotcomparisonmodel.h"
 #include "../network/shotserver.h"
 #include "../network/shotreporter.h"
+// This include propagates the third-party <MQTTAsync.h> to all 16 includers of
+// this header, most of which use MqttClient only as an opaque pointer. It was
+// tried as a forward declaration and REVERTED — do not retry without reading
+// this. `Q_PROPERTY(MqttClient* mqttClient ...)` below needs the complete type:
+// Qt's metatype system rejects an incomplete pointee outright ("Pointer Meta
+// Types must either point to fully-defined types or be declared with
+// Q_DECLARE_OPAQUE_POINTER"). And the opaque-pointer escape hatch is worse than
+// the include, because SettingsHomeAutomationTab.qml reads through this property
+// at 8 sites (MainController.mqttClient.connected / .status /
+// .connectToBroker()); an opaque pointer carries no introspectable members, so
+// every one of those would degrade at RUNTIME rather than fail to compile.
+// The cost is real but bounded: touching mqttclient.h rebuilds 26 objects.
 #include "../network/mqttclient.h"
 #include "../core/updatechecker.h"
 #include "../core/firmwareassetcache.h"

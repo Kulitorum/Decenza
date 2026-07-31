@@ -47,6 +47,17 @@ name: Text invariants
 #     simulator session — and every one was found by a person reading a running app's log
 #     rather than by the tree. A grep finds them in milliseconds; guidance did not.
 #
+#   check_test_source_duplication.py — no production source is compiled into more than one test
+#     target. Each test is its own executable, so a .cpp in two source lists is compiled twice
+#     and nothing notices. Measured on a clean rebuild in July 2026: 17 sources, 46 redundant
+#     object files, 215 s of cpu, with two of the five slowest edges in the WHOLE build being
+#     the same profilemanager.cpp object built for different targets. Blocking, because the fix
+#     is mechanical (a narrow static library linked by exactly the targets that need it) and the
+#     violation is invisible in review — it is one line added to a source list. Guidance did not
+#     hold here either: the tree contained a case nobody had ever noticed, tst_visualizershotparse
+#     compiling shotanalysis.cpp that decenza_testlib already carried, which the check reports as
+#     its own violation class with its own fix ("delete the line").
+#
 #   check_font_glyph_coverage.py — every non-emoji symbol in the QML has a glyph in a bundled
 #     font. A symbol that falls through to a host font is why the same screen used to measure
 #     differently on two machines. Advisory: it reports, and does not fail the job, because the
@@ -63,6 +74,7 @@ on:
       - 'qml/**'
       - 'src/**'
       - 'scripts/check_*.py'
+      - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
       - '.github/workflows/text-invariants.yml'
   push:
@@ -71,6 +83,7 @@ on:
       - 'qml/**'
       - 'src/**'
       - 'scripts/check_*.py'
+      - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
       - '.github/workflows/text-invariants.yml'
   workflow_dispatch:
@@ -105,6 +118,12 @@ jobs:
       # nothing in a log reveals that a line is missing from it.
       - name: Subsystem log lines carry a registered marker
         run: python3 scripts/check_log_markers.py
+
+      # Blocking: a duplicate compile is invisible in review — one line added to a source list —
+      # and costs on every build forever. This reads tests/CMakeLists.txt as text, so it fits the
+      # build-free rule this job is built on.
+      - name: No production source compiled into two test targets
+        run: python3 scripts/check_test_source_duplication.py
 
       # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph
       # outside AddLanguagePage, which it already exempts. Non-blocking because bundling another
