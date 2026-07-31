@@ -21,7 +21,9 @@
 // JSON. Keep it that way: no provider types, no networking, no settings.
 // (Stated as "forty-odd" when written, copying a "~30" figure from
 // tests/CMakeLists.txt that was already years stale. Count it, don't recall
-// it: `grep -c "add_decenza_test(" tests/CMakeLists.txt`.)
+// it: `grep -c "^add_decenza_test(" tests/CMakeLists.txt` — anchored, since
+// the comment carrying this recipe over there contains the search string and
+// an unanchored grep counts itself, reporting 107.)
 
 namespace AIRequestShape {
 

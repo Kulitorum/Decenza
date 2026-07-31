@@ -1164,7 +1164,7 @@ QString GeminiProvider::costHintFor(const QString& modelId) const
                    "The cheaper of Gemini's two models.");
     if (modelId == QLatin1String("gemini-3.5-flash"))
         return tr_("ai.cost.gemini.flash35",
-                   "About $0.03 per shot — roughly $2.50/month at 3 shots a day.");
+                   "About $0.03 per shot — roughly $2.55/month at 3 shots a day.");
     return {};
 }
 
