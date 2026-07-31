@@ -178,7 +178,13 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Claude recommendation note
+                // Provider guidance. This used to recommend Claude specifically
+                // for shot analysis, on the strength of testing that is now
+                // several model generations old and no longer holds — all three
+                // cloud providers give good dial-in advice. Keep this text about
+                // how to CHOOSE (where you already have credit), not about which
+                // vendor is smarter; the latter goes stale every few months and
+                // nothing fails when it does.
                 Rectangle {
                     Layout.fillWidth: true
                     color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
@@ -192,7 +198,7 @@ KeyboardAwareContainer {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.margins: Theme.scaled(12)
                         key: "settings.ai.recommendation"
-                        fallback: "For shot analysis, we recommend Claude (Anthropic). In our testing, Claude better understands espresso extraction dynamics and gives more accurate dial-in advice. Other providers work for translation and general tasks."
+                        fallback: "Claude, OpenAI and Gemini all give good dial-in advice — pick whichever you already have an API key for. Each provider's first model in the list is the recommended default; the note under the model picker explains the trade-offs. Ollama runs locally with no API cost."
                         wrapMode: Text.WordWrap
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
