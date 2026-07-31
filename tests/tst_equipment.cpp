@@ -517,6 +517,18 @@ private slots:
                 db, a2, "Niche", "Zero", "63mm Mazzer Kony conical");
             QVERIFY(EquipmentStorage::setBasketItemStatic(db, dressedId, "Decent", "18g Ridged"));
             QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, dressedId, "puckScreen,shaker"));
+            // Distinct remembered dial positions, as a real pair would have.
+            // Re-prepared per row: addBindValue appends and exec() does not clear
+            // the bound values, so reusing the query would bind at index 2 and 3.
+            auto seedDial = [&](qint64 pkg, const QString& setting) {
+                QSqlQuery s(db);
+                s.prepare("UPDATE equipment_packages SET last_grind_setting = ? WHERE id = ?");
+                s.addBindValue(setting);
+                s.addBindValue(pkg);
+                QVERIFY(s.exec());
+            };
+            seedDial(bareId, "7.5");
+            seedDial(dressedId, "8");
             const qint64 strandedShot = addShot(bareId);
             link(bareId, dressedId);
 
@@ -556,6 +568,15 @@ private slots:
             QVERIFY(!pkgExists(bareId));
             QCOMPARE(shotEq(strandedShot), dressedId);
             QVERIFY(EquipmentStorage::loadPackageStatic(db, dressedId).inInventory);
+
+            // The survivor keeps ITS OWN dial memory, not the folded-away
+            // package's. Those are different setups' remembered grinds and the
+            // successor is the one the user is actually on.
+            QSqlQuery lgs(db);
+            lgs.prepare("SELECT last_grind_setting FROM equipment_packages WHERE id = ?");
+            lgs.addBindValue(dressedId);
+            QVERIFY(lgs.exec() && lgs.next());
+            QCOMPARE(lgs.value(0).toString(), QStringLiteral("8"));
 
             QVERIFY(pkgExists(basketOld));    // changed basket is a swap
             QVERIFY(pkgExists(basketNew));

@@ -13,6 +13,7 @@
 
 #include "history/shothistorystorage.h"
 #include "history/coffeebagstorage.h"
+#include "history/equipmentstorage.h"
 
 #include "shotrowfixtures.h"
 
@@ -560,6 +561,64 @@ private slots:
     // shots gain yield_mode + yield_anchor_value backfilled from
     // yield_override, which itself stays UNTOUCHED (it is the resolved-grams
     // column every detector reads). The legacy columns stay dead in place.
+    // A database that ALREADY ran migration 35 and healed nothing still gets its
+    // fork repaired by 36. This is the population that matters: 35's predicate
+    // tested the burrs alone, so a fork caused by recording a BASKET left it
+    // stamped 35 with the split intact and a log reading "merged 0 package(s)".
+    // The maintainer's own device is in exactly that state.
+    void v35ToV36HealsABasketFork() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> latest
+
+        qint64 bare = 0, dressed = 0, strandedShot = 0;
+        withRawDb(path, "v36_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            // Rewind to 35: this database has already had its burr forks healed.
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (35)"));
+
+            // Identical grinder INCLUDING burrs; the successor adds a basket and
+            // a puck prep. 35 skips this; 36 must not.
+            EquipmentPackage a, b;
+            bare = EquipmentStorage::createPackageWithGrinderStatic(
+                db, a, "Niche", "Zero", "63mm Mazzer Kony conical");
+            dressed = EquipmentStorage::createPackageWithGrinderStatic(
+                db, b, "Niche", "Zero", "63mm Mazzer Kony conical");
+            QVERIFY(bare > 0 && dressed > 0);
+            QVERIFY(EquipmentStorage::setBasketItemStatic(db, dressed, "Decent", "18g Ridged"));
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, dressed, "puckScreen,shaker"));
+            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0, "
+                                          "superseded_by = %1 WHERE id = %2").arg(dressed).arg(bare)));
+
+            QVERIFY(q.exec(QStringLiteral("INSERT INTO shots (uuid, timestamp, profile_name, "
+                                          "duration_seconds, equipment_id) "
+                                          "VALUES ('m36-a', 1000, 'P', 25.0, %1)").arg(bare)));
+            strandedShot = q.lastInsertId().toLongLong();
+        });
+
+        { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 36
+
+        withRawDb(path, "v36_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), 36);
+            QSqlQuery q(db);
+            // The stranded shot now hangs off the surviving package.
+            QVERIFY(q.exec(QStringLiteral("SELECT equipment_id FROM shots WHERE id = %1")
+                               .arg(strandedShot)));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toLongLong(), dressed);
+            // The superseded package is gone; the survivor is back in inventory.
+            QVERIFY(q.exec(QStringLiteral("SELECT COUNT(*) FROM equipment_packages WHERE id = %1")
+                               .arg(bare)));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 0);
+            QVERIFY(q.exec(QStringLiteral("SELECT in_inventory, superseded_by FROM equipment_packages "
+                                          "WHERE id = %1").arg(dressed)));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 1);
+            QVERIFY(q.value(1).isNull());
+        });
+    }
+
     void v33ToV34AddsYieldSpecs() {
         QString path = freshDbPath();
         { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> latest
