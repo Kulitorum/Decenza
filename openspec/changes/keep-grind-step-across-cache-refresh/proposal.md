@@ -37,9 +37,11 @@ signal are gone. Every `getDistinct*()` getter now runs its query through one `q
 helper against the live database, and the nine `invalidateDistinctCache()` call sites are removed.
 
 The grind step follows the same route: `grindStepForGrinder()` and `grindRpmStepForGrinder()` call
-`grinderWideNumericSettings()` / `grinderWideRpmStep()` — the helpers the AI path already used — so
-the widget and the AI payload are the same number by construction rather than by two queries
-happening to agree.
+`grinderWideNumericSettings()` / `grinderWideRpms()` — the same helpers `queryGrinderContext` uses,
+so the widget and the AI payload are the same number by construction rather than by two queries
+happening to agree. (Both were reshaped here to return their VALUES rather than a step, so each
+caller can derive and also report how many samples it derived from; the AI path previously had its
+own near-identical pair.)
 
 Four QML surfaces lose the re-evaluation protocol the cache required: the `distinctCacheVersion`
 counters in `GrindRowSource` and `PostShotReviewPage`, the `_distinctVersion` counter in
