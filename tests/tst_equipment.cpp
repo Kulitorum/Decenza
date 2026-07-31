@@ -476,6 +476,100 @@ private slots:
         });
     }
 
+    // The heal applies the LIVE enrichment rule retroactively, so it must accept
+    // every component that rule accepts — not the burrs alone. Migration 35 tested
+    // the burrs and additionally required basket and puck prep to be EQUAL, which
+    // is the inverse of enrichment for a component that was absent, so a fork
+    // caused by recording a basket was skipped while the log said "merged 0".
+    // That is the maintainer's own database: one grinder, byte-identical burrs,
+    // 961 shots stranded on a package whose only difference was having no basket.
+    void healFillsAnyComponentNotJustBurrs() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_heal_components", [](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            createMinimalShots(db);
+            auto addShot = [&](qint64 eq) {
+                QSqlQuery q(db); q.prepare("INSERT INTO shots (equipment_id) VALUES (?)");
+                q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
+            };
+            auto shotEq = [&](qint64 id) {
+                QSqlQuery q(db); q.prepare("SELECT equipment_id FROM shots WHERE id=?");
+                q.addBindValue(id); q.exec(); q.next(); return q.value(0).toLongLong();
+            };
+            auto pkgExists = [&](qint64 id) {
+                QSqlQuery q(db); q.prepare("SELECT COUNT(*) FROM equipment_packages WHERE id=?");
+                q.addBindValue(id); q.exec(); q.next(); return q.value(0).toInt() > 0;
+            };
+            auto link = [&](qint64 older, qint64 newer) {
+                QSqlQuery q(db);
+                q.prepare("UPDATE equipment_packages SET in_inventory = 0, superseded_by = ? WHERE id = ?");
+                q.addBindValue(newer); q.addBindValue(older);
+                QVERIFY(q.exec());
+            };
+
+            // (1) The maintainer's shape: identical grinder INCLUDING burrs, and
+            // the successor names a basket and a puck prep the older one lacks.
+            EquipmentPackage a1, a2;
+            const qint64 bareId = EquipmentStorage::createPackageWithGrinderStatic(
+                db, a1, "Niche", "Zero", "63mm Mazzer Kony conical");
+            const qint64 dressedId = EquipmentStorage::createPackageWithGrinderStatic(
+                db, a2, "Niche", "Zero", "63mm Mazzer Kony conical");
+            QVERIFY(EquipmentStorage::setBasketItemStatic(db, dressedId, "Decent", "18g Ridged"));
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, dressedId, "puckScreen,shaker"));
+            const qint64 strandedShot = addShot(bareId);
+            link(bareId, dressedId);
+
+            // (2) A CHANGED basket is a swap, not enrichment — both sides named.
+            EquipmentPackage b1, b2;
+            const qint64 basketOld = EquipmentStorage::createPackageWithGrinderStatic(
+                db, b1, "Mazzer", "Philos", "83mm flat");
+            const qint64 basketNew = EquipmentStorage::createPackageWithGrinderStatic(
+                db, b2, "Mazzer", "Philos", "83mm flat");
+            QVERIFY(EquipmentStorage::setBasketItemStatic(db, basketOld, "IMS", "18g"));
+            QVERIFY(EquipmentStorage::setBasketItemStatic(db, basketNew, "VST", "18g"));
+            addShot(basketOld);
+            link(basketOld, basketNew);
+
+            // (3) A grinder-less package gaining a grinder is a real identity
+            // change — those shots were pulled with nothing ground.
+            EquipmentPackage teaPkg;
+            teaPkg.name = "Tea";
+            // All-empty grinder strings create a genuinely grinder-less package —
+            // no grinder ROW at all, which is what the exception keys on.
+            const qint64 teaId = EquipmentStorage::createPackageWithGrinderStatic(
+                db, teaPkg, "", "", "", "Decent", "18g Ridged");
+            QVERIFY(teaId > 0);
+            EquipmentPackage withGrinder;
+            const qint64 grinderId = EquipmentStorage::createPackageWithGrinderStatic(
+                db, withGrinder, "Niche", "Duo", "", "Decent", "18g Ridged");
+            addShot(teaId);
+            link(teaId, grinderId);
+
+            QHash<qint64, qint64> remap;
+            qsizetype healed = -1;
+            QVERIFY(EquipmentStorage::healEnrichmentForksStatic(db, &remap, &healed));
+
+            // Only (1) folds.
+            QCOMPARE(healed, (qsizetype)1);
+            QCOMPARE(remap.value(bareId), dressedId);
+            QVERIFY(!pkgExists(bareId));
+            QCOMPARE(shotEq(strandedShot), dressedId);
+            QVERIFY(EquipmentStorage::loadPackageStatic(db, dressedId).inInventory);
+
+            QVERIFY(pkgExists(basketOld));    // changed basket is a swap
+            QVERIFY(pkgExists(basketNew));
+            QVERIFY(pkgExists(teaId));        // tea did not gain a grinder
+            QVERIFY(pkgExists(grinderId));
+
+            // Re-running is a no-op, so the migration is safe to retry.
+            QHash<qint64, qint64> remap2;
+            qsizetype healed2 = -1;
+            QVERIFY(EquipmentStorage::healEnrichmentForksStatic(db, &remap2, &healed2));
+            QCOMPARE(healed2, (qsizetype)0);
+        });
+    }
+
     // --- one-time heal of pre-enrichment forks (migration 35) ---
     void healEnrichmentForks() {
         const QString path = freshDbPath();

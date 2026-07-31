@@ -1918,6 +1918,74 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 36: re-run the heal now that it tests the WHOLE enrichment rule
+    // (widen-enrichment-heal). 35 restated the rule instead of sharing it and
+    // tested the burrs alone, additionally requiring basket and puck prep to be
+    // EQUAL — the inverse of enrichment for a component that was absent. So a
+    // fork caused by recording a BASKET, which is the common one because baskets
+    // arrived after grinders did, was skipped while 35 logged "merged 0" and read
+    // as nothing to fix. Confirmed on two real databases.
+    //
+    // 35 is left in place and unchanged rather than edited, because its version is
+    // already stamped wherever it ran and a stamped migration never runs again.
+    // Most devices are below it (stable v2.0.0 predates it) and will run both in
+    // one launch: harmless, since the widened predicate is a superset and the
+    // second pass finds the first one's work already done.
+    //
+    // Same shape as 35 deliberately — DbWriteTxn with attempts=1, query.finish()
+    // before taking the write lock, heal and version bump committing together.
+    // The read-then-write hazard documented above applies identically here, and
+    // the SELECT at the top of this function may have been re-executed by any
+    // migration in between.
+    if (currentVersion >= 35 && currentVersion < 36) {
+        EQUIP_LOG_STDERR("Migration", "36: re-healing enrichment forks against the full rule");
+        query.finish();
+        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 36 enrichment-fork re-heal", 1);
+        if (!txn.ok()) {
+            EQUIP_WARN_STDERR("Migration",
+                              "36 could not start a transaction - will retry next launch");
+        } else {
+            QHash<qint64, qint64> remap;
+            qsizetype healed = 0;
+            bool ok = EquipmentStorage::healEnrichmentForksStatic(m_db, &remap, &healed);
+            if (ok) {
+                query.exec("DELETE FROM schema_version");
+                ok = query.exec("INSERT INTO schema_version (version) VALUES (36)");
+            }
+            if (ok && txn.commit()) {
+                currentVersion = 36;
+                EQUIP_INFO_STDERR("Migration",
+                                  QString("36 complete - merged %1 package(s) that an edit "
+                                          "recording gear had split off")
+                                      .arg(healed));
+                if (healed > 0) {
+                    // Same reason as 35: the active selection lives in QSettings,
+                    // so a merged-away id would leave the app pointing at a
+                    // deleted package.
+                    //
+                    // Resolve against 35's result when it set one. Both migrations
+                    // can run in a single launch on a device below 35, and QSettings
+                    // is NOT written until MainController adopts the value after
+                    // initialize() — so reading it here would still return the
+                    // pre-35 id, and a chain (35 folds 1->2, 36 folds 2->3) would
+                    // leave the app pointing at 2, which 36 just deleted.
+                    AppSettings settings;
+                    const qint64 stored = settings.value("dye/activeEquipmentId", -1).toLongLong();
+                    const qint64 activeId = m_healedActiveEquipmentId > 0
+                                          ? m_healedActiveEquipmentId : stored;
+                    if (activeId > 0 && remap.contains(activeId)) {
+                        m_healedActiveEquipmentId = remap.value(activeId);
+                        EQUIP_INFO_STDERR("Migration",
+                                          QString("36 moved the active equipment from package %1 to %2")
+                                              .arg(activeId).arg(m_healedActiveEquipmentId));
+                    }
+                }
+            } else {
+                EQUIP_WARN_STDERR("Migration", "36 incomplete - will retry next launch");
+            }
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }

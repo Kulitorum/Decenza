@@ -1343,27 +1343,87 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
     return result;
 }
 
+bool EquipmentStorage::isEnrichmentOf(const PackageIdentity& before, const PackageIdentity& after)
+{
+    const auto norm = [](const QString& s) { return s.trimmed().toLower(); };
+    const auto filledIn = [&norm](const QString& b, const QString& a) {
+        return norm(b).isEmpty() || norm(b) == norm(a);
+    };
+
+    // A package with no grinder ROW is deliberately grinder-less — a basket-only
+    // tea setup — and the identity model treats "no grinder" as a real, matchable
+    // value. Its shots were pulled with nothing ground, so giving it a grinder is
+    // a genuine change: calling that enrichment would make those shots report a
+    // grinder that never touched them.
+    const bool gainingAGrinder = !before.hasGrinder
+        && !(after.grinderBrand.trimmed().isEmpty()
+             && after.grinderModel.trimmed().isEmpty()
+             && after.burrs.trimmed().isEmpty());
+    if (gainingAGrinder)
+        return false;
+
+    // The absence of a BASKET or a puck prep is not the same kind of absence: no
+    // espresso is pulled without a basket, so an unrecorded one is a basket nobody
+    // wrote down, exactly like unrecorded burrs. Tea genuinely has no grinder.
+    return filledIn(before.grinderBrand, after.grinderBrand)
+        && filledIn(before.grinderModel, after.grinderModel)
+        && filledIn(before.burrs, after.burrs)
+        && filledIn(before.basketBrand, after.basketBrand)
+        && filledIn(before.basketModel, after.basketModel)
+        && (before.puckPrep.isEmpty() || before.puckPrep == after.puckPrep);  // both canonical
+}
+
+PackageIdentity EquipmentStorage::identityOfStatic(QSqlDatabase& db, qint64 packageId)
+{
+    const EquipmentItem grinder = loadGrinderItemStatic(db, packageId);
+    const EquipmentItem basket  = loadBasketItemStatic(db, packageId);
+    const EquipmentItem puck    = loadPuckPrepItemStatic(db, packageId);
+
+    PackageIdentity id;
+    // isValid(), not "are the fields blank": the loaders return a
+    // default-constructed item when there is no row, and no-row is the case that
+    // means "deliberately grinder-less" rather than "nobody typed it in".
+    id.hasGrinder   = grinder.isValid();
+    id.grinderBrand = grinder.brand;
+    id.grinderModel = grinder.model;
+    id.burrs        = grinder.burrs;
+    id.basketBrand  = basket.brand;
+    id.basketModel  = basket.model;
+    id.puckPrep     = puck.model;   // stored canonical
+    return id;
+}
+
 bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64, qint64>* remap,
                                                  qsizetype* healedOut)
 {
     // One-time repair for forks that the enrichment rule would no longer create.
     //
-    // The signature is deliberately narrow, and every part of it is load-bearing:
+    // Two conditions, and only two:
     //   - the two packages are in a LINEAGE (older.superseded_by = newer.id), which
     //     is what proves the app forked them rather than the user owning two
-    //     grinders that happen to look alike;
-    //   - grinder brand + model, basket brand + model and the puck-prep string are
-    //     all equal, so nothing but the burrs differs;
-    //   - the OLDER side's burrs are empty and the NEWER side's are set, i.e. the
-    //     fork ran in the enrichment direction.
-    // Anything else — a burr swap between two named sets, a cleared field, a
-    // basket change, two similar packages with no lineage — is left alone. A user
-    // who really did swap burrs on the same edit that first named them is
-    // indistinguishable here, and is healed too; that is the same trade the
-    // enrichment rule itself makes, and it is stated in the change's design.
+    //     packages that happen to look alike;
+    //   - isEnrichmentOf(older, newer) — the SAME test the live edit rule applies,
+    //     shared rather than restated. Anything the rule calls enrichment is healed
+    //     here, whichever component was the one nobody had written down.
+    //
+    // It used to restate the test, and got it wrong: it checked the BURRS going
+    // empty -> named and additionally required basket brand, basket model and the
+    // puck-prep string to be EQUAL. "Equal" is not a stricter form of
+    // "empty -> named"; for a component that was absent it is the inverse. So a
+    // fork caused by recording a BASKET — the common one, since baskets arrived
+    // after grinders did — was skipped while the migration logged
+    // "merged 0 package(s)", which reads as nothing to fix. Verified on two real
+    // databases before this was changed.
+    //
+    // Anything the shared rule rejects is still left alone: a burr swap between
+    // two named sets, a changed basket, a cleared field, a grinder-less package
+    // gaining a grinder, and two similar packages with no lineage. A user who
+    // really did swap a component on the same edit that first named it is
+    // indistinguishable here and is healed too — the same trade the live rule
+    // makes.
     //
     // The newer package survives: it is the one in inventory, the one carrying the
-    // burrs the user just recorded, and the one new shots already point at.
+    // components the user just recorded, and the one new shots already point at.
     //
     // Runs INSIDE the caller's transaction (it uses the unlocked merge), so the
     // whole heal commits or rolls back with the migration that calls it.
@@ -1379,37 +1439,64 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
     // otherwise spin forever inside a migration — cannot hang startup.
     constexpr int kMaxHealPasses = 10;
     for (int pass = 0; pass < kMaxHealPasses; ++pass) {
-        QVector<QPair<qint64, qint64>> pairs;   // older (to remove), newer (survivor)
+        // Every lineage pair, unfiltered. The test is isEnrichmentOf, in C++, on
+        // loaded packages — NOT a SQL predicate rebuilt here. Rebuilding it is
+        // what made this heal disagree with the live rule it retro-applies: it
+        // tested burrs alone and demanded basket and puck prep be EQUAL, which is
+        // the inverse of enrichment for a component that was absent. An inventory
+        // is tens of rows, so loading both sides costs nothing worth optimising,
+        // and C++ also gets the Unicode-correct folding SQLite's ASCII-only
+        // LOWER() cannot do (see findPackageByGrinderIdentityStatic).
+        struct Fold {
+            qint64 older = 0;    // to remove
+            qint64 newer = 0;    // survivor
+            QString filled;      // which components the newer one named first
+        };
+        QVector<Fold> pairs;
         QSqlQuery q(db);
-        if (!q.exec(
-                "SELECT older.id, newer.id FROM equipment_packages older "
-                "JOIN equipment_packages newer ON newer.id = older.superseded_by "
-                "JOIN equipment_items og ON og.package_id = older.id AND og.kind = 'grinder' "
-                "JOIN equipment_items ng ON ng.package_id = newer.id AND ng.kind = 'grinder' "
-                "WHERE LOWER(TRIM(IFNULL(og.brand,''))) = LOWER(TRIM(IFNULL(ng.brand,''))) "
-                "  AND LOWER(TRIM(IFNULL(og.model,''))) = LOWER(TRIM(IFNULL(ng.model,''))) "
-                "  AND TRIM(IFNULL(json_extract(og.attrs,'$.burrs'),'')) = '' "
-                "  AND TRIM(IFNULL(json_extract(ng.attrs,'$.burrs'),'')) != '' "
-                "  AND LOWER(TRIM(IFNULL((SELECT b.brand FROM equipment_items b "
-                "      WHERE b.package_id = older.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),''))) "
-                "    = LOWER(TRIM(IFNULL((SELECT b.brand FROM equipment_items b "
-                "      WHERE b.package_id = newer.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),''))) "
-                "  AND LOWER(TRIM(IFNULL((SELECT b.model FROM equipment_items b "
-                "      WHERE b.package_id = older.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),''))) "
-                "    = LOWER(TRIM(IFNULL((SELECT b.model FROM equipment_items b "
-                "      WHERE b.package_id = newer.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),''))) "
-                "  AND IFNULL((SELECT pp.model FROM equipment_items pp "
-                "      WHERE pp.package_id = older.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') "
-                "    = IFNULL((SELECT pp.model FROM equipment_items pp "
-                "      WHERE pp.package_id = newer.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') "
-                "ORDER BY older.id")) {
+        if (!q.exec("SELECT older.id, newer.id FROM equipment_packages older "
+                    "JOIN equipment_packages newer ON newer.id = older.superseded_by "
+                    "ORDER BY older.id")) {
             EQUIP_WARN_STDERR("Heal",
                               QString("enrichment-fork scan failed: %1")
                                   .arg(q.lastError().text()));
             return false;
         }
+        QVector<QPair<qint64, qint64>> lineage;
         while (q.next())
-            pairs.append({q.value(0).toLongLong(), q.value(1).toLongLong()});
+            lineage.append({q.value(0).toLongLong(), q.value(1).toLongLong()});
+        for (const auto& [older, newer] : lineage) {
+            if (!loadPackageStatic(db, older).isValid() || !loadPackageStatic(db, newer).isValid())
+                continue;   // already folded by an earlier pass
+            const PackageIdentity a = identityOfStatic(db, older);
+            const PackageIdentity b = identityOfStatic(db, newer);
+            if (!isEnrichmentOf(a, b))
+                continue;
+            // Name the components, not just the ids. "merged 0" was undiagnosable
+            // precisely because the log never said WHICH component the heal was
+            // looking at, and the answer turned out to be "only the burrs".
+            //
+            // This list is also a CONDITION, not just narration: isEnrichmentOf is
+            // vacuously true for two packages that differ in nothing, because no
+            // component fails the filled-in test. The live rule never sees that
+            // case — it returns early on `unchanged` — but a database can hold one,
+            // since device transfer imports every superseded package as a new row.
+            // Two byte-identical packages are a DUPLICATE, not a fork, and folding
+            // one silently is not this migration's call; merge is the user's to run.
+            QStringList filled;
+            const auto gained = [](const QString& before, const QString& after) {
+                return before.trimmed().isEmpty() && !after.trimmed().isEmpty();
+            };
+            if (gained(a.grinderBrand, b.grinderBrand)) filled << QStringLiteral("grinder brand");
+            if (gained(a.grinderModel, b.grinderModel)) filled << QStringLiteral("grinder model");
+            if (gained(a.burrs, b.burrs))               filled << QStringLiteral("burrs");
+            if (gained(a.basketBrand, b.basketBrand))   filled << QStringLiteral("basket brand");
+            if (gained(a.basketModel, b.basketModel))   filled << QStringLiteral("basket model");
+            if (gained(a.puckPrep, b.puckPrep))         filled << QStringLiteral("puck prep");
+            if (filled.isEmpty())
+                continue;   // identical pair — a duplicate, not a fork
+            pairs.append({older, newer, filled.join(QStringLiteral(", "))});
+        }
         // Defensive only, and deliberately not justified by a mechanism. The loop
         // above steps the scan to exhaustion, and Qt resets the statement itself
         // the moment sqlite3_step returns SQLITE_DONE
@@ -1427,7 +1514,7 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
         if (pairs.isEmpty())
             return true;   // nothing left to match — the normal exit
 
-        for (const auto& [older, newer] : pairs) {
+        for (const auto& [older, newer, filled] : pairs) {
             // A previous iteration of THIS pass may have already merged one side
             // away (a chain seen from both ends); skip rather than fail.
             if (!loadPackageStatic(db, older).isValid() || !loadPackageStatic(db, newer).isValid())
@@ -1455,10 +1542,11 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
             // DEBUG: still inside the migration's transaction, which has not
             // committed. The INFO outcome is migration 35's post-commit total.
             EQUIP_LOG_STDERR("Heal",
-                             QString("package %1 is an enrichment fork of %2 (same gear, burrs recorded "
+                             QString("package %1 is an enrichment fork of %2 (same gear; %3 recorded "
                                      "on the newer one only) - reuniting them")
                                  .arg(older)
-                                 .arg(newer));
+                                 .arg(newer)
+                                 .arg(filled));
         }
     }
     // Falling out of the loop with pairs still matching means a chain deeper than
@@ -1539,18 +1627,27 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     // physical rather than tidy: there is no espresso pulled without a basket, so
     // an absent basket is a basket nobody wrote down, exactly like absent burrs.
     // Tea genuinely has no grinder.
-    auto filledIn = [&](const QString& before, const QString& after) {
-        return norm(before).isEmpty() || norm(before) == norm(after);
-    };
-    const bool gainingAGrinder = !cur.isValid()
-        && !(brand.trimmed().isEmpty() && model.trimmed().isEmpty() && burrs.trimmed().isEmpty());
-    const bool enrichment = !gainingAGrinder
-        && filledIn(cur.brand, brand)
-        && filledIn(cur.model, model)
-        && filledIn(cur.burrs, burrs)
-        && filledIn(curBasket.brand, basketBrand)
-        && filledIn(curBasket.model, basketModel)
-        && (curPuck.model.isEmpty() || curPuck.model == puck);  // both canonical
+    // The test itself lives in isEnrichmentOf, shared with the one-time heal —
+    // see its declaration for why that sharing is load-bearing.
+    PackageIdentity before;
+    before.hasGrinder   = cur.isValid();
+    before.grinderBrand = cur.brand;
+    before.grinderModel = cur.model;
+    before.burrs        = cur.burrs;
+    before.basketBrand  = curBasket.brand;
+    before.basketModel  = curBasket.model;
+    before.puckPrep     = curPuck.model;
+
+    PackageIdentity after;
+    after.hasGrinder   = true;   // an edit that names any grinder field wants one
+    after.grinderBrand = brand;
+    after.grinderModel = model;
+    after.burrs        = burrs;
+    after.basketBrand  = basketBrand;
+    after.basketModel  = basketModel;
+    after.puckPrep     = puck;   // canonical
+
+    const bool enrichment = isEnrichmentOf(before, after);
 
     auto shotCount = [&]() -> qint64 {
         QSqlQuery q(db);
