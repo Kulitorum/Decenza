@@ -55,9 +55,27 @@ void MemoryMonitor::onSampleTimerTick()
         m_firstSample = false;
     }
 
-    const bool newPeak = (rss > m_peakRss);
-    if (newPeak)
+    // TRACKING the peak is exact and unconditional — peakRssMB() and the JSON
+    // snapshot report it, and a threshold there would make them wrong.
+    if (rss > m_peakRss)
         m_peakRss = rss;
+
+    // PRINTING a peak is a separate decision, and it needs the same 5 MB band the
+    // RSS gate below uses. "Any new peak always prints" ratchets on noise: on a
+    // real tablet RSS jitters 111-120 MB, so the peak climbed 113.7 -> 114.1 ->
+    // 116.2 -> 119.1 -> 120.3 and printed five times in the first 36 minutes.
+    // Those are not five events, they are one plateau being sampled, and a peak
+    // 0.4 MB above the last is not news. The tell was that the lines stopped
+    // entirely once 120.3 was reached — nothing had changed except that the
+    // ratchet ran out of headroom.
+    //
+    // Measured against the last peak PRINTED, so a genuine climb still reports
+    // once per 5 MB gained and cannot be starved by intermediate noise.
+    constexpr quint64 kPeakLogStepBytes = 5ull * 1024 * 1024;
+    const bool newPeak = (m_lastLoggedPeakRss == 0)
+                         || (m_peakRss >= m_lastLoggedPeakRss + kPeakLogStepBytes);
+    if (newPeak)
+        m_lastLoggedPeakRss = m_peakRss;
 
     MemorySample sample;
     sample.timestampMs = QDateTime::currentMSecsSinceEpoch();
@@ -79,8 +97,9 @@ void MemoryMonitor::onSampleTimerTick()
     //
     // The gate text is QUANTIZED rather than the message itself, because the message never repeats
     // byte-for-byte — RSS moves 0.1 MB between any two samples. "Same plateau" collapses while a
-    // real step change prints at once. A new peak always prints: it is the one sample that cannot
-    // be reconstructed from a later line.
+    // real step change prints at once. A new peak prints too — it is the one sample that cannot be
+    // reconstructed from a later line — but only once per 5 MB gained; see the peak gate above for
+    // why "any new peak" was wrong.
     //
     // QUANTIZED AGAINST THE LAST LINE PRINTED, NOT A FIXED BUCKET. This used
     // static_cast<int>(rssMB / 5.0), and a real Android capture shows why that fails: RSS sat at

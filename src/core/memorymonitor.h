@@ -81,6 +81,11 @@ private:
     // RSS as of the last line PRINTED — the anchor the 5 MB band is measured from, so a value
     // sitting on a fixed bucket edge cannot oscillate across it. Negative until the first line.
     double m_lastLoggedRssMB = -1.0;
+    // Peak RSS as of the last line printed BECAUSE of a new peak. Distinct from m_peakRss, which
+    // tracks the true peak exactly for peakRssMB() and the JSON snapshot: this one only decides
+    // whether a peak is worth a line, so a peak ratcheting up through jitter stays quiet. Zero
+    // until the first line.
+    quint64 m_lastLoggedPeakRss = 0;
 
     // Per-class QObject tracking
     QHash<QString, int> m_classCounts;          // Current snapshot
