@@ -1,22 +1,8 @@
-# History Distinct-Value Cache
+# history-distinct-cache Specification
 
-## REMOVED Requirements
-
-### Requirement: Distinct values SHALL be cached and refreshed asynchronously
-
-**Reason**: The cache was invalidated more often than it was read — every shot save, delete and
-metadata edit wiped it and kicked a six-query background refresh, to serve dialogs that might never
-open. Its invalidation also cleared every key while refilling only six bare columns, so composite
-keys were dropped permanently unless a consumer noticed and re-asked, and a re-fetch overtaken by a
-refresh was discarded in silence. That is #1713.
-
-**Migration**: None. `getDistinct*()` keep their signatures and now answer from the live database,
-so every caller is unaffected except that a miss is no longer possible. Consumers that carried a
-counter bumped by `distinctCacheReady()` to force re-evaluation must drop it — the signal is gone,
-and a value read after a write is already current.
-
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change keep-grind-step-across-cache-refresh. Update Purpose after archive.
+## Requirements
 ### Requirement: Distinct-value getters SHALL read the live database
 
 Every `getDistinct*()` getter SHALL run its query against the database on each call and return the
@@ -48,3 +34,4 @@ SHALL be rejected unless it appears in the allowed-column list.
 
 - **WHEN** a distinct query is requested for a column not on the allow-list
 - **THEN** it SHALL return empty and warn, without reaching the database
+

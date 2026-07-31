@@ -1,7 +1,8 @@
-# Grind Step Derivation
+# grind-step-derivation Specification
 
-## MODIFIED Requirements
-
+## Purpose
+TBD - created by archiving change keep-grind-step-across-cache-refresh. Update Purpose after archive.
+## Requirements
 ### Requirement: The grind step SHALL be derived from the live database, not a cache
 
 `grindStepForGrinder()` and `grindRpmStepForGrinder()` SHALL query the shot history directly on
@@ -95,3 +96,4 @@ derive" and the caller substitutes its own fallback; it is not a step of zero.
 - **GIVEN** a grinder with exactly one distinct numeric setting
 - **WHEN** the step is read
 - **THEN** it SHALL be `0`
+

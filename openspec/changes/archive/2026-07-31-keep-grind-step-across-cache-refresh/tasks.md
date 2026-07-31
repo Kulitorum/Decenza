@@ -61,5 +61,6 @@
 
 - [x] 6.1 Revert the over-built draft in full (resident map, covering index, schema version 36,
       supersession guard, failed-key set, distinct-cache repair)
-- [ ] 6.2 Push to PR #1725 and re-run `/pr-review-toolkit:review-pr`
-- [ ] 6.3 Archive + spec-sync as the final commit on the PR
+- [x] 6.2 Push to PR #1725 and re-run `/pr-review-toolkit:review-pr` (three rounds; every
+      round found real defects, the last two in the previous round's fixes)
+- [x] 6.3 Archive + spec-sync as the final commit on the PR
