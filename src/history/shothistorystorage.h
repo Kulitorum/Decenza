@@ -538,9 +538,9 @@ private:
     // Deduped narration of what grindStepForGrinder() derived — see its definition.
     // Why a derivation answered what it did. All three non-derived outcomes
     // return the SAME 0.0, so a log that does not name them cannot tell a broken
-    // query from a grinder with no numeric history — which is exactly how #1713
-    // stayed undiagnosed.
-    enum class GrindStepOutcome { Derived, NotReady, QueryFailed, TooThin };
+    // query from a grinder with no numeric history — which is exactly how the
+    // single-digit grind report stayed undiagnosed for so long.
+    enum class GrindStepOutcome { Derived, NotReady, QueryFailed, TooThin, NoGrinder };
     void reportGrindStep(const QString& grinderModel, qsizetype sampleCount, double step,
                          GrindStepOutcome outcome);
     // Last "<count>:<step>" reported per grinder model, so the derivation is

@@ -1968,7 +1968,12 @@ private slots:
     }
 
     // ==========================================
-    // Grind step derivation (keep-grind-step-across-cache-refresh)
+    // Grind step derivation and the distinct-value getters.
+    //
+    // NOT migration tests — nothing below touches the schema. They live here
+    // because this file already owns the DB fixtures and links decenza_shotlib,
+    // and a separate target for nine tests would cost a build target to buy
+    // nothing but a better filename.
     // ==========================================
 
     // THE regression test for this change. The step derived correctly as 0.25 and
@@ -2238,7 +2243,7 @@ private slots:
 
     // The widget read and the AI payload must be the same number BY CONSTRUCTION —
     // they now call the same function. They previously agreed only when the widget's
-    // cache happened to be warm, which is how #1713 stayed invisible: the payload
+    // cache happened to be warm, which is how the bug stayed invisible: the payload
     // kept reporting 0.25 while the widget showed 1.0.
     void grindStepAgreesWithDialingContext() {
         QString path = freshDbPath();

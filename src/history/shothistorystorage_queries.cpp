@@ -40,7 +40,8 @@ using decenza::storage::detail::use12h;
 //
 // These used to go through an async cache: a getter returned {} on a miss, kicked
 // off a background fetch, and relied on a distinctCacheReady() signal to make QML
-// re-evaluate. That is what #1713 was — requestDistinctCache() cleared every key
+// re-evaluate. That is the bug this change removes — requestDistinctCache()
+// cleared every key
 // but refilled only six bare columns, so composite keys were dropped by every
 // shot save, and a re-fetch overtaken by a refresh was discarded in silence with
 // nobody left to re-ask. Worse, the cache was invalidated far more often than it
@@ -966,7 +967,12 @@ static QList<double> grinderWideNumericSettings(QSqlDatabase& db, const QString&
 
 // RPM counterpart of grinderWideNumericSettings, over the integer shots.rpm
 // column (rpm > 0 = a real dial-in), so the widget and the AI grinderContext
-// never disagree. Returns 0 when it cannot derive.
+// never disagree.
+//
+// Returns the VALUES, not the step, for the same reason as its settings sibling:
+// the caller needs the sample count for its log line. Returning only the step
+// forced grindRpmStepForGrinder to report a hard-coded 0, so a successful
+// derivation logged "= 100, derived from 0 distinct numeric setting(s)".
 //
 // REQUIRES a non-empty model — unlike its settings sibling there is no
 // all-grinders branch, because pooling RPMs across different grinders describes
@@ -976,23 +982,23 @@ static QList<double> grinderWideNumericSettings(QSqlDatabase& db, const QString&
 // 87 ms worst on a real 18.5 MB database), over the integer rpm column instead of
 // the text one. `queryOk` reports whether the query RAN, so the caller can tell a
 // failure from a grinder that simply has no recorded RPMs.
-static double grinderWideRpmStep(QSqlDatabase& db, const QString& grinderModel,
-                                 bool* queryOk = nullptr)
+static QList<double> grinderWideRpms(QSqlDatabase& db, const QString& grinderModel,
+                                     bool* queryOk = nullptr)
 {
     if (queryOk) *queryOk = false;
     QSqlQuery q(db);
     const QString sql = QStringLiteral("SELECT DISTINCT rpm FROM shots WHERE %1 AND rpm > 0")
                             .arg(ShotHistoryStorage::grinderModelMatchSql(":model"));
     if (!q.prepare(sql)) {
-        qWarning() << "ShotHistoryStorage::grinderWideRpmStep: prepare failed:"
+        qWarning() << "ShotHistoryStorage::grinderWideRpms: prepare failed:"
                    << q.lastError().text() << "grinderModel=" << grinderModel;
-        return 0.0;
+        return {};
     }
     q.bindValue(":model", grinderModel);
     if (!q.exec()) {
-        qWarning() << "ShotHistoryStorage::grinderWideRpmStep: query failed:"
+        qWarning() << "ShotHistoryStorage::grinderWideRpms: query failed:"
                    << q.lastError().text() << "grinderModel=" << grinderModel;
-        return 0.0;
+        return {};
     }
     if (queryOk) *queryOk = true;
     QList<double> rpms;
@@ -1002,7 +1008,7 @@ static double grinderWideRpmStep(QSqlDatabase& db, const QString& grinderModel,
             rpms.append(r);
     }
     std::sort(rpms.begin(), rpms.end());
-    return deriveGrindStep(rpms);
+    return rpms;
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
@@ -1120,7 +1126,7 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     }
     // rpmStepSize is a GRINDER property like stepSize — grinder-model-wide, not
     // bean/beverage-scoped — so it matches the widget's grindRpmStepForGrinder.
-    ctx.rpmStepSize = grinderWideRpmStep(db, grinderModel);
+    ctx.rpmStepSize = deriveGrindStep(grinderWideRpms(db, grinderModel));
 
     return ctx;
 }
@@ -1615,6 +1621,10 @@ void ShotHistoryStorage::reportGrindStep(const QString& grinderModel, qsizetype 
         why = QStringLiteral(" — too thin to derive; the caller's fallback step is "
                              "used instead");
         break;
+    case GrindStepOutcome::NoGrinder:
+        why = QStringLiteral(" — no grinder was supplied, so there is no history to "
+                             "pool; the caller's fallback step is used instead");
+        break;
     }
 
     qDebug().noquote()
@@ -1648,24 +1658,29 @@ double ShotHistoryStorage::grindStepForGrinder(const QString& grinderModel)
 double ShotHistoryStorage::grindRpmStepForGrinder(const QString& grinderModel)
 {
     // RPM mode always has an identified grinder; an empty model has no meaningful
-    // RPM history to pool, which is also grinderWideRpmStep's stated precondition.
+    // RPM history to pool, which is also grinderWideRpms' stated precondition.
     //
     // Narrated for the same reason as its settings twin: this also returns 0.0 for
     // "no grinder", "not ready" and "query failed" alike, and the caller silently
-    // substitutes a 50 RPM default. #1713 was undiagnosable precisely because the
-    // value behind the symptom was never written down.
+    // substitutes a 50 RPM default. The bug behind this whole change was
+    // undiagnosable precisely because the value behind the symptom was never
+    // written down.
+    //
+    // NoGrinder is its own outcome, not TooThin. "Too thin to derive" would tell a
+    // reader the user has no recorded RPMs, when in fact no grinder was supplied.
     if (grinderModel.isEmpty() || !m_ready) {
         reportGrindStep(QStringLiteral("%1 (rpm)").arg(
                             grinderModel.isEmpty() ? QStringLiteral("(no grinder)") : grinderModel),
                         0, 0.0,
-                        grinderModel.isEmpty() ? GrindStepOutcome::TooThin
+                        grinderModel.isEmpty() ? GrindStepOutcome::NoGrinder
                                                : GrindStepOutcome::NotReady);
         return 0.0;
     }
 
     bool queryOk = false;
-    const double step = grinderWideRpmStep(m_db, grinderModel, &queryOk);
-    reportGrindStep(QStringLiteral("%1 (rpm)").arg(grinderModel), 0, step,
+    const QList<double> rpms = grinderWideRpms(m_db, grinderModel, &queryOk);
+    const double step = deriveGrindStep(rpms);
+    reportGrindStep(QStringLiteral("%1 (rpm)").arg(grinderModel), rpms.size(), step,
                     !queryOk     ? GrindStepOutcome::QueryFailed
                   : step > 0.0   ? GrindStepOutcome::Derived
                                  : GrindStepOutcome::TooThin);

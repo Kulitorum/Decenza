@@ -123,7 +123,7 @@ bool ShotHistoryStorage::isDbWorkIdle() const
     // No worker means nothing was ever posted, which is idle by definition — the
     // worker is created lazily on first use (runOnDbThread).
     //
-    // The detached count is the other half, and it used to be missing: the ten
+    // The detached count is the other half, and it used to be missing: the nine
     // read queries spawn one-shot threads that never go through m_dbWorker, so a
     // caller that waited on this was told "idle" while a thread was mid-SELECT.
     // initialize() used to start one itself (the distinct-value cache pre-warm),

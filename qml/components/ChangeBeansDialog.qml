@@ -286,34 +286,34 @@ DecenzaDialog {
         MainController.beanbase.search(q)
     }
 
-    // History-derived suggestion lists, read at defined moments rather than from
-    // inside the suggestion bindings. Both bindings re-evaluate on every keystroke
-    // (roasterInput.onTextEdited rewrites fRoaster and kicks a canonical search
-    // that rewrites formCanonicalEntries), so calling the getters inline ran a
-    // live SELECT DISTINCT per character. CLAUDE.md's rule is to keep main-thread
-    // queries off a repeating path; these are hoisted rather than threaded because
-    // the read itself is sub-millisecond, it is the repetition that was wrong.
+    // History-derived suggestion lists, held in plain properties and refreshed at
+    // defined moments. NOTHING here may query from inside a suggestion binding.
+    //
+    // Two separate reasons, both learned the hard way on this dialog:
+    //  - Both suggestion bindings re-evaluate on every keystroke — roasterInput's
+    //    onTextEdited rewrites fRoaster, and its canonical search rewrites
+    //    formCanonicalEntries — so an inline getter ran a live SELECT DISTINCT per
+    //    character. CLAUDE.md: keep main-thread queries off a repeating path.
+    //  - An earlier fix used a memo that READ a key property and then WROTE it
+    //    from inside the binding. A binding that writes what it reads is a
+    //    binding loop, and Qt logs one per keystroke.
+    //
+    // So the bean-type list is refreshed when the ROASTER IS COMMITTED (field
+    // blur or a suggestion pick), not while it is being typed. That is the moment
+    // the parameter actually settles, and the coffee field cannot be used before
+    // it — the user has to leave the roaster field to get there.
     property var _historyRoasters: []
-    // One-entry memo for the parameterised getter: the roaster is what the user is
-    // typing, so the query genuinely changes with it — but the coffee binding also
-    // re-fires on every canonical-search result, and those must not re-query.
-    // "\u0000" cannot be a real roaster, so it means "nothing memoised".
-    property string _typesMemoKey: "\u0000"
-    property var _typesMemoValue: []
+    property var _historyBeanTypes: []
 
     function _refreshHistoryLists() {
         _historyRoasters = MainController.shotHistory
             ? MainController.shotHistory.getDistinctBeanBrands().slice() : []
-        _typesMemoKey = "\u0000"
+        _refreshBeanTypes()
     }
 
-    function _beanTypesFor(roaster) {
-        if (_typesMemoKey === roaster)
-            return _typesMemoValue
-        _typesMemoValue = MainController.shotHistory
-            ? MainController.shotHistory.getDistinctBeanTypesForBrand(roaster).slice() : []
-        _typesMemoKey = roaster
-        return _typesMemoValue
+    function _refreshBeanTypes() {
+        _historyBeanTypes = MainController.shotHistory
+            ? MainController.shotHistory.getDistinctBeanTypesForBrand(root.fRoaster).slice() : []
     }
 
     Connections {
@@ -331,7 +331,7 @@ DecenzaDialog {
     }
 
     function coffeeSuggestions() {
-        var out = root._beanTypesFor(fRoaster).slice()
+        var out = root._historyBeanTypes.slice()
         for (var i = 0; i < formCanonicalEntries.length; i++) {
             var entry = formCanonicalEntries[i]
             if (fRoaster.length > 0 && entry.roasterName
@@ -1399,6 +1399,11 @@ DecenzaDialog {
                                 root.fRoaster = t
                                 root.requestFormCanonical(t)
                             }
+                            // The roaster has SETTLED — now re-read the bean types
+                            // scoped to it. Deliberately not in onTextEdited: that
+                            // fires per character and this runs a query.
+                            onInputBlurred: root._refreshBeanTypes()
+                            onSuggestionSelected: root._refreshBeanTypes()
                         }
                     }
 
