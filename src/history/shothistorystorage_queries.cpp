@@ -914,9 +914,19 @@ static double deriveGrindStep(const QList<double>& sortedDistinct)
 // the AI's queryGrinderContext needs the values themselves.
 //
 // An empty model means "no grinder selected" and pools every grinder's history —
-// including shots with no equipment row at all. The ShotServer /beans form needs
-// that, since a new bag has no equipment chosen yet. queryGrinderContext returns
-// early on an empty model, so only the widget path reaches it.
+// including shots with no equipment row at all. That is a LAST RESORT, not a
+// neutral default: pooling mixes every grinder's dial resolution into one
+// estimate, and the caller gets no signal that it did. It reads as correct to a
+// one-grinder user because the pool IS their grinder, so nothing has ever
+// flagged it; it was found by reading the #1726 reporter's log, where the
+// post-shot review reached this branch with an empty model. (#1726's own cause
+// was the composite-key cache and was fixed separately.)
+//
+// So callers must exhaust their own identity first. GrindRowSource.grindStep()
+// falls back to the ACTIVE grinder and only pools when there is no grinder
+// anywhere; queryGrinderContext returns early on an empty model. The remaining
+// deliberate consumer is the ShotServer /beans form, where a new bag has no
+// equipment chosen yet and every grinder genuinely is the only pool available.
 //
 // Cost, measured with a fresh connection per run: 3.3 ms median / 87 ms worst on
 // a real 1,124-shot / 18.5 MB database; 37 ms median / 41 ms worst on a 16x copy

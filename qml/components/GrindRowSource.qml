@@ -11,10 +11,15 @@ import Decenza
 // shot's grinder in post-shot review, the recipe's package in the wizard, the
 // bag's equipment in the beans dialog, the active grinder on the brew bar) and
 // every derived behaviour — step size, notation, observed-history fallback,
-// RPM capability — resolves against it. Nothing here reads the active grinder.
+// RPM capability — resolves against it.
 // (The pre-split _observedFallback read Settings.dye.dyeGrinderModel — the
 // active grinder — which was harmless while the brew bar was the only host and
 // is exactly the bug this injection exists to prevent.)
+//
+// The ONE place that still reads the active grinder is grindStep(), and only
+// when nothing was injected at all — see its comment. That is a source of
+// history to measure from, not a semantic: notation, click-indexing and RPM
+// capability never leave the injected identity.
 //
 // Per-candidate stepping is catalog-first via SettingsDye.stepGrinderSetting
 // (numeric AND Compound "a+b" notation), then plain-numeric / number-in-text /
@@ -38,8 +43,7 @@ QtObject {
 
     // Per-grinder grind step, derived from the user's own shot history for the
     // INJECTED grinder by the same noise-filtered estimator the AI dialing
-    // context uses. Falls back to 1.0 when history is too thin. With no grinder,
-    // grindStepForGrinder("") derives from full history.
+    // context uses. Falls back to 1.0 when history is too thin.
     //
     // FUNCTIONS, not properties, and deliberately so. Each call runs a live query
     // measured at 3.3 ms median / 87 ms worst on a real 18.5 MB database. As eager
@@ -56,8 +60,36 @@ QtObject {
     // it runs exactly when rows are built and never otherwise, and the answer is
     // current by construction — no counter, no staleness, no burst.
     function grindStep() {
-        var s = MainController.shotHistory
-            ? MainController.shotHistory.grindStepForGrinder(root.grinderModel) : 0
+        if (!MainController.shotHistory)
+            return 1.0
+        // With nothing injected the host has no grinder to name yet — a bag or
+        // recipe with no equipment package, or a shot recorded before it had
+        // one. The active grinder is the honest guess there. The all-grinders
+        // pool that grindStepForGrinder("") returns is NOT: it mixes every
+        // grinder's dial resolution into one estimate, so a Niche stepping 0.25
+        // and an EK43 stepping 1 produce a step belonging to neither, and
+        // nothing on screen says the wheel is not about your grinder. A user
+        // with one grinder cannot tell the two apart — the pool IS their
+        // grinder — which is why nothing has flagged it.
+        //
+        // Found while reading the #1726 reporter's log, NOT its reported cause:
+        // his post-shot review reached this branch with an empty model and
+        // pooled, and the answer looked right only because he owns one grinder.
+        // #1726 itself was the composite-key cache, fixed separately.
+        //
+        // Only the source of HISTORY falls back. Notation, click-indexing and
+        // rpmCapable stay on the injected identity: those belong to the grinder
+        // that owns the value, and reading the active grinder for them is the
+        // bug the context injection exists to prevent (see the header).
+        //
+        // Pooling is still reachable, when the user has no active grinder
+        // either — genuinely no grinder anywhere, where every grinder is the
+        // only pool there is. The ShotServer /beans form reaches it the same
+        // way (shotserver.cpp, sendGrindCandidates).
+        var model = root.grinderModel.length > 0
+            ? root.grinderModel
+            : String(Settings.dye.dyeGrinderModel || "")
+        var s = MainController.shotHistory.grindStepForGrinder(model)
         return s > 0 ? s : 1.0
     }
 
@@ -65,6 +97,9 @@ QtObject {
     // adjacent rows a meaningful ~50 RPM apart across the ~600–1400 working
     // range. Gated on rpmCapable: only rpmRowsFor() calls this, and the picker
     // only calls that for an RPM grinder, so querying otherwise is pure waste.
+    // That gate is also why this needs no empty-model fallback of its own:
+    // grinderRpmCapable("") is false, so the case grindStep() handles above
+    // never reaches the query here.
     function rpmStep() {
         if (!root.rpmCapable)
             return 50
