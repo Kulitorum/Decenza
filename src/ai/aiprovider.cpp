@@ -227,8 +227,10 @@ QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
 // assembled system + user prompt) and ~300 output — priced at each model's
 // published rate. Cold cache: repeat shots on the same profile cost less,
 // because the system prompt is cached at ~90% off. Rounded to the cent the
-// user would actually notice — except Luna, quoted to a tenth of a cent
-// because rounding $0.004 to "$0.00" would say nothing at all.
+// user would actually notice, except where a cent would round the figure to
+// "$0.00" and say nothing at all — Luna ($0.004) and Gemini 2.5 Flash
+// ($0.006) are quoted to a tenth of a cent for that reason. Monthly figures
+// are the nearest nickel to the derivation table in AI_ADVISOR.md.
 //
 // These WILL rot. They live beside availableModels() so a catalog change puts
 // the cost line in the same diff; docs/CLAUDE_MD/AI_ADVISOR.md carries the
