@@ -19,6 +19,7 @@
 
 #include "core/dbutils.h"
 #include "core/grinderaliases.h"
+#include "equipmentlogging.h"
 #include "core/yieldspec.h"
 
 #include <QSet>
@@ -1702,6 +1703,95 @@ double ShotHistoryStorage::grindRpmStepForGrinder(const QString& grinderModel)
                   : step > 0.0   ? GrindStepOutcome::Derived
                                  : GrindStepOutcome::TooThin);
     return step;
+}
+
+// See the declaration for why this exists. Three small queries rather than one
+// clever one: SQLite cannot tell a numeric setting from a text one, and that
+// distinction is the whole point — "1102 shots, 0 numeric" and "0 shots" look
+// identical in the grind-step line and mean opposite things.
+void ShotHistoryStorage::logGrinderCensus()
+{
+    const QString dbPath = m_dbPath;
+    runOnDbThread([dbPath]() {
+        withTempDb(dbPath, "shs_census", [](QSqlDatabase& db) {
+            // Shots per attributed grinder. The LEFT JOIN is what makes an
+            // unlinked shot visible: it lands under the empty model rather than
+            // dropping out of the result, which is the number a reader needs
+            // when a scoped query "found nothing".
+            QMap<QString, qint64> shotsByModel;
+            QSqlQuery q(db);
+            if (!q.exec(QStringLiteral(
+                    "SELECT COALESCE(eg.model, ''), COUNT(*) FROM shots s "
+                    "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id "
+                    "AND eg.kind = 'grinder' "
+                    "GROUP BY LOWER(TRIM(COALESCE(eg.model, '')))"))) {
+                EQUIP_WARN_STDERR("Census", QStringLiteral("shot count query failed: %1")
+                                                .arg(q.lastError().text()));
+                return;
+            }
+            qint64 total = 0;
+            while (q.next()) {
+                const qint64 n = q.value(1).toLongLong();
+                shotsByModel[q.value(0).toString().trimmed()] += n;
+                total += n;
+            }
+
+            // Distinct (model, setting) pairs, not per-shot rows — this is the
+            // same population deriveGrindStep() sees, so a mismatch between the
+            // count here and the count in the grind-step line is itself a
+            // finding rather than noise.
+            QMap<QString, QPair<int, int>> settingsByModel;  // model -> {numeric, other}
+            QSqlQuery s(db);
+            if (!s.exec(QStringLiteral(
+                    "SELECT DISTINCT COALESCE(eg.model, ''), TRIM(s.grinder_setting) FROM shots s "
+                    "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id "
+                    "AND eg.kind = 'grinder' "
+                    "WHERE s.grinder_setting IS NOT NULL AND TRIM(s.grinder_setting) != ''"))) {
+                EQUIP_WARN_STDERR("Census", QStringLiteral("distinct settings query failed: %1")
+                                                .arg(s.lastError().text()));
+                return;
+            }
+            while (s.next()) {
+                bool numeric = false;
+                s.value(1).toString().toDouble(&numeric);
+                QPair<int, int>& tally = settingsByModel[s.value(0).toString().trimmed()];
+                (numeric ? tally.first : tally.second)++;
+            }
+
+            // Grinders that exist as equipment but own no shots. Without this a
+            // package nothing points at is simply absent, which reads as "no
+            // such grinder" when the truth is "nothing was ever attributed to
+            // it" — the fork-detaches-history failure in one line.
+            QSqlQuery g(db);
+            if (g.exec(QStringLiteral(
+                    "SELECT DISTINCT COALESCE(model, '') FROM equipment_items "
+                    "WHERE kind = 'grinder' AND TRIM(COALESCE(model, '')) != ''"))) {
+                while (g.next()) {
+                    const QString model = g.value(0).toString().trimmed();
+                    if (!shotsByModel.contains(model))
+                        shotsByModel.insert(model, 0);
+                }
+            }
+
+            const qint64 unlinked = shotsByModel.value(QString(), 0);
+            EQUIP_LOG_STDERR("Census", QStringLiteral(
+                                           "%1 shot(s), %2 attributed to a grinder package, %3 not")
+                                           .arg(total).arg(total - unlinked).arg(unlinked));
+
+            for (auto it = shotsByModel.constBegin(); it != shotsByModel.constEnd(); ++it) {
+                if (it.key().isEmpty())
+                    continue;  // counted above as "not attributed"
+                const QPair<int, int> tally = settingsByModel.value(it.key());
+                EQUIP_LOG_STDERR("Census", QStringLiteral(
+                                               "\"%1\" - %2 shot(s), %3 distinct numeric "
+                                               "setting(s), %4 non-numeric")
+                                               .arg(it.key())
+                                               .arg(it.value())
+                                               .arg(tally.first)
+                                               .arg(tally.second));
+            }
+        });
+    });
 }
 
 void ShotHistoryStorage::sortGrinderSettings(QStringList& settings)

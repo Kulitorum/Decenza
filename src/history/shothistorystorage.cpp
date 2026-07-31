@@ -243,6 +243,11 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     m_ready = true;
     emit readyChanged();
 
+    // After m_ready, deliberately: the census reads through its own connection
+    // on the worker, and queueing it earlier would only widen the window in
+    // which a reader could see a half-initialised object.
+    logGrinderCensus();
+
     qDebug() << "ShotHistoryStorage: Database initialized with" << m_totalShots << "shots";
     return true;
 }

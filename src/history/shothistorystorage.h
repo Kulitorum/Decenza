@@ -461,6 +461,26 @@ private:
     // had already drifted to calling start() before the deleteLater connect.
     void runDetachedDbThread(std::function<void()> body);
 
+    // One-shot startup census of which grinder each shot is attributed to, and
+    // how much numeric dial history that grinder actually has. Log only — it
+    // reads nothing back and changes no state.
+    //
+    // It exists because "grind step for X = 0, derived from 0" has two causes a
+    // log cannot currently separate, and they are different bugs: the shots are
+    // not LINKED to a package with that model, or they are linked and none of
+    // the settings parse as numeric. Both report the same TooThin outcome, so
+    // the outcome enum cannot help. Diagnosing #1726 needed exactly this fact
+    // and the log did not carry it; the answer had to be inferred from a single
+    // incidental "Loaded shot metadata" line that happened to name a grinder.
+    //
+    // Runs on the shared DB worker rather than a detached thread: it is a full
+    // scan of `shots` with a join, so it must not sit on the main thread at
+    // startup, and the FIFO worker keeps it behind work that matters while
+    // still being covered by isDbWorkIdle() — which is what stops a test's
+    // QTemporaryDir vanishing under it. A detached pre-warm started from
+    // initialize() is precisely what broke tst_mcptools_write once.
+    void logGrinderCensus();
+
     bool createTables();
     bool runMigrations();
     // Version-independent merge-import of legacy bean/presets QSettings into
