@@ -22,6 +22,13 @@
 
 namespace AIRequestShape {
 
+// The output cap every cloud request shares. Mirrored by
+// AIProvider::MAX_OUTPUT_TOKENS, which cannot be used directly here for the
+// same reason this header exists — aiprovider.h is not reachable from the
+// translator's translation unit. Kept as one definition rather than a literal
+// repeated per call site.
+constexpr int kMaxOutputTokens = 4096;
+
 // Turn Anthropic extended thinking OFF, explicitly, on every request.
 //
 // This has to be explicit because the default is NOT stable across models.

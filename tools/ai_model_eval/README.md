@@ -1,13 +1,45 @@
 # AI advisor model evaluation
 
-Harness for deciding which models belong in `OpenAIProvider::availableModels()`
-(and the Anthropic/Gemini catalogs). It exists because vendor benchmarks say
-nothing useful about espresso dial-in advice, and because the method is the
-expensive part — not the API spend, which is around $1 for a full comparison.
+Two scripts, answering two different questions. Both exist because vendor
+benchmarks say nothing useful about espresso dial-in advice, and because the
+method is the expensive part — not the API spend, which is around $1 for a full
+comparison.
 
-**Read this before swapping a model in the catalog.** The rationale for the
-current catalog lives in `docs/CLAUDE_MD/AI_ADVISOR.md`; this directory is how
+| Script | Question | Providers |
+|---|---|---|
+| `replay.py` | Does this model give good dial-in advice, and does it emit a usable `nextShot` block? | **OpenAI only** — it posts to `chat/completions` and has no provider branching |
+| `probe_request_shape.py` | Do the thinking/reasoning knobs we send actually work on this model? | OpenAI, Anthropic, Gemini |
+
+The split matters: `replay.py` decides *which* model to pick, and it only knows
+how to talk to OpenAI. Adding an Anthropic or Gemini model to a catalog means
+running `probe_request_shape.py` (its request-shape INVARIANTs are the thing
+that breaks silently), and judging advice quality some other way until
+`replay.py` grows provider branching.
+
+**Read this before swapping a model in any catalog.** The rationale for the
+current catalogs lives in `docs/CLAUDE_MD/AI_ADVISOR.md`; this directory is how
 that rationale gets produced.
+
+## `probe_request_shape.py` — the invariant check
+
+```bash
+python3 probe_request_shape.py
+```
+
+Verifies, live, three things asserted in code comments that were never checked
+until 2026-07-30:
+
+- Anthropic accepts `thinking: {type: "disabled"}` **and still returns a `text`
+  block** — a thinking-only reply with no text is the #1691 symptom, so the
+  status code alone proves nothing.
+- Gemini's knob is both accepted **and effective** — it asserts
+  `usageMetadata.thoughtsTokenCount == 0`, because a silently ignored knob still
+  bills thinking at the output rate. Note Gemini's legal `thinking_level` values
+  **vary by model**, so a new 3.x entry must be probed, not assumed.
+- OpenAI accepts the translator's body shape (`temperature` alongside
+  `reasoning_effort`), which reasoning models have rejected in the past.
+
+Run it whenever a catalog gains an entry.
 
 ## The method
 
@@ -122,7 +154,7 @@ wrong mechanism, asserted as fact. `src/ai/aiprovider.cpp` now says so.
 did. Unguarded this is silent corruption: prose matches no real setting and
 parses as no number, so `computeAdherence()` scored it `"ignored"` and told the
 next turn the user disregarded advice they may have followed exactly. Fixed by
-`isJudgeableGrinderRecommendation()` in `src/ai/dialing_blocks.cpp`.
+`classifyGrinderRecommendation()` in `src/ai/dialing_blocks.cpp`.
 
 **Outcome.** Terra became the default: cheaper than `gpt-5.4` on both axes and
 a generation newer. Luna measured at least as well as Terra at 10× less and is

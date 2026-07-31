@@ -55,6 +55,8 @@ DEFAULT_EFFORT = "none"           # src/ai/aiprovider.cpp analyze()
 # structuredNext contract — src/ai/shotsummarizer.cpp, "Response Format".
 REQUIRED_FIELDS = ["expectedDurationSec", "expectedFlowMlPerSec",
                    "successCondition", "reasoning"]
+
+
 def extract_structured_next(text):
     """Port of AIManager::parseStructuredNext (src/ai/aimanager.cpp).
 
@@ -97,9 +99,16 @@ def extract_structured_next(text):
     if not inner:
         return None, "empty block body"
     try:
-        return json.loads(inner), ""
+        obj = json.loads(inner)
     except json.JSONDecodeError as e:
         return None, f"invalid JSON ({str(e)[:60]})"
+    # The app requires an OBJECT (aimanager.cpp: `doc.isObject()`); an array or
+    # scalar is rejected there. Without this the harness would score such a
+    # block as accepted, and audit_block()'s obj.get() would then raise on a
+    # non-dict — outside call()'s try/except, aborting a paid run.
+    if not isinstance(obj, dict):
+        return None, f"block is a {type(obj).__name__}, not an object"
+    return obj, ""
 
 CAPTURE_HELP = """\
 Capture step — do this before any replay.
@@ -201,7 +210,7 @@ def audit_block(text: str) -> dict:
     grind = obj.get("grinderSetting", "")
     # Models write prose here ("a touch coarser than 9"). Mirrors
     # GrinderAliases::looksLikeSetting(): whitespace alone is NOT prose, because
-    # compound notation writes "1 + 4" and 19 catalog grinders use it.
+    # compound notation writes "1 + 4", used by every Eureka/1Zpresso entry.
     prose = False
     if isinstance(grind, str) and grind.strip():
         s = grind.strip()

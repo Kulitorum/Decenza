@@ -372,14 +372,7 @@ inline const GrinderEntry* findEntryByAlias(const QString& raw)
     return r.found ? findEntry(r.brand, r.model) : nullptr;
 }
 
-// Parse a raw grinder_setting string into a linear scalar suitable for
-// arithmetic (within-batch slope, anchor + cap). Returns std::nullopt
-// for strings that cannot be interpreted as a numeric/compound dial
-// (letters, free-text, Eureka "1+4" on a non-compound grinder, structured
-// ranges) — those rows are excluded from the numeric calibration path but
-// still served by the directional path (which doesn't need parsing).
-//
-// Notation rules:
+// Notation rules, shared by everything below:
 //   NumericWithSuffix: ^\s*(-?\d+(?:\.\d+)?)(?:\s+(\S.*))?\s*$ — leading
 //     decimal number, optional whitespace-separated annotation. Rejects
 //     trailing text starting with `+`/`-` (Eureka multi-turn with a space:
@@ -392,9 +385,9 @@ inline const GrinderEntry* findEntryByAlias(const QString& raw)
 //     numeric (some users record decimal positions like "0.5" on a
 //     Mignon), interpreted as a direct linear value, so we don't drop
 //     the cohort that collapses notation.
-// The two notation regexes, defined once so every consumer agrees on what a
-// setting looks like. parseGrinderSetting() and looksLikeSetting() both read
-// them; a copy in either would be free to drift.
+//
+// The two regexes are defined once here so every consumer agrees on what a
+// setting looks like; a copy in any of them would be free to drift.
 namespace detail {
 inline const QRegularExpression& compoundRe()
 {
@@ -420,31 +413,71 @@ inline const QRegularExpression& numRe()
 // a followed-or-ignored recommendation is meaningless.
 //
 // Whitespace alone does NOT mean prose: Compound notation accepts "1 + 4" as
-// readily as "1+4" (see the notation rules below), and 19 catalog entries use
-// it — the whole Eureka Mignon and 1Zpresso families. An earlier version of
-// this check rejected on any whitespace and would have silently stopped
-// scoring every one of those grinders.
+// readily as "1+4" (see the notation rules above), and every Eureka Mignon and
+// 1Zpresso entry in the catalog uses it. An earlier version rejected on any
+// whitespace and would have silently stopped scoring all of them. (Deliberately
+// no count here: the first attempt at this comment said "19", which was a
+// grep -c that had swept up two code references alongside the catalog rows.)
 inline bool looksLikeSetting(const QString& raw)
 {
     const QString s = raw.trimmed();
     if (s.isEmpty())
         return false;
 
-    // Single token covers plain numerics ("8.25"), lettered dials ("3F"), and
-    // compound written closed-up ("1+4").
-    bool hasSpace = false;
-    for (const QChar c : s) {
-        if (c.isSpace()) { hasSpace = true; break; }
-    }
-    if (!hasSpace)
+    // Every accepted form must begin with a dial number, whether or not it
+    // contains whitespace. An earlier version returned true for ANY
+    // whitespace-free string, which let a bare "coarser" through as a setting
+    // — it was then scored as an ignored recommendation rather than an
+    // unusable one, the exact failure this function exists to prevent.
+    //
+    // numRe covers plain numerics ("8.25") and a number with a recorded
+    // annotation ("24 1400rpm"); compoundRe covers "1+4" and "1 + 4".
+    if (detail::numRe().match(s).hasMatch() || detail::compoundRe().match(s).hasMatch())
         return true;
 
-    // Spaced compound ("1 + 4"), or a number with a recorded annotation
-    // ("24 1400rpm"). Prose fails both: it does not begin with a dial number.
-    return detail::compoundRe().match(s).hasMatch()
-        || detail::numRe().match(s).hasMatch();
+    // Lettered dials ("3F", "C2") — a leading number with a short alphanumeric
+    // suffix and no whitespace. Bounded length so a word cannot qualify.
+    static const QRegularExpression letteredRe(QStringLiteral(R"(^-?\d+(?:\.\d+)?[A-Za-z]{1,3}$)"));
+    return letteredRe.match(s).hasMatch();
 }
 
+// The comparable key for a compound setting, or an empty string if `raw` is not
+// compound. "1 + 4" and "1+4" are the same dial position, so adherence must not
+// turn on which spacing the model happened to emit.
+inline QString compoundKey(const QString& raw)
+{
+    const auto m = detail::compoundRe().match(raw.trimmed());
+    if (!m.hasMatch())
+        return {};
+    return m.captured(1) + QLatin1Char('+') + m.captured(2);
+}
+
+// The leading dial number, ignoring any recorded annotation: "24 1400rpm" → 24.
+// Returns nullopt for compound and for prose. Lets adherence compare a
+// recommended "23.5" against a recorded "23.5 1400rpm" — the variable-RPM
+// cohort commonly annotates the setting that way (see GrinderEntry above), and
+// a bare QString::toDouble() rejects the trailing text, scoring a shot the user
+// dialled exactly as asked as "ignored".
+inline std::optional<double> leadingDialNumber(const QString& raw)
+{
+    const QString s = raw.trimmed();
+    if (detail::compoundRe().match(s).hasMatch())
+        return std::nullopt;                 // compound compares via compoundKey
+    const auto m = detail::numRe().match(s);
+    if (!m.hasMatch())
+        return std::nullopt;
+    bool ok = false;
+    const double v = m.captured(1).toDouble(&ok);
+    return ok ? std::optional<double>(v) : std::nullopt;
+}
+
+// Parse a raw grinder_setting string into a linear scalar suitable for
+// arithmetic (within-batch slope, anchor + cap). Returns std::nullopt
+// for strings that cannot be interpreted as a numeric/compound dial
+// (letters, free-text, Eureka "1+4" on a non-compound grinder, structured
+// ranges) — those rows are excluded from the numeric calibration path but
+// still served by the directional path (which doesn't need parsing).
+// Notation rules are documented above the regexes.
 inline std::optional<double> parseGrinderSetting(const GrinderEntry& g,
                                                  const QString& raw)
 {

@@ -473,7 +473,10 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
-    requestBody["reasoning_effort"] = "none";  // see analyze(): 5.4 generation dropped "minimal"
+    // Rationale and INVARIANT in AIRequestShape::disableOpenAIReasoning().
+    // This is the dial-in conversation path — the one that emits the trailing
+    // nextShot block that rationale is written about — so it matters most here.
+    AIRequestShape::disableOpenAIReasoning(requestBody);
 
     sendRequest(requestBody);
 }

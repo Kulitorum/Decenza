@@ -2641,7 +2641,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
 
         QJsonObject json;
         json["model"] = translationModelFor(provider, QString());
-        json["max_tokens"] = 4096;
+        json["max_tokens"] = AIRequestShape::kMaxOutputTokens;
         QJsonArray messages;
         QJsonObject msg;
         msg["role"] = "user";

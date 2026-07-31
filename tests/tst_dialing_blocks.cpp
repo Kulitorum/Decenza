@@ -1391,8 +1391,8 @@ private slots:
     // Shared driver for the grinderSetting adherence cases. Seeds a prior shot
     // and a follow-up, runs one recommendation through buildRecentAdviceBlock,
     // and returns the adherence verdict.
-    QString adherenceFor(const QString& tag, const QJsonValue& recommendedGrind,
-                         const QString& priorGrind, const QString& nextGrind)
+    QString adherenceForStructured(const QString& tag, const QJsonObject& sn,
+                                   const QString& priorGrind, const QString& nextGrind)
     {
         const QString dbPath = freshDbPath();
         initAndClose(dbPath);
@@ -1413,9 +1413,6 @@ private slots:
                 .grinderSetting = nextGrind
             });
 
-            QJsonObject sn = sampleStructuredNext();
-            sn["grinderSetting"] = recommendedGrind;
-
             DialingBlocks::RecentAdviceInputs in;
             in.turns = {AIConversation::HistoricalAssistantTurn{priorId, "advice", sn}};
             in.currentProfileKbId = "kb";
@@ -1427,6 +1424,15 @@ private slots:
                           .value("adherence").toString();
         });
         return verdict;
+    }
+
+    // Convenience for the common case: vary only the recommended grind.
+    QString adherenceFor(const QString& tag, const QJsonValue& recommendedGrind,
+                         const QString& priorGrind, const QString& nextGrind)
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn["grinderSetting"] = recommendedGrind;
+        return adherenceForStructured(tag, sn, priorGrind, nextGrind);
     }
 
     // Prose in `grinderSetting` — "a touch coarser than 9" (GPT-5.6 Terra,
@@ -1455,7 +1461,7 @@ private slots:
                  QStringLiteral("unclear"));
     }
 
-    // Compound notation ("1 + 4") is a REAL setting for 19 catalog grinders —
+    // Compound notation ("1 + 4") is a REAL setting for every Eureka Mignon
     // the Eureka Mignon and 1Zpresso families — not prose, despite the spaces.
     // An earlier version of the guard rejected on any whitespace and silently
     // stopped scoring every one of them.
@@ -1496,6 +1502,67 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("grinderSetting is not a JSON string"));
         QCOMPARE(adherenceFor("adh_numeric_json", QJsonValue(8.75), "9.0", "9.0"),
+                 QStringLiteral("unclear"));
+    }
+
+    // Single-word prose ("coarser") has no whitespace. An earlier version of
+    // looksLikeSetting() returned true for ANY whitespace-free string, so this
+    // was classified scoreable, failed the numeric compare, and reported
+    // "ignored" — the false-non-adherence bug the guard exists to prevent,
+    // surviving in the one shape the prose tests didn't cover.
+    void recentAdvice_singleWordProseIsUnclear()
+    {
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("grinderSetting is prose"));
+        QCOMPARE(adherenceFor("adh_word_prose", "coarser", "9.0", "8.75"),
+                 QStringLiteral("unclear"));
+    }
+
+    // The comparator must accept every form looksLikeSetting() admits.
+    // Compound spacing is not meaningful: recommending "1 + 4" against a
+    // recorded "1+4" is adherence. Before grinderMatches() went through
+    // GrinderAliases, only byte-identical strings could score.
+    void recentAdvice_compoundSpacingDoesNotDecideAdherence()
+    {
+        QCOMPARE(adherenceFor("adh_compound_spacing", "1 + 4", "1 + 2", "1+4"),
+                 QStringLiteral("followed"));
+    }
+
+    // Variable-RPM grinders commonly annotate the recorded setting with the
+    // RPM. A recommended "23.5" against a recorded "23.5 1400rpm" is the user
+    // doing exactly what was asked; a bare QString::toDouble() rejected the
+    // trailing text and scored it "ignored".
+    void recentAdvice_annotatedSettingStillScores()
+    {
+        QCOMPARE(adherenceFor("adh_annotated", "23.5", "24 1400rpm", "23.5 1400rpm"),
+                 QStringLiteral("followed"));
+    }
+
+    // rpm had the same fail-open hazard grinderSetting was fixed for:
+    // QJsonValue::toInt() yields 0 for a JSON string, and the matcher treated
+    // <= 0 as a free match, so a malformed rpm scored "followed" — "the
+    // experiment ran". It must be unscoreable.
+    void recentAdvice_malformedRpmIsUnclearNotFollowed()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove(QStringLiteral("grinderSetting"));   // rpm is the only axis
+        sn["rpm"] = QStringLiteral("1400");            // string, not number
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("rpm is not a JSON number"));
+        QCOMPARE(adherenceForStructured("adh_rpm_string", sn, "9.0", "9.0"),
+                 QStringLiteral("unclear"));
+    }
+
+    // A model writing rpm: 0 to mean "unchanged" violates the schema (which says
+    // omit), and previously bought a free match. Also unscoreable.
+    void recentAdvice_zeroRpmIsUnclearNotFollowed()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove(QStringLiteral("grinderSetting"));
+        sn["rpm"] = 0;
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rpm is 0"));
+        QCOMPARE(adherenceForStructured("adh_rpm_zero", sn, "9.0", "9.0"),
                  QStringLiteral("unclear"));
     }
 
