@@ -36,20 +36,26 @@ QtObject {
     readonly property bool rpmCapable:
         Settings.dye.grinderRpmCapable(root.grinderBrand, root.grinderModel)
 
-    // Bumped when the async distinct-value cache refreshes, so derived steps and
-    // the history fallback re-evaluate once shot history finishes loading.
-    property int distinctCacheVersion: 0
-    readonly property Connections _historyConn: Connections {
-        target: MainController.shotHistory
-        function onDistinctCacheReady() { root.distinctCacheVersion++ }
-    }
-
     // Per-grinder grind step, derived from the user's own shot history for the
     // INJECTED grinder by the same noise-filtered estimator the AI dialing
-    // context uses. Falls back to 1.0 when history is too thin or the cache is
-    // cold. With no grinder, grindStepForGrinder("") derives from full history.
-    readonly property double grindStep: {
-        var __ = root.distinctCacheVersion
+    // context uses. Falls back to 1.0 when history is too thin. With no grinder,
+    // grindStepForGrinder("") derives from full history.
+    //
+    // FUNCTIONS, not properties, and deliberately so. Each call runs a live query
+    // measured at 3.3 ms median / 87 ms worst on a real 18.5 MB database. As eager
+    // `readonly property` bindings these evaluated on construction and again on
+    // every write, across EVERY live GrindRowSource — the resident
+    // GrindQuickSelectItem bar widget plus a GrindField in whatever page or dialog
+    // is open — so a taste-slider autosave or a shot save cost several of those
+    // queries inline on the main thread. The shot-save one lands as the machine
+    // leaves Pouring, while BLE telemetry is still on that thread, which is the
+    // tighter-budget case CLAUDE.md names.
+    //
+    // Their only readers are grindRowsFor() / rpmRowsFor(), which are already
+    // explicit snapshots taken at defined moments. Calling the query there means
+    // it runs exactly when rows are built and never otherwise, and the answer is
+    // current by construction — no counter, no staleness, no burst.
+    function grindStep() {
         var s = MainController.shotHistory
             ? MainController.shotHistory.grindStepForGrinder(root.grinderModel) : 0
         return s > 0 ? s : 1.0
@@ -57,9 +63,11 @@ QtObject {
 
     // RPM step from the injected grinder's observed RPMs; the 50 default keeps
     // adjacent rows a meaningful ~50 RPM apart across the ~600–1400 working
-    // range.
-    readonly property int rpmStep: {
-        var __ = root.distinctCacheVersion
+    // range. Gated on rpmCapable: only rpmRowsFor() calls this, and the picker
+    // only calls that for an RPM grinder, so querying otherwise is pure waste.
+    function rpmStep() {
+        if (!root.rpmCapable)
+            return 50
         var s = MainController.shotHistory
             ? MainController.shotHistory.grindRpmStepForGrinder(root.grinderModel) : 0
         return s > 0 ? Math.round(s) : 50
@@ -258,7 +266,7 @@ QtObject {
     // what the user typed rather than snapping back to the old lattice.
     function grindRowsFor(cur) {
         cur = String(cur == null ? "" : cur).trim()
-        var step = root.grindStep
+        var step = root.grindStep()
         // Canonical current = the value reformatted to the step's decimals
         // (exactly what n === 0 produces); highlight whichever surviving row
         // equals it so clamp-edge dedup can't lose the highlight.
@@ -303,10 +311,12 @@ QtObject {
     function rpmRowsFor(base) {
         var rpmSet = base > 0
         var anchor = rpmSet ? base : root.rpmDefaultAnchor
+        // Once per snapshot, not once per row — this runs a query.
+        var rpmStepValue = root.rpmStep()
         var out = []
         var seen = ({})
         for (var n = -root.rpmWindowSteps; n <= root.rpmWindowSteps; n++) {
-            var rpm = anchor + n * root.rpmStep
+            var rpm = anchor + n * rpmStepValue
             if (rpm <= 0) continue
             var v = String(rpm)
             if (seen[v]) continue
@@ -321,6 +331,7 @@ QtObject {
     // consume rows reactively, because a rebuild under an open Tumbler resets
     // the view mid-interaction (see GrindPickerDialog's snapshot rationale).
     // Callers take an explicit snapshot via grindRowsFor()/rpmRowsFor() and
-    // rebuild at defined moments, listening to distinctCacheVersion for the
-    // async warm-up.
+    // rebuild at defined moments. The steps are derived inside those calls from
+    // the live database, so a snapshot is current when it is taken and there is
+    // nothing to listen for.
 }

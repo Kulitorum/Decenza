@@ -22,9 +22,22 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     Component.onCompleted: {
+        _refreshBaristaHistory()
         if (editShotId > 0) {
             loadShotForEditing()
         }
+    }
+
+    // Barista names from history, read ONCE per page load and on a write, not per
+    // keystroke. The suggestions binding below reads `editBarista`, which
+    // onTextEdited rewrites on every character — so calling the getter inside it
+    // ran a live SELECT DISTINCT per keystroke (1.1 ms median, 35 ms worst on a
+    // real database). That is the "repeating path" case CLAUDE.md says to keep
+    // main-thread queries off; hoisting is the fix, not threading.
+    property var _baristaHistory: []
+    function _refreshBaristaHistory() {
+        _baristaHistory = MainController.shotHistory
+            ? MainController.shotHistory.getDistinctBaristas().slice() : []
     }
     StackView.onActivated: {
         // Hunt for the refractometer while this page is open: activation kicks
@@ -324,9 +337,6 @@ T.Page {
     TapHandler {
         onTapped: postShotReviewPage.resetAutoCloseTimer()
     }
-    // Incremented when async distinct cache refreshes; referenced in suggestion bindings
-    // to force QML re-evaluation (the >= 0 condition is always true by design)
-    property int _distinctCacheVersion: 0
     // Persisted graph height (like ShotComparisonPage)
     property real graphHeight: Settings.value("postShotReview/graphHeight", Theme.scaled(200))
 
@@ -441,6 +451,7 @@ T.Page {
                         "postshotreview.saveFailed", "Saving shot changes failed — will retry"))
             }
         }
+        function onHistoryDataChanged() { postShotReviewPage._refreshBaristaHistory() }
         function onVisualizerInfoUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
             // No reload: a full loadShotForEditing() here would re-run
@@ -449,9 +460,6 @@ T.Page {
             // refreshed in place by onUploadSucceededForShot / onUpdateSuccess below.
             if (!success)
                 console.warn("PostShotReviewPage: Failed to save visualizer info for shot", shotId)
-        }
-        function onDistinctCacheReady() {
-            postShotReviewPage._distinctCacheVersion++
         }
     }
 
@@ -1945,7 +1953,7 @@ T.Page {
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
                     text: postShotReviewPage.editBarista
                     suggestions: {
-                        var list = postShotReviewPage._distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                        var list = postShotReviewPage._baristaHistory.slice()
                         if (postShotReviewPage.editBarista.length > 0 && list.indexOf(postShotReviewPage.editBarista) === -1) list = [postShotReviewPage.editBarista].concat(list)
                         return list
                     }

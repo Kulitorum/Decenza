@@ -14,6 +14,8 @@
 #include "history/shothistorystorage.h"
 #include "history/coffeebagstorage.h"
 
+#include "shotrowfixtures.h"
+
 // Test the ShotHistoryStorage schema creation and migration chain (v1->v15).
 //
 // Strategy: create a temp DB with an old schema (missing columns),
@@ -22,42 +24,15 @@
 //
 // No de1app equivalent -- this is Decenza-internal storage.
 
-// Helper: run work with a scoped raw SQLite connection (avoids "still in use" warnings)
-template<typename Work>
-static void withRawDb(const QString& path, const QString& connName, Work&& work) {
-    {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
-        db.setDatabaseName(path);
-        db.open();
-        QSqlQuery(db).exec("PRAGMA foreign_keys = ON");
-        work(db);
-    }
-    QSqlDatabase::removeDatabase(connName);
-}
+// withRawDb / ShotRow / insertShot are shared fixtures — this file used to carry
+// its own near-identical withRawDb, differing only in not asserting the open.
+using ShotRowFixtures::withRawDb;
+using ShotRowFixtures::ShotRow;
+using ShotRowFixtures::insertShot;
 
-static bool hasColumn(QSqlDatabase& db, const QString& table, const QString& column) {
-    QSqlQuery q(db);
-    q.exec(QString("PRAGMA table_info(%1)").arg(table));
-    while (q.next()) {
-        if (q.value(1).toString() == column)
-            return true;
-    }
-    return false;
-}
-
-static bool hasTable(QSqlDatabase& db, const QString& table) {
-    QSqlQuery q(db);
-    q.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?");
-    q.addBindValue(table);
-    return q.exec() && q.next();
-}
-
-static bool hasIndex(QSqlDatabase& db, const QString& indexName) {
-    QSqlQuery q(db);
-    q.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name=?");
-    q.addBindValue(indexName);
-    return q.exec() && q.next();
-}
+using ShotRowFixtures::hasColumn;
+using ShotRowFixtures::hasTable;
+using ShotRowFixtures::hasIndex;
 
 static int getSchemaVersion(QSqlDatabase& db) {
     QSqlQuery q(db);
@@ -144,20 +119,9 @@ private:
         return m_tempDir.path() + QString("/test_%1.db").arg(++counter);
     }
 
-    // Run initialize, close, and wait for background threads to finish.
-    // ShotHistoryStorage::initialize() launches requestDistinctCache() on a
-    // background thread. We must let that thread complete its callback before
-    // the ShotHistoryStorage is destroyed, otherwise SIGSEGV.
+    // Run initialize, close, and let background DB work drain.
     void initAndClose(const QString& path, ShotHistoryStorage& storage) {
-        // close() resets its m_db handle before removeDatabase, so there is no
-        // "connection still in use" warning to ignore here.
-        QVERIFY(storage.initialize(path));
-        storage.close();
-        // Give background thread time to finish SQL + deliver callback
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
+        ShotRowFixtures::initAndCloseStorage(path, storage);
     }
 
     // Like initAndClose(), but for an initialize() that is expected to emit a
@@ -167,11 +131,9 @@ private:
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warnRegex));
         QVERIFY(storage.initialize(path));
         storage.close();
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
+        QTRY_VERIFY(storage.isDbWorkIdle());
     }
+
 
 private slots:
 
@@ -930,7 +892,7 @@ private slots:
                 }
             }
         });
-        QCOMPARE(versionFound, 35);  // latest after full chain (enrichment-fork heal)
+        QCOMPARE(versionFound, 35);  // latest after full chain
         QVERIFY2(!hasEnjoymentSource,
                  "enjoyment_source column must be absent after migration 16");
     }
@@ -1053,7 +1015,7 @@ private slots:
             QVERIFY2(!s1.crossedSchemaVersion(25),
                      "a stalled chain must not report crossing 25 either");
             s1.close();
-            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
+            QTRY_VERIFY(s1.isDbWorkIdle());
         }
 
         // Launch two: the fault is one-shot and cleared itself, so the chain
@@ -1168,7 +1130,7 @@ private slots:
             }
         });
 
-        QCOMPARE(versionFound, 35);  // latest after full chain (enrichment-fork heal)
+        QCOMPARE(versionFound, 35);  // latest after full chain
         QVERIFY2(columnGone, "enjoyment_source column must be dropped");
         // Inferred rows reset to 0 (unrated), NOT to the stale 50 seeded
         // above — an app-invented rating becomes unrated, and the back-sync
@@ -1987,6 +1949,7 @@ private slots:
 
         s.close();
     }
+
 };
 
 QTEST_MAIN(tst_DbMigration)

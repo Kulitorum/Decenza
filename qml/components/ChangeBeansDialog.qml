@@ -269,10 +269,6 @@ DecenzaDialog {
     // types in the roaster/coffee fields (C++ debounces + caches).
     property var formCanonicalEntries: []
     property string _formCanonicalQuery: ""
-    // Bumped when the shot-history distinct cache refreshes (suggestions
-    // re-evaluate, mirroring BrewDialog's pattern).
-    property int _distinctVersion: 0
-
     function requestFormCanonical(q) {
         // Tea mode: no canonical autosuggest either (coffee-only database).
         if (isTea) {
@@ -290,9 +286,43 @@ DecenzaDialog {
         MainController.beanbase.search(q)
     }
 
+    // History-derived suggestion lists, held in plain properties and refreshed at
+    // defined moments. NOTHING here may query from inside a suggestion binding.
+    //
+    // Two separate reasons, both learned the hard way on this dialog:
+    //  - Both suggestion bindings re-evaluate on every keystroke — roasterInput's
+    //    onTextEdited rewrites fRoaster, and its canonical search rewrites
+    //    formCanonicalEntries — so an inline getter ran a live SELECT DISTINCT per
+    //    character. CLAUDE.md: keep main-thread queries off a repeating path.
+    //  - An earlier fix used a memo that READ a key property and then WROTE it
+    //    from inside the binding. A binding that writes what it reads is a
+    //    binding loop, and Qt logs one per keystroke.
+    //
+    // So the bean-type list is refreshed when the ROASTER IS COMMITTED (field
+    // blur or a suggestion pick), not while it is being typed. That is the moment
+    // the parameter actually settles, and the coffee field cannot be used before
+    // it — the user has to leave the roaster field to get there.
+    property var _historyRoasters: []
+    property var _historyBeanTypes: []
+
+    function _refreshHistoryLists() {
+        _historyRoasters = MainController.shotHistory
+            ? MainController.shotHistory.getDistinctBeanBrands().slice() : []
+        _refreshBeanTypes()
+    }
+
+    function _refreshBeanTypes() {
+        _historyBeanTypes = MainController.shotHistory
+            ? MainController.shotHistory.getDistinctBeanTypesForBrand(root.fRoaster).slice() : []
+    }
+
+    Connections {
+        target: MainController.shotHistory
+        function onHistoryDataChanged() { root._refreshHistoryLists() }
+    }
+
     function roasterSuggestions() {
-        var _ = _distinctVersion
-        var out = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanBrands().slice() : []
+        var out = root._historyRoasters.slice()
         for (var i = 0; i < formCanonicalEntries.length; i++) {
             var name = formCanonicalEntries[i].roasterName
             if (name && out.indexOf(name) === -1) out.push(name)
@@ -301,8 +331,7 @@ DecenzaDialog {
     }
 
     function coffeeSuggestions() {
-        var _ = _distinctVersion
-        var out = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanTypesForBrand(fRoaster).slice() : []
+        var out = root._historyBeanTypes.slice()
         for (var i = 0; i < formCanonicalEntries.length; i++) {
             var entry = formCanonicalEntries[i]
             if (fRoaster.length > 0 && entry.roasterName
@@ -330,11 +359,6 @@ DecenzaDialog {
             MainController.beanbase.fetchCanonicalDetails(entry)
             return
         }
-    }
-
-    Connections {
-        target: MainController.shotHistory
-        function onDistinctCacheReady() { root._distinctVersion++ }
     }
 
     Connections {
@@ -793,6 +817,7 @@ DecenzaDialog {
     }
 
     onOpened: {
+        _refreshHistoryLists()
         if (mode === "search")
             searchField.forceActiveFocus()
         else if (fRoaster.length === 0 && fCoffee.length === 0)
@@ -1374,6 +1399,11 @@ DecenzaDialog {
                                 root.fRoaster = t
                                 root.requestFormCanonical(t)
                             }
+                            // The roaster has SETTLED — now re-read the bean types
+                            // scoped to it. Deliberately not in onTextEdited: that
+                            // fires per character and this runs a query.
+                            onInputBlurred: root._refreshBeanTypes()
+                            onSuggestionSelected: root._refreshBeanTypes()
                         }
                     }
 

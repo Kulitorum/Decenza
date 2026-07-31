@@ -36,153 +36,15 @@
 #include "ai/dialing_blocks.h"
 #include "ai/shotsummarizer.h"  // initTestCase pins the missing-resource qWarning
 #include "shotcurvefixtures.h"
+#include "shotrowfixtures.h"
 
 namespace {
 
-// One shot's input fields. Keep this near-identical to ShotSaveData so
-// the parameter list is grep-able from the production save path.
-// Every member carries an explicit default initializer, including the QStrings.
-// A bare `QString x;` has no default member initializer, so GCC's
-// -Wmissing-field-initializers (part of -Wextra) fires on every designated
-// initialisation below that omits it — and omitting most fields is the entire
-// point of these fixtures. clang does not warn here, so this only showed up on
-// the Linux build.
-struct ShotRow {
-    QString uuid{};
-    qint64 timestamp = 0;
-    QString profileName{};
-    QString profileKbId{};
-    QString beverageType = QStringLiteral("espresso");
-    double duration = 30.0;
-    double finalWeight = 36.0;
-    double doseWeight = 18.0;
-    QString beanBrand{};
-    QString beanType{};
-    QString roastLevel{};
-    QString grinderBrand{};
-    QString grinderModel{};
-    QString grinderBurrs{};
-    QString grinderSetting{};
-    // Grinder RPM → shots.rpm. 0 by default, which is also what "not
-    // recorded" looks like, so existing fixtures are unaffected and the
-    // adherence comparison skips the field exactly as it does in the wild.
-    qint64 rpm = 0;
-    int enjoyment = 0;
-    QString espressoNotes{};
-    // Issue #1158: profile recipe snapshot + SAW target. Empty/0 by
-    // default so existing fixtures are unaffected (pourControl /
-    // targetWeightG simply stay absent, exactly as before this PR).
-    QString profileJson{};
-    double targetWeight = 0.0;  // → shots.yield_override
-    // #1164 finding #3: per-shot temperature override → shots
-    // .temperature_override. 0 by default so existing fixtures are
-    // unaffected (the field stays absent / hoist-neutral, as before).
-    double temperatureOverride = 0.0;
-    // #1161: why the shot ended → shots.stopped_by. "" by default so
-    // existing fixtures are unaffected (sparse-omitted from the blocks).
-    QString stoppedBy{};
-    // Bean storage lifecycle snapshot (bean-freshness-followup) → shots
-    // frozen_date/defrost_date/storage_hint/opened_date. "" by default so
-    // existing fixtures are unaffected (sparse-omitted from the blocks).
-    QString frozenDate{};
-    QString defrostDate{};
-    QString storageHint{};
-    QString openedDate{};
-};
+using ShotRowFixtures::ShotRow;
+using ShotRowFixtures::withRawDb;
+using ShotRowFixtures::insertShot;
+using ShotRowFixtures::projectionForShot;
 
-// Run work with a scoped raw SQLite connection on `path`. Same pattern
-// tst_dbmigration uses; the connection is removed deterministically when
-// `work` returns so Qt does not warn about open connections.
-template<typename Work>
-void withRawDb(const QString& path, const QString& connName, Work&& work)
-{
-    {
-        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connName);
-        db.setDatabaseName(path);
-        QVERIFY2(db.open(), qPrintable(db.lastError().text()));
-        QSqlQuery (db).exec(QStringLiteral("PRAGMA foreign_keys = ON"));
-        work(db);
-    }
-    QSqlDatabase::removeDatabase(connName);
-}
-
-qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
-{
-    // Grinder identity is no longer a per-shot column (migration 23) — it
-    // resolves through equipment_id to a package's grinder item. Mirror the
-    // production save path: find-or-create a package for this row's grinder
-    // identity and link the shot to it. The per-shot grind setting stays on the
-    // row. An empty identity leaves equipment_id NULL.
-    qint64 equipmentId = 0;
-    if (!(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty() && r.grinderBurrs.isEmpty())) {
-        equipmentId = EquipmentStorage::findPackageByGrinderIdentityStatic(
-            db, r.grinderBrand, r.grinderModel, r.grinderBurrs);
-        if (equipmentId <= 0) {
-            EquipmentPackage pkg;
-            equipmentId = EquipmentStorage::createPackageWithGrinderStatic(
-                db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs);
-        }
-    }
-
-    QSqlQuery q(db);
-    q.prepare(QStringLiteral(R"(
-        INSERT INTO shots (
-            uuid, timestamp, profile_name, beverage_type,
-            duration_seconds, final_weight, dose_weight,
-            bean_brand, bean_type, roast_level,
-            grinder_setting, rpm, equipment_id,
-            enjoyment, espresso_notes, profile_kb_id,
-            profile_json, yield_override, temperature_override, stopped_by,
-            frozen_date, defrost_date, storage_hint, opened_date
-        ) VALUES (
-            :uuid, :timestamp, :profile_name, :beverage_type,
-            :duration, :final_weight, :dose_weight,
-            :bean_brand, :bean_type, :roast_level,
-            :grinder_setting, :rpm, :equipment_id,
-            :enjoyment, :espresso_notes, :profile_kb_id,
-            :profile_json, :yield_override, :temperature_override, :stopped_by,
-            :frozen_date, :defrost_date, :storage_hint, :opened_date
-        )
-    )"));
-    q.bindValue(":uuid", r.uuid);
-    q.bindValue(":timestamp", r.timestamp);
-    q.bindValue(":profile_name", r.profileName);
-    q.bindValue(":beverage_type", r.beverageType);
-    q.bindValue(":duration", r.duration);
-    q.bindValue(":final_weight", r.finalWeight);
-    q.bindValue(":dose_weight", r.doseWeight);
-    q.bindValue(":bean_brand", r.beanBrand);
-    q.bindValue(":bean_type", r.beanType);
-    q.bindValue(":roast_level", r.roastLevel);
-    q.bindValue(":grinder_setting", r.grinderSetting);
-    // NULL when unset, matching a shot with no recorded RPM — a 0 here
-    // would still read as "not recorded" downstream, but NULL is what the
-    // app actually writes.
-    q.bindValue(":rpm", r.rpm > 0 ? QVariant(r.rpm) : QVariant());
-    q.bindValue(":equipment_id", equipmentId > 0 ? QVariant(equipmentId) : QVariant());
-    q.bindValue(":enjoyment", r.enjoyment);
-    q.bindValue(":espresso_notes", r.espressoNotes);
-    q.bindValue(":profile_kb_id", r.profileKbId.isEmpty() ? QVariant() : r.profileKbId);
-    q.bindValue(":profile_json", r.profileJson);
-    q.bindValue(":yield_override", r.targetWeight);
-    q.bindValue(":temperature_override", r.temperatureOverride);
-    q.bindValue(":stopped_by", r.stoppedBy);
-    q.bindValue(":frozen_date", r.frozenDate.isEmpty() ? QVariant() : r.frozenDate);
-    q.bindValue(":defrost_date", r.defrostDate.isEmpty() ? QVariant() : r.defrostDate);
-    q.bindValue(":storage_hint", r.storageHint.isEmpty() ? QVariant() : r.storageHint);
-    q.bindValue(":opened_date", r.openedDate.isEmpty() ? QVariant() : r.openedDate);
-    if (!q.exec ()) {
-        qWarning() << "insertShot failed:" << q.lastError().text();
-        return -1;
-    }
-    return q.lastInsertId().toLongLong();
-}
-
-ShotProjection projectionForShot(QSqlDatabase& db, qint64 shotId)
-{
-    return ShotHistoryStorage::convertShotRecord(
-        ShotHistoryStorage::loadShotRecordStatic(db, shotId));
-}
 
 constexpr qint64 kSecPerDay = 24 * 3600;
 
@@ -3886,6 +3748,309 @@ private slots:
             QVERIFY(!projectionForShot(db, id).toVariantMap().contains("beanBaseJson"));
         });
     }
+    // ==========================================
+    // Grind step derivation and the distinct-value getters
+    // ==========================================
+    //
+    // Not migration tests — nothing here touches the schema. They live in this
+    // binary because it already owns a DB fixture that COPIES a prebuilt schema
+    // template per test instead of re-running the migration chain, and because
+    // queryGrinderContext's stepSize coverage is already here. Adding a target
+    // for them would have cost a whole compile+link on every build to buy
+    // nothing but a filename.
+
+    // Seed `count` settings stepping by 0.25 on one grinder, so deriveGrindStep's
+    // smallest-repeated-gap is unambiguously 0.25.
+    void seedQuarterStepHistory(const QString& path, const QString& model, int count) {
+        withRawDb(path, "seed_" + model + QString::number(count), [&](QSqlDatabase& db) {
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            for (int i = 0; i < count; ++i) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-%1-%2").arg(model).arg(i);
+                r.timestamp = now - i * 3600;
+                r.profileName = QStringLiteral("p");
+                r.grinderBrand = QStringLiteral("Niche");
+                r.grinderModel = model;
+                r.grinderSetting = QString::number(7.5 + 0.25 * i);
+                QVERIFY(insertShot(db, r) > 0);
+            }
+        });
+    }
+
+    // ==========================================
+    // Grind step derivation and the distinct-value getters.
+    //
+    // NOT migration tests — nothing below touches the schema. They live here
+    // because this file already owns the DB fixtures and links decenza_shotlib,
+    // and a separate target for nine tests would cost a build target to buy
+    // nothing but a better filename.
+    // ==========================================
+
+    // THE regression test for this change. The step derived correctly as 0.25 and
+    // was then lost: it lived behind a distinct-cache key, an invalidation cleared
+    // that key, and the re-fetch racing the next refresh was discarded in silence.
+    // The widget sat on its 1.0 fallback for the rest of the session while the AI
+    // payload still reported 0.25 for the same grinder.
+    //
+    // The trigger was a data change — every shot save wiped the cache. So that is
+    // what this drives: derive, write a shot that MOVES the answer, derive again.
+    //
+    // The write must change the derived step, not just add a row. An earlier
+    // version of this test inserted a setting already on the seeded lattice, so
+    // SELECT DISTINCT returned byte-identical rows and the second assertion could
+    // not fail unless the first did — it was a copy of its own first half. Here
+    // the history starts on a 0.5 lattice and the new shot introduces the first
+    // repeated 0.25 gap, so a reader that did not see the write answers 0.5.
+    void grindStepSurvivesDataChange() {
+        QString path = freshDbPath();
+        initAndClose(path);
+
+        // 6.0, 6.5, 7.0, 7.5 — smallest repeated gap is 0.5.
+        withRawDb(path, "step_seed_half", [](QSqlDatabase& db) {
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            for (int i = 0; i < 4; ++i) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-half-%1").arg(i);
+                r.timestamp = now - i * 60;
+                r.profileName = QStringLiteral("p");
+                r.grinderBrand = QStringLiteral("Niche");
+                r.grinderModel = QStringLiteral("Zero");
+                r.grinderSetting = QString::number(6.0 + 0.5 * i);
+                QVERIFY(insertShot(db, r) > 0);
+            }
+        });
+
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        QCOMPARE(s.grindStepForGrinder("Zero"), 0.5);
+
+        // 6.25 and 6.75 introduce two 0.25 gaps — the smallest repeated gap moves.
+        withRawDb(path, "step_after_write", [](QSqlDatabase& db) {
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            const char* settings[] = { "6.25", "6.75" };
+            for (int i = 0; i < 2; ++i) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-after-write-%1").arg(i);
+                r.timestamp = now + 1 + i;
+                r.profileName = QStringLiteral("p");
+                r.grinderBrand = QStringLiteral("Niche");
+                r.grinderModel = QStringLiteral("Zero");
+                r.grinderSetting = QString::fromLatin1(settings[i]);
+                QVERIFY(insertShot(db, r) > 0);
+            }
+        });
+        QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
+        s.close();
+        QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
+    // The getters read the database, so a write is visible to the very next call
+    // with no signal in between. Before this change they returned a cached list
+    // and the new value appeared only once an async refresh had landed — and for
+    // composite keys like this one, often never.
+    void distinctSettingsSeeWritesImmediately() {
+        QString path = freshDbPath();
+        initAndClose(path);
+        seedQuarterStepHistory(path, QStringLiteral("Zero"), 6);
+
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        const qsizetype before = s.getDistinctGrinderSettingsForGrinder("Zero").size();
+        QVERIFY(before > 0);
+
+        withRawDb(path, "distinct_after_write", [](QSqlDatabase& db) {
+            ShotRow r;
+            r.uuid = QStringLiteral("uuid-distinct-new");
+            r.timestamp = QDateTime::currentSecsSinceEpoch() + 1;
+            r.profileName = QStringLiteral("p");
+            r.grinderBrand = QStringLiteral("Niche");
+            r.grinderModel = QStringLiteral("Zero");
+            r.grinderSetting = QStringLiteral("42.5");   // not on the seeded lattice
+            QVERIFY(insertShot(db, r) > 0);
+        });
+
+        const QStringList after = s.getDistinctGrinderSettingsForGrinder("Zero");
+        QCOMPARE(after.size(), before + 1);
+        QVERIFY2(after.contains("42.5"), "a live getter must see a write immediately");
+        s.close();
+        QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
+    // One distinct setting defines no step. 0 means "cannot derive" and the caller
+    // substitutes its own fallback — it is NOT a step of zero.
+    // Seeds a SECOND grinder that does derive, deliberately. 0.0 is this
+    // function's universal failure value — not-ready, query-failed and thin
+    // history all return it — so asserting only `Solo == 0` would pass just as
+    // well against a completely broken query path. Asserting Zero == 0.25 in the
+    // same database proves the query works, which is what makes Solo's 0 mean
+    // "one sample defines no step".
+    void grindStepThinHistoryReturnsZero() {
+        QString path = freshDbPath();
+        initAndClose(path);
+        seedQuarterStepHistory(path, QStringLiteral("Solo"), 1);
+        seedQuarterStepHistory(path, QStringLiteral("Zero"), 6);
+
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);   // the query works
+        QCOMPARE(s.grindStepForGrinder("Solo"), 0.0);    // ...and one sample still yields 0
+        s.close();
+        QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
+    // Same grinder, differently typed. NOT a regression test — main folded here
+    // too (both its cached getter and its derivation used LOWER(TRIM())). This is
+    // a forward guard on the now-shared grinderModelMatchSql(): an exact compare
+    // would read a differently-cased model back as a grinder with no history,
+    // which is invisible because empty is indistinguishable from new.
+    void grindStepFoldsModelCaseAndWhitespace() {
+        QString path = freshDbPath();
+        initAndClose(path);
+        seedQuarterStepHistory(path, QStringLiteral("Zero"), 28);
+
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        QCOMPARE(s.grindStepForGrinder("  zero  "), 0.25);
+        QCOMPARE(s.grindStepForGrinder("ZERO"), 0.25);
+        s.close();
+        QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
+    // An empty model means "no grinder selected" and must derive from the full
+    // cross-grinder history — the ShotServer /beans form depends on it, since a new
+    // bag has no equipment chosen yet.
+    void grindStepEmptyModelUsesFullHistory() {
+        QString path = freshDbPath();
+        initAndClose(path);
+        seedQuarterStepHistory(path, QStringLiteral("Zero"), 28);
+
+        // Shots with NO equipment row at all, stepping by 0.1. Only a query that
+        // drops the equipment join can see these, so without them the test cannot
+        // tell an all-grinders pass from a per-grinder one.
+        withRawDb(path, "no_equipment", [](QSqlDatabase& db) {
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            for (int i = 0; i < 6; ++i) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-bare-%1").arg(i);
+                r.timestamp = now - i * 60;
+                r.profileName = QStringLiteral("p");
+                // No grinder brand/model/burrs => insertShot leaves equipment_id NULL.
+                r.grinderSetting = QString::number(2.0 + 0.1 * i);
+                QVERIFY(insertShot(db, r) > 0);
+            }
+        });
+
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        // 0.1 is the smallest repeated gap across the full history, reachable only
+        // if equipment-less shots are included.
+        QCOMPARE(s.grindStepForGrinder(""), 0.1);
+        // The per-grinder answer is unchanged.
+        QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
+        s.close();
+        QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
+    // grindRpmStepForGrinder had NO coverage at all while this change rewrote both
+    // it and its helper. It returns the same 0.0 sentinel for "no grinder", "not
+    // ready" and "query failed", and the caller silently substitutes a 50 RPM
+    // default — the same shape as the bug this PR fixes, on the RPM wheel.
+    void grindRpmStepDerivesFromHistory() {
+        QString path = freshDbPath();
+        initAndClose(path);
+
+        // 800, 900, 1000, 1100 — smallest repeated gap is 100.
+        withRawDb(path, "rpm_seed", [](QSqlDatabase& db) {
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            for (int i = 0; i < 4; ++i) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-rpm-%1").arg(i);
+                r.timestamp = now - i * 60;
+                r.profileName = QStringLiteral("p");
+                r.grinderBrand = QStringLiteral("Mahlkonig");
+                r.grinderModel = QStringLiteral("E80");
+                r.grinderSetting = QString::number(3.0 + i);
+                r.rpm = 800 + 100 * i;
+                QVERIFY(insertShot(db, r) > 0);
+            }
+        });
+
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        QCOMPARE(s.grindRpmStepForGrinder("E80"), 100.0);
+        // Folded like its settings twin — both go through grinderModelMatchSql().
+        QCOMPARE(s.grindRpmStepForGrinder("  e80  "), 100.0);
+        // An empty model has no meaningful RPM history to pool: the documented
+        // precondition of grinderWideRpmStep, guarded at the call site.
+        QCOMPARE(s.grindRpmStepForGrinder(""), 0.0);
+        // A grinder with no recorded RPMs at all.
+        QCOMPARE(s.grindRpmStepForGrinder("Zero"), 0.0);
+        s.close();
+        QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
+    // The SQL orders lexicographically, so "10" sorts before "9". sortGrinderSettings()
+    // re-sorts numerically, and GrindRowSource pushes this list onto the wheel IN
+    // LIST ORDER — so the ordering is directly user-visible. Nothing asserted it:
+    // deleting the sortGrinderSettings() call left the whole suite green.
+    void distinctSettingsAreSortedNumerically() {
+        QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, "sort_seed", [](QSqlDatabase& db) {
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            const char* settings[] = { "9", "10", "11", "2" };
+            for (int i = 0; i < 4; ++i) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-sort-%1").arg(i);
+                r.timestamp = now - i * 60;
+                r.profileName = QStringLiteral("p");
+                r.grinderBrand = QStringLiteral("Niche");
+                r.grinderModel = QStringLiteral("Zero");
+                r.grinderSetting = QString::fromLatin1(settings[i]);
+                QVERIFY(insertShot(db, r) > 0);
+            }
+        });
+
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        const QStringList got = s.getDistinctGrinderSettingsForGrinder("Zero");
+        QCOMPARE(got, QStringList({ "2", "9", "10", "11" }));
+        s.close();
+        QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
+    // getDistinctGrinderBurrsForModel binds brand and model POSITIONALLY. A
+    // transposition returns an empty list, which is indistinguishable from "no
+    // burrs recorded" — silent, and the only getter with two positional binds.
+    void distinctBurrsBindBrandAndModelInOrder() {
+        QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, "burrs_seed", [](QSqlDatabase& db) {
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            // Two models under ONE brand, so a swapped bind cannot accidentally match.
+            const char* models[] = { "Zero", "Duo" };
+            const char* burrs[]  = { "Steel", "Ceramic" };
+            for (int i = 0; i < 2; ++i) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-burrs-%1").arg(i);
+                r.timestamp = now - i * 60;
+                r.profileName = QStringLiteral("p");
+                r.grinderBrand = QStringLiteral("Niche");
+                r.grinderModel = QString::fromLatin1(models[i]);
+                r.grinderBurrs = QString::fromLatin1(burrs[i]);
+                r.grinderSetting = QStringLiteral("5");
+                QVERIFY(insertShot(db, r) > 0);
+            }
+        });
+
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        QCOMPARE(s.getDistinctGrinderBurrsForModel("Niche", "Zero"), QStringList({ "Steel" }));
+        QCOMPARE(s.getDistinctGrinderBurrsForModel("Niche", "Duo"),  QStringList({ "Ceramic" }));
+        s.close();
+        QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
 };
 
 QTEST_GUILESS_MAIN(TstDialingBlocks)

@@ -8,6 +8,7 @@
 
 #include "history/recipestorage.h"
 #include "history/coffeebagstorage.h"
+#include "shotrowfixtures.h"
 
 // Recipe storage (add-recipes, recipes-bag-links-ui-polish): CRUD statics,
 // variant-map round-trip, inventory MRU + shot-count aggregate + stale flag,
@@ -16,16 +17,7 @@
 // matching helper + migration-29 data pass), and the relink lifecycle
 // (roll-on-finish, wake-on-restock, dup-guard).
 
-template<typename Work>
-static void withRawDb(const QString& path, const QString& connName, Work&& work) {
-    {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
-        db.setDatabaseName(path);
-        db.open();
-        work(db);
-    }
-    QSqlDatabase::removeDatabase(connName);
-}
+using ShotRowFixtures::withRawDb;
 
 // Minimal shots table carrying just the columns the recipe queries read
 // (the shot-count aggregate and the delete guard both key on recipe_id).

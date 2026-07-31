@@ -19,6 +19,7 @@
 #include "history/recipestorage.h"
 #include "history/unifiedbeansearchmodel.h"
 #include "core/settings_dye.h"
+#include "shotrowfixtures.h"
 #include "network/visualizeruploader.h"
 
 using Tier = UnifiedBeanSearchModel::Tier;
@@ -36,34 +37,11 @@ static Tier tierOf(const QVariant& row) {
 // chain. The legacy-preset QSettings tests snapshot and restore the real
 // bean/presets key (the import deliberately uses the app's settings scope).
 
-template<typename Work>
-static void withRawDb(const QString& path, const QString& connName, Work&& work) {
-    {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
-        db.setDatabaseName(path);
-        db.open();
-        QSqlQuery(db).exec("PRAGMA foreign_keys = ON");
-        work(db);
-    }
-    QSqlDatabase::removeDatabase(connName);
-}
+using ShotRowFixtures::withRawDb;
 
-static bool hasColumn(QSqlDatabase& db, const QString& table, const QString& column) {
-    QSqlQuery q(db);
-    q.exec(QString("PRAGMA table_info(%1)").arg(table));
-    while (q.next()) {
-        if (q.value(1).toString() == column)
-            return true;
-    }
-    return false;
-}
+using ShotRowFixtures::hasColumn;
 
-static bool hasTable(QSqlDatabase& db, const QString& table) {
-    QSqlQuery q(db);
-    q.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?");
-    q.addBindValue(table);
-    return q.exec() && q.next();
-}
+using ShotRowFixtures::hasTable;
 
 // Minimal shot row insert for link / history-lane tests.
 static qint64 insertShot(QSqlDatabase& db, const QString& brand, const QString& type,
@@ -120,11 +98,13 @@ private:
         if (!storage.initialize(path))
             return false;
         storage.close();
-        for (int i = 0; i < 20; i++) {
+        // Poll the real condition rather than sleeping a fixed budget. Not
+        // QTRY_VERIFY: that macro returns void on failure and this returns bool.
+        for (int i = 0; i < 1000 && !storage.isDbWorkIdle(); i++) {
             QCoreApplication::processEvents();
-            QThread::msleep(25);
+            QThread::msleep(5);
         }
-        return true;
+        return storage.isDbWorkIdle();
     }
 
     // Fresh fully-migrated DB via the real migration chain.
