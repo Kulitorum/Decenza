@@ -186,31 +186,6 @@ private:
         });
     }
 
-    // Pump the event loop until `pred` holds or the budget runs out. The step
-    // derivation lands via a queued callback from a background thread, so a test
-    // that reads immediately after initialize() is reading a map that has not been
-    // published yet — which is the "not yet derived" state, not the bug.
-    // Drive the event loop until all background DB work has completed and its
-    // callbacks have been delivered. This is what lets an assertion READ ONCE:
-    // polling the getter instead makes the poll itself the consumer that re-asks,
-    // and re-asking is precisely what the pre-change code needed a human to do.
-    // A test whose predicate is the getter therefore passes against the bug.
-    // Settled means settled: this machinery CHAINS. A refresh's completion callback
-    // runs on the main thread and can itself re-request composite keys, so
-    // isDbWorkIdle() is momentarily true between a worker finishing and its queued
-    // callback starting the next one. A single idle check therefore returns while
-    // the cache is mid-rebuild — which looks exactly like the bug under test.
-    // Require idle to HOLD across several pumped rounds instead.
-    void quiesce(ShotHistoryStorage& s) {
-        int consecutiveIdle = 0;
-        for (int i = 0; i < 600 && consecutiveIdle < 5; ++i) {
-            QCoreApplication::processEvents();
-            QThread::msleep(10);
-            consecutiveIdle = s.isDbWorkIdle() ? consecutiveIdle + 1 : 0;
-        }
-        QVERIFY2(s.isDbWorkIdle(), "background DB work never settled");
-    }
-
 private slots:
 
     void initTestCase() {
@@ -238,7 +213,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
             QVERIFY(hasTable(db, "recipes"));  // migration 25 (add-recipes)
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
         });
     }
 
@@ -327,7 +302,7 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
@@ -456,7 +431,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
         });
     }
 
@@ -470,7 +445,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
         });
     }
 
@@ -502,7 +477,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 30
 
         withRawDb(path, "v29_verify30", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             QSqlQuery q(db);
             QVERIFY(q.exec(QString("SELECT grind_pinned, rpm_pinned FROM recipes "
                                    "WHERE id = %1").arg(recipeId)));
@@ -537,7 +512,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 31
 
         withRawDb(path, "v30_verify31", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             QSqlQuery q(db);
             QVERIFY(q.exec(QString("SELECT temp_offset_c, temp_override_c FROM recipes "
                                    "WHERE id = %1").arg(recipeId)));
@@ -578,7 +553,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 32
 
         withRawDb(path, "v31_verify32", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             QVERIFY(hasColumn(db, "shots", "storage_hint"));
             QVERIFY(hasColumn(db, "shots", "opened_date"));
             QVERIFY(hasColumn(db, "coffee_bags", "storage_hint"));
@@ -617,7 +592,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 33
 
         withRawDb(path, "v32_verify33", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             QVERIFY(hasColumn(db, "shots", "taste_balance"));
             QVERIFY(hasColumn(db, "shots", "taste_body"));
             QVERIFY(!hasColumn(db, "coffee_bags", "taste_balance"));
@@ -669,7 +644,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 34
 
         withRawDb(path, "v34_verify", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT yield_value, yield_mode, yield_g FROM recipes WHERE name = 'With'"));
             QVERIFY(q.next());
@@ -766,7 +741,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
         });
     }
 
@@ -788,7 +763,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             QSqlQuery q(db);
             // grinder_brand was dropped in migration 23; grinder_setting (the
             // surviving per-shot dial-in) exercises the same NULL-tolerance path.
@@ -968,7 +943,7 @@ private slots:
                 }
             }
         });
-        QCOMPARE(versionFound, 36);  // latest after full chain (grind step covering index)
+        QCOMPARE(versionFound, 35);  // latest after full chain
         QVERIFY2(!hasEnjoymentSource,
                  "enjoyment_source column must be absent after migration 16");
     }
@@ -1206,7 +1181,7 @@ private slots:
             }
         });
 
-        QCOMPARE(versionFound, 36);  // latest after full chain (grind step covering index)
+        QCOMPARE(versionFound, 35);  // latest after full chain
         QVERIFY2(columnGone, "enjoyment_source column must be dropped");
         // Inferred rows reset to 0 (unrated), NOT to the stale 50 seeded
         // above — an app-invented rating becomes unrated, and the back-sync
@@ -1544,7 +1519,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v21_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
             QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
             QSqlQuery q(db);
@@ -1578,7 +1553,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v28_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             QVERIFY(hasColumn(db, "recipes", "drink_type"));
             QVERIFY(hasColumn(db, "coffee_bags", "kind"));
             QSqlQuery q(db);
@@ -1658,7 +1633,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v20_after_retry", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             // The retry ran the WHOLE deferred chain, not just migration 20:
             // migration 21's rename landed too (post-condition column present).
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
@@ -1704,7 +1679,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v21_after_retry", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 36);
+            QCOMPARE(getSchemaVersion(db), 35);
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
             QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
             QSqlQuery q(db);
@@ -1771,7 +1746,7 @@ private slots:
         };
 
         { ShotHistoryStorage s; initAndClose(path, s); }
-        withRawDb(path, "v22_ver", [](QSqlDatabase& db) { QCOMPARE(getSchemaVersion(db), 36); });
+        withRawDb(path, "v22_ver", [](QSqlDatabase& db) { QCOMPARE(getSchemaVersion(db), 35); });
         QCOMPARE(packageCount(), 1);             // default package created from current settings
         { ShotHistoryStorage s; initAndClose(path, s); }
         QCOMPARE(packageCount(), 1);             // gate prevented a duplicate on re-init
@@ -2030,35 +2005,13 @@ private slots:
     // Grind step derivation (keep-grind-step-across-cache-refresh)
     // ==========================================
 
-    void migration36CreatesGrindCoveringIndex() {
-        QString path = freshDbPath();
-        {
-            ShotHistoryStorage storage;
-            initAndClose(path, storage);
-        }
-        withRawDb(path, "m36_index", [](QSqlDatabase& db) {
-            QVERIFY2(hasIndex(db, "idx_shots_equipment_grind"),
-                     "migration 36 must create the grind step covering index");
-            QCOMPARE(getSchemaVersion(db), 36);
-        });
-
-        // Re-running is harmless: IF NOT EXISTS, and the version does not move.
-        {
-            ShotHistoryStorage storage;
-            initAndClose(path, storage);
-        }
-        withRawDb(path, "m36_index_rerun", [](QSqlDatabase& db) {
-            QVERIFY(hasIndex(db, "idx_shots_equipment_grind"));
-            QCOMPARE(getSchemaVersion(db), 36);
-        });
-    }
-
-    // THE regression test for this change. The step was derived correctly and then
-    // lost: invalidation cleared the cache key it lived behind, and a re-fetch that
-    // raced the next refresh was discarded in silence, so the widget sat on its 1.0
-    // fallback for the rest of the session while the AI payload reported 0.25 for
-    // the same grinder. Reading straight after an invalidation is exactly that
-    // window.
+    // THE regression test for this change. The step derived correctly as 0.25 and
+    // was then lost: it lived behind a distinct-cache key, an invalidation cleared
+    // that key, and the re-fetch racing the next refresh was discarded in silence.
+    // The widget sat on its 1.0 fallback for the rest of the session while the AI
+    // payload still reported 0.25 for the same grinder. Reading straight after an
+    // invalidation is exactly that window; it now reads the database instead of a
+    // cache, so there is no key to lose.
     void grindStepSurvivesInvalidation() {
         QString path = freshDbPath();
         { ShotHistoryStorage init; initAndClose(path, init); }
@@ -2066,23 +2019,16 @@ private slots:
 
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
-        quiesce(s);
         QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
 
-        // Read ONCE, after the invalidation has fully settled. Against the
-        // pre-change code this is the assertion that goes red: the refresh had
-        // cleared the composite cache key and nothing re-populated it, so this
-        // single read misses and returns 0. Polling the getter here instead would
-        // pass on BOTH branches, because each poll re-issues the fetch the old code
-        // needed a consumer to re-issue — the poll would be standing in for the
-        // human whose absence was the bug.
         s.invalidateDistinctCache();
-        quiesce(s);
         QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
         s.close();
         QTRY_VERIFY(s.isDbWorkIdle());
     }
 
+    // One distinct setting defines no step. 0 means "cannot derive" and the caller
+    // substitutes its own fallback — it is NOT a step of zero.
     void grindStepThinHistoryReturnsZero() {
         QString path = freshDbPath();
         { ShotHistoryStorage init; initAndClose(path, init); }
@@ -2090,20 +2036,13 @@ private slots:
 
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
-        // Wait for the map to be PUBLISHED before asserting, otherwise a 0 would
-        // only prove the derivation had not landed yet. A second grinder with real
-        // history gives the publication something observable to hang on.
-        seedQuarterStepHistory(path, QStringLiteral("Zero"), 6);
-        s.invalidateDistinctCache();
-        quiesce(s);
-        QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
-
-        // Published, and this grinder still cannot derive: one distinct setting.
         QCOMPARE(s.grindStepForGrinder("Solo"), 0.0);
         s.close();
         QTRY_VERIFY(s.isDbWorkIdle());
     }
 
+    // Same grinder, differently typed. An exact compare read this back as a grinder
+    // with no history — invisible, because empty is indistinguishable from new.
     void grindStepFoldsModelCaseAndWhitespace() {
         QString path = freshDbPath();
         { ShotHistoryStorage init; initAndClose(path, init); }
@@ -2111,58 +2050,23 @@ private slots:
 
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
-        quiesce(s);
-        // Same grinder, differently typed. An exact compare read this back as a
-        // grinder with no history — invisible, because empty is indistinguishable
-        // from new.
         QCOMPARE(s.grindStepForGrinder("  zero  "), 0.25);
         QCOMPARE(s.grindStepForGrinder("ZERO"), 0.25);
         s.close();
         QTRY_VERIFY(s.isDbWorkIdle());
     }
 
-    // A model-filtered derivation must return ONLY that model. The filter is
-    // appended to a WHERE whose axis test is a disjunction, so without brackets
-    // `A OR B AND C` parses as `A OR (B AND C)` and the filter constrains only the
-    // RPM branch — every grinder with a grind setting comes back. The requested
-    // model's own number stays right (the caller reads one key), so nothing that
-    // reads through .value() can see this; assert on the hash itself.
-    void derivationFilterReturnsOnlyThatModel() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage init; initAndClose(path, init); }
-        seedQuarterStepHistory(path, QStringLiteral("Zero"), 6);
-        seedQuarterStepHistory(path, QStringLiteral("DF64"), 6);
-
-        withRawDb(path, "filter_scope", [](QSqlDatabase& db) {
-            QHash<QString, GrinderSteps> filtered;
-            QVERIFY(ShotHistoryStorage::deriveGrinderSteps(db, filtered,
-                                                           QStringLiteral("Zero")));
-            QCOMPARE(filtered.size(), 1);
-            QVERIFY(filtered.contains("zero"));
-            QVERIFY2(!filtered.contains("df64"),
-                     "a filtered derivation must not return other grinders");
-
-            // Unfiltered: both models plus the all-grinders bucket.
-            QHash<QString, GrinderSteps> all;
-            QVERIFY(ShotHistoryStorage::deriveGrinderSteps(db, all));
-            QVERIFY(all.contains("zero"));
-            QVERIFY(all.contains("df64"));
-            QVERIFY(all.contains(QString()));
-        });
-    }
-
-    // An empty model means "no grinder selected" and must keep deriving from the
-    // full cross-grinder history — the ShotServer /beans form depends on it, since
-    // a new bag has no equipment chosen yet.
+    // An empty model means "no grinder selected" and must derive from the full
+    // cross-grinder history — the ShotServer /beans form depends on it, since a new
+    // bag has no equipment chosen yet.
     void grindStepEmptyModelUsesFullHistory() {
         QString path = freshDbPath();
         { ShotHistoryStorage init; initAndClose(path, init); }
         seedQuarterStepHistory(path, QStringLiteral("Zero"), 28);
 
-        // Shots with NO equipment row at all, stepping by 0.1. Only the unjoined
-        // all-grinders pass can see these — rewriting the "" bucket as a fold over
-        // the joined per-model buckets would still answer 0.25 and look correct, so
-        // without them the test cannot tell the two implementations apart.
+        // Shots with NO equipment row at all, stepping by 0.1. Only a query that
+        // drops the equipment join can see these, so without them the test cannot
+        // tell an all-grinders pass from a per-grinder one.
         withRawDb(path, "no_equipment", [](QSqlDatabase& db) {
             const qint64 now = QDateTime::currentSecsSinceEpoch();
             for (int i = 0; i < 6; ++i) {
@@ -2178,19 +2082,19 @@ private slots:
 
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
-        quiesce(s);
-        // 0.1 is now the smallest repeated gap across the full history, and it is
-        // only reachable if equipment-less shots are included.
+        // 0.1 is the smallest repeated gap across the full history, reachable only
+        // if equipment-less shots are included.
         QCOMPARE(s.grindStepForGrinder(""), 0.1);
-        // The per-grinder answer is unchanged — the buckets are independent.
+        // The per-grinder answer is unchanged.
         QCOMPARE(s.grindStepForGrinder("Zero"), 0.25);
         s.close();
         QTRY_VERIFY(s.isDbWorkIdle());
     }
 
-    // The widget read and the AI payload must be the same number by construction,
-    // not by two queries happening to agree — which is what they did while one of
-    // them was silently failing.
+    // The widget read and the AI payload must be the same number BY CONSTRUCTION —
+    // they now call the same function. They previously agreed only when the widget's
+    // cache happened to be warm, which is how #1724 stayed invisible: the payload
+    // kept reporting 0.25 while the widget showed 1.0.
     void grindStepAgreesWithDialingContext() {
         QString path = freshDbPath();
         { ShotHistoryStorage init; initAndClose(path, init); }
@@ -2198,7 +2102,6 @@ private slots:
 
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
-        quiesce(s);
         const double widgetStep = s.grindStepForGrinder("Zero");
 
         double payloadStep = -1.0;
@@ -2208,65 +2111,6 @@ private slots:
         });
         QCOMPARE(widgetStep, 0.25);
         QCOMPARE(payloadStep, widgetStep);
-        s.close();
-        QTRY_VERIFY(s.isDbWorkIdle());
-    }
-
-    // A composite distinct-cache key must survive an invalidation. Before this
-    // change requestDistinctCache() cleared every key and refilled only its six
-    // bare columns, so a composite key vanished on every shot save and returned
-    // only if some consumer noticed and re-asked.
-    void compositeCacheKeySurvivesInvalidation() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage init; initAndClose(path, init); }
-        seedQuarterStepHistory(path, QStringLiteral("Zero"), 6);
-
-        ShotHistoryStorage s;
-        QVERIFY(s.initialize(path));
-        // First read is a miss that starts the fetch; the values land async.
-        (void)s.getDistinctGrinderSettingsForGrinder("Zero");
-        quiesce(s);
-        const qsizetype before = s.getDistinctGrinderSettingsForGrinder("Zero").size();
-        QVERIFY(before > 0);
-
-        // The refresh must put the composite key back by itself. Reading once after
-        // quiescence is what tests that: a polled read would re-request the key on
-        // its own miss and pass whether or not the refresh restored anything.
-        s.invalidateDistinctCache();
-        quiesce(s);
-        QCOMPARE(s.getDistinctGrinderSettingsForGrinder("Zero").size(), before);
-        s.close();
-        QTRY_VERIFY(s.isDbWorkIdle());
-    }
-
-    // A fetch issued immediately before an invalidation must still end with the key
-    // populated, without a consumer re-asking.
-    //
-    // Scope, stated honestly: this does NOT deterministically force the discard
-    // branch. Whether the single-key result or the refresh callback lands first is
-    // up to the scheduler, so on some runs the fetch simply completes and is
-    // cleared. What it does pin is the outcome either way — which is the property
-    // that matters and the one that was broken. Forcing the branch itself would need
-    // a fault-injection seam; the earlier version of this test claimed to force it
-    // and did not, which is worse than not claiming it.
-    void racedFetchStillResolves() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage init; initAndClose(path, init); }
-        seedQuarterStepHistory(path, QStringLiteral("Zero"), 6);
-
-        ShotHistoryStorage s;
-        QVERIFY(s.initialize(path));
-        QSignalSpy ready(&s, &ShotHistoryStorage::distinctCacheReady);
-
-        // Start the fetch, then invalidate immediately so the refresh has a chance to
-        // land while it is still in flight.
-        (void)s.getDistinctGrinderSettingsForGrinder("Zero");
-        s.invalidateDistinctCache();
-        quiesce(s);
-
-        QVERIFY2(!s.getDistinctGrinderSettingsForGrinder("Zero").isEmpty(),
-                 "a fetch overtaken by a refresh must still end with the key populated");
-        QVERIFY2(ready.count() > 0, "consumers must be notified so they re-ask");
         s.close();
         QTRY_VERIFY(s.isDbWorkIdle());
     }

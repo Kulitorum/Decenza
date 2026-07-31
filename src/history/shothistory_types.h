@@ -244,28 +244,6 @@ struct GrinderContext {
     double rpmStepSize = 0;
 };
 
-// A grinder's two derived dial steps. Produced by
-// ShotHistoryStorage::deriveGrinderSteps(), which is the ONLY place either
-// number is computed — the dialing payload asks it for one grinder, the store's
-// resident map asks it for all of them, and both run it through the same
-// deriveGrindStep() estimator. Two implementations of this pair is what let the
-// widget and the AI silently disagree; there is now one.
-//
-// 0 on either axis means "not derivable" (fewer than two distinct numeric
-// values), which is what licenses a caller's own fallback. It does NOT mean
-// "not loaded yet" — see grindStepForGrinder().
-struct GrinderSteps {
-    double grindStep = 0;
-    double rpmStep = 0;
-    // How many distinct values each step was derived from. Carried purely so the
-    // log can say it: #1713 could not be diagnosed from a 25,720-line log because
-    // the step and its sample size were never written down, and neither can be
-    // reconstructed afterwards — they depend on the user's own history. A log that
-    // reports only the number cannot tell a correct fallback from a broken one.
-    qsizetype settingCount = 0;
-    qsizetype rpmCount = 0;
-};
-
 // Filter criteria for queries
 struct ShotFilter {
     QString profileName;

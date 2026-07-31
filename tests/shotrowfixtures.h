@@ -4,10 +4,15 @@
 // initialiser, and run work against a scoped raw connection.
 //
 // Extracted from tst_dialing_blocks.cpp when a second test file needed the same
-// seeding. `withRawDb` had already been copied once (tst_dbmigration.cpp carried
-// a near-identical version that differed only in not asserting the open), which
-// is the drift this collapses — see CLAUDE.md's rule about centralising anything
-// produced at more than one site.
+// seeding. `withRawDb` had by then been hand-copied into four test files
+// (tst_dbmigration, tst_equipment, tst_recipestorage, tst_coffeebags) and had
+// already drifted: three dropped the open assertion, so a failed open ran the
+// work body against a closed handle and every query silently did nothing; only
+// tst_coffeebags set `PRAGMA foreign_keys = ON`, so the other three were not
+// enforcing the constraints the production `withTempDb()` enforces. The version
+// here is the union — it asserts the open AND sets the pragma — and the copies
+// are gone. See CLAUDE.md's rule about centralising anything produced at more
+// than one site.
 //
 // Include from a QTest translation unit: withRawDb uses QVERIFY2, and
 // insertShot's failure path emits a qWarning that QTest::failOnWarning() will

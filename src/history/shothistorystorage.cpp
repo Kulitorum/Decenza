@@ -245,19 +245,6 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     // Pre-warm the distinct cache on a background thread
     requestDistinctCache();
 
-    // Derive every grinder's steps up front, on a background thread. Having the
-    // whole set resident is what lets grindStepForGrinder() answer synchronously —
-    // the property the grind picker and the ShotServer endpoint both need and the
-    // async cache could not provide.
-    //
-    // Drop any previous database's map first. initialize() can be called again on a
-    // DIFFERENT file (device-to-device migration, backup restore), and a carried-over
-    // map would answer with the old database's steps until the refresh lands — and
-    // report them as "derived", which reads as authoritative. An empty map is
-    // honestly "not yet derived" for the few hundred ms it takes to refill.
-    m_grinderSteps.clear();
-    refreshGrinderSteps();
-
     qDebug() << "ShotHistoryStorage: Database initialized with" << m_totalShots << "shots";
     return true;
 }
@@ -1911,93 +1898,6 @@ bool ShotHistoryStorage::runMigrations()
             } else {
                 EQUIP_WARN_STDERR("Migration", "35 incomplete - will retry next launch");
             }
-        }
-    }
-
-    // Covering index for the grinder step derivation (deriveGrinderSteps). The
-    // derivation reads only (equipment_id, grinder_setting, rpm), but without an
-    // index SQLite answers it by scanning `shots` — and a scan reads whole pages,
-    // including the debug_log / profile_json / steam_json blobs it never looks at.
-    // Cost therefore tracked table BYTES, not the handful of dial-in values that
-    // matter: measured 1.7 ms over 1,123 shots but 33.9 ms (peak 702 ms) over a
-    // 20x copy of the same database, which on a tablet is a visible hitch every
-    // time the grind picker opens. Listing all three columns makes the index
-    // COVERING - EXPLAIN QUERY PLAN reports "SEARCH ... USING COVERING INDEX" and
-    // SQLite never visits a row page - which brings the same 20x case to 1.18 ms
-    // and, more importantly, decouples it from blob growth entirely.
-    //
-    // Deliberately NOT added to createTables(): its CREATE TABLE shots has
-    // grinder_setting but not equipment_id or rpm (both arrive by ALTER TABLE in
-    // earlier migrations), so creating it there would fail "no such column" on
-    // every fresh launch - the same trap idx_shots_grinder documents above. A
-    // fresh database is stamped version 1 and runs every migration, so this
-    // covers new and existing databases alike.
-    if (currentVersion >= 35 && currentVersion < 36) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 36 (grind step covering index)";
-
-        // Release the schema_version read from the top of this function before
-        // issuing DDL. That SELECT ends in LIMIT 1 and is stepped exactly once, so
-        // it never reaches SQLITE_DONE and Qt never resets it
-        // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:326-332 resets only
-        // on SQLITE_DONE or error) - leaving the connection inside an implicit read
-        // transaction that a CREATE INDEX on the same table can trip over. Migration
-        // 35 learned this the expensive way; the finish() is one line.
-        query.finish();
-
-        // equipment_id and rpm are added by earlier migrations, so on any database
-        // that reached 35 they exist. Guard anyway and retry next launch rather than
-        // bumping the version past an index that was never built.
-        if (hasColumn("shots", "equipment_id") && hasColumn("shots", "rpm")) {
-            if (!query.exec("CREATE INDEX IF NOT EXISTS idx_shots_equipment_grind "
-                            "ON shots(equipment_id, grinder_setting, rpm)")) {
-                // SQLITE_FULL, SQLITE_BUSY and a disk I/O error all need different
-                // advice and are indistinguishable without the driver's text.
-                qWarning() << "ShotHistoryStorage: migration 36 CREATE INDEX failed -"
-                           << query.lastError().text();
-            }
-
-            // Verify by COLUMN LIST, not just by name: an index of this name with
-            // different columns (a rolled-back build, a hand-edited database) would
-            // otherwise stamp version 36 over a non-covering index, and the whole
-            // point of the migration — that the derivation never visits a row page —
-            // would silently not hold.
-            QSqlQuery check(m_db);
-            const bool indexPresent =
-                check.exec("SELECT 1 FROM sqlite_master WHERE type = 'index' "
-                           "AND name = 'idx_shots_equipment_grind' "
-                           "AND sql LIKE '%equipment_id%grinder_setting%rpm%'")
-                && check.next();
-
-            if (indexPresent) {
-                // Transacted and result-checked, following migration 35 rather than
-                // the older unchecked pattern. A DELETE that commits without its
-                // INSERT leaves schema_version EMPTY, and an empty table reads back
-                // as version 1 with versionReadOk true (see the top of this function)
-                // — which tells crossedSchemaVersion() a fully-migrated database just
-                // crossed every version, re-injecting idle buttons the user removed.
-                // That is issue #1586 through the door its own guard leaves open.
-                DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 36 version stamp", 1);
-                if (!txn.ok()) {
-                    qWarning() << "ShotHistoryStorage: migration 36 could not start a "
-                                  "transaction - will retry next launch";
-                } else {
-                    bool ok = query.exec("DELETE FROM schema_version");
-                    ok = ok && query.exec("INSERT INTO schema_version (version) VALUES (36)");
-                    if (ok && txn.commit()) {
-                        currentVersion = 36;
-                    } else {
-                        qWarning() << "ShotHistoryStorage: migration 36 version stamp failed -"
-                                   << query.lastError().text()
-                                   << "- will retry next launch";
-                    }
-                }
-            } else {
-                qWarning() << "ShotHistoryStorage: migration 36 could not create "
-                              "idx_shots_equipment_grind - will retry next launch";
-            }
-        } else {
-            qWarning() << "ShotHistoryStorage: migration 36 skipped - shots is missing "
-                          "equipment_id and/or rpm - will retry next launch";
         }
     }
 

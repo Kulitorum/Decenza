@@ -19,6 +19,7 @@
 #include "history/recipestorage.h"
 #include "history/unifiedbeansearchmodel.h"
 #include "core/settings_dye.h"
+#include "shotrowfixtures.h"
 #include "network/visualizeruploader.h"
 
 using Tier = UnifiedBeanSearchModel::Tier;
@@ -36,17 +37,7 @@ static Tier tierOf(const QVariant& row) {
 // chain. The legacy-preset QSettings tests snapshot and restore the real
 // bean/presets key (the import deliberately uses the app's settings scope).
 
-template<typename Work>
-static void withRawDb(const QString& path, const QString& connName, Work&& work) {
-    {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
-        db.setDatabaseName(path);
-        db.open();
-        QSqlQuery(db).exec("PRAGMA foreign_keys = ON");
-        work(db);
-    }
-    QSqlDatabase::removeDatabase(connName);
-}
+using ShotFixtures::withRawDb;
 
 static bool hasColumn(QSqlDatabase& db, const QString& table, const QString& column) {
     QSqlQuery q(db);
@@ -904,7 +895,7 @@ private slots:
             QCOMPARE(q.value(0).toInt(), 0);  // existing rows default to 0
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 36);  // chain runs on to the latest (grind step covering index)
+            QCOMPARE(q.value(0).toInt(), 35);  // chain runs on to the latest (enrichment-fork heal)
         });
     }
 
@@ -1302,7 +1293,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 36);  // chain runs on to the latest (grind step covering index)
+            QCOMPARE(q.value(0).toInt(), 35);  // chain runs on to the latest (enrichment-fork heal)
         });
     }
 
@@ -1335,7 +1326,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 36);  // chain runs on to the latest (grind step covering index)
+            QCOMPARE(q.value(0).toInt(), 35);  // chain runs on to the latest (enrichment-fork heal)
             // The repaired table is writable — insertRecipeStatic binds
             // rpm_pinned unconditionally, so it would fail wholesale if the
             // ALTER hadn't landed.

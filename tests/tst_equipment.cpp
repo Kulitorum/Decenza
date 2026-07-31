@@ -9,21 +9,13 @@
 #include "history/equipmentstorage.h"
 #include "history/coffeebagstorage.h"
 #include "core/puckprep.h"
+#include "shotrowfixtures.h"
 
 // Equipment packages: the grind/rpm split heuristic, rpmCapable derivation,
 // package CRUD, identity dedup, and the migration-22 data step
 // (add-equipment-packages).
 
-template<typename Work>
-static void withRawDb(const QString& path, const QString& connName, Work&& work) {
-    {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
-        db.setDatabaseName(path);
-        db.open();
-        work(db);
-    }
-    QSqlDatabase::removeDatabase(connName);
-}
+using ShotFixtures::withRawDb;
 
 // Minimal shots table carrying just the columns the migration reads/writes.
 static void createMinimalShots(QSqlDatabase& db) {
