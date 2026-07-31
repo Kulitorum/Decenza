@@ -123,6 +123,10 @@ MARKER_ONLY_GLOBS = [
     # Hosts the [Equipment] migration lines (the enrichment-fork heal) beside the
     # whole schema-migration chain and the shot CRUD, none of which is equipment.
     "src/history/shothistorystorage.cpp",
+    # Hosts the [Equipment] grinder census beside every other history query, which
+    # is why it is here and not in COVERED_GLOBS: the file's bare qWarning calls
+    # are query failures belonging to no subsystem at all.
+    "src/history/shothistorystorage_queries.cpp",
     # Drives both reconnect ladders through BLEManager's public tier helpers, so a
     # device subsystem's most-asked-about narrative is written here, in a file that is
     # not about logging at all.

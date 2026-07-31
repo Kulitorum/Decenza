@@ -19,6 +19,7 @@
 
 #include "core/dbutils.h"
 #include "core/grinderaliases.h"
+#include "equipmentlogging.h"
 #include "core/yieldspec.h"
 
 #include <QSet>
@@ -914,17 +915,39 @@ static double deriveGrindStep(const QList<double>& sortedDistinct)
 // the AI's queryGrinderContext needs the values themselves.
 //
 // An empty model means "no grinder selected" and pools every grinder's history —
-// including shots with no equipment row at all. The ShotServer /beans form needs
-// that, since a new bag has no equipment chosen yet. queryGrinderContext returns
-// early on an empty model, so only the widget path reaches it.
+// including shots with no equipment row at all. That is a LAST RESORT, not a
+// neutral default: pooling mixes every grinder's dial resolution into one
+// estimate, and the caller gets no signal that it did. It reads as correct to a
+// one-grinder user because the pool IS their grinder, so nothing has ever
+// flagged it; it was found by reading the log attached to #1726, where the
+// post-shot review reached this branch with an empty model.
+//
+// So callers must exhaust their own identity first, and both surfaces now do:
+// GrindRowSource.grindStep() and ShotServer::handleGrindCandidatesApi each
+// resolve to the ACTIVE grinder before querying. queryGrinderContext returns
+// early on an empty model and never reaches here at all.
+//
+// What still legitimately pools is a user with no grinder anywhere — no
+// injected identity and none selected — for whom every grinder IS the only
+// pool available, and a grinder whose own history is too thin to derive from,
+// where grindStep() prefers the pool to a blind 1.0 default. Both are second
+// attempts after a scoped one failed, never a first choice.
 //
 // Cost, measured with a fresh connection per run: 3.3 ms median / 87 ms worst on
 // a real 1,124-shot / 18.5 MB database; 37 ms median / 41 ms worst on a 16x copy
 // (17,984 shots / 157 MB). The more expensive of the two read shapes in this file
 // — a correlated equipment_id IN (SELECT ...) subquery over `shots`, whose cost
 // tracks table BYTES because a page read drags the profile_json and debug_log
-// blobs along. Its callers are GrindRowSource's step bindings, which re-evaluate
-// on a grinder change and on a write, not per frame or per keystroke.
+// blobs along. Two call paths reach it, and the frequency argument has to cover
+// both: GrindRowSource.grindStep() and the ShotServer's grind-candidates
+// endpoint build a picker's rows, while queryGrinderContext (below) builds the
+// AI dialing/advisor context. Neither is per frame, per keystroke, or a binding.
+//
+// (Until #1725 the QML side WAS a binding, and this sentence described it as
+// one; the cost is unchanged but the frequency is not, so do not read the old
+// shape back into it. It then listed only the two picker callers, which read as
+// exhaustive and was not — queryGrinderContext returns early on an EMPTY model,
+// which is a narrower thing than never calling this.)
 //
 // `queryOk` reports whether the QUERY ran, not whether it found anything. A failed
 // query and a grinder with no numeric history both yield an empty list, and the
@@ -1685,6 +1708,150 @@ double ShotHistoryStorage::grindRpmStepForGrinder(const QString& grinderModel)
                   : step > 0.0   ? GrindStepOutcome::Derived
                                  : GrindStepOutcome::TooThin);
     return step;
+}
+
+// See the declaration for why this exists. Three small queries rather than one
+// clever one: SQLite cannot tell a numeric setting from a text one, and that
+// distinction is the whole point — "1102 shots, 0 numeric" and "0 shots" look
+// identical in the grind-step line and mean opposite things.
+void ShotHistoryStorage::logGrinderCensus()
+{
+    const QString dbPath = m_dbPath;
+    runOnDbThread([dbPath]() {
+        withTempDb(dbPath, "shs_census", [](QSqlDatabase& db) {
+            // Keyed on the folded model, because that is what the step query
+            // matches on (grinderModelMatchSql folds case and whitespace). Two
+            // packages spelled "Niche Zero" and "niche zero" are ONE grinder to
+            // every query this census is meant to explain, and reporting them
+            // as two rows would invent a discrepancy that does not exist. The
+            // first spelling seen is kept for display.
+            // Numeric settings are deduped as DOUBLES, not as strings, because
+            // that is what deriveGrindStep() sees: grinderWideNumericSettings
+            // parses into a QSet<double>, so "3", "3.0" and "03" are ONE sample
+            // to the step and would be three to a string count. That is not
+            // hypothetical here — GrindRowSource writes the setting with
+            // toFixed() at a width derived from the current step, so one dial
+            // position genuinely lands in history at several decimal widths as
+            // the step changes. Both log lines say "distinct numeric setting(s)"
+            // precisely so a reader can compare them; if they counted different
+            // things, the census would manufacture the false diagnosis it exists
+            // to prevent. Deduping here also makes the case-folded key hold: two
+            // spellings of one grinder collapse instead of counting twice.
+            struct Row {
+                QString display;
+                qint64 shots = 0;
+                QSet<double> numeric;
+                QSet<QString> nonNumeric;
+            };
+            QMap<QString, Row> byModel;
+            const auto fold = [](const QString& m) { return m.trimmed().toLower(); };
+
+            // Shots per attributed grinder. The LEFT JOIN is what makes an
+            // unlinked shot visible: it lands under the empty model rather than
+            // dropping out of the result, which is the number a reader needs
+            // when a scoped query "found nothing".
+            QSqlQuery q(db);
+            if (!q.exec(QStringLiteral(
+                    // COUNT(DISTINCT s.id), not COUNT(*): nothing constrains
+                    // equipment_items to one grinder row per package (no unique
+                    // key on (package_id, kind), which is why readers elsewhere
+                    // use ORDER BY id LIMIT 1), and a second grinder row would
+                    // double-count every shot on that package — making this line
+                    // disagree with the shot total logged beside it at startup.
+                    "SELECT COALESCE(eg.model, ''), COUNT(DISTINCT s.id) FROM shots s "
+                    "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id "
+                    "AND eg.kind = 'grinder' "
+                    "GROUP BY LOWER(TRIM(COALESCE(eg.model, '')))"))) {
+                EQUIP_WARN_STDERR("Census", QStringLiteral("shot count query failed: %1")
+                                                .arg(q.lastError().text()));
+                return;
+            }
+            qint64 total = 0;
+            qint64 unlinked = 0;
+            while (q.next()) {
+                const QString model = q.value(0).toString().trimmed();
+                const qint64 n = q.value(1).toLongLong();
+                total += n;
+                if (model.isEmpty()) {
+                    unlinked += n;
+                    continue;  // reported as the headline "not attributed" count
+                }
+                Row& row = byModel[fold(model)];
+                if (row.display.isEmpty())
+                    row.display = model;
+                row.shots += n;
+            }
+
+            // Distinct (model, setting) pairs, not per-shot rows — this is the
+            // same population deriveGrindStep() sees, so a mismatch between the
+            // count here and the count in the grind-step line is itself a
+            // finding rather than noise.
+            QSqlQuery s(db);
+            if (!s.exec(QStringLiteral(
+                    "SELECT DISTINCT COALESCE(eg.model, ''), TRIM(s.grinder_setting) FROM shots s "
+                    "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id "
+                    "AND eg.kind = 'grinder' "
+                    "WHERE s.grinder_setting IS NOT NULL AND TRIM(s.grinder_setting) != ''"))) {
+                EQUIP_WARN_STDERR("Census", QStringLiteral("distinct settings query failed: %1")
+                                                .arg(s.lastError().text()));
+                return;
+            }
+            while (s.next()) {
+                const QString model = s.value(0).toString().trimmed();
+                if (model.isEmpty())
+                    continue;
+                Row& row = byModel[fold(model)];
+                if (row.display.isEmpty())
+                    row.display = model;
+                const QString setting = s.value(1).toString().trimmed();
+                bool numeric = false;
+                const double v = setting.toDouble(&numeric);
+                if (numeric)
+                    row.numeric.insert(v);
+                else
+                    row.nonNumeric.insert(setting);
+            }
+
+            // Grinders that exist as equipment but own no shots. Without this a
+            // package nothing points at is simply absent, which reads as "no
+            // such grinder" when the truth is "nothing was ever attributed to
+            // it" — the fork-detaches-history failure in one line.
+            QSqlQuery g(db);
+            if (!g.exec(QStringLiteral(
+                    "SELECT DISTINCT COALESCE(model, '') FROM equipment_items "
+                    "WHERE kind = 'grinder' AND TRIM(COALESCE(model, '')) != ''"))) {
+                // Warn but carry on, unlike the two above: their results ARE the
+                // census, while this query only ADDS zero-shot grinders. What must
+                // not happen is losing it silently — a census that quietly drops
+                // the row proving "this grinder owns nothing" fails at exactly the
+                // job it was added for.
+                EQUIP_WARN_STDERR("Census",
+                                  QStringLiteral("grinder list query failed, zero-shot "
+                                                 "grinders omitted below: %1")
+                                      .arg(g.lastError().text()));
+            }
+            while (g.next()) {
+                const QString model = g.value(0).toString().trimmed();
+                Row& row = byModel[fold(model)];
+                if (row.display.isEmpty())
+                    row.display = model;
+            }
+
+            EQUIP_LOG_STDERR("Census", QStringLiteral(
+                                           "%1 shot(s), %2 attributed to a grinder package, %3 not")
+                                           .arg(total).arg(total - unlinked).arg(unlinked));
+
+            for (const Row& row : std::as_const(byModel)) {
+                EQUIP_LOG_STDERR("Census", QStringLiteral(
+                                               "\"%1\" - %2 shot(s), %3 distinct numeric "
+                                               "setting(s), %4 non-numeric")
+                                               .arg(row.display)
+                                               .arg(row.shots)
+                                               .arg(row.numeric.size())
+                                               .arg(row.nonNumeric.size()));
+            }
+        });
+    });
 }
 
 void ShotHistoryStorage::sortGrinderSettings(QStringList& settings)

@@ -1084,44 +1084,77 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
     // including the grinder, which is optional since grinder-less basket-only
     // packages (add-recipe-wizard-tea) — is matched via correlated subqueries
     // anchored on the package row, so a package LACKING a component resolves
-    // to '' and matches an empty param ("no grinder" / "no basket" / "no puck
-    // prep" are distinct, matchable identity values). IFNULL on the bind side
-    // too: a caller omitting a component passes a null QString → SQL NULL, and
-    // without IFNULL the '' = NULL comparison is NULL (never true) and
-    // component-less packages stop matching.
+    // to '' and matches an empty argument ("no grinder" / "no basket" / "no
+    // puck prep" are distinct, matchable identity values).
+    //
+    // The IFNULLs are what keep that true, and they are still load-bearing now
+    // that the comparison moved into C++: a missing row yields SQL NULL, whose
+    // QString is null, and only IFNULL makes it the '' that an omitted argument
+    // compares equal to. On the argument side a null QString already compares
+    // equal to '' in Qt, so it needs nothing — this note used to describe an
+    // IFNULL on binds that no longer exist.
+    // The comparison is done in C++, NOT in SQL, for the same reason
+    // findPackageByNameStatic below does it that way: SQLite's LOWER() folds
+    // ASCII only. This predicate used to compare with LOWER() on both sides,
+    // so an accented brand or model — "Café", "Kaffeemühle" — did not fold, and
+    // the same two packages the NAME gate called duplicates were distinct
+    // identities here. Qt::CaseInsensitive folds the whole range, so the two
+    // now agree. An inventory is tens of rows; scanning it is cheaper than the
+    // bug, and that judgement is already made and written down next door.
+    //
+    // Trimming is the other half and was missing entirely on the stored side.
+    // ShotHistoryStorage::grinderModelMatchSql folds case AND whitespace, and
+    // so does the enrichment-heal query further down THIS file, so a model
+    // stored as " Niche Zero" was two grinders to this matcher and one to
+    // every query that reads dial history. Forking a package is precisely what
+    // detaches that history — #1713's mechanism — so two matchers disagreeing
+    // about "is this the same grinder?" is the shape of a real defect, not a
+    // tidiness point.
+    //
+    // Widening a match is the safe direction: it can only fold rows that differ
+    // by case or whitespace into one, and nobody distinguishes packages by a
+    // leading space. Puck prep stays an exact compare — canonical flag strings
+    // on both sides, per its own note below.
+    const auto sameToken = [](const QString& a, const QString& b) {
+        return a.trimmed().compare(b.trimmed(), Qt::CaseInsensitive) == 0;
+    };
+    // Re-canonicalize the query arg so an unsorted/non-canonical caller still matches
+    // the canonical stored value (the compare is exact, not order-aware).
+    const QString puckWanted = PuckPrep::recanonical(puckPrep);
+
     QSqlQuery query(db);
-    query.prepare("SELECT p.id FROM equipment_packages p "
-                  "WHERE p.in_inventory = 1 "
-                  "AND p.id != :exclude "
-                  "AND LOWER(IFNULL((SELECT g.brand FROM equipment_items g "
-                  "  WHERE g.package_id = p.id AND g.kind = 'grinder' ORDER BY g.id LIMIT 1),'')) = LOWER(IFNULL(:brand,'')) "
-                  "AND LOWER(IFNULL((SELECT g.model FROM equipment_items g "
-                  "  WHERE g.package_id = p.id AND g.kind = 'grinder' ORDER BY g.id LIMIT 1),'')) = LOWER(IFNULL(:model,'')) "
-                  "AND LOWER(IFNULL((SELECT json_extract(g.attrs,'$.burrs') FROM equipment_items g "
-                  "  WHERE g.package_id = p.id AND g.kind = 'grinder' ORDER BY g.id LIMIT 1),'')) = LOWER(IFNULL(:burrs,'')) "
-                  "AND LOWER(IFNULL((SELECT b.brand FROM equipment_items b "
-                  "  WHERE b.package_id = p.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),'')) = LOWER(IFNULL(:bbrand,'')) "
-                  "AND LOWER(IFNULL((SELECT b.model FROM equipment_items b "
-                  "  WHERE b.package_id = p.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),'')) = LOWER(IFNULL(:bmodel,'')) "
+    query.prepare("SELECT p.id, "
+                  "IFNULL((SELECT g.brand FROM equipment_items g "
+                  "  WHERE g.package_id = p.id AND g.kind = 'grinder' ORDER BY g.id LIMIT 1),''), "
+                  "IFNULL((SELECT g.model FROM equipment_items g "
+                  "  WHERE g.package_id = p.id AND g.kind = 'grinder' ORDER BY g.id LIMIT 1),''), "
+                  "IFNULL((SELECT json_extract(g.attrs,'$.burrs') FROM equipment_items g "
+                  "  WHERE g.package_id = p.id AND g.kind = 'grinder' ORDER BY g.id LIMIT 1),''), "
+                  "IFNULL((SELECT b.brand FROM equipment_items b "
+                  "  WHERE b.package_id = p.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),''), "
+                  "IFNULL((SELECT b.model FROM equipment_items b "
+                  "  WHERE b.package_id = p.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),''), "
                   // Puck-prep identity is the canonical flag string in the puckprep
                   // item's `model` column. Stored values are always canonical (the
-                  // write path re-canonicalizes), and the bind below is too, so a
-                  // plain '=' is a correct full-identity match.
-                  "AND IFNULL((SELECT pp.model FROM equipment_items pp "
-                  "  WHERE pp.package_id = p.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') = IFNULL(:puck,'') "
-                  "ORDER BY p.id LIMIT 1");
+                  // write path re-canonicalizes), and the bind above is too, so an
+                  // exact compare is a correct full-identity match.
+                  "IFNULL((SELECT pp.model FROM equipment_items pp "
+                  "  WHERE pp.package_id = p.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') "
+                  "FROM equipment_packages p "
+                  "WHERE p.in_inventory = 1 AND p.id != :exclude ORDER BY p.id");
     query.bindValue(":exclude", excludeId);
-    query.bindValue(":brand", brand.trimmed());
-    query.bindValue(":model", model.trimmed());
-    query.bindValue(":burrs", burrs.trimmed());
-    query.bindValue(":bbrand", basketBrand.trimmed());
-    query.bindValue(":bmodel", basketModel.trimmed());
-    // Re-canonicalize the query arg so an unsorted/non-canonical caller still matches
-    // the canonical stored value (the compare is a plain '=', not order-aware).
-    query.bindValue(":puck", PuckPrep::recanonical(puckPrep));
-    if (!query.exec() || !query.next())
+    if (!query.exec())
         return 0;
-    return query.value(0).toLongLong();
+    while (query.next()) {
+        if (sameToken(query.value(1).toString(), brand)
+            && sameToken(query.value(2).toString(), model)
+            && sameToken(query.value(3).toString(), burrs)
+            && sameToken(query.value(4).toString(), basketBrand)
+            && sameToken(query.value(5).toString(), basketModel)
+            && query.value(6).toString() == puckWanted)
+            return query.value(0).toLongLong();
+    }
+    return 0;
 }
 
 qint64 EquipmentStorage::findPackageByNameStatic(QSqlDatabase& db, const QString& name, qint64 excludeId)
