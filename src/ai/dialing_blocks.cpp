@@ -712,7 +712,22 @@ bool sameGrinderSetting(const QString& aRaw, const QString& bRaw)
 
     const std::optional<double> an = GrinderAliases::leadingDialNumber(a);
     const std::optional<double> bn = GrinderAliases::leadingDialNumber(b);
-    if (!an || !bn) return true;                   // not numerically comparable
+    if (!an || !bn) {
+        // Lettered dials ("3F" vs "3C") parse as no number — leadingDialNumber
+        // only knows numRe and compoundRe, not looksLikeSetting()'s third
+        // shape. They are still two REAL settings that plainly differ, so
+        // compare them the way grinderMatches() does: exact string equality.
+        //
+        // Only when both sides are recognisable settings. Prose and free text
+        // fail looksLikeSetting() and keep the conservative "unknown is not a
+        // change" answer, which is what the spec's both-shots-record-it rule
+        // requires. Returning "same" for everything incomparable — as this did
+        // first — made a lettered regrind invisible and scored it "followed",
+        // the exact defect this function exists to catch.
+        if (GrinderAliases::looksLikeSetting(a) && GrinderAliases::looksLikeSetting(b))
+            return false;   // trimmed, and a != b by the early-out above
+        return true;
+    }
     return std::abs(*an - *bn) <= kGrinderStepTolerance + 1e-9;
 }
 
@@ -789,8 +804,17 @@ bool rpmMatches(int recommended, int actual, int prior)
 // Tolerances are the same ones adherence scoring uses elsewhere, so scale
 // noise and RPM rounding do not read as a decision. Every field requires
 // evidence on BOTH sides before it can report a change: an unrecorded dose or
-// a blank profile name is missing data, and treating it as a change would
-// flip long-settled turns to "ignored" on nothing.
+// an unrecorded RPM is missing data, and treating it as a change would flip
+// long-settled turns to "ignored" on nothing.
+//
+// The PROFILE is deliberately not compared. buildRecentAdviceBlock only pairs
+// shots that share `profile_kb_id` — the prior is skipped when its kb id does
+// not match, and the follow-up is selected `WHERE profile_kb_id = ?` — so both
+// shots are always on the same profile by construction. Comparing the stored
+// `profileName` on top of that cannot detect a profile switch (there is none
+// to detect); it can only fire when the snapshot titles differ for the SAME
+// profile, which means the user renamed it between the two shots. A rename is
+// not a setup change, so that check was false-positive-only and is gone.
 bool setupChangedFromPrior(const ShotProjection& prior, const ShotProjection& actual)
 {
     if (!sameGrinderSetting(prior.grinderSetting, actual.grinderSetting))
@@ -800,9 +824,6 @@ bool setupChangedFromPrior(const ShotProjection& prior, const ShotProjection& ac
         return true;
     if (prior.doseWeightG > 0.0 && actual.doseWeightG > 0.0
         && std::abs(actual.doseWeightG - prior.doseWeightG) > kDoseToleranceG + 1e-9)
-        return true;
-    if (!prior.profileName.isEmpty() && !actual.profileName.isEmpty()
-        && prior.profileName != actual.profileName)
         return true;
     return false;
 }

@@ -63,6 +63,10 @@ struct ShotRow {
     QString grinderModel{};
     QString grinderBurrs{};
     QString grinderSetting{};
+    // Grinder RPM → shots.rpm. 0 by default, which is also what "not
+    // recorded" looks like, so existing fixtures are unaffected and the
+    // adherence comparison skips the field exactly as it does in the wild.
+    qint64 rpm = 0;
     int enjoyment = 0;
     QString espressoNotes{};
     // Issue #1158: profile recipe snapshot + SAW target. Empty/0 by
@@ -126,7 +130,7 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
             uuid, timestamp, profile_name, beverage_type,
             duration_seconds, final_weight, dose_weight,
             bean_brand, bean_type, roast_level,
-            grinder_setting, equipment_id,
+            grinder_setting, rpm, equipment_id,
             enjoyment, espresso_notes, profile_kb_id,
             profile_json, yield_override, temperature_override, stopped_by,
             frozen_date, defrost_date, storage_hint, opened_date
@@ -134,7 +138,7 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
             :uuid, :timestamp, :profile_name, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_level,
-            :grinder_setting, :equipment_id,
+            :grinder_setting, :rpm, :equipment_id,
             :enjoyment, :espresso_notes, :profile_kb_id,
             :profile_json, :yield_override, :temperature_override, :stopped_by,
             :frozen_date, :defrost_date, :storage_hint, :opened_date
@@ -151,6 +155,10 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     q.bindValue(":bean_type", r.beanType);
     q.bindValue(":roast_level", r.roastLevel);
     q.bindValue(":grinder_setting", r.grinderSetting);
+    // NULL when unset, matching a shot with no recorded RPM — a 0 here
+    // would still read as "not recorded" downstream, but NULL is what the
+    // app actually writes.
+    q.bindValue(":rpm", r.rpm > 0 ? QVariant(r.rpm) : QVariant());
     q.bindValue(":equipment_id", equipmentId > 0 ? QVariant(equipmentId) : QVariant());
     q.bindValue(":enjoyment", r.enjoyment);
     q.bindValue(":espresso_notes", r.espressoNotes);
@@ -1397,7 +1405,8 @@ private slots:
     // decides whether the predicted repeat actually happened.
     QString adherenceForStructured(const QString& tag, const QJsonObject& sn,
                                    const QString& priorGrind, const QString& nextGrind,
-                                   double priorDose = 18, double nextDose = 18)
+                                   double priorDose = 18, double nextDose = 18,
+                                   qint64 priorRpm = 0, qint64 nextRpm = 0)
     {
         const QString dbPath = freshDbPath();
         initAndClose(dbPath);
@@ -1409,13 +1418,13 @@ private slots:
                 .uuid = "u-prior", .timestamp = nowSec - 7200,
                 .profileName = "P", .profileKbId = "kb",
                 .duration = 30, .finalWeight = 36, .doseWeight = priorDose,
-                .grinderSetting = priorGrind
+                .grinderSetting = priorGrind, .rpm = priorRpm
             });
             insertShot(db, ShotRow{
                 .uuid = "u-next", .timestamp = nowSec - 3600,
                 .profileName = "P", .profileKbId = "kb",
                 .duration = 30, .finalWeight = 36, .doseWeight = nextDose,
-                .grinderSetting = nextGrind
+                .grinderSetting = nextGrind, .rpm = nextRpm
             });
 
             DialingBlocks::RecentAdviceInputs in;
@@ -1498,6 +1507,82 @@ private slots:
     // A blank grinder setting is missing data, not proof of a regrind. Older
     // shots have no recorded setting, and downgrading those to "ignored" would
     // rewrite long-settled history on no evidence at all.
+    // Lettered dials ("3F" -> "3C") are an unmistakable regrind, but they
+    // parse as NO number — leadingDialNumber() only knows the numeric and
+    // compound shapes. The first version of sameGrinderSetting() answered
+    // "same" for anything it could not compare numerically, which swallowed
+    // this case whole and scored it "followed": the precise defect this
+    // function exists to catch, surviving inside the fix for it.
+    void recentAdvice_rangesOnlyLetteredRegrindIsIgnored()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove("grinderSetting");
+        const QString verdict =
+            adherenceForStructured("adh_ranges_lettered", sn, "3F", "3C");
+        QCOMPARE(verdict, QStringLiteral("ignored"));
+        QVERIFY2(verdict != QStringLiteral("followed"),
+                 "a lettered-dial regrind is still a regrind");
+    }
+
+    // The RPM axis, which nothing reached before: ShotRow had no rpm field, so
+    // every fixture wrote NULL and the comparison skipped. 1400 -> 1200 is a
+    // deliberate move; 1400 -> 1410 is inside the +/-25 band and is not.
+    void recentAdvice_rangesOnlyRpmChangeRespectsTolerance()
+    {
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove("grinderSetting");
+        QCOMPARE(adherenceForStructured("adh_ranges_rpm_big", sn, "9.0", "9.0",
+                                        18, 18, 1400, 1200),
+                 QStringLiteral("ignored"));
+        QCOMPARE(adherenceForStructured("adh_ranges_rpm_noise", sn, "9.0", "9.0",
+                                        18, 18, 1400, 1410),
+                 QStringLiteral("followed"));
+        // Unrecorded on one side is missing data, not a change.
+        QCOMPARE(adherenceForStructured("adh_ranges_rpm_unset", sn, "9.0", "9.0",
+                                        18, 18, 1400, 0),
+                 QStringLiteral("followed"));
+    }
+
+    // A profile RENAME must not read as a setup change. buildRecentAdviceBlock
+    // only ever pairs shots sharing profile_kb_id, so differing stored titles
+    // mean the user renamed the profile between them — nothing about the
+    // coffee moved. The profile comparison was removed for this reason; this
+    // pins that it stays removed.
+    void recentAdvice_rangesOnlyProfileRenameIsNotAChange()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+        QJsonObject sn = sampleStructuredNext();
+        sn.remove("grinderSetting");
+
+        withRawDb(dbPath, "adh_ranges_rename", [&](QSqlDatabase& db) {
+            const qint64 priorId = insertShot(db, ShotRow{
+                .uuid = "u-prior", .timestamp = nowSec - 7200,
+                .profileName = "Old Title", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "9.0"
+            });
+            insertShot(db, ShotRow{
+                .uuid = "u-next", .timestamp = nowSec - 3600,
+                .profileName = "New Title", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "9.0"
+            });
+
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = {AIConversation::HistoricalAssistantTurn{priorId, "advice", sn}};
+            in.currentProfileKbId = "kb";
+            in.currentShotId = 99999;
+
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QCOMPARE(out.size(), 1);
+            QCOMPARE(out.first().toObject().value("userResponse").toObject()
+                         .value("adherence").toString(),
+                     QStringLiteral("followed"));
+        });
+    }
+
     void recentAdvice_rangesOnlyUnknownSettingStaysFollowed()
     {
         QJsonObject sn = sampleStructuredNext();
