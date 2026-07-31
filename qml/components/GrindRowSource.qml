@@ -36,18 +36,28 @@ QtObject {
     readonly property bool rpmCapable:
         Settings.dye.grinderRpmCapable(root.grinderBrand, root.grinderModel)
 
+    // Bumped when a WRITE lands (shot saved, deleted, metadata edited, database
+    // imported). The derived steps below genuinely change with history, so they
+    // need a dependency that moves when history does — a readonly property over
+    // grindStepForGrinder() otherwise keeps its first answer for the life of the
+    // component, and GrindQuickSelectItem is a bar widget that lives a long time.
+    //
+    // This is NOT the old distinctCacheVersion. That one was bumped by
+    // distinctCacheReady(), which also fired on every async single-key cache
+    // fill — re-running both queries across every live GrindRowSource for an
+    // answer that had not changed. historyDataChanged() fires on writes only.
+    property int historyVersion: 0
+    readonly property Connections _historyConn: Connections {
+        target: MainController.shotHistory
+        function onHistoryDataChanged() { root.historyVersion++ }
+    }
+
     // Per-grinder grind step, derived from the user's own shot history for the
     // INJECTED grinder by the same noise-filtered estimator the AI dialing
     // context uses. Falls back to 1.0 when history is too thin. With no grinder,
     // grindStepForGrinder("") derives from full history.
-    //
-    // These read the database directly and depend only on grinderModel, so each
-    // runs once per grinder per GrindRowSource. They used to also depend on a
-    // distinctCacheVersion counter bumped by distinctCacheReady() — which fired
-    // on every single-key cache fill, re-running both queries across every live
-    // GrindRowSource for an answer that could not have changed. The cache is gone
-    // and so is the counter.
     readonly property double grindStep: {
+        var __ = root.historyVersion
         var s = MainController.shotHistory
             ? MainController.shotHistory.grindStepForGrinder(root.grinderModel) : 0
         return s > 0 ? s : 1.0
@@ -60,6 +70,7 @@ QtObject {
     readonly property int rpmStep: {
         if (!root.rpmCapable)
             return 50
+        var __ = root.historyVersion
         var s = MainController.shotHistory
             ? MainController.shotHistory.grindRpmStepForGrinder(root.grinderModel) : 0
         return s > 0 ? Math.round(s) : 50
@@ -321,6 +332,6 @@ QtObject {
     // consume rows reactively, because a rebuild under an open Tumbler resets
     // the view mid-interaction (see GrindPickerDialog's snapshot rationale).
     // Callers take an explicit snapshot via grindRowsFor()/rpmRowsFor() and
-    // rebuild at defined moments. Nothing to listen for any more: the getters
-    // read the database directly, so a snapshot is current when it is taken.
+    // rebuild at defined moments, listening to historyVersion for writes. The
+    // getters read the database directly, so a snapshot is current when taken.
 }

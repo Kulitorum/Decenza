@@ -83,10 +83,6 @@ DecenzaDialog {
     property bool _rpmTouched: false
     property int _rpmSnapIndex: -1
 
-    // True when the dialog auto-entered text mode purely because the grind wheel
-    // had nothing to spin at open. This is ambiguous at open time: it means
-    // EITHER the grinder genuinely has no numeric history (stay in text mode) OR
-    // the async distinct-settings cache was still cold (a median-anchored wide
     // True while the RPM wheel is parked on the SYNTHETIC anchor with nothing
     // committed — i.e. exactly when Done will NOT write an RPM. The centred row
     // is styled as a placeholder in that state: the accent styling means "this
@@ -103,12 +99,17 @@ DecenzaDialog {
         && root.textMode && (grindText.activeFocus || rpmText.activeFocus)
 
     // Wheel candidates for the PENDING value, rebuilt as an explicit SNAPSHOT
-    // (open / async-cache warm-up / text->wheel re-seed) rather than a reactive
-    // binding: a binding regenerates the model UNDER the open Tumbler when the
-    // distinct-value cache warms a moment after the first open, resetting the
-    // view and animating hundreds of rows — the "wheel goes crazy on first
-    // open" bug. Snapshots move only when we say so, and every move is
+    // (open / text->wheel re-seed) rather than a reactive binding: a binding
+    // regenerates the model UNDER the open Tumbler whenever its inputs move,
+    // resetting the view and animating hundreds of rows — the "wheel goes crazy
+    // on first open" bug. Snapshots move only when we say so, and every move is
     // followed by a non-animated snap (_centerWheels).
+    //
+    // The original trigger was the distinct-value cache warming a moment after
+    // the first open. That cache is gone and the reads are live, so that exact
+    // sequence cannot recur — but the snapshot is still right: rowSource.grindStep
+    // now moves on historyDataChanged(), and a shot saved while the picker is
+    // open would otherwise rebuild the model under the user's finger.
     property var _grindRows: []
     property var _rpmRows: []
 
@@ -495,8 +496,6 @@ DecenzaDialog {
                     Layout.fillWidth: true
                     horizontalAlignment: TextInput.AlignHCenter
                     accessibleName: TranslationManager.translate("grind.quickSelect.label", "Grind")
-                    // Typing is engaging text mode — a late warm-up must not
-                    // promote to the wheel and hide the keyboard mid-entry.
                     Keys.onReturnPressed: root._applyAndClose()
                     Keys.onEnterPressed: root._applyAndClose()
                 }

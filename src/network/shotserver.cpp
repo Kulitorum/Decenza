@@ -1908,6 +1908,8 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, shotId, success, dbOpened]() {
                 if (*destroyed) return;
                 if (success) {
+                    // Direct metadata write — notify history-derived bindings.
+                    emit m_storage->historyDataChanged();
                     emit m_storage->shotMetadataUpdated(shotId, true);
                 }
                 if (!socketGuard) return;

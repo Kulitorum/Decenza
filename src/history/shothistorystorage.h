@@ -253,14 +253,19 @@ public:
     Q_INVOKABLE void requestMostRecentShotId();
 
     // Get filter options. Each runs its query against the live database and
-    // returns the answer — small bounded SELECT DISTINCTs on discrete user
-    // actions (a dialog or picker opening). Measured on a real 18.5 MB database:
-    // 0.36-1.9 ms each. There is deliberately no cache; see the note on
-    // grinderWideStep() in shothistorystorage_queries.cpp for why.
+    // returns the answer. There is deliberately no cache; the measurements and
+    // the reasoning are on queryDistinctList() in shothistorystorage_queries.cpp
+    // — one copy, next to the code they justify.
+    //
+    // These are cheap but NOT free, and several are read from QML suggestion
+    // bindings. Do not call one from inside a binding that depends on the text
+    // the user is typing: hoist it to a property refreshed on load and on
+    // historyDataChanged(). PostShotReviewPage and ChangeBeansDialog both had to
+    // be fixed for exactly that.
     Q_INVOKABLE QStringList getDistinctBeanBrands();
     Q_INVOKABLE QStringList getDistinctBaristas();
 
-    // Get filter options with parent-based filtering (cache-only)
+    // Get filter options with parent-based filtering (live reads)
     Q_INVOKABLE QStringList getDistinctBeanTypesForBrand(const QString& beanBrand);
     Q_INVOKABLE QStringList getDistinctGrinderBrands();
     Q_INVOKABLE QStringList getDistinctGrinderModelsForBrand(const QString& grinderBrand);
@@ -269,7 +274,7 @@ public:
 
     // Typical dial increment observed for a grinder, for the Grind quick-select
     // widget. Non-empty model → that grinder's settings; empty model → the full
-    // cross-grinder history (getDistinctGrinderSettingsForGrinder handles both).
+    // cross-grinder history (grinderWideNumericSettings handles both).
     // Parses the numeric subset and runs the same noise-filtered estimator the
     // AI dialing context uses, so the widget and the AI never disagree. Returns
     // 0 when it cannot derive (<2 distinct numeric settings) — the caller
@@ -279,7 +284,7 @@ public:
     // RPM counterpart of grindStepForGrinder, for variable-RPM grinders: the
     // typical increment between the RPMs the user has actually dialed on this
     // grinder (the shots.rpm column), via the same noise-filtered estimator.
-    // Returns 0 when it cannot derive (cold cache, or <2 distinct RPMs) — the
+    // Returns 0 when it cannot derive (<2 distinct RPMs) — the
     // widget falls back to its fixed RPM step. Empty model → 0 (RPM mode always
     // has an identified grinder).
     Q_INVOKABLE double grindRpmStepForGrinder(const QString& grinderModel);
@@ -384,7 +389,7 @@ public:
 
     // Thread-safe import: opens separate connections for source and destination.
     // Safe to call from any thread (does not use m_db).
-    // Caller must invoke refreshTotalShots() on the main thread afterward (which also invalidates the distinct cache).
+    // Caller must invoke refreshTotalShots() on the main thread afterward.
     static bool importDatabaseStatic(const QString& destDbPath, const QString& srcFilePath, bool merge);
 
     // Thread-safe shot count: opens a temporary connection.
@@ -407,6 +412,22 @@ signals:
     void latestGrindForBeanReady(const QVariantMap& grind);
     void importDatabaseFinished(bool success);
     void shotMetadataUpdated(qint64 shotId, bool success);
+
+    // A write landed that can change what the getDistinct*() getters and the
+    // grind-step derivation return: a shot saved, deleted, metadata-edited, or a
+    // database imported. Emitted from exactly the sites that used to call
+    // invalidateDistinctCache().
+    //
+    // This is NOT the distinct-value cache returning. Nothing is stored; this
+    // only tells a QML binding that already reads live that its answer may have
+    // moved. The cache's problem was that it fired on every async single-key
+    // fill as well, re-running every consumer for an answer that had not
+    // changed — this fires on writes only.
+    //
+    // A binding whose value can change with history needs it: a `readonly
+    // property` over grindStepForGrinder() depends on nothing else, so without
+    // this a resident widget keeps its first answer for its whole life.
+    void historyDataChanged();
     void autoFavoritesReady(const QVariantList& results);
     void autoFavoriteGroupDetailsReady(const QVariantMap& details);
     void backupFinished(bool success, const QString& resultPath);
@@ -454,8 +475,9 @@ private:
     QString formatFtsQuery(const QString& userInput);
 
     // SQL fragment matching shots to a grinder MODEL, case- and whitespace-folded.
-    // Public + static because the AI dialing block builds the same predicate and the
-    // two MUST fold identically. `placeholder` is the bind style at the call site.
+    // Public + static because its callers are file-static free functions in
+    // shothistorystorage_queries.cpp, which cannot reach a private member.
+    // `placeholder` is the bind style at the call site (":model" or "?").
 public:
     static QString grinderModelMatchSql(const QString& placeholder);
 private:
@@ -514,7 +536,13 @@ private:
     std::atomic<bool> m_importInProgress{false};   // Prevent concurrent import/restore operations (thread-safe)
 
     // Deduped narration of what grindStepForGrinder() derived — see its definition.
-    void reportGrindStep(const QString& grinderModel, qsizetype sampleCount, double step);
+    // Why a derivation answered what it did. All three non-derived outcomes
+    // return the SAME 0.0, so a log that does not name them cannot tell a broken
+    // query from a grinder with no numeric history — which is exactly how #1713
+    // stayed undiagnosed.
+    enum class GrindStepOutcome { Derived, NotReady, QueryFailed, TooThin };
+    void reportGrindStep(const QString& grinderModel, qsizetype sampleCount, double step,
+                         GrindStepOutcome outcome);
     // Last "<count>:<step>" reported per grinder model, so the derivation is
     // logged when it CHANGES rather than on every re-evaluation. Keyed by model:
     // a single scalar alternated between two live GrindRowSources (startup has

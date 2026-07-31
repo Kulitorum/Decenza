@@ -286,8 +286,43 @@ DecenzaDialog {
         MainController.beanbase.search(q)
     }
 
+    // History-derived suggestion lists, read at defined moments rather than from
+    // inside the suggestion bindings. Both bindings re-evaluate on every keystroke
+    // (roasterInput.onTextEdited rewrites fRoaster and kicks a canonical search
+    // that rewrites formCanonicalEntries), so calling the getters inline ran a
+    // live SELECT DISTINCT per character. CLAUDE.md's rule is to keep main-thread
+    // queries off a repeating path; these are hoisted rather than threaded because
+    // the read itself is sub-millisecond, it is the repetition that was wrong.
+    property var _historyRoasters: []
+    // One-entry memo for the parameterised getter: the roaster is what the user is
+    // typing, so the query genuinely changes with it — but the coffee binding also
+    // re-fires on every canonical-search result, and those must not re-query.
+    // "\u0000" cannot be a real roaster, so it means "nothing memoised".
+    property string _typesMemoKey: "\u0000"
+    property var _typesMemoValue: []
+
+    function _refreshHistoryLists() {
+        _historyRoasters = MainController.shotHistory
+            ? MainController.shotHistory.getDistinctBeanBrands().slice() : []
+        _typesMemoKey = "\u0000"
+    }
+
+    function _beanTypesFor(roaster) {
+        if (_typesMemoKey === roaster)
+            return _typesMemoValue
+        _typesMemoValue = MainController.shotHistory
+            ? MainController.shotHistory.getDistinctBeanTypesForBrand(roaster).slice() : []
+        _typesMemoKey = roaster
+        return _typesMemoValue
+    }
+
+    Connections {
+        target: MainController.shotHistory
+        function onHistoryDataChanged() { root._refreshHistoryLists() }
+    }
+
     function roasterSuggestions() {
-        var out = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanBrands().slice() : []
+        var out = root._historyRoasters.slice()
         for (var i = 0; i < formCanonicalEntries.length; i++) {
             var name = formCanonicalEntries[i].roasterName
             if (name && out.indexOf(name) === -1) out.push(name)
@@ -296,7 +331,7 @@ DecenzaDialog {
     }
 
     function coffeeSuggestions() {
-        var out = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanTypesForBrand(fRoaster).slice() : []
+        var out = root._beanTypesFor(fRoaster).slice()
         for (var i = 0; i < formCanonicalEntries.length; i++) {
             var entry = formCanonicalEntries[i]
             if (fRoaster.length > 0 && entry.roasterName
@@ -782,6 +817,7 @@ DecenzaDialog {
     }
 
     onOpened: {
+        _refreshHistoryLists()
         if (mode === "search")
             searchField.forceActiveFocus()
         else if (fRoaster.length === 0 && fCoffee.length === 0)

@@ -123,11 +123,12 @@ bool ShotHistoryStorage::isDbWorkIdle() const
     // No worker means nothing was ever posted, which is idle by definition — the
     // worker is created lazily on first use (runOnDbThread).
     //
-    // The detached count is the other half, and it used to be missing: the eleven
+    // The detached count is the other half, and it used to be missing: the ten
     // read queries spawn one-shot threads that never go through m_dbWorker, so a
     // caller that waited on this was told "idle" while a thread was mid-SELECT.
-    // initialize() itself starts one (the distinct-cache pre-warm), so EVERY user
-    // of this class had one running. It surfaced as tst_mcptools_write failing
+    // initialize() used to start one itself (the distinct-value cache pre-warm),
+    // so EVERY user of this class had one running; that cache is gone, but the
+    // detached reads it exposed remain. It surfaced as tst_mcptools_write failing
     // with `disk I/O error Unable to execute statement` — a test's QTemporaryDir
     // deleting the .db out from under the previous test's still-running pre-warm,
     // with the warning landing in whichever test happened to be running next.
@@ -3347,6 +3348,9 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
                 return;
             }
             if (success) {
+                // A rating, note, bean or grind edit can move what the history
+                // getters and the grind-step derivation return.
+                emit historyDataChanged();
             } else {
                 // User-facing (surfaced as a toast): no internal shot id, no
                 // "metadata" jargon. The id + success are logged at qDebug below.
@@ -3363,6 +3367,9 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
 
 void ShotHistoryStorage::updateTotalShots()
 {
+    // Rows went away, so history-derived values may have moved.
+    emit historyDataChanged();
+
     // Async: run COUNT on background thread using existing static helper
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
@@ -4400,7 +4407,8 @@ void ShotHistoryStorage::backfillBeverageType()
 
 void ShotHistoryStorage::refreshTotalShots()
 {
-    // Refresh distinct cache asynchronously
+    // Shot count moved, so anything derived from history may have moved too.
+    emit historyDataChanged();
 
     // Run COUNT query on background thread to avoid blocking the main thread
     QString dbPath = m_dbPath;

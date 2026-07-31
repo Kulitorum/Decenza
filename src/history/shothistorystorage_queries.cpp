@@ -1,5 +1,5 @@
 // ShotHistoryStorage queries — filtered list, recents-by-kbId, auto-favorites,
-// distinct-value cache, grinder context. Split out of the main TU so the
+// distinct-value getters, grinder context. Split out of the main TU so the
 // query / read-projection code lives separately from DB lifecycle, save,
 // load+recompute, and the badge cascade. All concerns share the same
 // `ShotHistoryStorage` class — these are member function definitions in a
@@ -916,8 +916,22 @@ static double deriveGrindStep(const QList<double>& sortedDistinct)
 // including shots with no equipment row at all. The ShotServer /beans form needs
 // that, since a new bag has no equipment chosen yet. queryGrinderContext returns
 // early on an empty model, so only the widget path reaches it.
-static QList<double> grinderWideNumericSettings(QSqlDatabase& db, const QString& grinderModel)
+//
+// Cost, measured with a fresh connection per run: 3.3 ms median / 87 ms worst on
+// a real 1,124-shot / 18.5 MB database; 37 ms median / 41 ms worst on a 16x copy
+// (17,984 shots / 157 MB). The more expensive of the two read shapes in this file
+// — a correlated equipment_id IN (SELECT ...) subquery over `shots`, whose cost
+// tracks table BYTES because a page read drags the profile_json and debug_log
+// blobs along. Its callers are GrindRowSource's step bindings, which re-evaluate
+// on a grinder change and on a write, not per frame or per keystroke.
+//
+// `queryOk` reports whether the QUERY ran, not whether it found anything. A failed
+// query and a grinder with no numeric history both yield an empty list, and the
+// caller must not describe them the same way — see reportGrindStep.
+static QList<double> grinderWideNumericSettings(QSqlDatabase& db, const QString& grinderModel,
+                                                bool* queryOk = nullptr)
 {
+    if (queryOk) *queryOk = false;
     static const QString kAll = QStringLiteral(
         "SELECT DISTINCT grinder_setting FROM shots "
         "WHERE grinder_setting IS NOT NULL AND grinder_setting != ''");
@@ -937,6 +951,7 @@ static QList<double> grinderWideNumericSettings(QSqlDatabase& db, const QString&
                    << q.lastError().text() << "grinderModel=" << grinderModel;
         return {};
     }
+    if (queryOk) *queryOk = true;
     QSet<double> numericSet;
     while (q.next()) {
         bool ok = false;
@@ -956,8 +971,15 @@ static QList<double> grinderWideNumericSettings(QSqlDatabase& db, const QString&
 // REQUIRES a non-empty model — unlike its settings sibling there is no
 // all-grinders branch, because pooling RPMs across different grinders describes
 // no real dial. Both callers guard for that.
-static double grinderWideRpmStep(QSqlDatabase& db, const QString& grinderModel)
+//
+// Same shape and same cost as grinderWideNumericSettings above (3.3 ms median /
+// 87 ms worst on a real 18.5 MB database), over the integer rpm column instead of
+// the text one. `queryOk` reports whether the query RAN, so the caller can tell a
+// failure from a grinder that simply has no recorded RPMs.
+static double grinderWideRpmStep(QSqlDatabase& db, const QString& grinderModel,
+                                 bool* queryOk = nullptr)
 {
+    if (queryOk) *queryOk = false;
     QSqlQuery q(db);
     const QString sql = QStringLiteral("SELECT DISTINCT rpm FROM shots WHERE %1 AND rpm > 0")
                             .arg(ShotHistoryStorage::grinderModelMatchSql(":model"));
@@ -972,6 +994,7 @@ static double grinderWideRpmStep(QSqlDatabase& db, const QString& grinderModel)
                    << q.lastError().text() << "grinderModel=" << grinderModel;
         return 0.0;
     }
+    if (queryOk) *queryOk = true;
     QList<double> rpms;
     while (q.next()) {
         const int r = q.value(0).toInt();
@@ -999,11 +1022,9 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     // grinder_model column is dropped in migration 23, add-equipment-packages
     // task 4.1). grinder_setting (per-shot dial-in) stays on the shot row.
     QString sql = QStringLiteral(
-        "SELECT DISTINCT grinder_setting FROM shots "
-        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(:model))) "
+        "SELECT DISTINCT grinder_setting FROM shots WHERE %1 "
         "AND beverage_type = :bev "
-        "AND grinder_setting != ''");
+        "AND grinder_setting != ''").arg(grinderModelMatchSql(":model"));
     if (!beanBrand.isEmpty()) {
         sql += QStringLiteral(" AND bean_brand = :brand");
     }
@@ -1068,11 +1089,9 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     // dial-in. ORDER BY rpm makes first()/last() the min/max.
     {
         QString rpmSql = QStringLiteral(
-            "SELECT DISTINCT rpm FROM shots "
-            "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-            "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(:model))) "
+            "SELECT DISTINCT rpm FROM shots WHERE %1 "
             "AND beverage_type = :bev "
-            "AND rpm > 0");
+            "AND rpm > 0").arg(grinderModelMatchSql(":model"));
         if (!beanBrand.isEmpty())
             rpmSql += QStringLiteral(" AND bean_brand = :brand");
         rpmSql += QStringLiteral(" ORDER BY rpm");
@@ -1116,10 +1135,15 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
 // grinder, so the step silently falls back to 1.0 and the wheel loses the
 // resolution the user actually dials.
 //
-// One definition, because every model-scoped lookup here and in the AI grinder
-// calibration block MUST fold identically — six hand-written copies of this
-// predicate is exactly the drift CLAUDE.md's centralization rule describes.
-// %1 is the placeholder style the call site uses (":model" or "?").
+// One definition for every model-scoped lookup in THIS file — there were six
+// hand-written copies, which is exactly the drift CLAUDE.md's centralization rule
+// describes. %1 is the placeholder style the call site uses (":model" or "?").
+//
+// One copy is deliberately NOT collapsed: src/ai/dialing_blocks.cpp:1194 inserts
+// an extra burrs clause INSIDE the same subquery, and this helper emits that
+// subquery's closing paren, so it cannot be reused without a second parameter
+// nothing else would want. It must still fold identically — if you change the
+// folding here, change it there.
 QString ShotHistoryStorage::grinderModelMatchSql(const QString& placeholder)
 {
     return QStringLiteral(
@@ -1549,42 +1573,75 @@ QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QStri
 // afterwards.
 //
 // One function rather than one call site per return, because grindStepForGrinder()
-// has two ways to answer 0 — not-ready and too-thin — and they must not describe
-// it in two wordings.
+// has THREE ways to answer 0 — not-ready, query-failed and too-thin — and they
+// must not describe it in three wordings, or worse, in one.
 //
-// Deduped PER MODEL. The caller is a QML binding, and more than one GrindRowSource
-// is live at once (startup builds two, one usually with an empty model), so a
-// single scalar alternated between them on every evaluation and deduped nothing.
+// Naming the outcome is the point. All three return 0.0 with sampleCount 0, so a
+// line that says only "derived from 0 distinct numeric setting(s) — too thin"
+// tells a reader the user has no numeric history when the truth may be that the
+// SELECT errored. That reader closes the investigation, which is exactly how
+// #1713 survived a 25,720-line log.
+//
+// Deduped PER MODEL, and the key includes the outcome. The caller is a QML
+// binding (and the ShotServer /grind-candidates handler), and more than one
+// GrindRowSource is live at once — startup builds two, one usually with an empty
+// model — so a single scalar alternated between them and deduped nothing. The
+// outcome belongs in the key because otherwise a model that has already reported
+// "0 / too thin" stays silent when its query later starts FAILING, the one
+// transition most worth seeing.
 void ShotHistoryStorage::reportGrindStep(const QString& grinderModel, qsizetype sampleCount,
-                                         double step)
+                                         double step, GrindStepOutcome outcome)
 {
-    const QString observed = QStringLiteral("%1:%2").arg(sampleCount).arg(step);
+    const QString observed = QStringLiteral("%1:%2:%3")
+                                 .arg(sampleCount).arg(step).arg(int(outcome));
     if (m_lastGrindStepReport.value(grinderModel) == observed)
         return;
     m_lastGrindStepReport.insert(grinderModel, observed);
+
+    QString why;
+    switch (outcome) {
+    case GrindStepOutcome::Derived:
+        break;
+    case GrindStepOutcome::NotReady:
+        why = QStringLiteral(" — the database is not ready yet; the caller's "
+                             "fallback step is used instead");
+        break;
+    case GrindStepOutcome::QueryFailed:
+        why = QStringLiteral(" — the history QUERY FAILED (see the preceding warning); "
+                             "this is NOT a grinder without history, and the caller's "
+                             "fallback step is used instead");
+        break;
+    case GrindStepOutcome::TooThin:
+        why = QStringLiteral(" — too thin to derive; the caller's fallback step is "
+                             "used instead");
+        break;
+    }
+
     qDebug().noquote()
         << QStringLiteral("ShotHistoryStorage: grind step for %1 = %2, derived from %3 "
                           "distinct numeric setting(s)%4")
                .arg(grinderModel.isEmpty() ? QStringLiteral("(no grinder)") : grinderModel)
                .arg(step)
                .arg(sampleCount)
-               .arg(step > 0.0 ? QString()
-                               : QStringLiteral(" — too thin to derive; the caller's "
-                                                "fallback step is used instead"));
+               .arg(why);
 }
 
 double ShotHistoryStorage::grindStepForGrinder(const QString& grinderModel)
 {
-    // Not ready is reported, not silent. It is the same 0 the thin-history path
-    // answers, and the one a reader most needs to tell apart — see reportGrindStep.
+    // Every return is narrated, including the ones that answer 0 — they are the
+    // returns a reader most needs to tell apart. See reportGrindStep.
     if (!m_ready) {
-        reportGrindStep(grinderModel, 0, 0.0);
+        reportGrindStep(grinderModel, 0, 0.0, GrindStepOutcome::NotReady);
         return 0.0;
     }
 
-    const QList<double> numeric = grinderWideNumericSettings(m_db, grinderModel);
+    bool queryOk = false;
+    const QList<double> numeric = grinderWideNumericSettings(m_db, grinderModel, &queryOk);
     const double step = deriveGrindStep(numeric);
-    reportGrindStep(grinderModel, numeric.size(), step);
+    reportGrindStep(grinderModel, numeric.size(), step,
+                    !queryOk     ? GrindStepOutcome::QueryFailed
+                  : step > 0.0   ? GrindStepOutcome::Derived
+                                 : GrindStepOutcome::TooThin);
     return step;
 }
 
@@ -1592,10 +1649,27 @@ double ShotHistoryStorage::grindRpmStepForGrinder(const QString& grinderModel)
 {
     // RPM mode always has an identified grinder; an empty model has no meaningful
     // RPM history to pool, which is also grinderWideRpmStep's stated precondition.
-    if (grinderModel.isEmpty() || !m_ready)
+    //
+    // Narrated for the same reason as its settings twin: this also returns 0.0 for
+    // "no grinder", "not ready" and "query failed" alike, and the caller silently
+    // substitutes a 50 RPM default. #1713 was undiagnosable precisely because the
+    // value behind the symptom was never written down.
+    if (grinderModel.isEmpty() || !m_ready) {
+        reportGrindStep(QStringLiteral("%1 (rpm)").arg(
+                            grinderModel.isEmpty() ? QStringLiteral("(no grinder)") : grinderModel),
+                        0, 0.0,
+                        grinderModel.isEmpty() ? GrindStepOutcome::TooThin
+                                               : GrindStepOutcome::NotReady);
         return 0.0;
+    }
 
-    return grinderWideRpmStep(m_db, grinderModel);
+    bool queryOk = false;
+    const double step = grinderWideRpmStep(m_db, grinderModel, &queryOk);
+    reportGrindStep(QStringLiteral("%1 (rpm)").arg(grinderModel), 0, step,
+                    !queryOk     ? GrindStepOutcome::QueryFailed
+                  : step > 0.0   ? GrindStepOutcome::Derived
+                                 : GrindStepOutcome::TooThin);
+    return step;
 }
 
 void ShotHistoryStorage::sortGrinderSettings(QStringList& settings)

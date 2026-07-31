@@ -35,7 +35,7 @@ Primary APIs (see the header for the full surface):
 
 - **Reads** — `requestShotsFiltered(filter, offset, limit)` → `shotsFilteredReady`, `requestShot(shotId)` → `shotReady`, `requestMostRecentShotId()` → `mostRecentShotIdReady`, `requestRecentShotsByKbId(kbId, limit)` → `recentShotsByKbIdReady`.
 - **Writes** — `requestUpdateShotMetadata(shotId, metadata)`, `requestUpdateVisualizerInfo(shotId, id, url)`, `requestDeleteShot(shotId)`, `deleteShots(ids)`.
-- **Distinct value caches** (synchronous, hit in-memory cache) — `getDistinctBeanBrands()`, `getDistinctBaristas()`, `getDistinctBeanTypesForBrand(brand)`, `getDistinctGrinderBrands()`, `getDistinctGrinderModelsForBrand(brand)`, `getDistinctGrinderSettingsForGrinder(model)`. `requestDistinctCache()` refreshes the cache from the DB on a background thread.
+- **Distinct value getters** (synchronous, live query) — `getDistinctBeanBrands()`, `getDistinctBaristas()`, `getDistinctBeanTypesForBrand(brand)`, `getDistinctGrinderBrands()`, `getDistinctGrinderModelsForBrand(brand)`, `getDistinctGrinderSettingsForGrinder(model)`. Each runs a `SELECT DISTINCT` on the calling thread through `queryDistinctList()` and returns the answer — 0.36–1.9 ms on a real 18.5 MB database. There is no cache: the one that used to back these was invalidated on every shot save, delete and metadata edit, more often than it was read, and its invalidation dropped composite keys it never refilled (#1713). **Do not call one from a QML binding that depends on text the user is typing** — hoist it to a property refreshed on load and on `historyDataChanged()`.
 - **Grouped reads for auto-favorites** — `requestAutoFavorites(groupBy, maxItems)`, `requestAutoFavoriteGroupDetails(groupBy, groupValue)`.
 - **Backup/import** — `requestCreateBackup(destPath)`, `requestImportDatabase(filePath, merge)`. See `docs/CLAUDE_MD/DATA_MIGRATION.md` for the device-to-device transfer story.
 - **Reanalysis** — `requestReanalyzeBadges(shotId)` recomputes channel/temperature/grind quality flags on legacy shots.
@@ -96,7 +96,7 @@ Imports legacy `.shot` files from de1app and JSON files exported by other Decenz
 - All expensive reads are background-threaded via `withTempDb()` (see `src/core/dbutils.h`).
 - List page uses paginated summary reads (50 at a time). Full `ShotRecord` and the compressed sample blob are only fetched when a specific shot is opened.
 - FTS5 search keeps notes queries sub-50 ms on old tablets at 1k+ shots.
-- Distinct-value filter dropdowns hit an in-memory cache populated by `requestDistinctCache()`; the cache is invalidated on write.
+- Distinct-value filter dropdowns query the database directly on each call. Writes emit `historyDataChanged()` so bindings whose value is derived from history can re-read; nothing is cached.
 
 ## Data retention & backup
 
