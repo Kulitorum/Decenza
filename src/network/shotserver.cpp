@@ -2819,13 +2819,24 @@ void ShotServer::handleGrindCandidatesApi(QTcpSocket* socket, const QString& pat
     in.rpm = query.queryItemValue(QStringLiteral("rpm")).toLongLong();
     if (m_storage) {
         // History-derived steps + observed settings for THIS record's grinder.
-        // An empty model is passed through, not skipped:
-        // getDistinctGrinderSettingsForGrinder("") derives from the full
-        // cross-grinder history — the new-bag /beans form has no equipment
-        // selected yet and should still offer something to pick.
-        in.grindStep = m_storage->grindStepForGrinder(in.model);
-        in.rpmStep = m_storage->grindRpmStepForGrinder(in.model);
-        in.observed = m_storage->getDistinctGrinderSettingsForGrinder(in.model);
+        //
+        // An empty model is not skipped, but nor is it passed straight through:
+        // it falls back to the ACTIVE grinder first. Empty here means the record
+        // names no grinder — a new bag with no equipment picked, a recipe with
+        // no package, a shot saved before it had one — and it reaches all three
+        // forms this endpoint feeds (shots, recipes, bags), not just /beans.
+        //
+        // Passing it through pools EVERY grinder's history, which reads as
+        // correct only to a one-grinder user, because the pool is their grinder.
+        // GrindRowSource.grindStep() resolves the same way for the in-app forms
+        // these three mirror; the surfaces must not disagree about a step the
+        // user sees on both. Only a user with no grinder anywhere still pools,
+        // and for them every grinder is the only pool there is.
+        // `dye` is non-null here — the guard above 503s otherwise.
+        const QString model = in.model.isEmpty() ? dye->dyeGrinderModel() : in.model;
+        in.grindStep = m_storage->grindStepForGrinder(model);
+        in.rpmStep = m_storage->grindRpmStepForGrinder(model);
+        in.observed = m_storage->getDistinctGrinderSettingsForGrinder(model);
     }
 
     sendJson(socket, QJsonDocument(GrindCandidates::build(dye, in))

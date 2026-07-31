@@ -918,23 +918,30 @@ static double deriveGrindStep(const QList<double>& sortedDistinct)
 // neutral default: pooling mixes every grinder's dial resolution into one
 // estimate, and the caller gets no signal that it did. It reads as correct to a
 // one-grinder user because the pool IS their grinder, so nothing has ever
-// flagged it; it was found by reading the #1726 reporter's log, where the
-// post-shot review reached this branch with an empty model. (#1726's own cause
-// was the composite-key cache and was fixed separately.)
+// flagged it; it was found by reading the log attached to #1726, where the
+// post-shot review reached this branch with an empty model.
 //
-// So callers must exhaust their own identity first. GrindRowSource.grindStep()
-// falls back to the ACTIVE grinder and only pools when there is no grinder
-// anywhere; queryGrinderContext returns early on an empty model. The remaining
-// deliberate consumer is the ShotServer /beans form, where a new bag has no
-// equipment chosen yet and every grinder genuinely is the only pool available.
+// So callers must exhaust their own identity first, and both surfaces now do:
+// GrindRowSource.grindStep() and ShotServer::handleGrindCandidatesApi each
+// resolve to the ACTIVE grinder before querying. queryGrinderContext returns
+// early on an empty model and never reaches here at all.
+//
+// What still legitimately pools is a user with no grinder anywhere — no
+// injected identity and none selected — for whom every grinder IS the only
+// pool available, and a grinder whose own history is too thin to derive from,
+// where grindStep() prefers the pool to a blind 1.0 default. Both are second
+// attempts after a scoped one failed, never a first choice.
 //
 // Cost, measured with a fresh connection per run: 3.3 ms median / 87 ms worst on
 // a real 1,124-shot / 18.5 MB database; 37 ms median / 41 ms worst on a 16x copy
 // (17,984 shots / 157 MB). The more expensive of the two read shapes in this file
 // — a correlated equipment_id IN (SELECT ...) subquery over `shots`, whose cost
 // tracks table BYTES because a page read drags the profile_json and debug_log
-// blobs along. Its callers are GrindRowSource's step bindings, which re-evaluate
-// on a grinder change and on a write, not per frame or per keystroke.
+// blobs along. Its callers are GrindRowSource.grindStep() and the ShotServer's
+// grind-candidates endpoint, both of which run when a picker's rows are built —
+// not per frame, not per keystroke, not on a binding. (Until #1725 the QML side
+// WAS a binding, and this sentence described it as one; the cost is unchanged
+// but the frequency is not, so do not read the old shape back into it.)
 //
 // `queryOk` reports whether the QUERY ran, not whether it found anything. A failed
 // query and a grinder with no numeric history both yield an empty list, and the

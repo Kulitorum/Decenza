@@ -10,16 +10,17 @@ import Decenza
 // of the application. The host supplies the grinder that owns the value (the
 // shot's grinder in post-shot review, the recipe's package in the wizard, the
 // bag's equipment in the beans dialog, the active grinder on the brew bar) and
-// every derived behaviour — step size, notation, observed-history fallback,
-// RPM capability — resolves against it.
+// every derived behaviour — notation, click-indexing, observed-history
+// fallback, RPM capability — resolves against it.
 // (The pre-split _observedFallback read Settings.dye.dyeGrinderModel — the
 // active grinder — which was harmless while the brew bar was the only host and
 // is exactly the bug this injection exists to prevent.)
 //
-// The ONE place that still reads the active grinder is grindStep(), and only
-// when nothing was injected at all — see its comment. That is a source of
-// history to measure from, not a semantic: notation, click-indexing and RPM
-// capability never leave the injected identity.
+// ONE carve-out, and step size is deliberately absent from the list above
+// because of it: when NOTHING is injected, grindStep() and rpmStep() resolve
+// the history they measure from against the ACTIVE grinder. That is a source
+// of samples, not a semantic. An injected identity is never overridden, and
+// notation, click-indexing and RPM capability never leave it. See grindStep().
 //
 // Per-candidate stepping is catalog-first via SettingsDye.stepGrinderSetting
 // (numeric AND Compound "a+b" notation), then plain-numeric / number-in-text /
@@ -41,9 +42,11 @@ QtObject {
     readonly property bool rpmCapable:
         Settings.dye.grinderRpmCapable(root.grinderBrand, root.grinderModel)
 
-    // Per-grinder grind step, derived from the user's own shot history for the
-    // INJECTED grinder by the same noise-filtered estimator the AI dialing
-    // context uses. Falls back to 1.0 when history is too thin.
+    // Per-grinder grind step, derived from the user's own shot history by the
+    // same noise-filtered estimator the AI dialing context uses. Prefers the
+    // INJECTED grinder, resolves to the active one when nothing was injected,
+    // and ends at 1.0 when no history anywhere is thick enough — the body
+    // explains why it is that order and not simply the injected one.
     //
     // FUNCTIONS, not properties, and deliberately so. Each call runs a live query
     // measured at 3.3 ms median / 87 ms worst on a real 18.5 MB database. As eager
@@ -72,39 +75,74 @@ QtObject {
         // with one grinder cannot tell the two apart — the pool IS their
         // grinder — which is why nothing has flagged it.
         //
-        // Found while reading the #1726 reporter's log, NOT its reported cause:
-        // his post-shot review reached this branch with an empty model and
-        // pooled, and the answer looked right only because he owns one grinder.
-        // #1726 itself was the composite-key cache, fixed separately.
+        // Found while reading the log attached to #1726, where the post-shot
+        // review reached this branch with an empty model and pooled. It is not
+        // that issue's reported symptom: that one matches the composite-key
+        // cache #1725 fixed, and #1726 was filed minutes after #1725 merged, so
+        // against a build without it. That match is an inference from the log,
+        // not a triaged diagnosis — #1726 is still open.
         //
         // Only the source of HISTORY falls back. Notation, click-indexing and
         // rpmCapable stay on the injected identity: those belong to the grinder
         // that owns the value, and reading the active grinder for them is the
         // bug the context injection exists to prevent (see the header).
-        //
-        // Pooling is still reachable, when the user has no active grinder
-        // either — genuinely no grinder anywhere, where every grinder is the
-        // only pool there is. The ShotServer /beans form reaches it the same
-        // way (shotserver.cpp, sendGrindCandidates).
         var model = root.grinderModel.length > 0
             ? root.grinderModel
             : String(Settings.dye.dyeGrinderModel || "")
         var s = MainController.shotHistory.grindStepForGrinder(model)
-        return s > 0 ? s : 1.0
+        if (s > 0)
+            return s
+
+        // Scoping can find LESS than pooling, not merely something different:
+        // the pooled query carries no equipment join, so it counts shots
+        // recorded before equipment existed and the scoped one cannot. A user
+        // whose history is mostly pre-equipment can have a grinder that derives
+        // nothing while the pool derives fine — so returning 1.0 straight from
+        // here would REGRESS the single-grinder case this change is otherwise a
+        // no-op for, which is most users. Pool as a second attempt instead: a
+        // step from the user's own dialling habits beats a blind 1.0 even when
+        // it cannot be attributed to one grinder.
+        //
+        // This is also the only path left that pools from the app, and it costs
+        // a second query only when the first derived nothing. The web forms
+        // reach the same pooling branch through
+        // ShotServer::handleGrindCandidatesApi.
+        if (model.length > 0) {
+            s = MainController.shotHistory.grindStepForGrinder("")
+            if (s > 0)
+                return s
+        }
+        return 1.0
     }
 
     // RPM step from the injected grinder's observed RPMs; the 50 default keeps
     // adjacent rows a meaningful ~50 RPM apart across the ~600–1400 working
     // range. Gated on rpmCapable: only rpmRowsFor() calls this, and the picker
     // only calls that for an RPM grinder, so querying otherwise is pure waste.
-    // That gate is also why this needs no empty-model fallback of its own:
-    // grinderRpmCapable("") is false, so the case grindStep() handles above
-    // never reaches the query here.
+    //
+    // That gate does NOT screen out the empty-identity case, and an earlier
+    // draft of this comment claimed it did. deriveRpmCapable returns TRUE for a
+    // grinder it cannot find in the registry — "not in the table, so show the
+    // rpm field" (equipmentstorage.cpp:1709) — and an empty brand+model matches
+    // nothing, so rpmCapable is true with nothing injected and the picker does
+    // build RPM rows. What actually keeps this from pooling is one layer down:
+    // grindRpmStepForGrinder early-returns 0.0 on an empty model
+    // (shothistorystorage_queries.cpp). Do not delete that guard on the
+    // strength of this gate.
+    //
+    // So resolve the identity the same way grindStep() does, for the same
+    // reason — with nothing injected the honest source is the active grinder,
+    // and a blind 50 discards RPMs the user has actually dialled. No pooled
+    // second attempt here, unlike grindStep(): the empty model the pool would
+    // need is precisely what the guard above refuses, so there is nothing to
+    // fall through to.
     function rpmStep() {
-        if (!root.rpmCapable)
+        if (!root.rpmCapable || !MainController.shotHistory)
             return 50
-        var s = MainController.shotHistory
-            ? MainController.shotHistory.grindRpmStepForGrinder(root.grinderModel) : 0
+        var model = root.grinderModel.length > 0
+            ? root.grinderModel
+            : String(Settings.dye.dyeGrinderModel || "")
+        var s = MainController.shotHistory.grindRpmStepForGrinder(model)
         return s > 0 ? Math.round(s) : 50
     }
 
