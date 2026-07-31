@@ -564,26 +564,166 @@ namespace {
 constexpr double kGrinderStepTolerance = 0.25;
 constexpr double kDoseToleranceG = 0.3;
 
+// What a `structuredNext` field asks of adherence scoring. The fields are
+// authored by an LLM, so "the model recommended something we can check" is not
+// a given and must be a distinct state from "recommended nothing".
+enum class RecommendationKind {
+    None,         // field absent, or explicitly empty — nothing was asked for
+    Scoreable,    // a value we can compare against the shot
+    Unscoreable,  // something was asked for, but not in a form we can check
+};
+
+// Classify `structuredNext.grinderSetting`.
+//
+// Models do write prose here — "a touch coarser than 9" (GPT-5.6 Terra),
+// "slightly coarser than 9" (GPT-5.4 mini), observed live 2026-07-30 — and
+// prose matches no recorded setting, so it cannot be scored either way.
+//
+// Two traps this has to avoid, both found in review of the first attempt:
+//
+//   1. Whitespace does NOT mean prose. Compound notation writes "1 + 4" as
+//      readily as "1+4", and every Eureka Mignon and 1Zpresso entry in the
+//      catalog uses it. Rejecting on any space silently stopped scoring all of
+//      them. GrinderAliases::looksLikeSetting() is the shared authority for the
+//      syntax, and grinderMatches() compares through the same header so the
+//      gate and the comparator agree on what a setting is.
+//   2. The JSON type is not guaranteed. The schema says string, but a model may
+//      emit `"grinderSetting": 4.75` unquoted, and QJsonValue::toString()
+//      returns an EMPTY QString for a non-string type
+//      (qtbase/src/corelib/serialization/qjsonvalue.cpp:790 — "If type() is not
+//      String, a null QString will be returned"). Read as empty that reads as
+//      "no grind change", and grinderMatches() returns true on its isEmpty()
+//      early-out — scoring a recommendation nobody can check as fully followed.
+//      classifyPositiveNumberField()/classifyStringField() apply the same rule
+//      to the other axes; see the note there about rpm having failed open.
+RecommendationKind classifyGrinderRecommendation(const QJsonObject& sn,
+                                                 QString& outRecommended)
+{
+    outRecommended.clear();
+    if (!sn.contains(QStringLiteral("grinderSetting")))
+        return RecommendationKind::None;
+
+    const QJsonValue v = sn.value(QStringLiteral("grinderSetting"));
+    if (!v.isString()) {
+        qWarning() << "computeAdherence: grinderSetting is not a JSON string (type"
+                   << int(v.type()) << ") — cannot score it";
+        return RecommendationKind::Unscoreable;
+    }
+
+    // Trim before anything else: a padded "4.75 " is the same dial position as
+    // "4.75", and grinderMatches() compares against untrimmed database values.
+    const QString s = v.toString().trimmed();
+    if (s.isEmpty())
+        return RecommendationKind::None;   // explicit "grind unchanged"
+
+    if (!GrinderAliases::looksLikeSetting(s)) {
+        qWarning() << "computeAdherence: grinderSetting is prose, not a setting —"
+                   << "cannot score it:" << s;
+        return RecommendationKind::Unscoreable;
+    }
+
+    outRecommended = s;
+    return RecommendationKind::Scoreable;
+}
+
+// Classify a structuredNext field that must be a POSITIVE NUMBER (rpm, doseG).
+//
+// Same hazard as grinderSetting and it must be handled the same way, because
+// the first version of this guard fixed only grinderSetting and left rpm
+// failing OPEN: QJsonValue::toInt() returns 0 for a JSON string ("rpm":
+// "1400"), for null, and for a model that writes 0 meaning "unchanged" (the
+// schema says OMIT when unchanged, and models violate the schema — that is
+// why any of this exists). rpmMatches() then treated <= 0 as a free match, so
+// a malformed rpm scored "followed": "the experiment ran". Fail closed to
+// Unscoreable instead.
+RecommendationKind classifyPositiveNumberField(const QJsonObject& sn, const char* key,
+                                               double& outValue)
+{
+    outValue = 0.0;
+    const QString k = QString::fromLatin1(key);
+    if (!sn.contains(k))
+        return RecommendationKind::None;
+
+    const QJsonValue v = sn.value(k);
+    if (!v.isDouble()) {
+        qWarning() << "computeAdherence:" << key << "is not a JSON number (type"
+                   << int(v.type()) << ") — cannot score it";
+        return RecommendationKind::Unscoreable;
+    }
+    const double d = v.toDouble();
+    if (d <= 0.0) {
+        qWarning() << "computeAdherence:" << key << "is" << d
+                   << "— not a usable recommendation, cannot score it";
+        return RecommendationKind::Unscoreable;
+    }
+    outValue = d;
+    return RecommendationKind::Scoreable;
+}
+
+// Classify a structuredNext field that must be a NON-EMPTY STRING
+// (profileTitle).
+RecommendationKind classifyStringField(const QJsonObject& sn, const char* key,
+                                       QString& outValue)
+{
+    outValue.clear();
+    const QString k = QString::fromLatin1(key);
+    if (!sn.contains(k))
+        return RecommendationKind::None;
+
+    const QJsonValue v = sn.value(k);
+    if (!v.isString()) {
+        qWarning() << "computeAdherence:" << key << "is not a JSON string (type"
+                   << int(v.type()) << ") — cannot score it";
+        return RecommendationKind::Unscoreable;
+    }
+    const QString s = v.toString().trimmed();
+    if (s.isEmpty())
+        return RecommendationKind::None;   // explicit "unchanged"
+    outValue = s;
+    return RecommendationKind::Scoreable;
+}
+
 // Match `actual` against `recommended` for adherence purposes. Also
 // guard against "the user kept the prior shot's setting" registering
 // as followed when the recommendation happens to be within tolerance
 // of the prior — a no-movement shot is NOT "followed" even when the
 // recommendation was close to where the user already was.
-bool grinderMatches(const QString& recommended, const QString& actual,
-                     const QString& prior)
+//
+// Comparison goes through GrinderAliases so it accepts every form
+// looksLikeSetting() admits. It previously used a bare QString::toDouble(),
+// which rejects trailing text — so a recommended "23.5" against a recorded
+// "23.5 1400rpm" (the variable-RPM annotation cohort) and a recommended
+// "1 + 4" against a recorded "1+4" both scored "ignored" despite the user
+// having dialled exactly what was asked. Widening the gate without widening
+// the comparator is what made that possible.
+bool grinderMatches(const QString& recommendedRaw, const QString& actualRaw,
+                     const QString& priorRaw)
 {
+    const QString recommended = recommendedRaw.trimmed();
+    const QString actual = actualRaw.trimmed();
+    const QString prior = priorRaw.trimmed();
+
     if (recommended.isEmpty()) return true;
     if (recommended == actual && recommended != prior) return true;
-    bool okR = false, okA = false, okP = false;
-    const double r = recommended.toDouble(&okR);
-    const double a = actual.toDouble(&okA);
-    const double p = prior.toDouble(&okP);
-    if (!okR || !okA) return false;
-    if (std::abs(r - a) > kGrinderStepTolerance + 1e-9) return false;
+
+    // Compound notation: compare normalized, so spacing cannot decide it.
+    const QString rKey = GrinderAliases::compoundKey(recommended);
+    if (!rKey.isEmpty()) {
+        const QString aKey = GrinderAliases::compoundKey(actual);
+        if (aKey.isEmpty()) return false;
+        if (rKey != aKey) return false;
+        return rKey != GrinderAliases::compoundKey(prior);   // no-movement guard
+    }
+
+    const std::optional<double> r = GrinderAliases::leadingDialNumber(recommended);
+    const std::optional<double> a = GrinderAliases::leadingDialNumber(actual);
+    const std::optional<double> p = GrinderAliases::leadingDialNumber(prior);
+    if (!r || !a) return false;
+    if (std::abs(*r - *a) > kGrinderStepTolerance + 1e-9) return false;
     // If the user didn't move from the prior setting, this is NOT
     // adherence — they ignored the recommendation, even though the
     // prior happens to be close to the recommended value.
-    if (okP && std::abs(a - p) <= kGrinderStepTolerance + 1e-9 && a != r)
+    if (p && std::abs(*a - *p) <= kGrinderStepTolerance + 1e-9 && !qFuzzyCompare(*a, *r))
         return false;
     return true;
 }
@@ -592,10 +732,14 @@ bool grinderMatches(const QString& recommended, const QString& actual,
 // recommended RPM AND the user actually moved from the prior RPM (same
 // no-movement guard as grinderMatches). RPM dials are coarse, so a ±25 RPM
 // window absorbs rounding without rewarding a shot that ignored the advice.
+//
+// `recommended` is guaranteed positive by classifyPositiveNumberField(); the
+// guard below is defence in depth, and returns FALSE rather than the free
+// match it used to give.
 constexpr int kRpmTolerance = 25;
 bool rpmMatches(int recommended, int actual, int prior)
 {
-    if (recommended <= 0) return true;
+    if (recommended <= 0) return false;
     if (actual <= 0) return false;
     if (std::abs(recommended - actual) > kRpmTolerance) return false;
     if (prior > 0 && std::abs(actual - prior) <= kRpmTolerance && actual != recommended)
@@ -607,48 +751,73 @@ QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
                           const ShotProjection& prior)
 {
     bool anyRecommendation = false;
+    bool anyUnscoreable = false;
     int matched = 0;
     int total = 0;
 
-    if (sn.contains(QStringLiteral("grinderSetting"))) {
-        anyRecommendation = true;
-        ++total;
-        if (grinderMatches(sn.value("grinderSetting").toString(),
-                           actual.grinderSetting, prior.grinderSetting))
-            ++matched;
-    }
-    if (sn.contains(QStringLiteral("rpm"))) {
-        anyRecommendation = true;
-        ++total;
-        if (rpmMatches(sn.value("rpm").toInt(),
-                       static_cast<int>(actual.rpm), static_cast<int>(prior.rpm)))
-            ++matched;
-    }
-    if (sn.contains(QStringLiteral("doseG"))) {
-        anyRecommendation = true;
-        ++total;
-        const double recommended = sn.value("doseG").toDouble();
-        const bool inTolerance = std::abs(recommended - actual.doseWeightG) <= kDoseToleranceG + 1e-9;
+    // EVERY field goes through a classify step, and the outcome is folded in
+    // here rather than at each call site. That uniformity is the point: the
+    // first version of this guard classified grinderSetting only, and rpm went
+    // on failing open — the same bug, one field over. A fifth field added
+    // below without a classify step should look obviously wrong.
+    const auto fold = [&](RecommendationKind kind, auto&& scoreIt) {
+        switch (kind) {
+        case RecommendationKind::None:
+            break;
+        case RecommendationKind::Unscoreable:
+            anyRecommendation = true;   // something WAS asked for
+            anyUnscoreable = true;
+            break;
+        case RecommendationKind::Scoreable:
+            anyRecommendation = true;
+            ++total;
+            if (scoreIt()) ++matched;
+            break;
+        }
+    };
+
+    QString recommendedGrind;
+    fold(classifyGrinderRecommendation(sn, recommendedGrind), [&] {
+        return grinderMatches(recommendedGrind, actual.grinderSetting, prior.grinderSetting);
+    });
+
+    double recommendedRpm = 0.0;
+    fold(classifyPositiveNumberField(sn, "rpm", recommendedRpm), [&] {
+        return rpmMatches(static_cast<int>(recommendedRpm),
+                          static_cast<int>(actual.rpm), static_cast<int>(prior.rpm));
+    });
+
+    double recommendedDose = 0.0;
+    fold(classifyPositiveNumberField(sn, "doseG", recommendedDose), [&] {
+        const bool inTolerance =
+            std::abs(recommendedDose - actual.doseWeightG) <= kDoseToleranceG + 1e-9;
         // Same no-movement guard as grinderMatches.
-        const bool moved = std::abs(actual.doseWeightG - prior.doseWeightG) > kDoseToleranceG + 1e-9
-                           || std::abs(recommended - prior.doseWeightG) > kDoseToleranceG + 1e-9;
-        if (inTolerance && moved) ++matched;
-    }
-    if (sn.contains(QStringLiteral("profileTitle"))) {
-        anyRecommendation = true;
-        ++total;
-        const QString recommended = sn.value("profileTitle").toString();
+        const bool moved =
+            std::abs(actual.doseWeightG - prior.doseWeightG) > kDoseToleranceG + 1e-9
+            || std::abs(recommendedDose - prior.doseWeightG) > kDoseToleranceG + 1e-9;
+        return inTolerance && moved;
+    });
+
+    QString recommendedProfile;
+    fold(classifyStringField(sn, "profileTitle", recommendedProfile), [&] {
         // ShotProjection stores profile_name (the title); structuredNext
         // recommends a profileTitle so both ends use the same identifier.
-        if (recommended == actual.profileName && recommended != prior.profileName)
-            ++matched;
-    }
+        return recommendedProfile == actual.profileName
+            && recommendedProfile != prior.profileName;
+    });
     if (!anyRecommendation) {
         // The recommendation was ranges-only (no parameter changes
         // requested). Treat that as "followed" by default — the user
         // didn't violate anything since nothing was requested.
         return QStringLiteral("followed");
     }
+    // Something was recommended in a form we cannot check, so we cannot claim
+    // the experiment ran. This must NOT fall through to the ranges-only
+    // "followed" above: the system prompt reads "followed" as "the experiment
+    // ran" and tells the model to revise direction or commit harder on that
+    // basis, when in fact the user may have changed nothing. "unclear" is the
+    // conservative verdict and has its own instruction in the prompt.
+    if (anyUnscoreable) return QStringLiteral("unclear");
     if (matched == total) return QStringLiteral("followed");
     if (matched == 0) return QStringLiteral("ignored");
     return QStringLiteral("partial");

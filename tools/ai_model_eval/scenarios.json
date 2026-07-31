@@ -1,0 +1,84 @@
+{
+  "_readme": [
+    "Scenario SHAPES for advisor model comparison. The shot ids are from one",
+    "maintainer's database (2026-07-30) and will not resolve elsewhere — pick",
+    "local shots matching each shape and record the ids you actually used.",
+    "",
+    "A scenario earns its place only if it DISCRIMINATES: it must have a",
+    "known-correct answer that a weaker model can plausibly get wrong. A healthy,",
+    "unremarkable shot separates nothing and just costs tokens.",
+    "",
+    "hasTasteFeedback gates the emission mode. A shot with no taste on record",
+    "makes the advisor correctly ask a clarifying question and correctly OMIT the",
+    "nextShot block — so it can never measure emission, only the taste gate."
+  ],
+  "scenarios": [
+    {
+      "key": "untasted-run",
+      "exampleShotId": 1077,
+      "hasTasteFeedback": false,
+      "description": "long run of untasted shots + prior advice marked adherence:ignored + a 64.3g/8.5s blowout two shots back",
+      "tests": [
+        "taste gate: asks for taste before recommending, avoids success words on curve data alone",
+        "blowout detection: names the failed shot instead of averaging it into a trend",
+        "ignored-advice: whether recentAdvice changes behaviour (see caveat below)"
+      ],
+      "notes": [
+        "2026-07-30: both 5.6 models flagged the blowout; both 5.4 models missed it.",
+        "gpt-5.4-mini additionally invented a grind trend that did not exist.",
+        "CAVEAT on the ignored-advice axis: the shipped prompt's rule for",
+        "adherence:'ignored' is 'STAY THE COURSE', not 'tell the user'. Silent",
+        "compliance and ignoring the block entirely predict identical output here,",
+        "so this scenario cannot separate them. To test that axis, use a shot that",
+        "HAS taste feedback so the taste gate is not also firing."
+      ]
+    },
+    {
+      "key": "blowout",
+      "exampleShotId": 1076,
+      "hasTasteFeedback": false,
+      "description": "the blowout itself: 64.3g yield against a 36g target in 8.5s at ~0.5 bar",
+      "tests": [
+        "floor test: call it a puck/prep failure, not grind drift, and hold the setting"
+      ],
+      "notes": ["2026-07-30: all four models passed. Keep as a floor, not a discriminator."]
+    },
+    {
+      "key": "bitter-47s",
+      "exampleShotId": 925,
+      "hasTasteFeedback": true,
+      "description": "score 50, notes 'Bitter', 47.1s at grind 6.5 — coarser is clearly warranted",
+      "tests": ["emits nextShot block", "grinderSetting is a setting, not prose"]
+    },
+    {
+      "key": "worst-score",
+      "exampleShotId": 891,
+      "hasTasteFeedback": true,
+      "description": "score 40 (lowest on record), grind 8, 25.0s",
+      "tests": ["emits nextShot block", "grinderSetting is a setting, not prose"]
+    },
+    {
+      "key": "bitter-over",
+      "exampleShotId": 894,
+      "hasTasteFeedback": true,
+      "description": "score 75, notes 'A little bitter', 39.8g against a 36g target at grind 6",
+      "tests": ["emits nextShot block"],
+      "notes": [
+        "2026-07-30: three of four models emitted the block but omitted grinderSetting,",
+        "which is spec-compliant — the fix here is arguably ratio, not grind."
+      ]
+    },
+    {
+      "key": "sour",
+      "exampleShotId": 802,
+      "hasTasteFeedback": true,
+      "description": "score 80, notes 'Slight sourness noted', 40.2g at grind 9 — finer warranted",
+      "tests": ["emits nextShot block", "grinderSetting is a setting, not prose"],
+      "notes": [
+        "2026-07-30: this is the scenario that exposed prose in grinderSetting.",
+        "gpt-5.6-terra wrote 'a touch coarser than 9' at BOTH efforts;",
+        "gpt-5.4-mini wrote 'slightly coarser than 9' at low. Keep this scenario."
+      ]
+    }
+  ]
+}

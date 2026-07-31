@@ -52,6 +52,25 @@ public:
     // single source and can't drift between UIs. Empty = no hint.
     virtual QString modelHint() const { return {}; }
 
+    // One-line running-cost estimate for a specific model, shown under the
+    // model picker. Takes the model explicitly rather than reading the current
+    // selection so a caller can price a model the user has not chosen yet —
+    // the ShotServer page needs the whole catalog priced up front, because it
+    // switches models client-side with no round trip.
+    //
+    // Must depend on the model, not just the provider: the OpenAI catalog alone
+    // spans 10x. The per-provider strings this replaced understated the cost by
+    // 5x to 8x depending on which model was selected — Anthropic claimed
+    // ~$0.01/shot against $0.056 for Sonnet 4.6 (5.6x), OpenAI claimed
+    // ~$0.006/shot against $0.038 for Terra (6.3x) and $0.047 for GPT-5.4
+    // (7.8x) — and claimed "under $1/month" for a combination costing about $5.
+    //
+    // Empty when the provider has no catalog to price (OpenRouter, Ollama).
+    virtual QString costHintFor(const QString& modelId) const { Q_UNUSED(modelId); return {}; }
+
+    // The estimate for whatever model is selected right now.
+    QString costHint() const { return costHintFor(modelName()); }
+
     Status status() const { return m_status; }
 
     // Main analysis method
@@ -188,6 +207,7 @@ public:
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
+    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL
@@ -201,9 +221,11 @@ public:
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
     // OpenAI web search on the Responses API (chat/completions has no general
     // web tool): the model can open a specific URL from the prompt via the
-    // tool's open_page action. Uses reasoning effort "low" — web_search needs
-    // at least "low"; the gpt-5.4 generation's floor is "none" (it dropped
-    // "minimal"), and web_search is rejected at that floor.
+    // tool's open_page action. Uses reasoning effort "low" — the gpt-5.4
+    // generation's floor is "none" (it dropped "minimal") and rejects
+    // web_search there. The 5.6 generation accepts web_search at "none", so
+    // "low" is the value valid across the whole catalog, not a universal
+    // web_search requirement.
     bool supportsUrlAnalysis() const override { return true; }
     void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;
@@ -243,6 +265,7 @@ public:
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
+    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL
@@ -273,8 +296,12 @@ private:
     // Wrap the first user message's content in a structured block carrying
     // cache_control: ephemeral when its content is currently a plain string.
     // Multi-turn conversations on the same shot reuse the cached per-shot
-    // payload across follow-up turns within the 5-minute TTL, paying the
-    // ~25% cache-write surcharge once and amortizing it across reads.
+    // payload across follow-up turns within the 1-hour TTL, paying the 2x
+    // cache-write surcharge once and amortizing it across reads (break-even
+    // is 2 reads per write). This said "5-minute TTL" and "~25% surcharge"
+    // for as long as it took someone to open the .cpp: the implementation
+    // has sent ttl="1h" since the switch away from the 5-minute tier, and
+    // 1h writes cost 2x base, not the 1.25x the 5-minute tier charges.
     static QJsonArray messagesWithCachedFirstUser(const QJsonArray& messages);
 
     QString m_apiKey;
@@ -302,6 +329,7 @@ public:
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
     QString modelHint() const override;
+    QString costHintFor(const QString& modelId) const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL. Matches OpenAI/Anthropic; exists so

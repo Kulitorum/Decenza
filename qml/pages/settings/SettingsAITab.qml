@@ -178,7 +178,13 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Claude recommendation note
+                // Provider guidance. This used to recommend Claude specifically
+                // for shot analysis, on the strength of testing that is now
+                // several model generations old and no longer holds — all three
+                // cloud providers give good dial-in advice. Keep this text about
+                // how to CHOOSE (where you already have credit), not about which
+                // vendor is smarter; the latter goes stale every few months and
+                // nothing fails when it does.
                 Rectangle {
                     Layout.fillWidth: true
                     color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
@@ -192,7 +198,7 @@ KeyboardAwareContainer {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.margins: Theme.scaled(12)
                         key: "settings.ai.recommendation"
-                        fallback: "For shot analysis, we recommend Claude (Anthropic). In our testing, Claude better understands espresso extraction dynamics and gives more accurate dial-in advice. Other providers work for translation and general tasks."
+                        fallback: "Claude, OpenAI and Gemini all give good dial-in advice — pick whichever you already have an API key for. Each provider's first model in the list is the recommended default; the note under the model picker explains the trade-offs. Ollama runs locally with no API cost."
                         wrapMode: Text.WordWrap
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
@@ -422,22 +428,35 @@ KeyboardAwareContainer {
                     color: Theme.borderColor
                 }
 
-                // Cost info
+                // Cost info. Comes from AIProvider::costHint() so the estimate
+                // sits beside the model catalog it prices — the previous
+                // per-provider strings hardcoded here understated the cost by
+                // 5x to 8x depending on the model, and went stale unnoticed,
+                // because nothing tied them to the models they described.
+                //
+                // TWO dependencies have to be spelled out, because costHint()
+                // is a plain invokable and a binding records nothing from
+                // calling one:
+                //   configTick  — re-evaluate when the SELECTED MODEL changes.
+                //   translate   — re-evaluate on a LANGUAGE change. costHint()
+                //                 translates C++-side via translateString(),
+                //                 which is not the reactive Q_PROPERTY, so
+                //                 without this read the line stays in the old
+                //                 language until the model happens to change.
+                //                 This is the 3,248-call-site freeze described
+                //                 in QML_GOTCHAS.md, one binding at a time.
+                // Empty when the selected model has no priced entry, so bind
+                // visible to the text rather than to the provider alone.
                 Text {
-                    visible: Settings.ai.aiProvider !== "ollama"
+                    visible: Settings.ai.aiProvider !== "ollama" && text.length > 0
                     text: {
-                        var perShot = TranslationManager.translate("settings.ai.pershot", "shot")
-                        switch(Settings.ai.aiProvider) {
-                            case "openai": return TranslationManager.translate("settings.ai.cost.openai",
-                                "Estimated cost: ~$0.006/" + perShot + " — under $1/month at 3 shots per day")
-                            case "anthropic": return TranslationManager.translate("settings.ai.cost.anthropic",
-                                "Estimated cost: ~$0.01/" + perShot + " — under $1/month at 3 shots per day")
-                            case "gemini": return TranslationManager.translate("settings.ai.cost.gemini",
-                                "Estimated cost: <$0.001/" + perShot + " — about $0.05/month at 3 shots per day")
-                            case "openrouter": return TranslationManager.translate("settings.ai.cost.openrouter",
+                        var _model = aiTab.configTick
+                        var _lang = TranslationManager.translate
+                        if (Settings.ai.aiProvider === "openrouter")
+                            return TranslationManager.translate("settings.ai.cost.openrouter",
                                 "Cost varies by model")
-                            default: return ""
-                        }
+                        return MainController.aiManager
+                            ? MainController.aiManager.costHint(Settings.ai.aiProvider) : ""
                     }
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)

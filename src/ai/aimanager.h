@@ -85,6 +85,13 @@ public:
     // One-line guidance comparing the provider's catalog models (see
     // AIProvider::modelHint). Empty when the provider has no hint.
     Q_INVOKABLE QString modelHint(const QString& providerId) const;
+    // Running-cost estimate (see AIProvider::costHintFor). Pass a modelId to
+    // price a specific model, or leave it empty for the provider's current
+    // selection. Depends on the model, so re-read it when the selection changes
+    // — a per-provider figure is wrong across a catalog that spans 10x. Empty
+    // when the provider has no catalog to price.
+    Q_INVOKABLE QString costHint(const QString& providerId,
+                                 const QString& modelId = QString()) const;
     AIConversation* conversation() const { return m_conversation; }
     bool hasAnyConversation() const { return !m_conversationIndex.isEmpty(); }
     QList<ConversationEntry> conversationIndex() const { return m_conversationIndex; }

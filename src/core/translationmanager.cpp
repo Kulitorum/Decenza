@@ -3,6 +3,9 @@
 #include "settings.h"
 #include "settings_ai.h"
 #include "logpaths.h"
+// Header-only, no AI-stack dependency — see the note in airequestshape.h about
+// why this file must not include aiprovider.h.
+#include "../ai/airequestshape.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QDirIterator>
@@ -2611,6 +2614,17 @@ void TranslationManager::sendNextAutoTranslateBatch()
 
         QJsonObject json;
         json["model"] = translationModelFor(provider, QString());
+        // temperature survives on the reasoning models this now defaults to —
+        // verified live 2026-07-30 on gpt-5.6-terra alongside
+        // reasoning_effort "none" (tools/ai_model_eval/probe_request_shape.py).
+        //
+        // Worth checking rather than assuming, because sampling parameters are
+        // accepted per-model and a rejected one 400s every batch rather than
+        // degrading. Re-probe when the translator's default model changes.
+        // (This previously justified the check by asserting reasoning models
+        // "have rejected temperature != 1 before". No such rejection is on
+        // record here, and it was cited to nothing — removed rather than
+        // repeated. The live probe is the evidence that matters.)
         json["temperature"] = 0.3;
         QJsonArray messages;
         QJsonObject msg;
@@ -2618,6 +2632,12 @@ void TranslationManager::sendNextAutoTranslateBatch()
         msg["content"] = prompt;
         messages.append(msg);
         json["messages"] = messages;
+        // Same reasoning-off rule the advisor applies. This body is hand-built
+        // rather than routed through OpenAIProvider (decenza_testlib compiles
+        // this file but not the AI stack), which is exactly how it came to be
+        // missing — the model id was kept in step with the catalog by
+        // tst_aiproviders, the request SHAPE was not.
+        AIRequestShape::disableOpenAIReasoning(json);
         postData = QJsonDocument(json).toJson();
 
     } else if (provider == "anthropic") {
@@ -2628,13 +2648,20 @@ void TranslationManager::sendNextAutoTranslateBatch()
 
         QJsonObject json;
         json["model"] = translationModelFor(provider, QString());
-        json["max_tokens"] = 4096;
+        json["max_tokens"] = AIRequestShape::kMaxOutputTokens;
         QJsonArray messages;
         QJsonObject msg;
         msg["role"] = "user";
         msg["content"] = prompt;
         messages.append(msg);
         json["messages"] = messages;
+        // Thinking OFF, explicitly. Without this, claude-sonnet-5 runs ADAPTIVE
+        // thinking, which shares the max_tokens budget above and can consume all
+        // of it — returning a reply with no text block at all (#1691). The model
+        // here comes from the SAME setting the advisor's model picker writes, so
+        // a user who selects Sonnet 5 for advice would otherwise hit that on
+        // every translation batch while being billed for it.
+        AIRequestShape::disableAnthropicThinking(json);
         postData = QJsonDocument(json).toJson();
 
     } else if (provider == "gemini") {
@@ -3460,8 +3487,8 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
 //
 // Deliberately a literal rather than a call into AIProvider: decenza_testlib compiles
 // translationmanager.cpp but not the AI stack, so reaching for the catalog at runtime would
-// drag the provider classes into forty-odd test targets to read one string. The test carries
-// the coupling instead of the link line.
+// drag the provider classes into all 106 test targets that link it, to read one string. The
+// test carries the coupling instead of the link line.
 //
 // This is what had gone stale. All three cloud providers hard-coded a model and ignored both
 // the user's choice and the catalog: Anthropic on claude-3-5-haiku-20241022 (RETIRED
@@ -3470,8 +3497,8 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
 // setting and never went stale, which is the argument for reading settings.
 QString TranslationManager::fallbackTranslationModel(const QString& providerId)
 {
-    if (providerId == QLatin1String("openai"))    return QStringLiteral("gpt-5.4");
-    if (providerId == QLatin1String("anthropic")) return QStringLiteral("claude-sonnet-4-6");
+    if (providerId == QLatin1String("openai"))    return QStringLiteral("gpt-5.6-terra");
+    if (providerId == QLatin1String("anthropic")) return QStringLiteral("claude-sonnet-5");
     if (providerId == QLatin1String("gemini"))    return QStringLiteral("gemini-2.5-flash");
     return {};   // ollama has no catalog — its model is user-supplied
 }

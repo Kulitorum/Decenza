@@ -134,8 +134,12 @@ set(CODEC_SOURCES
 
 # ---------------------------------------------------------------------------
 # decenza_testlib: the base-Qt sources that most test binaries share, compiled
-# ONCE here instead of recompiled into each of ~30 targets (CORE alone was
-# compiled 29×). Test targets link this instead of listing the bundle vars.
+# ONCE here instead of recompiled into each of the 106 targets below (it said
+# "~30" for years after the count had tripled — recount with
+# `grep -c "^add_decenza_test(" tests/CMakeLists.txt` rather than trusting this
+# number — anchored, because this very line contains the search string and an
+# unanchored grep counts itself). Test targets link this instead of listing the
+# bundle vars.
 # Built with DECENZA_TESTING so the friend-class seams match, and AUTOMOC on so
 # Q_OBJECT sources (de1device, machinestate, de1transport.h, …) are moc'd once.
 # ---------------------------------------------------------------------------

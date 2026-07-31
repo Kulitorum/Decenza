@@ -239,11 +239,63 @@ private slots:
         }
     }
 
+    // Every catalogued model must be priced. costHintFor() matches model ids
+    // EXACTLY and returns an empty string for anything it does not recognise,
+    // deliberately: falling through to some other model's price quietly
+    // promises a spend nobody computed, and the error is unbounded (Luna and
+    // GPT-5.4 differ by 12x inside one catalog).
+    //
+    // That choice trades a wrong cost line for a MISSING one, and a missing
+    // one is silent too -- the QML binds visible to text.length, so a model
+    // added to availableModels() without a costHintFor() case just shows
+    // nothing. This is the test that makes that loud instead. It is the same
+    // catalog-drift shape as translationFallbacksMatchTheProviderCatalogs
+    // above, one field over.
+    void everyCataloguedModelHasACostHint()
+    {
+        QNetworkAccessManager nam;
+        OpenAIProvider openai(&nam, QString());
+        AnthropicProvider anthropic(&nam, QString());
+        GeminiProvider gemini(&nam, QString());
+
+        for (AIProvider* provider : {static_cast<AIProvider*>(&openai),
+                                     static_cast<AIProvider*>(&anthropic),
+                                     static_cast<AIProvider*>(&gemini)}) {
+            const QList<AIProvider::ModelOption> models = provider->availableModels();
+            QVERIFY(!models.isEmpty());
+            for (const AIProvider::ModelOption& m : models) {
+                QVERIFY2(!provider->costHintFor(m.id).isEmpty(),
+                         qPrintable(QStringLiteral("catalogued model '%1' has no costHintFor() "
+                                                   "case, so its cost line renders empty")
+                                        .arg(m.id)));
+            }
+        }
+    }
+
+    // The other half of the same contract: an id that is NOT catalogued must
+    // price as empty rather than inheriting a neighbour's figure.
+    void unknownModelIdIsNotPriced()
+    {
+        QNetworkAccessManager nam;
+        OpenAIProvider openai(&nam, QString());
+        AnthropicProvider anthropic(&nam, QString());
+        GeminiProvider gemini(&nam, QString());
+
+        // "gemini-2-something" specifically: the Gemini case was a
+        // startsWith("gemini-2") prefix match, which priced any future
+        // gemini-2.x at 2.5 Flash's rate.
+        QVERIFY(openai.costHintFor(QStringLiteral("gpt-9-imaginary")).isEmpty());
+        QVERIFY(anthropic.costHintFor(QStringLiteral("claude-opus-9")).isEmpty());
+        QVERIFY(gemini.costHintFor(QStringLiteral("gemini-2-something")).isEmpty());
+    }
+
     void init() { QTest::failOnWarning(); }
     void openAiCatalogAndSelection()
     {
         QNetworkAccessManager nam;
         checkProvider<OpenAIProvider>(nam, {
+            { "gpt-5.6-terra", "GPT-5.6 Terra" },
+            { "gpt-5.6-luna", "GPT-5.6 Luna" },
             { "gpt-5.4", "GPT-5.4" },
             { "gpt-5.4-mini", "GPT-5.4 mini" },
         });
@@ -253,8 +305,8 @@ private slots:
     {
         QNetworkAccessManager nam;
         checkProvider<AnthropicProvider>(nam, {
-            { "claude-sonnet-4-6", "Sonnet 4.6" },
             { "claude-sonnet-5", "Sonnet 5" },
+            { "claude-sonnet-4-6", "Sonnet 4.6" },
         });
     }
 
