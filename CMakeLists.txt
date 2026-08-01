@@ -79,9 +79,16 @@ endif()
 # ever exercised the combination. Turning it on is a separate change that must
 # be measured on a Windows runner with a warm sccache.
 #
+# OFF in CI on the four legs that carry a warm ccache (android, macos, linux,
+# linux-arm64), passed as -DDECENZA_ENABLE_PCH=OFF by those workflows rather
+# than decided here. A PCH and a compiler cache are SUBSTITUTES: ccache will not
+# cache a compile that consumes a PCH, since the preprocessed output no longer
+# contains the PCH'd headers' text. Enabling the PCH cost those legs ~90% of
+# their cache hits and roughly doubled the macOS build; numbers in PR #1738.
+#
 # ON everywhere else, which includes every local build: Qt Creator and a plain
-# CLI configure set no compiler launcher, and local development is the case this
-# exists for. CI throughput is explicitly the lower priority.
+# CLI configure set no compiler launcher, so there is no cache to lose, and
+# local development is the case this exists for.
 #
 # To force either way: -DDECENZA_ENABLE_PCH=ON/OFF.
 if(NOT DEFINED DECENZA_ENABLE_PCH)

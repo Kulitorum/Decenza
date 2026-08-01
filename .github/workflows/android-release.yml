@@ -247,8 +247,11 @@ jobs:
         run: |
           mkdir -p build
           cd build
+          # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
+          # on made ccache miss ~88% of this leg's compiles. See PR #1738.
           $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
             -DENABLE_TSNET=ON \
+            -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
