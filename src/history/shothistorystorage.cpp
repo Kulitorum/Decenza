@@ -1835,9 +1835,15 @@ bool ShotHistoryStorage::runMigrations()
     // one — and because grinder calibration matches on model AND burrs while
     // dial-in grouping keys on equipment_id, the grinder read as brand new with
     // no history (#1713). The fork rule is fixed going forward; this repairs the
-    // users it already happened to, which is most of them: the signature is
-    // narrow (a lineage pair differing ONLY by empty-vs-set burrs) and everything
-    // else is left alone. See EquipmentStorage::healEnrichmentForksStatic.
+    // users it already happened to, which is most of them. See
+    // EquipmentStorage::healEnrichmentForksStatic.
+    //
+    // NOTE: this block's TEXT is unchanged since it shipped, but its BEHAVIOUR is
+    // not. It calls the shared heal, and widen-enrichment-heal widened that from
+    // "burrs only" to the whole enrichment rule. So on any database below 35 —
+    // nearly all of them, since stable v2.0.0 predates this migration — 35 now
+    // performs the full widened fold and 36 finds nothing. 36 exists solely for
+    // databases a PRE-widening binary already stamped 35, which cannot re-run it.
     //
     // Data-only and NOT idempotent in effect (a second run simply finds nothing),
     // so the heal commits together with the version bump.
@@ -1896,7 +1902,7 @@ bool ShotHistoryStorage::runMigrations()
                 // same silence otherwise, and this migration is the first thing to
                 // check when a user reports the grinder still looks split.
                 EQUIP_INFO_STDERR("Migration",
-                                  QString("35 complete - merged %1 package(s) that a burr edit had split off")
+                                  QString("35 complete - merged %1 package(s) that an edit recording gear had split off")
                                       .arg(healed));
                 if (healed > 0) {
                     // The active selection lives in QSettings, not this database, so a
@@ -1918,13 +1924,19 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
-    // Migration 36: re-run the heal now that it tests the WHOLE enrichment rule
-    // (widen-enrichment-heal). 35 restated the rule instead of sharing it and
-    // tested the burrs alone, additionally requiring basket and puck prep to be
-    // EQUAL — the inverse of enrichment for a component that was absent. So a
-    // fork caused by recording a BASKET, which is the common one because baskets
-    // arrived after grinders did, was skipped while 35 logged "merged 0" and read
-    // as nothing to fix. Confirmed on two real databases.
+    // Migration 36: re-run the heal for databases a PRE-widening binary already
+    // stamped 35 (widen-enrichment-heal).
+    //
+    // That older binary's heal restated the enrichment rule instead of sharing it:
+    // it tested the burrs alone and required the other five components to be EQUAL
+    // — the inverse of enrichment for a component that was absent. So a fork caused
+    // by recording a BASKET, which is the common one because baskets arrived after
+    // grinders did, was skipped while 35 logged "merged 0" and read as nothing to
+    // fix. Confirmed on two real databases.
+    //
+    // A database that has NOT yet reached 35 does not need this: 35 above now calls
+    // the shared widened heal and folds everything in one pass, leaving 36 with
+    // nothing to do. Running both in one launch is therefore normal and harmless.
     //
     // 35 is left in place and unchanged rather than edited, because its version is
     // already stamped wherever it ran and a stamped migration never runs again.
@@ -1963,16 +1975,18 @@ bool ShotHistoryStorage::runMigrations()
                     // so a merged-away id would leave the app pointing at a
                     // deleted package.
                     //
-                    // Resolve against 35's result when it set one. Both migrations
-                    // can run in a single launch on a device below 35, and QSettings
-                    // is NOT written until MainController adopts the value after
-                    // initialize() — so reading it here would still return the
-                    // pre-35 id, and a chain (35 folds 1->2, 36 folds 2->3) would
-                    // leave the app pointing at 2, which 36 just deleted.
+                    // Reads QSettings directly, with no "prefer 35's result"
+                    // fallback. An earlier draft had one, reasoning about a chain
+                    // where 35 folds 1->2 and 36 folds 2->3 — but that cannot
+                    // happen now that both call the SAME widened heal: on a
+                    // database below 35, migration 35 folds everything foldable and
+                    // 36 finds nothing, so this block does not run at all. On a
+                    // database already stamped 35 by a pre-widening binary, 35 is
+                    // skipped and there is no earlier result to prefer. The
+                    // fallback was unreachable, and a branch that needs fault
+                    // injection to reach is one to delete, not to test.
                     AppSettings settings;
-                    const qint64 stored = settings.value("dye/activeEquipmentId", -1).toLongLong();
-                    const qint64 activeId = m_healedActiveEquipmentId > 0
-                                          ? m_healedActiveEquipmentId : stored;
+                    const qint64 activeId = settings.value("dye/activeEquipmentId", -1).toLongLong();
                     if (activeId > 0 && remap.contains(activeId)) {
                         m_healedActiveEquipmentId = remap.value(activeId);
                         EQUIP_INFO_STDERR("Migration",

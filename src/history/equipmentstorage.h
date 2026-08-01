@@ -281,8 +281,11 @@ public:
     static EquipmentMergeResult validateMergeStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId);
 
     // One-time repair of packages split by a pre-enrichment fork: for each pair
-    // where a package is superseded by one that differs ONLY by having burrs where
-    // it has none, fold the older into the newer. Fills `remap` (old id ->
+    // where a package is superseded by one that only ADDED information — every
+    // component whose value differs was empty on the older and named on the newer,
+    // whichever component that is — fold the older into the newer. The test is
+    // isEnrichmentOf, shared with the live edit rule; see its definition for why
+    // sharing rather than restating is load-bearing. Fills `remap` (old id ->
     // surviving id) so the caller can repoint anything holding an id outside this
     // database — the active-equipment selection lives in QSettings, not here — and
     // `healedOut` with the number of pairs merged.
@@ -292,21 +295,26 @@ public:
     // caller's rollback is what cleans up. A run that finds nothing to heal
     // returns true with a count of 0.
     //
-    // Everything not matching that exact signature — a burr swap, a cleared field,
-    // two lookalike packages with no lineage between them — is left untouched.
+    // Left untouched: a component CHANGED between two named values (a burr swap, a
+    // different basket), a component cleared, a grinder-less package gaining a
+    // grinder, two lookalike packages with no lineage, and a pair that differs in
+    // nothing at all (a duplicate, not a fork).
     static bool healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64, qint64>* remap = nullptr,
                                           qsizetype* healedOut = nullptr);
 
     // Did `after` only ADD information to `before`? True when every component
     // whose value differs was EMPTY on `before` and carries a value on `after`.
     //
-    // ONE definition, called by both the live edit rule (supersedeOrEditGrinder-
-    // Static) and the one-time heal, because they are the same question asked at
+    // ONE definition, called by both the live edit rule (supersedeOrEditStatic —
+    // NOT its thin wrapper supersedeOrEditGrinderStatic, which is where an earlier
+    // draft of this comment pointed) and the one-time heal, because they are the
+    // same question asked at
     // two moments — an edit deciding whether to fork, and a migration deciding
     // whether a past fork should not have happened. They were written separately
-    // and drifted: the heal tested BURRS only and additionally required basket and
-    // basket model and puck prep to be EQUAL, which is the inverse of enrichment
-    // for a component that was absent. So a user who forked by recording a basket
+    // and drifted: the heal tested BURRS only and required all five other
+    // components — grinder brand, grinder model, basket brand, basket model and the
+    // puck-prep string — to be EQUAL, which is the inverse of enrichment for a
+    // component that was absent. So a user who forked by recording a basket
     // was never healed, and the log said "merged 0 package(s)" — which reads as
     // nothing to fix. Keep this shared; a second copy is how that recurs.
     //

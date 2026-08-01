@@ -1345,7 +1345,13 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
 
 bool EquipmentStorage::isEnrichmentOf(const PackageIdentity& before, const PackageIdentity& after)
 {
-    const auto norm = [](const QString& s) { return s.trimmed().toLower(); };
+    // toCaseFolded, not toLower: they are DIFFERENT Unicode tables (CaseFold vs
+    // LowerCase, qtbase/src/corelib/text/qstring.cpp:7230 and :7245) and only the
+    // former matches Qt::CaseInsensitive, which is what
+    // findPackageByGrinderIdentityStatic compares with. They agree on the accented
+    // Latin this was written for and disagree elsewhere (Greek final sigma), so
+    // using toLower here while citing that function as precedent was an overclaim.
+    const auto norm = [](const QString& s) { return s.trimmed().toCaseFolded(); };
     const auto filledIn = [&norm](const QString& b, const QString& a) {
         return norm(b).isEmpty() || norm(b) == norm(a);
     };
@@ -1398,17 +1404,21 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
 {
     // One-time repair for forks that the enrichment rule would no longer create.
     //
-    // Two conditions, and only two:
+    // Three conditions:
     //   - the two packages are in a LINEAGE (older.superseded_by = newer.id), which
     //     is what proves the app forked them rather than the user owning two
     //     packages that happen to look alike;
     //   - isEnrichmentOf(older, newer) — the SAME test the live edit rule applies,
     //     shared rather than restated. Anything the rule calls enrichment is healed
-    //     here, whichever component was the one nobody had written down.
+    //     here, whichever component was the one nobody had written down;
+    //   - at least one component ACTUALLY went empty -> named. isEnrichmentOf is
+    //     vacuously true for two packages that differ in nothing, and a database can
+    //     hold such a pair because device transfer imports every superseded package
+    //     as a new row. That is a duplicate, not a fork. See the filled list below.
     //
     // It used to restate the test, and got it wrong: it checked the BURRS going
-    // empty -> named and additionally required basket brand, basket model and the
-    // puck-prep string to be EQUAL. "Equal" is not a stricter form of
+    // empty -> named and required all FIVE other components — grinder brand, grinder
+    // model, basket brand, basket model and the puck-prep string — to be EQUAL. "Equal" is not a stricter form of
     // "empty -> named"; for a component that was absent it is the inverse. So a
     // fork caused by recording a BASKET — the common one, since baskets arrived
     // after grinders did — was skipped while the migration logged
@@ -1442,8 +1452,9 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
         // Every lineage pair, unfiltered. The test is isEnrichmentOf, in C++, on
         // loaded packages — NOT a SQL predicate rebuilt here. Rebuilding it is
         // what made this heal disagree with the live rule it retro-applies: it
-        // tested burrs alone and demanded basket and puck prep be EQUAL, which is
-        // the inverse of enrichment for a component that was absent. An inventory
+        // tested burrs alone and demanded the other five components be EQUAL (see
+        // this function's header), which is the inverse of enrichment for a
+        // component that was absent. An inventory
         // is tens of rows, so loading both sides costs nothing worth optimising,
         // and C++ also gets the Unicode-correct folding SQLite's ASCII-only
         // LOWER() cannot do (see findPackageByGrinderIdentityStatic).
@@ -1466,8 +1477,14 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
         while (q.next())
             lineage.append({q.value(0).toLongLong(), q.value(1).toLongLong()});
         for (const auto& [older, newer] : lineage) {
+            // Belt-and-braces, and deliberately not claimed as load-bearing: the
+            // lineage scan is re-executed at the top of every pass and a folded
+            // package is DELETED, so it cannot reappear here. The merge loop below
+            // has its own guard for the within-pass case, which is the one that can
+            // actually fire. Kept because it is free; do not write a mechanism for
+            // it without finding one first.
             if (!loadPackageStatic(db, older).isValid() || !loadPackageStatic(db, newer).isValid())
-                continue;   // already folded by an earlier pass
+                continue;
             const PackageIdentity a = identityOfStatic(db, older);
             const PackageIdentity b = identityOfStatic(db, newer);
             if (!isEnrichmentOf(a, b))
@@ -1639,7 +1656,13 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     before.puckPrep     = curPuck.model;
 
     PackageIdentity after;
-    after.hasGrinder   = true;   // an edit that names any grinder field wants one
+    // The TRUTH, not a convenient constant. Clearing all three grinder fields
+    // deletes the row (updateGrinderItemStatic), so the post-edit package really is
+    // grinder-less. isEnrichmentOf reads only before.hasGrinder today, which is the
+    // only reason a wrong value here would not bite — and it would, the day someone
+    // adds the symmetric "losing a grinder is a change" term.
+    after.hasGrinder   = !(brand.trimmed().isEmpty() && model.trimmed().isEmpty()
+                           && burrs.trimmed().isEmpty());
     after.grinderBrand = brand;
     after.grinderModel = model;
     after.burrs        = burrs;

@@ -14,6 +14,7 @@
 #include "history/shothistorystorage.h"
 #include "history/coffeebagstorage.h"
 #include "history/equipmentstorage.h"
+#include "core/appsettings.h"
 
 #include "shotrowfixtures.h"
 
@@ -611,12 +612,69 @@ private slots:
                                .arg(bare)));
             QVERIFY(q.next());
             QCOMPARE(q.value(0).toInt(), 0);
-            QVERIFY(q.exec(QStringLiteral("SELECT in_inventory, superseded_by FROM equipment_packages "
-                                          "WHERE id = %1").arg(dressed)));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 1);
-            QVERIFY(q.value(1).isNull());
+            // Deliberately NOT asserting the survivor's in_inventory/superseded_by
+            // here: `dressed` was created unlinked, so those are its creation state
+            // and hold whether or not the heal ran. The discriminating assertions
+            // are the shot remap above and `bare` being gone.
         });
+    }
+
+    // The active-equipment selection lives in QSettings, not the database, so a
+    // migration that folds the package it names must hand the survivor's id back or
+    // the app points at a row that no longer exists.
+    //
+    // A CHAIN is the case worth covering: bare -> mid (burrs recorded) -> full
+    // (basket recorded), both links enrichment. The whole chain collapses in one
+    // pass, and the remap must follow the active id all the way to the survivor
+    // rather than stopping at the intermediate package that the same pass deleted.
+    void healRelocatesTheActiveEquipmentIdThroughAChain() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        qint64 bare1 = 0, mid = 0, full = 0;
+        withRawDb(path, "v36_active_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (34)"));
+
+            EquipmentPackage a, b, c;
+            bare1 = EquipmentStorage::createPackageWithGrinderStatic(db, a, "Niche", "Zero", "");
+            mid   = EquipmentStorage::createPackageWithGrinderStatic(db, b, "Niche", "Zero", "63mm conical");
+            full  = EquipmentStorage::createPackageWithGrinderStatic(db, c, "Niche", "Zero", "63mm conical");
+            QVERIFY(bare1 > 0 && mid > 0 && full > 0);
+            QVERIFY(EquipmentStorage::setBasketItemStatic(db, full, "Decent", "18g Ridged"));
+            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0, "
+                                          "superseded_by = %1 WHERE id = %2").arg(mid).arg(bare1)));
+            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0, "
+                                          "superseded_by = %1 WHERE id = %2").arg(full).arg(mid)));
+        });
+
+        // The app's stored selection names the package that will be folded away.
+        {
+            AppSettings settings;
+            settings.setValue("dye/activeEquipmentId", static_cast<qlonglong>(bare1));
+            settings.sync();
+        }
+
+        qint64 healedTo = -1;
+        {
+            ShotHistoryStorage s;
+            initAndClose(path, s);
+            healedTo = s.healedActiveEquipmentId();
+        }
+
+        // Resolved all the way to the surviving package, not to the intermediate
+        // one that the second fold deleted.
+        QCOMPARE(healedTo, full);
+        withRawDb(path, "v36_active_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), 36);
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QStringLiteral("SELECT COUNT(*) FROM equipment_packages WHERE id IN (%1,%2)")
+                               .arg(bare1).arg(mid)));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 0);
+        });
+        AppSettings().remove("dye/activeEquipmentId");
     }
 
     void v33ToV34AddsYieldSpecs() {

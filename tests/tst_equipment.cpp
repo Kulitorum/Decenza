@@ -558,12 +558,42 @@ private slots:
             addShot(teaId);
             link(teaId, grinderId);
 
+            // (4) PUCK PREP ALONE, empty -> named, with grinder and basket
+            // identical on both sides. Without this the puck-prep arm of the
+            // predicate is untested: case (1) also names a basket, so it folds on
+            // the basket whether or not puck prep is considered at all.
+            EquipmentPackage d1, d2;
+            const qint64 puckBare = EquipmentStorage::createPackageWithGrinderStatic(
+                db, d1, "Turin", "DF83V", "83mm flat", "IMS", "18g");
+            const qint64 puckNamed = EquipmentStorage::createPackageWithGrinderStatic(
+                db, d2, "Turin", "DF83V", "83mm flat", "IMS", "18g");
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, puckNamed, "wdt"));
+            const qint64 puckShot = addShot(puckBare);
+            link(puckBare, puckNamed);
+
+            // (5) A pair that differs in NOTHING. isEnrichmentOf is vacuously true
+            // for it, so only the "at least one component was filled in" gate keeps
+            // it out. Device transfer imports every superseded package as a new
+            // row, so this shape is reachable — and it is a duplicate, not a fork.
+            EquipmentPackage e1, e2;
+            const qint64 twinOld = EquipmentStorage::createPackageWithGrinderStatic(
+                db, e1, "Eureka", "Mignon", "stock", "IMS", "20g");
+            const qint64 twinNew = EquipmentStorage::createPackageWithGrinderStatic(
+                db, e2, "Eureka", "Mignon", "stock", "IMS", "20g");
+            addShot(twinOld);
+            link(twinOld, twinNew);
+
             QHash<qint64, qint64> remap;
             qsizetype healed = -1;
             QVERIFY(EquipmentStorage::healEnrichmentForksStatic(db, &remap, &healed));
 
-            // Only (1) folds.
-            QCOMPARE(healed, (qsizetype)1);
+            // (1) and (4) fold; (2), (3) and (5) do not.
+            QCOMPARE(healed, (qsizetype)2);
+            QCOMPARE(remap.value(puckBare), puckNamed);
+            QVERIFY(!pkgExists(puckBare));
+            QCOMPARE(shotEq(puckShot), puckNamed);
+            QVERIFY(pkgExists(twinOld));      // identical pair: duplicate, not fork
+            QVERIFY(pkgExists(twinNew));
             QCOMPARE(remap.value(bareId), dressedId);
             QVERIFY(!pkgExists(bareId));
             QCOMPARE(shotEq(strandedShot), dressedId);
