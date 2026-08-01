@@ -891,6 +891,26 @@ public:
         return address.compare(savedScaleAddress, Qt::CaseInsensitive) == 0;
     }
 
+    /// Whether finding the saved primary should trigger a switch-back, given a
+    /// scale is already connected. The connected scale is a BACKUP only if the
+    /// direct attempt to the primary failed: `directAttemptFailed` is set solely
+    /// by onScaleConnectionTimeout for the saved WiFi scale, and cleared by any
+    /// connect that is not the WiFi->BLE fallback. So while a scale is
+    /// connected, true means "this is the fallback backup" and false means "the
+    /// primary itself is connected".
+    ///
+    /// Without this gate the switch-back fired against the primary ITSELF. A
+    /// user scan re-finds the healthy primary, the caller sees only
+    /// `isConnected()`, calls it a backup, and switch-back disconnects and
+    /// redials the same scale: an 8 s outage for nothing, twice per scan (once
+    /// for the DNS-SD hit, once for the mDNS hit). Observed 2026-08-01 on the
+    /// tablet — connected at t=4.2 s, scan at t=22.3, torn down at t=30.9,
+    /// back at t=32.6 on the same hostname and the same IP.
+    static bool shouldRequestSwitchBack(bool scaleConnected, bool directAttemptFailed) {
+        if (!scaleConnected) return false;
+        return directAttemptFailed;
+    }
+
 private:
     // Auto-connect a browsed instance when it IS the saved primary. One
     // implementation, called from both discovery handlers — the scan's and the

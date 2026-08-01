@@ -1734,9 +1734,14 @@ void BLEManager::onScaleConnectedChanged() {
         //
         // Letting it finish is safe because maybeAutoConnectBrowsedScale acts
         // only on an exact saved-primary match, and when a scale is already
-        // connected it routes through wifiPrimaryReachable -> switchToWifiPrimary
-        // rather than emitting scaleDiscovered into main.cpp's single-scale
-        // guard. The browse ends on its own deadline either way.
+        // connected it either routes through wifiPrimaryReachable ->
+        // switchToWifiPrimary or does nothing at all — never emitting
+        // scaleDiscovered into main.cpp's single-scale guard. Which of the two
+        // depends on m_wifiDirectAttemptFailed, cleared just above: a browse
+        // that lands after THIS connect (the primary itself) is a no-op. That
+        // second half is the fix for a switch-back that fired against the
+        // primary; see shouldRequestSwitchBack(). The browse ends on its own
+        // deadline either way.
         scaleDebug(QStringLiteral("Scale connected"));
         emit scaleConnected();  // UI auto-dismisses the scale-disconnect / no-scale notice on reconnect
     } else {
@@ -2672,12 +2677,22 @@ void BLEManager::maybeAutoConnectBrowsedScale(const WifiScaleResult& result) {
     // Without this branch the feature does nothing whenever a BLE fallback is
     // available: the browse resolves, the emit is dropped, and the reconnect
     // ladder has already stopped.
-    if (m_scaleDevice && m_scaleDevice->isConnected()) {
+    //
+    // "A scale is connected" is NOT on its own evidence that it is a backup —
+    // see shouldRequestSwitchBack(), and the outage that reading it that way
+    // caused. When the primary is what is already connected there is nothing to
+    // switch back to, and the plain emit below must not run either: main.cpp's
+    // single-scale guard drops it, which is the correct outcome.
+    const bool scaleConnected = m_scaleDevice && m_scaleDevice->isConnected();
+    if (scaleConnected) {
+        if (!shouldRequestSwitchBack(scaleConnected, m_wifiDirectAttemptFailed)) return;
         // Hand the freshly browsed address to the switch-back. It cannot use the
         // persisted cache here: a stale cached IP is the whole reason this browse
         // ran, so dialing it again would fail the same way.
         m_browsedPrimaryIp = result.address;
-        scaleInfo(QStringLiteral("Reconnect browse found the saved primary %1 at %2 while a "
+        // Deliberately not "reconnect browse": this function serves the user
+        // scan's browse and probe too, and all three reach this line.
+        scaleInfo(QStringLiteral("Browse found the saved primary %1 at %2 while a "
                                  "backup scale is connected — requesting switch-back")
                       .arg(result.hostname, result.address));
         emit wifiPrimaryReachable(true);

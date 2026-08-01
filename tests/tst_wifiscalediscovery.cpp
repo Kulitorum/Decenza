@@ -278,6 +278,24 @@ private slots:
         QVERIFY(BLEManager::browsedScaleIsSavedPrimary(
             QStringLiteral("hds.local"), QStringLiteral("WIFI:HDS.LOCAL")));
     }
+
+    // Finding the saved primary while it is ALREADY the connected scale must not
+    // request a switch-back. It used to: the caller tested only isConnected(),
+    // so a user scan that re-found the healthy primary disconnected and redialed
+    // it — an ~8 s outage, twice per scan. m_wifiDirectAttemptFailed is the
+    // discriminator, because it is set only when the direct attempt to the
+    // primary timed out and is cleared by any connect that is not the fallback.
+    void switchBackOnlyWhenTheConnectedScaleIsABackup() {
+        // Primary itself connected: the direct attempt succeeded, so no switch.
+        QVERIFY(!BLEManager::shouldRequestSwitchBack(true, false));
+        // Direct attempt failed, then a scale connected — the WiFi->BLE fallback
+        // backup. This is the case the switch-back exists for.
+        QVERIFY(BLEManager::shouldRequestSwitchBack(true, true));
+        // No scale connected: the caller takes the plain scaleDiscovered path
+        // instead, regardless of how the direct attempt went.
+        QVERIFY(!BLEManager::shouldRequestSwitchBack(false, true));
+        QVERIFY(!BLEManager::shouldRequestSwitchBack(false, false));
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_WifiScaleDiscovery)
