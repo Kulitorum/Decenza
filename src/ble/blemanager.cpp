@@ -2333,14 +2333,16 @@ void BLEManager::scanForDevices() {
     // to its hostname, and running the fallback only when the browse came back
     // empty would hide the old scale whenever a new one is present.
     //
-    // The 5 s A-record timeout is unchanged: the HDS responder regularly takes
-    // 2-4 s to reply (likely the ESP32 waking from power-save). The browse runs
-    // longer, alongside the ~15 s BLE scan, because a DNS-SD browse's first
-    // callback is a dump of the resolver's cache — stale instances included —
-    // and the resolver's own pruning of those arrives seconds later.
+    // The A-record timeout is kHdsResolveTimeoutMs, shared with the reconnect
+    // path; the responder latency that sets it is documented on the constant.
+    // The browse runs longer, alongside the ~15 s BLE scan, because a DNS-SD
+    // browse's first callback is a dump of the resolver's cache — stale
+    // instances included — and the resolver's own pruning of those arrives
+    // seconds later.
     ensureWifiDiscovery();
     m_wifiDiscovery->browse(15000);
-    m_wifiDiscovery->probe(WifiScaleDiscovery::defaultFallbackHostnames(), 5000);
+    m_wifiDiscovery->probe(WifiScaleDiscovery::defaultFallbackHostnames(),
+                           WifiScaleDiscovery::kHdsResolveTimeoutMs);
 
     // USB is otherwise a free-running background poll that the scan button never
     // touched, so a scale plugged in just before a scan appeared only when the
@@ -2374,7 +2376,8 @@ void BLEManager::browseWifiScales(int timeoutMs) {
                        .arg(MdnsResolver::activeBrowseBackendName())
                        .arg(timeoutMs));
     m_wifiDiscovery->browse(timeoutMs);
-    m_wifiDiscovery->probe(WifiScaleDiscovery::defaultFallbackHostnames(), 5000);
+    m_wifiDiscovery->probe(WifiScaleDiscovery::defaultFallbackHostnames(),
+                           WifiScaleDiscovery::kHdsResolveTimeoutMs);
     emit scanningChanged();
 }
 

@@ -46,6 +46,27 @@ public:
 
     static constexpr int kDefaultTimeoutMs = 2000;
 
+    // How long to wait for an HDS A-record answer, for EVERY path that asks —
+    // this class's own probe() and DecentScaleWifi's Android reconnect resolve
+    // alike. It lives here, above both, because it is a property of the
+    // responder rather than of either caller.
+    //
+    // The HDS responder regularly takes 2-4 s to reply, likely the ESP32 waking
+    // from WiFi power-save, so MdnsResolver's 2000 ms default is too short for
+    // it. That is not a style preference: the reconnect path silently took the
+    // 2000 ms default while discovery passed 5000, the two disagreed about a
+    // documented property of the same device, and a tablet log showed 82
+    // consecutive reconnect misses over 7.5 h — every one ending at ~2003 ms
+    // having received nothing — against a scale that was awake and on mains
+    // power throughout. A user-initiated scan 3 minutes after one of those
+    // misses resolved the same hostname in 362 ms.
+    //
+    // Raising this is NOT free, and the binding constraint is on the reconnect
+    // side: see the worst-case chain derived at DecentScaleWifi's call site,
+    // which already consumes the whole of BLEManager's 20 s scale-connection
+    // timer. Read that before changing this number.
+    static constexpr int kHdsResolveTimeoutMs = 5000;
+
     // The DNS-SD service openscale advertises (v3.0.9+).
     static constexpr const char* kServiceType = "_decentscale._tcp.local";
 

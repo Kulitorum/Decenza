@@ -45,6 +45,9 @@ template struct AccessBypass<WsPrivateSocketTag, &QWebSocketPrivate::m_pSocket>;
 } // namespace
 
 #include "../../network/mdnsresolver.h"
+// For kHdsResolveTimeoutMs — the A-record deadline is a property of the HDS
+// responder, shared with the discovery path, so both read it from one place.
+#include "../../network/wifiscalediscovery.h"
 
 #define WIFI_LOG(msg)  SCALE_LOG("DecentScaleWifi", msg)
 #define WIFI_INFO(msg) SCALE_INFO("DecentScaleWifi", msg)
@@ -316,7 +319,46 @@ void DecentScaleWifi::attemptHostname() {
         WIFI_LOG(QString("Resolving %1 via mDNS (Android)...").arg(host));
         QPointer<DecentScaleWifi> guard(this);
         QThread* thread = QThread::create([this, guard, host, generation]() {
-            const QString ip = MdnsResolver::resolveHostname(host);
+            // kHdsResolveTimeoutMs, NOT MdnsResolver's 2000 ms default — this
+            // responder is slower than that default assumes, and taking the
+            // default here silently is what made reconnect fail. The responder
+            // latency and the field evidence live on the constant; WHY THIS
+            // CALL SITE BOUNDS IT lives here:
+            //
+            // The worst single connect cycle is resolve fails (5 s) →
+            // dialCachedIpAfterResolveFailure → cached-IP recognition timeout
+            // (5 s) → re-resolve (5 s) → recognition (5 s) = 20 s, which is
+            // EXACTLY BLEManager::m_scaleConnectionTimer's interval
+            // (blemanager.cpp, setInterval(20000)). Not "well inside" it —
+            // equal to it. Before this timeout was made explicit the same chain
+            // was 2+5+2+5 = 14 s and had 6 s of slack; there is now none.
+            //
+            // The tie is currently safe: onScaleConnectionTimeout takes the
+            // WiFi→BLE fallback, and the driver's own give-up branch only
+            // aborts, because recognitionFailed is wired solely for manual
+            // "Add WiFi Scale" entries. Either order ends the attempt.
+            //
+            // So: kHdsResolveTimeoutMs CANNOT BE RAISED AGAIN without first
+            // shortening this chain or lengthening that timer. Re-derive the
+            // sum before touching either number — do not trust this comment if
+            // you have changed a step, re-count the steps.
+            //
+            // Blocks a detached QThread::create worker (NOT a QThreadPool task,
+            // so ~QCoreApplication does not wait on it) for up to the timeout.
+            // No cancel token is passed, matching MqttClient's equivalent
+            // resolve; the QPointer guard and generation check below discard a
+            // stale result, but the thread itself still runs to completion.
+            //
+            // NOTE necessary, possibly not sufficient. The one observed success
+            // resolved in 362 ms — inside the OLD 2 s window — while a DNS-SD
+            // browse ran concurrently, so "the responder needs browse traffic
+            // to wake" survives as an alternative this timeout does not
+            // address. If reconnect still misses at this timeout, that is the
+            // answer, and the fix is to browse from the reconnect path (the
+            // auto-connect wiring already exists in BLEManager's resultFound
+            // handler).
+            const QString ip = MdnsResolver::resolveHostname(
+                host, WifiScaleDiscovery::kHdsResolveTimeoutMs);
             // Back on the object's thread. `guard` gates liveness — the object
             // may have been destroyed during the blocking resolve. The `!guard`
             // check runs first (short-circuit), so member access via `this`
