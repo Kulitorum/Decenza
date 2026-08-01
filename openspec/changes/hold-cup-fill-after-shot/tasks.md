@@ -25,5 +25,12 @@
 ## 4. Land
 
 - [x] 4.1 Open a PR (never push to `main`) — [#1736](https://github.com/Kulitorum/Decenza/pull/1736)
-- [ ] 4.2 Run the automated `/pr-review-toolkit:review-pr` review and address the findings
+- [x] 4.2 Run the automated `/pr-review-toolkit:review-pr` review and address the findings — two critical capture defects and one pre-existing pre-flow bug fixed in `5553eb4a`; artifact corrections in the same commit; four findings recorded as deliberately-not-changed in `design.md`
+
+## 5. Re-verify after the review rework
+
+- [x] 5.1 Rebuild and re-run the full suite on the correct checkout (Qt Creator had drifted to the other clone) — 110 passed, 0 failed
+- [ ] 5.2 Manual: re-check the normal shot hold, and confirm the cup now follows post-stop drip upward instead of freezing below the recorded yield
+- [ ] 5.3 Manual: lift the cup during `Ending` (before the machine reaches Ready) — the cup shows the extracted shot, not an empty cup or a negative weight
+- [ ] 5.4 Manual: leave an untared cup on the scale pre-shot — the cup is completely empty, not 12% full
 - [ ] 4.3 Archive this change and sync specs as the final commit on the same PR, then squash-merge and delete the branch
