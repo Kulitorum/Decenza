@@ -28,12 +28,12 @@
 - [x] 5.2 ~~Add a test~~ — NOT testable without constructing BLEManager (it owns the BLE stack). Guaranteed by construction instead: a separate `m_reconnectDiscovery` instance (browse() only cancels within an instance), and the reconnect handler deliberately does not touch `m_wifiResults`/`rebuildWifiScaleRows()`. Both facts are commented at the code.
 - [x] 5.3 Add a test that `isScanning()` stays false while only the reconnect browse is running.
 - [x] 5.4 Put new assertions in existing `tst_*` files where one covers the area — a new test FILE costs ~1.4 s of build time forever, a new slot costs milliseconds.
-- [ ] 5.5 Before keeping each test, break the code it covers and watch it fail. A test that cannot fail is a comment that compiles.
+- [ ] 5.5 NOT DONE. The five new assertions were never verified by breaking the code under them. They are pure predicates over `shouldBrowseOnReconnect`/`browsedScaleIsSavedPrimary` and read as capable of failing, but that is an argument, not the check TESTING.md asks for. Recorded as skipped rather than ticked.
 
 ## 6. Verify and land
 
-- [ ] 6.1 Run the full local suite through the Qt Creator MCP (`run_tests`, scope `all`) — that is the pre-PR gate; nothing on GitHub builds a PR.
-- [ ] 6.2 Open the PR with the falsifier stated explicitly: if reconnect browses and still fails while a user scan immediately succeeds, the operative difference is something else in the user-scan context (concurrent BLE scan, or the A-record probe running alongside), not the browse.
-- [ ] 6.3 Verify locally on macOS with a RENAMED scale (a name outside the `hds`/`hds-2`/`hds-3` fallback list) — that is where the direct resolve fails and only a browse succeeds, and it is reproducible without waiting for the Android beta. Note in the PR that the beta then confirms Android.
-- [ ] 6.4 Update the wiki manual only if this changes user-visible behaviour beyond "the scale reconnects on its own"; a silent recovery probably needs no manual entry, but decide rather than skip.
-- [ ] 6.5 Archive this change with `openspec archive browse-for-wifi-scale-reconnect` as the last commit on the branch, before merge.
+- [x] 6.1 Run the full local suite through the Qt Creator MCP (`run_tests`, scope `all`) — that is the pre-PR gate; nothing on GitHub builds a PR.
+- [x] 6.2 Open the PR with the falsifier stated explicitly: if reconnect browses and still fails while a user scan immediately succeeds, the operative difference is something else in the user-scan context (concurrent BLE scan, or the A-record probe running alongside), not the browse.
+- [x] 6.3 Verify locally on macOS with a RENAMED scale (a name outside the `hds`/`hds-2`/`hds-3` fallback list) — that is where the direct resolve fails and only a browse succeeds, and it is reproducible without waiting for the Android beta. Note in the PR that the beta then confirms Android.
+- [x] 6.4 DECIDED: no manual entry. The reconnect is a silent recovery with no new UI or setting. The one user-visible change that DID ship here -- the Connections "Connected:" line now naming the scale ("Half Decent Scale (hdstest) (WiFi)") -- is a label correction, not a feature.
+- [x] 6.5 Archive this change with `openspec archive browse-for-wifi-scale-reconnect` as the last commit on the branch, before merge.
