@@ -76,6 +76,7 @@
 #define DECENZA_LOG_MARKER_NETWORK       "Network"
 #define DECENZA_LOG_MARKER_SCREENSAVER   "Screensaver"
 #define DECENZA_LOG_MARKER_THEME         "Theme"
+#define DECENZA_LOG_MARKER_STORAGE       "Storage"
 #define DECENZA_LOG_MARKER_EQUIPMENT     "Equipment"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
@@ -124,6 +125,14 @@
       "these as \"the screen went dark mid-shot\" or \"it never woke up\", and "  \
       "the answer is usually which of several independent things (idle timer, "   \
       "brightness, video) did or did not fire")                                   \
+    X(DECENZA_LOG_MARKER_STORAGE,                                                \
+      "Whether an edit you made actually reached the database. Answers \"I "      \
+      "rated that shot and it came back blank\" and \"my note vanished\": writes " \
+      "are queued to a background worker per storage, and a worker destroyed "     \
+      "with tasks still queued discards them. Covers the drain at quit and at "    \
+      "backgrounding, that discard, and the shot-file export those writes "        \
+      "trigger. Not about WHAT was stored — that is Equipment for gear identity "  \
+      "— only about whether the write survived")                                   \
     X(DECENZA_LOG_MARKER_THEME,                                                  \
       "Appearance: theme selection and switching, custom colours, background "    \
       "images and presets, and per-role font-size overrides. Separate from Font, " \
