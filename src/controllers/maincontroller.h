@@ -385,10 +385,16 @@ public:
     // no warning whatsoever, since ~SerialDbWorker never runs either.
     //
     // Android is the primary platform and is usually backgrounded rather than
-    // quit, so this covers the deliberate in-app quit and little else there. The
-    // hook that would cover the rest is Qt::ApplicationSuspended (main.cpp), which
-    // exists and does not drain — deliberately out of scope here, because a wait
-    // on the backgrounding path risks an ANR and needs measurement on a device.
+    // quit, so the quit path alone would cover very little there. That is why
+    // Qt::ApplicationSuspended also calls this (main.cpp), with a shorter budget:
+    // backgrounding is the last hook before an OS kill, and it is the one that
+    // actually fires on Android.
+    //
+    // That second call was briefly left out and documented as out of scope, on the
+    // grounds that it risked an ANR and needed device measurement. Neither claim
+    // was checked before it was written. It is recorded here because the reasoning
+    // was backwards: the platform where the loss is most likely is the last place
+    // to accept a narrower fix, and "documented" is not a substitute for "fixed".
     void drainDbWork(int timeoutMs = 750);
 
 public slots:

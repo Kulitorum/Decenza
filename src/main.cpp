@@ -4214,7 +4214,7 @@ int main(int argc, char *argv[])
     // when app is suspended/resumed. Neither DE1 nor scale are put to sleep when
     // backgrounded — users may switch apps while the machine heats up.
     QObject::connect(&app, &QGuiApplication::applicationStateChanged, handlerScope.get(),
-                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt, &scaleAutoReconnectSuppressed, &refractometerReconnectTimer, &refractometerReconnectAttempt](Qt::ApplicationState state) {
+                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt, &scaleAutoReconnectSuppressed, &refractometerReconnectTimer, &refractometerReconnectAttempt, &mainController](Qt::ApplicationState state) {
         static bool wasSuspended = false;
 
         // Log every state transition so the debug log captures pre-suspend
@@ -4237,6 +4237,25 @@ int main(int argc, char *argv[])
 
         if (state == Qt::ApplicationSuspended) {
             wasSuspended = true;
+
+            // Flush queued database writes now, because this is the last hook we
+            // get. aboutToQuit covers the deliberate quit; it is NOT emitted when
+            // the OS kills a backgrounded process, which on Android is the common
+            // way this app ends. Without this, a dose, note or rating entered just
+            // before the user switches away is lost with no warning anywhere —
+            // ~SerialDbWorker never runs either.
+            //
+            // Usually a no-op, and that is the point. The branch below deliberately
+            // keeps the app alive when backgrounded (DE1 foreground service, wake
+            // lock), so the worker thread normally drains on its own in
+            // milliseconds and drainDbWork() returns immediately. What it defends
+            // against is the process being frozen (Android's cached-process
+            // freezer, Doze) or killed before the worker reaches a queued task.
+            //
+            // 250 ms, a third of the quit budget: this runs on the foregrounding/
+            // backgrounding path where the user is waiting on an animation, and
+            // unlike quit it is not the last chance in the ordinary case.
+            mainController.drainDbWork(250);
 
 #ifdef Q_OS_ANDROID
             // Disable accessibility bridge before surface is destroyed.
