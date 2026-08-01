@@ -67,6 +67,16 @@
 #include <QQmlEngine>
 #include <QJSEngine>
 
+// ShotSettings drift: the DE1 reporting back something other than what we
+// commanded, and the resend ladder that answers it. Aliased rather than typing
+// the tag at each of the seven sites — one misspelling in a file this size is
+// invisible, and the line it produces is silently absent from every
+// [DE1][SettingsDrift] search. See LOGGING.md, "Alias the macro, never copy its
+// body". STDERR because MainController has no logMessage signal.
+#define DRIFT_LOG(msg)  DE1_LOG_STDERR_TAGGED("SettingsDrift", msg)
+#define DRIFT_INFO(msg) DE1_INFO_STDERR_TAGGED("SettingsDrift", msg)
+#define DRIFT_WARN(msg) DE1_WARN_STDERR_TAGGED("SettingsDrift", msg)
+
 MainController *MainController::s_qmlInstance = nullptr;
 
 void MainController::setQmlInstance(MainController *instance)
@@ -2208,7 +2218,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // reflects its power-on state, not ours, and racing against that would
     // log a bogus drift on every connect.
     if (!haveCommanded) {
-        DE1_LOG_STDERR_TAGGED("SettingsDrift", QString(
+        DRIFT_LOG(QString(
             "pre-commanded report ignored: "
             "reported(steam=%1C dur=%2s hw=%3C vol=%4ml group=%5C) — waiting for first write")
             .arg(deviceSteamTargetC, 0, 'f', 1)
@@ -2228,7 +2238,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
             // they worked — the failure half of a narrative, which reads as an
             // unresolved fault. Both terminal outcomes (this and "giving up")
             // are INFO+; the non-terminal steps stay DEBUG.
-            DE1_INFO_STDERR_TAGGED("SettingsDrift", QString(
+            DRIFT_INFO(QString(
                 "resolved after %1 resend(s) — DE1 stored "
                 "steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C")
                 .arg(m_shotSettingsDriftResendCount)
@@ -2285,7 +2295,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
     }
 
-    DE1_WARN_STDERR_TAGGED("SettingsDrift", QString(
+    DRIFT_WARN(QString(
         "DE1-dropped-write: %1 | "
         "reported(steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C) "
         "commanded(steam=%7C dur=%8s hw=%9C vol=%10ml group=%11C)")
@@ -2305,13 +2315,13 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // its indication), wait for that to resolve before firing another. This
     // is the event-based replacement for a 2s wall-clock rate limit.
     if (m_shotSettingsResendInFlight) {
-        DE1_LOG_STDERR_TAGGED("SettingsDrift", QStringLiteral("resend already in flight — waiting for its indication"));
+        DRIFT_LOG(QStringLiteral("resend already in flight — waiting for its indication"));
         return;
     }
 
     constexpr int kMaxResendAttempts = 3;
     if (m_shotSettingsDriftResendCount >= kMaxResendAttempts) {
-        DE1_WARN_STDERR_TAGGED("SettingsDrift", QString(
+        DRIFT_WARN(QString(
             "giving up after %1 resend attempts — DE1 not honoring ShotSettings")
             .arg(m_shotSettingsDriftResendCount));
         return;
@@ -2323,13 +2333,13 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     if (!m_device->isConnected()) {
         // Also terminal, so also INFO: the drift stands and nothing further is
         // attempted. At DEBUG the WARN above would be the last word a user sees.
-        DE1_INFO_STDERR_TAGGED("SettingsDrift", QStringLiteral("device disconnected during drift handling — skipping resend"));
+        DRIFT_INFO(QStringLiteral("device disconnected during drift handling — skipping resend"));
         return;
     }
 
     m_shotSettingsDriftResendCount++;
     m_shotSettingsResendInFlight = true;
-    DE1_WARN_STDERR_TAGGED("SettingsDrift", QString(
+    DRIFT_WARN(QString(
         "resending last ShotSettings payload (attempt %1 of %2)")
         .arg(m_shotSettingsDriftResendCount).arg(kMaxResendAttempts));
     // Re-assert exactly what we last commanded — do NOT re-derive from
