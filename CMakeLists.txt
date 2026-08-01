@@ -45,29 +45,47 @@ if(NOT DEFINED BUILD_TESTS)
     endif()
 endif()
 
-# Precompiled headers. Measured on a clean rebuild (macOS, Ninja, Debug+ASan):
-# 226.9 s -> 169.5 s wall, 3083 s -> 2359 s summed compile, i.e. 25-30% off a
-# clean build. Details and the per-target header lists are at the
+# Precompiled headers. Measured on five back-to-back clean rebuilds (this
+# machine, Ninja, Debug+ASan): 229.5 s with PCH off, 157.0 s with it on, i.e.
+# 31.6%. Honest interval 27-35% — the on-arm is one run and the two off-arms
+# spread 7%. Header lists and the per-target detail are at the
 # target_precompile_headers() calls in this file and in tests/CMakeLists.txt.
 #
-# ON everywhere except Windows. A compiler cache in front of the compiler is
-# NOT a reason to disable this — that was tried and it was wrong. The first
-# six-platform test run settled it: Android and Linux-arm64 build with ccache
-# and Ninja and went green, and macOS builds with ccache and Xcode and went
-# green too. Only iOS failed, and the cause was in the ccache wrapper script,
-# not in the PCH — see "Create ccache compiler wrappers" in
-# .github/workflows/ios-release.yml for the fix and the evidence.
+# Do NOT compare that against numbers from a different sitting: the same
+# configuration measured 169.5 s earlier in the day and 194.6 s later, on the
+# same machine. Drift here exceeds the effect, so only same-window arms compare.
 #
-# OFF on Windows, deliberately and for now. Windows CI wraps the compiler in
-# sccache, which is a different program from ccache with its own PCH handling,
-# and no run has ever exercised it with a PCH — the Windows leg of the test run
-# built with this already OFF, so it is untested rather than known-good.
-# Turning it on there is a separate change that must be measured on a Windows
-# runner with a warm sccache.
+# OFF on iOS. Its release build fails outright with the PCH enabled:
+#
+#   error: input is not a PCH file: '…/SharedPrecompiledHeaders/…/cmake_pch.hxx.gch'
+#   fatal error: … is not a valid PCH file: file too small to contain
+#                precompiled file magic
+#
+# A COMPILER CACHE IS NOT THE CAUSE, though it looks like one and was chased
+# twice. Two things disprove it. First, the rest of the matrix: Android and
+# Linux-arm64 build with ccache under Ninja and pass; macOS builds with ccache
+# under Xcode, generates objective-c++ PCHs of its own, and passes. Second, a
+# wrapper change that routed PCH generation around ccache entirely was tested on
+# this leg and it failed identically — see PR #1730 if the reasoning is needed
+# again. What is specific to iOS is the build graph: Xcode compiles every source
+# there as objective-c++, so ONE cmake_pch.hxx gates ~900 compiles, and the log
+# shows it being precompiled twice concurrently into two different
+# SharedPrecompiledHeaders hash directories. That is where to start if anyone
+# picks this up; it is not a caching problem.
+#
+# OFF on Windows, untested rather than known-bad. Windows CI wraps the compiler
+# in sccache — a different program from ccache with its own PCH handling — and
+# the Windows leg of the test run built with this already OFF, so nothing has
+# ever exercised the combination. Turning it on is a separate change that must
+# be measured on a Windows runner with a warm sccache.
+#
+# ON everywhere else, which includes every local build: Qt Creator and a plain
+# CLI configure set no compiler launcher, and local development is the case this
+# exists for. CI throughput is explicitly the lower priority.
 #
 # To force either way: -DDECENZA_ENABLE_PCH=ON/OFF.
 if(NOT DEFINED DECENZA_ENABLE_PCH)
-    if(WIN32)
+    if(WIN32 OR IOS)
         set(DECENZA_ENABLE_PCH OFF CACHE BOOL "Use precompiled headers")
     else()
         set(DECENZA_ENABLE_PCH ON CACHE BOOL "Use precompiled headers")
