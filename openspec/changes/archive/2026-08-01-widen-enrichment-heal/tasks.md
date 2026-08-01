@@ -49,5 +49,5 @@
 ## 7. Review and merge
 
 - [x] 7.1 Full suite locally via `mcp__qtcreator__run_tests` (scope `all`) — nothing on GitHub builds a PR.
-- [ ] 7.2 Open the PR, then run `/pr-review-toolkit:review-pr`.
-- [ ] 7.3 Archive this change as the final commit on the same PR.
+- [x] 7.2 Open the PR, then run `/pr-review-toolkit:review-pr`.
+- [x] 7.3 Archive this change as the final commit on the same PR.
