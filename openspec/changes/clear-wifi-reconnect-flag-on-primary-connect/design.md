@@ -29,15 +29,34 @@ fallback scan is still running, and the stand-in reports backup for the primary.
 `ScaleDevice::type()` is virtual on the base class (`src/ble/scaledevice.h:38`)
 and `DecentScaleWifi::type()` returns `"decent-wifi"`. `main.cpp:2465` already
 uses exactly this to decide "already on the WiFi primary" before honouring
-`wifiPrimaryReachable`. `connectedScaleIsWifiPrimary()` is that same test, so the
-two layers cannot drift apart on what the phrase means.
+`wifiPrimaryReachable`. `connectedScaleIsWifiPrimary()` applies the same type
+test, so the two layers agree on what the phrase means — and both now read it
+from `ScaleTypeIds` rather than a hand-written literal, without which "cannot
+drift apart" would have been an assertion with nothing behind it.
 
-It carries `main.cpp`'s one limitation: with a `wifi:` primary saved, any
-connected WiFi scale answers true. Only one scale connects at a time, and a
-manual connect to a different WiFi scale rewrites the saved address, so there is
-no reachable case where this is wrong. Stated here rather than defended, because
-the alternative — comparing hostnames — needs an accessor `ScaleDevice` does not
-have, for a distinction nothing can currently produce.
+**The limitation is reachable, not theoretical**, and an earlier draft of this
+document claimed otherwise. With a `wifi:` primary saved, any connected WiFi
+scale answers true, because this compares the type and not the host. Two routes
+reach it, both because the saved address is written *later* than the connection
+is reported:
+
+- A manual "Add WiFi Scale" defers `setSavedScaleAddress()` to `recognizedAsHds`,
+  while `connected` is signalled at WebSocket open — `main.cpp:3030` says so
+  outright. The #1281 shape (a user typing their router's address) lands here.
+- Tapping a discovered WiFi scale while a dead `DecentScaleWifi` is still the
+  current scale takes `main.cpp`'s type-unchanged re-wire branch, which returns
+  without persisting.
+
+Both are inert at both call sites, which is what makes the type test sufficient.
+Clearing `m_wifiDirectAttemptFailed` wrongly costs at most one ladder cycle:
+`onScaleConnectionTimeout()` re-arms it, and is also the only place a browse ever
+starts, so the browse can be delayed but not disarmed. Returning early from
+`maybeAutoConnectBrowsedScale()` produces the same outcome `main.cpp`'s own
+decline already produced.
+
+The alternative — comparing hostnames — would close the gap, but needs an
+accessor `ScaleDevice` does not have, to separate cases whose wrong answers cost
+nothing. Worth revisiting only if a consequence stops being inert.
 
 **Alternative considered and rejected:** clear `m_wifiFallbackToBleActive` at the
 browse's dial site, so the later connect no longer looks like a fallback. That
@@ -50,7 +69,7 @@ belief that is wrong.
 ### Express the clearing rule as a pure predicate
 
 `connectClearsDirectAttemptFailed(wasWifiFallbackConnect, connectedScaleIsWifiPrimary)`
-joins the three predicates already in the header. It is a two-input rule, so the
+joins the two predicates already in the header. It is a two-input rule, so the
 test is a four-row truth table including the row that was wrong — cheap, and it
 makes the rule legible next to the flag it governs.
 

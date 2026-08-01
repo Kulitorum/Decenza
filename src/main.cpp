@@ -156,6 +156,7 @@ extern "C" const char* __ubsan_default_options()
 #endif
 #include "ble/scaledevice.h"
 #include "ble/scales/scalefactory.h"
+#include "ble/scales/scaletypeids.h"
 #include "ble/scales/flowscale.h"
 #include "ble/scales/decentscalewifi.h"
 #include "ble/refractometers/difluidr1.h"
@@ -2462,7 +2463,7 @@ int main(int argc, char *argv[])
             return false;                                  // primary isn't WiFi
         if (!physicalScale || !physicalScale->isConnected())
             return false;                                  // nothing connected → reconnect machinery owns it
-        if (physicalScale->type() == QStringLiteral("decent-wifi"))
+        if (physicalScale->type() == ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi))
             return false;                                  // already on the WiFi primary
         switch (machineState.phase()) {
         case MachineState::Phase::Disconnected:
@@ -2764,7 +2765,7 @@ int main(int argc, char *argv[])
                 machineState.setScale(physicalScale.get());
                 timingController.setScale(physicalScale.get());
                 scaleProxy.setTarget(physicalScale.get());
-                if (type == QStringLiteral("decent-wifi")) {
+                if (type == ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi)) {
                     if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
                         // (Re-wire each time — cheap, and ensures the callbacks
                         // reference the live Settings instance.)
@@ -2797,7 +2798,7 @@ int main(int argc, char *argv[])
 
         // Save scale to known scales and set as primary. For WiFi entries the
         // identifier is the prefixed hostname; for BLE it's the MAC/UUID.
-        const bool isWifi = (type == QStringLiteral("decent-wifi"));
+        const bool isWifi = (type == ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi));
         const QString hostname = isWifi ? bleManager.pendingWifiHostname() : QString();
         const QString deviceId = isWifi ? (QStringLiteral("wifi:") + hostname)
                                          : getDeviceIdentifier(device);
@@ -4490,7 +4491,7 @@ int main(int argc, char *argv[])
                     // idle-park pathology, and BT users have years of expecting
                     // the link to survive the screensaver. See comment above
                     // and DecentScaleWifi::onConnected for the LCD-restore.
-                    if (physicalScale->type() == QStringLiteral("decent-wifi")) {
+                    if (physicalScale->type() == ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi)) {
                         qDebug() << "DE1 sleep + WiFi scale - closing WS for the sleep interval";
                         scaleAutoReconnectSuppressed = true;
                         physicalScale->disconnectFromScale();
