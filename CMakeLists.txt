@@ -50,18 +50,22 @@ endif()
 # clean build. Details and the per-target header lists are at the
 # target_precompile_headers() calls in this file and in tests/CMakeLists.txt.
 #
-# OFF on Windows, deliberately and for now. Windows CI wraps the compiler in
-# sccache (.github/workflows/windows-release.yml), and a compiler cache needs
-# explicit `sloppiness` configuration to keep hitting once a PCH is in play —
-# get that wrong and the PCH makes CI SLOWER, not faster, by turning cache hits
-# into misses. That interaction has not been tested, and this machine cannot
-# test it: it is macOS, so the only evidence available here would be an
-# assumption dressed as a measurement. Turning it on for Windows is a separate
-# change that must be measured on a Windows runner with a warm sccache.
+# ON everywhere except Windows. A compiler cache in front of the compiler is
+# NOT a reason to disable this — that was tried and it was wrong. The first
+# six-platform test run settled it: Android and Linux-arm64 build with ccache
+# and Ninja and went green, and macOS builds with ccache and Xcode and went
+# green too. Only iOS failed, and the cause was in the ccache wrapper script,
+# not in the PCH — see "Create ccache compiler wrappers" in
+# .github/workflows/ios-release.yml for the fix and the evidence.
 #
-# The other five platforms are unaffected: Linux, Linux-arm64 and Android build
-# with Ninja and no compiler cache, macOS and iOS with Xcode (verified to build
-# a per-architecture PCH and produce a correct universal binary).
+# OFF on Windows, deliberately and for now. Windows CI wraps the compiler in
+# sccache, which is a different program from ccache with its own PCH handling,
+# and no run has ever exercised it with a PCH — the Windows leg of the test run
+# built with this already OFF, so it is untested rather than known-good.
+# Turning it on there is a separate change that must be measured on a Windows
+# runner with a warm sccache.
+#
+# To force either way: -DDECENZA_ENABLE_PCH=ON/OFF.
 if(NOT DEFINED DECENZA_ENABLE_PCH)
     if(WIN32)
         set(DECENZA_ENABLE_PCH OFF CACHE BOOL "Use precompiled headers")

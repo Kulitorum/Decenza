@@ -157,8 +157,41 @@ jobs:
           mkdir -p "$WRAPPER_DIR"
           CLANG=$(xcrun -f clang)
           CLANGPP=$(xcrun -f clang++)
-          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANG" "$CLANG" > "$WRAPPER_DIR/launch-c"
-          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANGPP" "$CLANGPP" > "$WRAPPER_DIR/launch-cxx"
+          # PCH GENERATION BYPASSES ccache. Everything else still goes through it.
+          #
+          # Without this, the build fails outright:
+          #
+          #   error: input is not a PCH file: '…/SharedPrecompiledHeaders/…/cmake_pch.hxx.gch'
+          #   fatal error: … is not a valid PCH file: file too small to contain
+          #                precompiled file magic
+          #
+          # i.e. a zero-length .gch. iOS is the only platform where this bites,
+          # and the reason is a quirk of this leg: Xcode compiles EVERY source
+          # here as objective-c++, so `cmake_pch.hxx` is built once as
+          # `-x objective-c++-header` and then consumed by ~900 compiles that all
+          # block on it. macOS survives the identical wrapper because its main
+          # PCH is `-x c++-header` and its objective-c++ one serves only 3 .mm
+          # files. Android and Linux use ccache with Ninja and are unaffected.
+          # The concurrency difference is the likely trigger, but that is a
+          # hypothesis — what is established is the empty .gch and that removing
+          # ccache from this one command makes it go away.
+          #
+          # The match is on the `-x` LANGUAGE ending in `-header`, which is
+          # exactly and only how a PCH is generated; consumers pass `-x c++` or
+          # `-x objective-c++` with no suffix. Do NOT match on "cmake_pch"
+          # instead — that string also appears in every consumer's
+          # `-include-pch …/cmake_pch.hxx.gch`, so it would route ~900 compiles
+          # around the cache and silently destroy the hit rate this wrapper
+          # exists to provide. PCH generation is 2 commands on this leg and 14
+          # on macOS, so skipping the cache for them costs nothing.
+          # Written with printf, not a heredoc: a heredoc inside a YAML `run: |`
+          # block carries the block's indentation into the generated script and
+          # needs a sed pass to strip it, which is one silent whitespace change
+          # away from emitting a broken wrapper. Single quotes keep $1/$@/$a
+          # literal for the generated script; %s takes the compiler path.
+          PCH_WRAPPER='#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nprev=\nfor a in "$@"; do\n  if [ "$prev" = "-x" ]; then\n    case "$a" in *-header) exec "%s" "$@";; esac\n  fi\n  prev=$a\ndone\nexec ccache "%s" "$@"\n'
+          printf "$PCH_WRAPPER" "$CLANG" "$CLANG" "$CLANG" > "$WRAPPER_DIR/launch-c"
+          printf "$PCH_WRAPPER" "$CLANGPP" "$CLANGPP" "$CLANGPP" > "$WRAPPER_DIR/launch-cxx"
           chmod +x "$WRAPPER_DIR/launch-c" "$WRAPPER_DIR/launch-cxx"
           echo "CCACHE_LAUNCH_C=$WRAPPER_DIR/launch-c" >> $GITHUB_ENV
           echo "CCACHE_LAUNCH_CXX=$WRAPPER_DIR/launch-cxx" >> $GITHUB_ENV
