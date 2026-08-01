@@ -2172,7 +2172,22 @@ QString MainController::pasteFromClipboard() const {
 void MainController::onShotSettingsReported(double deviceSteamTargetC, int deviceSteamDurationSec,
                                              double deviceHotWaterTempC, int deviceHotWaterVolMl,
                                              double deviceGroupTargetC) {
-    if (!m_device || !m_device->isConnected() || !m_settings) return;
+    // A drift episode that ends by the link going away must still produce a
+    // terminal line. Without this the reader gets "DE1-dropped-write" and
+    // "resending attempt 1 of 3" at WARN and then nothing ever again — the
+    // failure half of a narrative, which reads as an unresolved fault. This is
+    // the disconnect path that actually runs; the isConnected() re-check further
+    // down cannot fire, because nothing between it and the WARN above pumps the
+    // event loop.
+    if (!m_device || !m_device->isConnected() || !m_settings) {
+        if (m_shotSettingsResendInFlight || m_shotSettingsDriftResendCount > 0) {
+            DRIFT_INFO(QStringLiteral(
+                "device gone with a resend outstanding — ladder abandoned, drift unresolved"));
+            m_shotSettingsResendInFlight = false;
+            m_shotSettingsDriftResendCount = 0;
+        }
+        return;
+    }
 
     const double commandedSteam = m_device->commandedSteamTargetC();
     const int commandedDuration = m_device->commandedSteamDurationSec();
@@ -2347,12 +2362,14 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         return;
     }
 
-    // Re-check the connection right before committing to the resend — signals
-    // emitted above could have flipped state, and we don't want to burn a
-    // retry slot on a write that will no-op inside the transport.
+    // Belt-and-braces only. The comment here used to say "signals emitted above
+    // could have flipped state" — that stopped being true once these lines
+    // became stderr-only macros, which emit nothing and pump no event loop, so
+    // isConnected() cannot change between the WARN above and this line. The
+    // disconnect that really happens is caught at the top of this function,
+    // where the ladder is abandoned with a terminal INFO. Kept because a cheap
+    // guard immediately before a device write is worth having anyway.
     if (!m_device->isConnected()) {
-        // Also terminal, so also INFO: the drift stands and nothing further is
-        // attempted. At DEBUG the WARN above would be the last word a user sees.
         DRIFT_INFO(QStringLiteral("device disconnected during drift handling — skipping resend"));
         return;
     }
@@ -2456,6 +2473,17 @@ void MainController::applyFlushSettings() {
 void MainController::applyAllSettings() {
     // Fresh connection — reset ShotSettings drift bookkeeping so a prior
     // session's exhausted retry budget doesn't permanently disable auto-heal.
+    //
+    // Say so when there was something to discard. Zeroing the counter silently
+    // also suppresses the "resolved after N resend(s)" line on the next clean
+    // report, because that line is gated on the counter being non-zero — so a
+    // drift that ended in a reconnect left the WARN as the last word a reader
+    // ever saw.
+    if (m_shotSettingsDriftResendCount > 0 || m_shotSettingsResendInFlight) {
+        DRIFT_INFO(QString("drift ladder reset by reconnect after %1 resend(s) — "
+                           "the previous session's drift was never resolved")
+                       .arg(m_shotSettingsDriftResendCount));
+    }
     m_shotSettingsDriftResendCount = 0;
     m_shotSettingsResendInFlight = false;
 

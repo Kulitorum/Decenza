@@ -305,7 +305,8 @@ recursion, but the guard's cost is dropping that line's signal — so a stray
 ## Enforcement
 
 `scripts/check_log_markers.py` runs on every PR touching `src/**` (see
-`.github/workflows/text-invariants.yml`). No Qt, no compiler, 12 s.
+`.github/workflows/text-invariants.yml`). No Qt, no compiler, seconds — the workflow
+header carries the measured figure.
 
 It is **not** a required status check, so a red run does not block the merge button —
 **read the run before merging.** A PR whose own `text-invariants` was red has already
@@ -377,11 +378,12 @@ coverage sets, because the rules do not all generalise the same way:
   alongside unrelated code — `main.cpp` is the archetype.
 
 **Both lists live in `scripts/check_log_markers.py`, and are deliberately not copied
-here.** This section used to enumerate them and was six entries stale within weeks,
+here.** This section used to enumerate them and was four entries stale in the very commit that wrote it, seven by the time it was deleted —
 which is the same drift the "do not restate the registry" rule above exists to
-prevent. Read the script for membership; read this for the criterion. Rule 6 catches
-a file that uses a helper and is in neither list, so nothing depends on either list
-being remembered.
+prevent. Read the script for membership; read this for the criterion. Rule 6 catches a file that *includes* a helper header and is in
+neither list, so membership cannot be forgotten. It does not check *which* list, and
+that choice is the load-bearing one: a file wholly about one subsystem parked in
+`MARKER_ONLY_GLOBS` silently skips rule 1.
 
 The split is a correction, not a concession. `main.cpp` drives both reconnect ladders
 *and* initialises fonts, translations, TTS and accessibility; applying rule 1 there

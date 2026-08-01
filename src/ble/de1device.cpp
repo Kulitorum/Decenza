@@ -2007,7 +2007,26 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
 }
 
 void DE1Device::resendLastShotSettings() {
-    if (!m_transport || m_lastShotSettingsPayload.isEmpty()) return;
+    // Not silent, but DEBUG rather than WARN. A bare return made the log assert a
+    // write that never left the process, since MainController logs "resending
+    // last ShotSettings payload" before calling here. But an empty payload is
+    // also the ordinary state before the first write ever happens — nothing is
+    // wrong then, and warning on it is what LOGGING.md means by training readers
+    // to skim the tier that means "look here". tst_ShotSettings::
+    // resendLastShotSettingsNoOpBeforeFirstWrite pins exactly that case.
+    //
+    // There is no state that distinguishes "had a payload and lost it" from
+    // "never wrote one": disconnect clears the payload AND resets the commanded
+    // values together (see onTransportDisconnected). So the tier has to suit the
+    // benign reading. MainController's own path cannot reach here empty anyway —
+    // it only resends once haveCommanded is true, which requires a prior write.
+    if (!m_transport || m_lastShotSettingsPayload.isEmpty()) {
+        SHOTSETTINGS_LOG(QStringLiteral(
+            "resend requested but nothing was sent — %1")
+            .arg(!m_transport ? QStringLiteral("no transport")
+                              : QStringLiteral("no payload retained (none written yet, or cleared on disconnect)")));
+        return;
+    }
     if (dropDeviceWriteIfFirmwareFlash("resendLastShotSettings")) return;
     SHOTSETTINGS_LOG(QStringLiteral(
         "resend: repeating last payload "
