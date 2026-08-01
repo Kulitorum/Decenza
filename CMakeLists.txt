@@ -45,6 +45,54 @@ if(NOT DEFINED BUILD_TESTS)
     endif()
 endif()
 
+# Precompiled headers. Measured on five back-to-back clean rebuilds (this
+# machine, Ninja, Debug+ASan): 229.5 s with PCH off, 157.0 s with it on, i.e.
+# 31.6%. Honest interval 27-35% — the on-arm is one run and the two off-arms
+# spread 7%. Header lists and the per-target detail are at the
+# target_precompile_headers() calls in this file and in tests/CMakeLists.txt.
+#
+# Do NOT compare that against numbers from a different sitting: the same
+# configuration measured 169.5 s earlier in the day and 194.6 s later, on the
+# same machine. Drift here exceeds the effect, so only same-window arms compare.
+#
+# OFF on iOS. Its release build fails outright with the PCH enabled:
+#
+#   error: input is not a PCH file: '…/SharedPrecompiledHeaders/…/cmake_pch.hxx.gch'
+#   fatal error: … is not a valid PCH file: file too small to contain
+#                precompiled file magic
+#
+# A COMPILER CACHE IS NOT THE CAUSE, though it looks like one and was chased
+# twice. Two things disprove it. First, the rest of the matrix: Android and
+# Linux-arm64 build with ccache under Ninja and pass; macOS builds with ccache
+# under Xcode, generates objective-c++ PCHs of its own, and passes. Second, a
+# wrapper change that routed PCH generation around ccache entirely was tested on
+# this leg and it failed identically — see PR #1730 if the reasoning is needed
+# again. What is specific to iOS is the build graph: Xcode compiles every source
+# there as objective-c++, so ONE cmake_pch.hxx gates ~900 compiles, and the log
+# shows it being precompiled twice concurrently into two different
+# SharedPrecompiledHeaders hash directories. That is where to start if anyone
+# picks this up; it is not a caching problem.
+#
+# OFF on Windows, untested rather than known-bad. Windows CI wraps the compiler
+# in sccache — a different program from ccache with its own PCH handling — and
+# the Windows leg of the test run built with this already OFF, so nothing has
+# ever exercised the combination. Turning it on is a separate change that must
+# be measured on a Windows runner with a warm sccache.
+#
+# ON everywhere else, which includes every local build: Qt Creator and a plain
+# CLI configure set no compiler launcher, and local development is the case this
+# exists for. CI throughput is explicitly the lower priority.
+#
+# To force either way: -DDECENZA_ENABLE_PCH=ON/OFF.
+if(NOT DEFINED DECENZA_ENABLE_PCH)
+    if(WIN32 OR IOS)
+        set(DECENZA_ENABLE_PCH OFF CACHE BOOL "Use precompiled headers")
+    else()
+        set(DECENZA_ENABLE_PCH ON CACHE BOOL "Use precompiled headers")
+    endif()
+endif()
+message(STATUS "Precompiled headers: ${DECENZA_ENABLE_PCH}")
+
 # Address Sanitizer — catches use-after-free, heap overflow, etc.
 # Enable in Qt Creator: Projects → Build → CMake → add ENABLE_ASAN=ON
 # Or configure from CLI: cmake ... -DENABLE_ASAN=ON
@@ -1481,6 +1529,118 @@ qt_add_qml_module(Decenza
     NO_GENERATE_EXTRA_QMLDIRS
 )
 
+# ---------------------------------------------------------------------------
+# Precompiled header for the Decenza target.
+#
+# Placed after qt_add_qml_module ON PURPOSE: the property applies to every
+# source of the target, and the largest beneficiary is not hand-written code at
+# all — it is the ~226 generated .cpp files qmlcachegen emits under
+# .rcc/qmlcache/, which are compiled into THIS target and which all carry the
+# same ~20 QtQml/QtCore includes (71 of them share a byte-identical include
+# block; 62 more share a second). Those edges are 32% of a clean build, larger
+# than every hand-written src/*.cpp put together (27.8%).
+#
+# Measured on this machine, isolated single-TU compiles with the real flags:
+#
+#   qmlcache generated (12 sampled)   13.35s -> 6.46s   52%
+#   src/*.cpp          (15 sampled)   29.74s -> 21.56s  28%
+#
+# The percentages differ but the SECONDS do not: the saving is ~0.5 s per TU
+# almost regardless of file size, because a PCH removes one fixed header parse
+# and nothing else. stepexitarbiter.cpp saves 0.42 s (56%); shotserver.cpp saves
+# 0.48 s (14%). Do not read the low percentage on a big file as "PCH does not
+# help there" — it helped by the same amount, the file just does more work.
+#
+# QT AND STDLIB HEADERS ONLY. A project header in here rebuilds the PCH and then
+# every TU in the target on every edit to it, which is strictly worse than no
+# PCH at all. That specifically rules out settings.h, which is otherwise the
+# most-included project header in the tree.
+#
+# Verified green on FIVE of the six release workflows: Linux, Linux-arm64 and
+# Android (Ninja), macOS (Xcode), and Windows (Ninja, but with this switch OFF,
+# so that leg proves only that the guard works). iOS is NOT in that list — it
+# fails, and is disabled at the switch above, where the diagnosis lives.
+#
+# Do not restore the sentence this replaced. It read "Verified to work under
+# every generator the six release workflows use ... and Xcode for macOS/iOS",
+# which was true of a local probe and false of iOS in CI, and it sat here
+# contradicting the iOS failure recorded seventy lines above for as long as it
+# took a reviewer to notice. The probe it described was real — `-G Xcode` with
+# -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" does emit one cmake_pch.hxx.gch per
+# slice and link a correct fat binary — but a passing probe is not a passing
+# platform, and writing it as though it were is how a stale claim outlives the
+# thing it claimed.
+if(DECENZA_ENABLE_PCH)
+target_precompile_headers(Decenza PRIVATE
+    <QtCore/qobject.h>
+    <QtCore/qstring.h>
+    <QtCore/qstringlist.h>
+    <QtCore/qvariant.h>
+    <QtCore/qdatetime.h>
+    <QtCore/qurl.h>
+    <QtCore/qdebug.h>
+    <QtCore/qjsonobject.h>
+    <QtCore/qjsonarray.h>
+    <QtCore/qjsondocument.h>
+    # The QtQml set below is what qmlcachegen emits into every generated file.
+    <QtQml/qqmlprivate.h>
+    <QtQml/qjsengine.h>
+    <QtQml/qjsvalue.h>
+    <QtQml/qjsprimitivevalue.h>
+    <QtQml/qqmlcomponent.h>
+    <QtQml/qqmlcontext.h>
+    <QtQml/qqmlengine.h>
+    <QtQml/qqmllist.h>
+    # …and so are these six, which the first version of this list MISSED because
+    # it was built by reading one generated file's include block and stopping at
+    # the QtQml lines. type_traits and qtimezone.h appear in 216 of the 226
+    # generated TUs — 95.6%, the identical share as every QtQml header above —
+    # so leaving them out meant re-parsing a heavy template header 216 times.
+    # The other four sit at 45.1%.
+    #
+    # Do not extend this list by eye. Regenerate the evidence:
+    #   grep -h '^#include <' build/<dir>/.rcc/qmlcache/**/*.cpp | sort | uniq -c | sort -rn
+    # and for the hand-written half, the same over src/**/*.cpp. A header below
+    # roughly 40% of the TUs in a target is not obviously worth its place — every
+    # TU maps it whether or not it uses it — and that threshold is a guess that
+    # has never been measured, so treat additions as an experiment, not an edit.
+    <type_traits>
+    <QtCore/qtimezone.h>
+    <cmath>
+    <limits>
+    <QtCore/qalgorithms.h>
+    <QtCore/qrandom.h>
+)
+endif()
+
+# The Objective-C++ sources must opt OUT of the PCH entirely.
+#
+# This was first written as a $<COMPILE_LANGUAGE:CXX> generator expression on
+# the header list above, on the assumption that it would confine the PCH to C++.
+# It does not. That genex controls the CONTENTS of the generated PCH per
+# language, and CMake still passes `-include-pch` to the .mm compile lines —
+# with the C++ PCH, because the OBJCXX one it would otherwise build was made
+# empty by the very genex meant to protect it. clang then refuses outright:
+#
+#   error: Objective-C was disabled in precompiled file 'cmake_pch.hxx.pch'
+#          but is currently enabled
+#
+# SKIP_PRECOMPILE_HEADERS is the property that actually means "do not apply a
+# PCH to this source". Five files (three APPLE, two IOS) are not worth a second
+# ~28 MB ObjC++ artefact, so they simply go without.
+#
+# Derived from SOURCES rather than hand-listed: the .mm files are added inside
+# if(APPLE)/if(IOS) blocks, so a hand-list would compile clean on Linux and
+# Windows and break only the two Apple workflows — the same shape as the iOS
+# link bug that got through review in #1728.
+foreach(_decenza_src IN LISTS SOURCES)
+    if(_decenza_src MATCHES "\\.mm$")
+        set_source_files_properties(${_decenza_src}
+            PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+    endif()
+endforeach()
+unset(_decenza_src)
+
 # Compile CRT shader for GPU effect (requires ShaderTools)
 if(Qt6ShaderTools_FOUND)
     qt_add_shaders(Decenza "crt_shaders"
@@ -2211,4 +2371,57 @@ if(NOT ANDROID AND NOT IOS)
     )
     target_link_libraries(saw_parity PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)
     target_include_directories(saw_parity PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+    # PCH for the dev tools.
+    #
+    # saw_parity is worth this on its own: 22 TUs and 139 s of compile (that 139
+    # is contended wall clock from a parallel build, not isolated cost), the
+    # SECOND most expensive target in the whole tree after decenza_testlib. It is
+    # 20 production sources plus its own main.cpp and moc — the same shape that
+    # measured ~0.5 s saved per TU, so expect it to recover on the order of 10 s
+    # for one ~2 s PCH build.
+    #
+    # An earlier version of this comment said 35-40 s, reached by applying the
+    # 28% figure to the 139 s total. That is the wrong model and contradicts the
+    # per-TU one stated at the Decenza PCH block above: the saving is roughly
+    # CONSTANT per TU regardless of file size, so 22 TUs buys ~11 s, not a
+    # percentage of a contended total. Both numbers cannot be right, and the
+    # per-TU one is the measured one.
+    #
+    # Each tool gets its OWN PCH rather than reusing one, because they do not
+    # share a flag set: saw_parity and profile_sync link Sql/Network/Gui/
+    # Bluetooth, shot_eval links only Core, and none of them define the
+    # DECENZA_TESTING / DECENZA_SIMULATOR pair that the tests/ targets carry.
+    # REUSE_FROM across those would fail on the macro mismatch, which is
+    # precisely the check that makes reuse safe inside tests/ and unsafe here.
+    #
+    # saw_replay is deliberately absent: ONE TU (a single main.cpp, no Q_OBJECT
+    # so AUTOMOC adds nothing), so a ~2 s PCH build to save ~0.5 s is a plain
+    # loss. The bar for a private PCH is roughly 4 TUs; below that, reuse or
+    # nothing.
+    if(DECENZA_ENABLE_PCH)
+        target_precompile_headers(saw_parity PRIVATE
+            <QtCore/qobject.h>
+            <QtCore/qstring.h>
+            <QtCore/qvariant.h>
+            <QtCore/qdatetime.h>
+            <QtCore/qdebug.h>
+            <QtCore/qsettings.h>
+        )
+        target_precompile_headers(profile_sync PRIVATE
+            <QtCore/qobject.h>
+            <QtCore/qstring.h>
+            <QtCore/qvariant.h>
+            <QtCore/qjsonobject.h>
+            <QtCore/qjsonarray.h>
+            <QtCore/qjsondocument.h>
+        )
+        target_precompile_headers(shot_eval PRIVATE
+            <QtCore/qobject.h>
+            <QtCore/qstring.h>
+            <QtCore/qvariant.h>
+            <QtCore/qjsonobject.h>
+            <QtCore/qjsondocument.h>
+        )
+    endif()
 endif()
