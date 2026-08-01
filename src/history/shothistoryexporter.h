@@ -42,6 +42,21 @@ signals:
     // (file mtime >= shot updated_at), so no write was performed.
     void bulkExportFinished(int written, int skipped, int failed);
 
+public:
+    // True when no export thread is running. The shutdown drain waits on this.
+    //
+    // It has to, because completing a DB write is only half of what the user
+    // asked for: a metadata write finishing during shutdown emits
+    // shotMetadataUpdated, which lands here and spawns the export thread below.
+    // This object is a stack local declared AFTER MainController in main(), so it
+    // is destroyed FIRST — and every thread body starts with `if (*destroyed)
+    // return;`. Without this wait, draining the database made the DB row current
+    // and left the exported JSON stale, silently and with no torn file to notice.
+    // Consistently-stale was a better failure than invisibly-disagreeing.
+    bool isExportWorkIdle() const {
+        return m_exportThreads->load(std::memory_order_acquire) == 0;
+    }
+
 private slots:
     void onExportToggleChanged();
     void onShotSaved(qint64 shotId);
@@ -58,5 +73,10 @@ private:
     ShotHistoryStorage* m_storage;
 
     std::shared_ptr<std::atomic<bool>> m_destroyed;
+    // shared_ptr for the same reason m_destroyed is: the guard's decrement can
+    // outlive this object, and a leaked count would make isExportWorkIdle()
+    // permanently false — hanging every future drain until its timeout.
+    std::shared_ptr<std::atomic<int>> m_exportThreads =
+        std::make_shared<std::atomic<int>>(0);
     std::atomic<bool> m_bulkRunning{false};
 };

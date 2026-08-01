@@ -359,13 +359,14 @@ public:
     // possible outcomes.
     Q_INVOKABLE void acceptRecipesFirstUpgrade(const QString& name, bool hasMilk);
 
-    // Wait until every storage's background DB worker has finished, or the
-    // budget runs out. Returns true if all four went idle.
+    // Wait until every storage's background DB WRITE worker has finished, or the
+    // budget runs out. Logs both outcomes itself, so there is no result to check.
     //
     // Call this before the storages are destroyed. `~SerialDbWorker` warns that
     // it is discarding queued tasks, and until now nothing in production ever
-    // waited: the four `isDbWorkIdle()` accessors existed with no caller outside
-    // the tests, and `aboutToQuit` drained the BLE queue but not the database.
+    // waited: three storages had an `isDbWorkIdle()` with no caller outside the
+    // tests, `RecipeStorage` had no accessor at all, and `aboutToQuit` drained
+    // the BLE queue but not the database.
     // So a dose, note, rating or Visualizer id written in the seconds before
     // quit could vanish, with the warning going to a log nobody reads on the way
     // out. Found from the other side, when a test destroyed a CoffeeBagStorage
@@ -374,7 +375,21 @@ public:
     // Bounded on purpose. This runs on the quit path, where Android will kill a
     // process that takes too long, so a stuck worker must not hold the app open
     // — the same reason the BLE drain beside it carries a safety-net timeout.
-    bool drainDbWork(int timeoutMs = 750);
+    //
+    // WHAT THIS DOES NOT COVER, because the comment above otherwise reads as if
+    // the whole class of loss is closed. Only `aboutToQuit` calls this, and that
+    // signal is not emitted at all when the OS kills the process: an Android
+    // low-memory kill or force-stop, an iOS SIGKILL (the NORMAL iOS termination —
+    // qioseventdispatcher.mm:434 says so outright), a fatal signal reaching
+    // crashhandler.cpp's re-raise, or an ASan abort. Those lose queued writes with
+    // no warning whatsoever, since ~SerialDbWorker never runs either.
+    //
+    // Android is the primary platform and is usually backgrounded rather than
+    // quit, so this covers the deliberate in-app quit and little else there. The
+    // hook that would cover the rest is Qt::ApplicationSuspended (main.cpp), which
+    // exists and does not drain — deliberately out of scope here, because a wait
+    // on the backgrounding path risks an ANR and needs measurement on a device.
+    void drainDbWork(int timeoutMs = 750);
 
 public slots:
     void applySteamSettings();
