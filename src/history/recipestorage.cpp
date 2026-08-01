@@ -273,6 +273,11 @@ void RecipeStorage::initialize(const QString& dbPath)
     m_dbPath = dbPath;
 }
 
+bool RecipeStorage::isDbWorkIdle() const
+{
+    return !m_dbWorker || m_dbWorker->isIdle();
+}
+
 void RecipeStorage::runAsync(const QString& connPrefix,
                              std::function<void(QSqlDatabase&)> work,
                              std::function<void(bool dbOpened)> done)

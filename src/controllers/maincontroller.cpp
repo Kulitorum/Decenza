@@ -64,6 +64,8 @@
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #endif
+#include <QEventLoop>
+#include <QTimer>
 #include <QQmlEngine>
 #include <QJSEngine>
 
@@ -2470,6 +2472,65 @@ void MainController::applyFlushSettings() {
     sendMachineSettings(QStringLiteral("applyFlushSettings"));
 }
 
+void MainController::drainDbWork(int timeoutMs) {
+    // isDbWriteWorkIdle() on the shot history, not isDbWorkIdle(): the latter also
+    // counts detached read/backup/import threads, which SerialDbWorker never
+    // tracks and ~SerialDbWorker therefore cannot discard. Waiting on those spent
+    // the whole budget on a quit-during-backup for nothing. The other three have
+    // no detached threads, so their isDbWorkIdle() is already write-only.
+    const auto allIdle = [this]() {
+        return (!m_shotHistory      || m_shotHistory->isDbWriteWorkIdle())
+            && (!m_bagStorage       || m_bagStorage->isDbWorkIdle())
+            && (!m_equipmentStorage || m_equipmentStorage->isDbWorkIdle())
+            && (!m_recipeStorage    || m_recipeStorage->isDbWorkIdle());
+    };
+
+    if (allIdle())
+        return;
+
+    // Polled, not signalled: the workers count outstanding tasks in an atomic and
+    // emit nothing when it reaches zero, so there is no edge to connect to. This
+    // is the periodic-task case the timer rule allows, not a timer standing in
+    // for a condition — the condition is checked directly on every tick.
+    QEventLoop loop;
+    QTimer poll;
+    poll.setInterval(20);
+    QObject::connect(&poll, &QTimer::timeout, &loop, [&]() {
+        if (allIdle())
+            loop.quit();
+    });
+    QTimer::singleShot(timeoutMs, &loop, [&loop]() { loop.quit(); });
+    poll.start();
+    loop.exec();
+
+    if (allIdle()) {
+        qDebug() << "Storage writes drained before exit.";
+        return;
+    }
+
+    // Name the storage. Four collapse into one message otherwise, and which one
+    // is stuck is the only fact that makes this actionable.
+    QStringList stuck;
+    if (m_shotHistory      && !m_shotHistory->isDbWriteWorkIdle()) stuck << "shots";
+    if (m_bagStorage       && !m_bagStorage->isDbWorkIdle())       stuck << "bags";
+    if (m_equipmentStorage && !m_equipmentStorage->isDbWorkIdle()) stuck << "equipment";
+    if (m_recipeStorage    && !m_recipeStorage->isDbWorkIdle())    stuck << "recipes";
+
+    // Deliberately does NOT tell the reader to look for ~SerialDbWorker's
+    // "destroyed with N DB task(s) still queued" line. That fires during static
+    // teardown, after AsyncLogger::uninstall() has already closed the log — so it
+    // reaches stderr/logcat and never the debug log a user submits. Pointing them
+    // at a line that cannot be there is worse than not mentioning it.
+    //
+    // Nor does it claim the writes ARE lost. The workers keep running through the
+    // rest of shutdown, and ~SerialDbWorker quits and then WAITS, so a task
+    // already in flight still commits; only queued-but-unstarted ones are dropped.
+    qWarning() << "Storage writes did not drain within" << timeoutMs << "ms. Still busy:"
+               << stuck.join(", ") << "- whether a queued write survives now depends on"
+               << "whether its worker reaches it before exit, and that outcome is not"
+               << "recorded in this log.";
+}
+
 void MainController::applyAllSettings() {
     // Fresh connection — reset ShotSettings drift bookkeeping so a prior
     // session's exhausted retry budget doesn't permanently disable auto-heal.
@@ -4085,8 +4146,21 @@ void MainController::factoryResetAndQuit()
         "()V");
 #endif
 
-    // 5. Quit the app
-    QCoreApplication::quit();
+    // 5. Quit the app — QUEUED, not a direct call.
+    //
+    // This runs from a QML onClicked handler (SettingsHistoryDataTab.qml), and
+    // QCoreApplication::quit() reaches aboutToQuit synchronously, so a direct
+    // call leaves that handler on the stack for the whole of shutdown. Anything
+    // in aboutToQuit that pumps events — the BLE drain, and now drainDbWork() —
+    // would then be a nested event loop beneath a live QML handler, which is the
+    // qFatal in qqmlengine.cpp:1370-1396 that aborted shipped iOS 2.0.0 (#1692),
+    // not merely a slowdown.
+    //
+    // Posting it lands aboutToQuit on a clean stack, which is exactly what
+    // QQmlApplicationEngine already does for Qt.quit() (it connects the QML
+    // engine's quit signal with Qt::QueuedConnection, qqmlapplicationengine.cpp).
+    // So the ordinary Quit button was always safe and this path was the outlier.
+    QMetaObject::invokeMethod(qApp, &QCoreApplication::quit, Qt::QueuedConnection);
 }
 
 void MainController::bumpTargetWeight(double deltaG)

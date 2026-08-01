@@ -159,7 +159,15 @@ void ShotHistoryExporter::startBulkExport()
     const QString historyDir = m_profileStorage->userHistoryPath();
     auto destroyed = m_destroyed;
 
-    QThread* thread = QThread::create([this, dbPath, historyDir, destroyed]() {
+    // Counts this thread for isExportWorkIdle(), so the shutdown drain can wait
+    // for it. Increment on construction, decrement when the last copy of the
+    // lambda dies — which covers the thread never entering its body at all.
+    auto inFlight = std::shared_ptr<void>(nullptr, [c = m_exportThreads](void*) {
+        c->fetch_sub(1, std::memory_order_release);
+    });
+    m_exportThreads->fetch_add(1, std::memory_order_relaxed);
+
+    QThread* thread = QThread::create([this, dbPath, historyDir, destroyed, inFlight]() {
         auto selectAllShots = [&dbPath](QList<ShotRefreshInfo>& out) {
             withTempDb(dbPath, "she_ids", [&](QSqlDatabase& db) {
                 QSqlQuery q(db);
@@ -229,7 +237,12 @@ void ShotHistoryExporter::exportSingleShot(qint64 shotId)
     const QString historyDir = m_profileStorage->userHistoryPath();
     auto destroyed = m_destroyed;
 
-    QThread* thread = QThread::create([dbPath, historyDir, shotId, destroyed]() {
+    auto inFlight = std::shared_ptr<void>(nullptr, [c = m_exportThreads](void*) {
+        c->fetch_sub(1, std::memory_order_release);
+    });
+    m_exportThreads->fetch_add(1, std::memory_order_relaxed);
+
+    QThread* thread = QThread::create([dbPath, historyDir, shotId, destroyed, inFlight]() {
         if (*destroyed) return;
         writeShotJson(dbPath, historyDir, shotId);
     });
@@ -245,7 +258,12 @@ void ShotHistoryExporter::deleteExportedShot(qint64 shotId)
     if (historyDir.isEmpty()) return;
     auto destroyed = m_destroyed;
 
-    QThread* thread = QThread::create([historyDir, shotId, destroyed]() {
+    auto inFlight = std::shared_ptr<void>(nullptr, [c = m_exportThreads](void*) {
+        c->fetch_sub(1, std::memory_order_release);
+    });
+    m_exportThreads->fetch_add(1, std::memory_order_relaxed);
+
+    QThread* thread = QThread::create([historyDir, shotId, destroyed, inFlight]() {
         if (*destroyed) return;
         QDir dir(historyDir);
         const QStringList matches = dir.entryList(

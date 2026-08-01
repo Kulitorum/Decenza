@@ -361,6 +361,13 @@ public:
                                     const QHash<qint64, qint64>& packageIdMap,
                                     const QHash<qint64, qint64>& bagIdMap);
 
+    // True when no background CRUD work is queued, running, or waiting to
+    // deliver its result — see ShotHistoryStorage::isDbWorkIdle() for the full
+    // rationale (same shape, same worker type). This was the one storage of the
+    // four carrying a SerialDbWorker without the accessor, which is why a
+    // shutdown drain could not cover it.
+    bool isDbWorkIdle() const;
+
 signals:
     void inventoryReady(const QVariantList& recipes);
     void archivedReady(const QVariantList& recipes);

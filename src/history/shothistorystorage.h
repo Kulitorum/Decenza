@@ -380,6 +380,22 @@ public:
     // true when no async work has ever been posted (the worker is lazily created).
     bool isDbWorkIdle() const;
 
+    // Just the serialized WRITE worker, without the detached read/backup threads
+    // isDbWorkIdle() also counts. For a caller that only needs "will a queued
+    // write be lost if I destroy this now?" — which is the shutdown drain, and
+    // only that.
+    //
+    // The distinction is not cosmetic. Detached threads carry reads, plus backup
+    // and import; none of them is in SerialDbWorker's outstanding count, so none
+    // can be discarded by ~SerialDbWorker and there is nothing to protect. Making
+    // the drain wait on them charged its whole timeout to a quit-during-backup —
+    // which cannot finish in that budget anyway — and then printed a warning
+    // about discarded writes that were never at risk.
+    //
+    // The other three storages need no equivalent: they have no detached threads,
+    // so their isDbWorkIdle() is already write-only.
+    bool isDbWriteWorkIdle() const;
+
     // Checkpoint WAL to main database file
     void checkpoint();
 

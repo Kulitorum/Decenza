@@ -136,6 +136,11 @@ bool ShotHistoryStorage::isDbWorkIdle() const
         && m_detachedDbThreads->load(std::memory_order_acquire) == 0;
 }
 
+bool ShotHistoryStorage::isDbWriteWorkIdle() const
+{
+    return !m_dbWorker || m_dbWorker->isIdle();
+}
+
 void ShotHistoryStorage::close()
 {
     if (m_db.isOpen()) {
