@@ -304,11 +304,15 @@ recursion, but the guard's cost is dropping that line's signal — so a stray
 
 ## Enforcement
 
-`scripts/check_log_markers.py` runs on **every** PR (see
-`.github/workflows/text-invariants.yml`) and is a **required status check** — a red
-one blocks the merge button. It used to be path-filtered to `src/**` and friends; the
-filter is gone because a required check that is path-filtered never reports at all on
-a PR outside the paths, so the PR hangs pending forever. No Qt, no compiler, 12 s. It parses the
+`scripts/check_log_markers.py` runs on every PR touching `src/**` (see
+`.github/workflows/text-invariants.yml`). No Qt, no compiler, 12 s.
+
+It is **not** a required status check, so a red run does not block the merge button —
+**read the run before merging.** A PR whose own `text-invariants` was red has already
+been merged here and turned `main` red; the check did its job and nobody looked.
+Making it unconditional so it could be required was tried and reverted, because that
+puts a check on the critical path of every push — the arrangement TESTING.md and
+CI_CD.md deliberately moved away from. It parses the
 registry rather than restating it, and checks:
 
 1. No bare `qDebug`/`qInfo`/`qWarning`/`qCritical` in a **fully** covered file.

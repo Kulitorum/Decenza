@@ -100,9 +100,11 @@ Two exclusions are forced rather than chosen, and both were found by a Linux/GCC
 
 ### CI
 
-**There is no pull-request CI gate** — the suite is run locally before opening a PR, and that is the gate. `nightly-sanitizers.yml` runs the suite nightly on `main` under UBSan and ASan as two independent Linux builds. On **tag push**, `linux-release.yml` builds and runs all tests (uninstrumented) before packaging the AppImage. Other platform workflows do not run the suite.
+**Nothing on GitHub builds or runs the suite for a pull request** — you run it locally before opening one, and that is the gate. `nightly-sanitizers.yml` runs the suite nightly on `main` under UBSan and ASan as two independent Linux builds. On **tag push**, `linux-release.yml` builds and runs all tests (uninstrumented) before packaging the AppImage. Other platform workflows do not run the suite.
 
-See `docs/CLAUDE_MD/CI_CD.md` for why there is no PR gate: the detectors found no pre-existing defects on their first run across eight months of code, so they were moved off the critical path of every push.
+See `docs/CLAUDE_MD/CI_CD.md` for why: the detectors found no pre-existing defects on their first run across eight months of code, so they were moved off the critical path of every push.
+
+**That is about the suite, not about all PR CI, and the distinction has been misread.** This section used to open "There is no pull-request CI gate" flatly, which is false — `text-invariants.yml` runs on every PR touching `qml/**`, `src/**`, `scripts/check_*.py`, `tests/CMakeLists.txt` or `resources/fonts/**`. It is build-free (~12 s of Python over the source), which is exactly why it can afford to run per-PR while the suite cannot, and it is where `check_test_source_duplication.py` below is enforced. It is not a *required* status check — a red run does not block the merge button, so **read the run**. A PR whose own `text-invariants` was red has already been merged here on the strength of this sentence, and turned `main` red.
 
 ## Architecture
 
