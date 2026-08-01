@@ -577,6 +577,12 @@ The reconnect browse SHALL use a deadline shorter than the user-scan browse, bec
 
 The existing anti-substitution guarantee is unchanged: a browsed instance is auto-connected only when its address matches the saved primary.
 
+A connect to the saved WiFi primary SHALL disarm the reconnect browse, whatever route produced that connect. In particular a connect the BROWSE itself produced SHALL disarm it, even though the WiFi→BLE fallback scan the browse was racing may still be running at that moment. Deciding this from whether a fallback was in flight, rather than from what connected, leaves the browse armed for the remainder of the session after its own successful recovery — which is the same condition "Browse is not run when the direct attempt succeeds" already forbids, reached by a different route.
+
+While the saved WiFi primary is the connected scale, a browse or probe hit matching it SHALL be a no-op: no switch-back request, and no log line asserting that a backup scale is connected. There is no backup in that state, and the switch-back is declined one layer up regardless; the log line is the part a user sees, and it reads as the app dropping their scale.
+
+An address obtained from a browse SHALL NOT outlive the request it was obtained for. A switch-back request may be declined (mid-shot, or already on the primary) and a declined request consumes nothing, so any later reachability check SHALL discard a previously browsed address rather than let it outrank the address that check just verified.
+
 #### Scenario: Stale cached IP is recovered without user action
 - **WHEN** a WiFi scale is the saved primary, its cached IP no longer reaches it, and a direct hostname lookup returns no records
 - **THEN** the reconnect ladder runs a service browse, the scale's current address is resolved from the browse, and the app connects to it without the user opening the Connections page
@@ -600,4 +606,16 @@ The existing anti-substitution guarantee is unchanged: a browsed instance is aut
 #### Scenario: Browse is not run when the direct attempt succeeds
 - **WHEN** a reconnect attempt connects successfully via the cached IP
 - **THEN** no reconnect browse is started for that attempt
+
+#### Scenario: The browse's own success disarms the browse
+- **WHEN** a direct attempt times out, the reconnect browse and the WiFi→BLE fallback scan both start, and the browse resolves the primary and reconnects it while that fallback scan is still running
+- **THEN** the reconnect browse is disarmed by that connect, and no further browse runs while the primary stays connected
+
+#### Scenario: Re-finding the primary while it is connected is silent
+- **WHEN** the saved WiFi primary is the connected scale and a browse or A-record hit matches it — including on a user-initiated scan
+- **THEN** no switch-back is requested and nothing is logged claiming a backup scale is connected
+
+#### Scenario: A declined switch-back leaves no stale address behind
+- **WHEN** a browse-driven switch-back request is declined, and later a reachability check verifies the primary at its cached address
+- **THEN** the switch-back that follows dials the address that check verified, not the earlier browsed one
 
