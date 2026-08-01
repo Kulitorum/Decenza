@@ -148,10 +148,12 @@ MARKER_ONLY_GLOBS = [
     # rule 6 existing rather than for adding files by hand.
     "src/core/settings_theme.cpp",
     "src/screensaver/iosbrightness.mm",
-    # Hosts one [Equipment][Migration] line — the adoption that applies the heal
-    # migration 35/36 announced — inside a constructor that also wires shot
-    # history, bags, recipes, profiles, the DE1 and the scales. Rule 1 has no
-    # answer for the rest of it, which is exactly the main.cpp case above.
+    # Hosts two subsystems' lines: [Equipment][Migration] (the constructor's
+    # adoption of the package migration 35/36 healed) and [DE1][SettingsDrift]
+    # (the ShotSettings resend ladder in onShotSettingsReported). Both sit beside
+    # a constructor wiring shot history, bags, recipes, profiles, the DE1 and the
+    # scales, and ~110 bare qDebug calls belonging to no subsystem at all. Rule 1
+    # has no answer for those, which is exactly the main.cpp case above.
     "src/controllers/maincontroller.cpp",
 ]
 

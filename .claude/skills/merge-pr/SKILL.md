@@ -20,7 +20,7 @@ Project-standard PR merge for Decenza: **squash + delete branch**. Every merged 
 2. **Pre-flight checks.**
    - State must be `OPEN`, `isDraft` must be `false`, `mergeable` must be `MERGEABLE`. If any fails, stop and report why.
    - Check CI: `gh pr checks <num> --repo Kulitorum/Decenza`. If checks are failing, stop and report. If checks are still running, ask the user whether to wait or merge anyway.
-     - This step is also enforced by `.claude/hooks/block-red-merge.sh`, which blocks any `gh pr merge` while the PR's checks are red or pending — because this instruction lived only here, and #1729 was merged red by running `gh pr merge` directly without invoking this skill. The hook is the backstop; do not treat it as permission to skip reading the run.
+     - `.claude/hooks/block-red-merge.sh` blocks any `gh pr merge` whose checks are not green — because this instruction lived only here, and #1729 was merged red by running `gh pr merge` directly without invoking this skill. **Do not rely on it.** The script is tracked but its registration lives in `.claude/settings.json`, which `.gitignore` excludes, so it is only active on a machine that has wired it locally — same arrangement as `block-sleep-wait.sh`. Read the run yourself; the hook is a backstop on one machine, not a gate on the repo.
      - To merge over a check you have read and judged irrelevant, put the reason on the command: `gh pr merge ... # merge-red-ok: <why>`.
    - If the PR was opened in this session, no extra approval is needed. If the user is asking to merge a PR they did not open in this conversation, confirm first ("Merge PR #N now?").
 

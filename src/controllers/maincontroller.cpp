@@ -2236,8 +2236,9 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
             // reported at WARN. Left at DEBUG, a `[DE1]` minLevel=INFO read
             // shows the dropped write and the resends and never shows that
             // they worked — the failure half of a narrative, which reads as an
-            // unresolved fault. Both terminal outcomes (this and "giving up")
-            // are INFO+; the non-terminal steps stay DEBUG.
+            // unresolved fault. The terminal outcomes are INFO+ (this) or WARN
+            // ("giving up" below); the two DEBUG lines are intermediate steps
+            // nobody but a developer needs.
             DRIFT_INFO(QString(
                 "resolved after %1 resend(s) — DE1 stored "
                 "steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C")
@@ -2315,7 +2316,26 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // its indication), wait for that to resolve before firing another. This
     // is the event-based replacement for a 2s wall-clock rate limit.
     if (m_shotSettingsResendInFlight) {
-        DRIFT_LOG(QStringLiteral("resend already in flight — waiting for its indication"));
+        // This indication IS that resend's answer — the read is queued after the
+        // write, per the comment above — and it still shows drift. Consume it by
+        // clearing the flag, so the NEXT report can fire attempt N+1.
+        //
+        // Without this clear the flag was set once and never reset on a drifting
+        // path (the only other resets are the no-drift branch and a reconnect),
+        // so the ladder stalled at one attempt: kMaxResendAttempts was never
+        // reached and the "giving up" WARN below could not execute on any
+        // connection. What a user saw instead was DE1-dropped-write re-warned on
+        // every indication, forever, with no terminal line.
+        //
+        // de1app has no ShotSettings drift detection to compare against. Its
+        // nearest equivalent — confirm_de1_send_shot_frames_worked — detects the
+        // same class of fault and then deliberately does NOT auto-resend
+        // (de1plus/de1_comms.tcl:1566, commented out to avoid a 500ms retry
+        // loop). That hazard does not apply here: this ladder is bounded at
+        // kMaxResendAttempts and advances only when the DE1 sends an
+        // indication, so it cannot spin.
+        m_shotSettingsResendInFlight = false;
+        DRIFT_LOG(QStringLiteral("resend already in flight — this report answers it, still drifting"));
         return;
     }
 
