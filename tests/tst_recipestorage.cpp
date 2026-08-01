@@ -284,6 +284,58 @@ private slots:
         });
     }
 
+    // --- shutdown drain contract ---
+
+    // isDbWorkIdle() is what MainController::drainDbWork() waits on before the
+    // storages are destroyed at quit. Nothing else exercises it on this class:
+    // RecipeStorage carried a SerialDbWorker without the accessor until that
+    // drain needed one, and an accessor that simply answered `true` would make
+    // the drain skip recipes with no symptom anywhere — a queued write silently
+    // discarded by ~SerialDbWorker, which is the defect the drain exists to fix.
+    //
+    // The `!isDbWorkIdle()` assertion is what gives this test teeth, and it is
+    // deterministic rather than a race: the counter is decremented by a ticket
+    // whose last holder is the result callback, delivered to the owner thread by
+    // queued connection (SerialDbWorker::roundTripTicket, dbutils.h:347). That
+    // callback cannot run until this function returns to the event loop, so the
+    // count is still non-zero on the line after the request. Stub the accessor
+    // to `return true` and this line fails immediately.
+    void isDbWorkIdleTracksQueuedWork() {
+        const QString path = freshDbPath();
+        withRawDb(path, "idle_seed", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+        });
+
+        qint64 createdId = -1;
+        {
+            RecipeStorage storage;
+            storage.initialize(path);
+            QVERIFY(storage.isDbWorkIdle());          // nothing posted yet
+
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            storage.requestCreateRecipe({{"name", "Drain Me"}, {"profileTitle", "P"}});
+            QVERIFY(!storage.isDbWorkIdle());         // work outstanding
+
+            QTRY_COMPARE(spy.count(), 1);
+            QTRY_VERIFY(storage.isDbWorkIdle());      // and it goes back to idle
+            createdId = spy.at(0).at(0).toLongLong();
+            QVERIFY(createdId > 0);
+        }
+        // Destroyed only after idle, so ~SerialDbWorker has nothing to discard —
+        // failOnWarning() in init() turns its "destroyed with N DB task(s) still
+        // queued" into a failure if that ever stops holding.
+
+        // And the write is actually on disk, which is the point of waiting.
+        int rows = 0;
+        withRawDb(path, "idle_verify", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QStringLiteral("SELECT COUNT(*) FROM recipes WHERE name = 'Drain Me'")));
+            QVERIFY(q.next());
+            rows = q.value(0).toInt();
+        });
+        QCOMPARE(rows, 1);
+    }
+
     // --- active-name uniqueness through the async request* paths ---
     // The helper test above covers the lookup predicate; these cover the guards
     // that use it, the emitted payloads, and the two new signals.
