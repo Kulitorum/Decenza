@@ -64,6 +64,8 @@
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #endif
+#include <QEventLoop>
+#include <QTimer>
 #include <QQmlEngine>
 #include <QJSEngine>
 
@@ -2468,6 +2470,42 @@ void MainController::applyHotWaterSettings() {
 
 void MainController::applyFlushSettings() {
     sendMachineSettings(QStringLiteral("applyFlushSettings"));
+}
+
+bool MainController::drainDbWork(int timeoutMs) {
+    const auto allIdle = [this]() {
+        return (!m_shotHistory      || m_shotHistory->isDbWorkIdle())
+            && (!m_bagStorage       || m_bagStorage->isDbWorkIdle())
+            && (!m_equipmentStorage || m_equipmentStorage->isDbWorkIdle())
+            && (!m_recipeStorage    || m_recipeStorage->isDbWorkIdle());
+    };
+
+    if (allIdle())
+        return true;
+
+    // Polled, not signalled: the workers count outstanding tasks in an atomic and
+    // emit nothing when it reaches zero, so there is no edge to connect to. This
+    // is the periodic-task case the timer rule allows, not a timer standing in
+    // for a condition — the condition is checked directly on every tick.
+    QEventLoop loop;
+    QTimer poll;
+    poll.setInterval(20);
+    QObject::connect(&poll, &QTimer::timeout, &loop, [&]() {
+        if (allIdle())
+            loop.quit();
+    });
+    QTimer::singleShot(timeoutMs, &loop, [&loop]() { loop.quit(); });
+    poll.start();
+    loop.exec();
+
+    const bool drained = allIdle();
+    if (drained)
+        qDebug() << "Storage writes drained before exit.";
+    else
+        qWarning() << "Storage writes did not drain within" << timeoutMs
+                   << "ms — queued database work is about to be discarded. Expect a"
+                      "\"destroyed with N DB task(s) still queued\" warning next.";
+    return drained;
 }
 
 void MainController::applyAllSettings() {

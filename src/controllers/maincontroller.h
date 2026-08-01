@@ -359,6 +359,23 @@ public:
     // possible outcomes.
     Q_INVOKABLE void acceptRecipesFirstUpgrade(const QString& name, bool hasMilk);
 
+    // Wait until every storage's background DB worker has finished, or the
+    // budget runs out. Returns true if all four went idle.
+    //
+    // Call this before the storages are destroyed. `~SerialDbWorker` warns that
+    // it is discarding queued tasks, and until now nothing in production ever
+    // waited: the four `isDbWorkIdle()` accessors existed with no caller outside
+    // the tests, and `aboutToQuit` drained the BLE queue but not the database.
+    // So a dose, note, rating or Visualizer id written in the seconds before
+    // quit could vanish, with the warning going to a log nobody reads on the way
+    // out. Found from the other side, when a test destroyed a CoffeeBagStorage
+    // with two writes still queued.
+    //
+    // Bounded on purpose. This runs on the quit path, where Android will kill a
+    // process that takes too long, so a stuck worker must not hold the app open
+    // — the same reason the BLE drain beside it carries a safety-net timeout.
+    bool drainDbWork(int timeoutMs = 750);
+
 public slots:
     void applySteamSettings();
     void applyHotWaterSettings();

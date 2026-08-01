@@ -4566,7 +4566,7 @@ int main(int argc, char *argv[])
     });
 
     // Cleanup on exit
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot]() {
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot, &mainController]() {
         qDebug() << "Application exiting - shutting down devices";
 
         // Leave an honest "disconnected" snapshot so the Home Screen widget
@@ -4646,6 +4646,17 @@ int main(int argc, char *argv[])
             else
                 qWarning() << "BLE queue drain timed out after" << timeoutMs << "ms — sleep command may not have been delivered.";
         }
+
+        // Let the database workers finish before the storages are destroyed.
+        // The BLE drain above protects the machine; this protects the user's
+        // data. Until now nothing waited: a dose, note, rating or Visualizer id
+        // written seconds before quit could be discarded by ~SerialDbWorker with
+        // only a warning nobody was around to read.
+        //
+        // After the BLE wait rather than before, so a slow database cannot delay
+        // the sleep command the machine is waiting on. Bounded for the same
+        // reason that one is — Android kills a process that lingers on quit.
+        mainController.drainDbWork();
 
         // IMPORTANT: Ensure charger is ON before exiting
         // This matches de1app's app_exit behavior - always leave charger ON for safety
