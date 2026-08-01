@@ -66,7 +66,24 @@ name: Text invariants
 #     outside AddLanguagePage (which it already exempts) — it is the `|| true` on the step that
 #     makes this advisory, not the script.
 #
-# Runs on PRs that touch the surfaces involved. Fast (seconds, no build, no network).
+# Runs on PRs that touch the surfaces involved. ~16 s in CI (13-22 s observed), nearly
+# all of it actions/checkout plus setup-python; the six checks themselves total under a
+# second. No build, no network. This is the one place that number lives — the docs say
+# "seconds" and point here, because three copies of it had already drifted to three
+# different values (~1 minute, 12 s, ~14 s).
+#
+# `src/**` is in the filter, so a pure C++ change IS gated here. That is easy to miss —
+# the job is named for text invariants and four of its six checks are about QML — and
+# missing it is how a PR whose own run was red got merged and turned `main` red.
+#
+# The filter stays. Making it unconditional so the job could become a required status
+# check was tried in #1731 and reverted before merge (cited by PR, not by commit: the
+# squash leaves no hash to find). The real constraint is simple — a path-filtered check
+# CANNOT be a required one, because on a PR outside the paths it never reports at all
+# and the PR hangs pending forever. Requiring it therefore means running it on every
+# push, and that is the critical-path arrangement CI_CD.md argues against for BUILDS.
+# Note that argument does not transfer on its own: it is priced at ~3 minutes and zero
+# yield, while this job is ~16 s and caught #1729.
 
 on:
   pull_request:

@@ -92,6 +92,20 @@ private:
         storage.close();
     }
 
+    // CoffeeBagStorage runs its OWN SerialDbWorker against the same database file,
+    // so draining the ShotHistoryStorage says nothing about it. Missing this is a
+    // real intermittent, not tidiness: bagCreateKindAndGating passed only when its
+    // two queued bag writes happened to land before the stack object went out of
+    // scope, and failed as
+    //   "CoffeeBagStorageWorker" destroyed with 2 DB task(s) still queued
+    //     — those writes are being discarded.        (dbutils.h:245)
+    // Drain the bag storage BEFORE drainDbWorkAndClose(), because that close()
+    // removes the shared connection this worker is still using.
+    static void drainBagDbWork(CoffeeBagStorage& bagStorage) {
+        QTRY_VERIFY(bagStorage.isDbWorkIdle());
+        QCoreApplication::processEvents();
+    }
+
     // Load a minimal D-Flow profile
     static void loadDFlowProfile(McpTestFixture& f, const QString& title = "D-Flow / Test") {
         QJsonObject json;
@@ -615,6 +629,7 @@ private slots:
         // qWarns "connection is still in use" if background work still holds one —
         // and failOnWarning makes that a failure. Closing first was the original
         // order, with the sleep afterwards hoping the work had already finished.
+        drainBagDbWork(bagStorage);
         drainDbWorkAndClose(storage);
     }
 
