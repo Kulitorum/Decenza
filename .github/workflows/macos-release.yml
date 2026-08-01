@@ -180,8 +180,11 @@ jobs:
           OPENSSL_PREFIX="${RUNNER_TEMP}/openssl-universal"
           mkdir -p build/macos
           cd build/macos
+          # PCH off: it makes ccache treat ~88% of compiles as uncacheable.
+          # Reasoning and measurements at the PCH block in CMakeLists.txt.
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DENABLE_TSNET=ON \
+            -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \

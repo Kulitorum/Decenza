@@ -247,8 +247,11 @@ jobs:
         run: |
           mkdir -p build
           cd build
+          # PCH off: it makes ccache treat ~88% of compiles as uncacheable.
+          # Reasoning and measurements at the PCH block in CMakeLists.txt.
           $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
             -DENABLE_TSNET=ON \
+            -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
