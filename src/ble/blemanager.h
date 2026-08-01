@@ -891,6 +891,40 @@ public:
         return address.compare(savedScaleAddress, Qt::CaseInsensitive) == 0;
     }
 
+    /// Whether a connect should clear "the direct attempt to the WiFi primary
+    /// failed" (m_wifiDirectAttemptFailed), which is what gates both the
+    /// reconnect browse and the switch-back.
+    ///
+    /// A WiFi->BLE fallback connect must NOT clear it — that connect is evidence
+    /// the primary is still gone, and clearing would disarm the browse at the one
+    /// moment it is needed. UNLESS the scale that connected is the primary
+    /// itself, which the fallback flag alone cannot tell you: the browse's own
+    /// success path dials the primary while the fallback scan it raced is still
+    /// running, so a successful recovery arrives looking exactly like a fallback.
+    /// Reading it as one left the flag true for the rest of the session.
+    static bool connectClearsDirectAttemptFailed(bool wasWifiFallbackConnect,
+                                                 bool connectedScaleIsWifiPrimary) {
+        if (connectedScaleIsWifiPrimary) return true;
+        return !wasWifiFallbackConnect;
+    }
+
+    /// Whether the scale connected RIGHT NOW is the saved WiFi primary.
+    ///
+    /// Not a pure predicate like the two above, because the answer is a fact
+    /// about live objects. It exists because two places were answering it by
+    /// proxy and getting it wrong: "a scale is connected" and "the WiFi->BLE
+    /// fallback was not active" are both weaker than "the primary is what
+    /// connected", and each let the reconnect machinery act on a scale that was
+    /// already the one it was trying to reach.
+    ///
+    /// Same test main.cpp's onWifiBackupAndIdle() applies before honouring
+    /// wifiPrimaryReachable — deliberately, so the two layers cannot disagree
+    /// about what "on the primary" means. It shares that test's one limit: with
+    /// a wifi: primary saved, ANY connected WiFi scale answers true. Only one
+    /// scale connects at a time and a manual connect to a different WiFi scale
+    /// rewrites the saved address, so the case is unreachable in practice.
+    bool connectedScaleIsWifiPrimary() const;
+
 private:
     // Auto-connect a browsed instance when it IS the saved primary. One
     // implementation, called from both discovery handlers — the scan's and the

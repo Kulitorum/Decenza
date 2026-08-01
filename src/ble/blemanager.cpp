@@ -12,6 +12,7 @@
 #include "protocol/de1characteristics.h"
 #include "scales/decentscale.h"
 #include "scales/scalefactory.h"
+#include "scales/scaletypeids.h"
 #include "refractometers/difluidr1.h"
 #include "refractometers/difluidr2.h"
 #include "refractometers/refractometerdevice.h"
@@ -1719,7 +1720,28 @@ void BLEManager::onScaleConnectedChanged() {
         // the same distinction (it declines to rewrite the saved primary for a
         // fallback connect). m_wifiFallbackToBleActive is reset earlier in this
         // handler, so read the captured copy, not the member.
-        if (!wasWifiFallbackConnect) m_wifiDirectAttemptFailed = false;
+        //
+        // But "the fallback was active" is a WEAKER question than "the backup is
+        // what connected", and reading the first as the second left the flag
+        // stuck true for entire sessions. The browse's own SUCCESS path does it:
+        // maybeAutoConnectBrowsedScale() dials the PRIMARY through
+        // scaleDiscovered without clearing m_wifiFallbackToBleActive, because the
+        // BLE fallback scan it is racing is still running. The primary connects,
+        // this line reads wasWifiFallbackConnect == true, and the flag survives a
+        // connect to the very scale it is about. Nothing clears it afterwards
+        // while that scale stays connected — not this handler (no further
+        // connect), not setSavedScaleAddress() (the address did not change). So
+        // every later browse hit sees a "failed direct attempt" that succeeded.
+        //
+        // Ask what actually connected instead. Deliberately NOT fixed by clearing
+        // m_wifiFallbackToBleActive at the browse's dial: that flag also gates
+        // whether an in-flight fallback scan may adopt a BLE scale
+        // (onDeviceDiscovered) and whether a second fallback is allowed
+        // (onScaleConnectionTimeout), so clearing it there would silently change
+        // the ladder. This changes only what the browse gate believes.
+        if (connectClearsDirectAttemptFailed(wasWifiFallbackConnect,
+                                             connectedScaleIsWifiPrimary()))
+            m_wifiDirectAttemptFailed = false;
         // Deliberately NOT stopping an in-flight reconnect browse. The connect
         // that lands here is very often the WiFi->BLE FALLBACK, which begins in
         // the same handler that started the browse — so cancelling here would
@@ -1957,6 +1979,16 @@ void BLEManager::probeWifiPrimaryReachable(const QString& ip) {
 
     cancelWifiProbe();  // at most one probe in flight
 
+    // This probe is about to become the evidence behind wifiPrimaryReachable, so
+    // any address left over from a browse-driven request is now the wrong answer.
+    // It CAN be left over: maybeAutoConnectBrowsedScale() sets m_browsedPrimaryIp
+    // and emits, but main.cpp re-validates and may decline (mid-shot, or already
+    // on the primary), and a declined request consumes nothing. Without this the
+    // stale browsed address outranks the IP this probe just verified —
+    // switchToWifiPrimary() prefers m_browsedPrimaryIp — and the switch-back
+    // dials an address known to be older than the one it proved good.
+    m_browsedPrimaryIp.clear();
+
     if (ip.isEmpty()) {
         emit wifiPrimaryReachable(false);
         return;
@@ -2026,6 +2058,14 @@ void BLEManager::cancelWifiProbe() {
     }
 }
 
+bool BLEManager::connectedScaleIsWifiPrimary() const {
+    if (!m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive))
+        return false;
+    if (!m_scaleDevice || !m_scaleDevice->isConnected()) return false;
+    return m_scaleDevice->type()
+           == ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi);
+}
+
 void BLEManager::switchToWifiPrimary() {
     if (!m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
         return;  // primary isn't a WiFi scale — nothing to switch back to
@@ -2051,7 +2091,11 @@ void BLEManager::switchToWifiPrimary() {
     //  - the reconnect browse resolved the host itself, and left the address in
     //    m_browsedPrimaryIp. That address must win: a stale cache is why the
     //    browse ran, so redialing the cache would fail identically.
-    // Consumed either way, so a later switch-back can't reuse a stale answer.
+    // Cleared below so a later switch-back can't reuse a stale answer — but that
+    // is NOT sufficient on its own, because this function only runs when main.cpp
+    // ACCEPTS the request, and a browse-driven one it declines sets the member and
+    // never reaches here. probeWifiPrimaryReachable() therefore clears it too, at
+    // the start of every probe; see the comment there for what a survivor costs.
     setPendingWifiConnect(hostname, m_browsedPrimaryIp);
     m_browsedPrimaryIp.clear();
     emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
@@ -2656,9 +2700,26 @@ void BLEManager::maybeAutoConnectBrowsedScale(const WifiScaleResult& result) {
     // dedupe drifted apart before.
     if (!browsedScaleIsSavedPrimary(result.hostname, m_savedScaleAddress)) return;
 
-    // A scale is already connected — almost always the WiFi->BLE fallback, which
-    // lands about a second after the timeout that started this browse. The plain
-    // scaleDiscovered emit below would be SILENTLY DROPPED here: main.cpp's
+    // Already on the primary: nothing to do, and nothing to say. Every caller
+    // reaches here — the user scan's browse handler and its A-record probe
+    // handler as well as the reconnect browse's — so re-finding a healthy
+    // primary is routine, not exceptional. Both remaining branches below are
+    // wrong for it: the switch-back would ask to leave the scale it is trying
+    // to reach, and the plain emit is dropped by main.cpp's single-scale
+    // invariant anyway.
+    //
+    // The visible cost of not checking was the log, which is how this subsystem
+    // is diagnosed. A user pressing Scan with the primary connected got, twice,
+    // "found the saved primary … while a backup scale is connected — requesting
+    // switch-back", naming a backup that did not exist and a switch that never
+    // happened (main.cpp declines it at onWifiBackupAndIdle()'s decent-wifi
+    // test). A reader reasonably takes that as the app dropping their scale.
+    if (connectedScaleIsWifiPrimary()) return;
+
+    // A scale is already connected and it is NOT the primary — the WiFi->BLE
+    // fallback, which lands about a second after the timeout that started this
+    // browse. The plain scaleDiscovered emit below would be SILENTLY DROPPED
+    // here: main.cpp's
     // handler early-returns on its single-scale invariant (at most one physical
     // scale at a time, capping forced-HIGH BLE links at two). That invariant is
     // deliberate and must not be bypassed.

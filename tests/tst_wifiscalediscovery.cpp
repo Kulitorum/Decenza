@@ -278,6 +278,29 @@ private slots:
         QVERIFY(BLEManager::browsedScaleIsSavedPrimary(
             QStringLiteral("hds.local"), QStringLiteral("WIFI:HDS.LOCAL")));
     }
+
+    // The browse's SUCCESS path used to leave the reconnect machinery armed
+    // forever. It dials the primary while the WiFi->BLE fallback scan it raced
+    // is still running, so the recovery connect arrives with the fallback flag
+    // set and looks exactly like a fallback — and the old rule (clear unless
+    // this was a fallback connect) therefore did not clear. Nothing cleared it
+    // afterwards while that scale stayed connected, so every later browse hit
+    // saw a failed direct attempt that had in fact succeeded.
+    //
+    // This asserts the RULE, not the lifecycle: whether connectedScaleIsWifiPrimary()
+    // actually reports true on that path depends on live objects and is not
+    // reachable from here (no test links blemanager.cpp).
+    void primaryConnectClearsTheFlagEvenDuringAFallback() {
+        // The regression. Fallback active AND the primary is what connected:
+        // must clear. Returned false before the fix.
+        QVERIFY(BLEManager::connectClearsDirectAttemptFailed(true, true));
+        // A genuine backup connect during a fallback: must NOT clear, or the
+        // browse is disarmed exactly when it is needed.
+        QVERIFY(!BLEManager::connectClearsDirectAttemptFailed(true, false));
+        // No fallback in play — an ordinary connect always clears.
+        QVERIFY(BLEManager::connectClearsDirectAttemptFailed(false, false));
+        QVERIFY(BLEManager::connectClearsDirectAttemptFailed(false, true));
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_WifiScaleDiscovery)
