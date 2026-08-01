@@ -50,6 +50,18 @@ function(add_decenza_test name)
     if(NOT IOS AND mdns_lib_SOURCE_DIR)
         target_include_directories(${name} SYSTEM PRIVATE ${mdns_lib_SOURCE_DIR})
     endif()
+    # Share the one precompiled header decenza_test_pch builds, rather than
+    # building a private ~47 MB one per target. decenza_test_pch is declared
+    # further down this file but that is fine: a function body is evaluated at
+    # CALL time, and the first add_decenza_test() call is well after it.
+    #
+    # Anything added ABOVE this line that changes compile flags — a define, an
+    # include dir, a linked Qt module — must be mirrored onto decenza_test_pch,
+    # or REUSE_FROM fails for all 106 targets at once with an error naming
+    # cmake_pch.hxx and not the flag that actually diverged.
+    if(DECENZA_ENABLE_PCH)
+        target_precompile_headers(${name} REUSE_FROM decenza_test_pch)
+    endif()
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
@@ -178,6 +190,84 @@ target_include_directories(decenza_testlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+# Its own PCH, not the test one below: this library does not link Qt6::Test, so
+# <QtTest> is not available to it and it cannot share that header set. It is the
+# most expensive single target in tests/ (183.9 s of the 1208 s, ~15%) because it
+# compiles ~60 production sources, which is the shape that measured ~28% — the
+# same ~0.5 s per TU the app-side comment describes.
+if(DECENZA_ENABLE_PCH)
+    target_precompile_headers(decenza_testlib PRIVATE
+        <QtCore/qobject.h>
+        <QtCore/qstring.h>
+        <QtCore/qvariant.h>
+        <QtCore/qdatetime.h>
+        <QtCore/qdebug.h>
+        <QtCore/qjsonobject.h>
+        <QtCore/qjsonarray.h>
+        <QtCore/qjsondocument.h>
+    )
+endif()
+
+# ---------------------------------------------------------------------------
+# decenza_test_pch: builds the precompiled header ONCE; every test target reuses
+# it via REUSE_FROM in add_decenza_test().
+#
+# Why a donor target rather than putting the header list on each test: a plain
+# target_precompile_headers() per target builds a SEPARATE ~47 MB PCH per target.
+# At 107 test targets that is ~240 s of PCH builds to save ~285 s of parsing —
+# most of the win handed straight back. REUSE_FROM builds one and shares it.
+#
+# It cannot hang off decenza_testlib, which every test already links: that
+# library does not link Qt6::Test, so it cannot compile <QtTest> and cannot be
+# the donor for a PCH containing it. Hence a target whose flags are constructed
+# to match what add_decenza_test() gives a test, exactly.
+#
+# KEEPING THE FLAGS IN SYNC IS LOAD-BEARING. REUSE_FROM requires the consumer's
+# compile flags to match the donor's; a define added to add_decenza_test() and
+# not here makes every test fail to compile against the shared PCH. If that
+# happens the error names cmake_pch.hxx and looks unrelated to the define — add
+# it in both places.
+#
+# Measured on this machine (isolated single-TU compiles, real flags):
+#   tst_bleserviceerror  1.51s -> 0.44s   -71%
+#   tst_roastdate        1.20s -> 0.44s   -64%
+#   tst_shotanalysis     2.10s -> 1.03s   -51%
+#   tst_settings         2.30s -> 1.18s   -49%
+#   tst_coffeebags       2.56s -> 1.50s   -41%
+#   tst_aimanager        2.60s -> 1.58s   -39%
+#
+# Tests benefit more than the app because a test TU is mostly header: a whole
+# 60-line test file costs 1.45 s and `#include <QtTest>` ALONE costs 1.42 s. The
+# body is 3% of it. That is also why the suite's build cost tracks file count
+# rather than test count — 90% of test-TU compile time is fixed per file, 10%
+# scales with lines (r=0.35, ~0.83 ms/line, ~1.4 s fixed).
+#
+# No language filter here and none needed: tests/ contains no Objective-C++. If
+# a .mm ever lands in a test target, it needs SKIP_PRECOMPILE_HEADERS — see the
+# note in the top-level CMakeLists.txt for why a $<COMPILE_LANGUAGE:CXX> genex
+# is NOT the way to do that (it empties the ObjC++ PCH instead of preventing its
+# use, and clang then rejects the C++ one).
+add_library(decenza_test_pch STATIC ${CMAKE_CURRENT_SOURCE_DIR}/pch_donor.cpp)
+set_target_properties(decenza_test_pch PROPERTIES AUTOMOC OFF AUTOMOC_PATH_PREFIX OFF)
+target_compile_definitions(decenza_test_pch PRIVATE
+    DECENZA_TESTING
+    DECENZA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(decenza_test_pch PRIVATE
+    decenza_testlib
+    Qt6::Test Qt6::Core Qt6::Bluetooth Qt6::Sql Qt6::Network Qt6::Gui
+)
+target_include_directories(decenza_test_pch PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+if(DECENZA_ENABLE_PCH)
+    target_precompile_headers(decenza_test_pch PRIVATE
+        <QtTest>
+        <QtCore/qjsonobject.h>
+        <QtCore/qjsonarray.h>
+        <QtCore/qjsondocument.h>
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # decenza_shotlib: the shot-history / live-model / upload layer, compiled ONCE
@@ -1214,6 +1304,49 @@ add_library(decenza_mcpserverlib STATIC
 )
 set_target_properties(decenza_mcpserverlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_link_libraries(decenza_mcpserverlib PUBLIC decenza_profilelib decenza_shotlib)
+
+# ---------------------------------------------------------------------------
+# Every narrow library reuses decenza_testlib's precompiled header.
+#
+# REUSE_FROM rather than a PCH each, because reuse costs NOTHING: the header is
+# already built for decenza_testlib, so even a 2.7 s target comes out ahead. A
+# private PCH per library would not — building one costs ~2 s, so the small
+# libraries would spend more making a PCH than they save using it. That is the
+# whole reason this is a reuse list and not a loop calling
+# target_precompile_headers() on each.
+#
+# They are flag-compatible by construction, which is what REUSE_FROM requires:
+# none of them defines anything of its own, they all inherit DECENZA_TESTING and
+# DECENZA_SIMULATOR from decenza_testlib PUBLIC, and extra INCLUDE dirs (paho on
+# profilelib, Quick on shotlib) do not affect PCH validity — only macro and
+# language differences do. Add a target_compile_definitions() to any library
+# below and it must move off this list or gain a matching define on
+# decenza_testlib.
+#
+# Listed literally, not derived from a glob or a directory scan: a new library
+# that silently fails to appear here just quietly costs a few seconds forever,
+# which is exactly the kind of regression nothing reports.
+set(DECENZA_TESTLIB_PCH_REUSERS
+    decenza_shotlib
+    decenza_profilelib
+    decenza_weightlib
+    decenza_a11ylib
+    decenza_appserviceslib
+    decenza_beanbaselib
+    decenza_aiproviderlib
+    decenza_dialingblockslib
+    decenza_settingsserializerlib
+    decenza_webdebugloggerlib
+    decenza_wifiscaleresultlib
+    decenza_refractometerlib
+    decenza_mcpserverlib
+)
+if(DECENZA_ENABLE_PCH)
+    foreach(_lib IN LISTS DECENZA_TESTLIB_PCH_REUSERS)
+        target_precompile_headers(${_lib} REUSE_FROM decenza_testlib)
+    endforeach()
+    unset(_lib)
+endif()
 
 # --- tst_profilemanager: ProfileManager lifecycle, signals, BLE, MCP resources, QML bindings ---
 find_package(Qt6 REQUIRED COMPONENTS Graphs Quick Qml)
