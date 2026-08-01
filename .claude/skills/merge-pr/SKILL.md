@@ -20,6 +20,8 @@ Project-standard PR merge for Decenza: **squash + delete branch**. Every merged 
 2. **Pre-flight checks.**
    - State must be `OPEN`, `isDraft` must be `false`, `mergeable` must be `MERGEABLE`. If any fails, stop and report why.
    - Check CI: `gh pr checks <num> --repo Kulitorum/Decenza`. If checks are failing, stop and report. If checks are still running, ask the user whether to wait or merge anyway.
+     - This step is also enforced by `.claude/hooks/block-red-merge.sh`, which blocks any `gh pr merge` while the PR's checks are red or pending — because this instruction lived only here, and #1729 was merged red by running `gh pr merge` directly without invoking this skill. The hook is the backstop; do not treat it as permission to skip reading the run.
+     - To merge over a check you have read and judged irrelevant, put the reason on the command: `gh pr merge ... # merge-red-ok: <why>`.
    - If the PR was opened in this session, no extra approval is needed. If the user is asking to merge a PR they did not open in this conversation, confirm first ("Merge PR #N now?").
 
 3. **Merge.**
