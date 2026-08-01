@@ -64,6 +64,7 @@
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #endif
+#include "../core/storagelogging.h"
 #include <QEventLoop>
 #include <QTimer>
 #include <QQmlEngine>
@@ -2485,8 +2486,20 @@ void MainController::drainDbWork(int timeoutMs, DrainReason reason) {
             && (!m_recipeStorage    || m_recipeStorage->isDbWorkIdle());
     };
 
-    if (allIdle())
+    const bool exiting = (reason == DrainReason::Exiting);
+
+    // Log the quiet path too. This is the COMMON outcome — nothing queued, nothing
+    // to wait for — and it used to return in silence, which made "the drain ran and
+    // found nothing" indistinguishable from "the drain never ran". That matters
+    // most where it can least be checked: on Android the suspend call site cannot
+    // be exercised from a desktop build, and this line is the only evidence that
+    // it fires at all. It cost a wrong answer once already, reading a shutdown log
+    // that had run the drain and said nothing about it.
+    if (allIdle()) {
+        STORAGE_LOG_STDERR("Drain", exiting ? QStringLiteral("nothing queued at exit")
+                                           : QStringLiteral("nothing queued at backgrounding"));
         return;
+    }
 
     // Polled, not signalled: the workers count outstanding tasks in an atomic and
     // emit nothing when it reaches zero, so there is no edge to connect to. This
@@ -2508,11 +2521,9 @@ void MainController::drainDbWork(int timeoutMs, DrainReason reason) {
     // quit-site comment claimed this protection before the flag was actually here.
     loop.exec(QEventLoop::ExcludeUserInputEvents);
 
-    const bool exiting = (reason == DrainReason::Exiting);
-
     if (allIdle()) {
-        qDebug() << (exiting ? "Storage writes drained before exit."
-                             : "Storage writes drained before backgrounding.");
+        STORAGE_LOG_STDERR("Drain", exiting ? QStringLiteral("drained before exit")
+                                           : QStringLiteral("drained before backgrounding"));
         return;
     }
 
@@ -2539,15 +2550,15 @@ void MainController::drainDbWork(int timeoutMs, DrainReason reason) {
     // it is what LOGGING.md means by training readers to skim the tier that says
     // "look here".
     if (exiting)
-        qWarning() << "Storage writes did not drain within" << timeoutMs << "ms. Still busy:"
-                   << stuck.join(", ") << "- whether a queued write survives now depends on"
-                   << "whether its worker reaches it before exit, and that outcome is not"
-                   << "recorded in this log.";
+        STORAGE_WARN_STDERR("Drain", QString(
+            "did not drain within %1 ms. Still busy: %2 - whether a queued write "
+            "survives now depends on whether its worker reaches it before exit, and "
+            "that outcome is not recorded in this log").arg(timeoutMs).arg(stuck.join(", ")));
     else
-        qDebug() << "Storage writes still pending after" << timeoutMs
-                 << "ms at backgrounding. Still busy:" << stuck.join(", ")
-                 << "- the worker keeps running, so this is only a loss if the OS kills"
-                 << "the process before it finishes.";
+        STORAGE_LOG_STDERR("Drain", QString(
+            "still pending after %1 ms at backgrounding. Still busy: %2 - the worker "
+            "keeps running, so this is only a loss if the OS kills the process before "
+            "it finishes").arg(timeoutMs).arg(stuck.join(", ")));
 }
 
 void MainController::applyAllSettings() {

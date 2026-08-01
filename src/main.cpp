@@ -97,6 +97,7 @@ extern "C" const char* __ubsan_default_options()
 #include <QSysInfo>
 #include <memory>
 #include <vector>
+#include "core/storagelogging.h"
 #include <QElapsedTimer>
 #include <QNetworkAccessManager>
 #include <QMetaEnum>
@@ -4749,8 +4750,9 @@ int main(int argc, char *argv[])
             while (!shotHistoryExporter.isExportWorkIdle() && waited.elapsed() < 750)
                 QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
             if (!shotHistoryExporter.isExportWorkIdle())
-                qWarning() << "Shot export threads still running at exit — the exported JSON for a"
-                           << "just-edited shot may be stale.";
+                STORAGE_WARN_STDERR("Export", QStringLiteral(
+                    "shot export threads still running at exit - the exported JSON for a "
+                    "just-edited shot may be stale"));
         }
 
         // Explicitly disconnect BLE so the GATT connection is released cleanly.

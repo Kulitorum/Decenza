@@ -8,6 +8,8 @@
 #include <QString>
 #include <QDebug>
 
+#include "core/storagelogging.h"
+
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -242,8 +244,9 @@ public:
         // lose queued work should wait on isIdle() before destroying the owner;
         // this warning is the backstop for the one that didn't.
         if (const int pending = m_outstanding->load(std::memory_order_acquire); pending > 0) {
-            qWarning() << m_name << "destroyed with" << pending
-                       << "DB task(s) still queued — those writes are being discarded.";
+            STORAGE_WARN_STDERR("Worker", QString(
+                "\"%1\" destroyed with %2 DB task(s) still queued - those writes are "
+                "being discarded").arg(m_name).arg(pending));
         }
         m_thread->quit();
         m_thread->wait();
