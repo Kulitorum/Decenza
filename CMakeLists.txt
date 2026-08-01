@@ -83,16 +83,12 @@ endif()
 # CLI configure set no compiler launcher, and local development is the case this
 # exists for. CI throughput is explicitly the lower priority.
 #
-# OFF IN CI, passed explicitly by the four workflows that carry a warm ccache
-# (android, macos, linux, linux-arm64). A PCH and a compiler cache are
-# SUBSTITUTES, not complements, and where both are available the cache wins by
-# an order of magnitude — so this is the "lower priority" sentence above being
-# applied, not reversed.
-#
-# ccache will not cache a compile that consumes a PCH: the preprocessed output
-# no longer contains the PCH'd headers' text, so it cannot tell what it would be
-# caching, and it declines. Every leg lost almost its whole cache the day the
-# PCH landed (2026-07-31, #1730). Measured from the runs' own `ccache -s`:
+# OFF IN CI on the four legs with a warm ccache (android, macos, linux,
+# linux-arm64), passed as -DDECENZA_ENABLE_PCH=OFF by those workflows. A PCH and
+# a compiler cache are SUBSTITUTES: ccache will not cache a compile that
+# consumes a PCH, because the preprocessed output no longer contains the PCH'd
+# headers' text. Every warm leg lost almost its whole cache when the PCH landed
+# (2026-07-31, #1730), measured from the runs' own `ccache -s`:
 #
 #   leg          cacheable before -> after     hits before -> after
 #   android         457/484  ->   58/485          384  ->  30
@@ -100,27 +96,16 @@ endif()
 #   linux           910/910  ->   86/882          817  ->  70
 #   linux-arm64     508/508  ->   72/512          450  ->  60
 #
-# Android's Build step went 3m40s -> 5m00s/6m41s, macOS 6m28s -> 8m11s/13m28s.
-# On android the 30 surviving hits are exactly the 30 paho_mqtt_c objects, the
-# only target in that build without a PCH.
+# ~88% of TUs were hits, which cost nothing to compile, so the 31.6% above only
+# ever applied to the ~12% that miss. Not worth the other 88% recompiling.
 #
-# The arithmetic is why this is not close. ~88% of TUs were cache HITS, which
-# cost nothing to "compile"; the PCH's measured 31.6% only ever applied to the
-# ~12% that actually miss, so at best it bought ~4% of a warm CI build while
-# costing the full compile of the other 88%.
+# `sloppiness=pch_defines,time_macros` would let ccache cache through a PCH.
+# Not done: time_macros ignores __DATE__/__TIME__, which src/main.cpp uses in
+# its startup banner, so a cached object would log a stale build date.
 #
-# ccache CAN be told to cache through a PCH with
-# `--set-config=sloppiness=pch_defines,time_macros`. Deliberately not done:
-# `time_macros` makes ccache ignore __DATE__/__TIME__, which src/main.cpp uses
-# in its startup banner, so a cached object would report a stale build date into
-# user-submitted logs. It also only pays off if the ~28-47 MB PCH artefact is
-# byte-identical across runners, which nobody has verified.
-#
-# Deliberately NOT applied to two legs. iOS and Windows already resolve to OFF
-# above, and passing a flag there could only ever turn the known-broken (iOS) or
-# never-tested (Windows) combination back ON. nightly-sanitizers.yml is also
-# left alone: it decides its own caching at runtime and often builds genuinely
-# cold, which is the one CI case where a PCH is a straight 31.6% win.
+# iOS and Windows are left to the branch below rather than given the flag —
+# there it could only turn the known-broken/never-tested combination back ON.
+# nightly-sanitizers.yml often builds cold, where the PCH is a straight win.
 #
 # To force either way: -DDECENZA_ENABLE_PCH=ON/OFF.
 if(NOT DEFINED DECENZA_ENABLE_PCH)
