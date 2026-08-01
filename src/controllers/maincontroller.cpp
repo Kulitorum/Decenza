@@ -24,6 +24,7 @@
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
 #include "../ai/aimanager.h"
+#include "../history/equipmentlogging.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"
 #include "../history/shotdebuglogger.h"
@@ -255,8 +256,19 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Adopt the package that migration 35 merged the active selection into, if it
     // healed one — through the setter, so the settings cache and NOTIFY fire.
     // Before setEquipmentStorage(), so the storage resolves the surviving id.
-    if (m_shotHistory->healedActiveEquipmentId() > 0)
-        m_settings->dye()->setActiveEquipmentId(m_shotHistory->healedActiveEquipmentId());
+    //
+    // Logged because the migration announcing the move and this line applying it
+    // are in different files, and only this one changes what the app points at.
+    // Without it a submitted log stops one step short of the answer to "my
+    // equipment changed after updating" — the same gap that made #1713
+    // undiagnosable.
+    if (m_shotHistory->healedActiveEquipmentId() > 0) {
+        const qint64 healed = m_shotHistory->healedActiveEquipmentId();
+        EQUIP_INFO_STDERR("Migration",
+                          QString("adopted the healed active equipment - selection now points at package %1")
+                              .arg(healed));
+        m_settings->dye()->setActiveEquipmentId(healed);
+    }
     m_settings->dye()->setEquipmentStorage(m_equipmentStorage);
 
     // Recipe storage shares the same database (recipes table, migration 25).
