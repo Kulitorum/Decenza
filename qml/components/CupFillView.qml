@@ -35,6 +35,66 @@ Item {
         return Theme.trackingColor(delta, goal, isPressure)
     }
 
+    // ---- Post-shot hold ----
+    // The cup keeps showing what it drew until this view is destroyed by
+    // navigation — the espresso page stays mounted for the stop-overlay window
+    // after the machine has already left the espresso cycle, and without the
+    // latch below the fill collapses to 0 the moment phase reaches Ready.
+    // The hold needs no expiry: StackView.replace() destroys the view, so
+    // "until the screen changes" is this instance's lifetime. The only clearing
+    // rule is a *new* cycle on a surviving instance.
+    // Phase predicates as functions, not just bindings: onPhaseChanged below
+    // needs them for both the new and the previous phase, and calling them
+    // there avoids depending on whether a binding on phaseChanged has already
+    // re-evaluated when the handler on that same signal runs.
+    function isExtractionPhase(p) {
+        return p === MachineState.Phase.Preinfusion
+            || p === MachineState.Phase.Pouring
+            || p === MachineState.Phase.Ending
+    }
+    function isEspressoCycle(p) {
+        return p >= MachineState.Phase.EspressoPreheating
+            && p <= MachineState.Phase.Ending
+    }
+    readonly property bool extractionPhase: isExtractionPhase(phase)
+    readonly property bool inEspressoCycle: isEspressoCycle(phase)
+    property bool extractionSeen: false
+    property real heldWeight: 0
+    readonly property bool holding: extractionSeen && !inEspressoCycle
+    // Everything drawn reads this, never currentWeight — it closes both blank
+    // paths at once (the phase gate in cupGeometry() and the weight guards in
+    // the two canvases), so the cup also survives being lifted off the scale.
+    // This is the one place where the displayed weight may diverge from
+    // MachineState.scaleWeight, and only while holding: the cup is a picture of
+    // the shot, not a live instrument.
+    readonly property real displayWeight: holding ? heldWeight : currentWeight
+
+    property int previousPhase: -1
+    onPhaseChanged: {
+        var nowInCycle = isEspressoCycle(phase)
+        var wasInCycle = isEspressoCycle(previousPhase)
+        if (nowInCycle && !wasInCycle) {
+            // Entering a cycle — discard any frame held from the previous shot.
+            extractionSeen = false
+            heldWeight = 0
+        } else if (wasInCycle && !nowInCycle && extractionSeen) {
+            // Leaving a cycle that drew coffee — freeze the final weight.
+            heldWeight = currentWeight
+        }
+        if (isExtractionPhase(phase))
+            extractionSeen = true
+        previousPhase = phase
+    }
+
+    Component.onCompleted: {
+        // Seed the phase tracking, and latch immediately when the view is
+        // created mid-shot (switching from the chart view during extraction) —
+        // onPhaseChanged would otherwise not run until the next transition.
+        previousPhase = phase
+        if (isExtractionPhase(phase))
+            extractionSeen = true
+    }
+
     property real wavePhase: 0
     property real steamPhase: 0
     property real ripplePhase: 0
@@ -43,9 +103,11 @@ Item {
         id: animTimer
         interval: 33
         repeat: true
+        // Stays false through the post-shot hold — inEspressoCycle is already
+        // false there, so the held cup is a static final frame rather than
+        // three seconds of decorative repainting.
         running: root.currentFlow > 0.1 ||
-                 (root.currentWeight > 0 && root.phase >= MachineState.Phase.EspressoPreheating
-                                         && root.phase <= MachineState.Phase.Ending)
+                 (root.displayWeight > 0 && root.inEspressoCycle)
         onTriggered: {
             if (root.currentFlow > 0.1) {
                 root.wavePhase += 0.15
@@ -57,7 +119,14 @@ Item {
         }
     }
 
-    onCurrentWeightChanged: { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() }
+    // Repaint on displayWeight, not currentWeight: identical while extracting
+    // (they are the same value), and during the hold it stops the scale's
+    // ~10 Hz stream from repainting a frame that cannot change.
+    onDisplayWeightChanged: { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() }
+    // One repaint at the hold boundary, where displayWeight is unchanged (it
+    // takes the value it already had) but the frame must be redrawn from the
+    // held state rather than whatever the last live paint left.
+    onHoldingChanged:       { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() }
     onTargetWeightChanged:  { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() }
     onCurrentFlowChanged:   { if (!animTimer.running) { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() } }
 
@@ -80,15 +149,16 @@ Item {
         var botOvalH = h * 0.04
         var cupH = botCy - rimCy
 
-        // Only show fill during/after extraction. Pre-flow phases like
-        // EspressoPreheating render empty regardless of currentWeight — the
+        // Only show fill during or after extraction. Pre-flow phases like
+        // EspressoPreheating render empty regardless of weight — the
         // stale-residual case is solved at the source in MachineState
         // (see m_hotWaterFrozenWeight clearing on cycle entry).
-        var hasExtraction = root.phase === MachineState.Phase.Preinfusion
-                         || root.phase === MachineState.Phase.Pouring
-                         || root.phase === MachineState.Phase.Ending
+        // extractionSeen carries the "after" half: once coffee has been drawn
+        // on this view, the fill survives the phase leaving the cycle. With
+        // nothing latched, a resting cup on the scale still renders empty.
+        var hasExtraction = root.extractionPhase || root.extractionSeen
         var fillRatio = (root.targetWeight > 0 && hasExtraction)
-            ? Math.min(root.currentWeight / root.targetWeight, 1.0) : 0
+            ? Math.min(root.displayWeight / root.targetWeight, 1.0) : 0
         var interiorH = cupH * 0.8  // 100% fill reaches 80% of cup height
         var fillH = fillRatio * interiorH
         var fillTopY = botCy - fillH
@@ -171,8 +241,8 @@ Item {
                     var g = root.cupGeometry(w, h)
                     var N = 36
 
-                    // Only show coffee once scale reports weight
-                    if (root.currentWeight <= 0) return
+                    // Only show coffee once there is weight to show
+                    if (root.displayWeight <= 0) return
 
                     // Shift fill forward so coffee appears with crema at first weight
                     var effectiveFillRatio = Math.min(g.fillRatio + 0.12, 1.0)
@@ -395,10 +465,10 @@ Item {
                 var N = 36
 
                 // ---- Stream from above (during extraction) ----
-                if (g.isPouring && root.currentFlow > 0.3 && root.currentWeight > 0 && g.fillRatio < 1.0) {
+                if (g.isPouring && root.currentFlow > 0.3 && root.displayWeight > 0 && g.fillRatio < 1.0) {
                     var streamTopY = 0  // enters from top of screen
                     var cupFloorY = g.botCy - g.botOvalH - cupH * 0.02
-                    var streamBot = root.currentWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
+                    var streamBot = root.displayWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
                     var streamLen = Math.max(streamBot - streamTopY, cupH * 0.01)
                     var streamTopW = Math.min(cupH * 0.032 + root.currentFlow * cupH * 0.007, cupH * 0.06)
                     var streamBotW = streamTopW * 0.5
@@ -446,7 +516,7 @@ Item {
                         var drT = ((root.wavePhase * 1.5 + dr * 1.4) % 3.5) / 3.5
                         if (drT > 0.95) continue
                         var drY = streamTopY + streamLen * drT
-                        if (root.currentWeight > 0 && drY > effectiveFillTopY + cupH * 0.01) continue
+                        if (root.displayWeight > 0 && drY > effectiveFillTopY + cupH * 0.01) continue
                         var drWob = Math.sin(root.wavePhase * 2.2 + drT * 5.0) * cupH * 0.006 * drT
                         var drSize = (cupH * 0.006 + root.currentFlow * cupH * 0.001) * (1 - drT * 0.3)
                         ctx.beginPath()
@@ -456,7 +526,7 @@ Item {
                     }
 
                     // Splash glow
-                    var splashY = root.currentWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
+                    var splashY = root.displayWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
                     var splashR = cupH * 0.042
                     var splashGlow = ctx.createRadialGradient(g.cx, splashY, cupH * 0.005, g.cx, splashY, splashR)
                     splashGlow.addColorStop(0, Qt.rgba(0.7, 0.5, 0.3, 0.5))
@@ -469,11 +539,11 @@ Item {
                 }
 
                 // ---- Steam wisps ----
-                if (root.currentWeight > 0 && root.currentFlow < 2.0) {
-                    var steamAlphaBase = Math.min(root.currentWeight / 5.0, 1.0) * 0.14
+                if (root.displayWeight > 0 && root.currentFlow < 2.0) {
+                    var steamAlphaBase = Math.min(root.displayWeight / 5.0, 1.0) * 0.14
                     for (var sp = 0; sp < 4; sp++) {
                         var steamOffX = (sp - 1.5) * g.cupW * 0.25
-                        var steamBaseY = root.currentWeight > 0 ? effectiveFillTopY : g.rimCy
+                        var steamBaseY = root.displayWeight > 0 ? effectiveFillTopY : g.rimCy
                         var steamStartY = Math.min(steamBaseY, g.rimCy) - cupH * 0.007
                         var steamH2 = cupH * (0.07 + sp * 0.023)
                         var steamEndY = steamStartY - steamH2
@@ -537,7 +607,7 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: root.currentWeight.toFixed(1) + TranslationManager.translate("common.unit.grams", "g")
+            text: root.displayWeight.toFixed(1) + TranslationManager.translate("common.unit.grams", "g")
             color: Theme.tintedOverlayColor(root.trackColor, 0.5)
             font.pixelSize: Theme.scaled(38)
             font.weight: Font.Bold
