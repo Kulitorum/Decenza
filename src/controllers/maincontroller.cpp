@@ -2485,8 +2485,20 @@ void MainController::drainDbWork(int timeoutMs, DrainReason reason) {
             && (!m_recipeStorage    || m_recipeStorage->isDbWorkIdle());
     };
 
-    if (allIdle())
+    const bool exiting = (reason == DrainReason::Exiting);
+
+    // Log the quiet path too. This is the COMMON outcome — nothing queued, nothing
+    // to wait for — and it used to return in silence, which made "the drain ran and
+    // found nothing" indistinguishable from "the drain never ran". That matters
+    // most where it can least be checked: on Android the suspend call site cannot
+    // be exercised from a desktop build, and this line is the only evidence that
+    // it fires at all. It cost a wrong answer once already, reading a shutdown log
+    // that had run the drain and said nothing about it.
+    if (allIdle()) {
+        qDebug() << (exiting ? "Storage writes: nothing queued at exit."
+                             : "Storage writes: nothing queued at backgrounding.");
         return;
+    }
 
     // Polled, not signalled: the workers count outstanding tasks in an atomic and
     // emit nothing when it reaches zero, so there is no edge to connect to. This
@@ -2507,8 +2519,6 @@ void MainController::drainDbWork(int timeoutMs, DrainReason reason) {
     // this one — abandoning the drain and discarding the write it is saving. The
     // quit-site comment claimed this protection before the flag was actually here.
     loop.exec(QEventLoop::ExcludeUserInputEvents);
-
-    const bool exiting = (reason == DrainReason::Exiting);
 
     if (allIdle()) {
         qDebug() << (exiting ? "Storage writes drained before exit."
