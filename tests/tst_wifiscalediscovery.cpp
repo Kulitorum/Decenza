@@ -6,6 +6,9 @@
 
 #include "network/mdnsresolver.h"
 #include "network/wifiscalediscovery.h"
+// For the reconnect-browse gating predicates. Header-inline statics only — no
+// BLEManager is constructed and blemanager.cpp is not linked.
+#include "ble/blemanager.h"
 
 // Exercises the on-demand mDNS probe. We can't reliably mock QHostInfo on all
 // platforms, so we resolve a known-good name ("localhost") for the success
@@ -214,6 +217,66 @@ private slots:
         QCOMPARE(names, QStringList({QStringLiteral("hds.local"),
                                      QStringLiteral("hds-2.local"),
                                      QStringLiteral("hds-3.local")}));
+    }
+
+    // --- Reconnect browse gating (BLEManager, header-inline predicates) ---
+    //
+    // The reconnect ladder browses for a saved WiFi scale whose direct connect
+    // has failed, because this responder answers a DNS-SD browse but not a bare
+    // A-query for its hostname. These assert the two rules that decide whether
+    // that browse runs and whether its result may be connected. BLEManager
+    // cannot be constructed here (it owns the BLE stack), which is why both are
+    // static predicates rather than behaviour reachable through the object.
+
+    // The healthy path must stay silent: a saved WiFi scale that connects on its
+    // cached IP never sets directAttemptFailed, so no multicast is generated.
+    // This is the gate that keeps a background browse from running on every
+    // reconnect tick forever.
+    void reconnectBrowseOnlyAfterADirectAttemptFailed() {
+        const QString saved = QStringLiteral("wifi:hds.local");
+        QVERIFY(!BLEManager::shouldBrowseOnReconnect(saved, false, false));
+        QVERIFY(BLEManager::shouldBrowseOnReconnect(saved, true, false));
+    }
+
+    // With no WiFi scale saved, the no-background-discovery rule is absolute —
+    // a failed attempt on some other transport must not open a browse.
+    void reconnectBrowseNeverRunsWithoutASavedWifiScale() {
+        QVERIFY(!BLEManager::shouldBrowseOnReconnect(QString(), true, false));
+        QVERIFY(!BLEManager::shouldBrowseOnReconnect(
+            QStringLiteral("AA:BB:CC:DD:EE:FF"), true, false));
+        QVERIFY(!BLEManager::shouldBrowseOnReconnect(
+            QStringLiteral("usb:decent"), true, false));
+    }
+
+    // A ladder tick arriving while a browse is still open must not restart it:
+    // browse() cancels the in-flight one, which would reset the very window the
+    // browse needs in order to hear a reply.
+    void reconnectBrowseDoesNotRestartAnOpenBrowse() {
+        const QString saved = QStringLiteral("wifi:hds.local");
+        QVERIFY(!BLEManager::shouldBrowseOnReconnect(saved, true, true));
+    }
+
+    // Anti-substitution: a browse sees every scale on the LAN, and only the
+    // saved one may be auto-connected. A second scale on the network must never
+    // be silently swapped in for the user's.
+    void onlyTheSavedScaleIsAutoConnected() {
+        const QString saved = QStringLiteral("wifi:hds.local");
+        QVERIFY(BLEManager::browsedScaleIsSavedPrimary(QStringLiteral("hds.local"), saved));
+        QVERIFY(!BLEManager::browsedScaleIsSavedPrimary(QStringLiteral("hds-2.local"), saved));
+        QVERIFY(!BLEManager::browsedScaleIsSavedPrimary(QStringLiteral("hdstest.local"), saved));
+        // Nothing saved, or nothing found: never a match.
+        QVERIFY(!BLEManager::browsedScaleIsSavedPrimary(QStringLiteral("hds.local"), QString()));
+        QVERIFY(!BLEManager::browsedScaleIsSavedPrimary(QString(), saved));
+    }
+
+    // mDNS names are case-insensitive, and the saved address is stored as typed.
+    // A scale whose advertised name differs only in case is still the user's
+    // scale and must match — the same rule the BLE saved-address path uses.
+    void savedScaleMatchIsCaseInsensitive() {
+        QVERIFY(BLEManager::browsedScaleIsSavedPrimary(
+            QStringLiteral("HDS.local"), QStringLiteral("wifi:hds.local")));
+        QVERIFY(BLEManager::browsedScaleIsSavedPrimary(
+            QStringLiteral("hds.local"), QStringLiteral("WIFI:HDS.LOCAL")));
     }
 };
 

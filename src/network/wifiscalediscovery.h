@@ -21,8 +21,17 @@ class QTimer;
  *  - probe(): direct A-record lookup of specific hostnames. Covers older
  *    firmware, which advertises no service at all.
  *
- * Neither does background work: nothing runs until a caller asks, and a browse
- * stops when the scan cycle that started it ends.
+ * Nothing runs until a caller asks. That caller is USUALLY a user-initiated
+ * scan, but not always: BLEManager also owns a separate instance for the
+ * reconnect ladder, which browses when a saved WiFi scale's direct connect has
+ * already failed. So a browse can be open without the user having asked for one
+ * — bounded by that instance's own shorter deadline, gated on a saved WiFi
+ * primary, and invisible to the Scan button because isScanning() references
+ * only the scan's instance. See BLEManager::ensureReconnectDiscovery().
+ *
+ * A browse stops when its deadline elapses, when a new browse on the SAME
+ * instance supersedes it, or at teardown. Instances do not cancel each other,
+ * which is the whole reason the reconnect path has its own.
  *
  * Results arrive incrementally via resultFound() as each scale resolves, rather
  * than in one batch at the end — a live scale typically answers in well under a

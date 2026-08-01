@@ -838,6 +838,65 @@ private:
     // first wiped out the other, breaking either the list-populate path or
     // the auto-reconnect path depending on order).
     void ensureWifiDiscovery();
+    // Lazy-create m_reconnectDiscovery — the browse the RECONNECT ladder uses,
+    // deliberately a second instance rather than m_wifiDiscovery. Two reasons,
+    // both load-bearing:
+    //  - browse() calls stopBrowse() first, so sharing would let a reconnect
+    //    tick cancel a scan the user just started — the very action a user
+    //    takes when their scale is missing.
+    //  - isScanning() folds m_wifiDiscovery->isBrowsing() into the composite
+    //    property behind the Scan button. A shared instance would make the
+    //    button read "Scanning..." on every reconnect tick.
+    // Same reasoning that split m_manualEntryDiscovery out; see that comment.
+    void ensureReconnectDiscovery();
+
+public:
+    // The two invariants of the reconnect browse, as pure predicates.
+    //
+    // They are static and header-inline ON PURPOSE: BLEManager cannot be
+    // constructed in the test suite (it owns the BLE stack), so the only way
+    // these rules become assertable is to state them as functions of their
+    // inputs. The alternative was a fault-injection harness to reach the
+    // branches, which the project treats as a stop sign rather than a testing
+    // problem. Everything else about the browse — timing, socket ownership —
+    // stays untested here and rides on the field log instead.
+
+    /// Whether a reconnect tick should open a browse. Three gates, in the order
+    /// they matter: a saved WiFi primary must exist (otherwise this is the
+    /// absolute no-background-discovery case), a direct attempt must already
+    /// have failed (so the healthy cached-IP path stays silent), and no browse
+    /// may already be running (re-browsing restarts the window a reply needs).
+    static bool shouldBrowseOnReconnect(const QString& savedScaleAddress,
+                                        bool directAttemptFailed,
+                                        bool browseAlreadyRunning) {
+        if (!savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive))
+            return false;
+        if (!directAttemptFailed) return false;
+        if (browseAlreadyRunning) return false;
+        return true;
+    }
+
+    /// Whether a browsed instance IS the saved primary. This is the
+    /// anti-substitution rule: a browse finds every scale on the LAN, and only
+    /// an exact match on the saved address may be auto-connected. Never relax
+    /// this to a "looks like a Decent scale" test.
+    static bool browsedScaleIsSavedPrimary(const QString& hostname,
+                                           const QString& savedScaleAddress) {
+        if (savedScaleAddress.isEmpty() || hostname.isEmpty()) return false;
+        const QString address = QStringLiteral("wifi:") + hostname;
+        return address.compare(savedScaleAddress, Qt::CaseInsensitive) == 0;
+    }
+
+private:
+    // Auto-connect a browsed instance when it IS the saved primary. One
+    // implementation, called from both discovery handlers — the scan's and the
+    // reconnect's. Not duplicated: this file already carries a bug report about
+    // two dedupes that drifted apart and let a browse hit rewrite a row's
+    // address out from under the saved-scale matcher.
+    void maybeAutoConnectBrowsedScale(const WifiScaleResult& result);
+    // Start the reconnect browse for the saved WiFi primary. No-op unless a
+    // direct attempt has already failed (m_wifiDirectAttemptFailed).
+    void startReconnectBrowseIfNeeded();
     // WiFi-saved-scale fallback: when the WiFi connection timer fires without
     // a successful connect, kick off a BLE scan that auto-connects to the
     // first Decent-family scale found. Toast surfaces the fallback to the
@@ -912,6 +971,26 @@ private:
     // UX-only mDNS probe separate from m_wifiDiscovery (which carries an
     // auto-connect-to-saved-primary handler). Lazy-created on first call.
     WifiScaleDiscovery* m_manualEntryDiscovery = nullptr;
+    // Dedicated browse instance for the reconnect ladder. See
+    // ensureReconnectDiscovery() for why this is not m_wifiDiscovery. It is
+    // deliberately absent from isScanning(), so a reconnect browse never
+    // touches the Scan button.
+    WifiScaleDiscovery* m_reconnectDiscovery = nullptr;
+    // "A direct attempt for the saved WiFi scale has already failed." Set when
+    // the connection timer gives up on a wifi: primary, cleared the moment a
+    // scale connects. Gates the reconnect browse so the healthy path — cached
+    // IP answers immediately — never puts multicast traffic on the network.
+    //
+    // An event flag, not a timer: the condition is "until a scale connects",
+    // and that event is exactly what clears it.
+    bool m_wifiDirectAttemptFailed = false;
+    // How long the reconnect browse runs. Shorter than the 15 s user scan
+    // because this repeats on the reconnect ladder rather than running once
+    // per user action, so it converges across ticks instead of within one.
+    // 5 s is the same budget kHdsResolveTimeoutMs gives the A-query, and is an
+    // order of magnitude above the 362 ms in which a browse resolved this
+    // scale in the field — the case this exists to recover.
+    static constexpr int kReconnectBrowseTimeoutMs = 5000;
     // Set true when the current manual-entry probe fires resultFound; consumed
     // by probeFinished to decide whether to log "no responder" — the probe
     // doesn't carry a "found anything" return code, so we have to track it

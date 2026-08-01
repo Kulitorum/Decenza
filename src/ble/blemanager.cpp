@@ -1688,6 +1688,22 @@ void BLEManager::onScaleConnectedChanged() {
             m_scaleConnectionFailed = false;
             emit scaleConnectionFailedChanged();
         }
+        // A connect clears the "direct attempt already failed" state, so the
+        // reconnect browse goes quiet again until the direct path next fails.
+        // This is the event that clears the flag — not a timer.
+        m_wifiDirectAttemptFailed = false;
+        // Deliberately NOT stopping an in-flight reconnect browse. The connect
+        // that lands here is very often the WiFi->BLE FALLBACK — it arrives
+        // about a second after the timeout that started the browse, and a browse
+        // needs longer than that (1.3 s measured). Cancelling here would abort
+        // the search for the saved WiFi primary at the moment it was most likely
+        // to succeed, and leave the user on the fallback transport.
+        //
+        // Letting it finish is not a hijack risk: maybeAutoConnectBrowsedScale
+        // only ever acts on an exact saved-primary match, so the worst case is
+        // switching from the BLE fallback back to the WiFi scale the user
+        // actually saved — which is the point. The browse ends on its own
+        // deadline either way.
         scaleDebug(QStringLiteral("Scale connected"));
         emit scaleConnected();  // UI auto-dismisses the scale-disconnect / no-scale notice on reconnect
     } else {
@@ -1796,10 +1812,25 @@ void BLEManager::onScaleConnectionTimeout() {
     // fallback once per saved-scale cycle (the `!m_wifiFallbackToBleActive`
     // guard prevents a second fallback if the BLE scan itself times out). A
     // manual "Add WiFi Scale" attempt opts out — it surfaces "Not found" instead.
-    if (!manualWifiAttempt && !m_wifiFallbackToBleActive
+    if (!manualWifiAttempt
             && m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
-        beginWifiFallbackToBleScan();
-        return;
+        // The direct attempt for the saved WiFi scale has now definitively
+        // failed. Browse HERE, at the failure, rather than arming a flag for the
+        // next reconnect tick — measured: that tick may never come. Once the
+        // WiFi->BLE fallback below connects a BLE scale, the app has a scale, the
+        // app-level ladder stops calling tryDirectConnectToScale, and a browse
+        // parked on that path never runs. A log of exactly that shows two
+        // timeouts 20 s apart with no second "Direct wake (WiFi)" between them.
+        //
+        // Set before the browse so the gate reads true, and left set so a later
+        // tick that DOES re-enter tryDirectConnectToScale still browses. It is
+        // cleared when any scale connects.
+        m_wifiDirectAttemptFailed = true;
+        startReconnectBrowseIfNeeded();
+        if (!m_wifiFallbackToBleActive) {
+            beginWifiFallbackToBleScan();
+            return;
+        }
     }
 
     m_scaleConnectionFailed = true;
@@ -2570,21 +2601,63 @@ void BLEManager::ensureWifiDiscovery() {
             if (WifiScaleResultUtil::upsertByHostname(m_wifiResults, result))
                 rebuildWifiScaleRows();
 
-            // Auto-connect when the discovered scale matches the saved primary,
-            // including during user-initiated scans. Matching the saved primary
-            // is itself the anti-hijack guard — see the matching reasoning on
-            // the BLE path in onDeviceDiscovered. Covers both paths:
-            // saved-scale direct-wake on app start AND a spontaneous (or
-            // user-initiated) scan that happens to find the saved scale.
-            if (!m_savedScaleAddress.isEmpty()
-                    && address.compare(m_savedScaleAddress, Qt::CaseInsensitive) == 0) {
-                setPendingWifiConnect(hostname, resolvedAddress, result.port, result.path);
-                // This mDNS resolve just happened — hand the IP along so
-                // main.cpp can seed DecentScaleWifi's cache and dial it
-                // directly instead of re-resolving the hostname itself.
-                emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
-            }
+            maybeAutoConnectBrowsedScale(result);
         });
+}
+
+void BLEManager::maybeAutoConnectBrowsedScale(const WifiScaleResult& result) {
+    // Auto-connect when the discovered scale matches the saved primary,
+    // including during user-initiated scans. Matching the saved primary
+    // is itself the anti-hijack guard — see the matching reasoning on
+    // the BLE path in onDeviceDiscovered. Covers three paths now:
+    // saved-scale direct-wake on app start, a spontaneous (or user-initiated)
+    // scan that happens to find the saved scale, and the reconnect browse.
+    //
+    // Deliberately ONE implementation shared by every discovery handler. A
+    // second copy of this match is how the saved-scale matcher and the row
+    // dedupe drifted apart before.
+    if (!browsedScaleIsSavedPrimary(result.hostname, m_savedScaleAddress)) return;
+    setPendingWifiConnect(result.hostname, result.address, result.port, result.path);
+    // This mDNS resolve just happened — hand the IP along so
+    // main.cpp can seed DecentScaleWifi's cache and dial it
+    // directly instead of re-resolving the hostname itself.
+    emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
+}
+
+void BLEManager::ensureReconnectDiscovery() {
+    if (m_reconnectDiscovery) return;
+    m_reconnectDiscovery = new WifiScaleDiscovery(this);
+    // resultFound only. Deliberately NOT wired to browseFinished/probeFinished:
+    // those drive m_lastWifiBrowseRan/m_lastWifiProbeRan and emit
+    // scanningChanged(), which is user-scan state. A background browse must not
+    // rewrite what devices_wifi_results reports about the user's last scan, and
+    // must not touch the Scan button.
+    connect(m_reconnectDiscovery, &WifiScaleDiscovery::resultFound, this,
+        [this](const WifiScaleResult& result) {
+            scaleInfo(QStringLiteral("Reconnect browse found WiFi scale: %1 -> %2 (saved=%3)")
+                          .arg(result.hostname, result.address, m_savedScaleAddress));
+            // NOT upserted into m_wifiResults and NOT rebuilding rows: those are
+            // the user's scan output. A background browse that rewrote them
+            // would make rows change while the user is reading the list.
+            maybeAutoConnectBrowsedScale(result);
+        });
+}
+
+void BLEManager::startReconnectBrowseIfNeeded() {
+    // Gating lives in the pure predicate so it is assertable without a
+    // BLEManager; see its comment for what each gate protects.
+    const bool browsing = m_reconnectDiscovery && m_reconnectDiscovery->isBrowsing();
+    if (!shouldBrowseOnReconnect(m_savedScaleAddress, m_wifiDirectAttemptFailed, browsing))
+        return;
+
+    ensureReconnectDiscovery();
+    // Browse only — no A-record probe alongside. The fallback names exist for
+    // pre-v3.0.9 firmware that answers A-queries, and answering A-queries is
+    // precisely the thing that already works; the driver's own resolve covers
+    // it. What is missing is the browse, so that is what this adds.
+    scaleInfo(QStringLiteral("Reconnect: browsing for %1 (a direct attempt already failed)")
+                  .arg(m_savedScaleAddress));
+    m_reconnectDiscovery->browse(kReconnectBrowseTimeoutMs);
 }
 
 void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
@@ -2674,6 +2747,16 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         // IP is genuinely unreachable (onScaleConnectionTimeout).
         m_wifiFallbackToBleActive = false;          // Reset per attempt
         m_scaleConnectionTimer->start();            // Fires onScaleConnectionTimeout if WiFi doesn't connect
+        // Alongside the direct attempt, once a previous one has failed: this
+        // responder does not reliably answer the direct A-query the driver
+        // falls back to, but does answer a service browse. Field evidence: 82
+        // consecutive reconnects received ZERO mDNS records over 7.5 h with the
+        // scale awake and serving WebSocket traffic, while a browse resolved
+        // the same host in 362 ms. Raising the A-query deadline (#1737) did not
+        // change it. Runs in parallel rather than after, because the browse is
+        // the mechanism that works — making it wait on the one that does not
+        // would just delay recovery by the resolve timeout.
+        startReconnectBrowseIfNeeded();
         setPendingWifiConnect(hostname);
         // No fresh resolution here — connectToHost() itself reads the
         // persisted cache (see comment above), so there's nothing new to hand along.
