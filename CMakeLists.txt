@@ -1556,12 +1556,20 @@ qt_add_qml_module(Decenza
 # PCH at all. That specifically rules out settings.h, which is otherwise the
 # most-included project header in the tree.
 #
-# Verified to work under every generator the six release workflows use — Ninja
-# for Windows/Linux/Linux-arm64/Android, and Xcode for macOS/iOS. The Xcode leg
-# looked like the one real risk, because a PCH is per-architecture and the macOS
-# build is universal; a probe with `-G Xcode -DCMAKE_OSX_ARCHITECTURES=
-# "x86_64;arm64"` emitted a separate cmake_pch.hxx.gch per slice and produced a
-# correct fat binary. The actual break was elsewhere — see the .mm note below.
+# Verified green on FIVE of the six release workflows: Linux, Linux-arm64 and
+# Android (Ninja), macOS (Xcode), and Windows (Ninja, but with this switch OFF,
+# so that leg proves only that the guard works). iOS is NOT in that list — it
+# fails, and is disabled at the switch above, where the diagnosis lives.
+#
+# Do not restore the sentence this replaced. It read "Verified to work under
+# every generator the six release workflows use ... and Xcode for macOS/iOS",
+# which was true of a local probe and false of iOS in CI, and it sat here
+# contradicting the iOS failure recorded seventy lines above for as long as it
+# took a reviewer to notice. The probe it described was real — `-G Xcode` with
+# -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" does emit one cmake_pch.hxx.gch per
+# slice and link a correct fat binary — but a passing probe is not a passing
+# platform, and writing it as though it were is how a stale claim outlives the
+# thing it claimed.
 if(DECENZA_ENABLE_PCH)
 target_precompile_headers(Decenza PRIVATE
     <QtCore/qobject.h>
@@ -2366,10 +2374,19 @@ if(NOT ANDROID AND NOT IOS)
 
     # PCH for the dev tools.
     #
-    # saw_parity is worth this on its own: 22 TUs and 139 s of compile, the
-    # SECOND most expensive target in the whole tree after decenza_testlib. It
-    # is 21 production sources — the same shape that measured ~0.5 s saved per
-    # TU — so it should recover roughly 35-40 s for one ~2 s PCH build.
+    # saw_parity is worth this on its own: 22 TUs and 139 s of compile (that 139
+    # is contended wall clock from a parallel build, not isolated cost), the
+    # SECOND most expensive target in the whole tree after decenza_testlib. It is
+    # 20 production sources plus its own main.cpp and moc — the same shape that
+    # measured ~0.5 s saved per TU, so expect it to recover on the order of 10 s
+    # for one ~2 s PCH build.
+    #
+    # An earlier version of this comment said 35-40 s, reached by applying the
+    # 28% figure to the 139 s total. That is the wrong model and contradicts the
+    # per-TU one stated at the Decenza PCH block above: the saving is roughly
+    # CONSTANT per TU regardless of file size, so 22 TUs buys ~11 s, not a
+    # percentage of a contended total. Both numbers cannot be right, and the
+    # per-TU one is the measured one.
     #
     # Each tool gets its OWN PCH rather than reusing one, because they do not
     # share a flag set: saw_parity and profile_sync link Sql/Network/Gui/
@@ -2378,9 +2395,10 @@ if(NOT ANDROID AND NOT IOS)
     # REUSE_FROM across those would fail on the macro mismatch, which is
     # precisely the check that makes reuse safe inside tests/ and unsafe here.
     #
-    # saw_replay is deliberately absent: 2 TUs and 7.2 s total, so a ~2 s PCH
-    # build to save ~1 s is a net loss. The bar for a private PCH is roughly
-    # 4 TUs; below that, reuse or nothing.
+    # saw_replay is deliberately absent: ONE TU (a single main.cpp, no Q_OBJECT
+    # so AUTOMOC adds nothing), so a ~2 s PCH build to save ~0.5 s is a plain
+    # loss. The bar for a private PCH is roughly 4 TUs; below that, reuse or
+    # nothing.
     if(DECENZA_ENABLE_PCH)
         target_precompile_headers(saw_parity PRIVATE
             <QtCore/qobject.h>

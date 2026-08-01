@@ -193,7 +193,7 @@ target_include_directories(decenza_testlib PUBLIC
 # Its own PCH, not the test one below: this library does not link Qt6::Test, so
 # <QtTest> is not available to it and it cannot share that header set. It is the
 # most expensive single target in tests/ (183.9 s of the 1208 s, ~15%) because it
-# compiles ~60 production sources, which is the shape that measured ~28% — the
+# compiles 43 production sources, which is the shape that measured ~28% — the
 # same ~0.5 s per TU the app-side comment describes.
 if(DECENZA_ENABLE_PCH)
     target_precompile_headers(decenza_testlib PRIVATE
@@ -214,7 +214,7 @@ endif()
 #
 # Why a donor target rather than putting the header list on each test: a plain
 # target_precompile_headers() per target builds a SEPARATE ~47 MB PCH per target.
-# At 107 test targets that is ~240 s of PCH builds to save ~285 s of parsing —
+# At 106 test targets that is ~240 s of PCH builds to save ~285 s of parsing —
 # most of the win handed straight back. REUSE_FROM builds one and shares it.
 #
 # It cannot hang off decenza_testlib, which every test already links: that
@@ -247,20 +247,27 @@ endif()
 # note in the top-level CMakeLists.txt for why a $<COMPILE_LANGUAGE:CXX> genex
 # is NOT the way to do that (it empties the ObjC++ PCH instead of preventing its
 # use, and clang then rejects the C++ one).
-add_library(decenza_test_pch STATIC ${CMAKE_CURRENT_SOURCE_DIR}/pch_donor.cpp)
-set_target_properties(decenza_test_pch PROPERTIES AUTOMOC OFF AUTOMOC_PATH_PREFIX OFF)
-target_compile_definitions(decenza_test_pch PRIVATE
-    DECENZA_TESTING
-    DECENZA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(decenza_test_pch PRIVATE
-    decenza_testlib
-    Qt6::Test Qt6::Core Qt6::Bluetooth Qt6::Sql Qt6::Network Qt6::Gui
-)
-target_include_directories(decenza_test_pch PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
+# The WHOLE target is inside the guard, not just its target_precompile_headers()
+# call. This target exists only to build a PCH: with DECENZA_ENABLE_PCH OFF —
+# which is the default on Windows — declaring it anyway would compile and link a
+# static library against decenza_testlib and six Qt modules to produce an
+# artefact nothing reuses. Every other PCH site in this change guards only the
+# target_precompile_headers() call, correctly, because those targets exist for
+# their own sake and would still be built with the PCH off; this one does not.
 if(DECENZA_ENABLE_PCH)
+    add_library(decenza_test_pch STATIC ${CMAKE_CURRENT_SOURCE_DIR}/pch_donor.cpp)
+    set_target_properties(decenza_test_pch PROPERTIES AUTOMOC OFF AUTOMOC_PATH_PREFIX OFF)
+    target_compile_definitions(decenza_test_pch PRIVATE
+        DECENZA_TESTING
+        DECENZA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(decenza_test_pch PRIVATE
+        decenza_testlib
+        Qt6::Test Qt6::Core Qt6::Bluetooth Qt6::Sql Qt6::Network Qt6::Gui
+    )
+    target_include_directories(decenza_test_pch PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
     target_precompile_headers(decenza_test_pch PRIVATE
         <QtTest>
         <QtCore/qjsonobject.h>
@@ -1315,13 +1322,19 @@ target_link_libraries(decenza_mcpserverlib PUBLIC decenza_profilelib decenza_sho
 # whole reason this is a reuse list and not a loop calling
 # target_precompile_headers() on each.
 #
-# They are flag-compatible by construction, which is what REUSE_FROM requires:
-# none of them defines anything of its own, they all inherit DECENZA_TESTING and
-# DECENZA_SIMULATOR from decenza_testlib PUBLIC, and extra INCLUDE dirs (paho on
-# profilelib, Quick on shotlib) do not affect PCH validity — only macro and
-# language differences do. Add a target_compile_definitions() to any library
-# below and it must move off this list or gain a matching define on
-# decenza_testlib.
+# They are flag-compatible, which is what REUSE_FROM requires, but NOT because
+# none of them defines anything — an earlier version of this comment said that
+# and it was wrong. decenza_shotlib carries its own
+# target_compile_definitions(decenza_shotlib PUBLIC DECENZA_TESTING) just above.
+# It is compatible because that define is a DUPLICATE of one the donor already
+# has: decenza_testlib declares DECENZA_TESTING and DECENZA_SIMULATOR PUBLIC, so
+# every library here compiles with the donor's macro set or an identical subset
+# of it. Extra INCLUDE dirs (paho on profilelib, Quick on shotlib) do not affect
+# PCH validity — only macro and language differences do.
+#
+# So the rule for adding a library below is not "it must define nothing", it is
+# "it must define nothing the donor does not already define". A NEW macro on any
+# of these moves it off this list or onto decenza_testlib.
 #
 # Listed literally, not derived from a glob or a directory scan: a new library
 # that silently fails to appear here just quietly costs a few seconds forever,
