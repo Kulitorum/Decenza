@@ -24,6 +24,6 @@
 
 ## 4. Land
 
-- [ ] 4.1 Open a PR (never push to `main`)
+- [x] 4.1 Open a PR (never push to `main`) — [#1736](https://github.com/Kulitorum/Decenza/pull/1736)
 - [ ] 4.2 Run the automated `/pr-review-toolkit:review-pr` review and address the findings
 - [ ] 4.3 Archive this change and sync specs as the final commit on the same PR, then squash-merge and delete the branch

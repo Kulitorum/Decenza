@@ -8,10 +8,10 @@ A second blank path exists independently: `if (root.currentWeight <= 0) return` 
 
 ## What Changes
 
-- Latch a per-instance `extractionSeen` flag when the view first observes `Preinfusion` or `Pouring`, and keep drawing the fill while it is set, so the cup survives the phase transition out of the espresso cycle.
-- Capture the final weight into a held value at that transition and render the fill, crema and the view's own weight text from the held value, so the cup and its number stay consistent and survive the cup being lifted off the scale.
+- Latch a per-instance `extractionSeen` flag when the view first observes a flow phase (`Preinfusion`, `Pouring` or `Ending`), and keep drawing the fill while it is set, so the cup survives the phase transition out of the espresso cycle.
+- Track the peak weight seen since flow began, and render the fill, crema and the view's own weight text from it once holding, so the cup and its number stay consistent, keep pace with post-stop drip, and survive the cup being lifted off the scale.
 - Clear both on entry to a new espresso cycle, so a subsequent shot on the same view instance starts empty.
-- Keep the pre-flow behaviour that #855 introduced: with no extraction yet seen, `EspressoPreheating`/`Ready` still render an empty cup regardless of what the scale reports.
+- Keep the pre-flow behaviour that commit `304769ea` introduced: with no extraction yet seen, `EspressoPreheating`/`Ready` still render an empty cup regardless of what the scale reports. This also required *fixing* that behaviour, which never worked — the zero `fillRatio` was still boosted by the crema offset in the liquid canvas, so a resting cup drew a 12%-full cup.
 - No animation restart. `animTimer` already stops when the phase leaves the espresso range; the hold is a frozen final frame, not 3 s of extra repaints.
 
 Not in scope: the espresso page's own info-bar weight readout, which continues to track the live scale, and any change to `MachineState`'s published `scaleWeight`.
@@ -28,7 +28,7 @@ None.
 
 ## Impact
 
-- `qml/components/CupFillView.qml` — the only file changed. Roughly ten lines: two new properties, two derived readonly properties, a phase-change handler, and routing the existing fill/crema/text reads through the held value.
+- `qml/components/CupFillView.qml` — the only file changed. Two new properties, two derived readonly properties, two phase/weight handlers, and routing the existing fill/crema/text reads through the held value across a dozen call sites.
 - No C++ change, no schema change, no new QML file, so no `CMakeLists.txt` edit.
 - No automated test. QML behaviour in this project is verified manually; the change is confirmed by running a shot (or an aborted shot) with the cup fill view selected.
 - No wiki manual entry — this restores intended behaviour rather than adding a user-visible feature.

@@ -41,20 +41,28 @@ Item {
     // after the machine has already left the espresso cycle, and without the
     // latch below the fill collapses to 0 the moment phase reaches Ready.
     // The hold needs no expiry: StackView.replace() destroys the view, so
-    // "until the screen changes" is this instance's lifetime. The only clearing
-    // rule is a *new* cycle on a surviving instance.
-    // Phase predicates as functions, not just bindings: onPhaseChanged below
-    // needs them for both the new and the previous phase, and calling them
-    // there avoids depending on whether a binding on phaseChanged has already
-    // re-evaluated when the handler on that same signal runs.
+    // "until the screen changes" is this instance's lifetime. Two things end it
+    // early, both deliberate — a *new* cycle on a surviving instance (handled
+    // below), and the user toggling to the chart and back, which destroys and
+    // recreates the view via EspressoPage's Loader and so starts a fresh
+    // instance with nothing latched.
+    // Phase predicates as functions, not bindings: onPhaseChanged below needs
+    // each one for two different phase values (the new one and the previous).
+    // Spelled out rather than tested as an ordinal range — every C++ site that
+    // asks the same question enumerates the four values (machinestate.cpp's
+    // isInEspresso, profilemanager.cpp, mcptools_control.cpp), and a range here
+    // would silently change meaning if a phase were ever inserted between
+    // EspressoPreheating and Ending, with nothing failing.
     function isExtractionPhase(p) {
         return p === MachineState.Phase.Preinfusion
             || p === MachineState.Phase.Pouring
             || p === MachineState.Phase.Ending
     }
     function isEspressoCycle(p) {
-        return p >= MachineState.Phase.EspressoPreheating
-            && p <= MachineState.Phase.Ending
+        return p === MachineState.Phase.EspressoPreheating
+            || p === MachineState.Phase.Preinfusion
+            || p === MachineState.Phase.Pouring
+            || p === MachineState.Phase.Ending
     }
     readonly property bool extractionPhase: isExtractionPhase(phase)
     readonly property bool inEspressoCycle: isEspressoCycle(phase)
@@ -64,22 +72,37 @@ Item {
     // Everything drawn reads this, never currentWeight — it closes both blank
     // paths at once (the phase gate in cupGeometry() and the weight guards in
     // the two canvases), so the cup also survives being lifted off the scale.
-    // This is the one place where the displayed weight may diverge from
-    // MachineState.scaleWeight, and only while holding: the cup is a picture of
-    // the shot, not a live instrument.
+    // This is the only place that deliberately shows a weight the scale is no
+    // longer reporting, and only while holding: the cup is a picture of the
+    // shot, not a live instrument.
     readonly property real displayWeight: holding ? heldWeight : currentWeight
+
+    // heldWeight tracks the peak weight seen since flow began, rather than
+    // being sampled once when the cycle ends. A single boundary sample had two
+    // defects, and peak-tracking removes both:
+    //   - The puck keeps dripping after the stop, and the saved yield includes
+    //     it (finalWeight in maincontroller.cpp comes from the post-settling
+    //     weight, and settling runs for up to ~10 s). A boundary sample froze
+    //     the cup several grams below the number the shot record, the review
+    //     page and the page's own live readout all report — visibly so, since
+    //     that readout sits beside the cup.
+    //   - Lifting the cup drives the scale negative. A boundary sample taken at
+    //     that instant froze a negative weight for the rest of the view's life,
+    //     turning a transient into a permanently empty cup that putting the cup
+    //     back could no longer fix.
+    // Tracking only once extraction has been seen keeps a pre-flow residual
+    // reading (an untared cup during preheat) out of the peak.
+    onCurrentWeightChanged: {
+        if (extractionSeen && currentWeight > heldWeight)
+            heldWeight = currentWeight
+    }
 
     property int previousPhase: -1
     onPhaseChanged: {
-        var nowInCycle = isEspressoCycle(phase)
-        var wasInCycle = isEspressoCycle(previousPhase)
-        if (nowInCycle && !wasInCycle) {
+        if (isEspressoCycle(phase) && !isEspressoCycle(previousPhase)) {
             // Entering a cycle — discard any frame held from the previous shot.
             extractionSeen = false
             heldWeight = 0
-        } else if (wasInCycle && !nowInCycle && extractionSeen) {
-            // Leaving a cycle that drew coffee — freeze the final weight.
-            heldWeight = currentWeight
         }
         if (isExtractionPhase(phase))
             extractionSeen = true
@@ -104,8 +127,11 @@ Item {
         interval: 33
         repeat: true
         // Stays false through the post-shot hold — inEspressoCycle is already
-        // false there, so the held cup is a static final frame rather than
-        // three seconds of decorative repainting.
+        // false there — so nothing animates while the cup is held, rather than
+        // repainting for the whole post-shot window (the stop overlay, plus
+        // however long SAW settling delays the save behind it). The held cup
+        // can still redraw when late drip raises the peak; that is data
+        // arriving, not animation.
         running: root.currentFlow > 0.1 ||
                  (root.displayWeight > 0 && root.inEspressoCycle)
         onTriggered: {
@@ -119,16 +145,18 @@ Item {
         }
     }
 
-    // Repaint on displayWeight, not currentWeight: identical while extracting
-    // (they are the same value), and during the hold it stops the scale's
-    // ~10 Hz stream from repainting a frame that cannot change.
+    // Repaint on displayWeight, not currentWeight: the two are the same value
+    // whenever the view is not holding, and during the hold this repaints only
+    // when late drip actually raises the held peak rather than on every sample
+    // the scale sends.
     onDisplayWeightChanged: { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() }
-    // One repaint at the hold boundary, where displayWeight is unchanged (it
-    // takes the value it already had) but the frame must be redrawn from the
-    // held state rather than whatever the last live paint left.
+    // Redraw once when the hold begins, so the frame comes from the held state
+    // rather than whatever the last live paint left behind.
     onHoldingChanged:       { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() }
     onTargetWeightChanged:  { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() }
-    onCurrentFlowChanged:   { if (!animTimer.running) { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() } }
+    // Skipped while holding: the DE1 keeps streaming samples at idle, and
+    // nothing the flow value feeds is drawn once the cup is held.
+    onCurrentFlowChanged:   { if (!animTimer.running && !holding) { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() } }
 
     // Cup image dimensions (aspect ratio 701:432, scaled to 80%)
     readonly property real cupScale: 0.8
@@ -241,8 +269,14 @@ Item {
                     var g = root.cupGeometry(w, h)
                     var N = 36
 
-                    // Only show coffee once there is weight to show
-                    if (root.displayWeight <= 0) return
+                    // Only show coffee once there is weight to show, AND only
+                    // once the gate above has allowed a fill. Without the
+                    // second test the +0.12 crema boost below turns a zero
+                    // fillRatio into a 12%-full cup, so a resting cup's weight
+                    // drew coffee in exactly the pre-flow case the gate exists
+                    // to prevent. Pre-existing; the gate was load-bearing but
+                    // never actually reached this far.
+                    if (root.displayWeight <= 0 || g.fillRatio <= 0) return
 
                     // Shift fill forward so coffee appears with crema at first weight
                     var effectiveFillRatio = Math.min(g.fillRatio + 0.12, 1.0)
@@ -583,7 +617,7 @@ Item {
                 }
 
                 // ---- Completion glow (disabled — tracking color still computed above) ----
-                // if (root.currentWeight >= root.targetWeight && root.targetWeight > 0) {
+                // if (root.displayWeight >= root.targetWeight && root.targetWeight > 0) {
                 //     ctx.shadowColor = Theme.successColor
                 //     ctx.shadowBlur = cupH * 0.06
                 //     ctx.strokeStyle = Theme.successColor
