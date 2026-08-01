@@ -28,7 +28,7 @@
 
 ## 6. Ship
 
-- [ ] 6.1 Open the PR and review it.
+- [x] 6.1 Open the PR and review it.
 - [ ] 6.2 `openspec archive clear-wifi-reconnect-flag-on-primary-connect` as the last commit on the branch.
 
 ## Notes
