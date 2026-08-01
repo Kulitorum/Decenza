@@ -377,19 +377,27 @@ public:
     // — the same reason the BLE drain beside it carries a safety-net timeout.
     //
     // WHAT THIS DOES NOT COVER, because the comment above otherwise reads as if
-    // the whole class of loss is closed. Only `aboutToQuit` calls this, and that
-    // signal is not emitted at all when the OS kills the process: an Android
+    // the whole class of loss is closed. Two call sites reach this — `aboutToQuit`
+    // and `Qt::ApplicationSuspended` — and NEITHER runs when the OS kills the
+    // process outright: an Android
     // low-memory kill or force-stop, an iOS SIGKILL (the NORMAL iOS termination —
     // qioseventdispatcher.mm:434 says so outright), a fatal signal reaching
     // crashhandler.cpp's re-raise, or an ASan abort. Those lose queued writes with
     // no warning whatsoever, since ~SerialDbWorker never runs either.
     //
     // Android is the primary platform and is usually backgrounded rather than
-    // quit, so this covers the deliberate in-app quit and little else there. The
-    // hook that would cover the rest is Qt::ApplicationSuspended (main.cpp), which
-    // exists and does not drain — deliberately out of scope here, because a wait
-    // on the backgrounding path risks an ANR and needs measurement on a device.
-    void drainDbWork(int timeoutMs = 750);
+    // quit, so the quit path alone would cover very little there. That is why
+    // Qt::ApplicationSuspended also calls this (main.cpp), with a shorter budget:
+    // backgrounding is the last hook before an OS kill, and it is the one that
+    // actually fires on Android.
+    //
+    // That second call was briefly left out and documented as out of scope, on the
+    // grounds that it risked an ANR and needed device measurement. Neither claim
+    // was checked before it was written. It is recorded here because the reasoning
+    // was backwards: the platform where the loss is most likely is the last place
+    // to accept a narrower fix, and "documented" is not a substitute for "fixed".
+    enum class DrainReason { Exiting, Backgrounding };
+    void drainDbWork(int timeoutMs = 750, DrainReason reason = DrainReason::Exiting);
 
 public slots:
     void applySteamSettings();

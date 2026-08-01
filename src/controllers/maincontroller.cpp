@@ -2472,7 +2472,7 @@ void MainController::applyFlushSettings() {
     sendMachineSettings(QStringLiteral("applyFlushSettings"));
 }
 
-void MainController::drainDbWork(int timeoutMs) {
+void MainController::drainDbWork(int timeoutMs, DrainReason reason) {
     // isDbWriteWorkIdle() on the shot history, not isDbWorkIdle(): the latter also
     // counts detached read/backup/import threads, which SerialDbWorker never
     // tracks and ~SerialDbWorker therefore cannot discard. Waiting on those spent
@@ -2501,10 +2501,18 @@ void MainController::drainDbWork(int timeoutMs) {
     });
     QTimer::singleShot(timeoutMs, &loop, [&loop]() { loop.quit(); });
     poll.start();
-    loop.exec();
+    // ExcludeUserInputEvents is load-bearing, not tidiness: a second tap on Quit
+    // delivered inside this loop reaches QCoreApplication::exit(), which exits
+    // EVERY loop in data->eventLoops (qcoreapplication.cpp:1520-1529) — including
+    // this one — abandoning the drain and discarding the write it is saving. The
+    // quit-site comment claimed this protection before the flag was actually here.
+    loop.exec(QEventLoop::ExcludeUserInputEvents);
+
+    const bool exiting = (reason == DrainReason::Exiting);
 
     if (allIdle()) {
-        qDebug() << "Storage writes drained before exit.";
+        qDebug() << (exiting ? "Storage writes drained before exit."
+                             : "Storage writes drained before backgrounding.");
         return;
     }
 
@@ -2525,10 +2533,21 @@ void MainController::drainDbWork(int timeoutMs) {
     // Nor does it claim the writes ARE lost. The workers keep running through the
     // rest of shutdown, and ~SerialDbWorker quits and then WAITS, so a task
     // already in flight still commits; only queued-but-unstarted ones are dropped.
-    qWarning() << "Storage writes did not drain within" << timeoutMs << "ms. Still busy:"
-               << stuck.join(", ") << "- whether a queued write survives now depends on"
-               << "whether its worker reaches it before exit, and that outcome is not"
-               << "recorded in this log.";
+    // WARN only when exiting. On the backgrounding path the app keeps running and
+    // the worker finishes moments later, so a timeout there is the ordinary
+    // outcome, not a fault — and that path fires on every app switch. Warning on
+    // it is what LOGGING.md means by training readers to skim the tier that says
+    // "look here".
+    if (exiting)
+        qWarning() << "Storage writes did not drain within" << timeoutMs << "ms. Still busy:"
+                   << stuck.join(", ") << "- whether a queued write survives now depends on"
+                   << "whether its worker reaches it before exit, and that outcome is not"
+                   << "recorded in this log.";
+    else
+        qDebug() << "Storage writes still pending after" << timeoutMs
+                 << "ms at backgrounding. Still busy:" << stuck.join(", ")
+                 << "- the worker keeps running, so this is only a loss if the OS kills"
+                 << "the process before it finishes.";
 }
 
 void MainController::applyAllSettings() {

@@ -98,6 +98,13 @@
                  swap. With that guard in place, the "makeCurrent: no EGLSurface"
                  warnings from the render thread are non-fatal. Do NOT remove this
                  flag without also reconsidering that guard, and vice versa. -->
+            <!-- Also load-bearing for MainController::drainDbWork() on the
+                 ApplicationSuspended path: "true" sets
+                 QT_BLOCK_EVENT_LOOPS_WHEN_SUSPENDED=0, which stops Qt's Android
+                 dispatcher suppressing timer activation while suspended. Set this
+                 to "false" and that drain's timers never fire, so it blocks the
+                 UI thread until resume — an ANR. See the comment at its call site
+                 in src/main.cpp. -->
             <meta-data android:name="android.app.background_running" android:value="true"/>
             <meta-data
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
