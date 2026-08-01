@@ -61,6 +61,14 @@ public:
     // power throughout. A user-initiated scan 3 minutes after one of those
     // misses resolved the same hostname in 362 ms.
     //
+    // Corroborated independently on macOS, which resolves through QHostInfo
+    // rather than this mDNS path: a hostname fallback there took 3.68 s to
+    // answer (log: "Resolving hdstest.local via QHostInfo..." at t=8.822 ->
+    // resolved at t=12.504). Different OS, different resolver, same 2-4 s
+    // band — so the latency is a property of the responder, not of any one
+    // resolver implementation, and a 2 s deadline is too short for it
+    // everywhere, not just on Android.
+    //
     // Raising this is NOT free, and the binding constraint is on the reconnect
     // side: see the worst-case chain derived at DecentScaleWifi's call site,
     // which already consumes the whole of BLEManager's 20 s scale-connection
