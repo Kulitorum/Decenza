@@ -101,8 +101,8 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          # PCH off: it makes ccache treat ~86% of compiles as uncacheable.
-          # Reasoning and measurements at the PCH block in CMakeLists.txt.
+          # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
+          # on made ccache miss ~86% of this leg's compiles. See PR #1738.
           $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DDECENZA_ENABLE_PCH=OFF \

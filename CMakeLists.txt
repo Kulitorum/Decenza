@@ -79,33 +79,16 @@ endif()
 # ever exercised the combination. Turning it on is a separate change that must
 # be measured on a Windows runner with a warm sccache.
 #
+# OFF in CI on the four legs that carry a warm ccache (android, macos, linux,
+# linux-arm64), passed as -DDECENZA_ENABLE_PCH=OFF by those workflows rather
+# than decided here. A PCH and a compiler cache are SUBSTITUTES: ccache will not
+# cache a compile that consumes a PCH, since the preprocessed output no longer
+# contains the PCH'd headers' text. Enabling the PCH cost those legs ~90% of
+# their cache hits and roughly doubled the macOS build; numbers in PR #1738.
+#
 # ON everywhere else, which includes every local build: Qt Creator and a plain
-# CLI configure set no compiler launcher, and local development is the case this
-# exists for. CI throughput is explicitly the lower priority.
-#
-# OFF IN CI on the four legs with a warm ccache (android, macos, linux,
-# linux-arm64), passed as -DDECENZA_ENABLE_PCH=OFF by those workflows. A PCH and
-# a compiler cache are SUBSTITUTES: ccache will not cache a compile that
-# consumes a PCH, because the preprocessed output no longer contains the PCH'd
-# headers' text. Every warm leg lost almost its whole cache when the PCH landed
-# (2026-07-31, #1730), measured from the runs' own `ccache -s`:
-#
-#   leg          cacheable before -> after     hits before -> after
-#   android         457/484  ->   58/485          384  ->  30
-#   macos          1022/1032 ->  128/1046         902  -> 120
-#   linux           910/910  ->   86/882          817  ->  70
-#   linux-arm64     508/508  ->   72/512          450  ->  60
-#
-# ~88% of TUs were hits, which cost nothing to compile, so the 31.6% above only
-# ever applied to the ~12% that miss. Not worth the other 88% recompiling.
-#
-# `sloppiness=pch_defines,time_macros` would let ccache cache through a PCH.
-# Not done: time_macros ignores __DATE__/__TIME__, which src/main.cpp uses in
-# its startup banner, so a cached object would log a stale build date.
-#
-# iOS and Windows are left to the branch below rather than given the flag —
-# there it could only turn the known-broken/never-tested combination back ON.
-# nightly-sanitizers.yml often builds cold, where the PCH is a straight win.
+# CLI configure set no compiler launcher, so there is no cache to lose, and
+# local development is the case this exists for.
 #
 # To force either way: -DDECENZA_ENABLE_PCH=ON/OFF.
 if(NOT DEFINED DECENZA_ENABLE_PCH)
