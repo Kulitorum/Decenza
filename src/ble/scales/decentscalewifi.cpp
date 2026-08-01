@@ -48,6 +48,7 @@ template struct AccessBypass<WsPrivateSocketTag, &QWebSocketPrivate::m_pSocket>;
 // For kHdsResolveTimeoutMs — the A-record deadline is a property of the HDS
 // responder, shared with the discovery path, so both read it from one place.
 #include "../../network/wifiscalediscovery.h"
+#include "../../network/wifiscaleresult.h"  // wifiScaleDisplayName
 
 #define WIFI_LOG(msg)  SCALE_LOG("DecentScaleWifi", msg)
 #define WIFI_INFO(msg) SCALE_INFO("DecentScaleWifi", msg)
@@ -91,6 +92,13 @@ void DecentScaleWifi::setEndpoint(quint16 port, const QString& path) {
         m_wsPort = port;
     if (!path.isEmpty())
         m_wsPath = path.startsWith(QLatin1Char('/')) ? path : QLatin1Char('/') + path;
+}
+
+QString DecentScaleWifi::name() const {
+    // m_hostname is empty until connectToHost() runs; the shared formatter
+    // returns the generic label in that case, which is what the old stored
+    // m_name always was.
+    return WifiScaleResultUtil::wifiScaleDisplayName(m_hostname);
 }
 
 void DecentScaleWifi::connectToHost(const QString& hostname, const QString& preferredIp) {

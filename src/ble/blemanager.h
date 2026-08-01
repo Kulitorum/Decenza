@@ -847,7 +847,11 @@ private:
     //  - isScanning() folds m_wifiDiscovery->isBrowsing() into the composite
     //    property behind the Scan button. A shared instance would make the
     //    button read "Scanning..." on every reconnect tick.
-    // Same reasoning that split m_manualEntryDiscovery out; see that comment.
+    // Same PATTERN as the m_manualEntryDiscovery split — a separate instance so a
+    // shared one's side effect cannot leak into a context that does not want it.
+    // The side effect differs though: that one avoids auto-connect, this one
+    // avoids cancellation and Scan-button pollution. Don't expect its comment to
+    // give these reasons.
     void ensureReconnectDiscovery();
 
 public:
@@ -984,13 +988,14 @@ private:
     // An event flag, not a timer: the condition is "until a scale connects",
     // and that event is exactly what clears it.
     bool m_wifiDirectAttemptFailed = false;
+    // Address the reconnect browse resolved for the saved primary, held only
+    // across the wifiPrimaryReachable round-trip into switchToWifiPrimary().
+    // Not a second IP cache: it exists because the persisted cache is stale in
+    // the case that got us here, and it is consumed on use.
+    QString m_browsedPrimaryIp;
     // How long the reconnect browse runs. Shorter than the 15 s user scan
     // because this repeats on the reconnect ladder rather than running once
     // per user action, so it converges across ticks instead of within one.
-    // 5 s is the same budget kHdsResolveTimeoutMs gives the A-query, and is an
-    // order of magnitude above the 362 ms in which a browse resolved this
-    // scale in the field — the case this exists to recover.
-    static constexpr int kReconnectBrowseTimeoutMs = 5000;
     // Set true when the current manual-entry probe fires resultFound; consumed
     // by probeFinished to decide whether to log "no responder" — the probe
     // doesn't carry a "found anything" return code, so we have to track it

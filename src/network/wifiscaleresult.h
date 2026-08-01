@@ -86,6 +86,21 @@ bool upsertByHostname(QVector<WifiScaleResult>& set, const WifiScaleResult& inco
 QString normalizeHostname(const QString& hostname);
 
 /**
+ * The user-facing label for one WiFi scale, e.g. "Half Decent Scale (hdstest)
+ * (WiFi)", falling back to "Half Decent Scale (WiFi)" when no hostname is known.
+ *
+ * Always derived from the HOSTNAME, never the DNS-SD instance name: two
+ * unrenamed scales both advertise "Half Decent Scale", so the instance name
+ * produces two identical, indistinguishable rows. The hostname is the identity
+ * this app already keys on ("wifi:<hostname>") and is unique by construction.
+ *
+ * One function because this string is shown in several places — Known Devices,
+ * the connected-scale line in Connections, the scale's own name() — and a label
+ * a user matches across screens must be spelled identically in all of them.
+ */
+QString wifiScaleDisplayName(const QString& hostname);
+
+/**
  * The display label for every result in `set`, keyed by normalized hostname.
  *
  * Derived across the whole set rather than per result, because ambiguity is a
