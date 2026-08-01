@@ -148,6 +148,11 @@ MARKER_ONLY_GLOBS = [
     # rule 6 existing rather than for adding files by hand.
     "src/core/settings_theme.cpp",
     "src/screensaver/iosbrightness.mm",
+    # Hosts one [Equipment][Migration] line — the adoption that applies the heal
+    # migration 35/36 announced — inside a constructor that also wires shot
+    # history, bags, recipes, profiles, the DE1 and the scales. Rule 1 has no
+    # answer for the rest of it, which is exactly the main.cpp case above.
+    "src/controllers/maincontroller.cpp",
 ]
 
 # Helper headers define the macros; they are allowed to name markers and to contain

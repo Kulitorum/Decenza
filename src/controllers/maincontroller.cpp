@@ -18,6 +18,7 @@
 #include "../core/settings_visualizer.h"
 #include "../core/profilestorage.h"
 #include "../ble/de1device.h"
+#include "../ble/de1logging.h"
 #include "../machine/machinestate.h"
 #include "../models/shotdatamodel.h"
 #include "../models/shotcomparisonmodel.h"
@@ -2207,29 +2208,29 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // reflects its power-on state, not ours, and racing against that would
     // log a bogus drift on every connect.
     if (!haveCommanded) {
-        qDebug().noquote() << QString(
-            "[SettingsDrift] pre-commanded report ignored: "
+        DE1_LOG_STDERR_TAGGED("SettingsDrift", QString(
+            "pre-commanded report ignored: "
             "reported(steam=%1C dur=%2s hw=%3C vol=%4ml group=%5C) — waiting for first write")
             .arg(deviceSteamTargetC, 0, 'f', 1)
             .arg(deviceSteamDurationSec)
             .arg(deviceHotWaterTempC, 0, 'f', 1)
             .arg(deviceHotWaterVolMl)
-            .arg(deviceGroupTargetC, 0, 'f', 2);
+            .arg(deviceGroupTargetC, 0, 'f', 2));
         return;
     }
 
     if (!steamDrift && !durationDrift && !hotWaterTempDrift && !hotWaterVolDrift && !groupDrift) {
         // DE1 stored what we sent. Reset retry bookkeeping.
         if (m_shotSettingsDriftResendCount > 0) {
-            qDebug().noquote() << QString(
-                "[SettingsDrift] resolved after %1 resend(s) — DE1 stored "
+            DE1_LOG_STDERR_TAGGED("SettingsDrift", QString(
+                "resolved after %1 resend(s) — DE1 stored "
                 "steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C")
                 .arg(m_shotSettingsDriftResendCount)
                 .arg(deviceSteamTargetC, 0, 'f', 1)
                 .arg(deviceSteamDurationSec)
                 .arg(deviceHotWaterTempC, 0, 'f', 1)
                 .arg(deviceHotWaterVolMl)
-                .arg(deviceGroupTargetC, 0, 'f', 2);
+                .arg(deviceGroupTargetC, 0, 'f', 2));
             m_shotSettingsDriftResendCount = 0;
         }
         m_shotSettingsResendInFlight = false;
@@ -2278,8 +2279,8 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
     }
 
-    qWarning().noquote() << QString(
-        "[SettingsDrift] DE1-dropped-write: %1 | "
+    DE1_WARN_STDERR_TAGGED("SettingsDrift", QString(
+        "DE1-dropped-write: %1 | "
         "reported(steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C) "
         "commanded(steam=%7C dur=%8s hw=%9C vol=%10ml group=%11C)")
         .arg(summary)
@@ -2292,21 +2293,21 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         .arg(commandedDuration)
         .arg(commandedHotWaterTemp, 0, 'f', 1)
         .arg(commandedHotWaterVol)
-        .arg(commandedGroup, 0, 'f', 2);
+        .arg(commandedGroup, 0, 'f', 2));
 
     // If a resend is already in flight (we sent one and haven't yet received
     // its indication), wait for that to resolve before firing another. This
     // is the event-based replacement for a 2s wall-clock rate limit.
     if (m_shotSettingsResendInFlight) {
-        qDebug() << "[SettingsDrift] resend already in flight — waiting for its indication";
+        DE1_LOG_STDERR_TAGGED("SettingsDrift", QStringLiteral("resend already in flight — waiting for its indication"));
         return;
     }
 
     constexpr int kMaxResendAttempts = 3;
     if (m_shotSettingsDriftResendCount >= kMaxResendAttempts) {
-        qWarning().noquote() << QString(
-            "[SettingsDrift] giving up after %1 resend attempts — DE1 not honoring ShotSettings")
-            .arg(m_shotSettingsDriftResendCount);
+        DE1_WARN_STDERR_TAGGED("SettingsDrift", QString(
+            "giving up after %1 resend attempts — DE1 not honoring ShotSettings")
+            .arg(m_shotSettingsDriftResendCount));
         return;
     }
 
@@ -2314,15 +2315,15 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // emitted above could have flipped state, and we don't want to burn a
     // retry slot on a write that will no-op inside the transport.
     if (!m_device->isConnected()) {
-        qDebug() << "[SettingsDrift] device disconnected during drift handling — skipping resend";
+        DE1_LOG_STDERR_TAGGED("SettingsDrift", QStringLiteral("device disconnected during drift handling — skipping resend"));
         return;
     }
 
     m_shotSettingsDriftResendCount++;
     m_shotSettingsResendInFlight = true;
-    qWarning().noquote() << QString(
-        "[SettingsDrift] resending last ShotSettings payload (attempt %1 of %2)")
-        .arg(m_shotSettingsDriftResendCount).arg(kMaxResendAttempts);
+    DE1_WARN_STDERR_TAGGED("SettingsDrift", QString(
+        "resending last ShotSettings payload (attempt %1 of %2)")
+        .arg(m_shotSettingsDriftResendCount).arg(kMaxResendAttempts));
     // Re-assert exactly what we last commanded — do NOT re-derive from
     // Settings via sendMachineSettings(). Some code paths (startSteamHeating,
     // softStopSteam, setSteamTimeoutImmediate) deliberately write values that
@@ -4273,7 +4274,10 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
             double threshGood = qMax(floorGood, goal * 0.25);
             double threshWarn = qMax(floorWarn, goal * 0.50);
             QString color = delta < threshGood ? "GREEN" : (delta < threshWarn ? "YELLOW" : "RED");
-            qDebug() << "[ExtractionTrack]" << (isFlowMode ? "flow" : "pressure")
+            // Prefix deliberately unbracketed: a per-sample trace is not a
+            // subsystem narrative, and "[ExtractionTrack]" advertised a
+            // debug_get_log filter that would return an incomplete answer.
+            qDebug() << "ExtractionTrack:" << (isFlowMode ? "flow" : "pressure")
                      << "actual=" << QString::number(actual, 'f', 2)
                      << "goal=" << QString::number(goal, 'f', 2)
                      << "delta=" << QString::number(delta, 'f', 2)
@@ -4312,7 +4316,8 @@ void MainController::onScaleWeightChanged(double weight) {
             double estimatedWeight = m_flowScale->weight();
             double rawFlow = m_flowScale->rawFlowIntegral();
             double error = estimatedWeight - weight;
-            qDebug().nospace() << "[FlowScale Compare] "
+            // Unbracketed for the same reason as ExtractionTrack above.
+            qDebug().nospace() << "FlowScale Compare: "
                 << "time=" << QString::number(m_lastShotTime, 'f', 1) << "s"
                 << " scale=" << QString::number(weight, 'f', 1) << "g"
                 << " est=" << QString::number(estimatedWeight, 'f', 1) << "g"
