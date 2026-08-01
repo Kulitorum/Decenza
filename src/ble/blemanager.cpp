@@ -2813,15 +2813,22 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         // IP is genuinely unreachable (onScaleConnectionTimeout).
         m_wifiFallbackToBleActive = false;          // Reset per attempt
         m_scaleConnectionTimer->start();            // Fires onScaleConnectionTimeout if WiFi doesn't connect
-        // Alongside the direct attempt, once a previous one has failed: this
-        // responder does not reliably answer the direct A-query the driver
-        // falls back to, but does answer a service browse. Field evidence: 82
+        // Alongside the direct attempt, once a previous one has failed.
+        //
+        // The direct A-query the driver falls back to can enter a state where it
+        // returns NOTHING for hours while the scale is plainly reachable: 82
         // consecutive reconnects received ZERO mDNS records over 7.5 h with the
-        // scale awake and serving WebSocket traffic, while a browse resolved
-        // the same host in 362 ms. Raising the A-query deadline (#1737) did not
-        // change it. Runs in parallel rather than after, because the browse is
-        // the mechanism that works — making it wait on the one that does not
-        // would just delay recovery by the resolve timeout.
+        // scale awake and serving WebSocket traffic, while a browse resolved the
+        // same host in 362 ms. Raising that deadline (#1737) did not change it.
+        //
+        // That state is host-side, NOT a property of the responder — a later run
+        // on the same tablet resolved the same host by A-query in 357 ms, the
+        // difference being a reboot in between. Do not "simplify" this away on
+        // the grounds that the A-query works; it works until it doesn't, the app
+        // cannot tell which, and the browse covers both.
+        //
+        // Parallel rather than sequential: the direct leg has already failed by
+        // the time this runs, so waiting on it again would only add its timeout.
         startReconnectBrowseIfNeeded();
         setPendingWifiConnect(hostname);
         // No fresh resolution here — connectToHost() itself reads the

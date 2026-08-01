@@ -335,9 +335,15 @@ void DecentScaleWifi::attemptHostname() {
             // responder that answers in 2-4 s) and the next Android session
             // FALSIFIED it: the misses continued, now ending at ~5002 ms having
             // received ZERO records, against a scale that had served a WebSocket
-            // on its IP 16 s earlier. The deadline was never the problem — this
-            // responder does not answer a bare A-query for its hostname at all,
-            // while it does answer the DNS-SD service browse.
+            // on its IP 16 s earlier. So the deadline was not the problem.
+            //
+            // It is TEMPTING to conclude the responder never answers a bare
+            // A-query. It does: a later run on the same tablet and scale
+            // resolved this host here in 357 ms, one query, one record. What
+            // differed was a tablet reboot in between — the failure is a
+            // host-side resolver state the app can neither see nor clear, not
+            // scale or protocol behaviour. Expect this call to work normally
+            // and to go silent for hours when the tablet is in that state.
             //
             // The constant stays because agreeing with the discovery path is
             // right on its own terms, and because a 5 s budget costs nothing on
