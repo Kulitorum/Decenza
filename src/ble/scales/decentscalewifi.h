@@ -72,7 +72,13 @@ public:
      */
     void setEndpoint(quint16 port, const QString& path);
 
-    QString name() const override { return m_name; }
+    // Derived from the hostname, not the stored m_name: every other WiFi-scale
+    // label in Connections already identifies the scale as "Half Decent Scale
+    // (hdstest) (WiFi)", and this one returned the generic "Half Decent Scale
+    // (WiFi)" — so the "Connected:" line was the only place that would not tell
+    // you WHICH scale you were on, which matters as soon as you own two.
+    // Shares one formatter with the Known Devices / pending-connect labels.
+    QString name() const override;
     QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi); }
     QString transportType() const { return QStringLiteral("wifi"); }
 

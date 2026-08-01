@@ -57,6 +57,19 @@ QString normalizeHostname(const QString& hostname)
     return h;
 }
 
+QString wifiScaleDisplayName(const QString& hostname)
+{
+    // Strip the ".local" suffix: the user named the scale "hdstest", and the
+    // domain part is the same for every scale so it carries no information.
+    QString host = normalizeHostname(hostname);
+    const qsizetype dot = host.indexOf(QLatin1Char('.'));
+    if (dot > 0)
+        host = host.left(dot);
+    if (host.isEmpty())
+        return QStringLiteral("Half Decent Scale (WiFi)");
+    return QStringLiteral("Half Decent Scale (%1) (WiFi)").arg(host);
+}
+
 namespace {
 // Field-by-field equality. Written out rather than a defaulted operator==
 // because that is C++20 and this project builds as C++17.

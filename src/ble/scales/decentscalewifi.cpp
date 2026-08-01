@@ -48,6 +48,7 @@ template struct AccessBypass<WsPrivateSocketTag, &QWebSocketPrivate::m_pSocket>;
 // For kHdsResolveTimeoutMs — the A-record deadline is a property of the HDS
 // responder, shared with the discovery path, so both read it from one place.
 #include "../../network/wifiscalediscovery.h"
+#include "../../network/wifiscaleresult.h"  // wifiScaleDisplayName
 
 #define WIFI_LOG(msg)  SCALE_LOG("DecentScaleWifi", msg)
 #define WIFI_INFO(msg) SCALE_INFO("DecentScaleWifi", msg)
@@ -91,6 +92,13 @@ void DecentScaleWifi::setEndpoint(quint16 port, const QString& path) {
         m_wsPort = port;
     if (!path.isEmpty())
         m_wsPath = path.startsWith(QLatin1Char('/')) ? path : QLatin1Char('/') + path;
+}
+
+QString DecentScaleWifi::name() const {
+    // m_hostname is empty until connectToHost() runs; the shared formatter
+    // returns the generic label in that case, which is what the old stored
+    // m_name always was.
+    return WifiScaleResultUtil::wifiScaleDisplayName(m_hostname);
 }
 
 void DecentScaleWifi::connectToHost(const QString& hostname, const QString& preferredIp) {
@@ -319,11 +327,25 @@ void DecentScaleWifi::attemptHostname() {
         WIFI_LOG(QString("Resolving %1 via mDNS (Android)...").arg(host));
         QPointer<DecentScaleWifi> guard(this);
         QThread* thread = QThread::create([this, guard, host, generation]() {
-            // kHdsResolveTimeoutMs, NOT MdnsResolver's 2000 ms default — this
-            // responder is slower than that default assumes, and taking the
-            // default here silently is what made reconnect fail. The responder
-            // latency and the field evidence live on the constant; WHY THIS
-            // CALL SITE BOUNDS IT lives here:
+            // kHdsResolveTimeoutMs, matching the discovery path rather than
+            // taking MdnsResolver's 2000 ms default.
+            //
+            // DO NOT read this as the fix for reconnect. It was introduced as
+            // one (#1737, on the theory that the 2 s default was too short for a
+            // responder that answers in 2-4 s) and the next Android session
+            // FALSIFIED it: the misses continued, now ending at ~5002 ms having
+            // received ZERO records, against a scale that had served a WebSocket
+            // on its IP 16 s earlier. The deadline was never the problem — this
+            // responder does not answer a bare A-query for its hostname at all,
+            // while it does answer the DNS-SD service browse.
+            //
+            // The constant stays because agreeing with the discovery path is
+            // right on its own terms, and because a 5 s budget costs nothing on
+            // a path that already failed. The actual recovery is
+            // BLEManager::startReconnectBrowseIfNeeded(), which browses when a
+            // direct attempt has failed.
+            //
+            // WHY THIS CALL SITE BOUNDS THE CONSTANT:
             //
             // The worst single connect cycle is resolve fails (5 s) →
             // dialCachedIpAfterResolveFailure → cached-IP recognition timeout
@@ -349,14 +371,13 @@ void DecentScaleWifi::attemptHostname() {
             // resolve; the QPointer guard and generation check below discard a
             // stale result, but the thread itself still runs to completion.
             //
-            // NOTE necessary, possibly not sufficient. The one observed success
-            // resolved in 362 ms — inside the OLD 2 s window — while a DNS-SD
-            // browse ran concurrently, so "the responder needs browse traffic
-            // to wake" survives as an alternative this timeout does not
-            // address. If reconnect still misses at this timeout, that is the
-            // answer, and the fix is to browse from the reconnect path (the
-            // auto-connect wiring already exists in BLEManager's resultFound
-            // handler).
+            // That prediction was tested and came back. The one observed
+            // success had resolved in 362 ms — inside even the OLD 2 s window —
+            // while a DNS-SD browse ran concurrently, which is why the browse,
+            // not the deadline, turned out to be the operative difference.
+            // Expect this resolve to keep failing on such a scale; recovery is
+            // the reconnect browse, and this call is the leg that runs first
+            // and cheaply covers responders that DO answer an A-query.
             const QString ip = MdnsResolver::resolveHostname(
                 host, WifiScaleDiscovery::kHdsResolveTimeoutMs);
             // Back on the object's thread. `guard` gates liveness — the object
