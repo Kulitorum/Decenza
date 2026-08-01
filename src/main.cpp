@@ -4238,25 +4238,6 @@ int main(int argc, char *argv[])
         if (state == Qt::ApplicationSuspended) {
             wasSuspended = true;
 
-            // Flush queued database writes now, because this is the last hook we
-            // get. aboutToQuit covers the deliberate quit; it is NOT emitted when
-            // the OS kills a backgrounded process, which on Android is the common
-            // way this app ends. Without this, a dose, note or rating entered just
-            // before the user switches away is lost with no warning anywhere —
-            // ~SerialDbWorker never runs either.
-            //
-            // Usually a no-op, and that is the point. The branch below deliberately
-            // keeps the app alive when backgrounded (DE1 foreground service, wake
-            // lock), so the worker thread normally drains on its own in
-            // milliseconds and drainDbWork() returns immediately. What it defends
-            // against is the process being frozen (Android's cached-process
-            // freezer, Doze) or killed before the worker reaches a queued task.
-            //
-            // 250 ms, a third of the quit budget: this runs on the foregrounding/
-            // backgrounding path where the user is waiting on an animation, and
-            // unlike quit it is not the last chance in the ordinary case.
-            mainController.drainDbWork(250);
-
 #ifdef Q_OS_ANDROID
             // Disable accessibility bridge before surface is destroyed.
             // Prevents deadlock between QtAndroidAccessibility::runInObjectContext()
@@ -4286,6 +4267,36 @@ int main(int argc, char *argv[])
             // before iOS can tear down CoreBluetooth. The bluetooth-central background mode
             // also helps by keeping CoreBluetooth alive longer during backgrounding.
             batteryManager.ensureChargerOn();
+
+            // Flush queued database writes LAST in this branch, and last for the
+            // same reason the quit-path call is last: it pumps events, so it must
+            // not be queued in front of anything time-critical. Here that is
+            // QAccessible::setActive(false) above — which exists to close an
+            // EGL-surface/accessibility deadlock window — and ensureChargerOn(),
+            // whose comment records a SIGSEGV from racing CoreBluetooth teardown.
+            // The database is local and loses nothing by waiting.
+            //
+            // Why it is needed at all: aboutToQuit is not emitted when the OS kills
+            // a backgrounded process, which on Android is the common way this app
+            // ends, so this is the last hook a queued dose/note/rating gets.
+            //
+            // Usually a no-op via drainDbWork()'s early-out — the worker is a
+            // separate thread that keeps draining after this returns, so there is
+            // normally nothing outstanding by the time it is asked. What it defends
+            // against is the process being frozen (Android's cached-process freezer,
+            // Doze) or killed before the worker reaches a queued task.
+            //
+            // It cannot hang the UI thread here, and that safety is NOT obvious:
+            // drainDbWork relies on timers, and Android's dispatcher suppresses
+            // timer activation while suspended (QEventLoop::X11ExcludeTimers,
+            // qandroideventdispatcher.cpp:54-56) — which would block until resume.
+            // It does not apply to us because that stopper is only registered when
+            // blockEventLoopsWhenSuspended() is true (qandroideventdispatcher.cpp:12-14),
+            // and android/AndroidManifest.xml.in declares
+            // android.app.background_running="true", which sets
+            // QT_BLOCK_EVENT_LOOPS_WHEN_SUSPENDED=0 (QtLoader.java, androidjnimain.cpp).
+            // Flip that manifest line and this becomes a blocking wait.
+            mainController.drainDbWork(250, MainController::DrainReason::Backgrounding);
         }
         else if (state == Qt::ApplicationActive && wasSuspended) {
             qDebug() << "App resumed from suspended state";
