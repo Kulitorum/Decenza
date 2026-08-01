@@ -30,7 +30,7 @@
 ## 5. Re-verify after the review rework
 
 - [x] 5.1 Rebuild and re-run the full suite on the correct checkout (Qt Creator had drifted to the other clone) — 110 passed, 0 failed
-- [ ] 5.2 Manual: re-check the normal shot hold, and confirm the cup now follows post-stop drip upward instead of freezing below the recorded yield
-- [ ] 5.3 Manual: lift the cup during `Ending` (before the machine reaches Ready) — the cup shows the extracted shot, not an empty cup or a negative weight
-- [ ] 5.4 Manual: leave an untared cup on the scale pre-shot — the cup is completely empty, not 12% full
-- [ ] 4.3 Archive this change and sync specs as the final commit on the same PR, then squash-merge and delete the branch
+- [x] 5.2 Manual: re-check the normal shot hold, and confirm the cup now follows post-stop drip upward instead of freezing below the recorded yield
+- [x] 5.3 Manual: lift the cup during `Ending` (before the machine reaches Ready) — the cup shows the extracted shot, not an empty cup or a negative weight
+- [x] 5.4 Manual: leave an untared cup on the scale pre-shot — the cup is completely empty, not 12% full
+- [x] 4.3 Archive this change and sync specs as the final commit on the same PR, then squash-merge and delete the branch
