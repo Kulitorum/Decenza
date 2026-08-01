@@ -77,7 +77,7 @@ void AcaiaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     // stayed set for the life of the process and every later attempt was refused,
     // leaving the scale reachable only by forgetting and re-pairing it. The bug
     // was that it latched, not merely that it was redundant with the transport
-    // debounce that landed two weeks after it. reaprime guards on live transport
+    // debounce that landed two weeks after it. Decaid guards on live transport
     // state for the same reason (acaia_scale.dart onConnect).
     if (isConnected()) {
         ACAIA_LOG("Already connected, ignoring duplicate request");
@@ -370,7 +370,7 @@ void AcaiaScale::parseResponse(const QByteArray& data) {
     // just the same (bluetooth.tcl acaia_scan_buffer_for_msg /
     // acaia_parse_response) — it picks a better frame, it does not carry the
     // rest. pyacaia (`bytes[messageEnd:]`), Beanconqueror (`bytes.slice(messageEnd)`)
-    // and reaprime (`sublist(msgLen)`) all carry the remainder; this matches them.
+    // and Decaid (`sublist(msgLen)`) all carry the remainder; this matches them.
     while (true) {
         const uint8_t* buf = reinterpret_cast<const uint8_t*>(m_buffer.constData());
 
@@ -455,7 +455,7 @@ void AcaiaScale::parseResponse(const QByteArray& data) {
         } else if (msgType == 0x0C && eventType == 11) {
             // Heartbeat response. buf[7] (payload[2] counting from buf[5], the
             // base this file's weight path uses) selects the body: 5 = weight,
-            // 7 = timer. de1app and reaprime decode the weight unconditionally;
+            // 7 = timer. de1app and Decaid decode the weight unconditionally;
             // pyacaia and Beanconqueror check the selector. A timer body decoded
             // as a weight is garbage, so follow the stricter pair.
             if (msgEnd > 7 && buf[7] == 5 && msgEnd >= ACAIA_METADATA_LEN + 3 + 6) {
@@ -477,7 +477,7 @@ void AcaiaScale::parseResponse(const QByteArray& data) {
         // de1app parses no 0x08 frame at all, but three references land on buf[4]:
         // pyacaia (`Settings(bytes[messageStart+3:])`, `payload[1] & 0x7F`),
         // Beanconqueror (`parseSettings(bytes.slice(messageStart+3))`,
-        // `payload[1] & 127`) and reaprime (`_commandBuffer[4]`, unmasked).
+        // `payload[1] & 127`) and Decaid (`_commandBuffer[4]`, unmasked).
         if (msgType == 0x08) {
             // 0x7F yields 0-127; the <= 100 test below is what bounds it to a
             // percentage. Keep them separate — 101..127 means buf[4] is not a

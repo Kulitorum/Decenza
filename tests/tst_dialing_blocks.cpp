@@ -3111,7 +3111,7 @@ private slots:
         // KB entry is intentionally added/removed, update this count AND
         // re-verify #1160 resolution.
         //
-        // 43 -> 47 (sync-builtin-profiles): the seven profiles reaprime shipped and
+        // 43 -> 47 (sync-builtin-profiles): the seven profiles Decaid shipped and
         // Decenza did not are now built-ins, and every built-in needs a KB entry —
         // baseline-contact-series covers all four Baseline levels through
         // alsoMatches, plus icbinf, psph and soup-58.

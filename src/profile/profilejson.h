@@ -34,7 +34,7 @@ inline constexpr int TargetMass  = 1;   // target_weight editor step 0.1; target
 inline constexpr int TankTemp    = 1;   // tank target, editor step 1 °C
 
 // Encode a number in the canonical string form used by de1app / the tablet /
-// Visualizer / reaprime. Decenza's own readers stay dual-tolerant via toDouble().
+// Visualizer / Decaid. Decenza's own readers stay dual-tolerant via toDouble().
 inline QString enc(double v, int decimals) {
     // Clamp a negative zero to zero. Imported profiles carry values like -5.7e-15
     // (seen in a de1app cleaning profile), which format as "-0.00" — valid to any

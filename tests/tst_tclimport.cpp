@@ -648,7 +648,7 @@ private slots:
     }
 
     void hiddenFlagSurvivesImport() {
-        // profile_hide drives de1app's and reaprime's profile lists. Decenza's
+        // profile_hide drives de1app's and Decaid's profile lists. Decenza's
         // own list filters through SettingsApp::isHiddenProfile() instead, so
         // this is inert locally and still has to be right on the way out.
         const QString hiddenTcl = readFile(DE1APP_PROFILES_DIR + "/Flow profile for milky drinks.tcl");

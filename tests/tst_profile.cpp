@@ -735,7 +735,7 @@ private slots:
 
     void toJsonSimpleProfileMaterializesSteps() {
         // A settings_2a profile constructed with no explicit frames must still
-        // emit a non-empty steps array (reaprime rejects empty steps).
+        // emit a non-empty steps array (Decaid rejects empty steps).
         QJsonObject obj;
         obj["title"] = "Simple Pressure";
         obj["legacy_profile_type"] = "settings_2a";
@@ -750,18 +750,18 @@ private slots:
         QCOMPARE(out["type"].toString(), QStringLiteral("pressure"));
     }
 
-    void reaprimeReadabilityAcceptsCanonicalOutput() {
+    void decaidReadabilityAcceptsCanonicalOutput() {
         Profile p = Profile::fromJson(QJsonDocument(makeAdvancedProfileJson("Readable")));
-        const QStringList errs = Profile::reaprimeReadabilityErrors(p.toJsonObject());
+        const QStringList errs = Profile::decaidReadabilityErrors(p.toJsonObject());
         QVERIFY2(errs.isEmpty(), qPrintable(errs.join(", ")));
     }
 
-    void reaprimeReadabilityRejectsMissingKeys() {
+    void decaidReadabilityRejectsMissingKeys() {
         // A profile object lacking the required keys / with empty steps must fail.
         QJsonObject bad;
         bad["title"] = "Bad";
         bad["steps"] = QJsonArray();
-        const QStringList errs = Profile::reaprimeReadabilityErrors(bad);
+        const QStringList errs = Profile::decaidReadabilityErrors(bad);
         QVERIFY(!errs.isEmpty());
     }
 

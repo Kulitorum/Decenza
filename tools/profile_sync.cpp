@@ -185,9 +185,9 @@ int main(int argc, char* argv[])
 
     // --rewrite-format: FORMAT-ONLY pass over the built-in JSONs. Loads each file
     // and re-saves it through the canonical serializer (Profile::toJsonObject), so
-    // the shipped set adopts the string-encoded, reaprime-readable format without
+    // the shipped set adopts the string-encoded, Decaid-readable format without
     // touching profile CONTENT. Deliberately independent of the de1app comparison:
-    // reconciling content against de1app/reaprime is a separate concern (OpenSpec
+    // reconciling content against de1app/Decaid is a separate concern (OpenSpec
     // sync-builtin-profiles), and conflating the two would hide content changes
     // inside a format diff.
     if (doRewrite && doSync) {
@@ -247,7 +247,7 @@ int main(int argc, char* argv[])
             }
             // Also refuse to write something a stricter reader in the ecosystem
             // would reject outright — the whole point of the canonical format.
-            const QStringList readability = Profile::reaprimeReadabilityErrors(candidate);
+            const QStringList readability = Profile::decaidReadabilityErrors(candidate);
             if (!readability.isEmpty()) {
                 cerr << "NOT READABLE (file left untouched): " << fileName << "\n";
                 for (const QString& e : readability) cerr << "    " << e << "\n";

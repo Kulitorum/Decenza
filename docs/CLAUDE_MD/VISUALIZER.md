@@ -107,7 +107,7 @@ The DE1 shot sample carries two setpoints, and Visualizer plots both:
 `temperature.goal` is `SetHeadTemp` — matching de1app, whose
 `espresso_temperature_goal` vector is fed from `SetHeadTemp`. **Do not "fix"
 this to the mix target**: it would silently relabel every Decenza shot already
-on Visualizer. (reaprime had this one wrong and corrected it in
+on Visualizer. (Decaid had this one wrong and corrected it in
 tadelv/reaprime#472; Decenza never did.)
 
 `mix_goal` is newer than the rest of the temperature block — Visualizer added it
@@ -190,7 +190,7 @@ Decenza's upload is at feature parity with de1app for Visualizer's purposes. Key
 ### Visualizer Profile Format
 - Visualizer and de1app use the same JSON format with string-encoded numbers (Tcl huddle serialization)
 - The unified `jsonToDouble()` helper and `ProfileFrame::fromJson()` handle string-to-double conversion and nested-to-flat field mapping transparently
-- **The uploaded profile is the canonical format — there is only one.** `buildVisualizerProfileJson()` **delegates to `Profile::toJsonObject()`** and must not re-serialize any field itself. It previously hand-built its own copy of the payload, and the two writers drifted (the Visualizer path gained `tank_temperature` / `target_volume_count_start` / the tablet metadata while the on-disk writer never did, leaving Decenza's exported profiles unreadable by reaprime). Add new profile fields to the canonical serializer only. See "JSON Format (canonical)" in `RECIPE_PROFILES.md`.
+- **The uploaded profile is the canonical format — there is only one.** `buildVisualizerProfileJson()` **delegates to `Profile::toJsonObject()`** and must not re-serialize any field itself. It previously hand-built its own copy of the payload, and the two writers drifted (the Visualizer path gained `tank_temperature` / `target_volume_count_start` / the tablet metadata while the on-disk writer never did, leaving Decenza's exported profiles unreadable by Decaid). Add new profile fields to the canonical serializer only. See "JSON Format (canonical)" in `RECIPE_PROFILES.md`.
 - **`buildHistoryShotJson()` uploads the stored snapshot VERBATIM — do not "fix" it to re-serialize.** `Profile::fromJson` is not a pure decoder: it fills non-zero defaults for absent keys (`target_weight` 36.0, `maximum_pressure` 12.0) and rewrites `espresso_temperature` via the leaked-default repair. Round-tripping a historical shot through it would make that shot claim values it never ran — Visualizer-imported profiles omit `espresso_temperature` entirely, so they are the concrete victim. The snapshot is a *record*, not a profile we own. New shots are already stored canonically (`shothistorystorage.cpp` writes `profile->toJson()`), so nothing is lost by leaving old ones alone.
 
 ### Profile Import Architecture (ProfileSaveHelper)

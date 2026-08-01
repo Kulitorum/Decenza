@@ -81,7 +81,7 @@ struct ProfileFrame {
     //
     // The asymmetry with the top-level passthrough is deliberate. A top-level key
     // we do not model is usually an app's own metadata block — our `recipe` is
-    // exactly that, and it is "unknown" to reaprime — and preserving it costs
+    // exactly that, and it is "unknown" to Decaid — and preserving it costs
     // nothing because it does not touch the shot. A key inside a STEP is
     // different: steps are what the machine executes. If a future app version
     // adds, say, a new exit condition or pump mode to a frame, round-tripping the
@@ -93,7 +93,7 @@ struct ProfileFrame {
     // understand, so it gets reported rather than quietly mis-brewed.
     //
     // Verified against every profile available at the time of writing: the 93
-    // shipped built-ins, the 93-file pre-change golden corpus, and 96 reaprime
+    // shipped built-ins, the 93-file pre-change golden corpus, and 96 Decaid
     // profiles use exactly 13 distinct step keys between them, all listed here.
     static const QSet<QString>& knownJsonKeys();
 

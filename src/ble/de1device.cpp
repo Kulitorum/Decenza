@@ -1061,7 +1061,7 @@ void DE1Device::startEspresso() {
     // flash on the final frame/tail write and only clears its internal
     // "download in progress" flag when that flash write returns — a
     // state=Espresso request that arrives first makes the firmware abort to
-    // HeaterDown right after preinfusion (matches reaprime's profileDownloadGuard
+    // HeaterDown right after preinfusion (matches Decaid's profileDownloadGuard
     // and its cited firmware bug report). The flash write is not observable over
     // BLE, so this is a genuine timing gap with no event to key on — a fixed
     // settle window is a deliberate, documented exception to the project's

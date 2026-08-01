@@ -1363,7 +1363,7 @@ bool ProfileManager::kbProfileSuitsRoast(const QString& profileTitle, const QStr
 //
 // Why it matters at all: DatabaseBackupManager copies the profile directory
 // verbatim, so a legacy-encoded file travels byte-for-byte into a backup and onto
-// another device, where a stricter reader (reaprime) rejects it outright for the
+// another device, where a stricter reader (Decaid) rejects it outright for the
 // missing tank_temperature / target_volume_count_start.
 //
 // `filePath` empty means the profile came from ProfileStorage; the concrete file
@@ -3604,7 +3604,7 @@ void ProfileManager::stripStoredRecipeBlocks() {
     // TRANSITIONAL — deletable once the population has drained.
     //
     // Decenza was the only producer of the block: de1app has no such key in any of
-    // its 88 profiles, reaprime models ten fields and drops the rest, and Visualizer
+    // its 88 profiles, Decaid models ten fields and drops the rest, and Visualizer
     // normalises it away in both its JSON and TCL renderings. So the set of files
     // carrying one is closed and shrinking, and after a release has shipped with this
     // pass these can all go, in order:

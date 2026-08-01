@@ -16,7 +16,7 @@ namespace De1AppTcl {
 // via a separate inline check in `vars.tcl`'s save path rather than that same
 // function. de1app's stop-target switches name
 // `settings_2c` alone and so *appear* to say otherwise — they cannot, because `2c2`
-// is normalised away before it reaches them. No profile in de1app, Decenza or reaprime
+// is normalised away before it reaches them. No profile in de1app, Decenza or Decaid
 // carries the type, so this is a note against re-reading those switches the wrong way,
 // not a live concern.
 bool isAdvancedType(const QString& profileType)
@@ -195,7 +195,7 @@ namespace {
 // tea_portafilter x11, calibrate x5, cleaning x3, pourover x3, filter x2, manual,
 // tea), and reading a malformed line whole would yield an unmatchable string and
 // silently drop a classification that drives tea/pourover handling and travels on to
-// Visualizer and reaprime. For those, first-token truncation is the CORRECT recovery.
+// Visualizer and Decaid. For those, first-token truncation is the CORRECT recovery.
 // `original_profile_title` is likewise excluded: Decenza models it nowhere, so
 // including it would put an unhandled key into uncoveredTclKeys().
 bool isFreeTextKey(const QString& key)

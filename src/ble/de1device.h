@@ -504,7 +504,7 @@ private:
     };
     QHash<uint32_t, PendingMMRRead> m_pendingMMRReads;
     QTimer m_mmrReadRetryTimer;
-    // Matches reaprime's proven values for this exact DE1 BLE read pattern
+    // Matches Decaid's proven values for this exact DE1 BLE read pattern
     // (subscribe-before-write, 4s timeout, 2 retries) rather than reusing the
     // characteristic-write timeout/retry constants, which are tuned for a
     // different failure mode (a write that never gets a GATT-level ack).
@@ -563,7 +563,7 @@ private:
     // be cancellable (not QTimer::singleShot) so a disconnect inside the window
     // can abort the pending start — see onTransportDisconnected().
     QTimer m_espressoSettleTimer;
-    // reaprime's proven profileDownloadGuard value for the same DE1 firmware
+    // Decaid's proven profileDownloadGuard value for the same DE1 firmware
     // flash-write timing (see startEspresso()).
     static constexpr int PROFILE_UPLOAD_SETTLE_MS = 500;
     bool m_usbChargerOn = true;  // Default on (safe default like de1app)

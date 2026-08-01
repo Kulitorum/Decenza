@@ -153,7 +153,7 @@ def compare(theirs, ours, src):
         cmp_num(a.get("max_flow_or_pressure"), lim.get("value"), "limiter value", shot)
         # The RANGE only means anything while the limiter is on. de1app emits no
         # limiter object at all unless the frame carries both keys, whereas we
-        # always emit one — reaprime's parser wants it, and a `value: 0` limiter
+        # always emit one — Decaid's parser wants it, and a `value: 0` limiter
         # is how this format spells "off". Comparing the range of an off limiter
         # would report drift on nearly every profile that has no limits at all.
         limiter_on = max(abs(num(a.get("max_flow_or_pressure")) or 0.0),

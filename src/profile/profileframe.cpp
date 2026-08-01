@@ -13,7 +13,7 @@ static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
 
 QJsonObject ProfileFrame::toJson() const {
     // Canonical DE1 v2 serialization: numeric fields are string-encoded, matching
-    // de1app / the tablet / Visualizer / reaprime. Decenza's own import stays
+    // de1app / the tablet / Visualizer / Decaid. Decenza's own import stays
     // dual-tolerant via jsonToDouble(), so string output round-trips losslessly.
     // Precisions come from profilejson.h, and two of them deliberately DIFFER
     // from the historical Visualizer upload builder this replaced: `volume`
@@ -59,7 +59,7 @@ QJsonObject ProfileFrame::toJson() const {
     }
 
     // Weight exit (independent of exit object — app-side via scale).
-    // Omit when zero: reaprime reads an absent weight as "no weight exit"
+    // Omit when zero: Decaid reads an absent weight as "no weight exit"
     // (parseOptionalDouble → null), so omitting is the correct semantic.
     if (exitWeight > 0) obj["weight"] = ProfileJson::enc(exitWeight, ProfileJson::Weight);
 
@@ -81,7 +81,7 @@ QJsonObject ProfileFrame::toJson() const {
 
 const QSet<QString>& ProfileFrame::knownJsonKeys() {
     static const QSet<QString> k = {
-        // The 13 canonical keys, as written by de1app, reaprime and ourselves.
+        // The 13 canonical keys, as written by de1app, Decaid and ourselves.
         // `exit` and `limiter` are nested objects; their inner fields are read by
         // fromJson below and are not listed here.
         QStringLiteral("name"),        QStringLiteral("pump"),
@@ -128,7 +128,7 @@ namespace {
 //
 // Warns rather than invalidating, deliberately. Refusing would be the consistent
 // choice with an unknown top-level step key, but nothing in any profile we have
-// examined — 93 shipped, 93 golden, 96 reaprime, 371 exit objects — carries such a
+// examined — 93 shipped, 93 golden, 96 Decaid, 371 exit objects — carries such a
 // key, so a refusal path here would be written blind and would first execute on a
 // user's machine. A warning turns the case from invisible into diagnosable in the
 // field, which is what decides whether it is worth building the refusal at all.

@@ -96,7 +96,7 @@ class of bug, so they are named here together.
      default and the profile carries no explicit recommendation of its own.
 
    This is transitional. Decenza was the only producer of the block — de1app has no such key in any
-   of its 88 profiles, reaprime models ten fields and drops the rest, Visualizer normalises it away
+   of its 88 profiles, Decaid models ten fields and drops the rest, Visualizer normalises it away
    in both renderings — so the population carrying one is closed and draining. The strip pass, the
    load write-back, the dose promotion and the parity excusal can all go once it has drained. The
    `kKnownProfileKeys` entry cannot: it is what keeps a straggler harmless.
@@ -751,7 +751,7 @@ qml/components/
 - **The resolve-to-grams boundary (add-yield-ratio-anchor)**: a recipe, bag, or the brew session can define its yield as a **ratio of the dose** (`{yieldValue, yieldMode}` with mode `none|absolute|ratio` — see `src/core/yieldspec.h` and `RECIPES.md`). A **profile never stores a ratio**: `target_weight` stays absolute-only — profiles are shared, exported, and authored by third parties, and the de1app JSON format has no ratio field. The ratio resolves to plain grams in `ProfileManager::targetWeight()` (the ladder's single evaluation point: session anchor → profile `target_weight`, with the dose latched for the duration of a shot) **before** `MachineState::setTargetWeight`, so everything downstream — `WeightProcessor`, SAW/SAV stop logic below, the quality detectors, `shots.yield_override`, the MQTT `target_weight` entity, and DYE/Visualizer export — only ever sees grams.
 - **Stop limits**: `target_weight` (SAW) and `target_volume` (SAV) are checked independently — whichever triggers first stops the shot. A value of 0 means disabled. Volume bucketing uses **DE1 substate** splitting (matching de1app): flow during Preinfusion substate → preinfusion volume, flow during Pouring substate → pour volume. Other substates (heating, stabilising) are excluded. SAV uses a raw `pourVolume >= target` comparison with no lag compensation (matching de1app). SAW ignores the first 5 seconds of extraction and only fires after the current frame reaches `number_of_preinfuse_frames` (matching de1app). For **basic profiles** (`settings_2a`/`settings_2b`) with a BLE scale *configured* (not just connected), SAV is skipped (matching de1app's `skip_sav_check` / `expecting_present`). The DE1 firmware also has a `TargetEspressoVol` safety limit (200 ml, matching de1app's `espresso_typical_volume`) sent via `setShotSettings`.
 
-## JSON Format (canonical — one format for Decenza, de1app, reaprime, Visualizer)
+## JSON Format (canonical — one format for Decenza, de1app, Decaid, Visualizer)
 
 **The community goal is that a profile makes the same coffee in every DE1 app**, so Decenza emits exactly one profile format everywhere: on-disk, exported, share-code, and the Visualizer upload.
 
@@ -759,13 +759,13 @@ qml/components/
 
 The canonical format is:
 
-- **Numeric values are string-encoded** (`"pressure": "9.00"`, not `9.0`), matching de1app / the tablet / Visualizer / reaprime. The reader stays dual-tolerant: `jsonToDouble()` parses both strings and numbers, so older number-encoded profiles still load.
-- **Ecosystem-required keys are always present**: `tank_temperature` (alias of `tank_desired_water_temperature`) and `target_volume_count_start` (alias of `number_of_preinfuse_frames`). **reaprime's `Profile.fromJson` hard-rejects a profile missing either**, so omitting them makes the file unreadable in reaprime — not merely lossy.
+- **Numeric values are string-encoded** (`"pressure": "9.00"`, not `9.0`), matching de1app / the tablet / Visualizer / Decaid. The reader stays dual-tolerant: `jsonToDouble()` parses both strings and numbers, so older number-encoded profiles still load.
+- **Ecosystem-required keys are always present**: `tank_temperature` (alias of `tank_desired_water_temperature`) and `target_volume_count_start` (alias of `number_of_preinfuse_frames`). **Decaid's `Profile.fromJson` hard-rejects a profile missing either**, so omitting them makes the file unreadable in Decaid — not merely lossy.
 - **Standard DE1 v2 metadata**: `type` (derived: `settings_2a`→`pressure`, `settings_2b`→`flow`, else `advanced`), `lang`, `hidden`, `reference_file`, `changes_since_last_espresso`.
-- **`steps` is never empty.** Simple `settings_2a`/`settings_2b` profiles carry frames implicitly; `materializedSteps()` generates them before emit so every file Decenza writes is a runnable profile in any app (reaprime rejects an empty `steps` array).
-- **`weight` is omitted when zero** — reaprime reads an absent weight as "no weight exit" (`parseOptionalDouble` → null), which is the correct semantic.
+- **`steps` is never empty.** Simple `settings_2a`/`settings_2b` profiles carry frames implicitly; `materializedSteps()` generates them before emit so every file Decenza writes is a runnable profile in any app (Decaid rejects an empty `steps` array).
+- **`weight` is omitted when zero** — Decaid reads an absent weight as "no weight exit" (`parseOptionalDouble` → null), which is the correct semantic.
 
-`Profile::reaprimeReadabilityErrors(obj)` validates an object against reaprime's contract (required keys, non-empty steps, enum vocabulary for `pump`/`sensor`/`transition` and exit `type`/`condition`). It's the shared checker used by `tests/tst_builtinprofileformat.cpp`, which gates every shipped built-in.
+`Profile::decaidReadabilityErrors(obj)` validates an object against Decaid's contract (required keys, non-empty steps, enum vocabulary for `pump`/`sensor`/`transition` and exit `type`/`condition`). It's the shared checker used by `tests/tst_builtinprofileformat.cpp`, which gates every shipped built-in.
 
 - **Writer keys**: `notes` (not `profile_notes`), `legacy_profile_type` (not `profile_type`), `number_of_preinfuse_frames` (not `preinfuse_frame_count`), nested `exit`/`limiter`/`weight` (no flat exit fields)
 - **Reader fallbacks**: Accepts old flat fields (`exit_if`, `exit_type`, `exit_pressure_over`, `max_flow_or_pressure`, `profile_notes`, `profile_type`, `preinfuse_frame_count`) for backward compat with shot history snapshots
@@ -799,7 +799,7 @@ when `?format=json` is requested.
 corpus in eight values (`espresso` ×44, `tea_portafilter` ×11, `calibrate` ×5, `cleaning` ×3,
 `pourover` ×3, `filter` ×2, `manual`, `tea`); reading a malformed line whole would produce an
 unmatchable string and silently drop a classification that drives tea/pourover handling and travels
-on to Visualizer and reaprime. For those, first-token truncation is the *correct* recovery.
+on to Visualizer and Decaid. For those, first-token truncation is the *correct* recovery.
 `original_profile_title` is excluded for a different reason — Decenza models it nowhere, so listing
 it would put an unhandled key into `uncoveredTclKeys()`.
 
@@ -897,23 +897,23 @@ frames at 82/80/72 °C while `espresso_temperature` is `0`, and de1app brews the
 Anything that reads those stored frames — a comparison tool, or a sync that copies them
 into a built-in — adopts values de1app discards.
 
-**This is also the default explanation for a difference against reaprime, not a reason
-to suspect Decenza.** reaprime's bundled set was harvested from de1app copy-exports with a
+**This is also the default explanation for a difference against Decaid, not a reason
+to suspect Decenza.** Decaid's bundled set was harvested from de1app copy-exports with a
 converter that read `advanced_shot` verbatim, so it inherited exactly the bleed described
 above. A 2026-07-25 audit of the 63 profiles common to both apps found 11 brew-affecting
 divergences and **all 11 resolved in Decenza's favour** — five from this stale-`advanced_shot`
 mechanism, four from de1app issue #350 shadowing the A-Flow profiles, one profile occupying
-another's name, one stale harvest. The tell is physical implausibility: reaprime's `Default`
+another's name, one stale harvest. The tell is physical implausibility: Decaid's `Default`
 ran frames at 75 °C and 54 °C against a declared `espresso_temperature` of 90.0.
 
-So when a simple profile differs from reaprime, check *their* provenance before auditing ours.
+So when a simple profile differs from Decaid, check *their* provenance before auditing ours.
 The same mechanism extends to the stop targets — de1app picks between `final_desired_shot_weight`
 and `..._weight_advanced` by profile type (`device_scale.tcl:1322`, `de1_de1.tcl:862`, both
 `settings_2c { advanced } default { plain }`), which is the rule encoded in
 `src/profile/de1apptclfields.h`; reading the `_advanced` spelling unconditionally made one
 profile stop at 60 g instead of 36 g.
 
-Both sides are now reconciled — reaprime fixed their converter, and the comparison returns
+Both sides are now reconciled — Decaid fixed their converter, and the comparison returns
 64 of 64 equivalent. The audit, and the script that reproduces it, are in
 `openspec/changes/sync-builtin-profiles/`. **Two caveats that outlive it:** de1app's own users
 still brew 6-frame A-Flow until #350 is resolved, and encoding differences (omitted zero
@@ -923,7 +923,7 @@ hundreds of rows — a structural diff of the two corpora is not a useful signal
 ## Profile Comparison / Sync Tools
 
 - **Profile comparison/sync**: Use the `profile_sync` C++ tool (built with the main project, no extra flags). `profile_sync <de1app_profiles_dir> <builtin_profiles_dir>` compares TCL sources against built-in JSONs. Pass `de1plus/profiles/` as the first arg — the tool also scans `de1plus/plugins/*/profiles/` and a plugin copy overrides a base copy with the same output filename (canonical source wins, e.g. the 9-frame `A_Flow` plugin profiles beat the stale 6-frame copies in `de1plus/profiles/`). **The base copies really are stale, and this is settled**: de1app added them on 2025-09-03 in commit `80eb34cc`, "Added A-Flow default profiles to distribution, so they can be translated" — a snapshot taken so the string extractor could see them — and has never refreshed them, while the source repo `Jan3kJ/A_Flow` updated its profiles twice since (`9ca39813` 2025-09-25, `7784922b` 2025-11-07). The plugin submodule is the source; `de1plus/profiles/` is a translation artefact. Don't "fix" the override by preferring the base copy. Simple profiles (`settings_2a`/`settings_2b`) ship with `"steps": []` and have their frames regenerated in-memory before comparison so the equality check is like-for-like. Add `--sync` to overwrite stale JSONs and create missing ones (**modifies `resources/profiles/` in-place** — review changes before committing).
-- **Format-only rewrite**: `profile_sync <de1app_dir> resources/profiles --rewrite-format` re-saves every built-in through the canonical serializer, leaving **content untouched**. It serializes in memory and audits with `Profile::jsonParityErrors` + `Profile::reaprimeReadabilityErrors` **before** writing, so a file that would lose data is left untouched rather than clobbered-then-reported; failures go to stderr and the tool exits non-zero. (`functionallyEqual` is explicitly NOT sufficient for this — it compares frames only, and once reported "content-identical" while recipe blocks were being stripped from 8 built-ins.) **This is the sanctioned way to strip recipe blocks from the shipped built-ins**, which mirror de1app sources and must never be hand-edited: the parity audit passes because `recipe` is excused in `deliberatelyDroppedKeys()`, and the result is pure deletions. Note that plain compare mode (`--sync`) cannot see a block at all — it asks "does this built-in still match its de1app source?", and `recipe` was never a de1app key. The guard for that is `tst_builtinprofileformat::noShippedProfileCarriesARecipeBlock`. Use this to adopt a serialization change. It deliberately ignores de1app — reconciling *content* against de1app/reaprime is a separate concern (OpenSpec `sync-builtin-profiles`), and conflating the two would hide content changes inside a format diff.
+- **Format-only rewrite**: `profile_sync <de1app_dir> resources/profiles --rewrite-format` re-saves every built-in through the canonical serializer, leaving **content untouched**. It serializes in memory and audits with `Profile::jsonParityErrors` + `Profile::decaidReadabilityErrors` **before** writing, so a file that would lose data is left untouched rather than clobbered-then-reported; failures go to stderr and the tool exits non-zero. (`functionallyEqual` is explicitly NOT sufficient for this — it compares frames only, and once reported "content-identical" while recipe blocks were being stripped from 8 built-ins.) **This is the sanctioned way to strip recipe blocks from the shipped built-ins**, which mirror de1app sources and must never be hand-edited: the parity audit passes because `recipe` is excused in `deliberatelyDroppedKeys()`, and the result is pure deletions. Note that plain compare mode (`--sync`) cannot see a block at all — it asks "does this built-in still match its de1app source?", and `recipe` was never a de1app key. The guard for that is `tst_builtinprofileformat::noShippedProfileCarriesARecipeBlock`. Use this to adopt a serialization change. It deliberately ignores de1app — reconciling *content* against de1app/Decaid is a separate concern (OpenSpec `sync-builtin-profiles`), and conflating the two would hide content changes inside a format diff.
 - **`profile_sync` exit status and refusals**: compare mode exits **1** when the run could not do the job it claims — an unreadable/unparseable/invalid source, a refused write, or a de1app key absent from the field map. Drift itself does **not** gate (reporting it is what compare mode is *for*; `tst_tclimport` is the gate for that). `--sync` **refuses** rather than warns: it will not write a profile whose rewrite would drop a key, will not write over a built-in it cannot read or parse (that audit used to pass vacuously on exactly those files), and skips any `.tcl` the app's own `isValid()` rejects — otherwise the tool that *populates* the corpus would be the one path bypassing the import gate. All failures go to **stderr**.
 - **Scalar drift gate**: `profile_sync` compares **profile-level scalars** as well as frames, through `De1AppTcl::compareScalars()`, and `tst_tclimport::builtinScalarParity` fails the build on any drift. Before this existed the tool compared frames only, and 338 scalar mismatches across 82 of 89 built-ins went unseen. The comparison reads the raw `.tcl` rather than a parsed `Profile` **on purpose**: routing both sides through the reader would make the gate structurally unable to see a reader bug, which is the class of bug that caused this. Keys present in the corpus but absent from the field map are reported as `UNCOMPARED` rather than skipped — silently narrowing the comparison is how a 338-row drift was once measured as 4. **Frames are still not compared field-by-field against de1app** beyond `Profile::frameDiffReport()`; full frame parity remains open.
 - **de1app oracle (`tools/de1app_oracle/`)**: the only check that answers *"does this profile make the same coffee in both apps?"*. It `source`s de1app's real `profile.tcl` and runs its own frame builders, then diffs the result against `resources/profiles/`. **The `.tcl` is de1app's input, not its output** — for a simple profile de1app discards the stored `advanced_shot` and rebuilds from the scalars, so comparing against the file cannot tell you what it brews. Run `python3 tools/de1app_oracle/compare_builtins.py <de1app-checkout>`; exit status 1 means a real portability break. Requires `tclsh`, and is deliberately NOT wired into CMake/ctest so a machine without Tcl can still build and test. On its first run it found three divergences the entire C++ suite had missed — two profiles Decenza brewed 4–6 °C colder than de1app, and two where we omitted a whole preinfusion frame. See `tools/de1app_oracle/README.md`.

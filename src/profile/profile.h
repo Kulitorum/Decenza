@@ -31,7 +31,7 @@
 double profileJsonToDouble(const QJsonValue& val, double defaultVal = 0.0);
 
 // Tolerant boolean reader. QJsonValue::toBool() returns its default for a
-// non-bool, so de1app/reaprime's "1"/"0" string flags read as false and are
+// non-bool, so de1app/Decaid's "1"/"0" string flags read as false and are
 // destroyed rather than misread. Pass `ok` when comparing two values — see the
 // definition for why a silent default is dangerous there.
 bool profileJsonToBool(const QJsonValue& val, bool defaultVal = false, bool* ok = nullptr);
@@ -284,18 +284,18 @@ public:
     // toJsonObject() is the single canonical profile serializer: string-encoded
     // values, ecosystem-required keys, standard DE1 v2 metadata, non-empty steps.
     // toJson() wraps it in a document; the Visualizer upload delegates to it too,
-    // so there is exactly one format validated across Decenza, reaprime, and Visualizer.
+    // so there is exactly one format validated across Decenza, Decaid, and Visualizer.
     QJsonObject toJsonObject() const;
     QJsonDocument toJson() const;
     static Profile fromJson(const QJsonDocument& doc);
 
-    // Validate a serialized profile object against reaprime's Profile.fromJson
+    // Validate a serialized profile object against Decaid's Profile.fromJson
     // contract (the strictest reader in the DE1 ecosystem): non-empty title and
     // steps, the required tank_temperature / target_volume_count_start keys, and
     // in-vocabulary enum values (pump/sensor/transition, exit type/condition).
-    // Returns an empty list when the object is reaprime-readable; otherwise one
+    // Returns an empty list when the object is Decaid-readable; otherwise one
     // human-readable message per violation. Reusable from tests and profile_sync.
-    static QStringList reaprimeReadabilityErrors(const QJsonObject& obj);
+    static QStringList decaidReadabilityErrors(const QJsonObject& obj);
 
     // Deep semantic parity check between two serialized profiles: every key and
     // value in `before` must survive into `after`. Encoding differences are

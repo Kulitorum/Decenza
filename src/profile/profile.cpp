@@ -44,7 +44,7 @@ double profileJsonToDouble(const QJsonValue& val, double defaultVal) {
 
 bool profileJsonToBool(const QJsonValue& val, bool defaultVal, bool* ok) {
     // The boolean twin of profileJsonToDouble, and needed for the same reason:
-    // de1app and reaprime encode flags as "1"/"0" strings, and
+    // de1app and Decaid encode flags as "1"/"0" strings, and
     // QJsonValue::toBool() returns its DEFAULT for anything that is not a real
     // JSON bool. So `"1"` read with .toBool(false) silently yields false — the
     // flag is not misread, it is destroyed, and the value that replaces it is
@@ -436,11 +436,11 @@ QString Profile::editorType() const {
 
 // Canonical DE1 v2 profile serialization. Single source of truth for every
 // Decenza profile JSON — on-disk, exported, share-code, AND the Visualizer
-// upload (which delegates here). One format, validated across Decenza, reaprime,
+// upload (which delegates here). One format, validated across Decenza, Decaid,
 // and Visualizer:
-//   - numeric values are string-encoded (matches de1app / tablet / Visualizer / reaprime);
+//   - numeric values are string-encoded (matches de1app / tablet / Visualizer / Decaid);
 //   - the ecosystem-required keys tank_temperature + target_volume_count_start are
-//     always present (reaprime's Profile.fromJson hard-rejects a profile without them);
+//     always present (Decaid's Profile.fromJson hard-rejects a profile without them);
 //   - the standard DE1 v2 metadata (type/lang/hidden/reference_file/changes_since_last_espresso);
 //   - steps are never empty (simple settings_2a/2b profiles are materialized before emit).
 // Decenza-only keys (mode, temperature_presets, the settings_2a block, recipe,
@@ -491,12 +491,12 @@ QJsonObject Profile::toJsonObject() const {
     // editor's settings with the pressure editor's across the corpus. Left as
     // passthrough until the direction is settled.
     obj["tank_desired_water_temperature"] = num(m_tankDesiredWaterTemperature, ProfileJson::TankTemp);
-    // tank_temperature: ecosystem-standard alias required by reaprime.
+    // tank_temperature: ecosystem-standard alias required by Decaid.
     obj["tank_temperature"] = obj["tank_desired_water_temperature"];
     obj["maximum_flow_range_advanced"] = num(m_maximumFlowRangeAdvanced, ProfileJson::Limiter);
     obj["maximum_pressure_range_advanced"] = num(m_maximumPressureRangeAdvanced, ProfileJson::Limiter);
     obj["number_of_preinfuse_frames"] = QString::number(m_preinfuseFrameCount);
-    // target_volume_count_start: ecosystem-standard alias required by reaprime.
+    // target_volume_count_start: ecosystem-standard alias required by Decaid.
     obj["target_volume_count_start"] = obj["number_of_preinfuse_frames"];
     obj["has_recommended_dose"] = m_hasRecommendedDose;
     obj["recommended_dose"] = num(m_recommendedDose, ProfileJson::Weight);
@@ -607,7 +607,7 @@ QJsonObject Profile::toJsonObject() const {
     // making the block irrelevant was the fix.
     //
     // Decenza was the only producer — de1app has no such key in any of its 88
-    // profiles, reaprime models ten fields and drops the rest, and Visualizer
+    // profiles, Decaid models ten fields and drops the rest, and Visualizer
     // normalises it away in both renderings — so the population carrying one is
     // closed and draining. docs/CLAUDE_MD/RECIPE_PROFILES.md carries the sunset order:
     // what becomes deletable once it has drained, and the one entry that must not.
@@ -747,7 +747,7 @@ bool scalarsEqual(const QJsonValue& a, const QJsonValue& b) {
         *ok = false; return 0.0;
     };
     // A source value carrying no information — null, or "" (de1app writes "" for
-    // fields a frame does not use, e.g. flow on a pressure step; reaprime writes
+    // fields a frame does not use, e.g. flow on a pressure step; Decaid writes
     // null for version/hidden). Filling one in is normally an addition, not a loss.
     //
     // BUT not when the replacement is a non-zero number: ProfileFrame::fromJson
@@ -844,14 +844,14 @@ QStringList Profile::jsonParityErrors(const QJsonObject& before, const QJsonObje
     return errors;
 }
 
-QStringList Profile::reaprimeReadabilityErrors(const QJsonObject& obj) {
+QStringList Profile::decaidReadabilityErrors(const QJsonObject& obj) {
     QStringList errors;
 
     if (obj.value("title").toString().isEmpty())
         errors << QStringLiteral("missing/empty 'title'");
 
-    // reaprime hard-requires these two keys (its Profile.fromJson throws otherwise).
-    // An empty string counts as missing: reaprime parses them with double.parse /
+    // Decaid hard-requires these two keys (its Profile.fromJson throws otherwise).
+    // An empty string counts as missing: Decaid parses them with double.parse /
     // int.parse, which throw on "" just as they do on an absent key.
     auto missingRequired = [&obj](const char* key) {
         const QJsonValue v = obj.value(QLatin1String(key));
@@ -913,7 +913,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // Same reason, for the alias fallbacks below: these must be snapshotted here,
     // BEFORE any obj[...] access inserts a null member and makes contains() true.
     // They are correct today only because nothing above touches them — one added
-    // read would silently break the reaprime tank-temperature/preinfuse-count
+    // read would silently break the Decaid tank-temperature/preinfuse-count
     // import with no test failure.
     const bool hadTankDesired = obj.contains(QStringLiteral("tank_desired_water_temperature"));
     const bool hadPreinfuseFrames = obj.contains(QStringLiteral("number_of_preinfuse_frames"));
@@ -976,8 +976,8 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         }
     }
     // Tank temperature: Decenza's key first, then the ecosystem-standard
-    // `tank_temperature` that reaprime and de1app actually write. Reading only the
-    // Decenza spelling silently zeroed the tank target on every reaprime import.
+    // `tank_temperature` that Decaid and de1app actually write. Reading only the
+    // Decenza spelling silently zeroed the tank target on every Decaid import.
     profile.m_tankDesiredWaterTemperature =
         hadTankDesired
             ? jsonToDouble(obj["tank_desired_water_temperature"], 0.0)
@@ -986,7 +986,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     profile.m_maximumPressureRangeAdvanced = jsonToDouble(obj["maximum_pressure_range_advanced"], 0.6);
 
     // Preinfuse frame count. All three spellings are in the wild: de1app/Decenza
-    // write `number_of_preinfuse_frames`, reaprime and the Visualizer write
+    // write `number_of_preinfuse_frames`, Decaid and the Visualizer write
     // `target_volume_count_start`, and old Decenza files use `preinfuse_frame_count`.
     // Missing the second one reset the count to 0 on import, so target volume was
     // counted from frame 0 — including preinfusion — and the shot ran long.
@@ -1224,7 +1224,7 @@ bool Profile::saveToFile(const QString& filePath) const {
 
     // The cross-app contract, checked on the real output rather than only in
     // tests. Every profile we write is one a user may hand to another app, and
-    // reaprime hard-rejects a profile missing tank_temperature /
+    // Decaid hard-rejects a profile missing tank_temperature /
     // target_volume_count_start or carrying an empty steps array.
     //
     warnIfNotPortable(canonical, m_title, QStringLiteral("saveToFile"), filePath);
@@ -1262,7 +1262,7 @@ Profile Profile::loadFromJsonString(const QString& jsonContent) {
 }
 
 // The cross-app contract, checked on the real output rather than only in tests.
-// Every profile we write is one a user may hand to another app, and reaprime
+// Every profile we write is one a user may hand to another app, and Decaid
 // hard-rejects a profile missing tank_temperature / target_volume_count_start or
 // carrying an empty steps array.
 //
@@ -1284,12 +1284,12 @@ Profile Profile::loadFromJsonString(const QString& jsonContent) {
 void Profile::warnIfNotPortable(const QJsonObject& canonical, const QString& title,
                                 const QString& context, const QString& target)
 {
-    const QStringList contractErrors = reaprimeReadabilityErrors(canonical);
+    const QStringList contractErrors = decaidReadabilityErrors(canonical);
     if (contractErrors.isEmpty())
         return;
     qWarning().noquote()
         << QStringLiteral("Profile::%1: SAVED, but this profile is not readable by "
-                          "other DE1 apps (reaprime) —").arg(context)
+                          "other DE1 apps (Decaid) —").arg(context)
         << contractErrors.join(QStringLiteral("; "))
         << "| profile:" << title
         << (target.isEmpty() ? QString() : QStringLiteral("| file: %1").arg(target))
@@ -1446,7 +1446,7 @@ Profile Profile::loadFromTclString(const QString& content) {
 
     // de1app scalars Profile does not model, kept verbatim under de1app's own
     // spelling so a Decenza-written file still means the same thing to de1app.
-    //   - profile_hide → hidden: de1app and reaprime read this to filter their
+    //   - profile_hide → hidden: de1app and Decaid read this to filter their
     //     profile lists. Decenza's own list uses SettingsApp::isHiddenProfile(),
     //     a separate per-user filename list, so this is inert locally.
     //   - flow_profile_preinfusion / _preinfusion_time: NOT aliases of

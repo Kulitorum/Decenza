@@ -3065,7 +3065,7 @@ private slots:
     // into the folder at any time.
 
     // Write a profile whose numbers are JSON numbers rather than the canonical
-    // strings, and which omits the two keys reaprime hard-requires. This is the
+    // strings, and which omits the two keys Decaid hard-requires. This is the
     // shape of a file written before Change 1.
     static QString writeLegacyEncodedProfile(McpTestFixture& f, const QString& filename) {
         const QString path = f.profileManager.userProfilesPath() + "/" + filename + ".json";
@@ -3113,7 +3113,7 @@ private slots:
         const QJsonObject obj = QJsonDocument::fromJson(after.readAll()).object();
         after.close();
 
-        // Numbers are string-encoded, and the keys reaprime requires are present —
+        // Numbers are string-encoded, and the keys Decaid requires are present —
         // the whole point of the conversion.
         QVERIFY(obj["target_weight"].isString());
         QVERIFY(obj.contains("tank_temperature"));
@@ -3313,7 +3313,7 @@ private slots:
         QVERIFY(restored.isValid());
         QCOMPARE(restored.title(), QString("Legacy Encoded Test"));
         // And it satisfies the cross-app contract that a legacy-encoded copy would not.
-        QVERIFY(Profile::reaprimeReadabilityErrors(restored.toJsonObject()).isEmpty());
+        QVERIFY(Profile::decaidReadabilityErrors(restored.toJsonObject()).isEmpty());
 
         QFile::remove(path);
     }

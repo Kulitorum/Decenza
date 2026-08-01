@@ -145,7 +145,7 @@ void UsbDecentScale::open(const QString& portName)
     setConnected(true);
     USB_SCALE_INFO("Connected");
 
-    // Send init command (from reaprime): 0x20 0x01
+    // Send init command (from Decaid): 0x20 0x01
     sendCommand(QByteArray::fromHex("200100"));
 
     // Enable LCD
