@@ -66,26 +66,19 @@ name: Text invariants
 #     outside AddLanguagePage (which it already exempts) — it is the `|| true` on the step that
 #     makes this advisory, not the script.
 #
-# Runs on PRs that touch the surfaces involved. Fast (seconds, no build, no network).
+# Runs on EVERY pull request. Fast (seconds, no build, no network).
+#
+# Deliberately unfiltered, where this used to list the five surfaces involved. It is a
+# required status check on `main`, and a required check that is path-filtered does not
+# report "skipped" — it never reports at all, so a PR touching only docs/, openspec/ or
+# android/ waits on a run that will never start and cannot be merged without an admin
+# override. The whole job is ~14 seconds of Python over the source, so the filter was
+# saving nothing worth that failure mode.
 
 on:
   pull_request:
-    paths:
-      - 'qml/**'
-      - 'src/**'
-      - 'scripts/check_*.py'
-      - 'tests/CMakeLists.txt'
-      - 'resources/fonts/**'
-      - '.github/workflows/text-invariants.yml'
   push:
     branches: [main]
-    paths:
-      - 'qml/**'
-      - 'src/**'
-      - 'scripts/check_*.py'
-      - 'tests/CMakeLists.txt'
-      - 'resources/fonts/**'
-      - '.github/workflows/text-invariants.yml'
   workflow_dispatch:
 
 permissions:
