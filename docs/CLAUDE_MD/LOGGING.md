@@ -304,8 +304,11 @@ recursion, but the guard's cost is dropping that line's signal — so a stray
 
 ## Enforcement
 
-`scripts/check_log_markers.py` runs on every PR touching `src/**` (see
-`.github/workflows/text-invariants.yml`). No Qt, no compiler, seconds. It parses the
+`scripts/check_log_markers.py` runs on **every** PR (see
+`.github/workflows/text-invariants.yml`) and is a **required status check** — a red
+one blocks the merge button. It used to be path-filtered to `src/**` and friends; the
+filter is gone because a required check that is path-filtered never reports at all on
+a PR outside the paths, so the PR hangs pending forever. No Qt, no compiler, 12 s. It parses the
 registry rather than restating it, and checks:
 
 1. No bare `qDebug`/`qInfo`/`qWarning`/`qCritical` in a **fully** covered file.
@@ -364,12 +367,17 @@ The gate is not the whole invariant, and the difference matters. There are **two
 coverage sets, because the rules do not all generalise the same way:
 
 - **`COVERED_GLOBS` — all rules.** Files that are *wholly* about their subsystem:
-  `src/ble`, `src/usb`, the two simulator files, `wifiscalediscovery.cpp`,
-  `settings_hardware.cpp`. Every log line in `acaiascale.cpp` is a scale line, so
-  "use the helper" is always the right instruction.
+  every log line in `acaiascale.cpp` is a scale line, so "use the helper" is always
+  the right instruction.
 - **`MARKER_ONLY_GLOBS` — rules 2 and 5 only.** Files that *host* a subsystem's lines
-  alongside unrelated code: `main.cpp`, and SAW's three (`shottimingcontroller.cpp`,
-  `settings_calibration.cpp`, `weightprocessor.cpp`).
+  alongside unrelated code — `main.cpp` is the archetype.
+
+**Both lists live in `scripts/check_log_markers.py`, and are deliberately not copied
+here.** This section used to enumerate them and was six entries stale within weeks,
+which is the same drift the "do not restate the registry" rule above exists to
+prevent. Read the script for membership; read this for the criterion. Rule 6 catches
+a file that uses a helper and is in neither list, so nothing depends on either list
+being remembered.
 
 The split is a correction, not a concession. `main.cpp` drives both reconnect ladders
 *and* initialises fonts, translations, TTS and accessibility; applying rule 1 there

@@ -2222,7 +2222,13 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     if (!steamDrift && !durationDrift && !hotWaterTempDrift && !hotWaterVolDrift && !groupDrift) {
         // DE1 stored what we sent. Reset retry bookkeeping.
         if (m_shotSettingsDriftResendCount > 0) {
-            DE1_LOG_STDERR_TAGGED("SettingsDrift", QString(
+            // INFO, not DEBUG: this is the resolution of a fault already
+            // reported at WARN. Left at DEBUG, a `[DE1]` minLevel=INFO read
+            // shows the dropped write and the resends and never shows that
+            // they worked — the failure half of a narrative, which reads as an
+            // unresolved fault. Both terminal outcomes (this and "giving up")
+            // are INFO+; the non-terminal steps stay DEBUG.
+            DE1_INFO_STDERR_TAGGED("SettingsDrift", QString(
                 "resolved after %1 resend(s) — DE1 stored "
                 "steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C")
                 .arg(m_shotSettingsDriftResendCount)
@@ -2315,7 +2321,9 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // emitted above could have flipped state, and we don't want to burn a
     // retry slot on a write that will no-op inside the transport.
     if (!m_device->isConnected()) {
-        DE1_LOG_STDERR_TAGGED("SettingsDrift", QStringLiteral("device disconnected during drift handling — skipping resend"));
+        // Also terminal, so also INFO: the drift stands and nothing further is
+        // attempted. At DEBUG the WARN above would be the last word a user sees.
+        DE1_INFO_STDERR_TAGGED("SettingsDrift", QStringLiteral("device disconnected during drift handling — skipping resend"));
         return;
     }
 
