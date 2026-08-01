@@ -364,6 +364,35 @@ Two consequences, both the opposite of what "a compile *and a link*" suggests:
   source list — real, but small. The only thing proportional to the problem is writing
   less test code.
 
+> **Two corrections to the table above, both measured after it was written. Read them
+> before reasoning from those percentages.**
+>
+> **1. "Writing less test code" is a much weaker lever than the 31.9% row implies.**
+> Test-TU compile cost is dominated by the FILE, not by its contents. Isolated
+> single-TU compiles with the real flags: `#include <QtTest>` alone costs 1.42 s, and
+> a whole 60-line test file costs 1.45 s — its body is 3%. Regressing 109 live test
+> TUs against their source lengths gives ~1.4 s fixed per file and ~0.83 ms per line
+> (r=0.35), i.e. **90% of test-TU compile time is per-FILE and 10% scales with lines.**
+>
+> So a new test FILE costs ~1.4 s forever; a new test slot inside an existing file
+> costs single-digit milliseconds. The bar in this document targets the wrong unit: it
+> should be much harder to justify a new `tst_*.cpp` than a new test function. An audit
+> of all 2,515 tests in July 2026 found 93 mergeable into `_data()` tables and 239
+> under three code lines — acting on every one of them would have saved under a second.
+>
+> **2. The absolute seconds are contended wall clock, not CPU cost.** They come from
+> `.ninja_log`, which records each edge's start and end during a PARALLEL build, so
+> every figure is inflated by contention — on this machine roughly 2.5-3x versus the
+> same TU compiled alone. The 1956/4846 s split and the per-row seconds are therefore
+> useful as PROPORTIONS and misleading as durations. A later measurement of the same
+> tree summed 3083 s of edge time into 226.9 s of wall clock (~13.6x parallelism).
+>
+> Both corrections point the same way: **the per-target fixed cost is the largest
+> single slice, and the link row's 3.0% is only true of linking.** That is what made
+> precompiled headers worth doing — see `DECENZA_ENABLE_PCH` in the root
+> `CMakeLists.txt`, measured at 31.6% off a clean rebuild (229.5 s to 157.0 s) without
+> deleting a single test.
+
 So, in order:
 
 1. **Add to an EXISTING target whose fixtures already fit.** This is the default and

@@ -1322,15 +1322,33 @@ target_link_libraries(decenza_mcpserverlib PUBLIC decenza_profilelib decenza_sho
 # whole reason this is a reuse list and not a loop calling
 # target_precompile_headers() on each.
 #
-# They are flag-compatible, which is what REUSE_FROM requires, but NOT because
-# none of them defines anything — an earlier version of this comment said that
-# and it was wrong. decenza_shotlib carries its own
-# target_compile_definitions(decenza_shotlib PUBLIC DECENZA_TESTING) just above.
-# It is compatible because that define is a DUPLICATE of one the donor already
-# has: decenza_testlib declares DECENZA_TESTING and DECENZA_SIMULATOR PUBLIC, so
-# every library here compiles with the donor's macro set or an identical subset
-# of it. Extra INCLUDE dirs (paho on profilelib, Quick on shotlib) do not affect
-# PCH validity — only macro and language differences do.
+# On flag compatibility, which REUSE_FROM does require: an earlier version of
+# this comment claimed these libraries "define nothing of their own", which was
+# simply false — decenza_shotlib carries its own
+# target_compile_definitions(decenza_shotlib PUBLIC DECENZA_TESTING) just above,
+# and every Qt module a consumer links contributes its own QT_<MODULE>_LIB
+# through INTERFACE_COMPILE_DEFINITIONS.
+#
+# The real rule is narrower and was MEASURED off the generated build.ninja rather
+# than reasoned about, because reasoning about it produced the wrong answer
+# twice. Of the 107 test targets in the graph: 74 compile with a define set
+# identical to the donor's, and 32 compile with EXTRA defines (QT_QUICK_LIB,
+# QT_OPENGL_LIB, SRCDIR and friends). ALL 106 that go through add_decenza_test()
+# carry -include-pch; the only one that does not is tst_shotcorpus, which is
+# excluded on purpose. So extra defines on a consumer do NOT cost it the PCH.
+#
+# That is clang's actual contract: it rejects a PCH on CONFLICTING macro
+# definitions, not on the consumer having additional macros the precompiled
+# content never read. This PCH is QtTest plus three QJson headers — nothing in it
+# is conditioned on QT_QUICK_LIB — so a Quick-linking test reuses it safely.
+#
+# What WOULD break it is redefining a macro the donor already has to a different
+# value, or a language/standard difference. If you add one of those to a library
+# below, it moves off this list.
+#
+# Re-derive this by diffing DEFINES between a consumer's compile line and the
+# donor's cmake_pch.hxx.pch line in build.ninja; do not restore a claim about
+# what the targets define without doing so.
 #
 # So the rule for adding a library below is not "it must define nothing", it is
 # "it must define nothing the donor does not already define". A NEW macro on any
