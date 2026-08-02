@@ -27,6 +27,7 @@ private slots:
     void toVariantMap_sparseEmitsBagIdOnlyWhenPresent();
     void toVariantMap_roundTripsTasteAxes();
     void toVariantMap_roundTripsRpm();
+    void toVariantMap_roundTripsRecipeDisplayAndDateTime();
 };
 
 static ShotProjection makeSampleShot()
@@ -177,6 +178,39 @@ void TstShotProjection::toVariantMap_roundTripsRpm()
 
     const ShotProjection back = ShotProjection::fromVariantMap(m);
     QCOMPARE(back.rpm, static_cast<qint64>(1400));
+}
+
+// Recipe identity (history-recipe-identity) and the preformatted dateTime must
+// survive a QVariantMap round-trip. This is the defect class it guards, not a
+// hypothetical: `dateTime` was declared as a member AND a Q_PROPERTY but was
+// read by neither conversion function, so every consumer that round-trips a
+// shot through a map — the ShotServer shot list among them — rendered a blank
+// date, for as long as that code has existed. The recipe fields were about to
+// repeat it exactly. A field that exists in the struct but in only one of the
+// two functions produces no compiler error and no warning; it just silently
+// arrives empty.
+void TstShotProjection::toVariantMap_roundTripsRecipeDisplayAndDateTime()
+{
+    ShotProjection p = makeSampleShot();
+
+    // Sparse when unset — a recipe-less shot must not carry empty recipe keys.
+    const QVariantMap bare = p.toVariantMap();
+    QVERIFY2(!bare.contains(QStringLiteral("recipeName")), "unset recipeName must be omitted");
+    QVERIFY2(!bare.contains(QStringLiteral("recipeDrinkType")), "unset recipeDrinkType must be omitted");
+    QVERIFY2(!bare.contains(QStringLiteral("recipeArchived")), "false recipeArchived must be omitted");
+
+    p.recipeId = 7;
+    p.recipeName = QStringLiteral("Dad Monday");
+    p.recipeDrinkType = QStringLiteral("latte");
+    p.recipeArchived = true;
+    p.dateTime = QStringLiteral("2026-08-01 09:21");
+
+    const ShotProjection back = ShotProjection::fromVariantMap(p.toVariantMap());
+    QCOMPARE(back.recipeId, static_cast<qint64>(7));
+    QCOMPARE(back.recipeName, QStringLiteral("Dad Monday"));
+    QCOMPARE(back.recipeDrinkType, QStringLiteral("latte"));
+    QCOMPARE(back.recipeArchived, true);
+    QCOMPARE(back.dateTime, QStringLiteral("2026-08-01 09:21"));
 }
 
 QTEST_APPLESS_MAIN(TstShotProjection)

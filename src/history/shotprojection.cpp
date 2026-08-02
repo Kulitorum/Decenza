@@ -92,6 +92,21 @@ QVariantMap ShotProjection::toVariantMap() const
         m["steamJson"] = steamJson;
     if (!hotWaterJson.isEmpty())
         m["hotWaterJson"] = hotWaterJson;
+    // Recipe DISPLAY fields (history-recipe-identity) — resolved live by the
+    // list queries that join `recipes`, not shot data. Sparse: absent on a
+    // recipe-less shot and on every projection that did not join.
+    if (!recipeName.isEmpty())
+        m["recipeName"] = recipeName;
+    if (!recipeDrinkType.isEmpty())
+        m["recipeDrinkType"] = recipeDrinkType;
+    if (recipeArchived)
+        m["recipeArchived"] = recipeArchived;
+    // Preformatted local date/time, built by the list queries. Declared as a
+    // member and a Q_PROPERTY since forever but never carried through either
+    // conversion, so every consumer round-tripping a shot through a QVariantMap
+    // — the web shot list among them — silently rendered an empty date.
+    if (!dateTime.isEmpty())
+        m["dateTime"] = dateTime;
 
     m["pressure"] = pressure;
     m["flow"] = flow;
@@ -191,6 +206,10 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.tasteBalance = m.value("tasteBalance").toString();
     p.tasteBody = m.value("tasteBody").toString();
     p.recipeId = m.value("recipeId", -1).toLongLong();
+    p.recipeName = m.value("recipeName").toString();
+    p.recipeDrinkType = m.value("recipeDrinkType").toString();
+    p.recipeArchived = m.value("recipeArchived", false).toBool();
+    p.dateTime = m.value("dateTime").toString();
     p.steamJson = m.value("steamJson").toString();
     p.hotWaterJson = m.value("hotWaterJson").toString();
 
