@@ -611,6 +611,43 @@ private slots:
         QFile::remove(advPath);
     }
 
+    // loadProfile REFUSES a profile it cannot read and keeps the previously
+    // active one. It used to be `void`, so no caller could tell that apart from
+    // a load that worked — and profiles_set_active reported "Profile activated"
+    // while the machine went on brewing the old profile. Its `profileExists`
+    // guard cannot see this: the file is present, it just does not parse.
+    //
+    // Both halves are asserted here. `false` alone would pass if the function
+    // also failed to keep the old profile, and keeping the old profile alone was
+    // already true before the return value existed.
+    void loadProfileReportsRefusalAndKeepsTheActiveProfile() {
+        McpTestFixture f;
+        clearTestProfileStore();
+        loadThreeFrameDFlow(f, "keeper", "D-Flow / Keeper");
+        const QString activeBefore = f.profileManager.baseProfileName();
+        QCOMPARE(activeBefore, QStringLiteral("keeper"));
+
+        // Valid JSON, not a valid profile — no frames, no type, nothing to brew.
+        const QString brokenPath = f.profileManager.userProfilesPath() + "/broken.json";
+        QFile broken(brokenPath);
+        QVERIFY(broken.open(QIODevice::WriteOnly));
+        broken.write(QJsonDocument(QJsonObject{{"title", "Broken"}}).toJson());
+        broken.close();
+        f.profileManager.refreshProfiles();
+
+        bool loaded = true;
+        {
+            ScopedWarningFilter refusalFilter("loadProfile: refusing");
+            loaded = f.profileManager.loadProfile("broken");
+        }
+
+        QVERIFY2(!loaded, "an unreadable profile must be reported as not loaded");
+        QCOMPARE(f.profileManager.baseProfileName(), activeBefore);
+
+        QFile::remove(brokenPath);
+        clearTestProfileStore();
+    }
+
     // === Profile state after load ===
 
     void loadProfileSetsCurrentName() {

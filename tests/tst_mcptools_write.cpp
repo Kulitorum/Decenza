@@ -3,8 +3,6 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QTemporaryDir>
-#include <QStandardPaths>
-#include <QDir>
 #include <limits>
 
 #include "mocks/McpTestFixture.h"
@@ -87,21 +85,6 @@ private:
     // buried the first. Returning early here instead leaves the close to
     // ~ShotHistoryStorage, which resets the worker (and WAITS) before closing -- so the
     // teardown is safe even on the failure path.
-    // Seed one row so an update/delete has something real to affect. The real
-    // schema, not the minimal one the storage tests build: uuid, timestamp,
-    // profile_name and duration_seconds are NOT NULL. Returns the new id, or -1.
-    static qint64 insertMinimalShot(ShotHistoryStorage& storage) {
-        qint64 id = -1;
-        withTempDb(storage.databasePath(), "tst_seed", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
-                      "VALUES ('outcome-seed-shot', 1000, 'P', 25.0)");
-            if (q.exec())
-                id = q.lastInsertId().toLongLong();
-        });
-        return id;
-    }
-
     static void drainDbWorkAndClose(ShotHistoryStorage& storage) {
         QTRY_VERIFY(storage.isDbWorkIdle());
         // One more pass for anything the final callback itself posted.
@@ -121,6 +104,21 @@ private:
     static void drainBagDbWork(CoffeeBagStorage& bagStorage) {
         QTRY_VERIFY(bagStorage.isDbWorkIdle());
         QCoreApplication::processEvents();
+    }
+
+    // Seed one row so an update/delete has something real to affect. The real
+    // schema, not the minimal one the storage tests build: uuid, timestamp,
+    // profile_name and duration_seconds are NOT NULL. Returns the new id, or -1.
+    static qint64 insertMinimalShot(ShotHistoryStorage& storage) {
+        qint64 id = -1;
+        withTempDb(storage.databasePath(), "tst_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                      "VALUES ('outcome-seed-shot', 1000, 'P', 25.0)");
+            if (q.exec())
+                id = q.lastInsertId().toLongLong();
+        });
+        return id;
     }
 
     // Load a minimal D-Flow profile
@@ -248,13 +246,6 @@ private:
     }
 
 private slots:
-    // Redirect AppDataLocation, which ProfileManager::profilesPath() reads.
-    // profilesSetActiveRefusedProfileReportsError writes a real file there, and
-    // without this every test in this file that constructs a ProfileManager has
-    // been reading the developer's own ~/Library/Application Support profiles.
-    // Same call, for the same reason, as tst_profilemanager::initTestCase.
-    void initTestCase() { QStandardPaths::setTestModeEnabled(true); }
-
     void init() { QTest::failOnWarning(); }
 
     // ===== settings_set temperature triggers BLE upload =====
@@ -1126,42 +1117,15 @@ private slots:
         drainDbWorkAndClose(storage);
     }
 
-    // ProfileManager::loadProfile refuses a profile it cannot read and KEEPS the
-    // previously active one. profiles_set_active's `profileExists` guard cannot
-    // see this: the file is present, it just does not parse. The tool reported
-    // "Profile activated" while the machine went on brewing the old profile.
-    void profilesSetActiveRefusedProfileReportsError()
-    {
-        McpTestFixture f;
-        registerTools(f);
-
-        // A file that exists (so profileExists passes) and cannot be a profile.
-        // It has to sit where loadProfile looks (userProfilesPath, tier 2) AND
-        // where profileExists falls back to (profilesPath), which are different
-        // directories — hence both writes. AppDataLocation is redirected by
-        // initTestCase, so this touches the test store, not the real one.
-        const QJsonObject broken{{"title", "Broken"}};
-        const QByteArray brokenBytes = QJsonDocument(broken).toJson(QJsonDocument::Compact);
-        for (const QString& dir : {f.profileManager.userProfilesPath(),
-                                   f.profileManager.profilesPath()}) {
-            QDir().mkpath(dir);
-            QFile file(dir + "/broken.json");
-            QVERIFY(file.open(QIODevice::WriteOnly));
-            file.write(brokenBytes);
-            file.close();
-        }
-        QVERIFY(f.profileManager.profileExists("broken"));
-
-        ScopedWarningFilter refusalFilter("loadProfile: refusing|Profile not found");
-
-        QJsonObject args;
-        args["filename"] = "broken";
-        QJsonObject result = f.callAsyncTool("profiles_set_active", args);
-
-        QVERIFY2(result.contains("error"),
-                 "a profile the manager refused must not be reported as activated");
-        QVERIFY(!result.contains("success"));
-    }
+    // profiles_set_active's own refusal path — loadProfile returning false — is
+    // covered in tst_profilemanager (loadProfileReportsRefusalAndKeepsTheActive-
+    // Profile). It needs a deliberately-broken profile ON DISK, and the only safe
+    // place to write one is the QStandardPaths test store, which that file
+    // already sets up and sweeps. Enabling test mode here instead turned every
+    // other test in this file red: an empty profile store makes ProfileManager
+    // warn at construction, and init()'s failOnWarning converts that to a
+    // failure of the whole file. What is NOT covered by a test either way is the
+    // one line in the tool that consults the return value.
 };
 
 QTEST_MAIN(tst_McpToolsWrite)

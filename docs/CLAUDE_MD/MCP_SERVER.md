@@ -487,6 +487,100 @@ JSON-RPC `error` is for protocol faults, and they reach the wire two different w
 
 That second group is why `sendJsonRpcResponse()`'s top-level `contains("error")` test exists and is correct. What it cannot see is a **wrapped tool payload**: once a tool has run, `buildToolCallResponse()` has moved its `error` one level down. Note the test is *not* unreachable for `tools/call` — a rate-limited call takes it — only for a payload that has been through the wrap step.
 
+### `success` means the operation happened, not that the tool was called
+
+The companion rule to the one above, and the half `isError` cannot reach. A tool
+that writes no `error` key ships as a successful call — so a tool that *assumes*
+its work succeeded reports success for something that did not happen, and nothing
+on the wire contradicts it. Four tools did exactly this, and all four were
+correct C++ that no test and no reviewer had reason to question.
+
+- **Consult the operation; do not assume it.** `profiles_set_active` called a
+  `void` `loadProfile()` and reported "Profile activated" for a profile
+  `ProfileManager` had **refused**, while the machine went on brewing the
+  previous one. `apply_theme` did the same for a theme name matching nothing.
+  Both underlying calls now return `bool`. When an app-layer call cannot report
+  its own outcome, **give it a way to** — do not paper over it in the tool.
+- **A database call reports "the statement ran", not "a row changed."**
+  `query.exec()` succeeds on an `UPDATE`/`DELETE` whose `WHERE` matches nothing.
+  Check `numRowsAffected()`. Do **not** add a `SELECT` pre-check instead: it
+  races the write (these run on a background thread) and adds a query to a
+  one-query path.
+- **An async tool must be wired to every terminal signal, not just the happy
+  one.** `shots_delete` waited on `shotDeleted`, which fires only on success, so
+  a failed delete produced **no response at all** — the client hung, with no
+  error and no timeout anywhere in the `_deferred` path. Storage now emits
+  `shotDeleteFinished(id, success, reason)` for both outcomes. Prefer a
+  request-specific completion signal over a general error signal: a storage-wide
+  `errorOccurred` carries no id, so an unrelated failure would resolve your call.
+- **An unavailable dependency is an error, not emptiness.** Returning a bare
+  `{}`, a default-constructed payload, or `status: ""` gives the model nothing to
+  act on and violates the human-readable-enum convention besides. Keep it
+  distinct from a meaningful "no data yet" (`steam_get_health` has both:
+  `hasData: false` means no steam sessions, an `error` means no tracker).
+- **Name the inputs you dropped.** `shots_compare` silently returned a shorter
+  list; it now carries `unresolvedShotIds`, and errors when nothing resolves.
+- **A no-op is a success, flagged as a no-op.** `devices_connect_de1` and
+  `mqtt_disconnect` returned a bare `message` with neither `success` nor
+  `error` — a third state nothing can classify. Both now report `success: true`
+  plus `alreadyConnected` / `alreadyDisconnected`, and echo the parameters the
+  caller supplied. (`mqtt_publish_discovery` still treats a missing connection as
+  an `error`, which is not an inconsistency: it cannot do its job without one.)
+- **An empty virtual is not a capability.** `ScaleDevice`'s `startTimer` /
+  `stopTimer` / `resetTimer` are virtual with empty default bodies, so every
+  scale accepted a timer command and the three `scale_timer_*` tools reported
+  success on all of them — including Acaia, whose header says in a comment that
+  it has no remote timer control. `supportsTimer()` defaults to **false** so a
+  driver whose override is forgotten fails in the safe direction.
+
+Not everything that looks like this is a defect. `settings_set`'s ~90 `void`
+setters build their response *before* the setters run, so a clamp or rejection
+cannot reach it — real, but with no identified failing key, and the fix is a
+90-setter refactor. Left alone deliberately.
+
+### Wire conformance: what the MCP spec requires that is easy to miss
+
+Departures from the spec produce no symptom until a stricter client arrives, so
+they accumulate silently. Six were found in one audit and fixed together;
+`tests/tst_mcpserver_protocol.cpp` pins each.
+
+- **A POST body may be a JSON array.** Batch support is required by the
+  2024-11-05 and 2025-03-26 base protocols, both of which are still negotiated.
+  Elements with an `id` get one response each in a returned array; an
+  all-notification batch gets 202. An element whose response would be *deferred*
+  (in-app confirmation, async tool) is refused in its slot — a deferred response
+  is written as a complete HTTP body and cannot be folded into an array.
+- **A session the server ended answers 404.** That is what tells a client to
+  re-initialize. `DELETE` and the expiry reaper record a bounded tombstone set.
+  **The auto-recovery path for IDs we never issued must stay reachable** — cloud
+  connectors re-initialize per request without echoing the session header, and
+  the server cannot tell an ID from before a restart from one it never issued.
+  `initialize` carrying a terminated ID is still accepted; 404ing the recovery
+  move would strand the client. Pool eviction under `MaxTotalSessions` does
+  **not** tombstone, for the same reason.
+- **`structuredContent` is not a `ResourceContents` field.** It exists on
+  `CallToolResult` only. It was being emitted inside `resources/read` contents and
+  version-gated as though it were a 2025-06-18 resources feature, with a test
+  pinning that mistaken premise. Removed; the same JSON is already in `text`.
+  The `tools/call` `structuredContent` **is** in the schema and is unchanged.
+- **Error codes are per the spec's own examples**: `-32002` (+ `data.uri`) for a
+  resource that is not found, `-32602` for an unregistered tool — a bad request,
+  not a server fault. Registry failures that *are* server-side (wrong sync/async
+  dispatch, access level) stay `-32603`. The caller picks the code from
+  `McpRegistryFailure`, an out-param, **never by matching the error text** — a
+  string comparison against a message is the thing that rots.
+- **SSE streams prime the client for reconnection** (2025-11-25 `SHOULD`s): a
+  `retry` interval, an opening event with an ID and empty `data`, and an ID on
+  every event after. `Last-Event-ID` replay is a `MAY` and is deliberately not
+  implemented — a partial replay is worse than none.
+
+**One deliberate non-conformance, recorded so the next audit does not
+re-litigate it:** the server binds all interfaces rather than localhost. The
+spec's localhost `SHOULD` targets servers with no LAN requirement; Decenza's MCP
+endpoint is served by ShotServer, whose entire purpose is LAN reachability. The
+`Origin` allowlist and the capability-URL gate on the remote surface are the
+mitigations, and both already exist.
+
 ### Shot Detector Outputs (`shots_get_detail`, `shots_compare`)
 
 `shots_get_detail` and `shots_compare` return two complementary views of the in-app Shot Summary detector pipeline:
