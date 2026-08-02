@@ -271,12 +271,18 @@ T.Page {
             // full — middot included — would make the keyword unusable. Exactness
             // is the tap-through's job, which compares an id rather than a string.
             // An unterminated quote runs to end-of-string instead of failing.
-            // Matches a bare `recipe:` too (empty term). That case, and
-            // `recipe:""`, must NOT silently become "no filter" — the user asked
-            // to narrow and would get the widest possible result set instead,
-            // with nothing on screen saying so. A sentinel that cannot match any
-            // name turns it into an honest zero-results filter.
-            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S*))/i.exec(searchText)
+            // The unquoted branch requires at least one character (\S+, NOT \S*).
+            // With \S* a bare "recipe:" matched an EMPTY term, so "recipe: dad" —
+            // a space after the colon, which people type — set the no-match
+            // sentinel while "dad" stayed in the free text and got ANDed against
+            // it, returning zero shots where it used to find Dad Monday and Dad
+            // Tuesday. An incomplete "recipe:" is better treated as not-a-keyword
+            // and left to free text.
+            //
+            // An explicitly EMPTY quoted term (`recipe:""`) is different — that is
+            // a deliberate narrowing request with nothing to narrow by, so it gets
+            // the sentinel and honestly matches nothing.
+            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S+))/i.exec(searchText)
             if (recipeMatch) {
                 var recipeTerm = recipeMatch[1] !== undefined ? recipeMatch[1] : recipeMatch[2]
                 recipeTerm = (recipeTerm || "").trim()

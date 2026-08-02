@@ -214,7 +214,16 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     sql += " ORDER BY s.timestamp DESC LIMIT " + QString::number(limit) + " OFFSET " + QString::number(offset);
 
                     QSqlQuery query(db);
-                    query.prepare(sql);
+                    // prepare() checked with || so it SHORT-CIRCUITS. Calling
+                    // exec() after a failed prepare clears lastError and then
+                    // reports whatever the finalized statement produces —
+                    // "Parameter count mismatch" with any filter bound — which
+                    // sends the reader hunting a bind bug instead of the real
+                    // "ambiguous column name". (qsqlquery.cpp clears the error
+                    // before delegating; qsql_sqlite.cpp clears it again.)
+                    const bool prepared = query.prepare(sql);
+                    if (!prepared)
+                        qWarning() << "MCP shots_list: prepare failed -" << query.lastError().text();
                     if (!profileFilter.isEmpty())
                         query.bindValue(":profileFilter", "%" + profileFilter + "%");
                     if (!beanFilter.isEmpty())
@@ -226,7 +235,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     if (beforeEpoch > 0)
                         query.bindValue(":before", beforeEpoch);
 
-                    if (query.exec()) {
+                    if (prepared && query.exec()) {
                         while (query.next()) {
                             QJsonObject shot;
                             shot["id"] = query.value("id").toLongLong();
@@ -294,13 +303,16 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         // with no log line and no error field. That is exactly what
                         // an unqualified `profile_json` did once the recipes join
                         // landed. Report it instead.
-                        qWarning() << "MCP shots_list: query failed -" << query.lastError().text();
-                        result["error"] = QStringLiteral("Shot list query failed: ")
-                                          + query.lastError().text();
+                        const QString why = prepared ? query.lastError().text()
+                                                     : QStringLiteral("statement did not prepare");
+                        qWarning() << "MCP shots_list: query failed -" << why;
+                        result["error"] = QStringLiteral("Shot list query failed: ") + why;
                     }
 
                     QSqlQuery countQuery(db);
-                    countQuery.prepare(countSql);
+                    if (!countQuery.prepare(countSql))
+                        qWarning() << "MCP shots_list: count prepare failed -"
+                                   << countQuery.lastError().text();
                     if (!profileFilter.isEmpty())
                         countQuery.bindValue(":profileFilter", "%" + profileFilter + "%");
                     if (!beanFilter.isEmpty())
@@ -311,8 +323,19 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         countQuery.bindValue(":after", afterEpoch);
                     if (beforeEpoch > 0)
                         countQuery.bindValue(":before", beforeEpoch);
-                    if (countQuery.exec() && countQuery.next())
+                    // The count query needs the same treatment as the data query
+                    // above: swallowed here, totalCount stays 0, which makes
+                    // hasMore false and nextOffset null — a client paginating gets
+                    // a truncated result set and no error.
+                    if (!countQuery.exec()) {
+                        qWarning() << "MCP shots_list: count query failed -"
+                                   << countQuery.lastError().text();
+                        if (!result.contains("error"))
+                            result["error"] = QStringLiteral("Shot count query failed: ")
+                                              + countQuery.lastError().text();
+                    } else if (countQuery.next()) {
                         totalCount = countQuery.value(0).toLongLong();
+                    }
                 })) {
                     result["error"] = "Failed to open shot database";
                 }

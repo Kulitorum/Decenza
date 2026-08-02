@@ -240,14 +240,25 @@ private slots:
             q2.bindValue(":uuid", QUuid::createUuid().toString(QUuid::WithoutBraces));
             q2.bindValue(":ts", QDateTime::currentSecsSinceEpoch() - 60);
             QVERIFY(q2.exec());
+
+            // A third with a DANGLING recipe_id — the row does not exist. Without
+            // this case the `&& !recipeName.isEmpty()` half of the emit gate is
+            // dead weight: the no-recipe shot above fails on `recipeId > 0`
+            // alone, so deleting the name check leaves the test green.
+            QSqlQuery q3(db);
+            q3.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                       "profile_json, recipe_id) VALUES (:uuid, :ts, 'Test', 30, '{}', 999999)");
+            q3.bindValue(":uuid", QUuid::createUuid().toString(QUuid::WithoutBraces));
+            q3.bindValue(":ts", QDateTime::currentSecsSinceEpoch() - 120);
+            QVERIFY(q3.exec());
         });
 
         const QJsonObject result = f.callAsyncTool("shots_list", QJsonObject{});
         QVERIFY2(!result.contains("error"), qPrintable(result.value("error").toString()));
 
         const QJsonArray shots = result["shots"].toArray();
-        QCOMPARE(result["total"].toInt(), 2);
-        QCOMPARE(shots.size(), 2);   // the assertion that goes red on an ambiguous column
+        QCOMPARE(result["total"].toInt(), 3);
+        QCOMPARE(shots.size(), 3);   // the assertion that goes red on an ambiguous column
 
         // Newest first: the recipe-driven shot.
         const QJsonObject withRecipe = shots.at(0).toObject();
@@ -258,6 +269,13 @@ private slots:
         const QJsonObject without = shots.at(1).toObject();
         QVERIFY(!without.contains("recipeId"));
         QVERIFY(!without.contains("recipeName"));
+
+        // Dangling id: BOTH keys must be absent. Emitting an id beside an empty
+        // name would have an LLM client render "" as the drink's name.
+        const QJsonObject dangling = shots.at(2).toObject();
+        QVERIFY2(!dangling.contains("recipeId"),
+                 "a recipe_id whose row is gone must not be emitted");
+        QVERIFY2(!dangling.contains("recipeName"), "nor an empty recipeName beside it");
     }
 };
 

@@ -1861,15 +1861,23 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 // where an inline read is the right call.
                 if (shot.recipeId > 0) {
                     QSqlQuery rq(db);
-                    rq.prepare("SELECT name, drink_type, archived FROM recipes WHERE id = ?");
-                    rq.bindValue(0, shot.recipeId);
-                    if (!rq.exec()) {
+                    // || short-circuits, so lastError() still holds the PREPARE
+                    // error rather than exec()'s replacement for it.
+                    if (!rq.prepare("SELECT name, drink_type, archived FROM recipes WHERE id = ?")
+                        || (rq.bindValue(0, shot.recipeId), !rq.exec())) {
                         qWarning() << "ShotServer: recipe lookup failed for shot" << shotId
                                    << "-" << rq.lastError().text();
                     } else if (rq.next()) {
                         shot.recipeName = rq.value(0).toString();
                         shot.recipeDrinkType = rq.value(1).toString();
                         shot.recipeArchived = rq.value(2).toInt() != 0;
+                    } else {
+                        // The recipes row is GONE for an id the shot still carries.
+                        // Every surface degrades to showing no recipe, which looks
+                        // identical to a shot that never had one — leave a trace so
+                        // a submitted log can tell the two apart.
+                        qWarning() << "ShotServer: shot" << shotId << "references recipe"
+                                   << shot.recipeId << "which no longer exists";
                     }
                 }
             });

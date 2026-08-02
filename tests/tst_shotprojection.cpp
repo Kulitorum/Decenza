@@ -4,7 +4,7 @@
 #include <QVariantList>
 #include <QRegularExpression>
 #include <QMetaProperty>
-#include <QSet>
+#include <QHash>
 #include <QVector>
 
 #include "history/shotprojection.h"
@@ -235,57 +235,91 @@ void TstShotProjection::toVariantMap_roundTripsRecipeDisplayAndDateTime()
 // fails here on the day it is added, with the property's name in the message.
 //
 // Container properties (the time-series QVariantLists, detectorResults,
-// phaseSummaries) are skipped: they round-trip as opaque QVariants and building
-// meaningful values for them here would test QVariant, not the mapping.
+// phaseSummaries) are counted but not probed: they round-trip as opaque
+// QVariants and building meaningful values for them would test QVariant, not
+// the mapping. They are counted so the accounting below stays exact.
 void TstShotProjection::everyQPropertySurvivesARoundTrip()
 {
     ShotProjection p = makeSampleShot();
     const QMetaObject& mo = ShotProjection::staticMetaObject;
 
-    // Fields whose emit is conditional on a value the round-trip cannot preserve
-    // by design — documented sparse rules, not oversights. Each needs a reason.
-    static const QSet<QByteArray> kSkip = {
-        // stoppedBy sparse-emits only manual/weight/volume; "profileEnd" and ""
-        // deliberately collapse to "" (see toVariantMap).
-        QByteArrayLiteral("stoppedBy"),
-        // yieldMode sparse-emits only absolute/ratio, and yieldAnchorValue rides
-        // with it.
-        QByteArrayLiteral("yieldMode"),
-        QByteArrayLiteral("yieldAnchorValue"),
+    // Probe OVERRIDES rather than skips: three fields sparse-emit only specific
+    // values, so an arbitrary "rt-N" string would not survive and a naive probe
+    // would fail spuriously. Skipping them instead would mean deleting their
+    // emit leaves this test green — and nothing else in this file covers them.
+    static const QHash<QByteArray, QVariant> kProbeOverride = {
+        // stoppedBy emits only manual/weight/volume (shotprojection.cpp).
+        {QByteArrayLiteral("stoppedBy"), QStringLiteral("manual")},
+        // yieldMode emits only absolute/ratio, and yieldAnchorValue rides with it.
+        {QByteArrayLiteral("yieldMode"), QStringLiteral("ratio")},
+        {QByteArrayLiteral("yieldAnchorValue"), 2.5},
     };
 
     QVector<QByteArray> checked;
+    QHash<QByteArray, QVariant> expected;
+    int containersSeen = 0;
     for (int i = mo.propertyOffset(); i < mo.propertyCount(); ++i) {
         const QMetaProperty prop = mo.property(i);
         const QByteArray name = prop.name();
-        if (kSkip.contains(name))
-            continue;
 
-        QVariant probe;
-        switch (prop.metaType().id()) {
-        case QMetaType::QString:  probe = QStringLiteral("rt-%1").arg(i); break;
-        case QMetaType::Int:      probe = 40 + i; break;
-        case QMetaType::LongLong: probe = static_cast<qint64>(90000 + i); break;
-        case QMetaType::Double:   probe = 1.0 + i; break;
-        case QMetaType::Bool:     probe = true; break;
-        default:                  continue;   // containers — see comment above
+        QVariant probe = kProbeOverride.value(name);
+        if (!probe.isValid()) {
+            switch (prop.metaType().id()) {
+            // Distinct per property index, so a crossover between two fields of
+            // the same type is caught rather than passing silently.
+            case QMetaType::QString:  probe = QStringLiteral("rt-%1").arg(i); break;
+            case QMetaType::Int:      probe = 40 + i; break;
+            case QMetaType::LongLong: probe = static_cast<qint64>(90000 + i); break;
+            case QMetaType::Double:   probe = 1.0 + i; break;
+            // Bools cannot be made distinct, so a bool<->bool crossover relies on
+            // the key-presence check below instead.
+            case QMetaType::Bool:     probe = true; break;
+            default:
+                // NOT a silent skip. A new scalar type (float, uint, QDateTime,
+                // QStringList…) added to the header is exactly the case this test
+                // exists for, and dropping it here would leave it uncovered on the
+                // day it lands — green, with no signal.
+                QVERIFY2(prop.metaType().flags().testFlag(QMetaType::IsQmlList)
+                             || prop.metaType().id() == QMetaType::QVariantList
+                             || prop.metaType().id() == QMetaType::QVariantMap
+                             || prop.metaType().id() == QMetaType::QVariant,
+                         qPrintable(QStringLiteral("property %1 has unprobed scalar type %2 — "
+                                                   "add it to the switch")
+                                        .arg(QString::fromLatin1(name),
+                                             QString::fromLatin1(prop.typeName()))));
+                ++containersSeen;
+                continue;
+            }
         }
         QVERIFY2(prop.writeOnGadget(&p, probe),
                  qPrintable(QStringLiteral("could not set %1").arg(QString::fromLatin1(name))));
         checked.append(name);
+        expected.insert(name, probe);
     }
 
-    // Guard against the guard: if the switch ever stops matching anything, an
-    // empty loop below would pass silently.
-    QVERIFY2(checked.size() > 30,
-             qPrintable(QStringLiteral("only %1 scalar properties probed — the "
-                                       "metaType switch has gone stale").arg(checked.size())));
+    // Exact accounting, not a threshold: a "> 30" guard would still pass with a
+    // whole metatype arm gone stale (dropping every qint64, say, leaves 52).
+    QCOMPARE(checked.size() + containersSeen, mo.propertyCount() - mo.propertyOffset());
 
-    const ShotProjection back = ShotProjection::fromVariantMap(p.toVariantMap());
+    const QVariantMap m = p.toVariantMap();
+
+    // The MAP KEY must equal the Q_PROPERTY name. Without this the test only
+    // proves the two functions agree WITH EACH OTHER — so both using the same
+    // wrong key round-trips perfectly while every external consumer breaks. That
+    // is not hypothetical: it is the enjoyment/drinkTds/drinkEy mismatch this
+    // same change fixed in queryShotList, which a "does every field appear in
+    // both functions" audit cannot see.
+    for (const QByteArray& name : checked) {
+        QVERIFY2(m.contains(QString::fromLatin1(name)),
+                 qPrintable(QStringLiteral("toVariantMap emits no key named %1 — the map key and "
+                                           "the Q_PROPERTY name have diverged")
+                                .arg(QString::fromLatin1(name))));
+    }
+
+    const ShotProjection back = ShotProjection::fromVariantMap(m);
     for (const QByteArray& name : checked) {
         const QMetaProperty prop = mo.property(mo.indexOfProperty(name.constData()));
-        QCOMPARE_NE(prop.readOnGadget(&p), QVariant());
-        QVERIFY2(prop.readOnGadget(&back) == prop.readOnGadget(&p),
+        QVERIFY2(prop.readOnGadget(&back) == expected.value(name),
                  qPrintable(QStringLiteral("%1 did not survive toVariantMap/fromVariantMap — "
                                            "it is missing from one of them, or the two spell "
                                            "its key differently")

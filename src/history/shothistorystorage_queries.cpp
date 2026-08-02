@@ -498,6 +498,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
         [this, dbPath, sql, countSql, bindValues, countBindValues, serial, isAppend, destroyed]() {
             QVariantList results;
             int totalCount = 0;
+            QString queryError;
 
             withTempDb(dbPath, "shs_filter", [&](QSqlDatabase& db) {
                 // Data query
@@ -509,15 +510,15 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                 // shots_list tool without anyone noticing, and this list now depends
                 // on a second table too.
                 if (!query.prepare(sql)) {
-                    qWarning() << "ShotHistoryStorage: shot list prepare failed -"
-                               << query.lastError().text();
+                    queryError = query.lastError().text();
+                    qWarning() << "ShotHistoryStorage: shot list prepare failed -" << queryError;
                 } else {
                     for (int i = 0; i < bindValues.size(); ++i)
                         query.bindValue(i, bindValues[i]);
 
                     if (!query.exec()) {
-                        qWarning() << "ShotHistoryStorage: shot list query failed -"
-                                   << query.lastError().text();
+                        queryError = query.lastError().text();
+                        qWarning() << "ShotHistoryStorage: shot list query failed -" << queryError;
                     } else {
                         while (query.next()) {
                             QVariantMap shot;
@@ -584,7 +585,8 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
             if (*destroyed) return;
             QMetaObject::invokeMethod(
                 this,
-                [this, results = std::move(results), serial, isAppend, totalCount, destroyed]() mutable {
+                [this, results = std::move(results), serial, isAppend, totalCount, destroyed,
+                 queryError]() mutable {
                     if (*destroyed) {
                         qDebug() << "ShotHistoryStorage: shotsFiltered callback dropped (object destroyed)";
                         return;
@@ -592,6 +594,13 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                     if (serial != m_filterSerial) return;
                     m_loadingFiltered = false;
                     emit loadingFilteredChanged();
+                    // Without this the caller cannot tell a failed query from an
+                    // empty history — QML renders the ordinary "no shots" state
+                    // either way, which is the exact criticism this change levels
+                    // at the code it replaced. errorOccurred is already wired to a
+                    // user-visible toast in main.qml.
+                    if (!queryError.isEmpty())
+                        emit errorOccurred(tr("Could not load shot history: %1").arg(queryError));
                     emit shotsFilteredReady(results, isAppend, totalCount);
                 },
                 Qt::QueuedConnection);
@@ -1509,6 +1518,14 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     QVariantMap entry;
                     entry["shotId"] = query.value("id").toLongLong();
                     entry["recipeId"] = query.value("recipe_id").toLongLong();
+                    // UNCONDITIONAL, unlike the sparse emit everywhere else in this
+                    // feature — deliberately. These rows go to a QML ListModel via
+                    // append(), and a ListModel takes its roles from the FIRST item
+                    // appended: if the newest favorite happened to have no recipe,
+                    // sparse-emitting would leave the role undeclared and every
+                    // later row's recipe silently dropped. Empty string is the
+                    // "no recipe" value here; the delegate gates on recipeId AND a
+                    // non-empty name.
                     entry["recipeName"] = query.value("recipe_name").toString();
                     entry["recipeDrinkType"] = query.value("recipe_drink_type").toString();
                     entry["recipeArchived"] = query.value("recipe_archived").toInt() != 0;

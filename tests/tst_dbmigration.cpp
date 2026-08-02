@@ -128,8 +128,10 @@ private:
 
     // Recipe-identity fixture (history-recipe-identity). Lives under `private:`
     // with the other helpers. Qt Test collects a private slot as a test only when
-    // it takes ZERO parameters, returns void, and is not named init*/cleanup*/
-    // *_data (`isValidSlot`, qtbase/src/testlib/qtestcase.cpp:151) — so this
+    // it takes ZERO parameters, returns void, is not suffixed `_data`, and is
+    // not named exactly `init`, `cleanup`, `initTestCase` or `cleanupTestCase`
+    // (`isValidSlot`, qtbase/src/testlib/qtestcase.cpp:151 — only `_data` is a
+    // wildcard there; `initFixture()` WOULD run as a test) — so this
     // two-argument helper would not have run as a test even under `private
     // slots:`. Stated because an earlier version of this comment claimed
     // otherwise without checking the Qt source.
@@ -2242,9 +2244,12 @@ private slots:
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 1);
 
-        // An empty term must filter to NOTHING, never to everything. The QML sends
-        // a sentinel for a bare `recipe:` or `recipe:""` precisely so the widest
-        // possible result set can't be what a narrowing request produces.
+        // An explicitly empty QUOTED term must filter to NOTHING, never to
+        // everything — the search box sends a whitespace sentinel for it. (A bare
+        // `recipe:` with a space after it is deliberately NOT this case: the
+        // keyword does not match at all and the following word searches normally,
+        // because "recipe: dad" returning zero shots was worse than the widening
+        // it was meant to prevent.)
         s.requestShotsFiltered({{"recipeName", QStringLiteral(" ")}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 0);

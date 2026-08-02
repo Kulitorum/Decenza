@@ -130,6 +130,12 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
             // and MCP recipe_create, not only from this device's keyboard.
             escaped.replace("&", "&amp;");
             escaped.replace("\\", "\\\\");
+            // Newlines and CR would be raw inside a single-quoted JS string in an
+            // onclick attribute — a SyntaxError, so the click silently does
+            // nothing. Names arrive from device transfer and MCP recipe_create,
+            // not only from this device's keyboard.
+            escaped.replace("\n", "\\n");
+            escaped.replace("\r", "\\r");
             escaped.replace("'", "\\'");
             escaped.replace("\"", "&quot;");
             escaped.replace("<", "&lt;");
@@ -202,8 +208,14 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
             // Clicking the recipe scopes the search to that name — the web
             // analogue of the app's tap-through. Quoted so a multi-word name
             // stays one term.
+            // Same `__` neutralization as the display name: this string is
+            // embedded in identityHtml, which is substituted BEFORE __SECONDARY__
+            // and __RECIPE_BTN__, so a recipe named "Dad __SECONDARY__" would
+            // otherwise get the beans line spliced into its onclick handler.
+            // escapeForJs does not touch underscores.
             const QString recipeSearchJs = escapeForJs(
-                QStringLiteral("recipe:\"") + shot.recipeName + QStringLiteral("\""));
+                QStringLiteral("recipe:\"") + shot.recipeName + QStringLiteral("\""))
+                .replace(QStringLiteral("__"), QStringLiteral("&#95;&#95;"));
             // The archived state gets BOTH the dimming class and a title, so it
             // is not carried by colour alone.
             const QString archivedClass = shot.recipeArchived ? QStringLiteral(" archived") : QString();
@@ -947,14 +959,24 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
             // SUBSTRING matches against the card's data-recipe. Unlike the bare
             // text below — which matches the whole card, recipe name included —
             // this narrows to the recipe name alone.
-            // Kept in step with the app's buildFilter(), including the empty-term
-            // rule: a bare `recipe:` or `recipe:""` filters to nothing rather than
-            // silently widening to every shot.
-            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S*))/i.exec(searchText);
+            // Kept in step with the app's buildFilter(), \S+ included: a bare
+            // "recipe:" is not a keyword (so "recipe: dad" still searches for
+            // "dad"), while an explicitly empty quoted term matches nothing.
+            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S+))/i.exec(searchText);
             if (recipeMatch) {
                 var recipeTerm = recipeMatch[1] !== undefined ? recipeMatch[1] : recipeMatch[2];
                 recipeTerm = (recipeTerm || "").trim();
-                filters.recipeName = recipeTerm.length > 0 ? recipeTerm.toLowerCase() : " ";
+                // A FLAG, not a sentinel term. The app encodes "empty" as a
+                // whitespace term because its SQL path splits on whitespace and
+                // degenerates to a hard-false condition — but this path tests
+                // `includes()`, and "dad monday".includes(" ") is TRUE, so the
+                // same sentinel would show every multi-word recipe instead of
+                // none. Same intent, opposite result, on two surfaces that must
+                // agree.
+                if (recipeTerm.length > 0)
+                    filters.recipeName = recipeTerm.toLowerCase();
+                else
+                    filters.recipeNameEmpty = true;
                 searchText = searchText.replace(recipeMatch[0], "");
             }
             searchText = searchText.replace(/\brecipe:(?:"[^"]*"?|\S*)/gi, "");
@@ -989,9 +1011,18 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                 if (f.maxEy !== undefined) { if (parseFloat(card.dataset.ey) > f.maxEy) show = false; }
                 // Scoped to the recipe name only. A card with no recipe has no
                 // data-recipe at all, so it correctly never matches.
-                if (f.recipeName !== undefined) {
+                if (f.recipeNameEmpty) {
+                    show = false;   // narrowing request with no term matches nothing
+                } else if (f.recipeName !== undefined) {
                     var cardRecipe = (card.dataset.recipe || '').toLowerCase();
-                    if (!cardRecipe.includes(f.recipeName)) show = false;
+                    // Word-order independent, matching the app's per-term ANDs.
+                    var recipeWords = f.recipeName.split(/\s+/);
+                    for (var rw = 0; rw < recipeWords.length; rw++) {
+                        if (recipeWords[rw] && !cardRecipe.includes(recipeWords[rw])) {
+                            show = false;
+                            break;
+                        }
+                    }
                 }
                 // Text search: split into words (AND logic, matching app behavior)
                 if (remaining) {

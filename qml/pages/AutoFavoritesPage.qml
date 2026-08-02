@@ -550,7 +550,12 @@ T.Page {
                     // (history-recipe-identity).
                     Rectangle {
                         id: favRecipeButton
-                        visible: (favoriteDelegate.model.recipeId || 0) <= 0
+                        // Name-aware, matching the Shot History row: a DANGLING
+                        // recipe_id (row gone after a transfer or partial restore)
+                        // means there is no recipe to edit, so offering to create
+                        // one is right. Gating on the id alone would hide the
+                        // button and leave the user no route at all.
+                        visible: !favoriteDelegate._hasRecipe
                         Layout.preferredWidth: Theme.scaled(70)
                         Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
