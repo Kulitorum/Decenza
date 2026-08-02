@@ -1128,9 +1128,16 @@ int main(int argc, char *argv[])
     if (CrashHandler::hasCrashLog()) {
         previousCrashLog = CrashHandler::readCrashLog();
         previousDebugLogTail = CrashHandler::getDebugLogTail(50);
+        // The trailing end marker is NOT redundant with the one inside
+        // previousCrashLog, and must not be tidied away. writeCrashLog() can die
+        // before it writes its own closer (it demangles from a signal handler on
+        // a possibly-corrupt heap), and this line is what closes the block for
+        // CrashHandler::getDebugLogTail(), which strips these blocks out of the
+        // tail it submits. Both markers come from CrashHandler so a respelling
+        // cannot desynchronise the writer from the stripper.
         qWarning() << "=== PREVIOUS CRASH DETECTED ===";
         qWarning().noquote() << previousCrashLog;
-        qWarning() << "=== END CRASH REPORT ===";
+        qWarning() << CrashHandler::kReportEnd;
     }
     checkpoint("Crash check done");
 

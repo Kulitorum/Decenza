@@ -1472,9 +1472,11 @@ target_link_libraries(tst_mcptools_presets PRIVATE decenza_a11ylib decenza_appse
 target_include_directories(tst_mcptools_presets PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_webdebuglogger: WebDebugLogger session-index cache (improve-mcp-debug-log-search),
-# plus CrashHandler::getDebugLogTail(), which reads the same debug.log and whose
-# result is the crash report's debugLogTail field. crashhandler.cpp is compiled
-# into this target alone — no other test needs it, so no intermediate library. ---
+# plus CrashHandler::getDebugLogTail(), which reads the debug.log WebDebugLogger
+# writes and whose result is the crash report's debugLogTail field. (Both resolve
+# DecenzaPaths::logsDirectory() as of #1746; before that CrashHandler used
+# AppDataLocation, a different file on Android.) crashhandler.cpp is compiled into
+# this target alone — no other test needs it, so no intermediate library. ---
 add_decenza_test(tst_webdebuglogger
     tst_webdebuglogger.cpp
     ${CMAKE_SOURCE_DIR}/src/core/crashhandler.cpp

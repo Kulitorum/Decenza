@@ -1,4 +1,5 @@
 #include "crashhandler.h"
+#include "logpaths.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -134,57 +135,114 @@ static void writeBacktraceToFile(FILE* f)
 // crashes, so an empty section must be attributable (exec denied vs. logd
 // rotated this pid out vs. capture killed) rather than read as "no entries".
 //
-// THE BUDGET IS THE DESIGN. The report is not read on the device — it is POSTed
-// to api.decenza.coffee, which slices it before opening or commenting on a
-// GitHub issue (Kulitorum/decenza-shotmap, backend/lambdas/crashReport.ts):
+// THE BUDGET IS THE DESIGN. What bounds the report is not what fits on the
+// device (CrashReportDialog.qml renders the whole thing) — it is that the report
+// is POSTed to api.decenza.coffee, which slices it before opening or commenting
+// on a GitHub issue. Verified 2026-08-02 against Kulitorum/decenza-shotmap,
+// backend/lambdas/crashReport.ts:
 //
-//     new issue body        crashLog.slice(0, 10000)
-//     comment on existing   crashLog.slice(0, 5000)      <-- the usual path
-//     debug log tail        debugLogTail.slice(0, 5000)
+//     new issue body        crashLog.slice(0, 10000)      + debugLogTail.slice(0, 5000)
+//     comment on existing   crashLog.slice(0,  5000)      and NO debugLogTail at all
+//                                                          (addCommentToIssue is
+//                                                           never passed the field)
 //
-// All three cut from the END. A recurring crash dedupes onto its existing
-// issue, so 5000 chars is the real budget, not 10000 — and in #1745 the header
-// and 29-frame backtrace had already spent ~4100 of it. Everything below is
-// sized against that, and any change here should be re-measured against those
-// slice() calls rather than against what fits on a screen.
+// Both cut from the END. Which path a report takes is decided by
+// findSimilarIssue(), whose search is filtered `is:open` — so a crash dedupes
+// onto its predecessor only while that predecessor is still OPEN. #1745 is the
+// fourth instance of this exact crash and still opened a NEW issue, because
+// #1408 and #1572 had been closed as duplicates: it got the 10000-char budget,
+// and its crash log arrived cut at exactly 10001 chars.
 //
-// #1745 is what this replaces: a blind `-t 200` unfiltered tail. ART's abort
-// block runs header -> ref-table dump (the Summary naming the leaked class) ->
-// "Runtime aborting..." -> a full per-thread stack dump of ~1000 lines. A tail
-// of 200 lands inside the thread dump, so the report carried 41 lines of other
-// threads' stacks and not one line of the diagnosis it exists to capture.
-// Hence: filter to fatal priority, take the HEAD of the block, and drop the
-// ~60-char "date pid tid F tag:" prefix that was costing half of every line.
+// So: 10000 normally, 5000 whenever someone has left the prior issue open. The
+// sizing below has to survive the 5000 case, and anything that grows what
+// precedes the capture has to be re-measured against both. In #1745 the header
+// and 29-frame backtrace alone were ~4117 chars.
+//
+// #1745 is what this replaces: a blind `-t 200` unfiltered tail, which returned
+// 41 lines of OTHER THREADS' stacks and not one line of diagnosis. ART emits its
+// abort block at fatal priority — the report's lines read " F rum.decenza_de:" —
+// but so is the per-thread stack dump that follows, so filtering alone would not
+// have fixed it. Taking the HEAD of the filtered stream is what cuts before the
+// thread dump.
+//
+// INFERRED, not sourced: that the ref-table dump (the Summary naming the leaked
+// class) precedes the thread dump. What #1745 does establish is that the abort
+// is raised from inside the log record — its frames #5-#6 are
+// `LogMessage::~LogMessage` -> `Runtime::Abort` — so the message text is written
+// to logd before any thread dump exists. Where ART places the ref-table dump
+// within that is not visible in any report we hold; the first post-fix capture
+// is what confirms or refutes it. Do not repeat the ordering as established.
 static constexpr size_t kFatalCaptureBudget = 4000;
+
+// Why the capture ended. Returned instead of a bare byte count because the
+// caller cannot otherwise tell "logcat had nothing to say" from "logcat never
+// ran", and it was printing a confident "not an ART abort" over both.
+enum class CaptureOutcome {
+    Content,      // bytes captured, stream ended on its own
+    BudgetHit,    // bytes captured, we stopped at byteBudget
+    NoEntries,    // child ran and exited cleanly with nothing to say
+    ExecFailed,
+    Dup2Failed,
+    PipeFailed,
+    ForkFailed,
+    SetupFailed,  // fcntl could not make the read non-blocking
+    ReadFailed,
+    TimedOut,     // deadline expired with the child still streaming
+    ChildLost,    // waitpid failed (ECHILD) — we killed it, output may be short
+    Unknown,      // nothing matched — print the raw status rather than guess
+};
+
+// True when the outcome means the section holds real captured content.
+static bool captureHasContent(CaptureOutcome o)
+{
+    return o == CaptureOutcome::Content || o == CaptureOutcome::BudgetHit;
+}
 
 // Read the child's output through a pipe and write at most byteBudget of it to
 // f. Head-anchored on purpose: `logcat -t N` gives the LAST N lines, which is
 // the #1745 bug, so the cap has to be applied by us, from the start of the
-// stream. Returns bytes written; 0 means the capture produced nothing.
-static size_t captureLogcatToFile(FILE* f, bool fatalOnly, size_t byteBudget)
+// stream. `bytesOut` receives what was written (may be non-zero even on a
+// failure outcome — a stream can fail part-way).
+static CaptureOutcome captureLogcatToFile(FILE* f, bool fatalOnly,
+                                          size_t byteBudget, size_t* bytesOut,
+                                          int* rawStatusOut)
 {
+    *bytesOut = 0;
+    *rawStatusOut = 0;
+
     int fds[2];
-    if (pipe(fds) != 0) {
-        fprintf(f, "  (pipe failed — no capture)\n");
-        return 0;
-    }
+    if (pipe(fds) != 0)
+        return CaptureOutcome::PipeFailed;
 
     pid_t child = fork();
     if (child == 0) {
         close(fds[0]);
-        if (dup2(fds[1], STDOUT_FILENO) < 0 || dup2(fds[1], STDERR_FILENO) < 0)
+        // stdout ONLY. logcat's own stderr must NOT reach the content pipe:
+        // captureHasContent() gates whether the unfiltered fallback runs, so a
+        // device that rejects these arguments would have logcat's complaint
+        // counted as an ART abort and the fallback skipped — the one path that
+        // rescues a non-ART crash, disabled by the failure of the path it
+        // rescues. The exit status is what attributes such a failure instead.
+        if (dup2(fds[1], STDOUT_FILENO) < 0)
             _exit(126);
+        const int devNull = open("/dev/null", O_WRONLY);
+        if (devNull >= 0) {
+            (void)dup2(devNull, STDERR_FILENO);  // best effort; noise, not correctness
+            close(devNull);
+        }
         close(fds[1]);
         if (fatalOnly) {
-            // "*:F" is every tag at fatal priority — which, in normal
-            // operation, is ART's abort block and nothing else (the lines in
-            // #1745 read " F rum.decenza_de:"). "-v raw" drops the timestamp,
-            // pid, tid and tag prefix; the payload is what diagnoses the
-            // crash, and the prefix was eating ~50% of the budget above.
-            // "-t 20000" is a ceiling, not a window — we stop at byteBudget.
+            // "*:F" is every tag at fatal priority. "-v raw" drops the 49-char
+            // "date pid tid F tag: " prefix, which was 34% of the bytes
+            // captured in #1745 (2009 of 5824). Note ART's own "runtime.cc:NNN]"
+            // tag is message payload and survives -v raw.
+            //
+            // No "-t": it is a TAIL, and on the common non-ART crash the fatal
+            // filter matches nothing, so a wide "-t" only makes logcat walk the
+            // pid's whole retained history to produce zero bytes. --pid= plus
+            // the fatal filter is the bound that matters; byteBudget is the cap.
             execl("/system/bin/logcat", "logcat", "-d", "-v", "raw",
-                  "-t", "20000", s_logcatPidArg, "*:F",
-                  static_cast<char*>(nullptr));
+                  s_logcatPidArg, "*:F", static_cast<char*>(nullptr));
         } else {
             execl("/system/bin/logcat", "logcat", "-d", "-t", "200",
                   s_logcatPidArg, static_cast<char*>(nullptr));
@@ -194,24 +252,32 @@ static size_t captureLogcatToFile(FILE* f, bool fatalOnly, size_t byteBudget)
     if (child < 0) {
         close(fds[0]);
         close(fds[1]);
-        fprintf(f, "  (fork failed — no capture)\n");
-        return 0;
+        return CaptureOutcome::ForkFailed;
     }
 
     close(fds[1]);
-    // Non-blocking so the drain below can share the bounded wait loop: a
-    // blocking read on a wedged child would hang the crash handler.
-    fcntl(fds[0], F_SETFL, O_NONBLOCK);
+    // Non-blocking is what makes the deadline below real: a blocking read on a
+    // wedged child would hang the crash handler with no bound at all. So if it
+    // cannot be established, abandon the capture rather than run the loop
+    // without the property it depends on.
+    if (fcntl(fds[0], F_SETFL, O_NONBLOCK) != 0) {
+        close(fds[0]);
+        kill(child, SIGKILL);
+        waitpid(child, nullptr, WNOHANG);
+        return CaptureOutcome::SetupFailed;
+    }
 
     size_t written = 0;
     bool budgetHit = false;
     bool eof = false;
+    bool readFailed = false;
     bool reaped = false;
     int childStatus = 0;
+    int iterations = 0;
 
     // Bounded: logcat -d exits almost immediately, but never let a wedged child
     // hang the crash handler. ~3 s cap, then kill and move on.
-    for (int i = 0; i < 60 && !eof && !budgetHit; ++i) {
+    for (; iterations < 60 && !eof && !budgetHit && !readFailed; ++iterations) {
         for (;;) {
             char buf[1024];
             ssize_t n = read(fds[0], buf, sizeof(buf));
@@ -229,82 +295,167 @@ static size_t captureLogcatToFile(FILE* f, bool fatalOnly, size_t byteBudget)
                 }
                 continue;
             }
-            if (n == 0)
+            if (n == 0) {
                 eof = true;
-            break;  // EOF, EAGAIN, or error — yield to the wait below
-        }
-        if (eof || budgetHit)
+                break;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+                break;  // nothing ready yet — yield to the wait below
+            // A hard error (EIO on a failing device, EBADF). Left folded into
+            // the EAGAIN case it would never set eof, so the loop would burn
+            // the full 3 s re-reading a dead fd and then report success.
+            readFailed = true;
             break;
+        }
 
+        // Reap BEFORE the exit test. On the normal path logcat exits, the pipe
+        // closes, read() returns 0 and we leave immediately — so a waitpid
+        // placed after that test never ran on the path that always happens, and
+        // every successful capture went on to SIGKILL an already-dead child and
+        // sleep 50 ms for it.
         pid_t r = waitpid(child, &childStatus, WNOHANG);
         if (r == child) {
             reaped = true;
-            // The child is gone but the pipe may still hold buffered output;
-            // one more drain pass runs on the next iteration before we exit on
-            // EOF. Do not break here.
         } else if (r < 0) {
-            // ECHILD (e.g. SIGCHLD set to SIG_IGN elsewhere in the process):
-            // we can no longer observe the child, so stop waiting on it.
-            reaped = true;
-            childStatus = 0;
+            // ECHILD (e.g. SIGCHLD set to SIG_IGN elsewhere in the process): we
+            // can no longer observe the child, but we are still obliged to stop
+            // it — it holds the write end of a pipe we are about to close.
+            kill(child, SIGKILL);
+            close(fds[0]);
+            *bytesOut = written;
+            return CaptureOutcome::ChildLost;
         }
+        if (eof || budgetHit || readFailed)
+            break;
+
         struct timespec ts = {0, 50 * 1000 * 1000};  // 50 ms
         nanosleep(&ts, nullptr);
     }
 
+    const bool timedOut = !eof && !budgetHit && !readFailed;
+
     close(fds[0]);
     if (!reaped) {
-        // Either timed out or we stopped early at the budget. Kill, then reap
-        // best-effort only — a blocking waitpid could hang the whole crash
-        // handler on a child stuck in uninterruptible sleep, which on a
-        // distressed device is exactly when this code runs.
+        // Kill, then reap best-effort only — a blocking waitpid could hang the
+        // whole crash handler on a child stuck in uninterruptible sleep, which
+        // on a distressed device is exactly when this code runs.
         kill(child, SIGKILL);
         struct timespec ts = {0, 50 * 1000 * 1000};  // 50 ms
         nanosleep(&ts, nullptr);
         waitpid(child, &childStatus, WNOHANG);
     }
 
-    if (written == 0) {
-        if (WIFEXITED(childStatus) && WEXITSTATUS(childStatus) == 127)
-            fprintf(f, "  (logcat exec failed — no capture)\n");
-        else if (WIFEXITED(childStatus) && WEXITSTATUS(childStatus) == 126)
-            fprintf(f, "  (dup2 failed in capture child — no capture)\n");
-        else if (WIFSIGNALED(childStatus))
-            fprintf(f, "  (logcat died on signal %d)\n", WTERMSIG(childStatus));
-    } else if (budgetHit) {
-        fprintf(f, "\n  (capture stopped at %zu bytes — the server slices the "
-                   "report at 5000 chars on a duplicate issue, so anything past "
-                   "here would not have survived submission)\n", byteBudget);
-    } else {
+    // A short write makes `written` a lie, and `written` decides both the
+    // marker and whether the fallback runs. The code this replaced compared
+    // lseek() offsets and so actually observed the file; this restores that.
+    if (ferror(f))
+        readFailed = true;
+
+    *bytesOut = written;
+    *rawStatusOut = childStatus;
+    if (readFailed)
+        return CaptureOutcome::ReadFailed;
+    if (timedOut)
+        return CaptureOutcome::TimedOut;
+    if (budgetHit)
+        return CaptureOutcome::BudgetHit;
+    if (written > 0)
+        return CaptureOutcome::Content;
+    if (WIFEXITED(childStatus) && WEXITSTATUS(childStatus) == 127)
+        return CaptureOutcome::ExecFailed;
+    if (WIFEXITED(childStatus) && WEXITSTATUS(childStatus) == 126)
+        return CaptureOutcome::Dup2Failed;
+    if (WIFEXITED(childStatus) && WEXITSTATUS(childStatus) == 0)
+        return CaptureOutcome::NoEntries;
+    return CaptureOutcome::Unknown;
+}
+
+// One marker per outcome, and exactly one. This section exists to explain
+// crashes, so an empty or short section must be attributable — and must never
+// be MISattributed, which is worse: a truncated capture that prints "end of
+// capture" tells the reader ART's dump genuinely ended there.
+static void writeCaptureMarker(FILE* f, CaptureOutcome outcome, size_t bytes,
+                               size_t byteBudget, int rawStatus)
+{
+    switch (outcome) {
+    case CaptureOutcome::Content:
         fprintf(f, "  (end of capture)\n");
+        break;
+    case CaptureOutcome::BudgetHit:
+        fprintf(f, "\n  (capture stopped at %zu bytes — see the budget note in "
+                   "crashhandler.cpp; the rest would not have survived the "
+                   "server's slice)\n", byteBudget);
+        break;
+    case CaptureOutcome::NoEntries:
+        fprintf(f, "  (logcat ran and had nothing to report for this pid)\n");
+        break;
+    case CaptureOutcome::ExecFailed:
+        fprintf(f, "  (logcat exec failed — no capture)\n");
+        break;
+    case CaptureOutcome::Dup2Failed:
+        fprintf(f, "  (dup2 failed in capture child — no capture)\n");
+        break;
+    case CaptureOutcome::PipeFailed:
+        fprintf(f, "  (pipe failed — no capture)\n");
+        break;
+    case CaptureOutcome::ForkFailed:
+        fprintf(f, "  (fork failed — no capture)\n");
+        break;
+    case CaptureOutcome::SetupFailed:
+        fprintf(f, "  (could not set the capture pipe non-blocking — skipped "
+                   "rather than risk an unbounded read in the signal handler)\n");
+        break;
+    case CaptureOutcome::ReadFailed:
+        fprintf(f, "\n  (capture failed after %zu bytes — output above is "
+                   "incomplete)\n", bytes);
+        break;
+    case CaptureOutcome::TimedOut:
+        fprintf(f, "\n  (capture killed after 3s with %zu bytes — output above "
+                   "is truncated mid-stream, not complete)\n", bytes);
+        break;
+    case CaptureOutcome::ChildLost:
+        fprintf(f, "\n  (lost track of the capture child after %zu bytes and "
+                   "killed it — output above may be incomplete)\n", bytes);
+        break;
+    case CaptureOutcome::Unknown:
+        fprintf(f, "  (capture produced %zu bytes and ended unexplained; child "
+                   "status=0x%x)\n", bytes, static_cast<unsigned>(rawStatus));
+        break;
     }
-    return written;
 }
 
 // ART's own account of why it aborted. Written BEFORE our backtrace, which is
 // deliberate and is the other half of the #1745 fix: when ART aborts, our
 // backtrace names the JNI call that happened to hit the ceiling (a battery poll
 // in #1408/#1572/#1745) and ART's dump names the actual leak, so on a budget
-// that cuts from the end, ART's dump is what has to go first. Returns false
-// when there were no fatal entries, which is the normal case for SIGSEGV and
-// friends — the caller then falls back to the unfiltered tail, after the
-// backtrace, where it costs the backtrace nothing.
-static bool appendArtAbortMessageToFile(FILE* f)
+// that cuts from the end, ART's dump is what has to go first.
+//
+// Returns the outcome so the caller can tell "ART said nothing" (fall back to
+// the unfiltered tail) from "the capture itself failed" (the fallback would
+// fail identically, and a second theory printed under it would contradict the
+// first).
+static CaptureOutcome appendArtAbortMessageToFile(FILE* f)
 {
     fprintf(f, "\nART abort message (logcat, fatal priority only):\n");
-    if (captureLogcatToFile(f, /*fatalOnly=*/true, kFatalCaptureBudget) > 0)
-        return true;
-    fprintf(f, "  (no fatal-priority entries for this pid — not an ART abort, "
-               "or logd rotated them out)\n");
-    return false;
+    size_t bytes = 0;
+    int rawStatus = 0;
+    const CaptureOutcome outcome = captureLogcatToFile(
+        f, /*fatalOnly=*/true, kFatalCaptureBudget, &bytes, &rawStatus);
+    writeCaptureMarker(f, outcome, bytes, kFatalCaptureBudget, rawStatus);
+    if (outcome == CaptureOutcome::NoEntries)
+        fprintf(f, "  (so this was not an ART abort, or logd rotated its "
+                   "entries out)\n");
+    return outcome;
 }
 
-static void appendLogcatTailToFile(FILE* f)
+static void appendLogcatTailToFile(FILE* f, size_t byteBudget)
 {
     fprintf(f, "\nSystem log tail (logcat):\n");
-    if (captureLogcatToFile(f, /*fatalOnly=*/false, kFatalCaptureBudget) == 0)
-        fprintf(f, "  (logcat wrote nothing — entries for this pid may have "
-                   "rotated out of logd)\n");
+    size_t bytes = 0;
+    int rawStatus = 0;
+    const CaptureOutcome outcome =
+        captureLogcatToFile(f, /*fatalOnly=*/false, byteBudget, &bytes, &rawStatus);
+    writeCaptureMarker(f, outcome, bytes, byteBudget, rawStatus);
 }
 #endif
 
@@ -372,7 +523,7 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     if (!f) return;
 
     // Write crash header
-    fprintf(f, "=== CRASH REPORT ===\n");
+    fprintf(f, "%s\n", kReportStart);
     fprintf(f, "Signal: %d (%s)\n", signal, signalName);
 
     // Get current time (basic, signal-safe-ish)
@@ -389,16 +540,24 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     fprintf(f, "Thread: %lu\n", (unsigned long)GetCurrentThreadId());
 #endif
 
-    // Last debug message
+    // Last debug message, CAPPED. s_lastDebugMessage is char[4096] and holds
+    // whatever the last qDebug was — this app logs profile JSON and HTTP bodies,
+    // so an unbounded copy can spend most of the 5000-char head slice before the
+    // ART capture below has written a byte, and the report ends up looking
+    // exactly like #1745 again. The first line is the part that has ever been
+    // diagnostic (in #1745 it named the screensaver transition count).
     if (s_lastDebugMessage[0] != '\0') {
-        fprintf(f, "\nLast debug message:\n  %s\n", s_lastDebugMessage);
+        constexpr int kLastMessageMax = 512;
+        fprintf(f, "\nLast debug message:\n  %.*s%s\n",
+                kLastMessageMax, s_lastDebugMessage,
+                s_lastDebugMessage[kLastMessageMax] != '\0' ? " …(truncated)" : "");
     }
 
 #ifdef Q_OS_ANDROID
     // Ahead of the backtrace: see appendArtAbortMessageToFile(). Only into
     // crash.log (which becomes the report's "Crash Log" section) — not into the
     // debug.log copy below, whose tail is submitted separately.
-    const bool artAborted = appendArtAbortMessageToFile(f);
+    const CaptureOutcome artOutcome = appendArtAbortMessageToFile(f);
 #endif
 
     // Write backtrace
@@ -409,14 +568,21 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
 #endif
 
 #ifdef Q_OS_ANDROID
-    // Only when ART did not explain itself. An ART abort has already spent the
-    // budget on the fatal block, and the unfiltered tail there is the thread
-    // dump that #1745 wasted its whole report on.
-    if (!artAborted)
-        appendLogcatTailToFile(f);
+    // Only when ART ran and had nothing to say. Skipped when ART DID explain
+    // itself (the budget is spent, and the unfiltered tail there is the thread
+    // dump #1745 wasted its whole report on) and equally when the capture
+    // FAILED — the fallback runs the same binary the same way, so it would fail
+    // identically and stack a second, contradictory marker under the first.
+    //
+    // Smaller budget than the fatal pass: on this path the backtrace above has
+    // already spent ~4100 chars, so on a 5000-char comment only a few hundred
+    // survive submission anyway, and every byte here is also up to 3s of
+    // signal-handler time on a machine that may be mid-shot.
+    if (artOutcome == CaptureOutcome::NoEntries)
+        appendLogcatTailToFile(f, 1500);
 #endif
 
-    fprintf(f, "\n=== END CRASH REPORT ===\n");
+    fprintf(f, "\n%s\n", kReportEnd);
     fflush(f);
     fclose(f);
 
@@ -424,7 +590,7 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     if (s_debugLogPath[0] != '\0') {
         FILE* debugLog = fopen(s_debugLogPath, "a");
         if (debugLog) {
-            fprintf(debugLog, "\n\n=== CRASH REPORT ===\n");
+            fprintf(debugLog, "\n\n%s\n", kReportStart);
             fprintf(debugLog, "Signal: %d (%s)\n", signal, signalName);
             fprintf(debugLog, "Time: %s", ctime(&now));
             if (s_lastDebugMessage[0] != '\0') {
@@ -433,7 +599,13 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
 #if defined(Q_OS_ANDROID) || defined(Q_OS_LINUX) || defined(Q_OS_WIN) || defined(Q_OS_MACOS) || defined(Q_OS_IOS)
             writeBacktraceToFile(debugLog);
 #endif
-            fprintf(debugLog, "\n=== END CRASH REPORT ===\n");
+            // Flushed BEFORE the end marker as well as after: writeBacktrace
+            // runs dladdr and __cxa_demangle (which mallocs) from a signal
+            // handler on a possibly-corrupt heap, so a second fault in there
+            // would leave a start marker with no end — and getDebugLogTail()
+            // treats that as "everything after is report text". It recovers now
+            // (see the EOF handling there), but losing less is better.
+            fprintf(debugLog, "\n%s\n", kReportEnd);
             fflush(debugLog);
             fclose(debugLog);
         }
@@ -472,8 +644,18 @@ void CrashHandler::install()
     QByteArray pathBytes = logPath.toUtf8();
     strncpy(s_crashLogPath, pathBytes.constData(), sizeof(s_crashLogPath) - 1);
 
-    // Also set up debug.log path for persistent crash logging
-    QString debugPath = dataPath + "/debug.log";
+    // Also set up debug.log path for persistent crash logging.
+    //
+    // DecenzaPaths::logsDirectory(), not dataPath — they differ on Android, and
+    // getting it wrong made this file a SECOND debug.log that only this class
+    // ever wrote to. WebDebugLogger puts every line of app narrative in
+    // logsDirectory()/debug.log (external storage, so a user can retrieve it);
+    // this used to append crash reports to AppDataLocation/debug.log, whose
+    // entire content was therefore crash reports. That is why the debug tail
+    // submitted with #1745 was one stale report and no narrative — not a
+    // missing filter, the wrong file. logpaths.h:22-26 exists to stop exactly
+    // this second copy quietly falling back to AppDataLocation.
+    QString debugPath = DecenzaPaths::logsDirectory() + "/debug.log";
     QByteArray debugPathBytes = debugPath.toUtf8();
     strncpy(s_debugLogPath, debugPathBytes.constData(), sizeof(s_debugLogPath) - 1);
 
@@ -596,9 +778,9 @@ QString CrashHandler::getDebugLogTail(int lines)
 {
     QString debugPath = QString::fromUtf8(s_debugLogPath);
     if (debugPath.isEmpty()) {
-        // Fallback if install() wasn't called yet
-        QString dataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-        debugPath = dataPath + "/debug.log";
+        // Fallback if install() wasn't called yet. Must resolve the same way
+        // install() does — see the note there on the two-debug.log bug.
+        debugPath = DecenzaPaths::logsDirectory() + "/debug.log";
     }
 
     QFile file(debugPath);
@@ -608,39 +790,72 @@ QString CrashHandler::getDebugLogTail(int lines)
 
     // Read all lines, dropping any crash-report block.
     //
-    // This tail is submitted as its own field (debugLogTail, sliced to 5000
-    // chars server-side) to answer a question the crash log cannot: what the
-    // app was doing before it died. Crash-report text in here answers nothing,
-    // because the same text is already being submitted as crashLog.
+    // This tail is submitted as its own field to answer a question the crash log
+    // cannot: what the app was doing before it died. Crash-report text in here
+    // answers nothing, because the same text is already submitted as crashLog.
+    // (Budget note: the server slices debugLogTail to 5000 chars when OPENING an
+    // issue and drops the field entirely when commenting on an existing one —
+    // see the table in this file's capture section.)
     //
-    // Two writers put it there, and both land at the very end of debug.log —
-    // exactly where this tail reads:
-    //   - writeCrashLog() appends the whole report for persistence, at crash
-    //     time, so it is the last thing in the file;
-    //   - main.cpp re-logs the previous run's crash log at startup (a single
-    //     qWarning record, so only its first line carries a log prefix).
-    // In #1745 the result was a 5000-char debug tail containing one stale crash
-    // report and not a single line of app narrative.
-    static const QLatin1String kBlockStart("=== CRASH REPORT ===");
-    static const QLatin1String kBlockEnd("=== END CRASH REPORT ===");
+    // Three writers put report text in this file:
+    //   - writeCrashLog() appends the whole report at crash time;
+    //   - main.cpp re-logs the previous run's crash log at startup, as THREE
+    //     qWarning records: "=== PREVIOUS CRASH DETECTED ===", then the report
+    //     body as one noquote record, then a standalone end marker. So the body's
+    //     interior lines carry no log prefix while the markers around it do —
+    //     which is why the match below is not anchored to the start of a line.
+    // main.cpp's trailing standalone end marker is LOAD-BEARING, not redundant:
+    // it closes a crash.log whose own end marker never made it to disk.
+    const QLatin1String kBlockStart(kReportStart);
+    const QLatin1String kBlockEnd(kReportEnd);
 
     QStringList allLines;
+    QStringList blockLines;   // held while inside a block, restored if it never closes
     bool insideCrashBlock = false;
+    bool sawAnyStart = false;
     QTextStream stream(&file);
     while (!stream.atEnd()) {
         const QString line = stream.readLine();
         if (line.contains(kBlockEnd)) {
+            // An end marker with no start has two causes, and they need opposite
+            // treatment, so they are told apart by POSITION:
+            //
+            //  - A trim. WebDebugLogger::trimLogFile() keeps the TAIL of the
+            //    file, so it can cut a block's opening line away and leave the
+            //    body and closer behind. Everything read so far is that body and
+            //    must go. This can only ever appear before the first start
+            //    marker, because a trim cuts the head and nothing else.
+            //  - main.cpp's standalone closer, which follows the report body's
+            //    OWN end marker (see above). By then a start has been seen, the
+            //    block is already closed, and the narrative before it is real.
+            if (!insideCrashBlock && !sawAnyStart)
+                allLines.clear();
             insideCrashBlock = false;
+            blockLines.clear();
             continue;
         }
         if (line.contains(kBlockStart)) {
             insideCrashBlock = true;
+            sawAnyStart = true;
+            blockLines.clear();
             continue;
         }
-        if (!insideCrashBlock)
+        if (insideCrashBlock)
+            blockLines.append(line);
+        else
             allLines.append(line);
     }
     file.close();
+
+    // A start marker that never closed. The producer is writeCrashLog()'s
+    // debug.log append, which can die mid-block (it calls dladdr and a
+    // malloc'ing demangler from a signal handler, on the heap that may have
+    // caused the crash). Latching to EOF would drop every line after it — for
+    // this run and every future one, since debug.log is append-mode and
+    // persists — and the empty QString that produced is indistinguishable from
+    // "could not open the file". A degraded tail beats a silent empty one.
+    if (insideCrashBlock)
+        allLines += blockLines;
 
     // Get last N lines
     qsizetype startIndex = qMax(qsizetype(0), allLines.size() - lines);

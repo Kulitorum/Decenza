@@ -14,6 +14,18 @@
 class CrashHandler
 {
 public:
+    /// The markers bracketing a crash report, wherever one is written.
+    ///
+    /// One definition because there are six producers (crash.log's own pair, the
+    /// debug.log copy's pair, and main.cpp's two standalone re-log markers) and
+    /// ONE consumer — getDebugLogTail(), which strips these blocks out of the
+    /// tail it submits. Hand-copied, a writer could be respelled alone and the
+    /// stripper would silently stop matching: the crash-report duplication of
+    /// #1745 returns in full and no test notices, because a fixture spells the
+    /// marker itself rather than asking a writer for it.
+    static constexpr const char* kReportStart = "=== CRASH REPORT ===";
+    static constexpr const char* kReportEnd   = "=== END CRASH REPORT ===";
+
     /// Install signal handlers. Call once at startup.
     static void install();
 
