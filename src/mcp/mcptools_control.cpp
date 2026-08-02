@@ -33,9 +33,14 @@ namespace {
 // profile-taking tool (profiles_delete, profiles_rename, profiles_set_active)
 // already guards the same way.
 //
+// `requireExists` is false for clear_flow_calibration alone: REMOVING a key that
+// names a missing profile is the one operation that should still work, because
+// that is how an orphan written before this check existed gets cleaned up. Reading
+// or writing one is always a mistake.
+//
 // Returns empty on failure with `error` set to the caller-facing reason.
 QString resolveFlowCalProfile(const QJsonObject& args, ProfileManager* profileManager,
-                              QString& error)
+                              QString& error, bool requireExists = true)
 {
     QString filename = args["profileFilename"].toString();
     if (filename.isEmpty() && profileManager)
@@ -46,7 +51,7 @@ QString resolveFlowCalProfile(const QJsonObject& args, ProfileManager* profileMa
     }
     // A null ProfileManager (test harnesses) leaves nothing to validate against.
     // Resolve without the check rather than refusing every call.
-    if (profileManager && !profileManager->profileExists(filename)) {
+    if (requireExists && profileManager && !profileManager->profileExists(filename)) {
         error = QStringLiteral("Profile not found: ") + filename
               + QStringLiteral(" (expected a filename without the .json extension)");
         return QString();
@@ -422,7 +427,10 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
     registry->registerTool(
         "clear_flow_calibration",
         "Clear the per-profile flow calibration multiplier. The calibration will be re-learned "
-        "from subsequent shots. If no profile is specified, clears for the current profile.",
+        "from subsequent shots. If no profile is specified, clears for the current profile. "
+        "Accepts a profile that no longer exists, so an orphan entry reported by "
+        "get_flow_calibration allProfiles=true can be removed; `hadCalibration` says whether "
+        "anything was actually stored under that name.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
             {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename, without the .json extension, to clear calibration for (defaults to current profile)"}}},
             // Undeclared until now, which made the tool UNCALLABLE from a client that
@@ -438,14 +446,24 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 return result;
             }
             QString resolveError;
-            QString filename = resolveFlowCalProfile(args, profileManager, resolveError);
+            QString filename = resolveFlowCalProfile(args, profileManager, resolveError,
+                                                     /*requireExists=*/false);
             if (filename.isEmpty()) {
                 result["error"] = resolveError;
                 return result;
             }
+            // Reported rather than treated as an error: clearing an already-clear
+            // profile is not a failure, but a caller that believed it was removing
+            // something should be able to tell that nothing was there.
+            const bool hadCalibration =
+                settings->calibration()->profileFlowCalibration(filename) > 0.0;
             settings->calibration()->clearProfileFlowCalibration(filename);
             result["success"] = true;
-            result["message"] = "Flow calibration cleared for " + filename;
+            result["profileFilename"] = filename;
+            result["hadCalibration"] = hadCalibration;
+            result["message"] = hadCalibration
+                ? "Flow calibration cleared for " + filename
+                : "No flow calibration was stored for " + filename + "; nothing to clear";
             return result;
         },
         "settings");
@@ -459,9 +477,13 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
         "written by set_flow_calibration), the global fallback, and which of the two is "
         "actually in effect — they differ whenever auto calibration is off, because that "
         "switch makes the machine use the global value and ignore every per-profile one. "
-        "Defaults to the current profile.",
+        "Defaults to the current profile. Pass allProfiles=true instead to list every "
+        "profile that has a stored calibration, which is the only way to answer \"which "
+        "profiles are calibrated?\" — the per-profile answer cannot be probed by guessing "
+        "names, since an unknown name is rejected.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
-            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename, without the .json extension, to read calibration for (defaults to current profile)"}}}
+            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename, without the .json extension, to read calibration for (defaults to current profile)"}}},
+            {"allProfiles", QJsonObject{{"type", "boolean"}, {"description", "List every profile with a stored calibration instead of reading one. Ignores profileFilename."}}}
         }}},
         [settings, profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
@@ -469,31 +491,77 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 result["error"] = "Settings not available";
                 return result;
             }
+            SettingsCalibration* calibration = settings->calibration();
+
+            if (args["allProfiles"].toBool()) {
+                // Whole-map listing. Deliberately does NOT resolve or validate a
+                // profile name: this is the branch a caller reaches for when it does
+                // not know the names, and it is also the only place an ORPHAN entry
+                // is visible — a key written before resolveFlowCalProfile() started
+                // rejecting unknown names, which no reader will ever look up.
+                const QJsonObject map = calibration->allProfileFlowCalibrations();
+                const bool listAutoOn = calibration->autoFlowCalibration();
+                QJsonArray profiles;
+                int orphanCount = 0;
+                for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+                    const bool exists = !profileManager || profileManager->profileExists(it.key());
+                    if (!exists) ++orphanCount;
+                    profiles.append(QJsonObject{
+                        {"profileFilename", it.key()},
+                        {"multiplier", it.value().toDouble()},
+                        {"profileExists", exists},
+                        {"pendingAutoCalShots",
+                         static_cast<int>(calibration->flowCalPendingIdeals(it.key()).size())}
+                    });
+                }
+                result["profiles"] = profiles;
+                result["profileCount"] = profiles.size();
+                result["orphanCount"] = orphanCount;
+                result["globalMultiplier"] = calibration->flowCalibrationMultiplier();
+                result["autoFlowCalibration"] = listAutoOn;
+                result["autoCalBatchSize"] = static_cast<int>(SettingsCalibration::kFlowCalBatchSize);
+                // Every entry is inert while auto calibration is off, so say it once
+                // here rather than repeating an "inEffect: false" on every row.
+                result["state"] = listAutoOn
+                    ? QString("%1 profile(s) have a stored flow calibration; each is in effect "
+                              "when that profile is loaded.").arg(profiles.size())
+                    : QString("%1 profile(s) have a stored flow calibration, but auto calibration "
+                              "is OFF, so none of them is in effect — the machine uses the global "
+                              "multiplier %2 for every profile.")
+                          .arg(profiles.size()).arg(calibration->flowCalibrationMultiplier());
+                if (orphanCount > 0) {
+                    result["orphanNote"] =
+                        QString("%1 entry/entries name a profile that no longer exists. They are "
+                                "never read; clear_flow_calibration removes one by name.")
+                            .arg(orphanCount);
+                }
+                return result;
+            }
+
             QString resolveError;
             QString filename = resolveFlowCalProfile(args, profileManager, resolveError);
             if (filename.isEmpty()) {
                 result["error"] = resolveError;
                 return result;
             }
-            SettingsCalibration* cal = settings->calibration();
             // profileFlowCalibration() returns 0.0 for "not stored" — unlike
             // hasProfileFlowCalibration(), which reports false whenever auto
             // calibration is off, even with a value on disk. Report the stored
             // fact and the auto-calibration switch separately so a caller can
             // tell "never learned" from "learned but currently ignored".
-            const double perProfile = cal->profileFlowCalibration(filename);
+            const double perProfile = calibration->profileFlowCalibration(filename);
             const bool hasPerProfile = perProfile > 0.0;
-            const bool autoOn = cal->autoFlowCalibration();
+            const bool autoOn = calibration->autoFlowCalibration();
             result["profileFilename"] = filename;
             result["hasPerProfileMultiplier"] = hasPerProfile;
             if (hasPerProfile) result["perProfileMultiplier"] = perProfile;
-            result["globalMultiplier"] = cal->flowCalibrationMultiplier();
-            result["effectiveMultiplier"] = cal->effectiveFlowCalibration(filename);
+            result["globalMultiplier"] = calibration->flowCalibrationMultiplier();
+            result["effectiveMultiplier"] = calibration->effectiveFlowCalibration(filename);
             result["effectiveSource"] = (autoOn && hasPerProfile) ? "perProfile" : "global";
             result["autoFlowCalibration"] = autoOn;
             // Auto calibration updates the stored value only on a full batch, so a
             // partial batch explains a value that has not moved for several shots.
-            const int pending = static_cast<int>(cal->flowCalPendingIdeals(filename).size());
+            const int pending = static_cast<int>(calibration->flowCalPendingIdeals(filename).size());
             result["pendingAutoCalShots"] = pending;
             result["autoCalBatchSize"] = static_cast<int>(SettingsCalibration::kFlowCalBatchSize);
 
@@ -507,15 +575,15 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                     ? QString("Auto calibration is OFF, so %1 uses the global multiplier %2. A "
                               "per-profile value of %3 is stored but ignored until auto "
                               "calibration is turned back on.")
-                          .arg(filename).arg(cal->flowCalibrationMultiplier()).arg(perProfile)
+                          .arg(filename).arg(calibration->flowCalibrationMultiplier()).arg(perProfile)
                     : QString("Auto calibration is OFF, so %1 uses the global multiplier %2. No "
                               "per-profile value is stored.")
-                          .arg(filename).arg(cal->flowCalibrationMultiplier());
+                          .arg(filename).arg(calibration->flowCalibrationMultiplier());
             } else if (!hasPerProfile) {
                 state = QString("Auto calibration is on but has not committed a value for %1 yet, "
                                 "so it falls back to the global multiplier %2. %3 of %4 shots "
                                 "collected toward the first update.")
-                            .arg(filename).arg(cal->flowCalibrationMultiplier())
+                            .arg(filename).arg(calibration->flowCalibrationMultiplier())
                             .arg(pending).arg(SettingsCalibration::kFlowCalBatchSize);
             } else {
                 state = QString("%1 is calibrated at %2 (per-profile, in effect). Auto calibration "
