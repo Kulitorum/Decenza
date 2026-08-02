@@ -1,11 +1,14 @@
 #include <QtTest>
 #include <QDateTime>
+#include <QDir>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QRegularExpression>
 #include <QSet>
 #include <QTextStream>
 
+#include "core/crashhandler.h"
 #include "mcp/mcplogfilter.h"
 #include "network/webdebuglogger.h"
 
@@ -27,8 +30,32 @@ class tst_WebDebugLogger : public QObject {
         QTextStream(&f) << content;
     }
 
+    // Writes `content` where CrashHandler::getDebugLogTail() will look for it.
+    // Test mode (enabled for the whole run in initTestCase) redirects
+    // AppDataLocation — and hence DecenzaPaths::logsDirectory()'s desktop answer
+    // — under ~/.qttest, scoped by this binary's name, so neither a parallel
+    // ctest run nor the developer's real log is touched.
+    static void writeDebugLog(const QString& content)
+    {
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        QVERIFY2(QDir().mkpath(dir), "failed to create test app-data directory");
+        writeFile(dir + "/debug.log", content);
+    }
+
+    // Asked of CrashHandler rather than spelled out, so a respelt marker fails
+    // these tests instead of silently disabling the strip in production.
+    static QString startMarker() { return QString::fromLatin1(CrashHandler::kReportStart); }
+    static QString endMarker()   { return QString::fromLatin1(CrashHandler::kReportEnd); }
+
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    // Enabled once for the whole run rather than per slot: a QVERIFY failure
+    // returns from the slot immediately, so a per-slot disable is skipped on
+    // exactly the run where it matters and leaks a process-global path
+    // redirection into whatever executes next.
+    void initTestCase() { QStandardPaths::setTestModeEnabled(true); }
+    void cleanupTestCase() { QStandardPaths::setTestModeEnabled(false); }
 
     void sessionIndex_findsBoundariesAndCounts()
     {
@@ -649,6 +676,133 @@ private slots:
         QCOMPARE(all.size(), 2);
         QVERIFY(all[0].contains(QStringLiteral("first")));
         QVERIFY(all[1].contains(QStringLiteral("from the slot")));
+    }
+
+    // ---- CrashHandler::getDebugLogTail() ----------------------------------
+    //
+    // Same debug.log this class writes: both resolve DecenzaPaths::logsDirectory()
+    // (they did NOT before #1746 — CrashHandler used AppDataLocation, which on
+    // Android is a different file whose only content was crash reports, which is
+    // why #1745's submitted tail had no app narrative in it at all).
+    //
+    // The tail's job is to say what the app was doing before it died. Crash-report
+    // text in it is pure duplicate — the same text ships as crashLog — so these
+    // blocks are stripped. Fixtures below use CrashHandler's own marker constants
+    // rather than spelling them, so a respelt marker fails here instead of
+    // silently disabling the strip in production.
+
+    void debugLogTail_dropsTheCrashReportBlock()
+    {
+        writeDebugLog(
+            "[   0.100] INFO  app line one\n"
+            "[   0.200] INFO  app line two\n"
+            "\n"
+            + startMarker() + "\n"
+            "Signal: 6 (SIGABRT (Abort))\n"
+            "Backtrace (29 frames):\n"
+            "  #0: 0x6f925a7490\n"
+            + endMarker() + "\n");
+
+        const QString tail = CrashHandler::getDebugLogTail(50);
+
+        QVERIFY(tail.contains(QStringLiteral("app line one")));
+        QVERIFY(tail.contains(QStringLiteral("app line two")));
+        QVERIFY(!tail.contains(QStringLiteral("SIGABRT")));
+        QVERIFY(!tail.contains(QStringLiteral("Backtrace")));
+        QVERIFY(!tail.contains(QStringLiteral("CRASH REPORT")));
+    }
+
+    // The startup re-log's real on-disk shape, which is NOT one record: main.cpp
+    // emits "=== PREVIOUS CRASH DETECTED ===", then the report body as one
+    // noquote record, then a standalone end marker. So the body's interior lines
+    // carry no log prefix while the markers around it do, and the body brings its
+    // own unprefixed end marker along. Matching anywhere in the line, rather than
+    // at its start, is what makes that strippable.
+    void debugLogTail_dropsAPrefixedCrashReportBlock()
+    {
+        writeDebugLog(
+            "[   0.100] INFO  app line one\n"
+            "[   0.200] WARN  " + startMarker() + "\n"
+            "Signal: 11 (SIGSEGV (Segmentation fault))\n"
+            + endMarker() + "\n"                                  // body's own, unprefixed
+            "[   0.300] WARN  " + endMarker() + "\n"              // main.cpp's standalone
+            "[   0.400] INFO  app line after\n");
+
+        const QString tail = CrashHandler::getDebugLogTail(50);
+
+        QVERIFY(tail.contains(QStringLiteral("app line one")));
+        QVERIFY(tail.contains(QStringLiteral("app line after")));
+        QVERIFY(!tail.contains(QStringLiteral("SIGSEGV")));
+        QVERIFY(!tail.contains(QStringLiteral("CRASH REPORT")));
+    }
+
+    // A block that never closes must not swallow the file. writeCrashLog()'s
+    // debug.log append can die mid-block — it demangles from a signal handler on
+    // the heap that may have caused the crash — and debug.log is append-mode, so
+    // latching to EOF would blank the tail for that run AND every later one. The
+    // empty QString that produced is also what "could not open the file" returns,
+    // so the failure would be unattributable at the far end.
+    void debugLogTail_survivesAnUnterminatedBlock()
+    {
+        writeDebugLog(
+            "[   0.100] INFO  app line one\n"
+            + startMarker() + "\n"
+            "Signal: 6 (SIGABRT (Abort))\n"
+            "  #0: 0x6f925a7490\n");   // died here — no end marker
+
+        const QString tail = CrashHandler::getDebugLogTail(50);
+
+        QVERIFY(!tail.isEmpty());
+        QVERIFY(tail.contains(QStringLiteral("app line one")));
+    }
+
+    // WebDebugLogger::trimLogFile() keeps the TAIL of the file, so a trim can cut
+    // a block's opening line away and leave its body and closer behind. Read
+    // naively, that orphan body is exactly the report text this function exists
+    // to remove — reappearing in the one situation that produces it, a debug.log
+    // big enough to have been trimmed.
+    //
+    // Told apart from main.cpp's standalone closer by position, not by shape:
+    // a trim cuts the head, so a headless body can only precede the first start
+    // marker. The slot above covers the other side of that rule — get it wrong
+    // and the redundant closer wipes the narrative before it.
+    void debugLogTail_dropsABlockWhoseStartWasTrimmedAway()
+    {
+        writeDebugLog(
+            "Backtrace (29 frames):\n"          // orphaned body, start marker trimmed off
+            "  #0: 0x6f925a7490\n"
+            "Signal: 6 (SIGABRT (Abort))\n"
+            + endMarker() + "\n"
+            "[   0.400] INFO  app line after\n");
+
+        const QString tail = CrashHandler::getDebugLogTail(50);
+
+        QVERIFY(tail.contains(QStringLiteral("app line after")));
+        QVERIFY(!tail.contains(QStringLiteral("SIGABRT")));
+        QVERIFY(!tail.contains(QStringLiteral("Backtrace")));
+    }
+
+    // The strip must run BEFORE the last-N slice, not after. Stripping after
+    // would spend the caller's line budget on crash text and hand back a nearly
+    // empty tail — which is #1745's symptom precisely, and which the small
+    // fixtures above cannot see because they never reach the budget at all.
+    void debugLogTail_spendsItsLineBudgetOnNarrativeNotCrashText()
+    {
+        QString content;
+        for (int i = 0; i < 60; ++i)
+            content += QStringLiteral("[   0.%1] INFO  narrative line %2\n")
+                           .arg(i, 3, 10, QLatin1Char('0')).arg(i);
+        content += startMarker() + "\n";
+        for (int i = 0; i < 40; ++i)
+            content += QStringLiteral("  #%1: 0x6f925a7490\n").arg(i);
+        content += endMarker() + "\n";
+        writeDebugLog(content);
+
+        const QStringList tail = CrashHandler::getDebugLogTail(50).split('\n');
+
+        QCOMPARE(tail.size(), 50);
+        QCOMPARE(tail.first(), QStringLiteral("[   0.010] INFO  narrative line 10"));
+        QCOMPARE(tail.last(), QStringLiteral("[   0.059] INFO  narrative line 59"));
     }
 };
 

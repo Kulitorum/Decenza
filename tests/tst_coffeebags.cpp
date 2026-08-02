@@ -846,6 +846,11 @@ private slots:
         QCOMPARE(updated.at(3).at(1).toBool(), false);
         QCOMPARE(finished.count(), 1);
         QCOMPARE(restocked.count(), 1);
+
+        // The signal counts above are delivered from the task body, which runs
+        // before the worker's outstanding count drops — so the last update can
+        // still be in flight when this slot returns.
+        drainDbWork(storage);
     }
 
     void migration24AddsSyncPendingColumn() {
@@ -1924,6 +1929,14 @@ private slots:
         // And clearing the bag drops to the profile.
         dye.setActiveBagId(-1);
         QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Profile);
+
+        // setActiveBagId posts TWO tasks (settings_dye.cpp): requestBag, whose
+        // bagReady resolves the rung above, and requestTouchLastUsed, which
+        // nothing waits on. Draining on doseLadderResolved() therefore leaves
+        // the touch write queued, and ~SerialDbWorker discards and warns about
+        // it under failOnWarning — intermittently, since the write usually wins
+        // the race with the destructor.
+        drainDbWork(storage);
     }
 
     // Selecting a source is not the same as knowing what it designs: both rows
@@ -1984,6 +1997,9 @@ private slots:
         QVERIFY(dye.doseLadderResolved());
         dye.setActiveBagId(-1);
         QVERIFY(dye.doseLadderResolved());
+
+        // Same unwaited requestTouchLastUsed as settingsDyeDoseLadder.
+        drainDbWork(storage);
     }
 
     // setActiveBagKeepFields is the shot-replay path: it adopts the bag link
@@ -2013,6 +2029,10 @@ private slots:
         // the caller — but the rung knows the bag has one.
         QCOMPARE(dye.dyeBeanWeight(), 21.0);
         QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Bag);
+
+        // setActiveBagKeepFields posts the same requestBag + requestTouchLastUsed
+        // pair, and only the first is waited on above.
+        drainDbWork(storage);
     }
 
     // SettingsDye is the equipment switch + dual-write-through orchestrator
@@ -2045,9 +2065,14 @@ private slots:
 
         // Select the bag and let its async apply settle (applyActiveBag sets
         // activeEquipmentId from the bag's equipment_id, which would otherwise
-        // race the switch below).
+        // race the switch below). Wait on the WORK, not on a duration: idle is
+        // false until run()'s done callback has been delivered on this thread,
+        // which is what applyActiveBag runs from — and it also covers the
+        // requestTouchLastUsed that setActiveBagId posts behind requestBag. The
+        // 400 ms fixed loop this replaces was the "timers as guards" pattern
+        // CLAUDE.md forbids, and isDbWorkIdle() exists precisely to retire it.
         dye.setActiveBagId(static_cast<int>(bagId));
-        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
+        drainDbWork(bagStorage);
 
         // Switch equipment: identity + last dial applied synchronously from the map.
         QVariantMap pkg;
