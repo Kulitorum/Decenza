@@ -277,6 +277,78 @@ private slots:
                  "a recipe_id whose row is gone must not be emitted");
         QVERIFY2(!dangling.contains("recipeName"), "nor an empty recipeName beside it");
     }
+
+    // ===== shots_compare names the ids it could not resolve =====
+    //
+    // It used to return only the shots it resolved, so a caller could detect the
+    // loss only by comparing counts and could never learn WHICH id was bad.
+
+    void shotsCompareNamesUnresolvedIds() {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("cmp.db")));
+        registerShotTools(&f.registry, &storage);
+
+        qint64 a = -1, b = -1;
+        withTempDb(storage.databasePath(), "cmp_seed", [&](QSqlDatabase& db) {
+            a = insertShotWithDebugLog(db, QStringLiteral("one"));
+            b = insertShotWithDebugLog(db, QStringLiteral("two"));
+        });
+        QVERIFY(a > 0 && b > 0);
+
+        // Storage logs each id it could not load. That warning IS the mechanism
+        // under test, not a fault.
+        ScopedWarningFilter missingShotFilter("loadShotRecordStatic: Shot not found");
+
+        QJsonObject result = f.callAsyncTool("shots_compare",
+            QJsonObject{{"shotIds", QJsonArray{a, b, 99999}}});
+
+        QCOMPARE(result["count"].toInt(), 2);
+        const QJsonArray unresolved = result["unresolvedShotIds"].toArray();
+        QCOMPARE(unresolved.size(), 1);
+        QCOMPARE(unresolved[0].toInteger(), (qint64)99999);
+    }
+
+    void shotsCompareAllUnresolvedIsAnError() {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("cmp2.db")));
+        registerShotTools(&f.registry, &storage);
+
+        // Storage logs each id it could not load. That warning IS the mechanism
+        // under test, not a fault.
+        ScopedWarningFilter missingShotFilter("loadShotRecordStatic: Shot not found");
+
+        QJsonObject result = f.callAsyncTool("shots_compare",
+            QJsonObject{{"shotIds", QJsonArray{99998, 99999}}});
+
+        QVERIFY2(result.contains("error"),
+                 "comparing nothing is not a successful comparison of nothing");
+        QVERIFY(!result.contains("shots"));
+    }
+
+    void shotsCompareWithAllIdsResolvingCarriesNoUnresolvedKey() {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("cmp3.db")));
+        registerShotTools(&f.registry, &storage);
+
+        qint64 a = -1, b = -1;
+        withTempDb(storage.databasePath(), "cmp3_seed", [&](QSqlDatabase& db) {
+            a = insertShotWithDebugLog(db, QStringLiteral("one"));
+            b = insertShotWithDebugLog(db, QStringLiteral("two"));
+        });
+        QVERIFY(a > 0 && b > 0);
+
+        // No warning filter here on purpose: every id resolves, so nothing should
+        // warn, and failOnWarning is the assertion that says so.
+        QJsonObject result = f.callAsyncTool("shots_compare",
+            QJsonObject{{"shotIds", QJsonArray{a, b}}});
+
+        QCOMPARE(result["count"].toInt(), 2);
+        QVERIFY2(!result.contains("unresolvedShotIds"),
+                 "a clean comparison must not carry an empty unresolved array");
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_McpToolsShotsDebugLog)

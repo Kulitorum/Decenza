@@ -101,6 +101,13 @@ private:
     // JSON-RPC dispatch
     QJsonObject handleJsonRpc(const QJsonObject& request, McpSession* session,
                               QTcpSocket* socket, const QVariant& requestId);
+    // A POST body that is a JSON array. Required of every server by the
+    // 2024-11-05 and 2025-03-26 base protocols, both of which we still
+    // negotiate. Answers with an array of the responses for `id`-bearing
+    // elements, or 202 when the batch is all notifications.
+    void handleJsonRpcBatch(QTcpSocket* socket, const QJsonArray& batch,
+                            const QString& sessionHeader, const QString& protocolHeader,
+                            bool remote);
     QJsonObject handleInitialize(const QJsonObject& params, McpSession* session);
     QJsonObject handleToolsList(const QJsonObject& params, McpSession* session);
     QJsonObject handleToolsCall(const QJsonObject& params, McpSession* session,
@@ -111,10 +118,29 @@ private:
     QJsonObject handleResourcesSubscribe(const QJsonObject& params, McpSession* session);
     QJsonObject handleResourcesUnsubscribe(const QJsonObject& params, McpSession* session);
 
+    // Which session serves one JSON-RPC message, and why it can't be served if
+    // it can't. The helper deliberately writes NOTHING to the socket: a
+    // single-message POST and one element of a batch reach the same decision but
+    // emit it differently — an HTTP status answers the whole request, a JSON-RPC
+    // error fills one array slot — so the two callers do the emitting.
+    struct SessionResolution {
+        McpSession* session = nullptr;
+        int httpStatus = 0;        // non-zero → answer at the HTTP level, no JSON-RPC body
+        QByteArray httpBody;
+        int rpcErrorCode = 0;      // non-zero → this message gets a JSON-RPC error
+        QString rpcErrorMessage;
+    };
+    SessionResolution resolveSessionForMessage(const QJsonObject& request,
+                                               const QString& sessionHeader,
+                                               const QString& protocolHeader);
+
     // Session management
     McpSession* findOrCreateSession(const QString& sessionHeader);
     McpSession* findSession(const QString& sessionId);
     void cleanupExpiredSessions();
+    // Remember a session ID the server itself ended, so later requests carrying
+    // it get 404 rather than the auto-recovery path.
+    void recordTerminatedSession(const QString& sessionId);
     // Count of stateful (live-SSE) sessions. Only these occupy a durable slot,
     // so the MaxSessions cap is measured against this — not m_sessions.size() —
     // to keep ephemeral per-request clients (cloud connectors) from exhausting
@@ -173,6 +199,23 @@ private:
     QHash<QString, McpSession*> m_sessions;
     QTimer* m_cleanupTimer;
 
+    // Session IDs this server ended itself — by DELETE, or by the expiry reaper.
+    // A later request carrying one gets HTTP 404, which is what tells a client to
+    // re-initialize (MUST, 2025-03-26 onward). Oldest first.
+    //
+    // Bounded because the alternative grows with every session the app ever had,
+    // for the whole process lifetime. Eviction is safe in a way that is worth
+    // stating: an evicted ID stops being "terminated" and becomes merely
+    // unrecognized, so it falls back to the pre-existing auto-recovery path —
+    // more permissive than the spec, but the behaviour that shipped for a year,
+    // not a new failure mode.
+    QList<QString> m_terminatedSessions;
+
+    // Monotonic SSE event ID (2025-11-25 SHOULD). One counter for the whole
+    // server run: the spec asks for uniqueness within a session, and unique
+    // across the process satisfies that for every session at once.
+    quint64 m_sseEventId = 0;
+
     // Rate limiting
     QTimer* m_rateLimitTimer;
 
@@ -211,6 +254,10 @@ private:
     // above any legitimate churn so it only ever trims a runaway/malicious peer.
     static constexpr int MaxTotalSessions = 128;
     static constexpr int MaxSseConnections = 4;
+    // Ceiling on remembered terminated session IDs. Far above any real client's
+    // session churn between app restarts (a session lives 30 idle minutes and a
+    // client holds one at a time), and ~10 KB at the cap.
+    static constexpr int MaxTerminatedSessions = 256;
     static constexpr int SessionTimeoutMinutes = 30;  // idle-session cleanup; runs every 60s on m_cleanupTimer and again opportunistically when a new session is created
     static constexpr int RateLimitPerMinute = 60;
 };

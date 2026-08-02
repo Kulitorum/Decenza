@@ -279,6 +279,16 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
         [mainController](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             auto* tracker = mainController ? mainController->steamHealthTracker() : nullptr;
+            if (!tracker) {
+                // Without a tracker every field below is default-constructed, and
+                // `status` comes out as "" — unreadable, and a violation of the
+                // human-readable-enum convention on its own. Distinct from
+                // `hasData: false`, which means the tracker is there and has seen
+                // no steam sessions yet. Keep the two apart: one is "ask again
+                // after you steam", the other is "this app cannot answer".
+                result["error"] = "Steam health tracker not available";
+                return result;
+            }
             auto info = computeSteamHealth(tracker);
 
             result["hasData"] = info.hasData;
@@ -286,14 +296,12 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             result["status"] = info.status;
             result["recommendation"] = info.recommendation;
 
-            if (tracker) {
-                result["baselinePressureBar"] = tracker->baselinePressure();
-                result["currentPressureBar"] = tracker->currentPressure();
-                result["pressureThresholdBar"] = tracker->pressureThreshold();
-                result["baselineTemperatureC"] = tracker->baselineTemperature();
-                result["currentTemperatureC"] = tracker->currentTemperature();
-                result["temperatureThresholdC"] = tracker->temperatureThreshold();
-            }
+            result["baselinePressureBar"] = tracker->baselinePressure();
+            result["currentPressureBar"] = tracker->currentPressure();
+            result["pressureThresholdBar"] = tracker->pressureThreshold();
+            result["baselineTemperatureC"] = tracker->baselineTemperature();
+            result["currentTemperatureC"] = tracker->currentTemperature();
+            result["temperatureThresholdC"] = tracker->temperatureThreshold();
 
             if (info.hasData) {
                 result["pressureRestrictionProgress0to1"] = info.pressureProgress;

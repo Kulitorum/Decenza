@@ -336,7 +336,15 @@ public:
     void applyFlowCalibration();
 
 public slots:
-    void loadProfile(const QString& profileName);
+    // Returns whether the REQUESTED profile became the active one. False when it
+    // was refused as unreadable (the previously active profile is kept), and when
+    // no profile of that name was found (the default is loaded instead) — in both
+    // cases the machine is not brewing what the caller asked for.
+    //
+    // Deliberately NOT [[nodiscard]]: the UI callers show the outcome on screen
+    // and legitimately ignore the value, and the annotation would force `(void)`
+    // noise at every one of them. The value exists for MCP, which has no screen.
+    bool loadProfile(const QString& profileName);
     Q_INVOKABLE bool loadProfileFromJson(const QString& jsonContent);
     bool persistCurrentProfile();  // Save to downloaded folder if not already installed (no re-upload)
     void refreshProfiles();

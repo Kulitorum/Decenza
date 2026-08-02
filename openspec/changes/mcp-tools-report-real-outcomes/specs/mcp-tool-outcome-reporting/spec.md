@@ -98,20 +98,23 @@ happen at all.
 
 ### Requirement: A No-Op Is Distinguishable From A Performed Operation
 
-When a tool is asked to perform an operation that is already in the requested
-state, its result SHALL say so in a machine-readable field rather than only in
-prose, and SHALL preserve the parameters the caller supplied. Tools that share
-an underlying state SHALL classify that state the same way as one another.
+When a tool is asked to perform an operation whose requested end state already
+holds, its result SHALL report success — the caller got what it asked for — and
+SHALL say that nothing was done in a machine-readable field rather than only in
+prose. It SHALL preserve the parameters the caller supplied.
+
+A result carrying neither a success indicator nor an `error` SHALL NOT be used
+to signal this state, because it is a third state the caller cannot classify.
 
 #### Scenario: Already connected
 
 - **WHEN** `devices_connect_de1` is called while the requested device is already connected
-- **THEN** the result reports the already-connected state in a machine-readable field and still reports which device the call referred to
+- **THEN** the result reports success, flags the no-op in a machine-readable field, and still reports which device the call referred to
 
 #### Scenario: Nothing to disconnect
 
 - **WHEN** `mqtt_disconnect` is called while MQTT is not connected
-- **THEN** the result classifies that state the same way as the other MQTT tools classify it
+- **THEN** the result reports success and flags the no-op in a machine-readable field, rather than returning a bare message with neither success nor error
 
 ### Requirement: A Tool Reports Unsupported Device Capabilities
 

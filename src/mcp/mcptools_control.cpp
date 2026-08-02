@@ -701,7 +701,12 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 result["error"] = "Theme name is required";
                 return result;
             }
-            settings->theme()->applyPresetTheme(name);
+            if (!settings->theme()->applyPresetTheme(name)) {
+                result["error"] = "No theme named '" + name + "'. Built-in names are "
+                                  "'Default', 'Default Dark' and 'Default Light'; any other "
+                                  "name must match a saved user theme exactly.";
+                return result;
+            }
             result["success"] = true;
             result["message"] = "Applied theme: " + name;
             return result;
@@ -745,11 +750,24 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             }
             MqttClient* mqtt = mainController->mqttClient();
             if (!mqtt->isConnected()) {
-                result["message"] = "Not connected to MQTT broker";
+                // Already in the requested state. Success, not an error — asking
+                // to disconnect something already disconnected got what it asked
+                // for. But it must be DISTINGUISHABLE from a disconnect that ran,
+                // so the no-op is a field, not just a change of wording. This
+                // used to return a bare `message` and neither `success` nor
+                // `error`, which is a third state a model cannot classify.
+                //
+                // `mqtt_publish_discovery` treats the same state as an error, and
+                // that is deliberate: it cannot do its job without a connection,
+                // whereas the job here is already done.
+                result["success"] = true;
+                result["alreadyDisconnected"] = true;
+                result["message"] = "Already disconnected from MQTT broker";
                 return result;
             }
             mqtt->disconnectFromBroker();
             result["success"] = true;
+            result["alreadyDisconnected"] = false;
             result["message"] = "MQTT disconnected";
             return result;
         },

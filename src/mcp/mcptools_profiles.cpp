@@ -49,7 +49,10 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
         },
         [profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
-            if (!profileManager) return result;
+            if (!profileManager) {
+                result["error"] = "Controller not available";
+                return result;
+            }
 
             const QString editorTypeFilter = args.value("editorType").toString();
             const QString nameContains = args.value("nameContains").toString().toLower();
@@ -146,7 +149,10 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [profileManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!profileManager) return result;
+            if (!profileManager) {
+                result["error"] = "Controller not available";
+                return result;
+            }
 
             const QString filename = profileManager->baseProfileName();
             result["filename"] = filename;
@@ -189,7 +195,10 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
         },
         [profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
-            if (!profileManager) return result;
+            if (!profileManager) {
+                result["error"] = "Controller not available";
+                return result;
+            }
 
             QString filename = args["filename"].toString();
             if (filename.isEmpty()) {
@@ -227,7 +236,10 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [profileManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!profileManager) return result;
+            if (!profileManager) {
+                result["error"] = "Controller not available";
+                return result;
+            }
 
             result["filename"] = profileManager->baseProfileName();
             QVariantMap profile = profileManager->getCurrentProfile();

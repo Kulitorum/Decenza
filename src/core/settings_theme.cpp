@@ -1123,7 +1123,7 @@ QVariantList SettingsTheme::getPresetThemes() const {
     return themes;
 }
 
-void SettingsTheme::applyPresetTheme(const QString& name) {
+bool SettingsTheme::applyPresetTheme(const QString& name) {
     if (name == "Default" || name == "Default Dark") {
         // Only reset the dark palette — preserve user's custom light palette
         m_settings.remove("theme/customColorsDark");
@@ -1138,7 +1138,7 @@ void SettingsTheme::applyPresetTheme(const QString& name) {
         } else {
             emit customThemeColorsChanged();  // Palette changed, mode didn't
         }
-        return;
+        return true;
     }
     if (name == "Default Light") {
         // Only reset the light palette — preserve user's custom dark palette
@@ -1154,7 +1154,7 @@ void SettingsTheme::applyPresetTheme(const QString& name) {
         } else {
             emit customThemeColorsChanged();  // Palette changed, mode didn't
         }
-        return;
+        return true;
     }
 
     // Look for user theme
@@ -1188,9 +1188,14 @@ void SettingsTheme::applyPresetTheme(const QString& name) {
             setLightThemeName(name);
             clearBackgroundPreset("a theme was applied, and it carries its own background colour");
             emit customThemeColorsChanged();
-            return;
+            return true;
         }
     }
+
+    // Neither a built-in name nor any saved user theme matched. Nothing was
+    // applied — falling off the end here used to be indistinguishable from
+    // success to every caller.
+    return false;
 }
 
 void SettingsTheme::saveCurrentTheme(const QString& name) {

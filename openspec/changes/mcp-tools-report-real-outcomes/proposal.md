@@ -50,8 +50,12 @@ down, and the same reason it went unnoticed: nothing on the wire contradicted it
   comparing counts, and no ID is named.
 - **A no-op is distinguishable from a success.** `devices_connect_de1` returns a
   bare `message` when already connected — discarding the address the caller asked
-  for — and `mqtt_disconnect` signals "nothing to disconnect" by `message` while
-  its sibling `mqtt_publish_discovery` treats the identical state as `error`.
+  for — and `mqtt_disconnect` signals "nothing to disconnect" by `message` alone.
+  Neither carries `success` or `error`, which is a third state a model cannot
+  classify. Both become a success flagged as a no-op. (`mqtt_publish_discovery`
+  keeps treating a missing connection as an error, which is not an
+  inconsistency: it cannot do its job without one, whereas `mqtt_disconnect`'s
+  job is already done.)
 - **Scale timer tools stop claiming to have done something.**
   `ScaleDevice::startTimer/stopTimer/resetTimer` are virtual with empty default
   bodies, so on a scale without timer support all three return

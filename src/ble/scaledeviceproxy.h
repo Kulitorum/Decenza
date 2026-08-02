@@ -110,6 +110,13 @@ public slots:
     // attached there is nothing to send either way, and `true` is ScaleDevice's own base default.
     bool hasIndependentTimerReset() const;
 
+    // Also a query, and false with no target: there is no scale to run a timer.
+    // Note this differs from hasIndependentTimerReset()'s no-target answer, and
+    // for the same reason in both cases — each returns the value that makes the
+    // caller do the safe thing. There, "send them separately". Here, "say the
+    // timer is unavailable" rather than claim a timer that cannot exist.
+    bool supportsTimer() const;
+
 signals:
     void connectedChanged();
     void weightChanged(double weight);

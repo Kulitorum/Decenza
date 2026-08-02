@@ -62,6 +62,7 @@ private:
     struct HttpResponse {
         int statusCode = 0;
         QJsonObject jsonBody;        // empty when body isn't JSON or is missing
+        QJsonArray jsonArrayBody;    // populated instead when the body is a JSON array (batch)
         QString rawBody;
         QString sessionId;
         QString protocolVersion;     // value of MCP-Protocol-Version response header
@@ -126,6 +127,8 @@ private:
             QJsonDocument doc = QJsonDocument::fromJson(bodyBytes, &err);
             if (err.error == QJsonParseError::NoError && doc.isObject())
                 out.jsonBody = doc.object();
+            else if (err.error == QJsonParseError::NoError && doc.isArray())
+                out.jsonArrayBody = doc.array();
         }
 
         serverSocket->close();
@@ -864,14 +867,30 @@ private slots:
         QVERIFY(sizes.toArray()[0].isString());
     }
 
-    void resourcesReadAt2024_11_05OmitsStructuredContent()
+    // `structuredContent` is not a field of `ResourceContents` in ANY MCP
+    // revision — it exists on `CallToolResult` alone. This used to assert the
+    // omission at 2024-11-05 only, which encoded the mistaken premise that it
+    // was a 2025-06-18 resources feature being gated. Every version, and the
+    // payload must still be fully readable from `text`.
+    void resourcesReadOmitsStructuredContent_data()
     {
+        QTest::addColumn<QString>("version");
+        QTest::newRow("2024-11-05") << "2024-11-05";
+        QTest::newRow("2025-03-26") << "2025-03-26";
+        QTest::newRow("2025-06-18") << "2025-06-18";
+        QTest::newRow("2025-11-25") << "2025-11-25";
+    }
+
+    void resourcesReadOmitsStructuredContent()
+    {
+        QFETCH(QString, version);
+
         McpServer server;
         server.resourceRegistry()->registerResource(
             "decenza://shots/42", "Shot 42", "A test shot", "application/json",
             []() -> QJsonObject { return QJsonObject{{"id", 42}, {"label", "ok"}}; });
 
-        const QString sid = openSession(server, "2024-11-05");
+        const QString sid = openSession(server, version);
         QJsonObject params;
         params["uri"] = "decenza://shots/42";
         auto resp = sendHttp(server, "POST", rpcBody("resources/read", params, 2), sid);
@@ -882,9 +901,184 @@ private slots:
         const QJsonObject content = contents[0].toObject();
 
         QVERIFY2(!content.contains("structuredContent"),
-                 "resources/read at 2024-11-05 must omit structuredContent");
-        QVERIFY(content.contains("text"));
+                 "structuredContent is not a ResourceContents field at any version");
         QCOMPARE(content["uri"].toString(), QString("decenza://shots/42"));
+
+        // The payload is not lost by the removal — `text` still carries it.
+        const QJsonObject payload =
+            QJsonDocument::fromJson(content["text"].toString().toUtf8()).object();
+        QCOMPARE(payload["id"].toInt(), 42);
+        QCOMPARE(payload["label"].toString(), QString("ok"));
+    }
+
+    // ─── Spec conformance: batches, terminated sessions, error codes, SSE ──
+
+    void batchOfTwoRequestsReturnsArrayOfResponses()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        QJsonArray batch;
+        batch.append(QJsonDocument::fromJson(rpcBody("ping", {}, 11)).object());
+        batch.append(QJsonDocument::fromJson(rpcBody("tools/list", {}, 12)).object());
+
+        auto resp = sendHttp(server, "POST",
+                             QJsonDocument(batch).toJson(QJsonDocument::Compact), sid);
+        QCOMPARE(resp.statusCode, 200);
+        QCOMPARE(resp.jsonArrayBody.size(), 2);
+        QCOMPARE(resp.jsonArrayBody[0].toObject()["id"].toInt(), 11);
+        QCOMPARE(resp.jsonArrayBody[1].toObject()["id"].toInt(), 12);
+        QVERIFY(resp.jsonArrayBody[1].toObject().contains("result"));
+    }
+
+    // A notification carries no `id` and so gets no array slot. A batch of
+    // nothing but notifications therefore has no response at all, which is 202 —
+    // the same answer a single notification gets.
+    void batchOfNotificationsOnlyReturns202()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        QJsonArray batch;
+        batch.append(QJsonDocument::fromJson(notifyBody("notifications/initialized")).object());
+        batch.append(QJsonDocument::fromJson(notifyBody("notifications/initialized")).object());
+
+        auto resp = sendHttp(server, "POST",
+                             QJsonDocument(batch).toJson(QJsonDocument::Compact), sid);
+        QCOMPARE(resp.statusCode, 202);
+        QVERIFY(resp.rawBody.isEmpty());
+    }
+
+    void batchMixedRequestAndNotificationAnswersOnlyTheRequest()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        QJsonArray batch;
+        batch.append(QJsonDocument::fromJson(notifyBody("notifications/initialized")).object());
+        batch.append(QJsonDocument::fromJson(rpcBody("ping", {}, 21)).object());
+
+        auto resp = sendHttp(server, "POST",
+                             QJsonDocument(batch).toJson(QJsonDocument::Compact), sid);
+        QCOMPARE(resp.statusCode, 200);
+        QCOMPARE(resp.jsonArrayBody.size(), 1);
+        QCOMPARE(resp.jsonArrayBody[0].toObject()["id"].toInt(), 21);
+    }
+
+    void batchEmptyArrayIsInvalidRequest()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        auto resp = sendHttp(server, "POST", "[]", sid);
+        QCOMPARE(resp.statusCode, 200);
+        QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32600);
+    }
+
+    void singleObjectPostStillAnswersWithSingleObject()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        auto resp = sendHttp(server, "POST", rpcBody("ping", {}, 31), sid);
+        QCOMPARE(resp.statusCode, 200);
+        QVERIFY2(resp.jsonArrayBody.isEmpty(),
+                 "a single-message POST must not start answering with an array");
+        QCOMPARE(resp.jsonBody["id"].toInt(), 31);
+    }
+
+    void terminatedSessionReturns404()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        auto del = sendHttp(server, "DELETE", "", sid);
+        QCOMPARE(del.statusCode, 200);
+
+        auto resp = sendHttp(server, "POST", rpcBody("tools/list", {}, 41), sid);
+        QCOMPARE(resp.statusCode, 404);
+    }
+
+    // The 404 above must not swallow the auto-recovery path: an ID the server
+    // never issued is indistinguishable from one it issued before a restart, and
+    // per-request re-initializing clients depend on being served anyway. Two
+    // sessions exist so the "reuse the sole session" shortcut is not what passes
+    // this.
+    void unrecognizedSessionIsStillServed()
+    {
+        McpServer server;
+        openSession(server, "2025-11-25");
+        openSession(server, "2025-11-25");
+
+        auto resp = sendHttp(server, "POST", rpcBody("tools/list", {}, 42),
+                             "never-issued-session-id");
+        QCOMPARE(resp.statusCode, 200);
+        QVERIFY(resp.jsonBody.contains("result"));
+    }
+
+    // Re-initializing is the documented move after a 404, so `initialize` is the
+    // one method a terminated ID may still carry.
+    void initializeWithTerminatedSessionIdIsAccepted()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+        sendHttp(server, "DELETE", "", sid);
+
+        QJsonObject params{
+            {"protocolVersion", "2025-11-25"},
+            {"capabilities", QJsonObject{}},
+            {"clientInfo", QJsonObject{{"name", "tst"}, {"version", "1"}}}};
+        auto resp = sendHttp(server, "POST", rpcBody("initialize", params, 43), sid);
+        QCOMPARE(resp.statusCode, 200);
+        QVERIFY(resp.jsonBody.contains("result"));
+    }
+
+    void unknownResourceReturnsResourceNotFoundCode()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        QJsonObject params;
+        params["uri"] = "decenza://nonexistent";
+        auto resp = sendHttp(server, "POST", rpcBody("resources/read", params, 51), sid);
+
+        QCOMPARE(resp.statusCode, 200);
+        const QJsonObject error = resp.jsonBody["error"].toObject();
+        QCOMPARE(error["code"].toInt(), -32002);
+        QCOMPARE(error["data"].toObject()["uri"].toString(), QString("decenza://nonexistent"));
+    }
+
+    // The tools spec's own example returns Invalid params for an unknown tool.
+    // -32603 described it as a server fault, which it is not — the caller can fix
+    // it by sending a name that exists.
+    void unknownToolReturnsInvalidParamsCode()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        QJsonObject params;
+        params["name"] = "no_such_tool_was_ever_registered";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 52), sid);
+
+        QCOMPARE(resp.statusCode, 200);
+        QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32602);
+    }
+
+    void sseStreamPrimesReconnection()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        auto resp = sendHttp(server, "GET", "", sid,
+                             {{"Accept", "text/event-stream"}});
+        QCOMPARE(resp.statusCode, 200);
+        QVERIFY2(resp.rawBody.contains("retry:"),
+                 "an SSE stream must tell the client how long to wait before reconnecting");
+        QVERIFY2(resp.rawBody.contains("id:"),
+                 "the priming event must carry an event ID");
+        QVERIFY2(resp.rawBody.contains("data:"),
+                 "the priming event must carry an (empty) data field");
     }
 
     // ─── Pure helpers ──────────────────────────────────────────────────────

@@ -437,12 +437,28 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                 return result;
             }
             if (device->isConnected()) {
+                // The requested end state already holds, so this is a success —
+                // but it must be distinguishable from a connection this call
+                // started, and it must not throw away the address the caller
+                // named. Previously it returned a bare `message`: neither
+                // `success` nor `error`, a third state a model cannot classify,
+                // and it discarded the address entirely.
+                //
+                // Note what is still NOT answered: whether the connected machine
+                // is the one that was asked for. DE1Device exposes no address
+                // getter, and adding one to answer a question nobody has asked is
+                // not this change's business. Use devices_connection_status.
+                result["success"] = true;
+                result["alreadyConnected"] = true;
+                result["requestedAddress"] = address;
                 result["message"] = "Already connected to a DE1 machine";
                 return result;
             }
             QMetaObject::invokeMethod(device, "connectToDevice",
                 Qt::QueuedConnection, Q_ARG(QString, address));
             result["success"] = true;
+            result["alreadyConnected"] = false;
+            result["requestedAddress"] = address;
             result["message"] = "Connecting to DE1 at " + address;
             return result;
         },

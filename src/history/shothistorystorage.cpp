@@ -3279,6 +3279,7 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
     if (!m_ready) {
         qWarning() << "ShotHistoryStorage: Cannot delete shot - not ready";
         emit errorOccurred("Cannot delete shot: database not ready");
+        emit shotDeleteFinished(shotId, false, QStringLiteral("database not ready"));
         return;
     }
 
@@ -3287,19 +3288,25 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
 
     runOnDbThread([this, dbPath, shotId, destroyed]() {
         bool success = false;
+        QString reason;
         withTempDb(dbPath, "shs_rdel", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             query.prepare("DELETE FROM shots WHERE id = ?");
             query.bindValue(0, shotId);
-            if (query.exec()) {
-                success = true;
-            } else {
+            if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to async delete shot:" << query.lastError().text();
+                reason = QStringLiteral("the database rejected the delete");
+            } else if (query.numRowsAffected() == 0) {
+                // A DELETE matching nothing is a successful statement. The caller
+                // asked for a specific shot to be gone; it was never there.
+                reason = QStringLiteral("no shot with that id");
+            } else {
+                success = true;
             }
         });
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, shotId, success, reason, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: deleteShot callback dropped (object destroyed)";
                 return;
@@ -3309,10 +3316,12 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
                 emit shotDeleted(shotId);
                 qDebug() << "ShotHistoryStorage: Async deleted shot" << shotId;
             } else {
-                qWarning() << "ShotHistoryStorage: Failed to async delete shot" << shotId;
+                qWarning() << "ShotHistoryStorage: Failed to async delete shot" << shotId
+                           << "-" << reason;
                 // User-facing (toast): no internal shot id — logged above.
                 emit errorOccurred(QStringLiteral("Couldn't delete the shot — please try again."));
             }
+            emit shotDeleteFinished(shotId, success, reason);
         }, Qt::QueuedConnection);
     });
 }
@@ -3426,6 +3435,18 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to update shot metadata:" << query.lastError().text();
+        return false;
+    }
+
+    // `exec()` succeeding means the statement RAN, not that it changed anything —
+    // `WHERE id = 99999` is a perfectly successful UPDATE of nothing. Callers ask
+    // "was this shot updated", and until this check they were told yes for a shot
+    // that does not exist.
+    //
+    // Deliberately not a `SELECT` before the write: that races (this runs on a
+    // background thread) and costs a second query on a one-query path.
+    if (query.numRowsAffected() == 0) {
+        qWarning() << "ShotHistoryStorage: No shot with id" << shotId << "to update";
         return false;
     }
     return true;

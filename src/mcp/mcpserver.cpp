@@ -231,7 +231,12 @@ void McpServer::broadcastSseNotification(const QString& resourceUri)
     params["uri"] = resourceUri;
     notification["params"] = params;
 
+    // Every event carries an ID (2025-11-25 SHOULD) so a reconnecting client can
+    // say what it last saw. One ID per broadcast, not per recipient: the spec
+    // asks for uniqueness within a session, and each session sees this event at
+    // most once.
     QByteArray event;
+    event.append("id: " + QByteArray::number(++m_sseEventId) + "\n");
     event.append("event: message\n");
     event.append("data: ");
     event.append(QJsonDocument(notification).toJson(QJsonDocument::Compact));
@@ -445,104 +450,39 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         socket->setProperty("mcpOrigin", originHeader);
 
     if (method == "POST") {
-        // JSON-RPC request
+        // JSON-RPC request. The body is either a single message object or a
+        // batch array — the 2024-11-05 and 2025-03-26 base protocols require
+        // every server to accept the array form, and both are still negotiated.
         QJsonParseError parseError;
         QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
-        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (parseError.error != QJsonParseError::NoError
+            || (!doc.isObject() && !doc.isArray())) {
             sendJsonRpcError(socket, -32700, "Parse error", QJsonValue::Null);
             return;
         }
 
-        QJsonObject request = doc.object();
-        QString rpcMethod = request["method"].toString();
-
-        // Initialize can come without a session — creates one.
-        // Pass sessionHeader so reconnecting clients reuse their existing session.
-        McpSession* session = nullptr;
-        if (rpcMethod == "initialize") {
-            session = findOrCreateSession(sessionHeader);
-            if (!session) {
-                sendJsonRpcError(socket, -32000, "Too many sessions",
-                                 request["id"].toVariant(), sessionHeader);
-                return;
-            }
-        } else {
-            session = findSession(sessionHeader);
-            // Fallback: if no session header provided, use the most recent session.
-            // mcp-remote doesn't always send the Mcp-Session header after initialize.
-            if (!session && sessionHeader.isEmpty() && m_sessions.size() == 1) {
-                session = m_sessions.begin().value();
-            }
-            // Auto-recover: if session expired or ID is stale, reuse the sole
-            // remaining session if possible, otherwise create a new one.
-            // mcp-remote can't re-initialize on its own, so rejecting here
-            // leaves the client permanently broken until restart.
-            if (!session) {
-                if (m_sessions.size() == 1) {
-                    // Only one session exists — the client almost certainly belongs
-                    // to it. Reuse it to avoid leaking a new session on every request.
-                    session = m_sessions.begin().value();
-                    MCP_INFO_TAGGED("Server", QStringLiteral("Stale session header, reusing sole session %1")
-                                  .arg(session->id()));
-                    // Adopt the client's MCP-Protocol-Version (when present and
-                    // supported) so the mismatch check below doesn't 400 a
-                    // recovered client whose prior negotiation differed from the
-                    // session's. Mirrors the auto-create branch.
-                    if (!protocolHeader.isEmpty()
-                        && supportedProtocolVersions().contains(protocolHeader)
-                        && protocolHeader != session->protocolVersion()) {
-                        session->setProtocolVersion(protocolHeader);
-                    }
-                } else {
-                    MCP_INFO_TAGGED("Server", QStringLiteral("Session not found (expired or stale), "
-                                             "auto-creating new session"));
-                    session = findOrCreateSession(QString());
-                    if (!session) {
-                        sendJsonRpcError(socket, -32000, "Too many sessions",
-                                         request["id"].toVariant(), sessionHeader);
-                        return;
-                    }
-                    // Mark as initialized — the client already completed initialize
-                    // in a prior session, so skip the handshake requirement.
-                    // Adopt the client's MCP-Protocol-Version when present and
-                    // supported so the mismatch check below doesn't immediately
-                    // 400 a recovered client whose prior negotiation was newer
-                    // than our default. Reject unrecognized headers so an
-                    // attacker can't push the gate into an unspec'd state.
-                    session->setInitialized(true);
-                    if (!protocolHeader.isEmpty()
-                        && supportedProtocolVersions().contains(protocolHeader)) {
-                        session->setProtocolVersion(protocolHeader);
-                    }
-                }
-            }
-            // MCP-Protocol-Version header check (required by 2025-06-18 for
-            // every non-initialize HTTP request after the session is set up).
-            // - Skip on `initialize` itself: the version is being negotiated.
-            // - Skip on uninitialized sessions: clients legitimately may not
-            //   know the version yet (e.g. on `notifications/initialized`).
-            // - When absent, the spec says assume `2025-03-26` — sessions
-            //   default to that, so no action needed.
-            if (!protocolHeader.isEmpty() && session && session->initialized()
-                && rpcMethod != "initialize"
-                && protocolHeader != session->protocolVersion()) {
-                MCP_WARN_TAGGED("Server", QStringLiteral("Protocol version mismatch — header %1, "
-                                                         "session %2")
-                                              .arg(protocolHeader, session->protocolVersion()));
-                sendHttpResponse(socket, 400,
-                    "Protocol version mismatch (negotiated " + session->protocolVersion().toUtf8()
-                        + ", header " + protocolHeader.toUtf8() + ")",
-                    "text/plain", session->id());
-                return;
-            }
-
-            if (!session->initialized() && rpcMethod != "notifications/initialized"
-                && rpcMethod != "ping") {
-                sendJsonRpcError(socket, -32600, "Session not initialized",
-                                 request["id"].toVariant(), session->id());
-                return;
-            }
+        if (doc.isArray()) {
+            handleJsonRpcBatch(socket, doc.array(), sessionHeader, protocolHeader, remote);
+            return;
         }
+
+        QJsonObject request = doc.object();
+        const QString rpcMethod = request["method"].toString();
+
+        const SessionResolution resolved =
+            resolveSessionForMessage(request, sessionHeader, protocolHeader);
+        if (resolved.httpStatus != 0) {
+            sendHttpResponse(socket, resolved.httpStatus, resolved.httpBody, "text/plain",
+                             resolved.session ? resolved.session->id() : QString());
+            return;
+        }
+        if (resolved.rpcErrorCode != 0) {
+            sendJsonRpcError(socket, resolved.rpcErrorCode, resolved.rpcErrorMessage,
+                             request["id"].toVariant(),
+                             resolved.session ? resolved.session->id() : sessionHeader);
+            return;
+        }
+        McpSession* session = resolved.session;
 
         session->touch();
         if (remote)
@@ -621,6 +561,25 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             response.append("MCP-Protocol-Version: " + sseSession->protocolVersion().toUtf8() + "\r\n");
         }
         response.append("\r\n");
+
+        // Prime the client for reconnection (2025-11-25 SHOULDs), before any
+        // real event:
+        //   - `retry` sets the reconnect delay. 3 s: fast enough that a dropped
+        //     stream is back before the 30 s keepalive probe would have noticed
+        //     it was gone, slow enough that a server that is actually down is not
+        //     hammered. The two intervals are independent — the probe detects a
+        //     dead socket from our side, `retry` paces the client's return — but
+        //     they must not invert, or the probe would keep finding half-open
+        //     streams a client had already given up on.
+        //   - an opening event with an ID and empty `data` gives the client a
+        //     `Last-Event-ID` to send back immediately, rather than only after
+        //     the first notification (which may be minutes away, or never).
+        // We do not replay from `Last-Event-ID` — that is a MAY, and a partial
+        // replay is worse than none. A client that missed events re-reads the
+        // resources it cares about.
+        response.append("retry: 3000\n");
+        response.append("id: " + QByteArray::number(++m_sseEventId) + "\n");
+        response.append("data: \n\n");
         socket->write(response);
         socket->flush();
 
@@ -652,6 +611,9 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == session->id())
                 m_pendingConfirmation.reset();
             m_sessions.remove(session->id());
+            // Recorded AFTER the pending-confirmation cleanup above, so nothing
+            // can observe a tombstoned ID whose session is still half-alive.
+            recordTerminatedSession(session->id());
             delete session;
             emit activeSessionCountChanged();
         }
@@ -668,6 +630,248 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
     } else {
         sendHttpResponse(socket, 405, "Method not allowed", "text/plain");
     }
+}
+
+// One place builds a JSON-RPC error object. sendJsonRpcError writes it to a
+// socket; the batch path folds it into an array slot instead, and the two must
+// not be free to drift into different shapes.
+static QJsonObject makeJsonRpcError(int code, const QString& message, const QVariant& id)
+{
+    QJsonObject error;
+    error["code"] = code;
+    error["message"] = message;
+
+    QJsonObject response;
+    response["jsonrpc"] = "2.0";
+    response["id"] = QJsonValue::fromVariant(id);
+    response["error"] = error;
+    return response;
+}
+
+// A `tools/call` that never reached a handler, as a JSON-RPC error result.
+//
+// An unregistered tool name is `-32602` Invalid params — the tools spec's own
+// example returns exactly that for `Unknown tool: …`, and it is a bad request,
+// not a server fault. Every other registry failure stays `-32603`: a tool
+// dispatched on the wrong sync/async path is our wiring bug, and an
+// access-level refusal is a server-side policy decision the caller cannot fix
+// by changing its arguments.
+static QJsonObject registryErrorResult(const QString& message, McpRegistryFailure failure)
+{
+    QJsonObject errorObj;
+    errorObj["code"] = failure == McpRegistryFailure::NotFound ? -32602 : -32603;
+    errorObj["message"] = message;
+    QJsonObject result;
+    result["error"] = errorObj;
+    return result;
+}
+
+McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObject& request,
+                                                                 const QString& sessionHeader,
+                                                                 const QString& protocolHeader)
+{
+    SessionResolution out;
+    const QString rpcMethod = request["method"].toString();
+
+    // Initialize can come without a session — creates one.
+    // Pass sessionHeader so reconnecting clients reuse their existing session.
+    if (rpcMethod == "initialize") {
+        // Deliberately reached WITHOUT the terminated-session check below:
+        // re-initializing is the documented move after a 404, so 404ing the
+        // client's attempt to recover would strand it for good.
+        out.session = findOrCreateSession(sessionHeader);
+        if (!out.session) {
+            out.rpcErrorCode = -32000;
+            out.rpcErrorMessage = QStringLiteral("Too many sessions");
+        }
+        return out;
+    }
+
+    // A session this server ended itself is gone for good, and 404 is what tells
+    // the client to start a new one (MUST, 2025-03-26 onward). Checked BEFORE the
+    // auto-recovery below, which must stay reachable for IDs we never issued —
+    // a restart, another instance, or a garbage value. The server cannot tell
+    // those apart from an ID it issued before a restart, which is why only IDs it
+    // explicitly ended are rejected.
+    if (!sessionHeader.isEmpty() && m_terminatedSessions.contains(sessionHeader)) {
+        MCP_INFO_TAGGED("Server", QStringLiteral("Request for terminated session %1 — 404")
+                                      .arg(sessionHeader));
+        out.httpStatus = 404;
+        out.httpBody = "Session terminated";
+        return out;
+    }
+
+    McpSession* session = findSession(sessionHeader);
+    // Fallback: if no session header provided, use the most recent session.
+    // mcp-remote doesn't always send the Mcp-Session header after initialize.
+    if (!session && sessionHeader.isEmpty() && m_sessions.size() == 1) {
+        session = m_sessions.begin().value();
+    }
+    // Auto-recover: if session expired or ID is stale, reuse the sole
+    // remaining session if possible, otherwise create a new one.
+    // mcp-remote can't re-initialize on its own, so rejecting here
+    // leaves the client permanently broken until restart.
+    if (!session) {
+        if (m_sessions.size() == 1) {
+            // Only one session exists — the client almost certainly belongs
+            // to it. Reuse it to avoid leaking a new session on every request.
+            session = m_sessions.begin().value();
+            MCP_INFO_TAGGED("Server", QStringLiteral("Stale session header, reusing sole session %1")
+                          .arg(session->id()));
+            // Adopt the client's MCP-Protocol-Version (when present and
+            // supported) so the mismatch check below doesn't 400 a
+            // recovered client whose prior negotiation differed from the
+            // session's. Mirrors the auto-create branch.
+            if (!protocolHeader.isEmpty()
+                && supportedProtocolVersions().contains(protocolHeader)
+                && protocolHeader != session->protocolVersion()) {
+                session->setProtocolVersion(protocolHeader);
+            }
+        } else {
+            MCP_INFO_TAGGED("Server", QStringLiteral("Session not found (expired or stale), "
+                                     "auto-creating new session"));
+            session = findOrCreateSession(QString());
+            if (!session) {
+                out.rpcErrorCode = -32000;
+                out.rpcErrorMessage = QStringLiteral("Too many sessions");
+                return out;
+            }
+            // Mark as initialized — the client already completed initialize
+            // in a prior session, so skip the handshake requirement.
+            // Adopt the client's MCP-Protocol-Version when present and
+            // supported so the mismatch check below doesn't immediately
+            // 400 a recovered client whose prior negotiation was newer
+            // than our default. Reject unrecognized headers so an
+            // attacker can't push the gate into an unspec'd state.
+            session->setInitialized(true);
+            if (!protocolHeader.isEmpty()
+                && supportedProtocolVersions().contains(protocolHeader)) {
+                session->setProtocolVersion(protocolHeader);
+            }
+        }
+    }
+    out.session = session;
+
+    // MCP-Protocol-Version header check (required by 2025-06-18 for
+    // every non-initialize HTTP request after the session is set up).
+    // - Skip on `initialize` itself: handled by the early return above.
+    // - Skip on uninitialized sessions: clients legitimately may not
+    //   know the version yet (e.g. on `notifications/initialized`).
+    // - When absent, the spec says assume `2025-03-26` — sessions
+    //   default to that, so no action needed.
+    if (!protocolHeader.isEmpty() && session->initialized()
+        && protocolHeader != session->protocolVersion()) {
+        MCP_WARN_TAGGED("Server", QStringLiteral("Protocol version mismatch — header %1, "
+                                                 "session %2")
+                                      .arg(protocolHeader, session->protocolVersion()));
+        out.httpStatus = 400;
+        out.httpBody = "Protocol version mismatch (negotiated "
+                       + session->protocolVersion().toUtf8()
+                       + ", header " + protocolHeader.toUtf8() + ")";
+        return out;
+    }
+
+    if (!session->initialized() && rpcMethod != "notifications/initialized"
+        && rpcMethod != "ping") {
+        out.rpcErrorCode = -32600;
+        out.rpcErrorMessage = QStringLiteral("Session not initialized");
+    }
+    return out;
+}
+
+void McpServer::handleJsonRpcBatch(QTcpSocket* socket, const QJsonArray& batch,
+                                   const QString& sessionHeader, const QString& protocolHeader,
+                                   bool remote)
+{
+    // JSON-RPC 2.0: an empty array is an Invalid Request, not an empty batch.
+    if (batch.isEmpty()) {
+        sendJsonRpcError(socket, -32600, "Invalid Request", QJsonValue::Null);
+        return;
+    }
+
+    QJsonArray responses;
+    QString sessionId;
+
+    for (const QJsonValue& element : batch) {
+        if (!element.isObject()) {
+            responses.append(makeJsonRpcError(-32600, QStringLiteral("Invalid Request"),
+                                              QVariant()));
+            continue;
+        }
+        const QJsonObject request = element.toObject();
+        const QVariant requestId = request["id"].toVariant();
+
+        const SessionResolution resolved =
+            resolveSessionForMessage(request, sessionHeader, protocolHeader);
+
+        // An HTTP-level answer — a terminated session, a protocol-version
+        // mismatch — is about the request as a whole, not about one element, so
+        // it replaces the batch response entirely. Both depend only on headers,
+        // so the first element to hit one would be followed by every other.
+        if (resolved.httpStatus != 0) {
+            sendHttpResponse(socket, resolved.httpStatus, resolved.httpBody, "text/plain",
+                             resolved.session ? resolved.session->id() : QString());
+            return;
+        }
+        if (resolved.rpcErrorCode != 0) {
+            if (request.contains("id"))
+                responses.append(makeJsonRpcError(resolved.rpcErrorCode,
+                                                  resolved.rpcErrorMessage, requestId));
+            continue;
+        }
+
+        McpSession* session = resolved.session;
+        sessionId = session->id();
+        session->touch();
+        if (remote)
+            session->setRemote(true);
+
+        // Notifications produce no entry in the response array (JSON-RPC 2.0).
+        if (!request.contains("id"))
+            continue;
+
+        QJsonObject result = handleJsonRpc(request, session, socket, requestId);
+
+        // A deferred result — an in-app confirmation, or an async tool — is
+        // written to the socket later as a COMPLETE HTTP response, which cannot
+        // be folded into this array. Rather than leave the slot empty (and the
+        // client waiting on a response that will arrive as a second, malformed
+        // body), refuse the element and answer the rest normally.
+        //
+        // Logged because no client here has ever batched such a call: if this
+        // line appears, a real client wants it and the refusal is worth
+        // revisiting.
+        if (result.contains("_deferred")) {
+            MCP_WARN_TAGGED("Server",
+                            QStringLiteral("Batched call to %1 refused — it defers its response")
+                                .arg(request["params"].toObject()["name"].toString()));
+            responses.append(makeJsonRpcError(
+                -32600,
+                QStringLiteral("This tool cannot be called in a batch: its response is "
+                               "delivered separately. Send it as a single request."),
+                requestId));
+            continue;
+        }
+
+        QJsonObject response;
+        response["jsonrpc"] = "2.0";
+        response["id"] = QJsonValue::fromVariant(requestId);
+        if (result.contains("error"))
+            response["error"] = result["error"];
+        else
+            response["result"] = result;
+        responses.append(response);
+    }
+
+    // A batch of nothing but notifications gets 202 with no body, matching what
+    // a single notification gets.
+    if (responses.isEmpty()) {
+        sendHttpResponse(socket, 202, "", "application/json", sessionId);
+        return;
+    }
+
+    sendHttpResponse(socket, 200, QJsonDocument(responses).toJson(QJsonDocument::Compact),
+                     "application/json", sessionId);
 }
 
 QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* session,
@@ -895,20 +1099,15 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         QString protoVer = protocolVersion;
 
         QString error;
+        McpRegistryFailure failure = McpRegistryFailure::None;
         bool dispatched = m_toolRegistry->callAsyncTool(
             toolName, arguments, accessLevel, error,
             [this, socketPtr, reqId, sessId, protoVer](QJsonObject toolResult) {
                 sendAsyncToolResponse(socketPtr, reqId, sessId, protoVer, toolResult);
-            });
+            }, &failure);
 
-        if (!dispatched) {
-            QJsonObject errorObj;
-            errorObj["code"] = -32603;
-            errorObj["message"] = error;
-            QJsonObject result;
-            result["error"] = errorObj;
-            return result;
-        }
+        if (!dispatched)
+            return registryErrorResult(error, failure);
 
         QJsonObject deferred;
         deferred["_deferred"] = true;
@@ -917,16 +1116,12 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
 
     // Synchronous tool
     QString error;
-    QJsonObject toolResult = m_toolRegistry->callTool(toolName, arguments, accessLevel, error);
+    McpRegistryFailure failure = McpRegistryFailure::None;
+    QJsonObject toolResult = m_toolRegistry->callTool(toolName, arguments, accessLevel, error,
+                                                      &failure);
 
-    if (!error.isEmpty()) {
-        QJsonObject errorObj;
-        errorObj["code"] = -32603;
-        errorObj["message"] = error;
-        QJsonObject result;
-        result["error"] = errorObj;
-        return result;
-    }
+    if (!error.isEmpty())
+        return registryErrorResult(error, failure);
 
     return buildToolCallResponse(toolResult, protocolVersion);
 }
@@ -948,12 +1143,39 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
 {
     QString uri = params["uri"].toString();
 
-    // `structuredContent` is a 2025-06-18 field; older clients see only the
-    // legacy `text` payload. Capture the negotiated version up-front so async
-    // dispatches honour it after the session pointer may have changed.
-    const QString protocolVersion = session ? session->protocolVersion()
-                                            : QStringLiteral("2024-11-05");
-    const bool emitStructured = protocolVersion >= QStringLiteral("2025-06-18");
+    // A `resources/read` failure carries -32002 when the URI names nothing we
+    // serve — the code the resources spec assigns to "Resource not found", with
+    // the requested URI in `data` as its example shows. Other read failures stay
+    // -32602: they describe a request that named a real resource wrongly.
+    const auto readErrorResult = [&uri](const QString& message, McpRegistryFailure failure) {
+        QJsonObject errorObj;
+        errorObj["code"] = failure == McpRegistryFailure::NotFound ? -32002 : -32602;
+        errorObj["message"] = message;
+        if (failure == McpRegistryFailure::NotFound) {
+            QJsonObject data;
+            data["uri"] = uri;
+            errorObj["data"] = data;
+        }
+        QJsonObject result;
+        result["error"] = errorObj;
+        return result;
+    };
+
+    // One shape for a resource content entry, both paths. Carries only fields the
+    // MCP `ResourceContents` schema defines — `structuredContent` is NOT one of
+    // them (it exists on `CallToolResult` alone), and the same JSON it used to
+    // duplicate is already in `text`.
+    const auto buildContents = [](const QString& resourceUri, const QJsonObject& resourceData) {
+        QJsonObject content;
+        content["uri"] = resourceUri;
+        content["mimeType"] = "application/json";
+        content["text"] = QString::fromUtf8(QJsonDocument(resourceData).toJson(QJsonDocument::Compact));
+        QJsonArray contents;
+        contents.append(content);
+        QJsonObject result;
+        result["contents"] = contents;
+        return result;
+    };
 
     // Async resources: dispatch to background, send response later
     if (m_resourceRegistry->isAsyncResource(uri)) {
@@ -962,35 +1184,19 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
         QString sessId = session->id();
 
         QString error;
+        McpRegistryFailure failure = McpRegistryFailure::None;
         bool dispatched = m_resourceRegistry->readAsyncResource(uri, error,
-            [this, socketPtr, reqId, sessId, uri, emitStructured](QJsonObject resourceData) {
+            [this, socketPtr, reqId, sessId, uri, buildContents](QJsonObject resourceData) {
                 if (!socketPtr || socketPtr->state() != QAbstractSocket::ConnectedState) {
                     MCP_WARN_TAGGED("Server", QStringLiteral("async resource response dropped "
                                                              "(socket disconnected)"));
                     return;
                 }
+                sendJsonRpcResponse(socketPtr, buildContents(uri, resourceData), reqId, sessId);
+            }, &failure);
 
-                QJsonObject result;
-                QJsonArray contents;
-                QJsonObject content;
-                content["uri"] = uri;
-                content["mimeType"] = "application/json";
-                content["text"] = QString::fromUtf8(QJsonDocument(resourceData).toJson(QJsonDocument::Compact));
-                if (emitStructured)
-                    content["structuredContent"] = resourceData;
-                contents.append(content);
-                result["contents"] = contents;
-                sendJsonRpcResponse(socketPtr, result, reqId, sessId);
-            });
-
-        if (!dispatched) {
-            QJsonObject errorObj;
-            errorObj["code"] = -32602;
-            errorObj["message"] = error;
-            QJsonObject result;
-            result["error"] = errorObj;
-            return result;
-        }
+        if (!dispatched)
+            return readErrorResult(error, failure);
 
         QJsonObject deferred;
         deferred["_deferred"] = true;
@@ -998,28 +1204,13 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
     }
 
     QString error;
-    QJsonObject resourceData = m_resourceRegistry->readResource(uri, error);
+    McpRegistryFailure failure = McpRegistryFailure::None;
+    QJsonObject resourceData = m_resourceRegistry->readResource(uri, error, &failure);
 
-    if (!error.isEmpty()) {
-        QJsonObject errorObj;
-        errorObj["code"] = -32602;
-        errorObj["message"] = error;
-        QJsonObject result;
-        result["error"] = errorObj;
-        return result;
-    }
+    if (!error.isEmpty())
+        return readErrorResult(error, failure);
 
-    QJsonObject result;
-    QJsonArray contents;
-    QJsonObject content;
-    content["uri"] = uri;
-    content["mimeType"] = "application/json";
-    content["text"] = QString::fromUtf8(QJsonDocument(resourceData).toJson(QJsonDocument::Compact));
-    if (emitStructured)
-        content["structuredContent"] = resourceData;
-    contents.append(content);
-    result["contents"] = contents;
-    return result;
+    return buildContents(uri, resourceData);
 }
 
 QJsonObject McpServer::handleResourcesSubscribe(const QJsonObject& params, McpSession* session)
@@ -1148,6 +1339,11 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
                                                  "least-recently-active ephemeral session %2")
                                       .arg(m_sessions.size()).arg(victim->id()));
         m_sessions.remove(victim->id());
+        // Deliberately NOT recorded as terminated. Eviction is resource pressure
+        // on our side, not the end of the client's session, and the victim is by
+        // construction an ephemeral cloud-connector session — the exact client
+        // the auto-recovery path exists for. 404ing it would break the case that
+        // path was added to fix.
         delete victim;
         emit activeSessionCountChanged();
     }
@@ -1207,10 +1403,20 @@ void McpServer::cleanupExpiredSessions()
             m_pendingConfirmation.reset();
         }
         delete m_sessions.take(id);
+        recordTerminatedSession(id);
     }
 
     if (!expired.isEmpty())
         emit activeSessionCountChanged();
+}
+
+void McpServer::recordTerminatedSession(const QString& sessionId)
+{
+    if (sessionId.isEmpty())
+        return;
+    m_terminatedSessions.append(sessionId);
+    while (m_terminatedSessions.size() > MaxTerminatedSessions)
+        m_terminatedSessions.removeFirst();
 }
 
 void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
@@ -1256,35 +1462,29 @@ void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
     if (m_toolRegistry->isAsyncTool(pending.toolName)) {
         QPointer<QTcpSocket> socketPtr(pending.socket);
         QString error;
+        McpRegistryFailure failure = McpRegistryFailure::None;
         bool dispatched = m_toolRegistry->callAsyncTool(
             pending.toolName, pending.arguments, pending.accessLevel, error,
             [this, socketPtr, reqId = pending.requestId, sessId = pending.sessionId,
              protoVer = pending.protocolVersion](QJsonObject toolResult) {
                 sendAsyncToolResponse(socketPtr, reqId, sessId, protoVer, toolResult);
-            });
+            }, &failure);
         if (!dispatched) {
-            QJsonObject errorObj;
-            errorObj["code"] = -32603;
-            errorObj["message"] = error;
-            QJsonObject result;
-            result["error"] = errorObj;
-            sendJsonRpcResponse(pending.socket, result, pending.requestId, pending.sessionId);
+            sendJsonRpcResponse(pending.socket, registryErrorResult(error, failure),
+                                pending.requestId, pending.sessionId);
         }
         return;
     }
 
     // Synchronous tools
     QString error;
+    McpRegistryFailure failure = McpRegistryFailure::None;
     QJsonObject toolResult = m_toolRegistry->callTool(
-        pending.toolName, pending.arguments, pending.accessLevel, error);
+        pending.toolName, pending.arguments, pending.accessLevel, error, &failure);
 
     if (!error.isEmpty()) {
-        QJsonObject errorObj;
-        errorObj["code"] = -32603;
-        errorObj["message"] = error;
-        QJsonObject result;
-        result["error"] = errorObj;
-        sendJsonRpcResponse(pending.socket, result, pending.requestId, pending.sessionId);
+        sendJsonRpcResponse(pending.socket, registryErrorResult(error, failure),
+                            pending.requestId, pending.sessionId);
         return;
     }
 
@@ -1435,16 +1635,8 @@ void McpServer::sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& resul
 void McpServer::sendJsonRpcError(QTcpSocket* socket, int code, const QString& message,
                                   const QVariant& id, const QString& sessionId)
 {
-    QJsonObject response;
-    response["jsonrpc"] = "2.0";
-    response["id"] = QJsonValue::fromVariant(id);
-
-    QJsonObject error;
-    error["code"] = code;
-    error["message"] = message;
-    response["error"] = error;
-
-    QByteArray body = QJsonDocument(response).toJson(QJsonDocument::Compact);
+    const QByteArray body =
+        QJsonDocument(makeJsonRpcError(code, message, id)).toJson(QJsonDocument::Compact);
     sendHttpResponse(socket, 200, body, "application/json", sessionId);
 }
 
@@ -1456,6 +1648,7 @@ static const char* httpStatusText(int code)
     case 204: return "No Content";
     case 400: return "Bad Request";
     case 403: return "Forbidden";
+    case 404: return "Not Found";
     case 405: return "Method Not Allowed";
     case 429: return "Too Many Requests";
     default:  return "Unknown";

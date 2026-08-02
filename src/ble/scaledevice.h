@@ -60,6 +60,20 @@ public slots:
     // as startTimer). When false, MachineState sends reset+start together at extraction
     // start instead of splitting them across the preheating phase.
     virtual bool hasIndependentTimerReset() const { return true; }
+    // Whether this scale implements the three timer slots above at all. They are
+    // virtual with EMPTY default bodies, so a scale that does not implement them
+    // accepts every timer command and does nothing — indistinguishable, from the
+    // outside, from a timer that started. The UI never noticed because a user
+    // watching the scale can see its display; MCP reported `{"success": true}`.
+    //
+    // Defaults to false ON PURPOSE: a driver whose override is forgotten reports
+    // "not supported" rather than a fictional success, so an incomplete rollout
+    // fails in the safe direction.
+    //
+    // Distinct from hasIndependentTimerReset(), which asks a different question
+    // about the same three methods — whether resetTimer() has side effects on a
+    // scale that DOES support them.
+    virtual bool supportsTimer() const { return false; }
     virtual void sleep() { emit sleepCompleted(); }  // Put scale to sleep (battery power saving - full power off)
     virtual void wake() {}   // Wake scale from sleep (enable LCD)
     virtual void disableLcd() {}  // Turn off LCD but keep scale powered (for screensaver)

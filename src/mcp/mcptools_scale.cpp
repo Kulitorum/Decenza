@@ -6,6 +6,36 @@
 #include <QJsonObject>
 #include <QMetaObject>
 
+namespace {
+
+// Shared precondition for the three scale_timer_* tools: a scale must be
+// connected AND must actually implement the timer. The three slots are virtual
+// with empty default bodies, so a scale that does not implement them accepts
+// every command and does nothing — which is what these tools used to report as
+// success, on every scale, including ones whose own headers say they have no
+// remote timer control.
+//
+// One function rather than the same block three times: three copies of a
+// precondition are three chances for one of them to drift.
+//
+// Returns true when the call must not proceed, having written `error` into
+// `result`.
+bool timerUnavailable(MachineState* machineState, QJsonObject& result)
+{
+    if (!machineState || !machineState->scale()) {
+        result["error"] = "No scale connected";
+        return true;
+    }
+    if (!machineState->scale()->supportsTimer()) {
+        result["error"] = "This scale (" + machineState->scale()->name()
+                          + ") does not support remote timer control";
+        return true;
+    }
+    return false;
+}
+
+}  // namespace
+
 void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
 {
     // scale_tare
@@ -33,10 +63,8 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!machineState || !machineState->scale()) {
-                result["error"] = "No scale connected";
+            if (timerUnavailable(machineState, result))
                 return result;
-            }
             QMetaObject::invokeMethod(machineState->scale(), "startTimer", Qt::QueuedConnection);
             result["success"] = true;
             result["message"] = "Timer started";
@@ -51,10 +79,8 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!machineState || !machineState->scale()) {
-                result["error"] = "No scale connected";
+            if (timerUnavailable(machineState, result))
                 return result;
-            }
             QMetaObject::invokeMethod(machineState->scale(), "stopTimer", Qt::QueuedConnection);
             result["success"] = true;
             result["message"] = "Timer stopped";
@@ -69,10 +95,8 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!machineState || !machineState->scale()) {
-                result["error"] = "No scale connected";
+            if (timerUnavailable(machineState, result))
                 return result;
-            }
             QMetaObject::invokeMethod(machineState->scale(), "resetTimer", Qt::QueuedConnection);
             result["success"] = true;
             result["message"] = "Timer reset";

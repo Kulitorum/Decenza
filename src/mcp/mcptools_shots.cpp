@@ -503,6 +503,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             QThread* thread = QThread::create([dbPath, idArray, fullDetail, respond]() {
                 QJsonObject result;
                 QJsonArray shots;
+                QJsonArray unresolved;
                 QList<ShotProjection> projections;
 
                 if (!withTempDb(dbPath, "mcp_compare", [&](QSqlDatabase& db) {
@@ -510,7 +511,14 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         qint64 shotId = idVal.toInteger();
                         ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
                         ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
-                        if (shot.isValid()) {
+                        if (!shot.isValid()) {
+                            // Dropped IDs used to vanish: the caller got a shorter
+                            // array and could only detect the loss by comparing
+                            // counts, with no way to learn WHICH id was bad.
+                            unresolved.append(shotId);
+                            continue;
+                        }
+                        {
                             QJsonObject shotJson = shot.toJsonObject();
                             if (!fullDetail)
                                 stripTimeSeriesFields(shotJson);
@@ -524,9 +532,20 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     }
                 })) {
                     result["error"] = "Failed to open shot database";
+                } else if (shots.isEmpty()) {
+                    // Nothing resolved, so there is nothing to compare — a result
+                    // with an empty `shots` array and a `count` of 0 would read as
+                    // a successful comparison of nothing.
+                    QStringList ids;
+                    for (const QJsonValue& v : std::as_const(unresolved))
+                        ids << QString::number(v.toInteger());
+                    result["error"] = "No shots found for any of the requested ids: "
+                                      + ids.join(QStringLiteral(", "));
                 }
 
                 if (!result.contains("error")) {
+                    if (!unresolved.isEmpty())
+                        result["unresolvedShotIds"] = unresolved;
                     // Dedupe shared profile metadata. Comparing dial-in
                     // iterations on a single recipe is the common case, and
                     // profileNotes is ~700 chars per shot — hoisting it to
