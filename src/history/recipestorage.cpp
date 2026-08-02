@@ -931,6 +931,55 @@ qint64 RecipeStorage::findRecipeByNameStatic(QSqlDatabase& db, const QString& na
     return 0;
 }
 
+int RecipeStorage::countRecipesUsingProfileStatic(QSqlDatabase& db, const QString& profileTitle)
+{
+    const QString target = profileTitle.trimmed();
+    // A recipe that names no profile owns no profile choice, so an empty title
+    // can never be "the profile these recipes use" — Recipe::namesProfile says
+    // the same thing, and answering 0 here keeps the two from disagreeing.
+    if (target.isEmpty())
+        return 0;
+    QSqlQuery query(db);
+    // TRIM on the stored side only; the bound value is already trimmed above.
+    // Exact and case-SENSITIVE, matching ProfileManager::findProfileByTitle —
+    // see the header comment for why the LOWER() comparisons elsewhere in this
+    // file are answering a different question and must not be copied here.
+    query.prepare("SELECT COUNT(*) FROM recipes WHERE archived = 0 "
+                  "AND TRIM(COALESCE(profile_title,'')) = :profile");
+    query.bindValue(":profile", target);
+    if (!query.exec() || !query.next()) {
+        // UNKNOWN, not zero. Returning 0 here would be the exact failure this
+        // whole change exists to remove: the delete dialog hides its warning on
+        // a count of 0, so a failed check would render as "no recipes use this"
+        // — identical to a genuine all-clear. shots.db is shared by four
+        // storages on their own worker threads (see dbutils.h), so a lock
+        // collision on the main thread at dialog-open time is a real event, not
+        // a hypothetical. Not blocking the delete and telling the user we could
+        // not check are different things; only the first is a requirement.
+        qWarning() << "[recipe] countRecipesUsingProfile failed for" << target << ":"
+                   << query.lastError().text();
+        return kRecipeCountUnknown;
+    }
+    return query.value(0).toInt();
+}
+
+int RecipeStorage::countRecipesUsingProfile(const QString& profileTitle) const
+{
+    int count = kRecipeCountUnknown;
+    // withTempDb returns false when the database could not be OPENED, which
+    // never reaches the lambda — leaving count at unknown is the honest answer,
+    // and this is the discarded-return CLAUDE.md warns about for APIs that
+    // carry no [[nodiscard]].
+    if (!withTempDb(m_dbPath, QStringLiteral("recipe_profile_count"), [&](QSqlDatabase& db) {
+            count = countRecipesUsingProfileStatic(db, profileTitle);
+        })) {
+        qWarning() << "[recipe] countRecipesUsingProfile could not open the database for"
+                   << profileTitle;
+        return kRecipeCountUnknown;
+    }
+    return count;
+}
+
 QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bool archived)
 {
     QVector<InventoryRecipe> recipes;

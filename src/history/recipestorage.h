@@ -43,6 +43,10 @@ class SerialDbWorker;
 // the steam pitcher the vessel is snapshotted BY VALUE (never a preset-list
 // reference); activation re-selects it by name and recreates it from the
 // snapshot if the preset was deleted. There is no separate per-recipe amount.
+// Returned by the recipes-using-a-profile count when the count could not be
+// taken at all. Distinct from 0 on purpose — see countRecipesUsingProfile.
+inline constexpr int kRecipeCountUnknown = -1;
+
 struct Recipe {
     qint64 id = 0;
 
@@ -147,6 +151,63 @@ struct Recipe {
             && (!profileTitle.trimmed().isEmpty() || hotWaterActive(hotWaterJson));
     }
 
+    // True when the recipe names a profile, and so owns which profile is
+    // loaded. A profile-less recipe (tea, hot water) owns no profile choice —
+    // exactly as a bean-less recipe owns no bag choice and an equipment-less
+    // recipe owns no equipment choice — and must never be deactivated by a
+    // profile change, nor be marked as missing a profile it never had.
+    //
+    // The empty test is trimmed, matching saveValidationPasses above and the
+    // profile-less branches in MainController; the watcher this replaced had no
+    // empty test at all, which is why a tea recipe was dropped by every profile
+    // change.
+    static bool ownsProfileChoice(const QString& profileTitle) {
+        return !profileTitle.trimmed().isEmpty();
+    }
+
+    // True when the recipe names this particular profile. Both this and
+    // profileDiverged below gate on ownership first, so a profile-less recipe
+    // answers false to BOTH — it neither names a profile nor can diverge from
+    // one. Writing the deleted-profile check as !profileDiverged() instead
+    // would have deactivated every tea recipe on any profile deletion.
+    //
+    // EXACT: case-sensitive and NOT trimmed, because ProfileManager::
+    // findProfileByTitle compares `info.title == title` raw, and that compare is
+    // what decides whether the profile actually resolves. Anything looser here
+    // reports a recipe as matching a profile that will not load.
+    //
+    // This used to trim both sides, defended by "a whitespace-only difference
+    // cannot arise from a successful activation". True and beside the point: a
+    // title never has to activate to be STORED. profile_title is not normalized
+    // on write, so an MCP or web author can persist "D-Flow / Q " verbatim, and
+    // the trimmed compare then reported that recipe as fine everywhere while
+    // activation failed — the same "looks fine, does not run" failure this
+    // change exists to remove, reintroduced through whitespace instead of
+    // deletion.
+    //
+    // Deliberately NOT fixed by teaching findProfileByTitle to trim: that would
+    // change resolution for every caller (shot loading, auto-load, the MCP and
+    // web surfaces), which is a far larger blast radius than this change earns.
+    // A whitespace-differing title now reads as missing, which is the honest
+    // answer — it genuinely cannot resolve.
+    static bool namesProfile(const QString& recipeProfileTitle,
+                             const QString& profileTitle) {
+        return ownsProfileChoice(recipeProfileTitle)
+            && recipeProfileTitle == profileTitle;
+    }
+
+    // True when the recipe's profile is no longer the loaded one, and the
+    // recipe must therefore be deactivated. The single definition of that
+    // question: MainController asks it on a profile change and when a restored
+    // or refreshed recipe row arrives. Hand-written comparisons at each site
+    // were free to drift, and the drift was invisible until a shot was stamped
+    // with a recipe whose profile it had not run.
+    static bool profileDiverged(const QString& recipeProfileTitle,
+                                const QString& loadedProfileTitle) {
+        return ownsProfileChoice(recipeProfileTitle)
+            && !namesProfile(recipeProfileTitle, loadedProfileTitle);
+    }
+
     // Derive the drink type from the blocks + the profile's beverage_type
     // (caller resolves it; pass empty when the profile is unknown). Used for
     // legacy rows without a stored drinkType and for promote-from-shot.
@@ -200,6 +261,36 @@ public:
                                  const QString& hotWaterJson) const {
         return Recipe::saveValidationPasses(name, profileTitle, hotWaterJson);
     }
+
+    // How many non-archived recipes name this profile, for the warning shown
+    // before deleting it. SYNCHRONOUS on purpose: a discrete user action (the
+    // delete confirmation is about to open), running once per delete — not a
+    // binding, not a delegate, not a repeating path.
+    //
+    // Measured with the sqlite3 CLI on a copy of the development database,
+    // 7 runs each, so these are query cost and EXCLUDE the withTempDb open:
+    //   16 recipes (the real table):  median 0.74 ms, worst 1.09 ms
+    //   1024 recipes (synthetic 64x): median 1.07 ms, worst 5.20 ms
+    // The worst case is a cold-cache outlier; the median barely moves across a
+    // 64x row count because the scan is over short text columns with no blobs
+    // dragged along. Well inside a discrete action's budget, and this never
+    // runs while the machine is busy.
+    //
+    // Returns kRecipeCountUnknown (-1) when the count could NOT be taken —
+    // never 0. The delete dialog hides its warning at 0, so collapsing a failed
+    // check into "no recipes use this" would show the user an all-clear that
+    // was never established, which is the failure class this change exists to
+    // remove. The caller must render "could not check" distinctly, and must
+    // still allow the delete: not blocking on a failed count and pretending it
+    // succeeded are different things.
+    //
+    // Matches the title EXACTLY, case-sensitively, because that is what
+    // ProfileManager::findProfileByTitle does when deciding whether a recipe's
+    // profile actually resolves. The LOWER() comparison elsewhere in this file
+    // (the import-dedup and sibling-relink queries) answers a different
+    // question — is this the SAME recipe identity — and borrowing it here would
+    // count recipes that will still activate fine, or miss ones that will not.
+    Q_INVOKABLE int countRecipesUsingProfile(const QString& profileTitle) const;
 
     Q_INVOKABLE void requestInventory();                   // archived = false, MRU order
     Q_INVOKABLE void requestArchived();                    // archived = true, MRU order
@@ -268,6 +359,11 @@ public:
     // case-insensitive), excluding `excludeId`, or 0. Backs the active-name
     // uniqueness guard (block-duplicate-active-names). A blank name never matches.
     static qint64 findRecipeByNameStatic(QSqlDatabase& db, const QString& name, qint64 excludeId = 0);
+
+    // How many non-archived recipes name this profile. Drives the warning shown
+    // before deleting a profile; see countRecipesUsingProfile below for why the
+    // comparison is exact.
+    static int countRecipesUsingProfileStatic(QSqlDatabase& db, const QString& profileTitle);
     // Update only the columns named in `fields` (camelCase Recipe keys).
     static bool updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, const QVariantMap& fields);
 

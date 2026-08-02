@@ -4384,6 +4384,112 @@ private slots:
 
         QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QString(""));
     }
+
+    // Deleting a profile is the one lifecycle event that changes what a TITLE
+    // resolves to without changing what is loaded — currentProfileChanged does
+    // not fire, so nothing downstream noticed and a recipe pinned to the
+    // deleted profile stayed active. The signal carries the title, not the
+    // filename, because that is what recipes and shots reference.
+    void profileDeletedCarriesTheTitle() {
+        McpTestFixture f;
+        const QString filename = "zz-deleted-profile-signal";
+        const QString title = "ZZ Deleted Profile Signal";
+        const QString path = f.profileManager.userProfilesPath() + "/" + filename + ".json";
+        QFile out(path);
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        out.write(QJsonDocument(makeDFlowJson(title)).toJson());
+        out.close();
+        f.profileManager.refreshProfiles();
+
+        QSignalSpy deletedSpy(&f.profileManager, &ProfileManager::profileDeleted);
+        QVERIFY(f.profileManager.deleteProfile(filename));
+        QCOMPARE(deletedSpy.count(), 1);
+        // The TITLE, captured before the catalog was rebuilt — after
+        // refreshProfiles() there is nothing left to resolve the filename against.
+        QCOMPARE(deletedSpy.at(0).at(0).toString(), title);
+    }
+
+    // The signal's real contract: it fires only when the TITLE stops resolving.
+    //
+    // This is asserted through the title, NOT through deleteProfile's built-in
+    // early return, because that return is not reachable the way it looks.
+    // refreshProfiles() classifies everything ProfileStorage lists as
+    // UserCreated and replaces the built-in catalog row with it, so a file
+    // shadowing a built-in takes the ORDINARY delete path and would emit —
+    // while the QRC built-in is restored under the same title and still
+    // resolves. Gating the emit on findProfileByTitle covers both shapes; a
+    // test of the early return alone covers neither.
+    void deletingAShadowingProfileDoesNotAnnounceADeletion() {
+        McpTestFixture f;
+        // A title carried by a built-in, so that after the delete the QRC
+        // version resolves it again.
+        const QVariantList all = f.profileManager.allProfilesList();
+        QString builtInTitle;
+        for (const QVariant& v : all) {
+            const QVariantMap m = v.toMap();
+            if (f.profileManager.isBuiltInFilename(m.value("filename").toString())) {
+                builtInTitle = m.value("title").toString();
+                break;
+            }
+        }
+        if (builtInTitle.isEmpty())
+            QSKIP("no built-in profile in the catalog to shadow");
+
+        // A DIFFERENTLY-named file carrying the built-in's title — the shape
+        // the early return cannot catch, since its filename is not a built-in.
+        const QString filename = "zz-shadowing-a-builtin-title";
+        const QString path = f.profileManager.userProfilesPath() + "/" + filename + ".json";
+        QFile out(path);
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        out.write(QJsonDocument(makeDFlowJson(builtInTitle)).toJson());
+        out.close();
+        f.profileManager.refreshProfiles();
+
+        QSignalSpy deletedSpy(&f.profileManager, &ProfileManager::profileDeleted);
+        QVERIFY(f.profileManager.deleteProfile(filename));
+        // Nothing announced: the title still resolves, so no recipe naming it
+        // has broken and none should be deactivated.
+        QVERIFY(!f.profileManager.findProfileByTitle(builtInTitle).isEmpty());
+        QCOMPARE(deletedSpy.count(), 0);
+    }
+
+    // Cleaning up a local override of a BUILT-IN profile is not a deletion in
+    // the sense that matters: the title still resolves afterwards, to the
+    // built-in version, so nothing pointing at it has broken and no recipe
+    // should be deactivated. deleteProfile returns false on that path, before
+    // the emit — this asserts the emit really is behind that return.
+    void builtInOverrideCleanupDoesNotAnnounceADeletion() {
+        McpTestFixture f;
+        // A filename that exists as a built-in QRC resource, so the source is
+        // BuiltIn and the early return applies. Skip rather than assert if the
+        // bundled set ever changes: the point is the branch, not this profile.
+        const QVariantList all = f.profileManager.allProfilesList();
+        QString builtInFilename;
+        for (const QVariant& v : all) {
+            const QVariantMap m = v.toMap();
+            if (f.profileManager.isBuiltInFilename(m.value("filename").toString())) {
+                builtInFilename = m.value("filename").toString();
+                break;
+            }
+        }
+        if (builtInFilename.isEmpty())
+            QSKIP("no built-in profile in the catalog to exercise the override branch");
+
+        // Write a local override so there is something for deleteProfile to
+        // remove — without one it returns false having done nothing, which
+        // would pass this test for the wrong reason.
+        const QString path = f.profileManager.userProfilesPath() + "/" + builtInFilename + ".json";
+        QFile out(path);
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        out.write(QJsonDocument(makeDFlowJson("ZZ Override Of A Built-In")).toJson());
+        out.close();
+        f.profileManager.refreshProfiles();
+
+        QSignalSpy deletedSpy(&f.profileManager, &ProfileManager::profileDeleted);
+        // Returns false: a built-in can never be fully deleted.
+        QVERIFY(!f.profileManager.deleteProfile(builtInFilename));
+        QCOMPARE(deletedSpy.count(), 0);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ProfileManager)

@@ -752,6 +752,26 @@ T.ApplicationWindow {
         pendingPopups = pendingPopups.concat([{id: popupId, params: params || {}}])
     }
 
+    // Is a blocking dialog already on screen? Used to QUEUE a popup rather than
+    // open it over one the user is currently reading. Deliberately enumerated:
+    // QML offers no "any Popup open" query, and a heuristic over children would
+    // sweep in inline popups, pickers and the brew dialog, which are not the
+    // same thing. Excludes globalBrewDialog and mcpConfirmDialog on purpose —
+    // the first is a working surface the user drives, the second is itself an
+    // approval prompt that must not be delayed behind an advisory message.
+    //
+    // Anything added here should also be added to a queue case in
+    // showNextPendingPopup below, or it can block a popup that never reappears.
+    function anyModalDialogVisible() {
+        return flowScaleDialog.visible || scaleDisconnectedDialog.visible
+            || updateDialog.visible || chargingMismatchDialog.visible
+            || bleErrorDialog.visible || refillDialog.visible
+            || profileRefusedDialog.visible || de1CommunicationErrorDialog.visible
+            || firmwareFlashExitDialog.visible || firmwareRebootRequiredDialog.visible
+            || noScaleAbortDialog.visible || crashReportDialog.visible
+            || recipeActivationFailedDialog.visible
+    }
+
     function showNextPendingPopup() {
         if (screensaverActive) return  // Don't show popups during screensaver
         if (pendingPopups.length === 0) return
@@ -802,6 +822,11 @@ T.ApplicationWindow {
                     refillDialog.open()
                 else
                     showNextPendingPopup()  // Skip stale refill, show next
+                break
+            case "recipeActivationFailed":
+                recipeActivationFailedDialog.missingProfileTitle =
+                    next.params.missingProfileTitle || ""
+                recipeActivationFailedDialog.open()
                 break
         }
     }
@@ -2473,6 +2498,137 @@ T.ApplicationWindow {
                 profileRefusedDialog.open()
         }
     }
+    // A recipe that could not be activated. Same reasoning as the refusal
+    // dialog above: activation is reached from the recipe pills, the MCP
+    // recipe_activate tool, the web activate route and auto-load, so the
+    // failure has to be visible whichever surface asked.
+    //
+    // Before this, the only report was a pill that lit and reverted —
+    // recipeActivated(id, false) was emitted and nothing in QML handled it.
+    Tr {
+        id: trRecipeActivationFailedTitle
+        key: "recipes.activationFailed.title"
+        fallback: "Can't use this recipe"
+        visible: false
+    }
+    Tr {
+        id: trRecipeActivationFailedProfile
+        key: "recipes.activationFailed.missingProfile"
+        fallback: "Its profile \"%1\" isn't installed. Edit the recipe and pick another profile, or import that one again."
+        visible: false
+    }
+    Tr {
+        id: trRecipeActivationFailedOther
+        key: "recipes.activationFailed.other"
+        fallback: "The recipe could not be loaded."
+        visible: false
+    }
+    Tr {
+        id: trRecipeActivationFailedOk
+        key: "common.button.ok"
+        fallback: "OK"
+        visible: false
+    }
+    DecenzaDialog {
+        id: recipeActivationFailedDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        padding: Theme.dialogPadding
+        // Let a popup that queued behind this one through, like every other
+        // dialog here. Without it this dialog swallows the queue.
+        onClosed: root.showNextPendingPopup()
+
+        property string missingProfileTitle: ""
+        readonly property string bodyText:
+            missingProfileTitle !== ""
+            ? trRecipeActivationFailedProfile.text.arg(missingProfileTitle)
+            : trRecipeActivationFailedOther.text
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.warningColor
+        }
+
+        onOpened: {
+            recipeActivationFailedOkButton.forceActiveFocus()
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(
+                    trRecipeActivationFailedTitle.text + ". "
+                    + recipeActivationFailedDialog.bodyText, true)
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingLarge
+
+            Text {
+                text: trRecipeActivationFailedTitle.text
+                font: Theme.subtitleFont
+                color: Theme.warningColor
+                width: parent.width
+                wrapMode: Text.Wrap
+                horizontalAlignment: Text.AlignHCenter
+                // Announced together in onOpened; don't re-read on swipe.
+                Accessible.ignored: true
+            }
+
+            Text {
+                text: recipeActivationFailedDialog.bodyText
+                font: Theme.bodyFont
+                color: Theme.textColor
+                width: parent.width
+                wrapMode: Text.Wrap
+                horizontalAlignment: Text.AlignHCenter
+                Accessible.ignored: true
+            }
+
+            AccessibleButton {
+                id: recipeActivationFailedOkButton
+                text: trRecipeActivationFailedOk.text
+                accessibleName: trCommonDismissDialog.text
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: recipeActivationFailedDialog.close()
+            }
+        }
+    }
+    Connections {
+        target: MainController
+        function onRecipeActivationFailed(recipeId, recipeName, missingProfileTitle) {
+            // Not queued for after the screensaver, unlike the update and
+            // refill prompts. Those stay true while asleep; this one reports a
+            // single failed attempt, and surfacing it minutes later next to
+            // whatever the user is doing then would be noise.
+            //
+            // Reaching here with the screensaver up means a REMOTE caller (MCP
+            // or web) — a pill tap needs the screen awake — and both of those
+            // report the failure through their own response, so nothing is lost
+            // for the requester. For the missing-profile case the recipe also
+            // keeps its marking in the list. The one gap is a recipe row that
+            // vanished concurrently: no durable marker exists for that, so a
+            // local user would never learn of it. Accepted — it needs a delete
+            // racing an in-flight remote activation.
+            if (root.screensaverActive)
+                return
+            // Queue behind a dialog that is already up rather than opening on
+            // top of it. Draining the queue in onClosed is not enough on its
+            // own — that only helps popups already waiting, and this one would
+            // still stack over whatever the user is currently reading (it was
+            // landing over "No Scale Found"). Queued, it opens when that one is
+            // dismissed, via the same showNextPendingPopup path.
+            if (root.anyModalDialogVisible()) {
+                root.queuePopup("recipeActivationFailed",
+                                {missingProfileTitle: missingProfileTitle})
+                return
+            }
+            recipeActivationFailedDialog.missingProfileTitle = missingProfileTitle
+            if (!recipeActivationFailedDialog.visible)
+                recipeActivationFailedDialog.open()
+        }
+    }
+
     Connections {
         target: ProfileManager
         function onDe1CommunicationFailureChanged() {

@@ -67,7 +67,50 @@ Rectangle {
     readonly property bool isHotWaterOnly:
         (!recipe.profileTitle || String(recipe.profileTitle).trim() === "") && !!hotWater.hasWater
 
+    // The recipe names a profile that is not installed, so it cannot be
+    // activated ("the profile IS the drink" — applyActivatedRecipe refuses).
+    // Derived here, never stored: no pass marks recipes and nothing migrates,
+    // so this covers every route into the state — the profile deleted, a
+    // profileTitle that never resolved (MCP/web), a restored database, a device
+    // transfer without its profiles — and clears itself the moment the profile
+    // comes back.
+    //
+    // Reading ProfileManager.installedProfileTitles is what makes this a live
+    // binding: it is a PROPERTY notified by profilesChanged, so deleting or
+    // importing a profile updates cards already on screen. Calling
+    // findProfileByTitle() here instead would record no dependency and freeze.
+    //
+    // The empty test mirrors Recipe::ownsProfileChoice — a profile-less tea
+    // owns no profile choice and is not broken. Exact and case-sensitive, like
+    // ProfileManager::findProfileByTitle, so this agrees with what activation
+    // will really resolve.
+    readonly property bool profileMissing: {
+        var title = (recipe && recipe.profileTitle ? String(recipe.profileTitle) : "")
+        // Owns no profile choice — a hot-water tea is not broken.
+        if (title.trim() === "")
+            return false
+        // Carries a frozen copy: activation's refusal is a TWO-term test
+        // (filename.isEmpty() AND profileJson.isEmpty()), so a recipe with
+        // stored JSON activates through loadProfileFromJson even when its title
+        // resolves to nothing. Testing catalog membership alone marked exactly
+        // the recipes the frozen-JSON fallback exists to protect — the ones a
+        // device transfer or import brings in without their profiles — and
+        // following the advice would have destroyed the profile they carried.
+        if (recipe.profileJson && String(recipe.profileJson).length > 0)
+            return false
+        // EXACT, untrimmed, matching ProfileManager::findProfileByTitle. A
+        // title stored with stray whitespace does not resolve, so reporting it
+        // as missing is the honest answer.
+        return ProfileManager.installedProfileTitles.indexOf(title) < 0
+    }
+
     Tr { id: trActiveBadge; key: "recipes.list.active"; fallback: "Active"; visible: false }
+    Tr {
+        id: trProfileMissing
+        key: "recipes.list.profileMissing"
+        fallback: "Profile \"%1\" is missing — edit this recipe to pick another"
+        visible: false
+    }
     Tr { id: trShotsWord; key: "recipes.list.shots"; fallback: "shots"; visible: false }
     Tr { id: trMilkWeight; key: "recipes.list.milkWeight"; fallback: "%1g milk"; visible: false }
     Tr { id: trHotWaterWord; key: "recipes.list.hotWater"; fallback: "Hot water"; visible: false }
@@ -213,6 +256,23 @@ Rectangle {
                 Accessible.focusable: true
                 Accessible.onPressAction: card.staleActionClicked()
                 TapHandler { onTapped: card.staleActionClicked() }
+            }
+
+            // 3b. Missing-profile line. Its own row rather than a mark on the
+            // drink line: the drink line elides, and a warning that can elide
+            // away is not a warning. Not tappable — repair happens in the
+            // recipe editor, reached by opening the card as usual, so this
+            // states the fault and names the profile to look for.
+            Label {
+                visible: card.profileMissing
+                Layout.fillWidth: true
+                text: trProfileMissing.text.arg(card.recipe.profileTitle)
+                font: Theme.captionFont
+                color: Theme.warningColor
+                wrapMode: Text.WordWrap
+                // Not carried by colour alone: the sentence itself says it.
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
             }
 
             // 4. Plan line — or the vessel snapshot for hot-water tea.

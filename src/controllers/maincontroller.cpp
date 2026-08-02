@@ -1193,6 +1193,36 @@ void MainController::setupRecipeConnections() {
             deactivateRecipe();
             return;
         }
+        // A row naming a profile that is not the loaded one belongs in the
+        // branch above: the recipe no longer describes what the machine will
+        // brew. This is the ONLY place the startup restore can be caught. The
+        // profile is loaded inline by ProfileManager's constructor
+        // (profilemanager.cpp:131-366, called at maincontroller.cpp:130) while
+        // this row arrives from the async read issued at the end of
+        // setupRecipeConnections(), itself called partway through THIS
+        // constructor — so the mismatch watcher has already had its turn and
+        // returned early on an empty m_activeRecipe, and the shot stamp reads
+        // activeRecipeId straight from settings without consulting the cache at
+        // all. Three shots on 2026-07-28 were recorded against a recipe whose
+        // profile they never ran, exactly here.
+        //
+        // Must run BEFORE m_activeRecipe is assigned and before setActiveRecipe
+        // below, or a recipe about to be dropped first arms the dose ladder's
+        // top rung with its own dose.
+        //
+        // This also fires for an external edit (composer/MCP/web) that
+        // re-points the recipe at a different profile — the same divergence
+        // from the other direction, so the same answer. Activation itself
+        // cannot reach here: it returns via recipeActivationReady.
+        if (Recipe::profileDiverged(recipe.value(QStringLiteral("profileTitle")).toString(),
+                                    m_profileManager->currentProfile().title())) {
+            qWarning() << "[recipe] restored/refreshed recipe" << recipeId
+                       << "names profile" << recipe.value(QStringLiteral("profileTitle")).toString()
+                       << "but" << m_profileManager->currentProfile().title()
+                       << "is loaded - deactivating";
+            deactivateRecipe();
+            return;
+        }
         const qint64 resolvedBagId = m_activeRecipe.value(
             QStringLiteral("resolvedBagId"), m_settings->dye()->activeBagId()).toLongLong();
         const bool hadMilk = activeRecipeHasMilk();
@@ -1262,6 +1292,19 @@ void MainController::setupRecipeConnections() {
     // new value against the recipe's OWN ingredient, so re-selecting the
     // same thing (or the startup auto-load of the recipe's profile) never
     // deactivates, and a recipe without that rung doesn't own the choice.
+    //
+    // That last clause was true of the bag and equipment watchers and FALSE of
+    // the profile one, which compared raw and so deactivated a profile-less tea
+    // recipe on every profile change. It is now true of all three: the profile
+    // watcher asks Recipe::profileDiverged, which gates on ownership first.
+    //
+    // Note what these watchers CANNOT see. Each needs m_activeRecipe, which is
+    // filled by an async row read issued from setupRecipeConnections(), so
+    // none of them can fire during startup — and the profile is fully loaded by
+    // then (ProfileManager's constructor does it inline). The restored-recipe
+    // reconcile in the recipeReady handler above is what covers that window;
+    // without it a recipe restored beside a different profile stayed active and
+    // stamped its id onto every shot that followed.
     connect(m_settings->dye(), &SettingsDye::activeBagIdChanged, this, [this]() {
         if (m_applyingRecipe || m_activeRecipe.isEmpty())
             return;
@@ -1285,9 +1328,34 @@ void MainController::setupRecipeConnections() {
     connect(m_profileManager, &ProfileManager::currentProfileChanged, this, [this]() {
         if (m_applyingRecipe || m_activeRecipe.isEmpty())
             return;
-        if (m_profileManager->currentProfile().title()
-            != m_activeRecipe.value("profileTitle").toString())
+        if (Recipe::profileDiverged(m_activeRecipe.value("profileTitle").toString(),
+                                    m_profileManager->currentProfile().title()))
             deactivateRecipe();
+    });
+    // Deleting a profile is the one lifecycle event that changes what a title
+    // resolves to without changing what is loaded, so currentProfileChanged
+    // never fires for it and the watcher above cannot see it. ProfileManager
+    // does not know recipes exist; it reports the deletion and this decides
+    // what it means, beside the other deactivation watchers.
+    connect(m_profileManager, &ProfileManager::profileDeleted, this,
+            [this](const QString& deletedTitle) {
+        if (m_applyingRecipe || m_activeRecipe.isEmpty())
+            return;
+        // namesProfile, NOT !profileDiverged — the latter is also true for a
+        // profile-less recipe, which would drop every tea recipe on any
+        // profile deletion. Recipes OTHER than the active one are not touched:
+        // they are not modified or repaired, they simply show as missing their
+        // profile wherever they are listed.
+        if (Recipe::namesProfile(m_activeRecipe.value("profileTitle").toString(),
+                                 deletedTitle)) {
+            // Logged for the same reason the reconcile branch above logs: this
+            // app is diagnosed from user-submitted logs, and "my recipe
+            // deselected itself" with no trace anywhere leaves the reader
+            // nothing to find. deactivateRecipe() logs nothing of its own.
+            qWarning() << "[recipe] profile" << deletedTitle
+                       << "was deleted and the active recipe names it - deactivating";
+            deactivateRecipe();
+        }
     });
 
     // --- Write-through stamps: tweaks while a recipe is active refine the
@@ -1391,6 +1459,12 @@ void MainController::setupRecipeConnections() {
 void MainController::activateRecipe(qint64 recipeId) {
     if (!m_recipeStorage) {
         qWarning() << "[recipe] activateRecipe" << recipeId << "- no recipe storage, activation failed";
+        // Paired, like the two bail sites in applyActivatedRecipe. Without it
+        // this path keeps the silently-reverting pill this change exists to
+        // remove — and makes "accompanies every recipeActivated(id, false)"
+        // false. No profile title to name: we never got as far as reading the
+        // row.
+        emit recipeActivationFailed(recipeId, QString(), QString());
         emit recipeActivated(recipeId, false);
         return;
     }
@@ -1539,6 +1613,8 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                                           qint64 linkedBagId, const QVariantMap& linkedBag) {
     if (recipe.isEmpty()) {
         qWarning() << "applyActivatedRecipe: recipe" << recipeId << "not found";
+        // No profile title to report — the row itself is gone.
+        emit recipeActivationFailed(recipeId, QString(), QString());
         emit recipeActivated(recipeId, false);
         return;
     }
@@ -1568,6 +1644,11 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
     if (filename.isEmpty() && profileJson.isEmpty() && !profileLess) {
         qWarning() << "applyActivatedRecipe: no profile data for recipe" << recipeId
                    << "(title" << profileTitle << "not installed, no JSON) - activation failed";
+        // Name the profile: it is the value the user must change in the recipe
+        // editor, and the recipe list is already marking this recipe for the
+        // same reason.
+        emit recipeActivationFailed(recipeId, recipe.value(QStringLiteral("name")).toString(),
+                                    profileTitle);
         emit recipeActivated(recipeId, false);
         return;
     }

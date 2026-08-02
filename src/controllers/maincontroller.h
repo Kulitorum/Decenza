@@ -508,6 +508,17 @@ signals:
     // recipe id was not found or storage failed. Terminal status for QML
     // pill taps, MCP recipe_activate, and the web /activate route.
     void recipeActivated(qint64 recipeId, bool success);
+
+    // Emitted with every recipeActivated(id, false), carrying what the user has
+    // to fix. recipeActivated alone was the only report of a failure and no QML
+    // handled it, so a failed activation showed as a pill that lit and then
+    // silently reverted — no message, nothing marking the recipe.
+    //
+    // missingProfileTitle is the profile the recipe names when that is the
+    // cause (not installed and no stored JSON), and empty for any other
+    // failure, so the message can name the value to change in the editor.
+    void recipeActivationFailed(qint64 recipeId, const QString& recipeName,
+                                const QString& missingProfileTitle);
     void activeRecipeChanged();
     void brewBaselineChanged();
     void selectedRecipeIdChanged();

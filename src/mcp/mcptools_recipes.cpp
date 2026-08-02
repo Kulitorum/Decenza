@@ -908,16 +908,41 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 respond(QJsonObject{{"error", "Valid recipeId is required"}});
                 return;
             }
+            // Latch WHY before the terminal signal arrives. recipeActivationFailed
+            // is emitted immediately before every recipeActivated(id, false), so
+            // by the time the handler below runs the reason is already here.
+            // Without it this tool reports "not found or activation failed" for
+            // a recipe that exists and whose only problem is a namable missing
+            // profile — the caller is an AI agent that can act on the title, and
+            // telling it nothing is the failure this whole change is about.
+            auto missingProfile = std::make_shared<QString>();
+            auto failConn = std::make_shared<QMetaObject::Connection>();
+            *failConn = QObject::connect(mainController, &MainController::recipeActivationFailed,
+                qApp, [failConn, recipeId, missingProfile](qint64 failedId, const QString&,
+                                                           const QString& missingProfileTitle) {
+                    if (failedId != recipeId)
+                        return;
+                    QObject::disconnect(*failConn);
+                    *missingProfile = missingProfileTitle;
+                });
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = QObject::connect(mainController, &MainController::recipeActivated, qApp,
-                [conn, recipeId, respond](qint64 activatedId, bool success) {
+                [conn, failConn, recipeId, respond, missingProfile](qint64 activatedId, bool success) {
                     if (activatedId != recipeId)
                         return;
                     QObject::disconnect(*conn);
-                    if (success)
+                    QObject::disconnect(*failConn);
+                    if (success) {
                         respond(QJsonObject{{"activated", true}, {"recipeId", recipeId}});
-                    else
+                    } else if (!missingProfile->isEmpty()) {
+                        respond(QJsonObject{{"error",
+                            QString("Recipe %1 names profile \"%2\", which is not installed and the "
+                                    "recipe carries no stored copy of it. Pick an installed profile "
+                                    "for the recipe, or import that profile.")
+                                .arg(recipeId).arg(*missingProfile)}});
+                    } else {
                         respond(QJsonObject{{"error", QString("Recipe %1 not found or activation failed").arg(recipeId)}});
+                    }
                 });
             mainController->activateRecipe(recipeId);
         },

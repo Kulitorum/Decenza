@@ -171,6 +171,122 @@ private slots:
         QVERIFY(!Recipe::saveValidationPasses("  ", "D-Flow", QString()));
     }
 
+    // The predicate three MainController sites share: the profile watcher, the
+    // restored-row reconcile, and the profile-deleted reconcile. It exists as a
+    // pure static precisely so it can be tested — no test constructs a
+    // MainController (the watchers are constructor lambdas needing BLE, every
+    // storage and the QML engine), so a member predicate would ship with the
+    // coverage the original watcher had: none.
+    // Kept separate from profileDivergenceRule deliberately, not as insurance.
+    // The two functions treat whitespace DIFFERENTLY on purpose:
+    // ownsProfileChoice trims (a whitespace-only title names nothing), while
+    // namesProfile compares raw (findProfileByTitle does). That asymmetry is
+    // the kind a later tidy-up "harmonises" in one direction or the other, and
+    // it is only visible when the ownership gate is asserted on its own.
+    void profileOwnershipGate() {
+        // Names a profile: owns the choice.
+        QVERIFY(Recipe::ownsProfileChoice("D-Flow / Q"));
+        // Profile-less (tea, hot water): owns nothing. This is the gate the
+        // original watcher lacked, which is why any profile change dropped a
+        // tea recipe.
+        QVERIFY(!Recipe::ownsProfileChoice(QString()));
+        QVERIFY(!Recipe::ownsProfileChoice(""));
+        // Trimmed HERE, unlike namesProfile. A title of spaces is not a name.
+        QVERIFY(!Recipe::ownsProfileChoice("   "));
+        // ...and a title with real content keeps it, whitespace or not — this
+        // is what stops a "harmonise the trim" change from making a
+        // stray-space recipe look profile-less instead of unresolvable.
+        QVERIFY(Recipe::ownsProfileChoice(" D-Flow / Q "));
+    }
+
+    void profileDivergenceRule() {
+        // The loaded profile is the recipe's: no divergence.
+        QVERIFY(!Recipe::profileDiverged("D-Flow / Q", "D-Flow / Q"));
+        // A different profile is loaded: deactivate. This is the shape that
+        // recorded three shots against a recipe whose profile they never ran.
+        QVERIFY(Recipe::profileDiverged("A-Flow / ZZ Fmt Test aflow", "D-Flow / Q"));
+        // The recipe's profile was deleted, so nothing is loaded under that
+        // title — still divergence, by the same comparison.
+        QVERIFY(Recipe::profileDiverged("A-Flow / ZZ Fmt Test aflow", QString()));
+
+        // A recipe owning no profile never diverges, whatever is loaded. Both
+        // the "no profile loaded" and "some profile loaded" cases, because the
+        // gate must not be an accident of the strings happening to match.
+        QVERIFY(!Recipe::profileDiverged(QString(), "D-Flow / Q"));
+        QVERIFY(!Recipe::profileDiverged("   ", "D-Flow / Q"));
+        QVERIFY(!Recipe::profileDiverged(QString(), QString()));
+
+        // Trimmed: cannot spuriously deactivate on stored whitespace.
+        // Whitespace is NOT forgiven, because findProfileByTitle does not
+        // forgive it either: " D-Flow / Q " resolves to nothing, so the recipe
+        // genuinely cannot activate and diverging is the honest answer. This
+        // assertion was inverted while the predicate trimmed, which let a
+        // stray-space recipe read as fine everywhere and then fail to activate.
+        QVERIFY(Recipe::profileDiverged(" D-Flow / Q ", "D-Flow / Q"));
+        // Case-SENSITIVE, agreeing with ProfileManager::findProfileByTitle —
+        // "d-flow / q" does not resolve, so a recipe naming it cannot activate
+        // and must not be treated as matching the loaded profile.
+        QVERIFY(Recipe::profileDiverged("d-flow / q", "D-Flow / Q"));
+    }
+
+    // The deleted-profile check asks namesProfile, not !profileDiverged. Both
+    // gate on ownership, so a profile-less recipe answers false to BOTH — which
+    // is the whole point: !profileDiverged would be TRUE for it, and deleting
+    // any profile would then drop every tea recipe. The last two assertions are
+    // the ones that catch that inversion.
+    // The count behind the delete-profile warning. Its SQL diverges DELIBERATELY
+    // from the LOWER() comparisons elsewhere in this file — it must agree with
+    // ProfileManager::findProfileByTitle, which decides whether a recipe can
+    // actually activate — so a well-meaning later harmonisation would silently
+    // make the warning count recipes that will keep working, or miss ones that
+    // will not.
+    void countRecipesUsingProfileQuery() {
+        withRawDb(freshDbPath(), "profcount", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            auto add = [&db](const QString& name, const QString& profile, bool archived) {
+                Recipe r = sampleRecipe();
+                r.name = name;
+                r.profileTitle = profile;
+                const qint64 id = RecipeStorage::insertRecipeStatic(db, r);
+                if (archived)
+                    RecipeStorage::updateRecipeFieldsStatic(db, id, {{"archived", true}});
+                return id;
+            };
+            add("A", "D-Flow / Q", false);
+            add("B", "D-Flow / Q", false);
+            add("C", "A-Flow / R", false);
+            add("D", "D-Flow / Q", true);          // archived: not counted
+            add("E", QString(), false);            // profile-less: names nothing
+
+            QCOMPARE(RecipeStorage::countRecipesUsingProfileStatic(db, "D-Flow / Q"), 2);
+            QCOMPARE(RecipeStorage::countRecipesUsingProfileStatic(db, "A-Flow / R"), 1);
+            QCOMPARE(RecipeStorage::countRecipesUsingProfileStatic(db, "Not Installed"), 0);
+            // Case-SENSITIVE, agreeing with findProfileByTitle. A LOWER()
+            // comparison here would return 2 and warn about recipes that would
+            // still activate fine.
+            QCOMPARE(RecipeStorage::countRecipesUsingProfileStatic(db, "d-flow / q"), 0);
+            // A profile-less recipe owns no profile choice, so an empty query
+            // matches nothing rather than sweeping up every such recipe.
+            QCOMPARE(RecipeStorage::countRecipesUsingProfileStatic(db, QString()), 0);
+            QCOMPARE(RecipeStorage::countRecipesUsingProfileStatic(db, "   "), 0);
+        });
+    }
+
+    void recipeNamesProfileRule() {
+        QVERIFY(Recipe::namesProfile("D-Flow / Q", "D-Flow / Q"));
+        // Exact, untrimmed — see profileDivergenceRule for why.
+        QVERIFY(!Recipe::namesProfile(" D-Flow / Q ", "D-Flow / Q"));
+        QVERIFY(!Recipe::namesProfile("D-Flow / Q", "A-Flow / R"));
+        QVERIFY(!Recipe::namesProfile("d-flow / q", "D-Flow / Q"));
+
+        // A profile-less recipe names no profile, so deleting one never
+        // touches it — even when both titles are empty, which is exactly where
+        // a plain equality test would wrongly return true.
+        QVERIFY(!Recipe::namesProfile(QString(), "D-Flow / Q"));
+        QVERIFY(!Recipe::namesProfile(QString(), QString()));
+        QVERIFY(!Recipe::namesProfile("   ", "   "));
+    }
+
     void deriveDrinkTypeMatrix() {
         const QString waterAfter  = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"after\"}";
         const QString waterBefore = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"before\"}";
