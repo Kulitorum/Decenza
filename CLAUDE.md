@@ -65,13 +65,21 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 
 The `cmake`/`ctest` invocations in `docs/CLAUDE_MD/TESTING.md` and `docs/CLAUDE_MD/PLATFORM_BUILD.md` are **reference for humans and CI**, not instructions for an assistant. Run their equivalent through the MCP.
 
-**No CI job builds or tests a pull request — run the full suite locally before opening one.** That is the gate, via `mcp__qtcreator__run_tests` (scope `all`). Nothing on GitHub will catch a compile error or a failing test before merge.
+**No CI job builds or tests a pull request *automatically* — run the full suite locally before opening one.** That is the default gate, via `mcp__qtcreator__run_tests` (scope `all`). Nothing on GitHub fires on its own to catch a compile error or a failing test before merge.
+
+**But CI can be pointed at a branch on demand, and for the test suite that is `linux-release.yml`.** It configures `-DBUILD_TESTS=ON` and runs `ctest --output-on-failure --repeat until-pass:3`, then reports any test that only passed on retry. It is `workflow_dispatch`, so it runs only when dispatched:
+
+```bash
+gh workflow run linux-release.yml --ref <branch> -f upload_to_release=false
+```
+
+Read "no PR CI" as "nothing runs unless you ask", not "there is no way to get CI to build and test this branch" — the second reading is wrong, and it is how this file was previously read into telling a contributor the suite could only be run locally. The other release workflows dispatch the same way and are the right call for platform-specific changes; `linux-release.yml` is the one that runs tests. Note what a Linux run does **not** cover: `ENABLE_TSNET` is OFF there, so anything reached only through `cmake/tsnet.cmake` is not exercised, and platform-guarded code is compiled only by that platform's own workflow.
 
 That is narrower than "there is no PR CI", which this file used to say and which is wrong: `text-invariants.yml` **does** run on `pull_request`, filtered to the surfaces in its own `paths:` list — **`src/**` among them**. (Not enumerated here: the two copies of that list in this repo's docs were each already one entry short.)
 
 **`src/**` is in that list, so a pure C++ change is gated too**, and this file used to omit it. That omission is what let a merge land red: `check_log_markers.py` rejected a new `[Equipment]` line in `maincontroller.cpp`, the PR was merged without its own run being read, and `main` went red. Nothing blocks that — it is not a required status check, by design, because requiring it would put a check on the critical path of every push. **Read the run before you merge; the gate cannot do it for you.** It is build-free by design — pure Python over the source, no Qt, no compile, seconds (the workflow header carries the measured figure) — which is exactly why it can afford to run per-PR while nothing else does. Read it as the shape a new PR-time check has to fit: if a check needs the app built, it does not belong there.
 
-Everything else is post-merge or on demand. `nightly-sanitizers.yml` re-runs the suite on `main` each night under UBSan and ASan. Platform-guarded code (`#ifdef Q_OS_IOS` etc.) is compiled only by the tag-push release workflows, so verify platform-specific changes with a CI test build of that platform (see `docs/CLAUDE_MD/CI_CD.md`).
+Everything else is post-merge or on demand — "on demand" meaning the `workflow_dispatch` release workflows above, which is a real option and not a euphemism for "never". `nightly-sanitizers.yml` re-runs the suite on `main` each night under UBSan and ASan. Platform-guarded code (`#ifdef Q_OS_IOS` etc.) is compiled only by the tag-push release workflows, so verify platform-specific changes with a CI test build of that platform (see `docs/CLAUDE_MD/CI_CD.md`).
 
 **Debug builds are sanitizer-instrumented automatically** — ASan *and* UBSan on every desktop platform including macOS, so a normal local test run already reports undefined behaviour and memory errors. UBSan is in recovering mode there (it reports and continues); an explicit `-DENABLE_UBSAN=ON` gives the halting mode CI uses. Release builds are untouched.
 
