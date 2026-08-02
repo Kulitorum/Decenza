@@ -12,7 +12,7 @@ Decenza aims to be a complete replacement for Decent's original `de1app` (Tcl/Tk
 ## 2. Scope
 
 - **In scope:** BLE-based firmware update procedure (three-phase erase / upload / verify), firmware download from Decent's GitHub, detection and UI, retry on failure, all platforms Decenza supports (Windows, macOS, Linux, Android, iOS).
-- **Out of scope:** USB-serial firmware update (the reaprime/Streamline path); auto-resume of partial uploads at the protocol level; signing/verification beyond what's in the firmware file header; firmware rollback.
+- **Out of scope:** USB-serial firmware update (the Decaid/Streamline path); auto-resume of partial uploads at the protocol level; signing/verification beyond what's in the firmware file header; firmware rollback.
 
 ## 3. Architecture
 
@@ -364,7 +364,7 @@ Before merge:
 - [ ] Disconnect mid-upload: failure → retry → second attempt succeeds.
 - [ ] Disconnect mid-verify: reconnect sees new version → retroactive success (no spurious Failed).
 - [ ] Machine busy: start shot → Update refused.
-- [ ] Already-up-to-date race: flash via reaprime in background → Update says "Already up to date" without erasing.
+- [ ] Already-up-to-date race: flash via Decaid in background → Update says "Already up to date" without erasing.
 - [ ] Dismiss banner: stays dismissed for that version; reappears on newer firmware.
 - [ ] Localization: switch locale; all strings translate or fall back.
 - [ ] Accessibility: TalkBack/VoiceOver reads banner, buttons, progress correctly.

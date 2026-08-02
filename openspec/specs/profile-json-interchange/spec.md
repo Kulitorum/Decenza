@@ -28,9 +28,9 @@ Every profile Decenza emits SHALL include `tank_temperature` and `target_volume_
 - **THEN** the JSON contains `tank_temperature` equal to `tank_desired_water_temperature`
 - **AND** the JSON contains `target_volume_count_start` equal to `number_of_preinfuse_frames`
 
-#### Scenario: reaprime accepts the exported profile
+#### Scenario: Decaid accepts the exported profile
 
-- **WHEN** a Decenza-exported profile is parsed by reaprime's `Profile.fromJson`
+- **WHEN** a Decenza-exported profile is parsed by Decaid's `Profile.fromJson`
 - **THEN** parsing succeeds without a missing-required-field error
 
 ### Requirement: Standard DE1 metadata keys are emitted
@@ -44,7 +44,7 @@ Every profile Decenza emits SHALL include the standard DE1 v2 metadata keys `typ
 
 ### Requirement: Numeric fields are string-encoded
 
-Decenza SHALL serialize numeric step fields and numeric profile-level fields as JSON strings (e.g. `"9.0"`), matching the de1app / tablet / Visualizer / reaprime convention. Decenza SHALL continue to parse both string- and number-encoded values on import.
+Decenza SHALL serialize numeric step fields and numeric profile-level fields as JSON strings (e.g. `"9.0"`), matching the de1app / tablet / Visualizer / Decaid convention. Decenza SHALL continue to parse both string- and number-encoded values on import.
 
 #### Scenario: Step values serialize as strings
 
@@ -65,16 +65,16 @@ Any profile file Decenza emits SHALL contain a non-empty `steps` array. Simple `
 
 - **WHEN** a `settings_2a` profile with no explicit steps is exported
 - **THEN** the emitted JSON contains explicit generated frames
-- **AND** reaprime parses it as a valid, runnable profile
+- **AND** Decaid parses it as a valid, runnable profile
 
 #### Scenario: Weight exit omitted when zero
 
 - **WHEN** a step has no weight-exit (weight 0)
 - **THEN** the `weight` key is omitted from that step rather than emitted as `"0.0"`
 
-### Requirement: Built-in profiles pass a reaprime-readability check
+### Requirement: Built-in profiles pass a Decaid-readability check
 
-The built-in profile set SHALL be regenerated in the canonical format, and a lint SHALL verify that every emitted built-in satisfies reaprime's contract: required keys present, `steps` non-empty, and enum-valued fields (`pump`, `sensor`, `transition`, exit `type`/`condition`) within reaprime's accepted vocabulary.
+The built-in profile set SHALL be regenerated in the canonical format, and a lint SHALL verify that every emitted built-in satisfies Decaid's contract: required keys present, `steps` non-empty, and enum-valued fields (`pump`, `sensor`, `transition`, exit `type`/`condition`) within Decaid's accepted vocabulary.
 
 #### Scenario: Lint fails on a non-conforming built-in
 

@@ -413,7 +413,7 @@ add_decenza_test(tst_profile
     tst_profile.cpp
 )
 
-# --- tst_builtinprofileformat: every shipped built-in must satisfy reaprime's
+# --- tst_builtinprofileformat: every shipped built-in must satisfy Decaid's
 # Profile.fromJson contract (required keys, non-empty steps, enum vocabulary), so
 # a profile makes the same coffee in every DE1 app. See OpenSpec
 # align-profile-json-with-reaprime.

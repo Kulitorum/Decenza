@@ -1173,7 +1173,7 @@ private slots:
     // handshake.
     //
     // Byte layouts are asserted against pyacaia (decode/Settings), Beanconqueror
-    // (decoder.ts) and reaprime (acaia_scale.dart), which agree; de1app parses
+    // (decoder.ts) and Decaid (acaia_scale.dart), which agree; de1app parses
     // weight only and never reads a 0x08 settings frame.
 
     // 0x08 settings frame. Battery is payload[1] = buf[4]; buf[5] is the units
@@ -1239,7 +1239,7 @@ private slots:
     }
 
     void acaiaBatteryHighBitIsMasked() {
-        // pyacaia and Beanconqueror mask 0x80 off; reaprime does not. Masking
+        // pyacaia and Beanconqueror mask 0x80 off; Decaid does not. Masking
         // keeps a set high bit from reading as an out-of-range battery.
         auto* transport = new MockScaleBleTransport;
         AcaiaScale scale(transport);

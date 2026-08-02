@@ -22,7 +22,7 @@
  * On Android: uses AndroidUsbHelper (JNI → Android USB Host API) for I/O,
  * because QSerialPort cannot access USB serial devices on Android.
  *
- * Protocol summary (from reaprime firmware analysis):
+ * Protocol summary (from Decaid firmware analysis):
  *   Host  -> DE1:  <LETTER>hexdata\n     (write)
  *   DE1   -> Host: [LETTER]hexdata\n     (notification/response)
  *   Subscribe:     <+LETTER>\n

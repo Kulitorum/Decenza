@@ -16,7 +16,7 @@
 //
 // The Decent community needs a profile to make the same coffee in every app, so
 // every profile Decenza emits must be readable by the strictest reader in the
-// ecosystem — reaprime's Profile.fromJson, which hard-rejects a profile missing
+// ecosystem — Decaid's Profile.fromJson, which hard-rejects a profile missing
 // `tank_temperature` / `target_volume_count_start` or carrying an empty `steps`
 // array. This runs the shipped built-ins through that contract, both as they sit
 // on disk and after a load→serialize cycle.
@@ -73,7 +73,7 @@ private slots:
             QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f);
     }
 
-    // Every shipped built-in, as it sits on disk, satisfies reaprime's contract.
+    // Every shipped built-in, as it sits on disk, satisfies Decaid's contract.
     void builtinProfiles() {
         QFETCH(QString, filePath);
 
@@ -83,7 +83,7 @@ private slots:
         const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
         QVERIFY2(err.error == QJsonParseError::NoError, qPrintable(err.errorString()));
 
-        const QStringList errors = Profile::reaprimeReadabilityErrors(doc.object());
+        const QStringList errors = Profile::decaidReadabilityErrors(doc.object());
         QVERIFY2(errors.isEmpty(), qPrintable(QFileInfo(filePath).fileName() + ": " + errors.join(", ")));
     }
 
@@ -98,7 +98,7 @@ private slots:
         QVERIFY2(p.isValid(), qPrintable(filePath));
 
         const QJsonObject out = p.toJsonObject();
-        const QStringList errors = Profile::reaprimeReadabilityErrors(out);
+        const QStringList errors = Profile::decaidReadabilityErrors(out);
         QVERIFY2(errors.isEmpty(), qPrintable(QFileInfo(filePath).fileName() + ": " + errors.join(", ")));
 
         // Canonical format: string-encoded values and the required aliases.
@@ -199,7 +199,7 @@ private slots:
 
         // Transformation 1 — frame materialization. de1app's simple editors
         // (2a/2b) store their shot as scalar settings and ship `steps: []`.
-        // reaprime hard-rejects an empty `steps`, so those profiles were
+        // Decaid hard-rejects an empty `steps`, so those profiles were
         // literally unreadable by it; we now generate the frames the scalars
         // describe. That is an addition, not a loss — but only count it as one
         // if frames genuinely appeared.
@@ -209,7 +209,7 @@ private slots:
         if (simpleEditor && legacy.value(QStringLiteral("steps")).toArray().isEmpty()) {
             QVERIFY2(!produced.value(QStringLiteral("steps")).toArray().isEmpty(),
                      qPrintable(QFileInfo(filePath).fileName()
-                                + ": simple profile still has no steps — reaprime cannot read it"));
+                                + ": simple profile still has no steps — Decaid cannot read it"));
             for (const QString& k : {QStringLiteral("steps"),
                                      QStringLiteral("number_of_preinfuse_frames")}) {
                 legacyCmp.remove(k);
@@ -254,16 +254,16 @@ private slots:
     }
 
     // And the migrated form must satisfy the strictest reader in the ecosystem,
-    // so a user upgrading Decenza does not end up with profiles reaprime rejects.
-    void legacyProfilesBecomeReaprimeReadable_data() { legacyProfiles_data(); }
+    // so a user upgrading Decenza does not end up with profiles Decaid rejects.
+    void legacyProfilesBecomeDecaidReadable_data() { legacyProfiles_data(); }
 
-    void legacyProfilesBecomeReaprimeReadable() {
+    void legacyProfilesBecomeDecaidReadable() {
         QFETCH(QString, filePath);
 
         const Profile p = Profile::loadFromFile(filePath);
         QVERIFY2(p.isValid(), qPrintable(filePath));
 
-        const QStringList errors = Profile::reaprimeReadabilityErrors(p.toJsonObject());
+        const QStringList errors = Profile::decaidReadabilityErrors(p.toJsonObject());
         QVERIFY2(errors.isEmpty(),
                  qPrintable(QFileInfo(filePath).fileName() + ": " + errors.join(", ")));
     }
@@ -303,7 +303,7 @@ private slots:
     }
 
     // A profile carrying keys Decenza does not model must keep them, so a profile
-    // authored in de1app/reaprime survives a Decenza load->save round trip.
+    // authored in de1app/Decaid survives a Decenza load->save round trip.
     void unmodelledKeysSurviveRoundTrip() {
         QJsonObject src = makeProfileJson();
         src["flow_profile_minimum_pressure"] = QStringLiteral("4.0");
@@ -695,7 +695,7 @@ private slots:
         QCOMPARE(QJsonDocument(uploaded).toJson(QJsonDocument::Compact),
                  QJsonDocument(p.toJsonObject()).toJson(QJsonDocument::Compact));
 
-        const QStringList errors = Profile::reaprimeReadabilityErrors(uploaded);
+        const QStringList errors = Profile::decaidReadabilityErrors(uploaded);
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join(", ")));
     }
 

@@ -98,7 +98,7 @@ The import SHALL map de1app's `profile_hide` to the canonical `hidden` key. Abse
 
 This flag does not drive Decenza's own profile list, which filters through
 `SettingsApp::isHiddenProfile()` — a separate per-user list keyed by filename. The
-requirement exists because de1app and reaprime read the profile field, and a Decenza-written
+requirement exists because de1app and Decaid read the profile field, and a Decenza-written
 file that drops it makes hidden profiles reappear in those apps.
 
 #### Scenario: Hidden de1app profile

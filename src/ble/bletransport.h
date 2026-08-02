@@ -158,7 +158,7 @@ private:
     static constexpr int CONNECT_WATCHDOG_MS = 35000;
 
     // Zombie-link detection: a link that stays GATT-connected and keeps ACKing
-    // writes but has silently stopped delivering push notifications (reaprime
+    // writes but has silently stopped delivering push notifications (Decaid
     // PR #246/#431 describe the same failure on the same DE1 protocol). Every
     // inbound notification restarts m_notificationLiveness; connectToDevice()
     // treats an already-"connected" link whose last notification is older than
