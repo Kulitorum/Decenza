@@ -259,20 +259,18 @@ T.Page {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
 
-                        // Bean · Profile · Grinder — wraps to 2 rows on small screens
-                        Flow {
+                        // Recipe on its OWN line, above the bean/profile flow — not
+                        // inline with a separator. Inside the Flow the separator is
+                        // a sibling item, so when the bean wraps to the next line the
+                        // separator stays behind as a dangling middot. Its own line
+                        // also matches the Shot History row, where the recipe is the
+                        // identity and bean/profile sit below it.
+                        RowLayout {
                             Layout.fillWidth: true
-                            spacing: 0
+                            spacing: Theme.scaled(4)
+                            visible: favoriteDelegate._hasRecipe
 
-                            // Recipe leads the card when the group's latest shot had
-                            // one, mirroring the history row: the recipe is what the
-                            // user calls this drink, so it takes the accent and the
-                            // profile below drops to secondary.
-                            // ThemedIcon, not ColoredIcon — see the note on the
-                            // Shot History row: ColoredIcon is a Button and eats
-                            // taps meant for the card.
                             ThemedIcon {
-                                visible: favoriteDelegate._hasRecipe
                                 source: DrinkType.icon(favoriteDelegate.model.recipeDrinkType || "")
                                 iconSize: Theme.subtitleFont.pixelSize
                                 color: favoriteDelegate._recipeArchived ? Theme.textSecondaryColor
@@ -281,27 +279,21 @@ T.Page {
                             }
 
                             Text {
-                                text: favoriteDelegate._hasRecipe
-                                      ? " " + favoriteDelegate.model.recipeName : ""
+                                text: favoriteDelegate.model.recipeName || ""
                                 font.family: Theme.subtitleFont.family
                                 font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: favoriteDelegate._recipeArchived ? Theme.textSecondaryColor
                                                                         : Theme.primaryColor
-                                visible: favoriteDelegate._hasRecipe
-                                width: Math.min(implicitWidth, parent.width)
+                                Layout.fillWidth: true
                                 elide: Text.ElideRight
                                 Accessible.ignored: true
                             }
+                        }
 
-                            Text {
-                                text: "  ·  "
-                                font.family: Theme.subtitleFont.family
-                                font.pixelSize: Theme.subtitleFont.pixelSize
-                                font.bold: true
-                                color: Theme.textSecondaryColor
-                                visible: favoriteDelegate._hasRecipe && favoriteDelegate._hasBean
-                                Accessible.ignored: true
-                            }
+                        // Bean · Profile · Grinder — wraps to 2 rows on small screens
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: 0
 
                             Text {
                                 text: favoriteDelegate._beanText
@@ -328,10 +320,7 @@ T.Page {
                                 text: favoriteDelegate.model.profileName || ""
                                 font.family: Theme.subtitleFont.family
                                 font.pixelSize: Theme.subtitleFont.pixelSize
-                                // Demoted when a recipe is present — the accent belongs
-                                // to one thing per card, and the recipe outranks it.
-                                color: favoriteDelegate._hasRecipe ? Theme.textSecondaryColor
-                                                                   : Theme.primaryColor
+                                color: Theme.primaryColor
                                 visible: favoriteDelegate._hasProfile
                                 width: Math.min(implicitWidth, parent.width)
                                 elide: Text.ElideRight

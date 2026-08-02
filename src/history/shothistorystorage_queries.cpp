@@ -1486,7 +1486,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         // Recipe identity, same shape as the history list: the card shows the
         // recipe that made the group's latest shot, and the id also gates the
         // promote-to-recipe button.
-        "SELECT s.id, s.recipe_id, r.name AS recipe_name, r.drink_type AS recipe_drink_type, "
+        "SELECT s.id, r.id AS recipe_id, r.name AS recipe_name, r.drink_type AS recipe_drink_type, "
         "r.archived AS recipe_archived, "
         "s.profile_name, s.bean_brand, s.bean_type, "
         "eg.brand AS grinder_brand, eg.model AS grinder_model, "
@@ -1495,16 +1495,51 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
         "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
-        "LEFT JOIN recipes r ON r.id = s.recipe_id "
+        // The recipe's own profile MUST equal the group's profile. A favourites
+        // card is a bean+profile group and a recipe is a bean+profile+extras, so
+        // the two are the same grain — a card captioned with a recipe built on a
+        // different profile contradicts the line right below it. That is not
+        // hypothetical: a 65-shot `D-Flow / Q` group was captioned with an
+        // A-Flow recipe, because the card takes the LATEST shot's recipe and that
+        // recipe covered 3 of the 65.
+        //
+        // Deliberately NOT unanimity across the group. It reads as the stricter,
+        // safer rule, but measured against a real 1,100-shot database exactly ONE
+        // group would still qualify — the feature would be dead rather than
+        // careful. Profile agreement removes the contradiction; the residual is
+        // that a matching-profile recipe may describe only some of the group's
+        // shots, which is coherent rather than self-contradicting.
         "INNER JOIN ("
         "  SELECT %1, MAX(timestamp) as max_ts, "
         "  COUNT(*) as shot_count, "
+        // The card may claim a recipe only when the group used exactly ONE.
+        // COUNT(DISTINCT) ignores NULLs, which is deliberate: a card is allowed
+        // to mix recipe and recipe-less shots, so long as the grouping itself
+        // makes sense. Two different recipes in one group means there is no
+        // single answer and the card says nothing.
+        //
+        // Taking the LATEST shot's recipe instead — which this did first — put an
+        // A-Flow recipe on a 65-shot D-Flow card, because that recipe covered 3
+        // of the 65. Requiring EVERY shot to carry it was the other overcorrection:
+        // measured against a real 1,100-shot database, one group qualified.
+        "  COUNT(DISTINCT recipe_id) as gb_recipe_variants, "
+        "  MAX(recipe_id) as gb_recipe_id, "
+
         "  AVG(CASE WHEN enjoyment > 0 THEN enjoyment ELSE NULL END) as avg_enjoyment "
         "  FROM shots "
         "  WHERE (bean_brand IS NOT NULL AND bean_brand != '') "
         "     OR (profile_name IS NOT NULL AND profile_name != '') "
         "  GROUP BY %2"
         ") g ON s.timestamp = g.max_ts AND %3 "
+        // AFTER the subquery that defines `g` — SQLite resolves joins left to
+        // right, so referencing g.gb_recipe_id before `g` exists is a hard error
+        // that empties the whole page ("no shots yet").
+        "LEFT JOIN recipes r ON r.id = g.gb_recipe_id AND g.gb_recipe_variants = 1 "
+        // Profile agreement is a GUARD, not the rule: shots exist whose
+        // profile_name disagrees with their active recipe's profile_title (a
+        // recipe that outlived a profile switch instead of deactivating). Until
+        // that is fixed, this stops the card contradicting the line below it.
+        "  AND COALESCE(r.profile_title, '') = COALESCE(s.profile_name, '') "
         "ORDER BY s.timestamp DESC "
         "LIMIT %4"
     ).arg(selectColumns, groupColumns, joinConditions).arg(maxItems).arg(yieldCol, bucketCol);
