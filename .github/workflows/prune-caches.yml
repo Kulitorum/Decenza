@@ -134,17 +134,31 @@ jobs:
       # would make the next re-tag rebuild from scratch. Ordering is by build
       # time for the same reason — see the note on NEWEST below.
       #
-      # Scoped tightly, since the surrounding steps are conservative about tags
-      # for good reason: only timestamped ccache/sccache keys, only on tag refs,
-      # only for tags that sort older than the newest one present. Stable-key
-      # entries (qt-*, openssl-*, gradle-*) are never touched.
-      - name: Drop compiler caches for superseded release tags
+      # Scoped to tag refs, and to tags older than the newest one present.
+      #
+      # This used to also require a timestamped ccache/sccache key, which left
+      # the STABLE-key entries on a shipped tag — qt-*, gradle-*, openssl-* —
+      # uncollectable by anything. They are scoped to that tag's ref like every
+      # other entry, so no future tag can read them either; the timestamp filter
+      # was about identifying compiler caches, and got read as a safety
+      # boundary. Measured on v2.0.1: 2.4 GB across six stable-key entries
+      # (qt-macos 629 MB, qt-windows 498, qt-android 475, qt-linux-arm64 397,
+      # gradle 373, openssl 24) that no step in this file would ever have
+      # touched. Nor would the deleted-branch step below — it deletes on a
+      # liveness signal, and a tag is always live.
+      #
+      # So the filter is now "tag-scoped and superseded", whatever the key
+      # shape. The newest tag is still fully protected, stable keys included:
+      # those are what make a re-tag's Qt install fast.
+      - name: Drop caches for superseded release tags
         if: ${{ steps.gate.outputs.skip == 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          TS='-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$'
+          # No TS regex here any more: this step no longer distinguishes
+          # compiler caches from stable-key ones. The other steps still need
+          # theirs and define it locally.
 
           # Tag-scoped entries surface as refs/heads/refs/tags/X (the odd shape
           # the deleted-branch step below skips) as well as plain refs/tags/X.
@@ -162,9 +176,8 @@ jobs:
           if [ "$(printf '%s' "$RAW" | jq length)" -ge 500 ]; then
             echo "::warning::Cache listing hit the 500-entry limit; this prune may be partial."
           fi
-          if ! CACHES=$(printf '%s' "$RAW" | jq -r --arg ts "$TS" '
+          if ! CACHES=$(printf '%s' "$RAW" | jq -r '
                        .[]
-                       | select(.key | test($ts))
                        | select(.ref | test("^(refs/heads/)?refs/tags/"))
                        | "\(.id)\t\(.ref | sub("^(refs/heads/)?refs/tags/"; ""))\t\(.sizeInBytes)\t\(.key)"
                      '); then
@@ -193,13 +206,26 @@ jobs:
           # Self-contained on purpose: a tag whose build is still running cannot
           # appear here anyway, because the gate step skips the whole workflow
           # while any build is active.
-          NEWEST=$(printf '%s' "$RAW" | jq -r --arg ts "$TS" '
-                     [ .[]
-                       | select(.key | test($ts))
-                       | select(.ref | test("^(refs/heads/)?refs/tags/")) ]
+          # Computed over the SAME set the deletion loop walks. It must not be
+          # narrowed to timestamped keys while CACHES is not: on any prune where
+          # the tag entries are all stable-key — after this step has already
+          # collected the compiler caches, or on a repo whose current release
+          # has only restored (not re-saved) its Qt entry — max_by would return
+          # null, NEWEST would be the string "null", every real tag would
+          # compare unequal to it, and the loop would delete the live release's
+          # entries. Same set for both, or the protection silently inverts.
+          NEWEST=$(printf '%s' "$RAW" | jq -r '
+                     [ .[] | select(.ref | test("^(refs/heads/)?refs/tags/")) ]
                      | max_by(.createdAt)
                      | .ref | sub("^(refs/heads/)?refs/tags/"; "")
                    ')
+          # CACHES is non-empty here (checked above), so NEWEST must name a tag.
+          # If it doesn't, the jq changed shape underneath us — refuse rather
+          # than treat every entry as superseded.
+          if [ -z "$NEWEST" ] || [ "$NEWEST" = "null" ]; then
+            echo "::error::Could not determine the newest tag from $(printf '%s\n' "$CACHES" | grep -c .) tag-scoped entr(y|ies) — refusing to prune."
+            exit 1
+          fi
           CANDIDATES=$(printf '%s\n' "$CACHES" | awk -F'\t' -v n="$NEWEST" '$2 != n' | grep -c . || true)
           echo "Newest tag with caches: $NEWEST (keeping its entries); $CANDIDATES entr(y|ies) on older tags."
 
