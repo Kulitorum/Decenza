@@ -979,9 +979,13 @@ T.Page {
 
                             // Grind lives on the metrics line with the other dial-in
                             // numbers, labelled because "8.75 · 1500" says nothing on
-                            // its own. Never elided — it is what this list is scanned
-                            // for, and on the identity line above it was the first
-                            // thing a long roaster name truncated away.
+                            // its own. It sets no elide: on the identity line it used
+                            // to be a trailing "(8)" parenthetical that a long roaster
+                            // name silently ate, and this line carries only short
+                            // numbers so nothing crowds it out. (Not a guarantee —
+                            // a RowLayout can still squeeze an un-elided Text below
+                            // its implicit width and clip it. Add Layout.minimumWidth
+                            // if this ever needs to be one.)
                             Text {
                                 text: shotDelegate.grindText()
                                 font: Theme.labelFont

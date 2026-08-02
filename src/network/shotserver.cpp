@@ -1850,6 +1850,28 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             bool dbOpened = withTempDb(dbPath, "shs_web_det", [&](QSqlDatabase& db) {
                 ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
                 shot = ShotHistoryStorage::convertShotRecord(record);
+
+                // Recipe identity for the detail page (history-recipe-identity).
+                // Resolved with a second PK lookup rather than by widening
+                // loadShotRecordStatic: that query is read POSITIONALLY into
+                // ShotRecord, so adding columns there would cost three struct
+                // fields and a serializer mapping to give one web page three
+                // strings. This is one row by primary key, on the thread that
+                // just loaded the shot, for a discrete user action — the case
+                // where an inline read is the right call.
+                if (shot.recipeId > 0) {
+                    QSqlQuery rq(db);
+                    rq.prepare("SELECT name, drink_type, archived FROM recipes WHERE id = ?");
+                    rq.bindValue(0, shot.recipeId);
+                    if (!rq.exec()) {
+                        qWarning() << "ShotServer: recipe lookup failed for shot" << shotId
+                                   << "-" << rq.lastError().text();
+                    } else if (rq.next()) {
+                        shot.recipeName = rq.value(0).toString();
+                        shot.recipeDrinkType = rq.value(1).toString();
+                        shot.recipeArchived = rq.value(2).toInt() != 0;
+                    }
+                }
             });
 
             if (*destroyed) return;

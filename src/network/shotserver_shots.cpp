@@ -298,13 +298,18 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .arg(drinkTds, 0, 'f', 2)           // %12
         .arg(drinkEy, 0, 'f', 2)            // %13
         .arg(shot.timestamp);               // %14 (epoch for sorting)
-        // profileJs / profileDisplay / beanDisplay left the .arg() chain when the
-        // header and footer became __IDENTITY__ / __SECONDARY__ markers: they now
-        // carry a recipe name, which is user text and may contain '%'. Their old
-        // %11/%12/%14 slots are gone and the rest were renumbered contiguously —
-        // arg() fills the LOWEST remaining placeholder, so leaving a dead .arg()
-        // in the chain would silently shift every value after it into the wrong
-        // slot rather than failing.
+        // profileJs / profileDisplay / beanDisplay left the .arg() chain because
+        // the header and footer became CONDITIONAL (recipe row vs not), which a
+        // fixed placeholder cannot express — they are injected as __IDENTITY__ /
+        // __SECONDARY__ markers instead. Their old %11/%12/%14 slots are gone and
+        // the rest were renumbered contiguously: arg() fills the LOWEST remaining
+        // placeholder, so leaving a dead .arg() in the chain would silently shift
+        // every later value into the wrong slot rather than failing.
+        //
+        // It closes the '%'-shadowing hazard for those three, but NOT for the
+        // chain as a whole: profileHtml, brandHtml and coffeeHtml are equally
+        // user text and are still at %2/%3/%4 with only toHtmlEscaped() applied,
+        // so a bean brand containing "%5" can still shadow a later placeholder.
 
         // Inject ratingChip via replace() AFTER the .arg() chain so the
         // literal `%</span>` (and any future user-derived content) cannot
@@ -1435,6 +1440,14 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             font-size: 0.75rem;
             color: var(--text-secondary);
         }
+        /* Recipe identity on the detail page (history-recipe-identity). Archived
+           dims AND carries a title attribute, so the state is not colour-only. */
+        .shot-drink-icon { margin-right: 0.35rem; }
+        .header-title .shot-detail-recipe { color: var(--accent); font-weight: 600; }
+        .header-title .shot-detail-recipe.archived {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
         .container {
             max-width: 1400px;
             margin: 0 auto;
@@ -1790,6 +1803,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             <div class="header-title">
                 <h1>%1</h1>
                 <div class="subtitle">%2</div>
+                __DETAIL_RECIPE__
             </div>
             <button class="edit-btn" id="editBtn" onclick="toggleEditMode()">&#9998; Edit</button>
 )HTML" + generateMenuHtml() + R"HTML(
@@ -2453,6 +2467,25 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
 </body>
 </html>
 )HTML";
+    // Recipe identity, injected AFTER the .arg() chain: a recipe name is user
+    // text and may contain '%', which would shadow a numbered placeholder. Same
+    // reason the list card uses markers. Requires the name to resolve, not just
+    // the id — a dangling id must fall back to showing nothing rather than an
+    // empty line with an icon beside it.
+    QString detailRecipeHtml;
+    if (shot.recipeId > 0 && !shot.recipeName.isEmpty()) {
+        detailRecipeHtml =
+            QStringLiteral("<div class=\"subtitle shot-detail-recipe")
+            + (shot.recipeArchived ? QStringLiteral(" archived\" title=\"Archived recipe")
+                                   : QString())
+            + QStringLiteral("\"><span class=\"shot-drink-icon\">")
+            + drinkTypeEmoji(shot.recipeDrinkType)
+            + QStringLiteral("</span>")
+            + shot.recipeName.toHtmlEscaped().replace(QStringLiteral("__"),
+                                                      QStringLiteral("&#95;&#95;"))
+            + QStringLiteral("</div>");
+    }
+
     QString rendered = html
     .arg(tempOverride > 0
          ? shot.profileName.toHtmlEscaped() + QString(" (%1\u00B0C)").arg(tempOverride, 0, 'f', 0)
@@ -2508,6 +2541,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     // above for why doubling `%` doesn't actually escape.
     rendered.replace(QStringLiteral("__BADGES_HTML__"), badgesHtml);
     rendered.replace(QStringLiteral("__SUMMARY_LINES_HTML__"), summaryLinesHtml);
+    rendered.replace(QStringLiteral("__DETAIL_RECIPE__"), detailRecipeHtml);
     return rendered;
 }
 

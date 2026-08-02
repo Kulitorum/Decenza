@@ -201,6 +201,64 @@ private slots:
             QVERIFY(!l.toObject().contains("lastLine"));
         }
     }
+    // shots_list had NO test at all, which is why a green suite meant nothing
+    // when the recipes join broke it: `profile_json` exists on both `shots` and
+    // `recipes`, the unqualified name made the statement ambiguous, SQLite
+    // rejected it, the bare `if (exec())` swallowed the failure, and the count
+    // query — which does not join — kept returning the true total. The tool
+    // answered `shots: []` beside a non-zero `total` on every call.
+    //
+    // The rows-vs-total assertion below is the one that catches that shape.
+    // Asserting only `total`, or only that the call did not error, would have
+    // passed against the broken build.
+    void shotsListReturnsRowsAndCarriesRecipeIdentity() {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("shots.db")));
+        registerShotTools(&f.registry, &storage);
+
+        withTempDb(storage.databasePath(), "shots_list_seed", [&](QSqlDatabase& db) {
+            QSqlQuery r(db);
+            r.prepare("INSERT INTO recipes (name, profile_title, drink_type, archived) "
+                      "VALUES ('Dad Monday', 'Test', 'latte', 0)");
+            QVERIFY(r.exec());
+            const qint64 recipeId = r.lastInsertId().toLongLong();
+
+            QSqlQuery q(db);
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                      "profile_json, recipe_id) VALUES (:uuid, :ts, 'Test', 30, '{}', :rid)");
+            q.bindValue(":uuid", QUuid::createUuid().toString(QUuid::WithoutBraces));
+            q.bindValue(":ts", QDateTime::currentSecsSinceEpoch());
+            q.bindValue(":rid", recipeId);
+            QVERIFY(q.exec());
+
+            // A second shot with no recipe, to prove the fields are sparse rather
+            // than empty-but-present.
+            QSqlQuery q2(db);
+            q2.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                       "profile_json) VALUES (:uuid, :ts, 'Test', 30, '{}')");
+            q2.bindValue(":uuid", QUuid::createUuid().toString(QUuid::WithoutBraces));
+            q2.bindValue(":ts", QDateTime::currentSecsSinceEpoch() - 60);
+            QVERIFY(q2.exec());
+        });
+
+        const QJsonObject result = f.callAsyncTool("shots_list", QJsonObject{});
+        QVERIFY2(!result.contains("error"), qPrintable(result.value("error").toString()));
+
+        const QJsonArray shots = result["shots"].toArray();
+        QCOMPARE(result["total"].toInt(), 2);
+        QCOMPARE(shots.size(), 2);   // the assertion that goes red on an ambiguous column
+
+        // Newest first: the recipe-driven shot.
+        const QJsonObject withRecipe = shots.at(0).toObject();
+        QVERIFY(withRecipe.contains("recipeId"));
+        QCOMPARE(withRecipe["recipeName"].toString(), QStringLiteral("Dad Monday"));
+
+        // Sparse: presence alone must answer "was this a recipe drink?".
+        const QJsonObject without = shots.at(1).toObject();
+        QVERIFY(!without.contains("recipeId"));
+        QVERIFY(!without.contains("recipeName"));
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_McpToolsShotsDebugLog)
