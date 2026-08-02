@@ -1005,6 +1005,16 @@ T.Page {
         property string profileTitle: ""
         property bool isFavorite: false
 
+        // How many recipes name this profile. Counted when the dialog OPENS,
+        // not in a binding — the query hits the database, and a binding here
+        // would re-run it on every dependency change for a dialog that is
+        // usually closed. Deleting is never refused; this only tells the user
+        // what else it affects, and those recipes then show as missing their
+        // profile until re-pointed in the recipe editor.
+        property int recipesUsingProfile: 0
+        onAboutToShow: recipesUsingProfile =
+            MainController.recipeStorage.countRecipesUsingProfile(profileTitle)
+
         header: Item {
             implicitHeight: Theme.scaled(50)
 
@@ -1038,6 +1048,29 @@ T.Page {
                       "\"" + deleteDialog.profileTitle + "\" " + TranslationManager.translate("profileselector.dialog.delete_favorite_msg", "is in your favorites.\n\nDeleting will also remove it from favorites.\n\nAre you sure you want to delete this profile?") :
                       TranslationManager.translate("profileselector.dialog.delete_confirm_prefix", "Are you sure you want to delete") + " \"" + deleteDialog.profileTitle + "\"?\n\n" + TranslationManager.translate("profileselector.dialog.delete_confirm_suffix", "This cannot be undone.")
                 color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.WordWrap
+            }
+
+            // Recipes point at a profile by TITLE, so deleting it leaves them
+            // naming something that no longer resolves and unable to activate.
+            // Say how many rather than listing them: the count is what the user
+            // needs to decide, and a list here would invite a repair flow that
+            // belongs in the recipe editor.
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                visible: deleteDialog.recipesUsingProfile > 0
+                text: (deleteDialog.recipesUsingProfile === 1
+                       ? TranslationManager.translate(
+                            "profileselector.dialog.delete_one_recipe_uses",
+                            "1 recipe uses this profile. It will show as missing its profile until you pick another in the recipe editor.")
+                       : TranslationManager.translate(
+                            "profileselector.dialog.delete_recipes_use",
+                            "%1 recipes use this profile. They will show as missing their profile until you pick another in the recipe editor.")
+                         .arg(deleteDialog.recipesUsingProfile))
+                color: Theme.warningColor
                 font: Theme.bodyFont
                 wrapMode: Text.WordWrap
             }

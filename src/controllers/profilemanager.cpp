@@ -1097,11 +1097,17 @@ void ProfileManager::loadAutoLoadProfileIfNeeded() {
 }
 
 bool ProfileManager::deleteProfile(const QString& filename) {
-    // Find the profile info
+    // Find the profile info. The title is captured HERE, while the catalog
+    // still holds the row — everything that references a profile does so by
+    // title, and by the time the delete has run and refreshProfiles() has
+    // rebuilt the catalog there is nothing left to resolve the filename
+    // against.
     ProfileSource source = ProfileSource::BuiltIn;
+    QString deletedTitle;
     for (const ProfileInfo& info : m_allProfiles) {
         if (info.filename == filename) {
             source = info.source;
+            deletedTitle = info.title;
             break;
         }
     }
@@ -1159,6 +1165,16 @@ bool ProfileManager::deleteProfile(const QString& filename) {
 
         // Refresh the profile list
         refreshProfiles();
+        // Announce the deletion AFTER the catalog is rebuilt, so a listener
+        // that re-checks what still resolves (the recipe list's missing-profile
+        // marking) sees the world as it now is rather than as it was.
+        //
+        // The built-in branch above returned before this, so this is only
+        // reached when the title genuinely stopped resolving. An empty title
+        // means the filename was not in the catalog at all — nothing could have
+        // referenced it by title, so there is nothing to announce.
+        if (!deletedTitle.isEmpty())
+            emit profileDeleted(deletedTitle);
         return true;
     }
 

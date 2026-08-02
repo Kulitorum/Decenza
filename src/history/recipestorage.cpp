@@ -931,6 +931,41 @@ qint64 RecipeStorage::findRecipeByNameStatic(QSqlDatabase& db, const QString& na
     return 0;
 }
 
+int RecipeStorage::countRecipesUsingProfileStatic(QSqlDatabase& db, const QString& profileTitle)
+{
+    const QString target = profileTitle.trimmed();
+    // A recipe that names no profile owns no profile choice, so an empty title
+    // can never be "the profile these recipes use" — Recipe::namesProfile says
+    // the same thing, and answering 0 here keeps the two from disagreeing.
+    if (target.isEmpty())
+        return 0;
+    QSqlQuery query(db);
+    // TRIM on the stored side only; the bound value is already trimmed above.
+    // Exact and case-SENSITIVE, matching ProfileManager::findProfileByTitle —
+    // see the header comment for why the LOWER() comparisons elsewhere in this
+    // file are answering a different question and must not be copied here.
+    query.prepare("SELECT COUNT(*) FROM recipes WHERE archived = 0 "
+                  "AND TRIM(COALESCE(profile_title,'')) = :profile");
+    query.bindValue(":profile", target);
+    if (!query.exec() || !query.next()) {
+        qWarning() << "[recipe] countRecipesUsingProfile failed:" << query.lastError().text();
+        // Report "unknown" as zero recipes rather than blocking the delete. The
+        // warning is an aid; a failed count must not stop the user removing
+        // their own profile.
+        return 0;
+    }
+    return query.value(0).toInt();
+}
+
+int RecipeStorage::countRecipesUsingProfile(const QString& profileTitle) const
+{
+    int count = 0;
+    withTempDb(m_dbPath, QStringLiteral("recipe_profile_count"), [&](QSqlDatabase& db) {
+        count = countRecipesUsingProfileStatic(db, profileTitle);
+    });
+    return count;
+}
+
 QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bool archived)
 {
     QVector<InventoryRecipe> recipes;

@@ -5,6 +5,7 @@
 #include <QVariantList>
 #include <QMap>
 #include <QHash>
+#include <QSet>
 #include <QtQml/qqmlregistration.h>
 #include "../profile/profile.h"
 
@@ -70,6 +71,19 @@ class ProfileManager : public QObject {
     Q_PROPERTY(QVariantList downloadedProfiles READ downloadedProfiles NOTIFY profilesChanged)
     Q_PROPERTY(QVariantList userCreatedProfiles READ userCreatedProfiles NOTIFY profilesChanged)
     Q_PROPERTY(QVariantList allProfilesList READ allProfilesList NOTIFY profilesChanged)
+
+    // Every installed profile TITLE, for QML to test whether a recipe's stored
+    // profileTitle still resolves.
+    //
+    // A PROPERTY, not a Q_INVOKABLE, and that is the whole point: a binding
+    // re-evaluates when a NOTIFY fires for a property it READ. Calling
+    // findProfileByTitle() from a binding records no dependency, so a recipe
+    // card would keep showing a deleted profile as fine until the page was
+    // rebuilt — the exact freeze translate() had before it became a property
+    // (see TranslationManager::translate for the worked case). Reading this
+    // property makes the binding depend on profilesChanged, so deleting or
+    // importing a profile updates every card already on screen.
+    Q_PROPERTY(QStringList installedProfileTitles READ installedProfileTitles NOTIFY profilesChanged)
     // No Q_PROPERTY for currentProfilePtr. `Profile` is a plain C++ class — no Q_OBJECT, no
     // Q_GADGET — so QML could never have read a member through the pointer; the property
     // resolved to an opaque handle and nothing in qml/ ever referenced it (verified by grep,
@@ -213,6 +227,17 @@ public:
     QVariantList downloadedProfiles() const;
     QVariantList userCreatedProfiles() const;
     QVariantList allProfilesList() const;
+
+    // Exact titles as stored in the catalog — the same strings
+    // findProfileByTitle() compares against, so a QML membership test agrees
+    // with what activation will actually resolve.
+    QStringList installedProfileTitles() const {
+        QStringList titles;
+        titles.reserve(m_allProfiles.size());
+        for (const ProfileInfo& info : m_allProfiles)
+            titles.append(info.title);
+        return titles;
+    }
     const QList<ProfileInfo>& allProfiles() const { return m_allProfiles; }
 
     // === Profile CRUD ===
@@ -266,6 +291,21 @@ public:
     // (a recipe carries only the offset). Same snapshot-on-main-thread contract
     // as beverageTypeByTitleSnapshot for background-thread closures.
     QHash<QString, double> espressoTempByTitleSnapshot() const;
+
+    // Installed titles, EXACT — not trimmed or lower-cased like the two
+    // snapshots above. Those are lookups where a near-match is better than
+    // nothing; this one answers "will this recipe activate", and activation
+    // resolves through findProfileByTitle, which compares exactly. Reusing a
+    // case-folded key here would let the web call a recipe fine that the app
+    // marks as missing its profile — the surface drift CLAUDE.md warns about.
+    // Same snapshot-on-main-thread contract as the two above.
+    QSet<QString> installedTitlesSnapshot() const {
+        QSet<QString> titles;
+        titles.reserve(m_allProfiles.size());
+        for (const ProfileInfo& info : m_allProfiles)
+            titles.insert(info.title);
+        return titles;
+    }
 
     // === Read-only protection ===
     Q_INVOKABLE bool isCurrentProfileReadOnly() const;
@@ -358,6 +398,21 @@ signals:
     // Emitted when loadProfile() cannot find the requested profile file.
     // The UI should show an error and prompt the user to select another profile.
     void profileLoadFailed(const QString& filename);
+
+    // Emitted when a profile was really deleted, carrying its TITLE — recipes
+    // and shots reference profiles by title, not by filename, and the filename
+    // is all deleteProfile() is given.
+    //
+    // Deletion is the one lifecycle event that changes what a title resolves to
+    // without changing what is loaded, so currentProfileChanged does not fire
+    // and nothing downstream would otherwise notice. ProfileManager does not
+    // know what references a profile; it reports the fact and lets owners
+    // decide (MainController deactivates a recipe pinned to it).
+    //
+    // NOT emitted when deleteProfile() merely cleaned up a local override of a
+    // built-in profile: the title still resolves afterwards, to the built-in
+    // version, so nothing pointing at it has broken.
+    void profileDeleted(const QString& title);
 
     // Emitted when loadProfile() found the file but REFUSED it: this build
     // cannot promise the profile brews what it describes, so activating it would

@@ -2473,6 +2473,119 @@ T.ApplicationWindow {
                 profileRefusedDialog.open()
         }
     }
+    // A recipe that could not be activated. Same reasoning as the refusal
+    // dialog above: activation is reached from the recipe pills, the MCP
+    // recipe_activate tool, the web activate route and auto-load, so the
+    // failure has to be visible whichever surface asked.
+    //
+    // Before this, the only report was a pill that lit and reverted —
+    // recipeActivated(id, false) was emitted and nothing in QML handled it.
+    Tr {
+        id: trRecipeActivationFailedTitle
+        key: "recipes.activationFailed.title"
+        fallback: "Can't use this recipe"
+        visible: false
+    }
+    Tr {
+        id: trRecipeActivationFailedProfile
+        key: "recipes.activationFailed.missingProfile"
+        fallback: "Its profile \"%1\" isn't installed. Edit the recipe and pick another profile, or import that one again."
+        visible: false
+    }
+    Tr {
+        id: trRecipeActivationFailedOther
+        key: "recipes.activationFailed.other"
+        fallback: "The recipe could not be loaded."
+        visible: false
+    }
+    Tr {
+        id: trRecipeActivationFailedOk
+        key: "common.button.ok"
+        fallback: "OK"
+        visible: false
+    }
+    DecenzaDialog {
+        id: recipeActivationFailedDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        padding: Theme.dialogPadding
+        // Let a popup that queued behind this one through, like every other
+        // dialog here. Without it this dialog swallows the queue.
+        onClosed: root.showNextPendingPopup()
+
+        property string missingProfileTitle: ""
+        readonly property string bodyText:
+            missingProfileTitle !== ""
+            ? trRecipeActivationFailedProfile.text.arg(missingProfileTitle)
+            : trRecipeActivationFailedOther.text
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.warningColor
+        }
+
+        onOpened: {
+            recipeActivationFailedOkButton.forceActiveFocus()
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(
+                    trRecipeActivationFailedTitle.text + ". "
+                    + recipeActivationFailedDialog.bodyText, true)
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingLarge
+
+            Text {
+                text: trRecipeActivationFailedTitle.text
+                font: Theme.subtitleFont
+                color: Theme.warningColor
+                width: parent.width
+                wrapMode: Text.Wrap
+                horizontalAlignment: Text.AlignHCenter
+                // Announced together in onOpened; don't re-read on swipe.
+                Accessible.ignored: true
+            }
+
+            Text {
+                text: recipeActivationFailedDialog.bodyText
+                font: Theme.bodyFont
+                color: Theme.textColor
+                width: parent.width
+                wrapMode: Text.Wrap
+                horizontalAlignment: Text.AlignHCenter
+                Accessible.ignored: true
+            }
+
+            AccessibleButton {
+                id: recipeActivationFailedOkButton
+                text: trRecipeActivationFailedOk.text
+                accessibleName: trCommonDismissDialog.text
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: recipeActivationFailedDialog.close()
+            }
+        }
+    }
+    Connections {
+        target: MainController
+        function onRecipeActivationFailed(recipeId, recipeName, missingProfileTitle) {
+            // Not queued for after the screensaver, unlike the update and
+            // refill prompts. Those stay true while asleep; this one reports a
+            // single failed attempt, and surfacing it minutes later next to
+            // whatever the user is doing then would be noise. Nothing is lost:
+            // the recipe keeps showing as missing its profile in the list, which
+            // is the durable half of the message.
+            if (root.screensaverActive)
+                return
+            recipeActivationFailedDialog.missingProfileTitle = missingProfileTitle
+            if (!recipeActivationFailedDialog.visible)
+                recipeActivationFailedDialog.open()
+        }
+    }
+
     Connections {
         target: ProfileManager
         function onDe1CommunicationFailureChanged() {

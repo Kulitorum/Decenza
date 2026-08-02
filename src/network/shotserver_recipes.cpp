@@ -48,12 +48,19 @@ namespace {
 QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
                           qint64 shotCount = -1,
                           const QHash<QString, QString>& bevByTitle = {},
-                          const QHash<QString, double>& baseTempByTitle = {})
+                          const QHash<QString, double>& baseTempByTitle = {},
+                          const QSet<QString>& installedTitles = {})
 {
     QJsonObject o;
     o["id"] = r.id;
     o["name"] = r.name;
     o["profileTitle"] = r.profileTitle;
+    // The recipe names a profile that is not installed, so it cannot be
+    // activated. Derived per response from the catalog snapshot, never stored,
+    // matching the app's recipe cards — see RecipeDrinkCard.profileMissing.
+    // A profile-less recipe (hot-water tea) names none and is not missing one.
+    o["profileMissing"] = !r.profileTitle.trimmed().isEmpty()
+        && !installedTitles.contains(r.profileTitle.trimmed());
     // Stored drink type; legacy rows derive from the blocks (embedded profile
     // JSON supplies beverage_type when present).
     if (!r.drinkType.isEmpty()) {
@@ -227,13 +234,17 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
             (m_mainController && m_mainController->profileManager())
                 ? m_mainController->profileManager()->espressoTempByTitleSnapshot()
                 : QHash<QString, double>();
-        QThread* t = QThread::create([dbPath, activeRecipeId, respondJson, bevByTitle, baseTempByTitle]() {
+        const QSet<QString> installedTitles =
+            (m_mainController && m_mainController->profileManager())
+                ? m_mainController->profileManager()->installedTitlesSnapshot()
+                : QSet<QString>();
+        QThread* t = QThread::create([dbPath, activeRecipeId, respondJson, bevByTitle, baseTempByTitle, installedTitles]() {
             QJsonArray recipes;
             const bool opened = withTempDb(dbPath, "web_recipes", [&](QSqlDatabase& db) {
                 for (const InventoryRecipe& e : RecipeStorage::loadInventoryStatic(db, false))
-                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount, bevByTitle, baseTempByTitle));
+                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount, bevByTitle, baseTempByTitle, installedTitles));
                 for (const InventoryRecipe& e : RecipeStorage::loadInventoryStatic(db, true))
-                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount, bevByTitle, baseTempByTitle));
+                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount, bevByTitle, baseTempByTitle, installedTitles));
             });
             QMetaObject::invokeMethod(qApp, [opened, recipes, respondJson]() {
                 if (!opened)
@@ -397,13 +408,18 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 (m_mainController && m_mainController->profileManager())
                     ? m_mainController->profileManager()->espressoTempByTitleSnapshot()
                     : QHash<QString, double>();
-            QThread* t = QThread::create([dbPath, recipeId, activeRecipeId, respondJson, bevByTitle, baseTempByTitle]() {
+            const QSet<QString> installedTitles =
+                (m_mainController && m_mainController->profileManager())
+                    ? m_mainController->profileManager()->installedTitlesSnapshot()
+                    : QSet<QString>();
+            QThread* t = QThread::create([dbPath, recipeId, activeRecipeId, respondJson, bevByTitle, baseTempByTitle, installedTitles]() {
                 QJsonObject result;
                 bool found = false;
                 const bool opened = withTempDb(dbPath, "web_recipe_get", [&](QSqlDatabase& db) {
                     const Recipe r = RecipeStorage::loadRecipeStatic(db, recipeId);
                     if (r.isValid()) {
-                        result = webRecipeJson(r, activeRecipeId, &db, -1, bevByTitle, baseTempByTitle);
+                        result = webRecipeJson(r, activeRecipeId, &db, -1, bevByTitle, baseTempByTitle,
+                                               installedTitles);
                         found = true;
                     }
                 });
@@ -888,6 +904,13 @@ QString ShotServer::generateRecipesPage() const
                 + (r.isActive ? '<span class="badge">Active</span>' : '') + '</div>';
             if (drink) body += '<div class="attr-line">' + drink + '</div>';
             if (bean) body += '<div class="attr-line">' + bean + '</div>';
+            // Its own line, mirroring the app's RecipeDrinkCard: the drink line
+            // can be long, and a warning appended there would be the first thing
+            // lost. Not an action — the profile is re-pointed in the editor.
+            if (r.profileMissing)
+                body += '<div class="attr-line"><span class="chip warn">'
+                      + 'Profile "' + esc(r.profileTitle) + '" is missing'
+                      + ' \u2014 edit this recipe to pick another</span></div>';
             if (plan) body += '<div class="plan-line">' + plan + '</div>';
             body += '</div>';
             return '<div class="card' + (r.isActive ? ' active' : '') + (r.archived ? ' dimmed' : '') + '">'

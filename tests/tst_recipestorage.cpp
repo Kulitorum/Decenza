@@ -171,6 +171,67 @@ private slots:
         QVERIFY(!Recipe::saveValidationPasses("  ", "D-Flow", QString()));
     }
 
+    // The predicate three MainController sites share: the profile watcher, the
+    // restored-row reconcile, and the profile-deleted reconcile. It exists as a
+    // pure static precisely so it can be tested — no test constructs a
+    // MainController (the watchers are constructor lambdas needing BLE, every
+    // storage and the QML engine), so a member predicate would ship with the
+    // coverage the original watcher had: none.
+    void profileOwnershipGate() {
+        // Names a profile: owns the choice.
+        QVERIFY(Recipe::ownsProfileChoice("D-Flow / Q"));
+        // Profile-less (tea, hot water): owns nothing. This is the gate the
+        // original watcher lacked, which is why any profile change dropped a
+        // tea recipe.
+        QVERIFY(!Recipe::ownsProfileChoice(QString()));
+        QVERIFY(!Recipe::ownsProfileChoice(""));
+        QVERIFY(!Recipe::ownsProfileChoice("   "));
+    }
+
+    void profileDivergenceRule() {
+        // The loaded profile is the recipe's: no divergence.
+        QVERIFY(!Recipe::profileDiverged("D-Flow / Q", "D-Flow / Q"));
+        // A different profile is loaded: deactivate. This is the shape that
+        // recorded three shots against a recipe whose profile they never ran.
+        QVERIFY(Recipe::profileDiverged("A-Flow / ZZ Fmt Test aflow", "D-Flow / Q"));
+        // The recipe's profile was deleted, so nothing is loaded under that
+        // title — still divergence, by the same comparison.
+        QVERIFY(Recipe::profileDiverged("A-Flow / ZZ Fmt Test aflow", QString()));
+
+        // A recipe owning no profile never diverges, whatever is loaded. Both
+        // the "no profile loaded" and "some profile loaded" cases, because the
+        // gate must not be an accident of the strings happening to match.
+        QVERIFY(!Recipe::profileDiverged(QString(), "D-Flow / Q"));
+        QVERIFY(!Recipe::profileDiverged("   ", "D-Flow / Q"));
+        QVERIFY(!Recipe::profileDiverged(QString(), QString()));
+
+        // Trimmed: cannot spuriously deactivate on stored whitespace.
+        QVERIFY(!Recipe::profileDiverged(" D-Flow / Q ", "D-Flow / Q"));
+        // Case-SENSITIVE, agreeing with ProfileManager::findProfileByTitle —
+        // "d-flow / q" does not resolve, so a recipe naming it cannot activate
+        // and must not be treated as matching the loaded profile.
+        QVERIFY(Recipe::profileDiverged("d-flow / q", "D-Flow / Q"));
+    }
+
+    // The deleted-profile check asks namesProfile, not !profileDiverged. Both
+    // gate on ownership, so a profile-less recipe answers false to BOTH — which
+    // is the whole point: !profileDiverged would be TRUE for it, and deleting
+    // any profile would then drop every tea recipe. The last two assertions are
+    // the ones that catch that inversion.
+    void recipeNamesProfileRule() {
+        QVERIFY(Recipe::namesProfile("D-Flow / Q", "D-Flow / Q"));
+        QVERIFY(Recipe::namesProfile(" D-Flow / Q ", "D-Flow / Q"));
+        QVERIFY(!Recipe::namesProfile("D-Flow / Q", "A-Flow / R"));
+        QVERIFY(!Recipe::namesProfile("d-flow / q", "D-Flow / Q"));
+
+        // A profile-less recipe names no profile, so deleting one never
+        // touches it — even when both titles are empty, which is exactly where
+        // a plain equality test would wrongly return true.
+        QVERIFY(!Recipe::namesProfile(QString(), "D-Flow / Q"));
+        QVERIFY(!Recipe::namesProfile(QString(), QString()));
+        QVERIFY(!Recipe::namesProfile("   ", "   "));
+    }
+
     void deriveDrinkTypeMatrix() {
         const QString waterAfter  = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"after\"}";
         const QString waterBefore = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"before\"}";
