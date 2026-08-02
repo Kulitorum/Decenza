@@ -70,6 +70,16 @@ public:
     void setFlowCalibrationMultiplier(double multiplier);
     bool autoFlowCalibration() const;
     void setAutoFlowCalibration(bool enabled);
+    // Persistence bounds for a per-profile multiplier. They match the widest range the
+    // runtime auto-cal algorithm can produce (kCalibrationMin/kCalibrationMax in
+    // MainController); they are NOT the tighter firmware-version ceiling it applies on
+    // top. Public because every writer has to agree on them — settings import and the
+    // set_flow_calibration MCP tool both pre-check so they can report WHY a value was
+    // refused, and a second hand-typed copy of the numbers is exactly how the two would
+    // drift apart from the one enforced below.
+    static constexpr double kProfileFlowCalMin = 0.5;
+    static constexpr double kProfileFlowCalMax = 2.7;
+
     double profileFlowCalibration(const QString& profileFilename) const;
     bool setProfileFlowCalibration(const QString& profileFilename, double multiplier);
     Q_INVOKABLE void clearProfileFlowCalibration(const QString& profileFilename);
@@ -79,7 +89,13 @@ public:
     int perProfileFlowCalVersion() const { return m_perProfileFlowCalVersion; }
 
     // Auto flow calibration batch accumulator: stores pending ideal values per profile
-    // until a full batch (5 shots) is collected, then the median is used to update C.
+    // until a full batch is collected, then the median is used to update C.
+    // The batch size lives here, with the store it describes, because two consumers
+    // need it: MainController::computeAutoFlowCalibration decides when to commit, and
+    // get_flow_calibration reports progress toward the next update ("3 of 5 shots").
+    // A reported size that disagrees with the enforced one is a wrong answer nothing
+    // would flag.
+    static constexpr qsizetype kFlowCalBatchSize = 5;
     QVector<double> flowCalPendingIdeals(const QString& profileFilename) const;
     void appendFlowCalPendingIdeal(const QString& profileFilename, double ideal);
     void clearFlowCalPendingIdeals(const QString& profileFilename);

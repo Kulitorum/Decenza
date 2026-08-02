@@ -3021,7 +3021,7 @@ void MainController::computeAutoFlowCalibration() {
     // C update changes pump behavior, which changes puck dynamics, which changes the next
     // ideal — producing oscillation instead of convergence. The median also provides
     // natural outlier rejection (runaway shots, channeling anomalies).
-    constexpr qsizetype kBatchSize = 5;
+    constexpr qsizetype kBatchSize = SettingsCalibration::kFlowCalBatchSize;
     constexpr double kBatchEmaAlpha = 0.5;  // Higher alpha is safe because median of N shots is more reliable
 
     QString profileName = m_profileManager->baseProfileName();

@@ -960,12 +960,15 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                     continue;
                 }
                 double val = it.value().toDouble();
-                if (val >= 0.5 && val <= 2.7) {
+                if (val >= SettingsCalibration::kProfileFlowCalMin
+                    && val <= SettingsCalibration::kProfileFlowCalMax) {
                     settings->calibration()->setProfileFlowCalibration(it.key(), val);
                     imported++;
                 } else {
                     qWarning() << "Settings import: flow calibration out of bounds for"
-                               << it.key() << ":" << val << "(expected [0.5, 2.7])";
+                               << it.key() << ":" << val << "(expected ["
+                               << SettingsCalibration::kProfileFlowCalMin << ","
+                               << SettingsCalibration::kProfileFlowCalMax << "])";
                     rejected++;
                 }
             }

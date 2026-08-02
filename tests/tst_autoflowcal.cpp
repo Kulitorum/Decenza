@@ -1,6 +1,9 @@
 #include <QtTest>
+#include <QRegularExpression>
 
 #include "controllers/autoflowcalclassifier.h"
+#include "core/settings.h"
+#include "core/settings_calibration.h"
 #include "profile/profileframe.h"
 
 // Regression tests for classifyAutoFlowCalWindow(), the function that decides
@@ -277,6 +280,83 @@ private slots:
         QVERIFY(!cls.mixedMode);
         QVERIFY(cls.isFlowProfile);
         QCOMPARE(cls.targetFlow, 1.2);
+    }
+
+    // --- Per-profile store: what a WRITE does to the pending batch -----------
+    //
+    // The auto-cal path clears the batch itself before committing, so these cover
+    // the writers that do not: the set_flow_calibration MCP tool and settings
+    // import. A stale ideal surviving a manual write is invisible until several
+    // shots later, when it skews the batch median toward the value the user
+    // replaced.
+
+    void manualSetClearsPendingBatch() {
+        Settings settings;
+        SettingsCalibration* cal = settings.calibration();
+        const QString profile = QStringLiteral("tst_autoflowcal_profile");
+        cal->clearProfileFlowCalibration(profile);
+
+        cal->appendFlowCalPendingIdeal(profile, 1.10);
+        cal->appendFlowCalPendingIdeal(profile, 1.12);
+        QCOMPARE(cal->flowCalPendingIdeals(profile).size(), 2);
+
+        QVERIFY(cal->setProfileFlowCalibration(profile, 1.40));
+        QCOMPARE(cal->profileFlowCalibration(profile), 1.40);
+        QVERIFY(cal->flowCalPendingIdeals(profile).isEmpty());
+
+        cal->clearProfileFlowCalibration(profile);
+    }
+
+    // A refused write must leave BOTH the stored value and the batch alone —
+    // rejecting the number and still wiping the accumulated shots would cost the
+    // user a batch for a typo.
+    void outOfBoundsSetIsRefusedAndKeepsBatch() {
+        Settings settings;
+        SettingsCalibration* cal = settings.calibration();
+        const QString profile = QStringLiteral("tst_autoflowcal_profile");
+        cal->clearProfileFlowCalibration(profile);
+
+        QVERIFY(cal->setProfileFlowCalibration(profile, 1.20));
+        cal->appendFlowCalPendingIdeal(profile, 1.25);
+
+        for (double bad : {SettingsCalibration::kProfileFlowCalMin - 0.01,
+                           SettingsCalibration::kProfileFlowCalMax + 0.01}) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                QStringLiteral("rejecting per-profile flow calibration")));
+            QVERIFY(!cal->setProfileFlowCalibration(profile, bad));
+        }
+        QCOMPARE(cal->profileFlowCalibration(profile), 1.20);
+        QCOMPARE(cal->flowCalPendingIdeals(profile).size(), 1);
+
+        cal->clearProfileFlowCalibration(profile);
+    }
+
+    // With auto calibration off, a stored per-profile value is deliberately
+    // ignored — the machine uses the global multiplier. This is what
+    // set_flow_calibration reports as its `warning` case, and the reason the tool
+    // does not simply claim success.
+    void perProfileValueIsInertWhileAutoCalIsOff() {
+        Settings settings;
+        SettingsCalibration* cal = settings.calibration();
+        const QString profile = QStringLiteral("tst_autoflowcal_profile");
+        const bool origAuto = cal->autoFlowCalibration();
+        const double origGlobal = cal->flowCalibrationMultiplier();
+        cal->clearProfileFlowCalibration(profile);
+
+        cal->setFlowCalibrationMultiplier(1.00);
+        cal->setAutoFlowCalibration(true);
+        QVERIFY(cal->setProfileFlowCalibration(profile, 1.40));
+        QCOMPARE(cal->effectiveFlowCalibration(profile), 1.40);
+
+        cal->setAutoFlowCalibration(false);
+        QCOMPARE(cal->effectiveFlowCalibration(profile), 1.00);
+        // Still on disk — turning auto back on restores it, so the tool is right
+        // to call the value "stored but not in effect" rather than refusing it.
+        QCOMPARE(cal->profileFlowCalibration(profile), 1.40);
+
+        cal->clearProfileFlowCalibration(profile);
+        cal->setAutoFlowCalibration(origAuto);
+        cal->setFlowCalibrationMultiplier(origGlobal);
     }
 };
 

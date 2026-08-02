@@ -167,14 +167,22 @@ bool SettingsCalibration::setProfileFlowCalibration(const QString& profileFilena
     // MainController::computeAutoFlowCalibration applies a tighter firmware-version-
     // dependent ceiling (1.8 on older firmware, 2.7 on v1337+). Persistence just
     // prevents obviously-corrupt values.
-    if (multiplier < 0.5 || multiplier > 2.7) {
+    if (multiplier < kProfileFlowCalMin || multiplier > kProfileFlowCalMax) {
         qWarning() << "SettingsCalibration: rejecting per-profile flow calibration"
-                   << multiplier << "for" << profileFilename << "(outside [0.5, 2.7])";
+                   << multiplier << "for" << profileFilename
+                   << "(outside [" << kProfileFlowCalMin << "," << kProfileFlowCalMax << "])";
         return false;
     }
     QJsonObject map = allProfileFlowCalibrations();
     map[profileFilename] = multiplier;
     savePerProfileFlowCalMap(map);
+    // Any pending batch ideals were computed against the OLD C, so they no longer
+    // describe an error relative to the value now stored — same reasoning as
+    // clearProfileFlowCalibration(). Done here rather than at each writer because
+    // every writer needs it: the auto-cal path clears them just before calling this
+    // (so this is a no-op there), while a manual write from the MCP tool or a
+    // settings import would otherwise fold stale ideals into the next batch median.
+    clearFlowCalPendingIdeals(profileFilename);
     return true;
 }
 

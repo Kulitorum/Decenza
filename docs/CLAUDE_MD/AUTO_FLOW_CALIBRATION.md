@@ -118,6 +118,7 @@ Per-profile persistence (`Settings::setProfileFlowCalibration`) and the settings
 - **Toast notification**: Brief notification when a calibration update occurs (e.g., "Flow cal updated for Filter 3: 1.00 → 1.08")
 - **Profile Info**: Shows the effective multiplier with "(global)" or "(auto)" label
 - **Manual override disabled**: When auto-cal is on, the Calibrate button is greyed out
+- **Setting a known value by hand (MCP)**: `set_flow_calibration` writes the per-profile multiplier directly, for a user who already knows the right number for a profile. It takes effect immediately, but it is a *starting point*, not a pin: with auto-cal on, later batches keep moving it. Pinning an exact number still means turning auto-cal off and setting the **global** multiplier — with auto-cal off, per-profile values are ignored entirely (`effectiveFlowCalibration`), so a per-profile write alone is stored but inert. The tool reports that case in a `warning` field rather than silently doing nothing. `get_flow_calibration` describes the resulting state (stored vs. effective value, which source is in use, batch progress).
 - **Migration**: Existing users were migrated to default-on via a one-time settings migration that clears the old key
 
 ## Technical Details
@@ -129,7 +130,7 @@ Per-profile persistence (`Settings::setProfileFlowCalibration`) and the settings
 - `calibration/flowCalBatch` (JSON object): Maps profile filename → array of pending ideal values (accumulator for batched updates)
 - `flowCalibrationMultiplier` (double, default 1.0): Global multiplier, auto-updated to espresso median
 - Effective multiplier: per-profile if auto-cal is on and one exists, otherwise falls back to global `flowCalibrationMultiplier`
-- Clearing a profile's calibration (via MCP or settings UI) also clears its pending batch
+- Clearing a profile's calibration (via MCP or settings UI) also clears its pending batch. So does *setting* one: `setProfileFlowCalibration()` clears the pending ideals itself, because they were computed against the old C and would otherwise be folded into the next batch median at the new one. The auto-cal path already cleared them a few lines earlier, so there it is a no-op; the manual (MCP) and settings-import writers are the ones that need it.
 
 ### Profile Load Hook
 
