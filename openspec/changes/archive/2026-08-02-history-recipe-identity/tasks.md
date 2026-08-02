@@ -45,12 +45,12 @@
 ## 6. Verification and docs
 
 - [x] 6.1 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) — ask before building, per the shared-Qt-Creator rule
-- [ ] 6.2 Open Shot History in the running app and check both row types, the archived dim, elide behaviour at a narrow width, and the tap-through — QML is verified manually; the test suite cannot see any of section 2
+- [x] 6.2 Open Shot History in the running app and check both row types, the archived dim, elide behaviour at a narrow width, and the tap-through — QML is verified manually; the test suite cannot see any of section 2
 - [x] 6.3 Read the `text-invariants.yml` PR run before merging (it gates `src/**`; nothing blocks a merge on it)
 - [x] 6.4 Update `docs/CLAUDE_MD/RECIPES.md`: recipe identity now appears on the history row and in search; note the reference-not-snapshot rule extends beyond `shot-recipe-card`
 - [x] 6.5 Update the wiki manual (`Kulitorum/Decenza.wiki`) Shot History page: the recipe line, the drink-type icon, and the `recipe:` keyword — hold the push per the release-timing convention unless told otherwise
 - [x] 6.6 Open the PR, then run the automated `/pr-review-toolkit:review-pr` before merging
-- [ ] 6.7 Archive the change + spec sync as the final commit on the same PR
+- [x] 6.7 Archive the change + spec sync as the final commit on the same PR
 
 ## 7. Review follow-ups (from the multi-agent review of PR #1752)
 
