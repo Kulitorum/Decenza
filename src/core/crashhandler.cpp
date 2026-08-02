@@ -192,11 +192,6 @@ enum class CaptureOutcome {
     Unknown,      // nothing matched — print the raw status rather than guess
 };
 
-// True when the outcome means the section holds real captured content.
-static bool captureHasContent(CaptureOutcome o)
-{
-    return o == CaptureOutcome::Content || o == CaptureOutcome::BudgetHit;
-}
 
 // Read the child's output through a pipe and write at most byteBudget of it to
 // f. Head-anchored on purpose: `logcat -t N` gives the LAST N lines, which is
@@ -218,11 +213,13 @@ static CaptureOutcome captureLogcatToFile(FILE* f, bool fatalOnly,
     if (child == 0) {
         close(fds[0]);
         // stdout ONLY. logcat's own stderr must NOT reach the content pipe:
-        // captureHasContent() gates whether the unfiltered fallback runs, so a
-        // device that rejects these arguments would have logcat's complaint
-        // counted as an ART abort and the fallback skipped — the one path that
-        // rescues a non-ART crash, disabled by the failure of the path it
-        // rescues. The exit status is what attributes such a failure instead.
+        // the unfiltered fallback runs only on CaptureOutcome::NoEntries, and
+        // that outcome requires the stream to have produced nothing. A device
+        // that rejects these arguments would put logcat's complaint in the
+        // pipe, which counts as captured bytes, yields Content instead of
+        // NoEntries, and skips the fallback — the one path that rescues a
+        // non-ART crash, disabled by the failure of the path it rescues. The
+        // exit status is what attributes such a failure instead.
         if (dup2(fds[1], STDOUT_FILENO) < 0)
             _exit(126);
         const int devNull = open("/dev/null", O_WRONLY);
