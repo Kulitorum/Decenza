@@ -126,6 +126,44 @@ private:
         ShotRowFixtures::initAndCloseStorage(path, storage);
     }
 
+    // Recipe-identity fixture (history-recipe-identity). Lives here, NOT under
+    // `private slots:` — Qt Test runs every private slot as a test function, so a
+    // helper placed there would execute as one.
+    //
+    // Deliberately: no shot's bean, profile or notes contains "monday",
+    // "tuesday" or "vacation", so a search hit on any of those can only have
+    // arrived through the `recipes` table.
+    struct RecipeSeed { qint64 mondayId = 0; qint64 tuesdayId = 0; qint64 archivedId = 0; };
+    void seedRecipeShots(const QString& path, RecipeSeed& seed) {
+        withRawDb(path, "recipe_seed", [&](QSqlDatabase& db) {
+            auto addRecipe = [&](const QString& name, const QString& drinkType, int archived) -> qint64 {
+                QSqlQuery r(db);
+                r.prepare("INSERT INTO recipes (name, profile_title, drink_type, archived) VALUES (?, 'P', ?, ?)");
+                r.addBindValue(name); r.addBindValue(drinkType); r.addBindValue(archived);
+                if (!r.exec()) return 0;
+                return r.lastInsertId().toLongLong();
+            };
+            seed.mondayId   = addRecipe("Dad Monday", "latte", 0);
+            seed.tuesdayId  = addRecipe("Dad Tuesday", "espresso", 0);
+            seed.archivedId = addRecipe("Vacation Blend", "filter", 1);
+            QVERIFY(seed.mondayId > 0 && seed.tuesdayId > 0 && seed.archivedId > 0);
+
+            auto addShot = [&](const QString& uuid, qint64 ts, qint64 recipeId) {
+                QSqlQuery sh(db);
+                sh.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                           "bean_brand, bean_type, recipe_id) "
+                           "VALUES (?, ?, 'P', 30, 'Roaster', 'Beans', ?)");
+                sh.addBindValue(uuid); sh.addBindValue(ts);
+                if (recipeId > 0) sh.addBindValue(recipeId); else sh.addBindValue(QVariant());
+                QVERIFY(sh.exec());
+            };
+            addShot("s-monday",   1000, seed.mondayId);
+            addShot("s-tuesday",  2000, seed.tuesdayId);
+            addShot("s-archived", 3000, seed.archivedId);
+            addShot("s-none",     4000, 0);
+        });
+    }
+
     // Like initAndClose(), but for an initialize() that is expected to emit a
     // single migration-failure qWarning (a gated migration that did NOT bump).
     void initExpectingMigrationWarning(const QString& path, const QString& warnRegex) {
@@ -2063,6 +2101,212 @@ private slots:
         s.requestShotsFiltered({{"searchText", "zzz-no-match"}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 0);
+
+        s.close();
+    }
+
+    // ---- Recipe identity on the shot list (history-recipe-identity) ----------
+    //
+    // Recipe name/type/archived are resolved LIVE by shots.recipe_id, never
+    // snapshotted onto the shot, and a recipe's name is not in shots_fts (which
+    // is external-content on `shots`, so it can only index shots columns). These
+    // guard the resulting query: the display join, the free-text clause that
+    // reaches the other table, the `recipe:` keyword's narrower scope, the exact
+    // id filter, and the LIKE escaping.
+
+    // The list row carries the recipe's identity, and a recipe-less shot carries
+    // none of it — the two cases the row layout branches on.
+    void recipeIdentityOnShotListRow() {
+        const QString path = freshDbPath();
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        RecipeSeed seed;
+        seedRecipeShots(path, seed);
+
+        QSignalSpy spy(&s, &ShotHistoryStorage::shotsFilteredReady);
+        s.requestShotsFiltered({}, 0, 50);
+        QVERIFY(spy.wait(3000));
+
+        QVariantMap byUuid;
+        const QVariantList rows = spy.last().at(0).toList();
+        for (const QVariant& v : rows) {
+            const QVariantMap m = v.toMap();
+            byUuid.insert(m.value("uuid").toString(), m);
+        }
+        QCOMPARE(rows.size(), 4);
+
+        const QVariantMap monday = byUuid.value("s-monday").toMap();
+        QCOMPARE(monday.value("recipeId").toLongLong(), seed.mondayId);
+        QCOMPARE(monday.value("recipeName").toString(), QString("Dad Monday"));
+        QCOMPARE(monday.value("recipeDrinkType").toString(), QString("latte"));
+        QCOMPARE(monday.value("recipeArchived").toBool(), false);
+
+        const QVariantMap archived = byUuid.value("s-archived").toMap();
+        QCOMPARE(archived.value("recipeArchived").toBool(), true);
+
+        // No recipe: the LEFT JOIN yields nulls, which must read as empty rather
+        // than as some other shot's recipe.
+        const QVariantMap none = byUuid.value("s-none").toMap();
+        QCOMPARE(none.value("recipeId").toLongLong(), 0LL);
+        QVERIFY(none.value("recipeName").toString().isEmpty());
+        QVERIFY(none.value("recipeDrinkType").toString().isEmpty());
+        QCOMPARE(none.value("recipeArchived").toBool(), false);
+
+        s.close();
+    }
+
+    // A bare free-text term must reach the recipe name, which lives in another
+    // table and cannot be in shots_fts. Without the OR'd subquery this returns 0
+    // — the "typing my recipe's name finds nothing" gap.
+    void recipeNameMatchesBareFreeText() {
+        const QString path = freshDbPath();
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        RecipeSeed seed;
+        seedRecipeShots(path, seed);
+        Q_UNUSED(seed)
+
+        QSignalSpy spy(&s, &ShotHistoryStorage::shotsFilteredReady);
+
+        // "monday" appears in no bean, profile or note — only in a recipe name.
+        s.requestShotsFiltered({{"searchText", "monday"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(0).toList().size(), 1);
+        // The count query runs separately from the data query and must agree —
+        // they build their disjunction from the same pieces but not the same string.
+        QCOMPARE(spy.last().at(2).toInt(), 1);
+
+        // Archived recipes still match: the shot happened.
+        s.requestShotsFiltered({{"searchText", "vacation"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);
+
+        s.close();
+    }
+
+    // The `recipe:` keyword is narrower than bare text: recipe names only.
+    void recipeKeywordScopesToRecipeName() {
+        const QString path = freshDbPath();
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        RecipeSeed seed;
+        seedRecipeShots(path, seed);
+        Q_UNUSED(seed)
+
+        QSignalSpy spy(&s, &ShotHistoryStorage::shotsFilteredReady);
+
+        // Single token: both "Dad Monday" and "Dad Tuesday".
+        s.requestShotsFiltered({{"recipeName", "dad"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 2);
+
+        // Quoted form (the QML hands the inner text through): disambiguates.
+        s.requestShotsFiltered({{"recipeName", "dad tuesday"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);
+
+        // Case-insensitive.
+        s.requestShotsFiltered({{"recipeName", "DAD TUESDAY"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);
+
+        // Scoped: every seeded shot has bean_brand 'Roaster', but no recipe is
+        // named that, so the keyword must return nothing where bare text would
+        // have returned everything.
+        s.requestShotsFiltered({{"recipeName", "Roaster"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 0);
+
+        s.close();
+    }
+
+    // The tap-through filters by ID, so it is unmoved by a rename and is not
+    // confused by a second recipe with the same name.
+    void recipeIdFilterIsExact() {
+        const QString path = freshDbPath();
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+        RecipeSeed seed;
+        seedRecipeShots(path, seed);
+
+        // A SECOND recipe named exactly "Dad Monday", with its own shot. A
+        // name-based filter would conflate the two; an id-based one must not.
+        withRawDb(path, "recipe_twin", [&](QSqlDatabase& db) {
+            QSqlQuery r(db);
+            QVERIFY(r.exec("INSERT INTO recipes (name, profile_title, drink_type, archived) "
+                           "VALUES ('Dad Monday', 'P', 'espresso', 0)"));
+            const qint64 twin = r.lastInsertId().toLongLong();
+            QSqlQuery sh(db);
+            sh.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, recipe_id) "
+                       "VALUES ('s-twin', 5000, 'P', 30, ?)");
+            sh.addBindValue(twin); QVERIFY(sh.exec());
+        });
+
+        QSignalSpy spy(&s, &ShotHistoryStorage::shotsFilteredReady);
+
+        s.requestShotsFiltered({{"recipeId", seed.mondayId}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);
+        QCOMPARE(spy.last().at(0).toList().first().toMap().value("uuid").toString(),
+                 QString("s-monday"));
+
+        // The name both share matches two shots, proving the id filter above was
+        // doing something a name filter could not.
+        s.requestShotsFiltered({{"recipeName", "dad monday"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 2);
+
+        s.close();
+    }
+
+    // LIKE metacharacters in a recipe name are matched literally. A missed escape
+    // does not crash — it silently turns a user's '%' into a wildcard, so this is
+    // the only thing that would catch it.
+    void recipeNameLikeMetacharactersAreLiteral() {
+        const QString path = freshDbPath();
+        ShotHistoryStorage s;
+        QVERIFY(s.initialize(path));
+
+        withRawDb(path, "recipe_meta", [&](QSqlDatabase& db) {
+            auto add = [&](const QString& name, const QString& uuid, qint64 ts) {
+                QSqlQuery ri(db);
+                ri.prepare("INSERT INTO recipes (name, profile_title, drink_type, archived) VALUES (?, 'P', 'espresso', 0)");
+                ri.addBindValue(name);
+                QVERIFY(ri.exec());
+                const qint64 id = ri.lastInsertId().toLongLong();
+                QSqlQuery sh(db);
+                sh.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, recipe_id) "
+                           "VALUES (?, ?, 'P', 30, ?)");
+                sh.addBindValue(uuid); sh.addBindValue(ts); sh.addBindValue(id);
+                QVERIFY(sh.exec());
+            };
+            add("50% off",    "s-pct",   1000);
+            add("50 off",     "s-plain", 2000);   // '%' as a wildcard would also match this
+            add("a_b",        "s-under", 3000);
+            add("axb",        "s-any",   4000);   // '_' as a wildcard would also match this
+            add("Bob's Brew", "s-quote", 5000);   // an unescaped quote would break the SQL
+        });
+
+        QSignalSpy spy(&s, &ShotHistoryStorage::shotsFilteredReady);
+
+        s.requestShotsFiltered({{"recipeName", "50% off"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);
+
+        s.requestShotsFiltered({{"recipeName", "a_b"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);
+
+        s.requestShotsFiltered({{"recipeName", "Bob's"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);
+
+        // Same escaping, but through the free-text path, which builds an inline
+        // SQL literal instead of a bind — a different function with the same
+        // failure mode.
+        s.requestShotsFiltered({{"searchText", "Bob's"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);
 
         s.close();
     }

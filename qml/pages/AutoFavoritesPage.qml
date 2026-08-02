@@ -486,8 +486,14 @@ T.Page {
                     // Create-recipe button: an auto-favorite is literally "a
                     // shot you keep reloading" — a recipe announcing itself.
                     // Opens the composer prefilled from the group's shot.
+                    // Hidden when the group's shot already came FROM a recipe —
+                    // offering to create one from it then reads as broken. Shot
+                    // Detail has gated this since shot-pages-card-cleanup; this
+                    // surface and Shot History never got the same rule
+                    // (history-recipe-identity).
                     Rectangle {
                         id: favRecipeButton
+                        visible: (favoriteDelegate.model.recipeId || 0) <= 0
                         Layout.preferredWidth: Theme.scaled(70)
                         Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)

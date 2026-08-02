@@ -272,13 +272,21 @@ private:
 // Query shot list from DB. Returns true on success, false on query failure.
 static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
     QSqlQuery query(db);
+    // Recipe identity is joined in, matching the in-app history list
+    // (history-recipe-identity): live from `recipes` by id, never snapshotted
+    // onto the shot, so renaming a recipe relabels its whole history. LEFT so a
+    // recipe-less shot is still listed. Columns are qualified because the two
+    // tables collide on id, equipment_id, steam_json, hot_water_json,
+    // created_at and updated_at.
     if (!query.prepare(R"(
-        SELECT id, uuid, timestamp, profile_name, duration_seconds,
-               final_weight, dose_weight, bean_brand, bean_type,
-               enjoyment, visualizer_id, grinder_setting,
-               temperature_override, yield_override, beverage_type,
-               drink_tds, drink_ey, rpm
-        FROM shots ORDER BY timestamp DESC LIMIT 1000
+        SELECT shots.id, shots.uuid, shots.timestamp, shots.profile_name, shots.duration_seconds,
+               shots.final_weight, shots.dose_weight, shots.bean_brand, shots.bean_type,
+               shots.enjoyment, shots.visualizer_id, shots.grinder_setting,
+               shots.temperature_override, shots.yield_override, shots.beverage_type,
+               shots.drink_tds, shots.drink_ey, shots.rpm,
+               shots.recipe_id, r.name, r.drink_type, r.archived
+        FROM shots LEFT JOIN recipes r ON r.id = shots.recipe_id
+        ORDER BY shots.timestamp DESC LIMIT 1000
     )") || !query.exec()) {
         qWarning() << "ShotServer: Shot list query failed:" << query.lastError().text();
         return false;
@@ -303,6 +311,10 @@ static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
         row["beverageType"] = query.value(14).toString();
         row["drinkTds"] = query.value(15).toDouble();
         row["drinkEy"] = query.value(16).toDouble();
+        row["recipeId"] = query.value(18).toLongLong();
+        row["recipeName"] = query.value(19).toString();
+        row["recipeDrinkType"] = query.value(20).toString();
+        row["recipeArchived"] = query.value(21).toInt() != 0;
         QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(2).toLongLong());
         static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
         row["dateTime"] = dt.toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");

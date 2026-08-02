@@ -1425,6 +1425,7 @@ set(QML_FILES
     qml/components/De1CommunicationErrorDialog.qml
     qml/components/ProfileRefusedDialog.qml
     qml/components/ColoredIcon.qml
+    qml/components/SearchKeywordChip.qml
     qml/components/CrtOverlay.qml
     qml/components/CrtShaderEffect.qml
     qml/components/QrCode.qml

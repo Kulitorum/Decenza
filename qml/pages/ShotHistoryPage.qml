@@ -260,9 +260,31 @@ T.Page {
                 }
             }
 
+            // recipe: — the first STRING-valued keyword here. Every other one is
+            // numeric or boolean, so none of them has had to decide where a term
+            // ends. Two forms, because names routinely share a leading word
+            // ("Dad Monday", "Dad Tuesday"):
+            //   recipe:dad             single token
+            //   recipe:"dad tuesday"   quoted, spaces allowed
+            // Both are SUBSTRING matches, not exact: an auto-suggested name looks
+            // like "Hometown Blend Latte · D-Flow / Q", and requiring that typed in
+            // full — middot included — would make the keyword unusable. Exactness
+            // is the tap-through's job, which compares an id rather than a string.
+            // An unterminated quote runs to end-of-string instead of failing.
+            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S+))/i.exec(searchText)
+            if (recipeMatch) {
+                var recipeTerm = recipeMatch[1] !== undefined ? recipeMatch[1] : recipeMatch[2]
+                if (recipeTerm && recipeTerm.trim().length > 0)
+                    filter.recipeName = recipeTerm.trim()
+                searchText = searchText.replace(recipeMatch[0], "")
+            }
+
             // Strip any remaining keyword tokens (e.g. duplicate dose:18 dose:20)
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "")
             searchText = searchText.replace(/\b(channeling|temp|grind|skipframe|puckfailed):yes\b/gi, "")
+            // \S* (not \S+) so a bare "recipe:" with no term is stripped too,
+            // rather than falling through to FTS as the literal word "recipe".
+            searchText = searchText.replace(/\brecipe:(?:"[^"]*"?|\S*)/gi, "")
 
             // Pass remaining text as FTS search (skipped when exact initialFilter is active)
             searchText = searchText.trim().replace(/\s+/g, " ")
@@ -278,8 +300,13 @@ T.Page {
                 if (initialFilter[field] !== undefined && initialFilter[field] !== "")
                     filter[field] = initialFilter[field]
             }
-            // Numeric filters from the Auto-Favorites "Show" button in weight mode.
-            var numericFields = ["minDose", "maxDose", "minYield", "maxYield", "targetWeight"]
+            // Numeric filters from the Auto-Favorites "Show" button in weight mode,
+            // plus the recipe tap-through (history-recipe-identity). recipeId is an
+            // ID, not a name: a rename cannot move it and two recipes sharing a
+            // name stay distinct. initialFilter also carries `recipeName`, which is
+            // deliberately absent from both loops — it is the banner's label only,
+            // never a query term.
+            var numericFields = ["minDose", "maxDose", "minYield", "maxYield", "targetWeight", "recipeId"]
             for (var m = 0; m < numericFields.length; m++) {
                 var nf = numericFields[m]
                 if (initialFilter[nf] !== undefined && initialFilter[nf] !== null)
@@ -290,6 +317,22 @@ T.Page {
         filter.sortField = sortField
         filter.sortDirection = sortDirection
         return filter
+    }
+
+    // Tap-through from a row's recipe name. Goes through initialFilter — the same
+    // channel the Auto-Favorites "Show" button uses — so the banner, its Clear
+    // control, and the free-text suppression all come for free. recipeName rides
+    // along for the banner label only; the query matches on the id.
+    function filterByRecipe(recipeId, recipeName) {
+        if (!recipeId || recipeId <= 0)
+            return
+        Keyboard.commit()
+        _populatingSearch = true
+        searchField.text = ""
+        searchField.lastTriggeredText = ""
+        _populatingSearch = false
+        initialFilter = { "recipeId": recipeId, "recipeName": recipeName || "" }
+        loadShots()
     }
 
     function clearInitialFilter() {
@@ -540,6 +583,7 @@ T.Page {
                     text: {
                         if (!shotHistoryPage.initialFilter) return ""
                         var parts = []
+                        if (shotHistoryPage.initialFilter.recipeName) parts.push(shotHistoryPage.initialFilter.recipeName)
                         if (shotHistoryPage.initialFilter.beanBrand) parts.push(shotHistoryPage.initialFilter.beanBrand)
                         if (shotHistoryPage.initialFilter.beanType) parts.push(shotHistoryPage.initialFilter.beanType)
                         if (shotHistoryPage.initialFilter.profileName) parts.push(shotHistoryPage.initialFilter.profileName)
@@ -645,9 +689,63 @@ T.Page {
                 // Accessibility: row is a button whose primary action opens shot detail.
                 // Note: visual tap toggles selection (line 696); TalkBack double-tap opens detail
                 // because detail view is the more useful primary action for screen reader users.
+                // A shot made with a recipe (history-recipe-identity). The name
+                // and drink type ride in with the shot list itself (one LEFT
+                // JOIN in requestShotsFiltered), NOT resolved per delegate.
+                property bool hasRecipe: (model.recipeId || 0) > 0
+                property bool recipeIsArchived: hasRecipe && (model.recipeArchived === true)
+
+                // Profile plus the shot's temperature override. Rendered on the
+                // identity line for a recipe-less shot and at the head of the
+                // secondary line otherwise — one function so the two placements
+                // cannot drift.
+                function profileText() {
+                    var name = model.profileName || ""
+                    var tempOvr = model.temperatureOverrideC || 0
+                    if (tempOvr > 0)
+                        return name + " (" + Math.round(Theme.cToDisplay(tempOvr)) + Theme.tempUnitSuffix() + ")"
+                    return name
+                }
+
+                function beanText() {
+                    return (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
+                }
+
+                // Everything on the secondary line except the pinned grind. The
+                // profile leads it only when the recipe took the identity slot.
+                function secondaryText() {
+                    var bean = beanText()
+                    if (!hasRecipe)
+                        return bean
+                    var profile = profileText()
+                    if (profile && bean) return profile + " · " + bean
+                    return profile || bean
+                }
+
+                // Grind, with the RPM half paired when recorded (variable-RPM
+                // grinders). Always labelled — it sits among other numbers on the
+                // metrics line, where a bare "8.75 · 1500" identifies nothing.
+                function grindText() {
+                    var grind = model.grinderSetting || ""
+                    if (!grind) return ""
+                    if (model.rpm > 0) grind += " · " + model.rpm
+                    return TranslationManager.translate("shothistory.metric.grind", "Grind") + " " + grind
+                }
+
                 Accessible.role: Accessible.Button
                 Accessible.name: {
                     var parts = []
+                    // Recipe first: for a user who named it themselves it is the
+                    // strongest identity on the row, and it is the only thing here
+                    // the profile/bean text cannot imply.
+                    if (shotDelegate.hasRecipe) {
+                        // The archived state is DIMMED visually, so it has to be
+                        // spoken too — colour is never the only carrier.
+                        parts.push(model.recipeArchived
+                                   ? TranslationManager.translate("shothistory.accessible.recipeArchived",
+                                                                  "%1 (archived recipe)").arg(model.recipeName)
+                                   : model.recipeName)
+                    }
                     if (model.profileName) parts.push(model.profileName)
                     if (model.dateTime) parts.push(model.dateTime)
                     var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
@@ -656,6 +754,12 @@ T.Page {
                     var yieldVal = model.finalWeightG || 0
                     if (doseVal > 0 && yieldVal > 0)
                         parts.push(doseVal.toFixed(1) + "g to " + yieldVal.toFixed(1) + "g")
+                    // Pre-existing gap: the grind is on the row but was never spoken,
+                    // so the one number a dialing-in user scans for was unreachable by
+                    // screen reader. Same helper as the visible metric, so the two
+                    // cannot word it differently.
+                    var grindSpoken = shotDelegate.grindText()
+                    if (grindSpoken) parts.push(grindSpoken)
                     if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
                     // Same keys the visible QualityBadges use, so the spoken row and the
                     // badges cannot drift apart or disagree in a translated locale. These
@@ -725,6 +829,13 @@ T.Page {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(2)
 
+                        // Identity line. A recipe-driven shot puts the recipe here
+                        // — for a user who named the recipe themselves it is the
+                        // strongest handle on the row, and the profile is machinery
+                        // by comparison. The profile is not dropped, it moves to the
+                        // secondary line below, carrying its own temperature
+                        // override with it (the override belongs to the profile, not
+                        // to the recipe, whose stored temperature is a baseline).
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spacingSmall
@@ -736,41 +847,69 @@ T.Page {
                                 Accessible.ignored: true
                             }
 
+                            // Themed SVG, not an emoji — a colour glyph in a plain
+                            // Text crashes the render thread on macOS.
+                            ColoredIcon {
+                                visible: shotDelegate.hasRecipe
+                                source: DrinkType.icon(shotDelegate.model.recipeDrinkType || "")
+                                iconWidth: Theme.scaled(16)
+                                iconHeight: Theme.scaled(16)
+                                iconColor: shotDelegate.recipeIsArchived ? Theme.textSecondaryColor
+                                                                         : Theme.primaryColor
+                                Layout.alignment: Qt.AlignVCenter
+                                Accessible.ignored: true
+                            }
+
                             Text {
+                                id: identityText
                                 textFormat: Text.StyledText
-                                text: {
-                                    var name = shotDelegate.model.profileName || ""
-                                    var tempOvr = shotDelegate.model.temperatureOverrideC || 0
-                                    var result
-                                    if (tempOvr > 0) {
-                                        result = name + " (" + Math.round(Theme.cToDisplay(tempOvr)) + Theme.tempUnitSuffix() + ")"
-                                    } else {
-                                        result = name
-                                    }
-                                    return Theme.replaceEmojiWithImg(result, Theme.labelFont.pixelSize)
-                                }
+                                text: Theme.replaceEmojiWithImg(
+                                          shotDelegate.hasRecipe ? (shotDelegate.model.recipeName || "")
+                                                                 : shotDelegate.profileText(),
+                                          Theme.labelFont.pixelSize)
                                 font: Theme.labelFont
-                                color: Theme.primaryColor
+                                // Archived recipes dim. The row's Accessible.name says
+                                // "archived" as well, so the colour is not the only
+                                // carrier of the state.
+                                color: shotDelegate.recipeIsArchived ? Theme.textSecondaryColor
+                                                                     : Theme.primaryColor
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
-                                Accessible.ignored: true
+
+                                // Tap the recipe name to see every shot made with it.
+                                // A real action, so it is its own focusable stop rather
+                                // than being folded into the row's summary; on a
+                                // recipe-less row this collapses and the profile name
+                                // stays plain text as before.
+                                Accessible.ignored: !shotDelegate.hasRecipe
+                                Accessible.role: Accessible.Button
+                                Accessible.name: TranslationManager.translate(
+                                                     "shothistory.accessible.showRecipeShots",
+                                                     "Show all shots using %1").arg(shotDelegate.model.recipeName || "")
+                                Accessible.focusable: shotDelegate.hasRecipe
+                                Accessible.onPressAction: shotHistoryPage.filterByRecipe(
+                                                              shotDelegate.model.recipeId,
+                                                              shotDelegate.model.recipeName)
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: shotDelegate.hasRecipe
+                                    onClicked: shotHistoryPage.filterByRecipe(
+                                                   shotDelegate.model.recipeId,
+                                                   shotDelegate.model.recipeName)
+                                }
                             }
                         }
 
+                        // Secondary line: identity only (profile · bean). The grind
+                        // used to trail it here as a "(8)" parenthetical, where a long
+                        // roaster name silently elided it away — it now sits on the
+                        // metrics line below, beside the other dial-in numbers.
                         Text {
+                            id: secondaryIdentity
                             textFormat: Text.StyledText
-                            text: {
-                                var bean = (shotDelegate.model.beanBrand || "") + (shotDelegate.model.beanType ? " " + shotDelegate.model.beanType : "")
-                                var grind = shotDelegate.model.grinderSetting || ""
-                                // Pair the RPM half when recorded (variable-RPM grinders).
-                                if (grind && shotDelegate.model.rpm > 0) grind += " · " + shotDelegate.model.rpm
-                                var result
-                                if (bean && grind) result = bean + " (" + grind + ")"
-                                else if (bean) result = bean
-                                else if (grind) result = "Grind: " + grind
-                                else result = ""
-                                return Theme.replaceEmojiWithImg(result, Theme.labelFont.pixelSize)
-                            }
+                            text: Theme.replaceEmojiWithImg(shotDelegate.secondaryText(),
+                                                            Theme.labelFont.pixelSize)
                             font: Theme.labelFont
                             color: Theme.textSecondaryColor
                             Layout.fillWidth: true
@@ -799,9 +938,23 @@ T.Page {
                             }
 
                             Text {
-                                text: (shotDelegate.model.durationSec || 0).toFixed(1) + "s"
+                                text: TranslationManager.translate("shothistory.metric.time", "Time")
+                                      + " " + (shotDelegate.model.durationSec || 0).toFixed(1) + "s"
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+
+                            // Grind lives on the metrics line with the other dial-in
+                            // numbers, labelled because "8.75 · 1500" says nothing on
+                            // its own. Never elided — it is what this list is scanned
+                            // for, and on the identity line above it was the first
+                            // thing a long roaster name truncated away.
+                            Text {
+                                text: shotDelegate.grindText()
+                                font: Theme.labelFont
+                                color: Theme.textSecondaryColor
+                                visible: text !== ""
                                 Accessible.ignored: true
                             }
 
@@ -893,8 +1046,13 @@ T.Page {
                     }
 
                     // Create-recipe button (promote this shot to a recipe —
-                    // opens the composer prefilled from the shot, add-recipes)
+                    // opens the composer prefilled from the shot, add-recipes).
+                    // Hidden when the shot already came FROM a recipe: offering to
+                    // create one from it then reads as broken. Shot Detail has
+                    // gated this since shot-pages-card-cleanup; History, Auto
+                    // Favorites and the web list never got the same rule.
                     Rectangle {
+                        visible: !shotDelegate.hasRecipe
                         Layout.preferredWidth: recipeButtonText.implicitWidth + Theme.scaled(20)
                         Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
@@ -1366,153 +1524,81 @@ T.Page {
                     Text { text: TranslationManager.translate("shothistory.helpheaderexample", "Example"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     // Data rows — keyword column is tappable to insert into search
-                    Rectangle {
-                        color: ratingArea.pressed ? Theme.surfaceColor : "transparent"
-                        radius: Theme.scaled(4)
-                        implicitWidth: ratingLabel.implicitWidth + Theme.scaled(8)
-                        implicitHeight: ratingLabel.implicitHeight + Theme.scaled(4)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("rating:")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: ratingArea.clicked(null)
-                        Text { id: ratingLabel; text: "rating:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: ratingArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("rating:") }
+                    SearchKeywordChip {
+                        keyword: "rating:"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
                     }
                     Text { text: TranslationManager.translate("shothistory.helprating", "Enjoyment (0-100)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "rating:70+"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
-                    Rectangle {
-                        color: doseArea.pressed ? Theme.surfaceColor : "transparent"
-                        radius: Theme.scaled(4)
-                        implicitWidth: doseLabel.implicitWidth + Theme.scaled(8)
-                        implicitHeight: doseLabel.implicitHeight + Theme.scaled(4)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("dose:")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: doseArea.clicked(null)
-                        Text { id: doseLabel; text: "dose:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: doseArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("dose:") }
+                    SearchKeywordChip {
+                        keyword: "dose:"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
                     }
                     Text { text: TranslationManager.translate("shothistory.helpdose", "Dose weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "dose:16-18"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
-                    Rectangle {
-                        color: yieldArea.pressed ? Theme.surfaceColor : "transparent"
-                        radius: Theme.scaled(4)
-                        implicitWidth: yieldLabel.implicitWidth + Theme.scaled(8)
-                        implicitHeight: yieldLabel.implicitHeight + Theme.scaled(4)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("yield:")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: yieldArea.clicked(null)
-                        Text { id: yieldLabel; text: "yield:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: yieldArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("yield:") }
+                    SearchKeywordChip {
+                        keyword: "yield:"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
                     }
                     Text { text: TranslationManager.translate("shothistory.helpyield", "Yield weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "yield:30-40"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
-                    Rectangle {
-                        color: timeArea.pressed ? Theme.surfaceColor : "transparent"
-                        radius: Theme.scaled(4)
-                        implicitWidth: timeLabel.implicitWidth + Theme.scaled(8)
-                        implicitHeight: timeLabel.implicitHeight + Theme.scaled(4)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("time:")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: timeArea.clicked(null)
-                        Text { id: timeLabel; text: "time:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: timeArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("time:") }
+                    SearchKeywordChip {
+                        keyword: "time:"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
                     }
                     Text { text: TranslationManager.translate("shothistory.helptime", "Duration (seconds)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "time:25-35"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
-                    Rectangle {
-                        color: tdsArea.pressed ? Theme.surfaceColor : "transparent"
-                        radius: Theme.scaled(4)
-                        implicitWidth: tdsLabel.implicitWidth + Theme.scaled(8)
-                        implicitHeight: tdsLabel.implicitHeight + Theme.scaled(4)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("tds:")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: tdsArea.clicked(null)
-                        Text { id: tdsLabel; text: "tds:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: tdsArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("tds:") }
+                    SearchKeywordChip {
+                        keyword: "tds:"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
                     }
                     Text { text: TranslationManager.translate("shotHistory.label.tds", "TDS"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "tds:1.3-1.5"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
-                    Rectangle {
-                        color: eyArea.pressed ? Theme.surfaceColor : "transparent"
-                        radius: Theme.scaled(4)
-                        implicitWidth: eyLabel.implicitWidth + Theme.scaled(8)
-                        implicitHeight: eyLabel.implicitHeight + Theme.scaled(4)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("ey:")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: eyArea.clicked(null)
-                        Text { id: eyLabel; text: "ey:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: eyArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("ey:") }
+                    SearchKeywordChip {
+                        keyword: "ey:"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
                     }
                     Text { text: TranslationManager.translate("shothistory.helpey", "Extraction yield (%)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "ey:18-22"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
+                    // recipe: — a name, where every keyword above takes a number.
+                    SearchKeywordChip {
+                        keyword: "recipe:"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
+                    }
+                    Text { text: TranslationManager.translate("shothistory.helprecipe", "Recipe name (quote it if it has spaces)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "recipe:\"dad tuesday\""; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+
                     // Quality flag keywords
-                    Rectangle {
-                        color: channelingArea.pressed ? Theme.surfaceColor : "transparent"
-                        radius: Theme.scaled(4)
-                        implicitWidth: channelingLabel.implicitWidth + Theme.scaled(8)
-                        implicitHeight: channelingLabel.implicitHeight + Theme.scaled(4)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("channeling:yes")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: channelingArea.clicked(null)
-                        Text { id: channelingLabel; text: "channeling:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: channelingArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("channeling:yes") }
+                    SearchKeywordChip {
+                        keyword: "channeling:yes"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
                     }
                     Text { text: TranslationManager.translate("shothistory.helpchanneling", "Channeling detected"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "channeling:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
-                    Rectangle {
-                        color: grindArea.pressed ? Theme.surfaceColor : "transparent"
-                        radius: Theme.scaled(4)
-                        implicitWidth: grindLabel.implicitWidth + Theme.scaled(8)
-                        implicitHeight: grindLabel.implicitHeight + Theme.scaled(4)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("grind:yes")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: grindArea.clicked(null)
-                        Text { id: grindLabel; text: "grind:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: grindArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("grind:yes") }
+                    SearchKeywordChip {
+                        keyword: "grind:yes"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
                     }
                     Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "grind:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
-                    Rectangle {
-                        color: skipFrameArea.pressed ? Theme.surfaceColor : "transparent"
-                        radius: Theme.scaled(4)
-                        implicitWidth: skipFrameLabel.implicitWidth + Theme.scaled(8)
-                        implicitHeight: skipFrameLabel.implicitHeight + Theme.scaled(4)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("skipframe:yes")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: skipFrameArea.clicked(null)
-                        Text { id: skipFrameLabel; text: "skipframe:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: skipFrameArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("skipframe:yes") }
+                    SearchKeywordChip {
+                        keyword: "skipframe:yes"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
                     }
                     Text { text: TranslationManager.translate("shothistory.helpskipframe", "First step skipped"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "skipframe:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
-                    Rectangle {
-                        color: puckFailedArea.pressed ? Theme.surfaceColor : "transparent"
-                        radius: Theme.scaled(4)
-                        implicitWidth: puckFailedLabel.implicitWidth + Theme.scaled(8)
-                        implicitHeight: puckFailedLabel.implicitHeight + Theme.scaled(4)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("puckfailed:yes")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: puckFailedArea.clicked(null)
-                        Text { id: puckFailedLabel; text: "puckfailed:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: puckFailedArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("puckfailed:yes") }
+                    SearchKeywordChip {
+                        keyword: "puckfailed:yes"
+                        onPicked: shotHistoryPage.insertSearchKeyword(keyword)
                     }
                     Text { text: TranslationManager.translate("shothistory.helppuckfailed", "Puck failed"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "puckfailed:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }

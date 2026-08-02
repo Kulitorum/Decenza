@@ -153,13 +153,18 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     // Grinder model resolves through the equipment_id pointer
                     // (the per-shot grinder_model column is dropped in migration
                     // 23, add-equipment-packages task 4.1).
+                    // Recipe identity resolves through s.recipe_id the same way
+                    // (history-recipe-identity): live from `recipes`, so a rename
+                    // is reflected here too. A shot-linked recipe can only be
+                    // archived, never deleted, so the row always resolves.
                     QString sql = "SELECT s.id, timestamp, profile_name, dose_weight, final_weight, "
                                   "duration_seconds, enjoyment, "
                                   "grinder_setting, rpm, eg.model AS grinder_model, "
                                   "espresso_notes, bean_brand, bean_type, yield_override, profile_json, "
-                                  "stopped_by "
+                                  "stopped_by, s.recipe_id, r.name AS recipe_name "
                                   "FROM shots s "
                                   "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
+                                  "LEFT JOIN recipes r ON r.id = s.recipe_id "
                                   "WHERE 1=1 ";
                     QString countSql = "SELECT COUNT(*) FROM shots WHERE 1=1 ";
 
@@ -227,6 +232,14 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             if (rpm > 0)
                                 shot["rpm"] = rpm;  // RPM half of the dial-in (sparse)
                             shot["grinderModel"] = query.value("grinder_model").toString();
+                            // Sparse: both omitted when the shot used no recipe,
+                            // so their presence alone answers "was this a recipe
+                            // drink?" without a sentinel value to interpret.
+                            const qint64 recipeId = query.value("recipe_id").toLongLong();
+                            if (recipeId > 0) {
+                                shot["recipeId"] = recipeId;
+                                shot["recipeName"] = query.value("recipe_name").toString();
+                            }
                             shot["notes"] = query.value("espresso_notes").toString();
                             shot["beanBrand"] = query.value("bean_brand").toString();
                             shot["beanType"] = query.value("bean_type").toString();

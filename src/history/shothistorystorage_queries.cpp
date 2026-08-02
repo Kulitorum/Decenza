@@ -35,6 +35,43 @@
 
 using decenza::storage::detail::use12h;
 
+namespace {
+
+// LIKE-escaping, in ONE place. Three sites now build a contains-match against a
+// user-typed string (the grinder identity clause, the `recipe:` keyword filter,
+// and the free-text recipe-name clause); each was free to forget a
+// metacharacter on its own, and a forgotten one is not a crash — it silently
+// turns a user's literal '%' or '_' into a wildcard.
+//
+// Order matters: backslash MUST be doubled first, or the backslashes this adds
+// for '%' and '_' get escaped a second time.
+QString escapeLikeWildcards(const QString& in)
+{
+    QString out = in;
+    out.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    return out;
+}
+
+// Bind value for `LOWER(col) LIKE ? ESCAPE '\'`. Preferred — the driver handles
+// quoting, so a literal apostrophe needs no special care.
+QString likeContainsBind(const QString& in)
+{
+    return QStringLiteral("%") + escapeLikeWildcards(in.trimmed().toLower()) + QStringLiteral("%");
+}
+
+// Inline SQL literal for the same match, for the two clauses that are spliced
+// into the SQL string ahead of the positional binds and so cannot use a `?`
+// without reordering the whole bind list. Single quotes are doubled here
+// because the value lands inside a string literal.
+QString likeContainsLiteral(const QString& in)
+{
+    QString v = escapeLikeWildcards(in.trimmed().toLower());
+    v.replace('\'', "''");
+    return QStringLiteral("'%") + v + QStringLiteral("%' ESCAPE '\\'");
+}
+
+} // namespace
+
 // THE single place the getDistinct* family touches the database. Runs the query
 // synchronously on m_db and returns the non-empty values in the order the SQL
 // asked for.
@@ -108,6 +145,8 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.dateFrom = filterMap.value("dateFrom", 0).toLongLong();
     filter.dateTo = filterMap.value("dateTo", 0).toLongLong();
     filter.searchText = filterMap.value("searchText").toString();
+    filter.recipeId = filterMap.value("recipeId", -1).toLongLong();
+    filter.recipeName = filterMap.value("recipeName").toString();
     filter.onlyWithVisualizer = filterMap.value("onlyWithVisualizer", false).toBool();
     filter.filterChanneling = filterMap.value("filterChanneling", false).toBool();
     filter.filterGrindIssue = filterMap.value("filterGrindIssue", false).toBool();
@@ -118,20 +157,29 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     return filter;
 }
 
+// EVERY column here is qualified `shots.`, and new ones must be too. The data
+// query this feeds now reads `FROM shots LEFT JOIN recipes r` (history-recipe-
+// identity), and the two tables collide on id, equipment_id, steam_json,
+// hot_water_json, created_at and updated_at. SQLite rejects an ambiguous bare
+// name outright ("ambiguous column name"), so the failure is loud — but it
+// lands at runtime in the filter path, not at compile time, and only for the
+// filters that happen to name a colliding column. Qualifying unconditionally is
+// what keeps the next added `recipes` column from breaking a filter nobody
+// re-tested. Qualified names stay valid in the count query, which does NOT join.
 QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantList& bindValues)
 {
     QStringList conditions;
 
     if (!filter.profileName.isEmpty()) {
-        conditions << "profile_name = ?";
+        conditions << "shots.profile_name = ?";
         bindValues << filter.profileName;
     }
     if (!filter.beanBrand.isEmpty()) {
-        conditions << "bean_brand = ?";
+        conditions << "shots.bean_brand = ?";
         bindValues << filter.beanBrand;
     }
     if (!filter.beanType.isEmpty()) {
-        conditions << "bean_type = ?";
+        conditions << "shots.bean_type = ?";
         bindValues << filter.beanType;
     }
     // Grinder identity filters resolve through the equipment_id pointer rather
@@ -155,60 +203,74 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
             grinderItemBinds << filter.grinderBurrs;
         }
         if (!grinderItemConds.isEmpty()) {
-            conditions << QString("equipment_id IN (SELECT package_id FROM equipment_items "
+            conditions << QString("shots.equipment_id IN (SELECT package_id FROM equipment_items "
                                   "WHERE kind = 'grinder' AND %1)").arg(grinderItemConds.join(" AND "));
             bindValues << grinderItemBinds;
         }
     }
     if (!filter.grinderSetting.isEmpty()) {
-        conditions << "grinder_setting = ?";
+        conditions << "shots.grinder_setting = ?";
         bindValues << filter.grinderSetting;
     }
     if (!filter.roastLevel.isEmpty()) {
-        conditions << "roast_level = ?";
+        conditions << "shots.roast_level = ?";
         bindValues << filter.roastLevel;
     }
+    // Recipe identity (history-recipe-identity). recipeId is the exact
+    // tap-through: an id, so a rename cannot move it and two same-named recipes
+    // stay distinct. recipeName is the `recipe:` keyword — a case-insensitive
+    // substring on recipes.name ONLY, which is what makes it narrower than the
+    // free-text clause in requestShotsFiltered. Both resolve through a subquery
+    // rather than the display join, so they work identically in the count query.
+    if (filter.recipeId > 0) {
+        conditions << "shots.recipe_id = ?";
+        bindValues << filter.recipeId;
+    }
+    if (!filter.recipeName.isEmpty()) {
+        conditions << "shots.recipe_id IN (SELECT id FROM recipes WHERE LOWER(name) LIKE ? ESCAPE '\\')";
+        bindValues << likeContainsBind(filter.recipeName);
+    }
     if (filter.minEnjoyment >= 0) {
-        conditions << "enjoyment >= ?";
+        conditions << "shots.enjoyment >= ?";
         bindValues << filter.minEnjoyment;
     }
     if (filter.maxEnjoyment >= 0) {
-        conditions << "enjoyment <= ?";
+        conditions << "shots.enjoyment <= ?";
         bindValues << filter.maxEnjoyment;
     }
-    if (filter.minDose >= 0) { conditions << "dose_weight >= ?"; bindValues << filter.minDose; }
-    if (filter.maxDose >= 0) { conditions << "dose_weight <= ?"; bindValues << filter.maxDose; }
-    if (filter.minYield >= 0) { conditions << "final_weight >= ?"; bindValues << filter.minYield; }
-    if (filter.maxYield >= 0) { conditions << "final_weight <= ?"; bindValues << filter.maxYield; }
-    if (filter.targetWeight >= 0) { conditions << "COALESCE(yield_override, 0) = ?"; bindValues << filter.targetWeight; }
-    if (filter.minDuration >= 0) { conditions << "duration_seconds >= ?"; bindValues << filter.minDuration; }
-    if (filter.maxDuration >= 0) { conditions << "duration_seconds <= ?"; bindValues << filter.maxDuration; }
-    if (filter.minTds >= 0) { conditions << "drink_tds >= ?"; bindValues << filter.minTds; }
-    if (filter.maxTds >= 0) { conditions << "drink_tds <= ?"; bindValues << filter.maxTds; }
-    if (filter.minEy >= 0) { conditions << "drink_ey >= ?"; bindValues << filter.minEy; }
-    if (filter.maxEy >= 0) { conditions << "drink_ey <= ?"; bindValues << filter.maxEy; }
+    if (filter.minDose >= 0) { conditions << "shots.dose_weight >= ?"; bindValues << filter.minDose; }
+    if (filter.maxDose >= 0) { conditions << "shots.dose_weight <= ?"; bindValues << filter.maxDose; }
+    if (filter.minYield >= 0) { conditions << "shots.final_weight >= ?"; bindValues << filter.minYield; }
+    if (filter.maxYield >= 0) { conditions << "shots.final_weight <= ?"; bindValues << filter.maxYield; }
+    if (filter.targetWeight >= 0) { conditions << "COALESCE(shots.yield_override, 0) = ?"; bindValues << filter.targetWeight; }
+    if (filter.minDuration >= 0) { conditions << "shots.duration_seconds >= ?"; bindValues << filter.minDuration; }
+    if (filter.maxDuration >= 0) { conditions << "shots.duration_seconds <= ?"; bindValues << filter.maxDuration; }
+    if (filter.minTds >= 0) { conditions << "shots.drink_tds >= ?"; bindValues << filter.minTds; }
+    if (filter.maxTds >= 0) { conditions << "shots.drink_tds <= ?"; bindValues << filter.maxTds; }
+    if (filter.minEy >= 0) { conditions << "shots.drink_ey >= ?"; bindValues << filter.minEy; }
+    if (filter.maxEy >= 0) { conditions << "shots.drink_ey <= ?"; bindValues << filter.maxEy; }
     if (filter.dateFrom > 0) {
-        conditions << "timestamp >= ?";
+        conditions << "shots.timestamp >= ?";
         bindValues << filter.dateFrom;
     }
     if (filter.dateTo > 0) {
-        conditions << "timestamp <= ?";
+        conditions << "shots.timestamp <= ?";
         bindValues << filter.dateTo;
     }
     if (filter.onlyWithVisualizer) {
-        conditions << "visualizer_id IS NOT NULL";
+        conditions << "shots.visualizer_id IS NOT NULL";
     }
     if (filter.filterChanneling) {
-        conditions << "channeling_detected = 1";
+        conditions << "shots.channeling_detected = 1";
     }
     if (filter.filterGrindIssue) {
-        conditions << "grind_issue_detected = 1";
+        conditions << "shots.grind_issue_detected = 1";
     }
     if (filter.filterSkipFirstFrame) {
-        conditions << "skip_first_frame_detected = 1";
+        conditions << "shots.skip_first_frame_detected = 1";
     }
     if (filter.filterPourTruncated) {
-        conditions << "pour_truncated_detected = 1";
+        conditions << "shots.pour_truncated_detected = 1";
     }
 
     if (conditions.isEmpty()) {
@@ -301,51 +363,60 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
     // single-quote- and wildcard-escaped (ESCAPE '\') so user input is inert.
     QString grinderMatchClause;
     if (!ftsQuery.isEmpty()) {
-        QString likeVal = filter.searchText.trimmed().toLower();
-        likeVal.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_").replace('\'', "''");
         grinderMatchClause = QStringLiteral(
-            " OR equipment_id IN (SELECT package_id FROM equipment_items WHERE kind = 'grinder' "
+            " OR shots.equipment_id IN (SELECT package_id FROM equipment_items WHERE kind = 'grinder' "
             "AND LOWER(IFNULL(brand,'') || ' ' || IFNULL(model,'') || ' ' || "
-            "IFNULL(json_extract(attrs,'$.burrs'),'')) LIKE '%") + likeVal
-            + QStringLiteral("%' ESCAPE '\\')");
+            "IFNULL(json_extract(attrs,'$.burrs'),'')) LIKE ")
+            + likeContainsLiteral(filter.searchText) + QStringLiteral(")");
     }
 
-    QString sql;
+    // A recipe's name lives in `recipes`, not in shots_fts (which is external-
+    // content on `shots` and so can only ever index shots columns), so a bare
+    // search term reaches it the same way a grinder name does: resolve the term
+    // against the other table and match shots through the id pointer. Without
+    // this, typing a recipe's name finds nothing at all — and for the many users
+    // who replace the wizard's suggested name with one of their own, that name
+    // is the ONLY handle they would think to type.
+    QString recipeMatchClause;
     if (!ftsQuery.isEmpty()) {
-        QString extraConditions;
-        if (!whereClause.isEmpty()) {
-            extraConditions = whereClause;
-            extraConditions.replace(extraConditions.indexOf("WHERE"), 5, "AND");
-        }
-        const QString ftsMatch = QString("id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')")
-                                     .arg(ftsQuery);
-        sql = QStringLiteral(
-            "SELECT id, uuid, timestamp, profile_name, duration_seconds, "
-            "final_weight, dose_weight, bean_brand, bean_type, "
-            "enjoyment, visualizer_id, grinder_setting, "
-            "temperature_override, yield_override, beverage_type, "
-            "drink_tds, drink_ey, "
-            "channeling_detected, grind_issue_detected, "
-            "skip_first_frame_detected, pour_truncated_detected, rpm "
-            "FROM shots WHERE (") + ftsMatch + grinderMatchClause + ") "
-            + extraConditions + " " + orderByClause + " LIMIT ? OFFSET ?";
-    } else {
-        sql = QString(R"(
-            SELECT id, uuid, timestamp, profile_name, duration_seconds,
-                   final_weight, dose_weight, bean_brand, bean_type,
-                   enjoyment, visualizer_id, grinder_setting,
-                   temperature_override, yield_override, beverage_type,
-                   drink_tds, drink_ey,
-                   channeling_detected, grind_issue_detected,
-                   skip_first_frame_detected, pour_truncated_detected, rpm
-            FROM shots
-            %1
-            %2
-            LIMIT ? OFFSET ?
-        )").arg(whereClause).arg(orderByClause);
+        recipeMatchClause = QStringLiteral(
+            " OR shots.recipe_id IN (SELECT id FROM recipes WHERE LOWER(name) LIKE ")
+            + likeContainsLiteral(filter.searchText) + QStringLiteral(")");
     }
 
-    // Count SQL
+    // ONE column list, read positionally below. It used to be written out twice
+    // — once per branch — against a single positional reader, so adding a column
+    // to one copy and not the other would have mis-assigned every field after
+    // it, silently, with no compiler or test able to see it.
+    //
+    // Every name is qualified `shots.`: the display join below brings in
+    // `recipes`, and the two tables collide on id, equipment_id, steam_json,
+    // hot_water_json, created_at and updated_at.
+    static const QString kShotListColumns = QStringLiteral(
+        "shots.id, shots.uuid, shots.timestamp, shots.profile_name, shots.duration_seconds, "
+        "shots.final_weight, shots.dose_weight, shots.bean_brand, shots.bean_type, "
+        "shots.enjoyment, shots.visualizer_id, shots.grinder_setting, "
+        "shots.temperature_override, shots.yield_override, shots.beverage_type, "
+        "shots.drink_tds, shots.drink_ey, "
+        "shots.channeling_detected, shots.grind_issue_detected, "
+        "shots.skip_first_frame_detected, shots.pour_truncated_detected, shots.rpm, "
+        "shots.recipe_id, r.name, r.drink_type, r.archived");
+
+    // Recipe identity is resolved HERE, in the list query, and never per row: a
+    // RecipeResolver in the delegate (correct on Shot Detail, which shows one
+    // shot) would be one async database request per visible row, re-fired on
+    // every scroll recycle. The join is on the recipes primary key against a
+    // table of tens of rows, inside a query that already runs off the main
+    // thread — there is nothing here to measure or to cache.
+    //
+    // LEFT, not INNER: a shot with no recipe must still be listed. Name, type
+    // and archived arrive NULL for those rows and read as empty/0 below.
+    static const QString kShotListFrom =
+        QStringLiteral(" FROM shots LEFT JOIN recipes r ON r.id = shots.recipe_id ");
+
+    // The count query deliberately does NOT join — it selects no recipe column,
+    // and buildFilterQuery's output is qualified, so it stays valid either way.
+    QString sql;
     QString countSql;
     if (!ftsQuery.isEmpty()) {
         QString extraConditions;
@@ -353,11 +424,21 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
             extraConditions = whereClause;
             extraConditions.replace(extraConditions.indexOf("WHERE"), 5, "AND");
         }
-        const QString ftsMatch = QString("id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')")
+        const QString ftsMatch = QString("shots.id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')")
                                      .arg(ftsQuery);
-        countSql = QStringLiteral("SELECT COUNT(*) FROM shots WHERE (") + ftsMatch
-                   + grinderMatchClause + ") " + extraConditions;
+        const QString freeTextMatch =
+            QStringLiteral("(") + ftsMatch + grinderMatchClause + recipeMatchClause + QStringLiteral(") ");
+
+        sql = QStringLiteral("SELECT ") + kShotListColumns + kShotListFrom
+              + QStringLiteral("WHERE ") + freeTextMatch
+              + extraConditions + " " + orderByClause + " LIMIT ? OFFSET ?";
+
+        countSql = QStringLiteral("SELECT COUNT(*) FROM shots WHERE ") + freeTextMatch
+                   + extraConditions;
     } else {
+        sql = QStringLiteral("SELECT ") + kShotListColumns + kShotListFrom
+              + whereClause + " " + orderByClause + " LIMIT ? OFFSET ?";
+
         countSql = "SELECT COUNT(*) FROM shots" + whereClause;
     }
 
@@ -408,6 +489,18 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                             shot["skipFirstFrameDetected"] = query.value(19).toInt() != 0;
                             shot["pourTruncatedDetected"] = query.value(20).toInt() != 0;
                             shot["rpm"] = query.value(21).toLongLong();  // RPM half of the dial-in
+
+                            // Recipe identity, live from the join — NOT snapshotted onto
+                            // the shot. Safe because a recipe with linked shots can only
+                            // be archived, never hard-deleted, so recipe_id always
+                            // resolves; renaming a recipe therefore relabels its whole
+                            // history, which is the same rule shot-recipe-card already
+                            // applies on Shot Detail. NULL for a shot with no recipe:
+                            // recipeId reads 0, the rest empty/false.
+                            shot["recipeId"] = query.value(22).toLongLong();
+                            shot["recipeName"] = query.value(23).toString();
+                            shot["recipeDrinkType"] = query.value(24).toString();
+                            shot["recipeArchived"] = query.value(25).toInt() != 0;
 
                             QDateTime dt = QDateTime::fromSecsSinceEpoch(
                                 query.value(2).toLongLong());
@@ -1321,7 +1414,10 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
     const QString bucketCol = weightAware ? "g.gb_dose_bucket AS dose_bucket" : "0 AS dose_bucket";
 
     QString sql = QString(
-        "SELECT s.id, s.profile_name, s.bean_brand, s.bean_type, "
+        // s.recipe_id only — this row needs to know WHETHER the shot had a
+        // recipe (to hide the promote-to-recipe button), not which one, so it
+        // takes the id and skips the recipes join the history list needs.
+        "SELECT s.id, s.recipe_id, s.profile_name, s.bean_brand, s.bean_type, "
         "eg.brand AS grinder_brand, eg.model AS grinder_model, "
         "json_extract(eg.attrs, '$.burrs') AS grinder_burrs, s.grinder_setting, "
         "s.dose_weight, s.final_weight, %5, %6, "
@@ -1349,6 +1445,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                 while (query.next()) {
                     QVariantMap entry;
                     entry["shotId"] = query.value("id").toLongLong();
+                    entry["recipeId"] = query.value("recipe_id").toLongLong();
                     entry["profileName"] = query.value("profile_name").toString();
                     entry["beanBrand"] = query.value("bean_brand").toString();
                     entry["beanType"] = query.value("bean_type").toString();
