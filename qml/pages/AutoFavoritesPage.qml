@@ -213,13 +213,28 @@ T.Page {
                 }
                 property bool _hasBean: !!(favoriteDelegate.model.beanBrand || favoriteDelegate.model.beanType)
                 property bool _hasProfile: !!(favoriteDelegate.model.profileName && favoriteDelegate.model.profileName.length > 0)
+                // Recipe identity of the group's LATEST shot (history-recipe-identity),
+                // resolved by the same join the history list uses. A favorite is a
+                // bean+profile group, so this is "what this drink is currently made
+                // with", not a property of every shot in the group.
+                property bool _hasRecipe: (favoriteDelegate.model.recipeId || 0) > 0
+                    && !!favoriteDelegate.model.recipeName
+                property bool _recipeArchived: _hasRecipe && (favoriteDelegate.model.recipeArchived === true)
                 property bool _hasGrinder: Settings.network.autoFavoritesGroupBy.indexOf("grinder") >= 0 &&
                     !!(favoriteDelegate.model.grinderBrand || favoriteDelegate.model.grinderModel || favoriteDelegate.model.grinderSetting)
                 property string _grinderText: {
                     var name = ((favoriteDelegate.model.grinderBrand || "") + " " + (favoriteDelegate.model.grinderModel || "")).trim()
                     return name + (favoriteDelegate.model.grinderSetting ? " @ " + favoriteDelegate.model.grinderSetting : "")
                 }
-                property string _groupByText: autoFavoritesPage.buildGroupByText(
+                // Recipe first, and carrying the archived state as TEXT — the card
+                // shows that state only by dimming, so without this it is
+                // unreachable by screen reader.
+                property string _recipeSpoken: !_hasRecipe ? ""
+                    : (_recipeArchived
+                       ? TranslationManager.translate("autofavorites.accessible.recipeArchived",
+                                                      "%1 (archived recipe)").arg(favoriteDelegate.model.recipeName)
+                       : favoriteDelegate.model.recipeName) + ". "
+                property string _groupByText: _recipeSpoken + autoFavoritesPage.buildGroupByText(
                     favoriteDelegate.model.beanBrand, favoriteDelegate.model.beanType, favoriteDelegate.model.profileName,
                     favoriteDelegate.model.grinderBrand, favoriteDelegate.model.grinderModel, favoriteDelegate.model.grinderSetting,
                     favoriteDelegate.model.doseWeightG, favoriteDelegate.model.targetWeightG, favoriteDelegate.model.finalWeightG,
@@ -243,6 +258,37 @@ T.Page {
                         id: contentColumn
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
+
+                        // Recipe on its OWN line, above the bean/profile flow — not
+                        // inline with a separator. Inside the Flow the separator is
+                        // a sibling item, so when the bean wraps to the next line the
+                        // separator stays behind as a dangling middot. Its own line
+                        // also matches the Shot History row, where the recipe is the
+                        // identity and bean/profile sit below it.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(4)
+                            visible: favoriteDelegate._hasRecipe
+
+                            ThemedIcon {
+                                source: DrinkType.icon(favoriteDelegate.model.recipeDrinkType || "")
+                                iconSize: Theme.subtitleFont.pixelSize
+                                color: favoriteDelegate._recipeArchived ? Theme.textSecondaryColor
+                                                                        : Theme.primaryColor
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                text: favoriteDelegate.model.recipeName || ""
+                                font.family: Theme.subtitleFont.family
+                                font.pixelSize: Theme.subtitleFont.pixelSize
+                                color: favoriteDelegate._recipeArchived ? Theme.textSecondaryColor
+                                                                        : Theme.primaryColor
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                Accessible.ignored: true
+                            }
+                        }
 
                         // Bean · Profile · Grinder — wraps to 2 rows on small screens
                         Flow {
@@ -486,8 +532,19 @@ T.Page {
                     // Create-recipe button: an auto-favorite is literally "a
                     // shot you keep reloading" — a recipe announcing itself.
                     // Opens the composer prefilled from the group's shot.
+                    // Hidden when the group's shot already came FROM a recipe —
+                    // offering to create one from it then reads as broken. Shot
+                    // Detail has gated this since shot-pages-card-cleanup; this
+                    // surface and Shot History never got the same rule
+                    // (history-recipe-identity).
                     Rectangle {
                         id: favRecipeButton
+                        // Name-aware, matching the Shot History row: a DANGLING
+                        // recipe_id (row gone after a transfer or partial restore)
+                        // means there is no recipe to edit, so offering to create
+                        // one is right. Gating on the id alone would hide the
+                        // button and leave the user no route at all.
+                        visible: !favoriteDelegate._hasRecipe
                         Layout.preferredWidth: Theme.scaled(70)
                         Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)

@@ -272,13 +272,22 @@ private:
 // Query shot list from DB. Returns true on success, false on query failure.
 static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
     QSqlQuery query(db);
+    // Recipe identity is joined in, matching the in-app history list
+    // (history-recipe-identity): live from `recipes` by id, never snapshotted
+    // onto the shot, so renaming a recipe relabels its whole history. LEFT so a
+    // recipe-less shot is still listed. Every column is qualified because the
+    // two tables collide on ten names — deliberately not enumerated here: an
+    // enumerated copy of that list went stale, omitted `profile_json`, and that
+    // omission is what silently emptied the MCP shots_list query.
     if (!query.prepare(R"(
-        SELECT id, uuid, timestamp, profile_name, duration_seconds,
-               final_weight, dose_weight, bean_brand, bean_type,
-               enjoyment, visualizer_id, grinder_setting,
-               temperature_override, yield_override, beverage_type,
-               drink_tds, drink_ey, rpm
-        FROM shots ORDER BY timestamp DESC LIMIT 1000
+        SELECT shots.id, shots.uuid, shots.timestamp, shots.profile_name, shots.duration_seconds,
+               shots.final_weight, shots.dose_weight, shots.bean_brand, shots.bean_type,
+               shots.enjoyment, shots.visualizer_id, shots.grinder_setting,
+               shots.temperature_override, shots.yield_override, shots.beverage_type,
+               shots.drink_tds, shots.drink_ey, shots.rpm,
+               shots.recipe_id, r.name, r.drink_type, r.archived
+        FROM shots LEFT JOIN recipes r ON r.id = shots.recipe_id
+        ORDER BY shots.timestamp DESC LIMIT 1000
     )") || !query.exec()) {
         qWarning() << "ShotServer: Shot list query failed:" << query.lastError().text();
         return false;
@@ -294,15 +303,27 @@ static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
         row["doseWeightG"] = query.value(6).toDouble();
         row["beanBrand"] = query.value(7).toString();
         row["beanType"] = query.value(8).toString();
-        row["enjoyment"] = query.value(9).toDouble();
+        // ShotProjection-ALIGNED key names. These three were `enjoyment`,
+        // `drinkTds` and `drinkEy` while ShotProjection::fromVariantMap has
+        // always read `enjoyment0to100`, `drinkTdsPct` and `drinkEyPct`, so
+        // generateShotListPage saw 0 for all three: the web card's rating chip
+        // never rendered, and the client-side `rating:`, `tds:` and `ey:`
+        // searches plus the rating sort matched nothing. Same defect class as
+        // the dateTime omission, but a key MISMATCH rather than an absence, so
+        // it survives even a "does every field appear in both functions" audit.
+        row["enjoyment0to100"] = query.value(9).toDouble();
         row["hasVisualizerUpload"] = !query.value(10).toString().isEmpty();
         row["grinderSetting"] = query.value(11).toString();
         row["rpm"] = query.value(17).toLongLong();  // RPM half of the dial-in
         row["temperatureOverrideC"] = query.value(12).toDouble();
         row["targetWeightG"] = query.value(13).toDouble();
         row["beverageType"] = query.value(14).toString();
-        row["drinkTds"] = query.value(15).toDouble();
-        row["drinkEy"] = query.value(16).toDouble();
+        row["drinkTdsPct"] = query.value(15).toDouble();
+        row["drinkEyPct"] = query.value(16).toDouble();
+        row["recipeId"] = query.value(18).toLongLong();
+        row["recipeName"] = query.value(19).toString();
+        row["recipeDrinkType"] = query.value(20).toString();
+        row["recipeArchived"] = query.value(21).toInt() != 0;
         QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(2).toLongLong());
         static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
         row["dateTime"] = dt.toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
@@ -1829,6 +1850,36 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             bool dbOpened = withTempDb(dbPath, "shs_web_det", [&](QSqlDatabase& db) {
                 ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
                 shot = ShotHistoryStorage::convertShotRecord(record);
+
+                // Recipe identity for the detail page (history-recipe-identity).
+                // Resolved with a second PK lookup rather than by widening
+                // loadShotRecordStatic: that query is read POSITIONALLY into
+                // ShotRecord, so adding columns there would cost three struct
+                // fields and a serializer mapping to give one web page three
+                // strings. This is one row by primary key, on the thread that
+                // just loaded the shot, for a discrete user action — the case
+                // where an inline read is the right call.
+                if (shot.recipeId > 0) {
+                    QSqlQuery rq(db);
+                    // || short-circuits, so lastError() still holds the PREPARE
+                    // error rather than exec()'s replacement for it.
+                    if (!rq.prepare("SELECT name, drink_type, archived FROM recipes WHERE id = ?")
+                        || (rq.bindValue(0, shot.recipeId), !rq.exec())) {
+                        qWarning() << "ShotServer: recipe lookup failed for shot" << shotId
+                                   << "-" << rq.lastError().text();
+                    } else if (rq.next()) {
+                        shot.recipeName = rq.value(0).toString();
+                        shot.recipeDrinkType = rq.value(1).toString();
+                        shot.recipeArchived = rq.value(2).toInt() != 0;
+                    } else {
+                        // The recipes row is GONE for an id the shot still carries.
+                        // Every surface degrades to showing no recipe, which looks
+                        // identical to a shot that never had one — leave a trace so
+                        // a submitted log can tell the two apart.
+                        qWarning() << "ShotServer: shot" << shotId << "references recipe"
+                                   << shot.recipeId << "which no longer exists";
+                    }
+                }
             });
 
             if (*destroyed) return;

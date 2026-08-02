@@ -41,6 +41,32 @@
 #include <QJniObject>
 #endif
 
+// Drink-type glyph for the web, the counterpart of the app's DrinkType.icon().
+// It cannot share that function's qrc SVGs — this is a browser — and an emoji is
+// this page's established idiom (the promote button already uses one). The
+// macOS colour-glyph render-thread hazard is a Qt text-rendering problem and
+// does not apply to HTML. Kept as ONE function so the mapping is not respelled
+// per call site; the type strings are the same set RecipeStorage stores.
+static QString drinkTypeEmoji(const QString& drinkType)
+{
+    // No `filter` branch on purpose: it falls through to the coffee cup below.
+    // Unicode has no dripper/pour-over glyph, and the app's distinct
+    // filter.svg has no emoji counterpart. Collapsing filter into ESPRESSO
+    // (both black coffee) loses less than the alternative this replaced, which
+    // gave filter U+1F375 — the exact codepoint used for tea four lines down,
+    // so filter and tea rendered identically while a comment called it a
+    // "filter cone". If the distinction ever needs to be visible here, ship an
+    // inline SVG rather than hunting for a closer emoji.
+    if (drinkType == QLatin1String("americano")
+        || drinkType == QLatin1String("long_black")) return QStringLiteral("&#128167;");   // 💧 U+1F4A7 water
+    if (drinkType == QLatin1String("latte")
+        || drinkType == QLatin1String("latte_hotwater")) return QStringLiteral("&#129371;"); // 🥛 U+1F95B milk
+    if (drinkType == QLatin1String("tea")
+        || drinkType == QLatin1String("tea_hotwater")) return QStringLiteral("&#127861;");  // 🍵 U+1F375 teacup
+    return QStringLiteral("&#9749;");  // ☕ espresso, and the fallback for a
+                                       // legacy recipe with no stored type
+}
+
 QString ShotServer::generateShotListPage(const QVariantList& shots) const
 {
     QString rows;
@@ -95,7 +121,21 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         // rare; the rendering bug was always-on and visible.
         auto escapeForJs = [](const QString& s) -> QString {
             QString escaped = s;
+            // '&' FIRST, before anything that emits a character reference below.
+            // The result lands inside a double-quoted HTML attribute
+            // (onclick="… setSearch('VALUE') …"), so the parser decodes character
+            // references BEFORE the JS is compiled: a name containing the literal
+            // text "&#39;" would decode to an apostrophe and close the string.
+            // Pre-existing hole, but recipe names reach here from device transfer
+            // and MCP recipe_create, not only from this device's keyboard.
+            escaped.replace("&", "&amp;");
             escaped.replace("\\", "\\\\");
+            // Newlines and CR would be raw inside a single-quoted JS string in an
+            // onclick attribute — a SyntaxError, so the click silently does
+            // nothing. Names arrive from device transfer and MCP recipe_create,
+            // not only from this device's keyboard.
+            escaped.replace("\n", "\\n");
+            escaped.replace("\r", "\\r");
             escaped.replace("'", "\\'");
             escaped.replace("\"", "&quot;");
             escaped.replace("<", "&lt;");
@@ -140,17 +180,88 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
             }
         }
 
+        // Recipe identity (history-recipe-identity), mirroring the in-app row:
+        // when the shot came from a recipe, the recipe takes the header's
+        // identity slot and the profile demotes to the beans line. Everything
+        // below goes in via __MARKER__ + replace() rather than the .arg() chain
+        // — a recipe name is user text and may contain '%', which .arg() does
+        // not make safe (see the escapeForJs comment above).
+        // Name must resolve too — an id whose recipes row is gone would
+        // otherwise render an empty identity slot with the profile already
+        // demoted out of it. Same gate as the in-app row.
+        const bool hasRecipe = shot.recipeId > 0 && !shot.recipeName.isEmpty();
+        // toHtmlEscaped() leaves underscores alone, so a name containing a literal
+        // "__IDENTITY__" / "__SECONDARY__" / "__RATING_CHIP__" would survive into
+        // the template and be substituted by a LATER replace() below. Neutralize
+        // the token itself rather than trying to order the replacements — user
+        // text can contain any marker, so no ordering is safe.
+        const QString recipeNameHtml =
+            shot.recipeName.toHtmlEscaped().replace(QStringLiteral("__"),
+                                                    QStringLiteral("&#95;&#95;"));
+
+        QString identityHtml;
+        QString secondaryHtml = beanDisplay;
+        QString recipeButtonHtml;
+        QString recipeAttr;
+
+        if (hasRecipe) {
+            // Clicking the recipe scopes the search to that name — the web
+            // analogue of the app's tap-through. Quoted so a multi-word name
+            // stays one term.
+            // Same `__` neutralization as the display name: this string is
+            // embedded in identityHtml, which is substituted BEFORE __SECONDARY__
+            // and __RECIPE_BTN__, so a recipe named "Dad __SECONDARY__" would
+            // otherwise get the beans line spliced into its onclick handler.
+            // escapeForJs does not touch underscores.
+            const QString recipeSearchJs = escapeForJs(
+                QStringLiteral("recipe:\"") + shot.recipeName + QStringLiteral("\""))
+                .replace(QStringLiteral("__"), QStringLiteral("&#95;&#95;"));
+            // The archived state gets BOTH the dimming class and a title, so it
+            // is not carried by colour alone.
+            const QString archivedClass = shot.recipeArchived ? QStringLiteral(" archived") : QString();
+            const QString archivedTitle = shot.recipeArchived
+                                              ? QStringLiteral(" title=\"Archived recipe\"") : QString();
+            identityHtml =
+                QStringLiteral("<span class=\"shot-drink-icon\">") + drinkTypeEmoji(shot.recipeDrinkType)
+                + QStringLiteral("</span><span class=\"shot-profile clickable") + archivedClass
+                + QStringLiteral("\"") + archivedTitle
+                + QStringLiteral(" onclick=\"event.preventDefault(); event.stopPropagation(); setSearch('")
+                + recipeSearchJs + QStringLiteral("')\">") + recipeNameHtml + QStringLiteral("</span>");
+
+            // Profile leads the secondary line, exactly as on the app row.
+            const QString profileCell =
+                QStringLiteral("<span class=\"shot-secondary-profile\">") + profileDisplay
+                + QStringLiteral("</span>");
+            secondaryHtml = beanDisplay.isEmpty()
+                                ? profileCell
+                                : profileCell + QStringLiteral(" &middot; ") + beanDisplay;
+
+            recipeAttr = QStringLiteral(" data-recipe=\"") + recipeNameHtml + QStringLiteral("\"");
+        } else {
+            identityHtml =
+                QStringLiteral("<span class=\"shot-profile clickable\" onclick=\"event.preventDefault(); "
+                               "event.stopPropagation(); setSearch('")
+                + profileJs + QStringLiteral("')\">") + profileDisplay + QStringLiteral("</span>");
+
+            // Only a shot with no recipe offers to become one.
+            recipeButtonHtml = QStringLiteral(
+                "<button class=\"shot-recipe-btn\" onclick=\"event.preventDefault(); "
+                "event.stopPropagation(); promoteToRecipe(")
+                + QString::number(shot.id)
+                + QStringLiteral(")\" title=\"Create recipe from this shot\">&#128209; Recipe</button>");
+        }
+
         const double drinkTds = shot.drinkTdsPct;
         const double drinkEy = shot.drinkEyPct;
 
         QString row = QString(R"HTML(
             <div class="shot-card" onclick="toggleSelect(%1, this)" data-id="%1"
                  data-profile="%2" data-brand="%3" data-coffee="%4" data-rating="%5"
-                 data-ratio="%6" data-duration="%7" data-date="%17" data-dose="%9" data-yield="%10"
-                 data-tds="%15" data-ey="%16">
+                 data-ratio="%6" data-duration="%7" data-date="%14" data-dose="%9" data-yield="%10"
+                 data-tds="%12" data-ey="%13"__RECIPE_ATTR__>
                 <a href="/shot/%1" onclick="event.stopPropagation()" style="text-decoration:none;color:inherit;display:block;">
                     <div class="shot-header">
-                        <span class="shot-profile clickable" onclick="event.preventDefault(); event.stopPropagation(); setSearch('%11')">%12</span>
+                        __IDENTITY__
                         <div class="shot-header-right">
                             <span class="shot-date">%8</span>
                             <input type="checkbox" class="shot-checkbox" data-id="%1" onclick="event.stopPropagation(); toggleSelect(%1, this.closest('.shot-card'))">
@@ -164,7 +275,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                             </div>
                             <div class="shot-arrow">&#8594;</div>
                             <div class="shot-metric">
-                                %13
+                                %11
                                 <span class="metric-label">out</span>
                             </div>
                         </div>
@@ -178,8 +289,8 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                         </div>
                     </div>
                     <div class="shot-footer">
-                        <span class="shot-beans">%14</span>
-                        <button class="shot-recipe-btn" onclick="event.preventDefault(); event.stopPropagation(); promoteToRecipe(%1)" title="Create recipe from this shot">&#128209; Recipe</button>
+                        <span class="shot-beans">__SECONDARY__</span>
+                        __RECIPE_BTN__
                         __RATING_CHIP__
                     </div>
                 </a>
@@ -195,13 +306,22 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .arg(dateTime)                      // %8
         .arg(doseWeight, 0, 'f', 1)         // %9
         .arg(finalWeight, 0, 'f', 1)        // %10
-        .arg(profileJs)                     // %11
-        .arg(profileDisplay)                // %12 (profile with temp)
-        .arg(yieldDisplay)                  // %13 (yield with target)
-        .arg(beanDisplay)                   // %14 (beans with grind)
-        .arg(drinkTds, 0, 'f', 2)           // %15
-        .arg(drinkEy, 0, 'f', 2)            // %16
-        .arg(shot.timestamp);               // %17 (epoch for sorting)
+        .arg(yieldDisplay)                  // %11 (yield with target)
+        .arg(drinkTds, 0, 'f', 2)           // %12
+        .arg(drinkEy, 0, 'f', 2)            // %13
+        .arg(shot.timestamp);               // %14 (epoch for sorting)
+        // profileJs / profileDisplay / beanDisplay left the .arg() chain because
+        // the header and footer became CONDITIONAL (recipe row vs not), which a
+        // fixed placeholder cannot express — they are injected as __IDENTITY__ /
+        // __SECONDARY__ markers instead. Their old %11/%12/%14 slots are gone and
+        // the rest were renumbered contiguously: arg() fills the LOWEST remaining
+        // placeholder, so leaving a dead .arg() in the chain would silently shift
+        // every later value into the wrong slot rather than failing.
+        //
+        // It closes the '%'-shadowing hazard for those three, but NOT for the
+        // chain as a whole: profileHtml, brandHtml and coffeeHtml are equally
+        // user text and are still at %2/%3/%4 with only toHtmlEscaped() applied,
+        // so a bean brand containing "%5" can still shadow a later placeholder.
 
         // Inject ratingChip via replace() AFTER the .arg() chain so the
         // literal `%</span>` (and any future user-derived content) cannot
@@ -212,6 +332,10 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         // to the rendered output or still shadows ("%5" → "%%5" still
         // parses as a %5 placeholder via continue + re-scan).
         row.replace(QStringLiteral("__RATING_CHIP__"), ratingChip);
+        row.replace(QStringLiteral("__RECIPE_ATTR__"), recipeAttr);
+        row.replace(QStringLiteral("__IDENTITY__"), identityHtml);
+        row.replace(QStringLiteral("__SECONDARY__"), secondaryHtml);
+        row.replace(QStringLiteral("__RECIPE_BTN__"), recipeButtonHtml);
         rows += row;
     }
 
@@ -328,6 +452,12 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .shot-rating { color: var(--accent); font-size: 0.875rem; }
         .shot-temp { color: var(--text-secondary); font-weight: normal; }
         .shot-grind { color: var(--text-secondary); font-weight: normal; }
+        /* Recipe identity (history-recipe-identity). An archived recipe dims,
+           matching the app row; the title attribute carries the state as text so
+           the dimming is not the only thing saying it. */
+        .shot-drink-icon { margin-right: 0.35rem; }
+        .shot-profile.archived { color: var(--text-secondary); font-weight: 500; }
+        .shot-secondary-profile { color: var(--text-secondary); }
         .metric-target { font-size: 0.75rem; color: var(--text-secondary); margin-left: 2px; }
         .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
         .empty-state h2 { margin-bottom: 0.5rem; color: var(--text); }
@@ -823,6 +953,34 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
             }
             // Strip remaining keyword tokens
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "");
+
+            // recipe: — the one string-valued keyword, kept in step with the app's
+            // buildFilter(). Two forms (recipe:dad, recipe:"dad tuesday"), both
+            // SUBSTRING matches against the card's data-recipe. Unlike the bare
+            // text below — which matches the whole card, recipe name included —
+            // this narrows to the recipe name alone.
+            // Kept in step with the app's buildFilter(), \S+ included: a bare
+            // "recipe:" is not a keyword (so "recipe: dad" still searches for
+            // "dad"), while an explicitly empty quoted term matches nothing.
+            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S+))/i.exec(searchText);
+            if (recipeMatch) {
+                var recipeTerm = recipeMatch[1] !== undefined ? recipeMatch[1] : recipeMatch[2];
+                recipeTerm = (recipeTerm || "").trim();
+                // A FLAG, not a sentinel term. The app encodes "empty" as a
+                // whitespace term because its SQL path splits on whitespace and
+                // degenerates to a hard-false condition — but this path tests
+                // `includes()`, and "dad monday".includes(" ") is TRUE, so the
+                // same sentinel would show every multi-word recipe instead of
+                // none. Same intent, opposite result, on two surfaces that must
+                // agree.
+                if (recipeTerm.length > 0)
+                    filters.recipeName = recipeTerm.toLowerCase();
+                else
+                    filters.recipeNameEmpty = true;
+                searchText = searchText.replace(recipeMatch[0], "");
+            }
+            searchText = searchText.replace(/\brecipe:(?:"[^"]*"?|\S*)/gi, "");
+
             searchText = searchText.trim().replace(/\s+/g, " ");
             return { filters: filters, remaining: searchText };
         }
@@ -851,6 +1009,21 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                 if (f.maxTds !== undefined) { if (parseFloat(card.dataset.tds) > f.maxTds) show = false; }
                 if (f.minEy !== undefined) { if (parseFloat(card.dataset.ey) < f.minEy) show = false; }
                 if (f.maxEy !== undefined) { if (parseFloat(card.dataset.ey) > f.maxEy) show = false; }
+                // Scoped to the recipe name only. A card with no recipe has no
+                // data-recipe at all, so it correctly never matches.
+                if (f.recipeNameEmpty) {
+                    show = false;   // narrowing request with no term matches nothing
+                } else if (f.recipeName !== undefined) {
+                    var cardRecipe = (card.dataset.recipe || '').toLowerCase();
+                    // Word-order independent, matching the app's per-term ANDs.
+                    var recipeWords = f.recipeName.split(/\s+/);
+                    for (var rw = 0; rw < recipeWords.length; rw++) {
+                        if (recipeWords[rw] && !cardRecipe.includes(recipeWords[rw])) {
+                            show = false;
+                            break;
+                        }
+                    }
+                }
                 // Text search: split into words (AND logic, matching app behavior)
                 if (remaining) {
                     var searchWords = remaining.replace(/[\-\/.]/g, ' ').split(/\s+/);
@@ -1298,6 +1471,14 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             font-size: 0.75rem;
             color: var(--text-secondary);
         }
+        /* Recipe identity on the detail page (history-recipe-identity). Archived
+           dims AND carries a title attribute, so the state is not colour-only. */
+        .shot-drink-icon { margin-right: 0.35rem; }
+        .header-title .shot-detail-recipe { color: var(--accent); font-weight: 600; }
+        .header-title .shot-detail-recipe.archived {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
         .container {
             max-width: 1400px;
             margin: 0 auto;
@@ -1653,6 +1834,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             <div class="header-title">
                 <h1>%1</h1>
                 <div class="subtitle">%2</div>
+                __DETAIL_RECIPE__
             </div>
             <button class="edit-btn" id="editBtn" onclick="toggleEditMode()">&#9998; Edit</button>
 )HTML" + generateMenuHtml() + R"HTML(
@@ -2316,6 +2498,25 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
 </body>
 </html>
 )HTML";
+    // Recipe identity, injected AFTER the .arg() chain: a recipe name is user
+    // text and may contain '%', which would shadow a numbered placeholder. Same
+    // reason the list card uses markers. Requires the name to resolve, not just
+    // the id — a dangling id must fall back to showing nothing rather than an
+    // empty line with an icon beside it.
+    QString detailRecipeHtml;
+    if (shot.recipeId > 0 && !shot.recipeName.isEmpty()) {
+        detailRecipeHtml =
+            QStringLiteral("<div class=\"subtitle shot-detail-recipe")
+            + (shot.recipeArchived ? QStringLiteral(" archived\" title=\"Archived recipe")
+                                   : QString())
+            + QStringLiteral("\"><span class=\"shot-drink-icon\">")
+            + drinkTypeEmoji(shot.recipeDrinkType)
+            + QStringLiteral("</span>")
+            + shot.recipeName.toHtmlEscaped().replace(QStringLiteral("__"),
+                                                      QStringLiteral("&#95;&#95;"))
+            + QStringLiteral("</div>");
+    }
+
     QString rendered = html
     .arg(tempOverride > 0
          ? shot.profileName.toHtmlEscaped() + QString(" (%1\u00B0C)").arg(tempOverride, 0, 'f', 0)
@@ -2371,6 +2572,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     // above for why doubling `%` doesn't actually escape.
     rendered.replace(QStringLiteral("__BADGES_HTML__"), badgesHtml);
     rendered.replace(QStringLiteral("__SUMMARY_LINES_HTML__"), summaryLinesHtml);
+    rendered.replace(QStringLiteral("__DETAIL_RECIPE__"), detailRecipeHtml);
     return rendered;
 }
 

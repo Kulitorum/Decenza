@@ -270,6 +270,15 @@ struct ShotFilter {
     qint64 dateFrom = 0;       // Unix timestamp
     qint64 dateTo = 0;
     QString searchText;        // FTS search in notes
+
+    // Recipe identity (history-recipe-identity). Two deliberately different
+    // scopes: recipeId is the exact tap-through (rename-proof, unambiguous
+    // between same-named recipes), recipeName is the `recipe:` keyword's
+    // case-insensitive SUBSTRING on the recipe's name only — narrower than
+    // searchText, which also sprays across notes/bean/profile/grinder.
+    qint64 recipeId = -1;      // -1 = unset; matches shots.recipe_id exactly
+    QString recipeName;        // substring of recipes.name
+
     bool onlyWithVisualizer = false;
     bool filterChanneling = false;
     bool filterGrindIssue = false;
