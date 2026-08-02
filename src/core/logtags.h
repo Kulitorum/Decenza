@@ -78,6 +78,7 @@
 #define DECENZA_LOG_MARKER_THEME         "Theme"
 #define DECENZA_LOG_MARKER_STORAGE       "Storage"
 #define DECENZA_LOG_MARKER_EQUIPMENT     "Equipment"
+#define DECENZA_LOG_MARKER_MCP           "MCP"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -146,7 +147,17 @@
       "forked a new package, or merged into an existing one, plus explicit "       \
       "package merges and the one-time repair of packages an older build split. "  \
       "A fork is what detaches a grinder's shot history, so the line naming that " \
-      "decision is the first thing to read when history appears to have vanished")
+      "decision is the first thing to read when history appears to have vanished") \
+    X(DECENZA_LOG_MARKER_MCP,                                                      \
+      "The MCP server an AI assistant connects through: sessions and their "       \
+      "protocol-version negotiation, tool calls that were refused before they "     \
+      "ran (rate limit, access level, a confirmation the user denied or that a "    \
+      "newer request superseded), remote access over the tunnel, and responses "    \
+      "dropped because the client went away. Answers \"my assistant says it "       \
+      "can't see the machine\" and \"it claimed it started a shot and nothing "     \
+      "happened\". Note a tool that RAN and failed reports that to the assistant "  \
+      "in its own reply rather than here — this marker carries what the server "    \
+      "decided, not what a tool computed")
 
 // ---- The one place a log line's shape is built -------------------------
 //

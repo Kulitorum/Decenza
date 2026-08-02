@@ -249,6 +249,13 @@ private slots:
         const QString sid = openSession(server, "2025-11-25");
         QVERIFY(!sid.isEmpty());
 
+        // The refusal is logged at WARN: the assistant is told, the user is not,
+        // so the log line is the only thing that explains the silence. Expected
+        // here rather than tolerated — init()'s failOnWarning() would otherwise
+        // fail this test for the server doing exactly what it should.
+        QTest::ignoreMessage(QtWarningMsg,
+                             "[MCP][Server] Protocol version mismatch — header 2024-11-05, "
+                             "session 2025-11-25");
         auto resp = sendHttp(server, "POST", rpcBody("tools/list", {}, 99), sid,
                              {{"MCP-Protocol-Version", "2024-11-05"}});
 
@@ -353,6 +360,9 @@ private slots:
         McpServer server;
         QJsonObject params{
             {"protocolVersion", "2025-11-25"}, {"capabilities", QJsonObject{}}};
+        QTest::ignoreMessage(QtWarningMsg,
+                             "[MCP][Server] Rejecting request from disallowed Origin: "
+                             "http://evil.example");
         auto resp = sendHttp(server, "POST", rpcBody("initialize", params), {},
                              {{"Origin", "http://evil.example"}});
         QCOMPARE(resp.statusCode, 403);
@@ -367,6 +377,9 @@ private slots:
         // runs before JSON parsing so DNS-rebinding attempts can't even
         // smuggle in a parse-error response that leaks server fingerprint.
         McpServer server;
+        QTest::ignoreMessage(QtWarningMsg,
+                             "[MCP][Server] Rejecting request from disallowed Origin: "
+                             "http://evil.example");
         auto resp = sendHttp(server, "POST", "{not valid json}", {},
                              {{"Origin", "http://evil.example"}});
         QCOMPARE(resp.statusCode, 403);
@@ -514,6 +527,172 @@ private slots:
         QVERIFY2(!structured.contains("_resourceLinks"),
                  "buildToolCallResponse must strip _resourceLinks from structuredContent");
         QVERIFY(structured.contains("items"));
+    }
+
+    // ─── tools/call failure marking: isError ──────────────────────────────
+    //
+    // Tools report failure by returning a top-level `error` key in their result
+    // object. The wrap step buries that key one level down inside the envelope,
+    // so sendJsonRpcResponse's top-level `contains("error")` test can never see a
+    // WRAPPED payload — until buildToolCallResponse transferred the signal onto
+    // the envelope, tool failures shipped as unmarked successes (the sole
+    // exception being the confirmation denial, which marked its envelope by hand).
+
+    // Run at every negotiated version, not just the newest. The marking reads the
+    // RAW payload, three lines below `if (emitStructured) structuredContent = …`,
+    // and the tempting "simplification" is to test structuredContent for the key
+    // instead. That key exists only at >= 2025-06-18, so such a refactor would
+    // drop isError for 2024-11-05 and 2025-03-26 clients — with the whole suite
+    // green, because isError has been in CallToolResult since 2024-11-05 and no
+    // other test calls a FAILING tool at a legacy version.
+    void toolsCallMarksErrorPayloadAsFailed_data()
+    {
+        QTest::addColumn<QString>("protocolVersion");
+        QTest::newRow("2024-11-05") << "2024-11-05";
+        QTest::newRow("2025-03-26") << "2025-03-26";
+        QTest::newRow("2025-06-18") << "2025-06-18";
+        QTest::newRow("2025-11-25") << "2025-11-25";
+    }
+
+    void toolsCallMarksErrorPayloadAsFailed()
+    {
+        QFETCH(QString, protocolVersion);
+
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "stub_failing_tool",
+            "Returns an error payload",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject {
+                return QJsonObject{{"error", "Database unavailable"}};
+            },
+            "read");
+
+        const QString sid = openSession(server, protocolVersion);
+        QJsonObject params;
+        params["name"] = "stub_failing_tool";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 2), sid);
+
+        QCOMPARE(resp.statusCode, 200);
+
+        // A tool that ran and failed is a successful protocol exchange: the
+        // response carries `result`, never a JSON-RPC `error` (which is
+        // reserved for protocol faults and would not deliver content[] at all).
+        QVERIFY2(!resp.jsonBody.contains("error"),
+                 "a failing tool must not produce a JSON-RPC error");
+
+        const QJsonObject result = resp.jsonBody["result"].toObject();
+        QVERIFY2(result["isError"].toBool(),
+                 "a tool result carrying `error` must be marked isError: true");
+
+        // The failure marking must not cost the error TEXT — a model reads the
+        // text block to learn what went wrong.
+        QString text;
+        const QJsonArray content = result["content"].toArray();
+        for (const QJsonValue& v : content)
+            if (v.toObject()["type"].toString() == "text")
+                text = v.toObject()["text"].toString();
+        QVERIFY2(text.contains("Database unavailable"),
+                 "the tool's error text must remain readable in content[]");
+    }
+
+    void toolsCallOmitsIsErrorOnSuccess()
+    {
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "stub_ok_tool",
+            "Returns a payload with no error key",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject {
+                return QJsonObject{{"answer", 42}};
+            },
+            "read");
+
+        const QString sid = openSession(server, "2025-11-25");
+        QJsonObject params;
+        params["name"] = "stub_ok_tool";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 2), sid);
+
+        QCOMPARE(resp.statusCode, 200);
+        const QJsonObject result = resp.jsonBody["result"].toObject();
+        // Sparse-emit: absence means success. `isError: false` on every
+        // successful call adds a key to every response and carries no signal.
+        QVERIFY2(!result.contains("isError"),
+                 "a successful tool call must omit isError entirely, never emit false");
+    }
+
+    // The async completion is a SEPARATE send chain: handleToolsCall returns a
+    // `_deferred` sentinel, the response is suppressed, and sendAsyncToolResponse
+    // emits it later. It carries the majority of real failures — 162 of the ~283
+    // error sites are the async `respond(QJsonObject{{"error", …}})` form,
+    // including every recipe tool, all of mcptools_write.cpp and ai_advisor_invoke.
+    // Without this, someone giving the async completion its own envelope (or
+    // re-adding a hand-rolled marking there, the very thing deleted from the
+    // denial path) would silently revert most tool failures to unmarked successes
+    // while the synchronous tests above stayed green.
+    //
+    // callAsyncTool invokes the handler synchronously, so `respond` runs — and
+    // writes the response through sendAsyncToolResponse — before handleToolsCall
+    // returns. That does NOT cover queued delivery, so the socket-disconnected
+    // drop stays uncovered; that is a different concern.
+    void asyncToolCallMarksErrorPayloadAsFailed()
+    {
+        McpServer server;
+        server.toolRegistry()->registerAsyncTool(
+            "stub_async_failing_tool",
+            "Responds with an error payload",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+                respond(QJsonObject{{"error", "Could not open shot database"}});
+            },
+            "read");
+
+        const QString sid = openSession(server, "2025-11-25");
+        QJsonObject params;
+        params["name"] = "stub_async_failing_tool";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 2), sid);
+
+        QCOMPARE(resp.statusCode, 200);
+        QVERIFY2(!resp.jsonBody.contains("error"),
+                 "a failing async tool must not produce a JSON-RPC error");
+
+        const QJsonObject result = resp.jsonBody["result"].toObject();
+        QVERIFY2(result["isError"].toBool(),
+                 "an async tool result carrying `error` must be marked isError: true");
+
+        QString text;
+        const QJsonArray content = result["content"].toArray();
+        for (const QJsonValue& v : content)
+            if (v.toObject()["type"].toString() == "text")
+                text = v.toObject()["text"].toString();
+        QVERIFY2(text.contains("Could not open shot database"),
+                 "the async tool's error text must remain readable in content[]");
+    }
+
+    // The other half of the rule the wrap-site comment defends: a fault that
+    // happens BEFORE any tool runs is a protocol fault and stays a JSON-RPC
+    // error. Without this, someone reading that comment as an inconsistency and
+    // "unifying" the two — routing the unknown-tool path through
+    // buildToolCallResponse — would make a typo'd tool name report as a
+    // successful exchange, which is the failure this whole change exists to stop.
+    void unknownToolStaysJsonRpcError()
+    {
+        McpServer server;
+
+        const QString sid = openSession(server, "2025-11-25");
+        QJsonObject params;
+        params["name"] = "no_such_tool_was_ever_registered";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 2), sid);
+
+        QCOMPARE(resp.statusCode, 200);
+        QVERIFY2(resp.jsonBody.contains("error"),
+                 "an unknown tool is a protocol fault and must produce a JSON-RPC error");
+        QVERIFY2(!resp.jsonBody.contains("result"),
+                 "a JSON-RPC response carries error or result, never both");
     }
 
     // ─── Spec-version gating: 2024-11-05 clients see only legacy fields ───

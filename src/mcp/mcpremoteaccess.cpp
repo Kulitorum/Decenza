@@ -1,4 +1,5 @@
 #include "mcpremoteaccess.h"
+#include "mcplogging.h"
 
 #include "mcpserver.h"
 #include "mcptunnel_tsnet.h"
@@ -378,8 +379,9 @@ void McpRemoteAccess::doReachabilityProbe()
                 // then nothing was ambiguous — recovered, or still failing
                 // off-screen? — and that is exactly how it read in practice.
                 // (Failure never stops the probe; see the branch below.)
-                qInfo().noquote() << "McpRemoteAccess: Funnel reachable at" << domain
-                                  << "— remote access Active";
+                MCP_INFO_TAGGED("RemoteAccess",
+                                QStringLiteral("Funnel reachable at %1 — remote access Active")
+                                    .arg(domain));
                 setStatus(Active);
                 emit connectorUrlChanged();
             }
@@ -411,14 +413,14 @@ void McpRemoteAccess::doReachabilityProbe()
         constexpr int kProbeFailuresBeforeError = 5;
         constexpr int kProbeWarnEveryNAfterGrace = 10;  // 10 × 6 s = once a minute
         const QString probeLine =
-            QStringLiteral("McpRemoteAccess: Funnel reachability probe failed: %1 (attempt %2)")
+            QStringLiteral("Funnel reachability probe failed: %1 (attempt %2)")
                 .arg(errStr).arg(m_probeFailCount);
         if (m_probeFailCount < kProbeFailuresBeforeError) {
             // Still inside the window where this routinely resolves by itself.
-            qDebug().noquote() << probeLine;
+            MCP_LOG_TAGGED("RemoteAccess", probeLine);
         } else if (m_probeFailCount == kProbeFailuresBeforeError
                    || m_probeFailCount % kProbeWarnEveryNAfterGrace == 0) {
-            qWarning().noquote() << probeLine;
+            MCP_WARN_TAGGED("RemoteAccess", probeLine);
         }
         if (m_probeFailCount >= kProbeFailuresBeforeError && m_status != Error) {
             setStatus(Error, QStringLiteral(
@@ -459,7 +461,7 @@ void McpRemoteAccess::setStatus(Status status, const QString& detail)
     m_status = status;
     m_statusDetail = detail;
     if (status == Error && !detail.isEmpty())
-        qWarning() << "McpRemoteAccess:" << detail;
+        MCP_WARN_TAGGED("RemoteAccess", detail);
     emit statusChanged();
 }
 
@@ -626,7 +628,8 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
     if (!authorized) {
         // Never echo the attempted path; just note the source and count it.
         if (!failedTokenOverLimit(source)) {
-            qWarning() << "McpRemoteAccess: rejected unauthorized request from" << source;
+            MCP_WARN_TAGGED("RemoteAccess",
+                            QStringLiteral("rejected unauthorized request from %1").arg(source));
             sendBare404(socket);
         } else {
             // Over the failed-attempt budget for this source this minute. Drop the
@@ -636,8 +639,9 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
             FailWindow& window = m_failedAttempts[source];
             if (!window.suppressionLogged) {
                 window.suppressionLogged = true;
-                qWarning() << "McpRemoteAccess: further unauthorized requests from" << source
-                           << "will be dropped for the rest of this minute";
+                MCP_WARN_TAGGED("RemoteAccess",
+                                QStringLiteral("further unauthorized requests from %1 will be "
+                                               "dropped for the rest of this minute").arg(source));
             }
             socket->close();
         }
@@ -728,7 +732,8 @@ bool McpRemoteAccess::forgetTailscale()
     const QString dir = tsnetStateDir();
     const bool wiped = !QDir(dir).exists() || QDir(dir).removeRecursively();
     if (!wiped)
-        qWarning() << "McpRemoteAccess: failed to wipe tsnet state dir" << dir;
+        MCP_WARN_TAGGED("RemoteAccess",
+                        QStringLiteral("failed to wipe tsnet state dir %1").arg(dir));
 
     // Bring a fresh node up (new identity → new login URL) if remote MCP is still
     // enabled in Tailscale mode; otherwise refresh() just settles to Off.

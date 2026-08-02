@@ -17,7 +17,7 @@ For a **tool call** they do not. The payload is wrapped first, so by the time
 is one level down inside it. `contains("error")` is false, the response ships as
 `result`, and no `isError` is set anywhere.
 
-Tools report failure by returning `{"error": "..."}` — 167 sites across
+Tools report failure by returning `{"error": "..."}` — ~283 sites across
 `src/mcp/`. Every one of them is currently reported to the client as a
 successful call.
 
@@ -39,7 +39,7 @@ it.
 - Changing any tool's error text, adding error paths, or renaming `error`.
 - Turning tool failures into JSON-RPC errors (see the decision below).
 - Structured error codes/categories. Worth considering later; not this change.
-- Auditing which of the 167 sites *should* be errors. Several are arguably
+- Auditing which of those sites *should* be errors. Several are arguably
   ordinary empty results. That is a separate judgement call per tool and would
   bury this fix.
 
@@ -92,7 +92,7 @@ every response for no signal, and MCP treats absence as success.
   project's standing position, MCP surfaces are free to change because clients
   reload schemas every connection.
 - **A tool that returns `error` for a non-failure would now be reported as
-  failed.** Possible among the 167 sites. Deliberately not audited here — the
+  failed.** Possible among those sites. Deliberately not audited here — the
   right response is to fix that tool's payload, not to weaken the rule. The
   change makes such cases *visible*, which is an improvement over uniform
   silence.

@@ -1,5 +1,6 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
+#include "mcplogging.h"
 #include "mcptools_shots_helpers.h"
 #include "mcplogfilter.h"
 #include "../history/shothistorystorage.h"
@@ -87,7 +88,8 @@ static void reshapeBeanBase(QJsonObject& obj)
     else if (!raw.isEmpty())
         // Corruption tripwire — sparse-emit makes a bad blob look "unlinked"
         // at every consumer; leave one trace.
-        qWarning() << "MCP: corrupt beanBaseJson on shot" << obj.value("id");
+        MCP_WARN_TAGGED("shots", QStringLiteral("corrupt beanBaseJson on shot %1")
+                                    .arg(obj.value("id").toVariant().toString()));
 }
 
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory)
@@ -223,7 +225,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     // before delegating; qsql_sqlite.cpp clears it again.)
                     const bool prepared = query.prepare(sql);
                     if (!prepared)
-                        qWarning() << "MCP shots_list: prepare failed -" << query.lastError().text();
+                        MCP_WARN_TAGGED("shots_list", QStringLiteral("prepare failed - %1").arg(query.lastError().text()));
                     if (!profileFilter.isEmpty())
                         query.bindValue(":profileFilter", "%" + profileFilter + "%");
                     if (!beanFilter.isEmpty())
@@ -305,14 +307,15 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         // landed. Report it instead.
                         const QString why = prepared ? query.lastError().text()
                                                      : QStringLiteral("statement did not prepare");
-                        qWarning() << "MCP shots_list: query failed -" << why;
+                        MCP_WARN_TAGGED("shots_list", QStringLiteral("query failed - %1").arg(why));
                         result["error"] = QStringLiteral("Shot list query failed: ") + why;
                     }
 
                     QSqlQuery countQuery(db);
                     if (!countQuery.prepare(countSql))
-                        qWarning() << "MCP shots_list: count prepare failed -"
-                                   << countQuery.lastError().text();
+                        MCP_WARN_TAGGED("shots_list",
+                                        QStringLiteral("count prepare failed - %1")
+                                            .arg(countQuery.lastError().text()));
                     if (!profileFilter.isEmpty())
                         countQuery.bindValue(":profileFilter", "%" + profileFilter + "%");
                     if (!beanFilter.isEmpty())
@@ -328,8 +331,9 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     // hasMore false and nextOffset null — a client paginating gets
                     // a truncated result set and no error.
                     if (!countQuery.exec()) {
-                        qWarning() << "MCP shots_list: count query failed -"
-                                   << countQuery.lastError().text();
+                        MCP_WARN_TAGGED("shots_list",
+                                        QStringLiteral("count query failed - %1")
+                                            .arg(countQuery.lastError().text()));
                         if (!result.contains("error"))
                             result["error"] = QStringLiteral("Shot count query failed: ")
                                               + countQuery.lastError().text();
