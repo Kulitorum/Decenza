@@ -752,6 +752,26 @@ T.ApplicationWindow {
         pendingPopups = pendingPopups.concat([{id: popupId, params: params || {}}])
     }
 
+    // Is a blocking dialog already on screen? Used to QUEUE a popup rather than
+    // open it over one the user is currently reading. Deliberately enumerated:
+    // QML offers no "any Popup open" query, and a heuristic over children would
+    // sweep in inline popups, pickers and the brew dialog, which are not the
+    // same thing. Excludes globalBrewDialog and mcpConfirmDialog on purpose —
+    // the first is a working surface the user drives, the second is itself an
+    // approval prompt that must not be delayed behind an advisory message.
+    //
+    // Anything added here should also be added to a queue case in
+    // showNextPendingPopup below, or it can block a popup that never reappears.
+    function anyModalDialogVisible() {
+        return flowScaleDialog.visible || scaleDisconnectedDialog.visible
+            || updateDialog.visible || chargingMismatchDialog.visible
+            || bleErrorDialog.visible || refillDialog.visible
+            || profileRefusedDialog.visible || de1CommunicationErrorDialog.visible
+            || firmwareFlashExitDialog.visible || firmwareRebootRequiredDialog.visible
+            || noScaleAbortDialog.visible || crashReportDialog.visible
+            || recipeActivationFailedDialog.visible
+    }
+
     function showNextPendingPopup() {
         if (screensaverActive) return  // Don't show popups during screensaver
         if (pendingPopups.length === 0) return
@@ -802,6 +822,11 @@ T.ApplicationWindow {
                     refillDialog.open()
                 else
                     showNextPendingPopup()  // Skip stale refill, show next
+                break
+            case "recipeActivationFailed":
+                recipeActivationFailedDialog.missingProfileTitle =
+                    next.params.missingProfileTitle || ""
+                recipeActivationFailedDialog.open()
                 break
         }
     }
@@ -2587,6 +2612,17 @@ T.ApplicationWindow {
             // racing an in-flight remote activation.
             if (root.screensaverActive)
                 return
+            // Queue behind a dialog that is already up rather than opening on
+            // top of it. Draining the queue in onClosed is not enough on its
+            // own — that only helps popups already waiting, and this one would
+            // still stack over whatever the user is currently reading (it was
+            // landing over "No Scale Found"). Queued, it opens when that one is
+            // dismissed, via the same showNextPendingPopup path.
+            if (root.anyModalDialogVisible()) {
+                root.queuePopup("recipeActivationFailed",
+                                {missingProfileTitle: missingProfileTitle})
+                return
+            }
             recipeActivationFailedDialog.missingProfileTitle = missingProfileTitle
             if (!recipeActivationFailedDialog.visible)
                 recipeActivationFailedDialog.open()
