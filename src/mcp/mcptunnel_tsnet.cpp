@@ -1,4 +1,5 @@
 #include "mcptunnel_tsnet.h"
+#include "mcplogging.h"
 
 #include <QThread>
 #include <QDir>
@@ -167,7 +168,7 @@ void McpTunnelTsnet::runWorker(quint64 epoch, QString stateDir, QString hostname
     while (!m_stopRequested.load()) {
         const QString state = backendState();
         if (state != lastState) {
-            qInfo() << "McpTunnelTsnet: backend state ->" << state;
+            MCP_INFO_TAGGED("Tunnel", QStringLiteral("backend state -> %1").arg(state));
             lastState = state;
         }
 
@@ -183,10 +184,10 @@ void McpTunnelTsnet::runWorker(quint64 epoch, QString stateDir, QString hostname
                 // one-shot approach got permanently stuck if Funnel wasn't yet
                 // authorised when we first reached Running.
                 if (tailscale_enable_funnel_to_localhost_plaintext_http1(sd, localPort) != 0)
-                    qWarning() << "McpTunnelTsnet: enable funnel failed:" << errmsg();
+                    MCP_WARN_TAGGED("Tunnel", QStringLiteral("enable funnel failed: %1").arg(errmsg()));
                 if (!funnelLogged) {
                     funnelLogged = true;
-                    qInfo() << "McpTunnelTsnet: Funnel configured for" << domain;
+                    MCP_INFO_TAGGED("Tunnel", QStringLiteral("Funnel configured for %1").arg(domain));
                 }
                 // Report the FQDN. This is NOT proof of public reachability —
                 // McpRemoteAccess probes the real Funnel URL before it surfaces
@@ -235,7 +236,7 @@ void McpTunnelTsnet::stop()
             delete m_worker;
             m_worker = nullptr;
         } else {
-            qWarning() << "McpTunnelTsnet: worker did not stop within timeout; leaking it";
+            MCP_WARN_TAGGED("Tunnel", QStringLiteral("worker did not stop within timeout; leaking it"));
         }
     }
     applyUpdate(epoch, Stopped, QString(), QString(), QString());

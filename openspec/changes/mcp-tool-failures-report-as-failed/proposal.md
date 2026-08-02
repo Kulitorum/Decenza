@@ -71,7 +71,8 @@ envelope.
   response envelope and protocol-version gating.
 - `docs/CLAUDE_MD/MCP_SERVER.md` — the error convention belongs in the data
   conventions section.
-- **No tool file changes.** All 167 error-returning sites across `src/mcp/` keep
+- **No tool file changes.** All ~283 error-returning sites across
+  `src/mcp/mcptools_*.cpp` keep
   their current shape; that is the point of fixing it centrally.
 
 Wire-visible behaviour change for MCP clients. Per the project's standing

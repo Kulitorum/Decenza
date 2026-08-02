@@ -1,6 +1,7 @@
 #include "core/settings_app.h"
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
+#include "mcplogging.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
 #include "../history/recipestorage.h"
@@ -224,8 +225,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                             if (idQuery.next())
                                 visualizerId = idQuery.value(0).toString();
                         } else {
-                            qWarning() << "MCP shots_update: failed to query visualizer_id for shot"
-                                       << shotId << ":" << idQuery.lastError().text();
+                            MCP_WARN_TAGGED("shots_update",
+                                            QStringLiteral("failed to query visualizer_id for "
+                                                           "shot %1: %2")
+                                                .arg(shotId).arg(idQuery.lastError().text()));
                         }
                         if (!visualizerId.isEmpty()) {
                             ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr);
@@ -262,13 +265,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                             && settings && settings->visualizer()->visualizerAutoUpdate()) {
                         if (vizShot.isValid()) {
                             willAutoUpdate = true;
-                            qInfo() << "MCP shots_update: auto-updating visualizer shot" << visualizerId
-                                    << "for local shot id" << shotId;
+                            MCP_INFO_TAGGED("shots_update",
+                                            QStringLiteral("auto-updating visualizer shot %1 for "
+                                                           "local shot id %2")
+                                                .arg(visualizerId).arg(shotId));
                             visualizerUploader->updateShotOnVisualizerWithOverrides(
                                 visualizerId, QVariant::fromValue(vizShot), vizOverrides);
                         } else {
                             skipReason = QString("failed to reload shot %1 for visualizer PATCH").arg(shotId);
-                            qWarning() << "MCP shots_update:" << skipReason;
+                            MCP_WARN_TAGGED("shots_update", skipReason);
                         }
                     }
 

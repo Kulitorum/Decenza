@@ -98,6 +98,12 @@ COVERED_GLOBS = [
     # (identity edits and their fork/merge/in-place decision, package CRUD, the
     # enrichment-fork heal, the equipment migration and device import).
     "src/history/equipmentstorage.cpp",
+    # Wholly about the MCP server: sessions, the HTTP/SSE transport, tool
+    # dispatch, remote access and the tunnel. Every log line in src/mcp is an
+    # [MCP] line, so "use the helper" is always the right instruction here. The
+    # tool files are included deliberately — a query failure inside shots_list is
+    # still something an assistant's user reports as "my AI can't see my shots".
+    "src/mcp/**/*.cpp",
 ]
 
 # Files that HOST a registered subsystem's lines alongside unrelated code.
@@ -397,8 +403,18 @@ def main():
                         f"`// log-marker-exempt: <reason>`.")
 
             # Rule 2: a bracketed prefix typed into the message itself.
+            #
+            # Like rule 5, this requires a log call in the STATEMENT: the rule is
+            # "a marker typed into a log MESSAGE", and without that check any
+            # string literal naming a marker trips it. That is not hypothetical —
+            # mcpresources.cpp builds debug_get_log's tool description, which
+            # necessarily quotes "[Scale][BLE AcaiaScale] tare sent" to teach an
+            # assistant what a marker looks like, and warns that "[Scale]" under
+            # regex is a character class. Prose ABOUT markers is the one thing a
+            # marker-checking script must not flag.
             m = inline_prefix_re.search(code)
-            if m and not EXEMPT_RE.search(line):
+            if (m and LOG_CALL_RE.search(statements[n - 1])
+                    and not EXEMPT_RE.search(line)):
                 inner = m.group(1)
                 failures.append(
                     f"{rel}:{n}: message starts with the registered marker \"[{inner}]\" typed "
