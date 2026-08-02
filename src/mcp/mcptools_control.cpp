@@ -21,12 +21,36 @@ namespace {
 // argument, else the active profile. Shared by get/set/clear_flow_calibration so
 // the three cannot disagree about what "the current profile" means — they must
 // resolve identically or a caller can read one profile's value and write another's.
-// Empty return = no argument and no active profile; each caller reports that.
-QString resolveFlowCalProfile(const QJsonObject& args, ProfileManager* profileManager)
+//
+// The existence check is the point of the helper, not a nicety. The per-profile
+// calibration map is keyed by whatever string it is handed, and nothing downstream
+// validates: setProfileFlowCalibration() rejects only an empty name and an
+// out-of-range number. So a filename that does not resolve — a title instead of a
+// filename, or the ".json" form that baseProfileName() never returns — writes an
+// entry no reader will ever look up, reports success, and then persists across
+// restarts and through settings export/import while the machine keeps using the
+// real key. Failing loudly here is the only place that catches it; every other
+// profile-taking tool (profiles_delete, profiles_rename, profiles_set_active)
+// already guards the same way.
+//
+// Returns empty on failure with `error` set to the caller-facing reason.
+QString resolveFlowCalProfile(const QJsonObject& args, ProfileManager* profileManager,
+                              QString& error)
 {
     QString filename = args["profileFilename"].toString();
     if (filename.isEmpty() && profileManager)
         filename = profileManager->baseProfileName();
+    if (filename.isEmpty()) {
+        error = QStringLiteral("No profile filename specified and no active profile");
+        return QString();
+    }
+    // A null ProfileManager (test harnesses) leaves nothing to validate against.
+    // Resolve without the check rather than refusing every call.
+    if (profileManager && !profileManager->profileExists(filename)) {
+        error = QStringLiteral("Profile not found: ") + filename
+              + QStringLiteral(" (expected a filename without the .json extension)");
+        return QString();
+    }
     return filename;
 }
 
@@ -400,7 +424,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
         "Clear the per-profile flow calibration multiplier. The calibration will be re-learned "
         "from subsequent shots. If no profile is specified, clears for the current profile.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
-            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename to clear calibration for (defaults to current profile)"}}},
+            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename, without the .json extension, to clear calibration for (defaults to current profile)"}}},
             // Undeclared until now, which made the tool UNCALLABLE from a client that
             // validates arguments against the schema: the server answers
             // needs_confirmation, and the caller has no declared way to say yes. Every
@@ -413,9 +437,10 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 result["error"] = "Settings not available";
                 return result;
             }
-            QString filename = resolveFlowCalProfile(args, profileManager);
+            QString resolveError;
+            QString filename = resolveFlowCalProfile(args, profileManager, resolveError);
             if (filename.isEmpty()) {
-                result["error"] = "No profile filename specified and no active profile";
+                result["error"] = resolveError;
                 return result;
             }
             settings->calibration()->clearProfileFlowCalibration(filename);
@@ -436,7 +461,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
         "switch makes the machine use the global value and ignore every per-profile one. "
         "Defaults to the current profile.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
-            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename to read calibration for (defaults to current profile)"}}}
+            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename, without the .json extension, to read calibration for (defaults to current profile)"}}}
         }}},
         [settings, profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
@@ -444,9 +469,10 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 result["error"] = "Settings not available";
                 return result;
             }
-            QString filename = resolveFlowCalProfile(args, profileManager);
+            QString resolveError;
+            QString filename = resolveFlowCalProfile(args, profileManager, resolveError);
             if (filename.isEmpty()) {
-                result["error"] = "No profile filename specified and no active profile";
+                result["error"] = resolveError;
                 return result;
             }
             SettingsCalibration* cal = settings->calibration();
@@ -517,7 +543,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             {"type", "object"},
             {"properties", QJsonObject{
                 {"multiplier", QJsonObject{{"type", "number"}, {"description", "Flow calibration multiplier to store, 0.5-2.7"}}},
-                {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename to set calibration for (defaults to current profile)"}}},
+                {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename, without the .json extension, to set calibration for (defaults to current profile)"}}},
                 {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
             }},
             {"required", QJsonArray{"multiplier"}}
@@ -544,9 +570,10 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                                       .arg(SettingsCalibration::kProfileFlowCalMax);
                 return result;
             }
-            QString filename = resolveFlowCalProfile(args, profileManager);
+            QString resolveError;
+            QString filename = resolveFlowCalProfile(args, profileManager, resolveError);
             if (filename.isEmpty()) {
-                result["error"] = "No profile filename specified and no active profile";
+                result["error"] = resolveError;
                 return result;
             }
             SettingsCalibration* cal = settings->calibration();
