@@ -1,11 +1,14 @@
 #include <QtTest>
 #include <QDateTime>
+#include <QDir>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QRegularExpression>
 #include <QSet>
 #include <QTextStream>
 
+#include "core/crashhandler.h"
 #include "mcp/mcplogfilter.h"
 #include "network/webdebuglogger.h"
 
@@ -649,6 +652,68 @@ private slots:
         QCOMPARE(all.size(), 2);
         QVERIFY(all[0].contains(QStringLiteral("first")));
         QVERIFY(all[1].contains(QStringLiteral("from the slot")));
+    }
+
+    // CrashHandler::getDebugLogTail() reads the same debug.log this class writes,
+    // and its result is submitted as the crash report's separate debugLogTail
+    // field (sliced to 5000 chars by the server). Its whole job is to carry what
+    // the app was doing before it died — so crash-report text in it is 5000 chars
+    // of duplicate, since the same text ships as crashLog. Two writers append
+    // that text at the very end of debug.log, which is exactly where this tail
+    // reads: writeCrashLog() at crash time, and main.cpp re-logging the previous
+    // run's report at startup. In #1745 the whole tail was one stale report.
+    void debugLogTail_dropsTheCrashReportBlock()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        QVERIFY(QDir().mkpath(dir));
+
+        writeFile(dir + "/debug.log",
+            "[   0.100] INFO  app line one\n"
+            "[   0.200] INFO  app line two\n"
+            "\n"
+            "=== CRASH REPORT ===\n"
+            "Signal: 6 (SIGABRT (Abort))\n"
+            "Backtrace (29 frames):\n"
+            "  #0: 0x6f925a7490\n"
+            "=== END CRASH REPORT ===\n");
+
+        const QString tail = CrashHandler::getDebugLogTail(50);
+
+        QVERIFY(tail.contains(QStringLiteral("app line one")));
+        QVERIFY(tail.contains(QStringLiteral("app line two")));
+        QVERIFY(!tail.contains(QStringLiteral("SIGABRT")));
+        QVERIFY(!tail.contains(QStringLiteral("Backtrace")));
+        QVERIFY(!tail.contains(QStringLiteral("CRASH REPORT")));
+
+        QStandardPaths::setTestModeEnabled(false);
+    }
+
+    // The startup writer emits the whole previous report as ONE qWarning record,
+    // so the logger's "[   N.NNN] WARN " prefix lands on the block's first line
+    // only. Matching the marker anywhere in the line, rather than at its start,
+    // is what makes that block strippable too.
+    void debugLogTail_dropsAPrefixedCrashReportBlock()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        QVERIFY(QDir().mkpath(dir));
+
+        writeFile(dir + "/debug.log",
+            "[   0.100] INFO  app line one\n"
+            "[   0.200] WARN  === CRASH REPORT ===\n"
+            "Signal: 11 (SIGSEGV (Segmentation fault))\n"
+            "[   0.300] WARN  === END CRASH REPORT ===\n"
+            "[   0.400] INFO  app line after\n");
+
+        const QString tail = CrashHandler::getDebugLogTail(50);
+
+        QVERIFY(tail.contains(QStringLiteral("app line one")));
+        QVERIFY(tail.contains(QStringLiteral("app line after")));
+        QVERIFY(!tail.contains(QStringLiteral("SIGSEGV")));
+        QVERIFY(!tail.contains(QStringLiteral("CRASH REPORT")));
+
+        QStandardPaths::setTestModeEnabled(false);
     }
 };
 

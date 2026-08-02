@@ -1471,9 +1471,13 @@ add_decenza_test(tst_mcptools_presets
 target_link_libraries(tst_mcptools_presets PRIVATE decenza_a11ylib decenza_appserviceslib decenza_profilelib decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
 target_include_directories(tst_mcptools_presets PRIVATE ${CMAKE_BINARY_DIR})
 
-# --- tst_webdebuglogger: WebDebugLogger session-index cache (improve-mcp-debug-log-search) ---
+# --- tst_webdebuglogger: WebDebugLogger session-index cache (improve-mcp-debug-log-search),
+# plus CrashHandler::getDebugLogTail(), which reads the same debug.log and whose
+# result is the crash report's debugLogTail field. crashhandler.cpp is compiled
+# into this target alone — no other test needs it, so no intermediate library. ---
 add_decenza_test(tst_webdebuglogger
     tst_webdebuglogger.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/crashhandler.cpp
 )
 target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib)
 

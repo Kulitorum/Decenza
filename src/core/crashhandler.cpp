@@ -21,6 +21,7 @@
 #include <dlfcn.h>
 #include <cxxabi.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <errno.h>
@@ -116,81 +117,194 @@ static void writeBacktraceToFile(FILE* f)
     }
 }
 
-// Append the tail of this process's logcat to the crash log. The point is the
-// abort message: when ART kills us (JNI errors like global reference table
-// overflow, CheckJNI failures), it logs the FATAL reason — and for ref-table
-// overflow, a dump of the table's dominant classes — to logd *before* raising
-// SIGABRT. Our own qDebug log never sees that text, so without this section a
+// Capture this process's logcat into the crash log. The point is the abort
+// message: when ART kills us (JNI errors like global reference table overflow,
+// CheckJNI failures), it logs the FATAL reason — and for ref-table overflow, a
+// dump of the table's dominant classes — to logd *before* raising SIGABRT. Our
+// own qDebug log never sees that text, so without this section a
 // SIGABRT-from-ART report shows where we were, but not why ART aborted (#1408).
 //
 // An app may always read its own logs (logd filters by UID, no READ_LOGS
 // needed). fork() in a signal handler is not strictly async-signal-safe, but
-// between fork and exec the child calls only dup2/execl/_exit (all AS-safe;
-// the fd is captured before the fork) and the rest of this crash handler
-// already relies on far less safe machinery (stdio, demangling).
+// between fork and exec the child calls only close/dup2/execl/_exit (all
+// AS-safe) and the rest of this crash handler already relies on far less safe
+// machinery (stdio, demangling).
 //
 // Every outcome writes a distinct marker line: this section exists to explain
 // crashes, so an empty section must be attributable (exec denied vs. logd
 // rotated this pid out vs. capture killed) rather than read as "no entries".
-static void appendLogcatTailToFile(FILE* f)
+//
+// THE BUDGET IS THE DESIGN. The report is not read on the device — it is POSTed
+// to api.decenza.coffee, which slices it before opening or commenting on a
+// GitHub issue (Kulitorum/decenza-shotmap, backend/lambdas/crashReport.ts):
+//
+//     new issue body        crashLog.slice(0, 10000)
+//     comment on existing   crashLog.slice(0, 5000)      <-- the usual path
+//     debug log tail        debugLogTail.slice(0, 5000)
+//
+// All three cut from the END. A recurring crash dedupes onto its existing
+// issue, so 5000 chars is the real budget, not 10000 — and in #1745 the header
+// and 29-frame backtrace had already spent ~4100 of it. Everything below is
+// sized against that, and any change here should be re-measured against those
+// slice() calls rather than against what fits on a screen.
+//
+// #1745 is what this replaces: a blind `-t 200` unfiltered tail. ART's abort
+// block runs header -> ref-table dump (the Summary naming the leaked class) ->
+// "Runtime aborting..." -> a full per-thread stack dump of ~1000 lines. A tail
+// of 200 lands inside the thread dump, so the report carried 41 lines of other
+// threads' stacks and not one line of the diagnosis it exists to capture.
+// Hence: filter to fatal priority, take the HEAD of the block, and drop the
+// ~60-char "date pid tid F tag:" prefix that was costing half of every line.
+static constexpr size_t kFatalCaptureBudget = 4000;
+
+// Read the child's output through a pipe and write at most byteBudget of it to
+// f. Head-anchored on purpose: `logcat -t N` gives the LAST N lines, which is
+// the #1745 bug, so the cap has to be applied by us, from the start of the
+// stream. Returns bytes written; 0 means the capture produced nothing.
+static size_t captureLogcatToFile(FILE* f, bool fatalOnly, size_t byteBudget)
 {
-    fprintf(f, "\nSystem log tail (logcat, includes ART abort message if any):\n");
-    // Flush stdio before the child writes to the shared file description so
-    // output doesn't interleave out of order.
-    fflush(f);
-    const int outFd = fileno(f);
-    const off_t startOffset = lseek(outFd, 0, SEEK_CUR);
+    int fds[2];
+    if (pipe(fds) != 0) {
+        fprintf(f, "  (pipe failed — no capture)\n");
+        return 0;
+    }
 
     pid_t child = fork();
     if (child == 0) {
-        if (dup2(outFd, STDOUT_FILENO) < 0 || dup2(outFd, STDERR_FILENO) < 0)
+        close(fds[0]);
+        if (dup2(fds[1], STDOUT_FILENO) < 0 || dup2(fds[1], STDERR_FILENO) < 0)
             _exit(126);
-        execl("/system/bin/logcat", "logcat", "-d", "-t", "200",
-              s_logcatPidArg, static_cast<char*>(nullptr));
+        close(fds[1]);
+        if (fatalOnly) {
+            // "*:F" is every tag at fatal priority — which, in normal
+            // operation, is ART's abort block and nothing else (the lines in
+            // #1745 read " F rum.decenza_de:"). "-v raw" drops the timestamp,
+            // pid, tid and tag prefix; the payload is what diagnoses the
+            // crash, and the prefix was eating ~50% of the budget above.
+            // "-t 20000" is a ceiling, not a window — we stop at byteBudget.
+            execl("/system/bin/logcat", "logcat", "-d", "-v", "raw",
+                  "-t", "20000", s_logcatPidArg, "*:F",
+                  static_cast<char*>(nullptr));
+        } else {
+            execl("/system/bin/logcat", "logcat", "-d", "-t", "200",
+                  s_logcatPidArg, static_cast<char*>(nullptr));
+        }
         _exit(127);
     }
     if (child < 0) {
-        fprintf(f, "  (fork failed, no logcat capture)\n");
-        return;
+        close(fds[0]);
+        close(fds[1]);
+        fprintf(f, "  (fork failed — no capture)\n");
+        return 0;
     }
 
-    // Bounded wait: logcat -d exits almost immediately, but never let a wedged
-    // child hang the crash handler. ~3 s cap, then kill and move on.
-    for (int i = 0; i < 60; ++i) {
-        int status = 0;
-        pid_t r = waitpid(child, &status, WNOHANG);
-        if (r == child) {
-            if (WIFEXITED(status) && WEXITSTATUS(status) == 127)
-                fprintf(f, "  (logcat exec failed — no capture)\n");
-            else if (WIFEXITED(status) && WEXITSTATUS(status) == 126)
-                fprintf(f, "  (dup2 failed in capture child — no capture)\n");
-            else if (WIFSIGNALED(status))
-                fprintf(f, "  (logcat died on signal %d)\n", WTERMSIG(status));
-            else if (lseek(outFd, 0, SEEK_CUR) == startOffset)
-                fprintf(f, "  (logcat ran but wrote nothing — entries for this pid may have rotated out of logd)\n");
-            else
-                fprintf(f, "  (end of logcat tail)\n");
-            return;
+    close(fds[1]);
+    // Non-blocking so the drain below can share the bounded wait loop: a
+    // blocking read on a wedged child would hang the crash handler.
+    fcntl(fds[0], F_SETFL, O_NONBLOCK);
+
+    size_t written = 0;
+    bool budgetHit = false;
+    bool eof = false;
+    bool reaped = false;
+    int childStatus = 0;
+
+    // Bounded: logcat -d exits almost immediately, but never let a wedged child
+    // hang the crash handler. ~3 s cap, then kill and move on.
+    for (int i = 0; i < 60 && !eof && !budgetHit; ++i) {
+        for (;;) {
+            char buf[1024];
+            ssize_t n = read(fds[0], buf, sizeof(buf));
+            if (n > 0) {
+                const size_t remaining = byteBudget - written;
+                const size_t take = (static_cast<size_t>(n) < remaining)
+                                        ? static_cast<size_t>(n) : remaining;
+                if (take > 0) {
+                    fwrite(buf, 1, take, f);
+                    written += take;
+                }
+                if (written >= byteBudget) {
+                    budgetHit = true;
+                    break;
+                }
+                continue;
+            }
+            if (n == 0)
+                eof = true;
+            break;  // EOF, EAGAIN, or error — yield to the wait below
         }
-        if (r < 0) {
+        if (eof || budgetHit)
+            break;
+
+        pid_t r = waitpid(child, &childStatus, WNOHANG);
+        if (r == child) {
+            reaped = true;
+            // The child is gone but the pipe may still hold buffered output;
+            // one more drain pass runs on the next iteration before we exit on
+            // EOF. Do not break here.
+        } else if (r < 0) {
             // ECHILD (e.g. SIGCHLD set to SIG_IGN elsewhere in the process):
-            // we can no longer observe the child, so make sure it isn't still
-            // writing into this file while we finish the report.
-            kill(child, SIGKILL);
-            fprintf(f, "  (waitpid failed, errno=%d — log tail above may be incomplete)\n", errno);
-            return;
+            // we can no longer observe the child, so stop waiting on it.
+            reaped = true;
+            childStatus = 0;
         }
         struct timespec ts = {0, 50 * 1000 * 1000};  // 50 ms
         nanosleep(&ts, nullptr);
     }
-    // Timed out. Kill and reap best-effort only — a blocking waitpid here could
-    // hang the whole crash handler on a child stuck in uninterruptible sleep,
-    // which on a distressed device is exactly when this code runs.
-    kill(child, SIGKILL);
-    struct timespec ts = {0, 50 * 1000 * 1000};  // 50 ms
-    nanosleep(&ts, nullptr);
-    waitpid(child, nullptr, WNOHANG);
-    fprintf(f, "  (logcat killed after 3s — output above may be truncated or missing)\n");
+
+    close(fds[0]);
+    if (!reaped) {
+        // Either timed out or we stopped early at the budget. Kill, then reap
+        // best-effort only — a blocking waitpid could hang the whole crash
+        // handler on a child stuck in uninterruptible sleep, which on a
+        // distressed device is exactly when this code runs.
+        kill(child, SIGKILL);
+        struct timespec ts = {0, 50 * 1000 * 1000};  // 50 ms
+        nanosleep(&ts, nullptr);
+        waitpid(child, &childStatus, WNOHANG);
+    }
+
+    if (written == 0) {
+        if (WIFEXITED(childStatus) && WEXITSTATUS(childStatus) == 127)
+            fprintf(f, "  (logcat exec failed — no capture)\n");
+        else if (WIFEXITED(childStatus) && WEXITSTATUS(childStatus) == 126)
+            fprintf(f, "  (dup2 failed in capture child — no capture)\n");
+        else if (WIFSIGNALED(childStatus))
+            fprintf(f, "  (logcat died on signal %d)\n", WTERMSIG(childStatus));
+    } else if (budgetHit) {
+        fprintf(f, "\n  (capture stopped at %zu bytes — the server slices the "
+                   "report at 5000 chars on a duplicate issue, so anything past "
+                   "here would not have survived submission)\n", byteBudget);
+    } else {
+        fprintf(f, "  (end of capture)\n");
+    }
+    return written;
+}
+
+// ART's own account of why it aborted. Written BEFORE our backtrace, which is
+// deliberate and is the other half of the #1745 fix: when ART aborts, our
+// backtrace names the JNI call that happened to hit the ceiling (a battery poll
+// in #1408/#1572/#1745) and ART's dump names the actual leak, so on a budget
+// that cuts from the end, ART's dump is what has to go first. Returns false
+// when there were no fatal entries, which is the normal case for SIGSEGV and
+// friends — the caller then falls back to the unfiltered tail, after the
+// backtrace, where it costs the backtrace nothing.
+static bool appendArtAbortMessageToFile(FILE* f)
+{
+    fprintf(f, "\nART abort message (logcat, fatal priority only):\n");
+    if (captureLogcatToFile(f, /*fatalOnly=*/true, kFatalCaptureBudget) > 0)
+        return true;
+    fprintf(f, "  (no fatal-priority entries for this pid — not an ART abort, "
+               "or logd rotated them out)\n");
+    return false;
+}
+
+static void appendLogcatTailToFile(FILE* f)
+{
+    fprintf(f, "\nSystem log tail (logcat):\n");
+    if (captureLogcatToFile(f, /*fatalOnly=*/false, kFatalCaptureBudget) == 0)
+        fprintf(f, "  (logcat wrote nothing — entries for this pid may have "
+                   "rotated out of logd)\n");
 }
 #endif
 
@@ -280,6 +394,13 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
         fprintf(f, "\nLast debug message:\n  %s\n", s_lastDebugMessage);
     }
 
+#ifdef Q_OS_ANDROID
+    // Ahead of the backtrace: see appendArtAbortMessageToFile(). Only into
+    // crash.log (which becomes the report's "Crash Log" section) — not into the
+    // debug.log copy below, whose tail is submitted separately.
+    const bool artAborted = appendArtAbortMessageToFile(f);
+#endif
+
     // Write backtrace
 #if defined(Q_OS_ANDROID) || defined(Q_OS_LINUX) || defined(Q_OS_WIN) || defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     writeBacktraceToFile(f);
@@ -288,9 +409,11 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
 #endif
 
 #ifdef Q_OS_ANDROID
-    // Only into crash.log (which becomes the report's "Crash Log" section) —
-    // not into the debug.log copy below, whose tail is submitted separately.
-    appendLogcatTailToFile(f);
+    // Only when ART did not explain itself. An ART abort has already spent the
+    // budget on the fatal block, and the unfiltered tail there is the thread
+    // dump that #1745 wasted its whole report on.
+    if (!artAborted)
+        appendLogcatTailToFile(f);
 #endif
 
     fprintf(f, "\n=== END CRASH REPORT ===\n");
@@ -483,11 +606,39 @@ QString CrashHandler::getDebugLogTail(int lines)
         return QString();
     }
 
-    // Read all lines and get the last N
+    // Read all lines, dropping any crash-report block.
+    //
+    // This tail is submitted as its own field (debugLogTail, sliced to 5000
+    // chars server-side) to answer a question the crash log cannot: what the
+    // app was doing before it died. Crash-report text in here answers nothing,
+    // because the same text is already being submitted as crashLog.
+    //
+    // Two writers put it there, and both land at the very end of debug.log —
+    // exactly where this tail reads:
+    //   - writeCrashLog() appends the whole report for persistence, at crash
+    //     time, so it is the last thing in the file;
+    //   - main.cpp re-logs the previous run's crash log at startup (a single
+    //     qWarning record, so only its first line carries a log prefix).
+    // In #1745 the result was a 5000-char debug tail containing one stale crash
+    // report and not a single line of app narrative.
+    static const QLatin1String kBlockStart("=== CRASH REPORT ===");
+    static const QLatin1String kBlockEnd("=== END CRASH REPORT ===");
+
     QStringList allLines;
+    bool insideCrashBlock = false;
     QTextStream stream(&file);
     while (!stream.atEnd()) {
-        allLines.append(stream.readLine());
+        const QString line = stream.readLine();
+        if (line.contains(kBlockEnd)) {
+            insideCrashBlock = false;
+            continue;
+        }
+        if (line.contains(kBlockStart)) {
+            insideCrashBlock = true;
+            continue;
+        }
+        if (!insideCrashBlock)
+            allLines.append(line);
     }
     file.close();
 
