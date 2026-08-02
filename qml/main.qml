@@ -2575,9 +2575,16 @@ T.ApplicationWindow {
             // Not queued for after the screensaver, unlike the update and
             // refill prompts. Those stay true while asleep; this one reports a
             // single failed attempt, and surfacing it minutes later next to
-            // whatever the user is doing then would be noise. Nothing is lost:
-            // the recipe keeps showing as missing its profile in the list, which
-            // is the durable half of the message.
+            // whatever the user is doing then would be noise.
+            //
+            // Reaching here with the screensaver up means a REMOTE caller (MCP
+            // or web) — a pill tap needs the screen awake — and both of those
+            // report the failure through their own response, so nothing is lost
+            // for the requester. For the missing-profile case the recipe also
+            // keeps its marking in the list. The one gap is a recipe row that
+            // vanished concurrently: no durable marker exists for that, so a
+            // local user would never learn of it. Accepted — it needs a delete
+            // racing an in-flight remote activation.
             if (root.screensaverActive)
                 return
             recipeActivationFailedDialog.missingProfileTitle = missingProfileTitle

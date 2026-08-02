@@ -948,21 +948,35 @@ int RecipeStorage::countRecipesUsingProfileStatic(QSqlDatabase& db, const QStrin
                   "AND TRIM(COALESCE(profile_title,'')) = :profile");
     query.bindValue(":profile", target);
     if (!query.exec() || !query.next()) {
-        qWarning() << "[recipe] countRecipesUsingProfile failed:" << query.lastError().text();
-        // Report "unknown" as zero recipes rather than blocking the delete. The
-        // warning is an aid; a failed count must not stop the user removing
-        // their own profile.
-        return 0;
+        // UNKNOWN, not zero. Returning 0 here would be the exact failure this
+        // whole change exists to remove: the delete dialog hides its warning on
+        // a count of 0, so a failed check would render as "no recipes use this"
+        // — identical to a genuine all-clear. shots.db is shared by four
+        // storages on their own worker threads (see dbutils.h), so a lock
+        // collision on the main thread at dialog-open time is a real event, not
+        // a hypothetical. Not blocking the delete and telling the user we could
+        // not check are different things; only the first is a requirement.
+        qWarning() << "[recipe] countRecipesUsingProfile failed for" << target << ":"
+                   << query.lastError().text();
+        return kRecipeCountUnknown;
     }
     return query.value(0).toInt();
 }
 
 int RecipeStorage::countRecipesUsingProfile(const QString& profileTitle) const
 {
-    int count = 0;
-    withTempDb(m_dbPath, QStringLiteral("recipe_profile_count"), [&](QSqlDatabase& db) {
-        count = countRecipesUsingProfileStatic(db, profileTitle);
-    });
+    int count = kRecipeCountUnknown;
+    // withTempDb returns false when the database could not be OPENED, which
+    // never reaches the lambda — leaving count at unknown is the honest answer,
+    // and this is the discarded-return CLAUDE.md warns about for APIs that
+    // carry no [[nodiscard]].
+    if (!withTempDb(m_dbPath, QStringLiteral("recipe_profile_count"), [&](QSqlDatabase& db) {
+            count = countRecipesUsingProfileStatic(db, profileTitle);
+        })) {
+        qWarning() << "[recipe] countRecipesUsingProfile could not open the database for"
+                   << profileTitle;
+        return kRecipeCountUnknown;
+    }
     return count;
 }
 

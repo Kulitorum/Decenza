@@ -1061,8 +1061,16 @@ T.Page {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(20)
                 Layout.rightMargin: Theme.scaled(20)
-                visible: deleteDialog.recipesUsingProfile > 0
-                text: (deleteDialog.recipesUsingProfile === 1
+                // -1 means the count could not be taken. It must NOT fall into
+                // the hidden branch with 0: that would show the user the same
+                // silent all-clear as "no recipes use this", from a check that
+                // never ran.
+                visible: deleteDialog.recipesUsingProfile !== 0
+                text: (deleteDialog.recipesUsingProfile < 0
+                       ? TranslationManager.translate(
+                            "profileselector.dialog.delete_recipe_count_failed",
+                            "Couldn't check whether any recipes use this profile. Any that do will show as missing their profile until you pick another in the recipe editor.")
+                       : deleteDialog.recipesUsingProfile === 1
                        ? TranslationManager.translate(
                             "profileselector.dialog.delete_one_recipe_uses",
                             "1 recipe uses this profile. It will show as missing its profile until you pick another in the recipe editor.")

@@ -1139,6 +1139,14 @@ bool ProfileManager::deleteProfile(const QString& filename) {
     // but we cleaned up any local overrides above
     if (source == ProfileSource::BuiltIn) {
         if (deleted) {
+            // `source` defaults to BuiltIn, so a filename that was NOT in the
+            // catalog lands here too and gets diagnosed as an override cleanup
+            // it never was. Say so, or the log claims a built-in was tidied when
+            // a real profile was removed and nothing announced it.
+            if (deletedTitle.isEmpty())
+                qWarning() << "Deleted" << filename
+                           << "but it was not in the profile catalog — cannot resolve its title,"
+                           << "so nothing holding a title reference to it will be told";
             qDebug() << "Cleaned up local override for built-in profile:" << filename;
             refreshProfiles();
         }
@@ -1165,16 +1173,28 @@ bool ProfileManager::deleteProfile(const QString& filename) {
 
         // Refresh the profile list
         refreshProfiles();
-        // Announce the deletion AFTER the catalog is rebuilt, so a listener
-        // that re-checks what still resolves (the recipe list's missing-profile
-        // marking) sees the world as it now is rather than as it was.
+        // Announce the deletion AFTER the catalog is rebuilt, and only when the
+        // TITLE no longer resolves — which is the only thing any listener
+        // actually cares about, since recipes and shots reference profiles by
+        // title.
         //
-        // The built-in branch above returned before this, so this is only
-        // reached when the title genuinely stopped resolving. An empty title
-        // means the filename was not in the catalog at all — nothing could have
-        // referenced it by title, so there is nothing to announce.
-        if (!deletedTitle.isEmpty())
+        // The re-resolve is not belt-and-braces, it is the condition. Relying on
+        // the built-in early return above instead was wrong: refreshProfiles()
+        // classifies everything ProfileStorage lists as UserCreated and replaces
+        // the built-in catalog row with it, so deleting a file that SHADOWS a
+        // built-in never reaches that return — it would emit, MainController
+        // would deactivate the recipe, and the title would still resolve to the
+        // restored built-in. The same holds wherever two catalog rows share a
+        // title. Asking findProfileByTitle makes this signal agree with
+        // installedProfileTitles, which is what the recipe cards bind to.
+        //
+        // An empty title means the filename was not in the catalog at all —
+        // nothing could have referenced it by title, so nothing to announce.
+        if (!deletedTitle.isEmpty() && findProfileByTitle(deletedTitle).isEmpty())
             emit profileDeleted(deletedTitle);
+        else if (!deletedTitle.isEmpty())
+            qDebug() << "Deleted" << filename << "but title" << deletedTitle
+                     << "still resolves — not announcing a deletion";
         return true;
     }
 

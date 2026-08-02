@@ -55,12 +55,18 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
     o["id"] = r.id;
     o["name"] = r.name;
     o["profileTitle"] = r.profileTitle;
-    // The recipe names a profile that is not installed, so it cannot be
-    // activated. Derived per response from the catalog snapshot, never stored,
-    // matching the app's recipe cards — see RecipeDrinkCard.profileMissing.
-    // A profile-less recipe (hot-water tea) names none and is not missing one.
+    // The recipe names a profile it cannot resolve AND carries no frozen copy,
+    // so it cannot be activated. Derived per response from the catalog
+    // snapshot, never stored, matching the app's recipe cards — see
+    // RecipeDrinkCard.profileMissing, and keep the two in step.
+    //
+    // All three terms are load-bearing: a profile-less recipe (hot-water tea)
+    // names none; a recipe with stored profileJson activates through
+    // loadProfileFromJson regardless of the catalog; and the membership test is
+    // EXACT and untrimmed because findProfileByTitle is.
     o["profileMissing"] = !r.profileTitle.trimmed().isEmpty()
-        && !installedTitles.contains(r.profileTitle.trimmed());
+        && r.profileJson.isEmpty()
+        && !installedTitles.contains(r.profileTitle);
     // Stored drink type; legacy rows derive from the blocks (embedded profile
     // JSON supplies beverage_type when present).
     if (!r.drinkType.isEmpty()) {
@@ -604,16 +610,41 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 respondJson(QJsonObject{{"error", "Controller not available"}}, 500);
                 return;
             }
+            // Latch the reason first: recipeActivationFailed is emitted
+            // immediately before every recipeActivated(id, false), so a caller
+            // gets the namable cause instead of a bare 404 that reads the same
+            // for "no such recipe" and "its profile is not installed". Mirrors
+            // the MCP tool and the in-app dialog — the three activation
+            // surfaces report the same thing.
+            auto missingProfile = std::make_shared<QString>();
+            auto failConn = std::make_shared<QMetaObject::Connection>();
+            *failConn = connect(m_mainController, &MainController::recipeActivationFailed, this,
+                [failConn, recipeId, missingProfile](qint64 failedId, const QString&,
+                                                     const QString& missingProfileTitle) {
+                    if (failedId != recipeId)
+                        return;
+                    disconnect(*failConn);
+                    *missingProfile = missingProfileTitle;
+                });
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = connect(m_mainController, &MainController::recipeActivated, this,
-                [conn, recipeId, respondJson](qint64 activatedId, bool success) {
+                [conn, failConn, recipeId, respondJson, missingProfile](qint64 activatedId, bool success) {
                     if (activatedId != recipeId)
                         return;
                     disconnect(*conn);
-                    if (success)
+                    disconnect(*failConn);
+                    if (success) {
                         respondJson(QJsonObject{{"activated", true}, {"recipeId", recipeId}});
-                    else
+                    } else if (!missingProfile->isEmpty()) {
+                        // 409, not 404: the recipe exists, its profile does not.
+                        respondJson(QJsonObject{
+                            {"error", QStringLiteral("Profile \"%1\" is not installed and this recipe "
+                                                     "carries no stored copy of it")
+                                          .arg(*missingProfile)},
+                            {"missingProfileTitle", *missingProfile}}, 409);
+                    } else {
                         respondJson(QJsonObject{{"error", "Recipe not found or activation failed"}}, 404);
+                    }
                 });
             m_mainController->activateRecipe(recipeId);
             return;

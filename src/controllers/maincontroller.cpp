@@ -1198,7 +1198,8 @@ void MainController::setupRecipeConnections() {
         // brew. This is the ONLY place the startup restore can be caught. The
         // profile is loaded inline by ProfileManager's constructor
         // (profilemanager.cpp:131-366, called at maincontroller.cpp:130) while
-        // this row arrives from the async read requested at the end of THIS
+        // this row arrives from the async read issued at the end of
+        // setupRecipeConnections(), itself called partway through THIS
         // constructor — so the mismatch watcher has already had its turn and
         // returned early on an empty m_activeRecipe, and the shot stamp reads
         // activeRecipeId straight from settings without consulting the cache at
@@ -1298,7 +1299,7 @@ void MainController::setupRecipeConnections() {
     // watcher asks Recipe::profileDiverged, which gates on ownership first.
     //
     // Note what these watchers CANNOT see. Each needs m_activeRecipe, which is
-    // filled by an async row read requested at the end of this constructor, so
+    // filled by an async row read issued from setupRecipeConnections(), so
     // none of them can fire during startup — and the profile is fully loaded by
     // then (ProfileManager's constructor does it inline). The restored-recipe
     // reconcile in the recipeReady handler above is what covers that window;
@@ -1346,8 +1347,15 @@ void MainController::setupRecipeConnections() {
         // they are not modified or repaired, they simply show as missing their
         // profile wherever they are listed.
         if (Recipe::namesProfile(m_activeRecipe.value("profileTitle").toString(),
-                                 deletedTitle))
+                                 deletedTitle)) {
+            // Logged for the same reason the reconcile branch above logs: this
+            // app is diagnosed from user-submitted logs, and "my recipe
+            // deselected itself" with no trace anywhere leaves the reader
+            // nothing to find. deactivateRecipe() logs nothing of its own.
+            qWarning() << "[recipe] profile" << deletedTitle
+                       << "was deleted and the active recipe names it - deactivating";
             deactivateRecipe();
+        }
     });
 
     // --- Write-through stamps: tweaks while a recipe is active refine the
@@ -1451,6 +1459,12 @@ void MainController::setupRecipeConnections() {
 void MainController::activateRecipe(qint64 recipeId) {
     if (!m_recipeStorage) {
         qWarning() << "[recipe] activateRecipe" << recipeId << "- no recipe storage, activation failed";
+        // Paired, like the two bail sites in applyActivatedRecipe. Without it
+        // this path keeps the silently-reverting pill this change exists to
+        // remove — and makes "accompanies every recipeActivated(id, false)"
+        // false. No profile title to name: we never got as far as reading the
+        // row.
+        emit recipeActivationFailed(recipeId, QString(), QString());
         emit recipeActivated(recipeId, false);
         return;
     }

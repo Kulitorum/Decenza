@@ -43,6 +43,10 @@ class SerialDbWorker;
 // the steam pitcher the vessel is snapshotted BY VALUE (never a preset-list
 // reference); activation re-selects it by name and recreates it from the
 // snapshot if the preset was deleted. There is no separate per-recipe amount.
+// Returned by the recipes-using-a-profile count when the count could not be
+// taken at all. Distinct from 0 on purpose — see countRecipesUsingProfile.
+inline constexpr int kRecipeCountUnknown = -1;
+
 struct Recipe {
     qint64 id = 0;
 
@@ -167,17 +171,29 @@ struct Recipe {
     // one. Writing the deleted-profile check as !profileDiverged() instead
     // would have deactivated every tea recipe on any profile deletion.
     //
-    // Case-SENSITIVE, to agree with ProfileManager::findProfileByTitle — that
-    // exact compare is what decides whether the profile actually resolves, and
-    // a looser test would treat a recipe as matching a profile that cannot
-    // load. Trimmed, which is the safe direction here: it can only decline to
-    // deactivate, and a whitespace-only difference cannot arise from a
-    // successful activation (which needs the exact match findProfileByTitle
-    // demands).
+    // EXACT: case-sensitive and NOT trimmed, because ProfileManager::
+    // findProfileByTitle compares `info.title == title` raw, and that compare is
+    // what decides whether the profile actually resolves. Anything looser here
+    // reports a recipe as matching a profile that will not load.
+    //
+    // This used to trim both sides, defended by "a whitespace-only difference
+    // cannot arise from a successful activation". True and beside the point: a
+    // title never has to activate to be STORED. profile_title is not normalized
+    // on write, so an MCP or web author can persist "D-Flow / Q " verbatim, and
+    // the trimmed compare then reported that recipe as fine everywhere while
+    // activation failed — the same "looks fine, does not run" failure this
+    // change exists to remove, reintroduced through whitespace instead of
+    // deletion.
+    //
+    // Deliberately NOT fixed by teaching findProfileByTitle to trim: that would
+    // change resolution for every caller (shot loading, auto-load, the MCP and
+    // web surfaces), which is a far larger blast radius than this change earns.
+    // A whitespace-differing title now reads as missing, which is the honest
+    // answer — it genuinely cannot resolve.
     static bool namesProfile(const QString& recipeProfileTitle,
                              const QString& profileTitle) {
         return ownsProfileChoice(recipeProfileTitle)
-            && recipeProfileTitle.trimmed() == profileTitle.trimmed();
+            && recipeProfileTitle == profileTitle;
     }
 
     // True when the recipe's profile is no longer the loaded one, and the
@@ -259,6 +275,14 @@ public:
     // 64x row count because the scan is over short text columns with no blobs
     // dragged along. Well inside a discrete action's budget, and this never
     // runs while the machine is busy.
+    //
+    // Returns kRecipeCountUnknown (-1) when the count could NOT be taken —
+    // never 0. The delete dialog hides its warning at 0, so collapsing a failed
+    // check into "no recipes use this" would show the user an all-clear that
+    // was never established, which is the failure class this change exists to
+    // remove. The caller must render "could not check" distinctly, and must
+    // still allow the delete: not blocking on a failed count and pretending it
+    // succeeded are different things.
     //
     // Matches the title EXACTLY, case-sensitively, because that is what
     // ProfileManager::findProfileByTitle does when deciding whether a recipe's

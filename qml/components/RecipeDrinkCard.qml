@@ -85,9 +85,22 @@ Rectangle {
     // ProfileManager::findProfileByTitle, so this agrees with what activation
     // will really resolve.
     readonly property bool profileMissing: {
-        var title = (recipe && recipe.profileTitle ? String(recipe.profileTitle) : "").trim()
-        if (title === "")
+        var title = (recipe && recipe.profileTitle ? String(recipe.profileTitle) : "")
+        // Owns no profile choice — a hot-water tea is not broken.
+        if (title.trim() === "")
             return false
+        // Carries a frozen copy: activation's refusal is a TWO-term test
+        // (filename.isEmpty() AND profileJson.isEmpty()), so a recipe with
+        // stored JSON activates through loadProfileFromJson even when its title
+        // resolves to nothing. Testing catalog membership alone marked exactly
+        // the recipes the frozen-JSON fallback exists to protect — the ones a
+        // device transfer or import brings in without their profiles — and
+        // following the advice would have destroyed the profile they carried.
+        if (recipe.profileJson && String(recipe.profileJson).length > 0)
+            return false
+        // EXACT, untrimmed, matching ProfileManager::findProfileByTitle. A
+        // title stored with stray whitespace does not resolve, so reporting it
+        // as missing is the honest answer.
         return ProfileManager.installedProfileTitles.indexOf(title) < 0
     }
 
