@@ -516,6 +516,81 @@ private slots:
         QVERIFY(structured.contains("items"));
     }
 
+    // ─── tools/call failure marking: isError ──────────────────────────────
+    //
+    // Tools report failure by returning an `error` key in their result object.
+    // The wrap step buries that key one level down inside the envelope, so
+    // sendJsonRpcResponse's top-level `contains("error")` test can never see it
+    // for a tool call — until buildToolCallResponse transferred the signal onto
+    // the envelope, every tool failure shipped as an unmarked success.
+
+    void toolsCallMarksErrorPayloadAsFailed()
+    {
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "stub_failing_tool",
+            "Returns an error payload",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject {
+                return QJsonObject{{"error", "Database unavailable"}};
+            },
+            "read");
+
+        const QString sid = openSession(server, "2025-11-25");
+        QJsonObject params;
+        params["name"] = "stub_failing_tool";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 2), sid);
+
+        QCOMPARE(resp.statusCode, 200);
+
+        // A tool that ran and failed is a successful protocol exchange: the
+        // response carries `result`, never a JSON-RPC `error` (which is
+        // reserved for protocol faults and would not deliver content[] at all).
+        QVERIFY2(!resp.jsonBody.contains("error"),
+                 "a failing tool must not produce a JSON-RPC error");
+
+        const QJsonObject result = resp.jsonBody["result"].toObject();
+        QVERIFY2(result["isError"].toBool(),
+                 "a tool result carrying `error` must be marked isError: true");
+
+        // The failure marking must not cost the error TEXT — a model reads the
+        // text block to learn what went wrong.
+        QString text;
+        const QJsonArray content = result["content"].toArray();
+        for (const QJsonValue& v : content)
+            if (v.toObject()["type"].toString() == "text")
+                text = v.toObject()["text"].toString();
+        QVERIFY2(text.contains("Database unavailable"),
+                 "the tool's error text must remain readable in content[]");
+    }
+
+    void toolsCallOmitsIsErrorOnSuccess()
+    {
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "stub_ok_tool",
+            "Returns a payload with no error key",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject {
+                return QJsonObject{{"answer", 42}};
+            },
+            "read");
+
+        const QString sid = openSession(server, "2025-11-25");
+        QJsonObject params;
+        params["name"] = "stub_ok_tool";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 2), sid);
+
+        QCOMPARE(resp.statusCode, 200);
+        const QJsonObject result = resp.jsonBody["result"].toObject();
+        // Sparse-emit: absence means success. `isError: false` on every
+        // successful call adds a key to every response and carries no signal.
+        QVERIFY2(!result.contains("isError"),
+                 "a successful tool call must omit isError entirely, never emit false");
+    }
+
     // ─── Spec-version gating: 2024-11-05 clients see only legacy fields ───
     //
     // Strict 2024-11-05 validators reject responses carrying fields introduced

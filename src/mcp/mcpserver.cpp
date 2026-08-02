@@ -370,6 +370,26 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
     result["content"] = content;
     if (emitStructured)
         result["structuredContent"] = sanitized;
+
+    // Every tool in src/mcp reports failure by returning an `error` key. Wrapping
+    // buries that key one level down, where sendJsonRpcResponse's top-level
+    // contains("error") test can never see it — so before this branch existed,
+    // every tool failure shipped as an unmarked success.
+    //
+    // Transferring it HERE is what makes it work for all of them at once: this is
+    // the only place that sees both the raw payload and the envelope it is about
+    // to become. MCP's CallToolResult (schema 2025-11-25) is explicit that this is
+    // the right shape — "Any errors that originate from the tool SHOULD be
+    // reported inside the result object, with `isError` set to true, _not_ as an
+    // MCP protocol-level error response. Otherwise, the LLM would not be able to
+    // see that an error occurred and self-correct." The error text therefore stays
+    // in content[] rather than moving.
+    //
+    // Sparse-emit: `isError?: boolean`, "If not set, this is assumed to be false",
+    // so a successful call carries no key at all rather than `isError: false`.
+    if (sanitized.contains(QStringLiteral("error")))
+        result["isError"] = true;
+
     return result;
 }
 
@@ -1185,9 +1205,12 @@ void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
         QJsonObject deniedPayload;
         deniedPayload["error"] = "User denied confirmation for " + pending.toolName;
 
-        QJsonObject result = buildToolCallResponse(deniedPayload, pending.protocolVersion);
-        result["isError"] = true;
-        sendJsonRpcResponse(pending.socket, result, pending.requestId, pending.sessionId);
+        // `isError` is set by buildToolCallResponse off the `error` key above —
+        // the denial used to mark the envelope by hand here, which was the one
+        // place in the server that got it right, and the only one.
+        sendJsonRpcResponse(pending.socket,
+                            buildToolCallResponse(deniedPayload, pending.protocolVersion),
+                            pending.requestId, pending.sessionId);
         return;
     }
 
@@ -1343,7 +1366,19 @@ void McpServer::sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& resul
     response["jsonrpc"] = "2.0";
     response["id"] = QJsonValue::fromVariant(id);
 
-    // Check if result contains an error
+    // A top-level `error` means a JSON-RPC error response. This is correct for
+    // plain methods (rate limit, dispatch failure, tool-registry error), which
+    // hand back a raw {error: {code, message}} — MCP reserves protocol errors for
+    // "errors in _finding_ the tool … or any other exceptional conditions".
+    //
+    // It CANNOT fire for a tools/call result, because buildToolCallResponse has
+    // already wrapped the payload and the tool's own `error` key is one level
+    // down inside content/structuredContent. That is not a bug to be "fixed" by
+    // unwrapping here: a tool that ran and failed is a successful protocol
+    // exchange carrying a failed tool result, so it must stay a JSON-RPC `result`
+    // with `isError: true` (set at the wrap site). Emitting a JSON-RPC error
+    // instead would drop content[] entirely and with it the error text the model
+    // needs to self-correct.
     if (result.contains("error")) {
         response["error"] = result["error"];
     } else {

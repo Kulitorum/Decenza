@@ -468,6 +468,16 @@ MCP tool responses are consumed by LLMs (Claude, ChatGPT, etc.) which cannot rel
 
 When adding new MCP tool responses, never return raw numbers that require domain knowledge to interpret. An AI seeing `"pressure": 9.0` doesn't know if that's bar, PSI, or kPa. Use `"pressureBar": 9.0` instead.
 
+### `error` is a reserved key: it marks the tool call FAILED
+
+**A tool reports failure by returning an `error` key in its result object, and that is the only thing it has to do.** `buildToolCallResponse()` sees the key on the raw payload, before wrapping, and sets `isError: true` on the response envelope. Every tool inherits this; a new tool needs no opt-in, and no call site may hand-roll the marking (the confirmation-denial path used to, and no longer does — one place decides what a failed tool call looks like).
+
+The consequence is that **`error` cannot be used as an ordinary data field in a tool payload.** A tool wanting to report an error-shaped value that is not a failure has to name the field something else.
+
+The error TEXT stays in `content[]`, which is what the model reads. `isError` is sparse — absent means success, and a successful call carries no `isError` key at all, never `isError: false`. Both follow MCP's `CallToolResult` (`isError?: boolean`, "If not set, this is assumed to be false").
+
+**A tool failure stays a JSON-RPC `result`. Never reach for `sendJsonRpcError()` from a tool.** MCP is explicit: errors originating from the tool "SHOULD be reported inside the result object, with `isError` set to true, _not_ as an MCP protocol-level error response. Otherwise, the LLM would not be able to see that an error occurred and self-correct" — a JSON-RPC error delivers no `content[]`, so the error text never reaches the model. JSON-RPC `error` is reserved for protocol faults: unknown method, unknown tool, malformed request, rejected session, rate limit. Those paths in `handleToolsCall()` return a raw `{error: {code, message}}` that never reaches the wrap step, which is why `sendJsonRpcResponse()`'s top-level `contains("error")` test is correct for them and unreachable for tool calls.
+
 ### Shot Detector Outputs (`shots_get_detail`, `shots_compare`)
 
 `shots_get_detail` and `shots_compare` return two complementary views of the in-app Shot Summary detector pipeline:
