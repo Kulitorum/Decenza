@@ -157,50 +157,61 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     // (history-recipe-identity): live from `recipes`, so a rename
                     // is reflected here too. A shot-linked recipe can only be
                     // archived, never deleted, so the row always resolves.
-                    QString sql = "SELECT s.id, timestamp, profile_name, dose_weight, final_weight, "
-                                  "duration_seconds, enjoyment, "
-                                  "grinder_setting, rpm, eg.model AS grinder_model, "
-                                  "espresso_notes, bean_brand, bean_type, yield_override, profile_json, "
-                                  "stopped_by, s.recipe_id, r.name AS recipe_name "
+                    // EVERY shots column is qualified `s.`: joining `recipes` makes
+                    // ten names ambiguous (bag_id, beanbase_id, created_at,
+                    // equipment_id, hot_water_json, id, profile_json, steam_json,
+                    // updated_at, yield_mode), and SQLite rejects the whole
+                    // statement on any one of them. Do not hand-maintain that list
+                    // — recompute it from the two CREATE TABLEs plus their
+                    // ALTER TABLE ADD COLUMN migrations if you need it. Qualifying
+                    // unconditionally is what makes the list not matter.
+                    QString sql = "SELECT s.id, s.timestamp, s.profile_name, s.dose_weight, s.final_weight, "
+                                  "s.duration_seconds, s.enjoyment, "
+                                  "s.grinder_setting, s.rpm, eg.model AS grinder_model, "
+                                  "s.espresso_notes, s.bean_brand, s.bean_type, s.yield_override, s.profile_json, "
+                                  "s.stopped_by, s.recipe_id, r.name AS recipe_name "
                                   "FROM shots s "
                                   "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
                                   "LEFT JOIN recipes r ON r.id = s.recipe_id "
                                   "WHERE 1=1 ";
-                    QString countSql = "SELECT COUNT(*) FROM shots WHERE 1=1 ";
+                    // Aliased `s` as well, though it does NOT join: it lets the shared
+                    // WHERE fragments below carry one qualified spelling instead of
+                    // two that can drift apart.
+                    QString countSql = "SELECT COUNT(*) FROM shots s WHERE 1=1 ";
 
                     if (!profileFilter.isEmpty()) {
-                        sql += " AND profile_name LIKE :profileFilter";
-                        countSql += " AND profile_name LIKE :profileFilter";
+                        sql += " AND s.profile_name LIKE :profileFilter";
+                        countSql += " AND s.profile_name LIKE :profileFilter";
                     }
                     if (!beanFilter.isEmpty()) {
-                        sql += " AND bean_brand LIKE :beanFilter";
-                        countSql += " AND bean_brand LIKE :beanFilter";
+                        sql += " AND s.bean_brand LIKE :beanFilter";
+                        countSql += " AND s.bean_brand LIKE :beanFilter";
                     }
                     if (minEnjoyment > 0) {
-                        sql += " AND enjoyment >= :minEnjoyment";
-                        countSql += " AND enjoyment >= :minEnjoyment";
+                        sql += " AND s.enjoyment >= :minEnjoyment";
+                        countSql += " AND s.enjoyment >= :minEnjoyment";
                     }
                     if (hasRating) {
-                        sql += " AND enjoyment > 0";
-                        countSql += " AND enjoyment > 0";
+                        sql += " AND s.enjoyment > 0";
+                        countSql += " AND s.enjoyment > 0";
                     }
                     if (hasNotes) {
-                        sql += " AND TRIM(COALESCE(espresso_notes, '')) <> ''";
-                        countSql += " AND TRIM(COALESCE(espresso_notes, '')) <> ''";
+                        sql += " AND TRIM(COALESCE(s.espresso_notes, '')) <> ''";
+                        countSql += " AND TRIM(COALESCE(s.espresso_notes, '')) <> ''";
                     }
                     if (hasTds) {
-                        sql += " AND drink_tds > 0";
-                        countSql += " AND drink_tds > 0";
+                        sql += " AND s.drink_tds > 0";
+                        countSql += " AND s.drink_tds > 0";
                     }
                     if (afterEpoch > 0) {
-                        sql += " AND timestamp >= :after";
-                        countSql += " AND timestamp >= :after";
+                        sql += " AND s.timestamp >= :after";
+                        countSql += " AND s.timestamp >= :after";
                     }
                     if (beforeEpoch > 0) {
-                        sql += " AND timestamp <= :before";
-                        countSql += " AND timestamp <= :before";
+                        sql += " AND s.timestamp <= :before";
+                        countSql += " AND s.timestamp <= :before";
                     }
-                    sql += " ORDER BY timestamp DESC LIMIT " + QString::number(limit) + " OFFSET " + QString::number(offset);
+                    sql += " ORDER BY s.timestamp DESC LIMIT " + QString::number(limit) + " OFFSET " + QString::number(offset);
 
                     QSqlQuery query(db);
                     query.prepare(sql);
@@ -235,10 +246,15 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             // Sparse: both omitted when the shot used no recipe,
                             // so their presence alone answers "was this a recipe
                             // drink?" without a sentinel value to interpret.
+                            // Both or neither. Emitting an id beside an empty name
+                            // would defeat the sparse convention's whole point —
+                            // presence answers "was this a recipe drink?" — and an
+                            // LLM client renders the empty string literally.
                             const qint64 recipeId = query.value("recipe_id").toLongLong();
-                            if (recipeId > 0) {
+                            const QString recipeName = query.value("recipe_name").toString();
+                            if (recipeId > 0 && !recipeName.isEmpty()) {
                                 shot["recipeId"] = recipeId;
-                                shot["recipeName"] = query.value("recipe_name").toString();
+                                shot["recipeName"] = recipeName;
                             }
                             shot["notes"] = query.value("espresso_notes").toString();
                             shot["beanBrand"] = query.value("bean_brand").toString();
@@ -270,6 +286,17 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             }
                             shots.append(shot);
                         }
+                    } else {
+                        // A bare `if (exec())` with no else is how a broken query
+                        // here reaches a user: the loop is skipped, the count query
+                        // still succeeds because it does not join, and the tool
+                        // answers `shots: []` beside a non-zero `total` — forever,
+                        // with no log line and no error field. That is exactly what
+                        // an unqualified `profile_json` did once the recipes join
+                        // landed. Report it instead.
+                        qWarning() << "MCP shots_list: query failed -" << query.lastError().text();
+                        result["error"] = QStringLiteral("Shot list query failed: ")
+                                          + query.lastError().text();
                     }
 
                     QSqlQuery countQuery(db);

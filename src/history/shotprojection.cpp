@@ -107,6 +107,22 @@ QVariantMap ShotProjection::toVariantMap() const
     // — the web shot list among them — silently rendered an empty date.
     if (!dateTime.isEmpty())
         m["dateTime"] = dateTime;
+    // Asymmetric in the other direction until now: fromVariantMap READ
+    // "timestamp" while toVariantMap never wrote it, so any round-trip through
+    // a map zeroed it — and the web card sorts on shot.timestamp.
+    m["timestamp"] = timestamp;
+    // Equipment/basket identity — declared as members AND Q_PROPERTYs since
+    // add-equipment-packages but carried by NEITHER conversion, so any consumer
+    // round-tripping a shot through a map lost all six. Same defect class as
+    // dateTime; found by comparing the header's Q_PROPERTY list against both
+    // functions rather than by anyone noticing empty fields. Sparse-emitted like
+    // the rest of the optional identity block.
+    if (!basketBrand.isEmpty())    m["basketBrand"] = basketBrand;
+    if (!basketModel.isEmpty())    m["basketModel"] = basketModel;
+    if (!puckPrep.isEmpty())       m["puckPrep"] = puckPrep;
+    if (equipmentId > 0)           m["equipmentId"] = equipmentId;
+    if (!equipmentState.isEmpty()) m["equipmentState"] = equipmentState;
+    if (!equipmentName.isEmpty())  m["equipmentName"] = equipmentName;
 
     m["pressure"] = pressure;
     m["flow"] = flow;
@@ -210,6 +226,12 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.recipeDrinkType = m.value("recipeDrinkType").toString();
     p.recipeArchived = m.value("recipeArchived", false).toBool();
     p.dateTime = m.value("dateTime").toString();
+    p.basketBrand = m.value("basketBrand").toString();
+    p.basketModel = m.value("basketModel").toString();
+    p.puckPrep = m.value("puckPrep").toString();
+    p.equipmentId = m.value("equipmentId", 0).toLongLong();
+    p.equipmentState = m.value("equipmentState").toString();
+    p.equipmentName = m.value("equipmentName").toString();
     p.steamJson = m.value("steamJson").toString();
     p.hotWaterJson = m.value("hotWaterJson").toString();
 

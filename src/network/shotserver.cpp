@@ -275,9 +275,10 @@ static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
     // Recipe identity is joined in, matching the in-app history list
     // (history-recipe-identity): live from `recipes` by id, never snapshotted
     // onto the shot, so renaming a recipe relabels its whole history. LEFT so a
-    // recipe-less shot is still listed. Columns are qualified because the two
-    // tables collide on id, equipment_id, steam_json, hot_water_json,
-    // created_at and updated_at.
+    // recipe-less shot is still listed. Every column is qualified because the
+    // two tables collide on ten names — deliberately not enumerated here: an
+    // enumerated copy of that list went stale, omitted `profile_json`, and that
+    // omission is what silently emptied the MCP shots_list query.
     if (!query.prepare(R"(
         SELECT shots.id, shots.uuid, shots.timestamp, shots.profile_name, shots.duration_seconds,
                shots.final_weight, shots.dose_weight, shots.bean_brand, shots.bean_type,
@@ -302,15 +303,23 @@ static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
         row["doseWeightG"] = query.value(6).toDouble();
         row["beanBrand"] = query.value(7).toString();
         row["beanType"] = query.value(8).toString();
-        row["enjoyment"] = query.value(9).toDouble();
+        // ShotProjection-ALIGNED key names. These three were `enjoyment`,
+        // `drinkTds` and `drinkEy` while ShotProjection::fromVariantMap has
+        // always read `enjoyment0to100`, `drinkTdsPct` and `drinkEyPct`, so
+        // generateShotListPage saw 0 for all three: the web card's rating chip
+        // never rendered, and the client-side `rating:`, `tds:` and `ey:`
+        // searches plus the rating sort matched nothing. Same defect class as
+        // the dateTime omission, but a key MISMATCH rather than an absence, so
+        // it survives even a "does every field appear in both functions" audit.
+        row["enjoyment0to100"] = query.value(9).toDouble();
         row["hasVisualizerUpload"] = !query.value(10).toString().isEmpty();
         row["grinderSetting"] = query.value(11).toString();
         row["rpm"] = query.value(17).toLongLong();  // RPM half of the dial-in
         row["temperatureOverrideC"] = query.value(12).toDouble();
         row["targetWeightG"] = query.value(13).toDouble();
         row["beverageType"] = query.value(14).toString();
-        row["drinkTds"] = query.value(15).toDouble();
-        row["drinkEy"] = query.value(16).toDouble();
+        row["drinkTdsPct"] = query.value(15).toDouble();
+        row["drinkEyPct"] = query.value(16).toDouble();
         row["recipeId"] = query.value(18).toLongLong();
         row["recipeName"] = query.value(19).toString();
         row["recipeDrinkType"] = query.value(20).toString();

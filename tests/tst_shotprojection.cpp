@@ -3,6 +3,9 @@
 #include <QVariantMap>
 #include <QVariantList>
 #include <QRegularExpression>
+#include <QMetaProperty>
+#include <QSet>
+#include <QVector>
 
 #include "history/shotprojection.h"
 
@@ -28,6 +31,7 @@ private slots:
     void toVariantMap_roundTripsTasteAxes();
     void toVariantMap_roundTripsRpm();
     void toVariantMap_roundTripsRecipeDisplayAndDateTime();
+    void everyQPropertySurvivesARoundTrip();
 };
 
 static ShotProjection makeSampleShot()
@@ -198,6 +202,7 @@ void TstShotProjection::toVariantMap_roundTripsRecipeDisplayAndDateTime()
     QVERIFY2(!bare.contains(QStringLiteral("recipeName")), "unset recipeName must be omitted");
     QVERIFY2(!bare.contains(QStringLiteral("recipeDrinkType")), "unset recipeDrinkType must be omitted");
     QVERIFY2(!bare.contains(QStringLiteral("recipeArchived")), "false recipeArchived must be omitted");
+    QVERIFY2(!bare.contains(QStringLiteral("dateTime")), "unset dateTime must be omitted");
 
     p.recipeId = 7;
     p.recipeName = QStringLiteral("Dad Monday");
@@ -211,6 +216,81 @@ void TstShotProjection::toVariantMap_roundTripsRecipeDisplayAndDateTime()
     QCOMPARE(back.recipeDrinkType, QStringLiteral("latte"));
     QCOMPARE(back.recipeArchived, true);
     QCOMPARE(back.dateTime, QStringLiteral("2026-08-01 09:21"));
+}
+
+// Closes the DEFECT CLASS rather than another instance of it.
+//
+// Every field above is carried by two hand-written functions that map keys by
+// name. A member declared in the header but absent from one of them — or, worse,
+// spelled differently in each — compiles clean, passes qmllint, and silently
+// arrives empty at every consumer. That has happened at least three times in
+// this struct: `dateTime` (in neither function, blanked the web shot list's
+// date), `timestamp` (read but never written), and the six equipment/basket
+// fields (in neither). A per-field test only ever catches the field someone
+// already noticed.
+//
+// So: drive it from the metaobject. Set every scalar Q_PROPERTY to a
+// distinctive non-default value, round-trip through the map, and require it
+// back. Any future field added to the header and forgotten in either function
+// fails here on the day it is added, with the property's name in the message.
+//
+// Container properties (the time-series QVariantLists, detectorResults,
+// phaseSummaries) are skipped: they round-trip as opaque QVariants and building
+// meaningful values for them here would test QVariant, not the mapping.
+void TstShotProjection::everyQPropertySurvivesARoundTrip()
+{
+    ShotProjection p = makeSampleShot();
+    const QMetaObject& mo = ShotProjection::staticMetaObject;
+
+    // Fields whose emit is conditional on a value the round-trip cannot preserve
+    // by design — documented sparse rules, not oversights. Each needs a reason.
+    static const QSet<QByteArray> kSkip = {
+        // stoppedBy sparse-emits only manual/weight/volume; "profileEnd" and ""
+        // deliberately collapse to "" (see toVariantMap).
+        QByteArrayLiteral("stoppedBy"),
+        // yieldMode sparse-emits only absolute/ratio, and yieldAnchorValue rides
+        // with it.
+        QByteArrayLiteral("yieldMode"),
+        QByteArrayLiteral("yieldAnchorValue"),
+    };
+
+    QVector<QByteArray> checked;
+    for (int i = mo.propertyOffset(); i < mo.propertyCount(); ++i) {
+        const QMetaProperty prop = mo.property(i);
+        const QByteArray name = prop.name();
+        if (kSkip.contains(name))
+            continue;
+
+        QVariant probe;
+        switch (prop.metaType().id()) {
+        case QMetaType::QString:  probe = QStringLiteral("rt-%1").arg(i); break;
+        case QMetaType::Int:      probe = 40 + i; break;
+        case QMetaType::LongLong: probe = static_cast<qint64>(90000 + i); break;
+        case QMetaType::Double:   probe = 1.0 + i; break;
+        case QMetaType::Bool:     probe = true; break;
+        default:                  continue;   // containers — see comment above
+        }
+        QVERIFY2(prop.writeOnGadget(&p, probe),
+                 qPrintable(QStringLiteral("could not set %1").arg(QString::fromLatin1(name))));
+        checked.append(name);
+    }
+
+    // Guard against the guard: if the switch ever stops matching anything, an
+    // empty loop below would pass silently.
+    QVERIFY2(checked.size() > 30,
+             qPrintable(QStringLiteral("only %1 scalar properties probed — the "
+                                       "metaType switch has gone stale").arg(checked.size())));
+
+    const ShotProjection back = ShotProjection::fromVariantMap(p.toVariantMap());
+    for (const QByteArray& name : checked) {
+        const QMetaProperty prop = mo.property(mo.indexOfProperty(name.constData()));
+        QCOMPARE_NE(prop.readOnGadget(&p), QVariant());
+        QVERIFY2(prop.readOnGadget(&back) == prop.readOnGadget(&p),
+                 qPrintable(QStringLiteral("%1 did not survive toVariantMap/fromVariantMap — "
+                                           "it is missing from one of them, or the two spell "
+                                           "its key differently")
+                                .arg(QString::fromLatin1(name))));
+    }
 }
 
 QTEST_APPLESS_MAIN(TstShotProjection)

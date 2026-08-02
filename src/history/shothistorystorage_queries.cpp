@@ -52,22 +52,38 @@ QString escapeLikeWildcards(const QString& in)
     return out;
 }
 
-// Bind value for `LOWER(col) LIKE ? ESCAPE '\'`. Preferred — the driver handles
-// quoting, so a literal apostrophe needs no special care.
-QString likeContainsBind(const QString& in)
-{
-    return QStringLiteral("%") + escapeLikeWildcards(in.trimmed().toLower()) + QStringLiteral("%");
-}
-
-// Inline SQL literal for the same match, for the two clauses that are spliced
-// into the SQL string ahead of the positional binds and so cannot use a `?`
-// without reordering the whole bind list. Single quotes are doubled here
-// because the value lands inside a string literal.
+// Inline SQL literal for a contains-match on ONE term. Every recipe/grinder
+// clause is spliced into the SQL string rather than bound, because the number of
+// terms varies with what the user typed and positional binds would have to be
+// reordered to match. Single quotes are doubled here because the value lands
+// inside a string literal; wildcards are escaped above, so user input is inert.
 QString likeContainsLiteral(const QString& in)
 {
     QString v = escapeLikeWildcards(in.trimmed().toLower());
     v.replace('\'', "''");
     return QStringLiteral("'%") + v + QStringLiteral("%' ESCAPE '\\'");
+}
+
+// A word-order-INDEPENDENT contains-match: every whitespace-separated term must
+// appear somewhere in `expr`, in any order. Returns "" for an empty input so the
+// caller can skip the clause entirely.
+//
+// Why this exists: FTS5 treats space-separated terms as AND regardless of order,
+// so a free-text search reaches beans and profiles however the user types them.
+// The two clauses that resolve the OTHER tables (recipe name, grinder identity)
+// LIKEd the whole raw search string, so "dad monday" found "Dad Monday" and
+// "monday dad" found nothing — same query, same data, silently different answer
+// depending on word order. Splitting matches what the FTS half already does.
+QString likeAllTermsLiteral(const QString& expr, const QString& in)
+{
+    const QStringList terms = in.trimmed().split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+    if (terms.isEmpty())
+        return QString();
+    QStringList parts;
+    parts.reserve(terms.size());
+    for (const QString& t : terms)
+        parts << expr + QStringLiteral(" LIKE ") + likeContainsLiteral(t);
+    return parts.join(QStringLiteral(" AND "));
 }
 
 } // namespace
@@ -159,13 +175,17 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
 
 // EVERY column here is qualified `shots.`, and new ones must be too. The data
 // query this feeds now reads `FROM shots LEFT JOIN recipes r` (history-recipe-
-// identity), and the two tables collide on id, equipment_id, steam_json,
-// hot_water_json, created_at and updated_at. SQLite rejects an ambiguous bare
-// name outright ("ambiguous column name"), so the failure is loud — but it
-// lands at runtime in the filter path, not at compile time, and only for the
-// filters that happen to name a colliding column. Qualifying unconditionally is
-// what keeps the next added `recipes` column from breaking a filter nobody
-// re-tested. Qualified names stay valid in the count query, which does NOT join.
+// identity), and the two tables collide on TEN names. SQLite
+// rejects an ambiguous bare name outright ("ambiguous column name"), so the
+// failure is loud — but it lands at runtime, not at compile time, and only for
+// the filters that happen to name a colliding column.
+//
+// Do NOT hand-maintain the list. An earlier version of this comment enumerated
+// six names, omitted `profile_json`, and that omission is precisely what broke
+// the MCP shots_list query when the same join was added there. Recompute from
+// the two CREATE TABLEs plus their ALTER TABLE ADD COLUMN migrations if you
+// ever need it; qualifying unconditionally is what makes the list not matter.
+// Qualified names stay valid in the count query, which does NOT join.
 QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantList& bindValues)
 {
     QStringList conditions;
@@ -227,8 +247,18 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
         bindValues << filter.recipeId;
     }
     if (!filter.recipeName.isEmpty()) {
-        conditions << "shots.recipe_id IN (SELECT id FROM recipes WHERE LOWER(name) LIKE ? ESCAPE '\\')";
-        bindValues << likeContainsBind(filter.recipeName);
+        // Word-order independent, matching the free-text clause and FTS: a user
+        // who types recipe:"tuesday dad" means the same recipe as "dad tuesday".
+        // Built as a literal rather than a bind because the term count varies;
+        // likeAllTermsLiteral escapes each term, so user input stays inert.
+        const QString terms = likeAllTermsLiteral(QStringLiteral("LOWER(name)"), filter.recipeName);
+        if (terms.isEmpty()) {
+            // Whitespace-only term: an explicit no-match, never a no-op. See the
+            // empty-term sentinel the search box sends for a bare `recipe:`.
+            conditions << "0";
+        } else {
+            conditions << ("shots.recipe_id IN (SELECT id FROM recipes WHERE " + terms + ")");
+        }
     }
     if (filter.minEnjoyment >= 0) {
         conditions << "shots.enjoyment >= ?";
@@ -315,16 +345,21 @@ QString ShotHistoryStorage::formatFtsQuery(const QString& userInput)
 
 // Whitelist for sort columns — maps user-facing keys to SQL ORDER BY expressions
 
+// Values are spliced into the data query's ORDER BY, which JOINs `recipes` — so
+// they are qualified for the same reason buildFilterQuery's are. None of these
+// nine names collides with a `recipes` column TODAY; qualifying anyway is what
+// stops a future column addition from emptying the whole history list through a
+// sort nobody re-tested.
 static const QHash<QString, QString> s_sortColumnMap = {
-    {"timestamp",        "timestamp"},
-    {"profile_name",     "LOWER(profile_name)"},
-    {"bean_brand",       "LOWER(bean_brand)"},
-    {"bean_type",        "LOWER(bean_type)"},
-    {"enjoyment",        "enjoyment"},
-    {"ratio",            "CASE WHEN dose_weight > 0 THEN CAST(final_weight AS REAL) / dose_weight ELSE 0 END"},
-    {"duration_seconds", "duration_seconds"},
-    {"dose_weight",      "dose_weight"},
-    {"final_weight",     "final_weight"},
+    {"timestamp",        "shots.timestamp"},
+    {"profile_name",     "LOWER(shots.profile_name)"},
+    {"bean_brand",       "LOWER(shots.bean_brand)"},
+    {"bean_type",        "LOWER(shots.bean_type)"},
+    {"enjoyment",        "shots.enjoyment"},
+    {"ratio",            "CASE WHEN shots.dose_weight > 0 THEN CAST(shots.final_weight AS REAL) / shots.dose_weight ELSE 0 END"},
+    {"duration_seconds", "shots.duration_seconds"},
+    {"dose_weight",      "shots.dose_weight"},
+    {"final_weight",     "shots.final_weight"},
 };
 
 void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int offset, int limit)
@@ -345,7 +380,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
     QVariantList bindValues;
     QString whereClause = buildFilterQuery(filter, bindValues);
 
-    QString orderByExpr = s_sortColumnMap.value(filter.sortColumn, "timestamp");
+    QString orderByExpr = s_sortColumnMap.value(filter.sortColumn, "shots.timestamp");
     QString sortDir = (filter.sortDirection == "ASC") ? "ASC" : "DESC";
     QString orderByClause = QString("ORDER BY %1 %2").arg(orderByExpr, sortDir);
 
@@ -363,11 +398,14 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
     // single-quote- and wildcard-escaped (ESCAPE '\') so user input is inert.
     QString grinderMatchClause;
     if (!ftsQuery.isEmpty()) {
-        grinderMatchClause = QStringLiteral(
-            " OR shots.equipment_id IN (SELECT package_id FROM equipment_items WHERE kind = 'grinder' "
-            "AND LOWER(IFNULL(brand,'') || ' ' || IFNULL(model,'') || ' ' || "
-            "IFNULL(json_extract(attrs,'$.burrs'),'')) LIKE ")
-            + likeContainsLiteral(filter.searchText) + QStringLiteral(")");
+        const QString grinderIdentityExpr = QStringLiteral(
+            "LOWER(IFNULL(brand,'') || ' ' || IFNULL(model,'') || ' ' || "
+            "IFNULL(json_extract(attrs,'$.burrs'),''))");
+        const QString grinderTerms = likeAllTermsLiteral(grinderIdentityExpr, filter.searchText);
+        if (!grinderTerms.isEmpty())
+            grinderMatchClause = QStringLiteral(
+                " OR shots.equipment_id IN (SELECT package_id FROM equipment_items "
+                "WHERE kind = 'grinder' AND ") + grinderTerms + QStringLiteral(")");
     }
 
     // A recipe's name lives in `recipes`, not in shots_fts (which is external-
@@ -379,9 +417,12 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
     // is the ONLY handle they would think to type.
     QString recipeMatchClause;
     if (!ftsQuery.isEmpty()) {
-        recipeMatchClause = QStringLiteral(
-            " OR shots.recipe_id IN (SELECT id FROM recipes WHERE LOWER(name) LIKE ")
-            + likeContainsLiteral(filter.searchText) + QStringLiteral(")");
+        const QString recipeTerms = likeAllTermsLiteral(QStringLiteral("LOWER(name)"),
+                                                       filter.searchText);
+        if (!recipeTerms.isEmpty())
+            recipeMatchClause = QStringLiteral(
+                " OR shots.recipe_id IN (SELECT id FROM recipes WHERE ")
+                + recipeTerms + QStringLiteral(")");
     }
 
     // ONE column list, read positionally below. It used to be written out twice
@@ -390,8 +431,8 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
     // it, silently, with no compiler or test able to see it.
     //
     // Every name is qualified `shots.`: the display join below brings in
-    // `recipes`, and the two tables collide on id, equipment_id, steam_json,
-    // hot_water_json, created_at and updated_at.
+    // `recipes`, and the two tables collide on ten names — see the note on
+    // buildFilterQuery for why that count is not enumerated here.
     static const QString kShotListColumns = QStringLiteral(
         "shots.id, shots.uuid, shots.timestamp, shots.profile_name, shots.duration_seconds, "
         "shots.final_weight, shots.dose_weight, shots.bean_brand, shots.bean_type, "
@@ -405,9 +446,10 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
     // Recipe identity is resolved HERE, in the list query, and never per row: a
     // RecipeResolver in the delegate (correct on Shot Detail, which shows one
     // shot) would be one async database request per visible row, re-fired on
-    // every scroll recycle. The join is on the recipes primary key against a
-    // table of tens of rows, inside a query that already runs off the main
-    // thread — there is nothing here to measure or to cache.
+    // every scroll recycle. The join is on the recipes primary key, inside a
+    // query that already runs off the main thread, and adds no per-row work —
+    // nothing to cache. (Deliberately no row-count figure here: an unmeasured
+    // "it's a small table" is the kind of premise that stops being re-derived.)
     //
     // LEFT, not INNER: a shot with no recipe must still be listed. Name, type
     // and archived arrive NULL for those rows and read as empty/0 below.
@@ -460,11 +502,23 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
             withTempDb(dbPath, "shs_filter", [&](QSqlDatabase& db) {
                 // Data query
                 QSqlQuery query(db);
-                if (query.prepare(sql)) {
+                // Every failure below used to fall through silently, leaving results
+                // empty and totalCount 0 — which reaches the user as the ordinary
+                // "no shots" empty state, indistinguishable from a broken query.
+                // That is exactly how an unqualified column emptied the MCP
+                // shots_list tool without anyone noticing, and this list now depends
+                // on a second table too.
+                if (!query.prepare(sql)) {
+                    qWarning() << "ShotHistoryStorage: shot list prepare failed -"
+                               << query.lastError().text();
+                } else {
                     for (int i = 0; i < bindValues.size(); ++i)
                         query.bindValue(i, bindValues[i]);
 
-                    if (query.exec()) {
+                    if (!query.exec()) {
+                        qWarning() << "ShotHistoryStorage: shot list query failed -"
+                                   << query.lastError().text();
+                    } else {
                         while (query.next()) {
                             QVariantMap shot;
                             shot["id"] = query.value(0).toLongLong();
@@ -513,10 +567,16 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
 
                 // Count query
                 QSqlQuery countQuery(db);
-                if (countQuery.prepare(countSql)) {
+                if (!countQuery.prepare(countSql)) {
+                    qWarning() << "ShotHistoryStorage: shot count prepare failed -"
+                               << countQuery.lastError().text();
+                } else {
                     for (int i = 0; i < countBindValues.size(); ++i)
                         countQuery.bindValue(i, countBindValues[i]);
-                    if (countQuery.exec() && countQuery.next())
+                    if (!countQuery.exec())
+                        qWarning() << "ShotHistoryStorage: shot count query failed -"
+                                   << countQuery.lastError().text();
+                    else if (countQuery.next())
                         totalCount = countQuery.value(0).toInt();
                 }
             });
@@ -1414,16 +1474,19 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
     const QString bucketCol = weightAware ? "g.gb_dose_bucket AS dose_bucket" : "0 AS dose_bucket";
 
     QString sql = QString(
-        // s.recipe_id only — this row needs to know WHETHER the shot had a
-        // recipe (to hide the promote-to-recipe button), not which one, so it
-        // takes the id and skips the recipes join the history list needs.
-        "SELECT s.id, s.recipe_id, s.profile_name, s.bean_brand, s.bean_type, "
+        // Recipe identity, same shape as the history list: the card shows the
+        // recipe that made the group's latest shot, and the id also gates the
+        // promote-to-recipe button.
+        "SELECT s.id, s.recipe_id, r.name AS recipe_name, r.drink_type AS recipe_drink_type, "
+        "r.archived AS recipe_archived, "
+        "s.profile_name, s.bean_brand, s.bean_type, "
         "eg.brand AS grinder_brand, eg.model AS grinder_model, "
         "json_extract(eg.attrs, '$.burrs') AS grinder_burrs, s.grinder_setting, "
         "s.dose_weight, s.final_weight, %5, %6, "
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
         "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
+        "LEFT JOIN recipes r ON r.id = s.recipe_id "
         "INNER JOIN ("
         "  SELECT %1, MAX(timestamp) as max_ts, "
         "  COUNT(*) as shot_count, "
@@ -1446,6 +1509,9 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     QVariantMap entry;
                     entry["shotId"] = query.value("id").toLongLong();
                     entry["recipeId"] = query.value("recipe_id").toLongLong();
+                    entry["recipeName"] = query.value("recipe_name").toString();
+                    entry["recipeDrinkType"] = query.value("recipe_drink_type").toString();
+                    entry["recipeArchived"] = query.value("recipe_archived").toInt() != 0;
                     entry["profileName"] = query.value("profile_name").toString();
                     entry["beanBrand"] = query.value("bean_brand").toString();
                     entry["beanType"] = query.value("bean_type").toString();

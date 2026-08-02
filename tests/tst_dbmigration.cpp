@@ -126,9 +126,13 @@ private:
         ShotRowFixtures::initAndCloseStorage(path, storage);
     }
 
-    // Recipe-identity fixture (history-recipe-identity). Lives here, NOT under
-    // `private slots:` — Qt Test runs every private slot as a test function, so a
-    // helper placed there would execute as one.
+    // Recipe-identity fixture (history-recipe-identity). Lives under `private:`
+    // with the other helpers. Qt Test collects a private slot as a test only when
+    // it takes ZERO parameters, returns void, and is not named init*/cleanup*/
+    // *_data (`isValidSlot`, qtbase/src/testlib/qtestcase.cpp:151) — so this
+    // two-argument helper would not have run as a test even under `private
+    // slots:`. Stated because an earlier version of this comment claimed
+    // otherwise without checking the Qt source.
     //
     // Deliberately: no shot's bean, profile or notes contains "monday",
     // "tuesday" or "vacation", so a search hit on any of those can only have
@@ -2172,9 +2176,26 @@ private slots:
         s.requestShotsFiltered({{"searchText", "monday"}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(0).toList().size(), 1);
-        // The count query runs separately from the data query and must agree —
-        // they build their disjunction from the same pieces but not the same string.
+        // The count query runs against a DIFFERENT `FROM` (no `recipes` join) with
+        // the same disjunction string, so this checks the qualified names stay
+        // valid without the join. (It is no longer the "two independently built
+        // strings" risk an earlier version of this comment described — this change
+        // hoisted both to one shared `freeTextMatch`.)
         QCOMPARE(spy.last().at(2).toInt(), 1);
+
+        // Word order must not matter — FTS treats space-separated terms as AND in
+        // any order, and this clause has to agree or the same query returns
+        // different answers depending on how the user typed it.
+        s.requestShotsFiltered({{"searchText", "monday dad"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);
+        QCOMPARE(spy.last().at(0).toList().size(), 1);
+
+        // Both terms must be present: "dad" matches two recipes, "dad vacation"
+        // must match neither.
+        s.requestShotsFiltered({{"searchText", "dad vacation"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 0);
 
         // Archived recipes still match: the shot happened.
         s.requestShotsFiltered({{"searchText", "vacation"}}, 0, 50);
@@ -2196,12 +2217,23 @@ private slots:
         QSignalSpy spy(&s, &ShotHistoryStorage::shotsFilteredReady);
 
         // Single token: both "Dad Monday" and "Dad Tuesday".
+        // Assert ROWS as well as the count on every case: the count query does not
+        // join `recipes`, so a defect confined to the data query leaves the count
+        // correct and the rows empty — the "shots: [] beside a non-zero total"
+        // shape that made the MCP tool's failure invisible.
         s.requestShotsFiltered({{"recipeName", "dad"}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 2);
+        QCOMPARE(spy.last().at(0).toList().size(), 2);
 
         // Quoted form (the QML hands the inner text through): disambiguates.
         s.requestShotsFiltered({{"recipeName", "dad tuesday"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);
+        QCOMPARE(spy.last().at(0).toList().size(), 1);
+
+        // Keyword form is word-order independent too.
+        s.requestShotsFiltered({{"recipeName", "tuesday dad"}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 1);
 
@@ -2209,6 +2241,13 @@ private slots:
         s.requestShotsFiltered({{"recipeName", "DAD TUESDAY"}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 1);
+
+        // An empty term must filter to NOTHING, never to everything. The QML sends
+        // a sentinel for a bare `recipe:` or `recipe:""` precisely so the widest
+        // possible result set can't be what a narrowing request produces.
+        s.requestShotsFiltered({{"recipeName", QStringLiteral(" ")}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 0);
 
         // Scoped: every seeded shot has bean_brand 'Roaster', but no recipe is
         // named that, so the keyword must return nothing where bare text would
@@ -2247,6 +2286,7 @@ private slots:
         s.requestShotsFiltered({{"recipeId", seed.mondayId}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 1);
+        QCOMPARE(spy.last().at(0).toList().size(), 1);
         QCOMPARE(spy.last().at(0).toList().first().toMap().value("uuid").toString(),
                  QString("s-monday"));
 
@@ -2292,6 +2332,7 @@ private slots:
         s.requestShotsFiltered({{"recipeName", "50% off"}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 1);
+        QCOMPARE(spy.last().at(0).toList().size(), 1);
 
         s.requestShotsFiltered({{"recipeName", "a_b"}}, 0, 50);
         QVERIFY(spy.wait(3000));

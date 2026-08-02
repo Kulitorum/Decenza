@@ -49,13 +49,20 @@
 // per call site; the type strings are the same set RecipeStorage stores.
 static QString drinkTypeEmoji(const QString& drinkType)
 {
-    if (drinkType == QLatin1String("filter"))        return QStringLiteral("&#127861;");   // 🍵-ish: filter cone
+    // No `filter` branch on purpose: it falls through to the coffee cup below.
+    // Unicode has no dripper/pour-over glyph, and the app's distinct
+    // filter.svg has no emoji counterpart. Collapsing filter into ESPRESSO
+    // (both black coffee) loses less than the alternative this replaced, which
+    // gave filter U+1F375 — the exact codepoint used for tea four lines down,
+    // so filter and tea rendered identically while a comment called it a
+    // "filter cone". If the distinction ever needs to be visible here, ship an
+    // inline SVG rather than hunting for a closer emoji.
     if (drinkType == QLatin1String("americano")
-        || drinkType == QLatin1String("long_black")) return QStringLiteral("&#128167;");   // 💧 water
+        || drinkType == QLatin1String("long_black")) return QStringLiteral("&#128167;");   // 💧 U+1F4A7 water
     if (drinkType == QLatin1String("latte")
-        || drinkType == QLatin1String("latte_hotwater")) return QStringLiteral("&#129371;"); // 🥛 milk
+        || drinkType == QLatin1String("latte_hotwater")) return QStringLiteral("&#129371;"); // 🥛 U+1F95B milk
     if (drinkType == QLatin1String("tea")
-        || drinkType == QLatin1String("tea_hotwater")) return QStringLiteral("&#127861;");  // 🍵 tea
+        || drinkType == QLatin1String("tea_hotwater")) return QStringLiteral("&#127861;");  // 🍵 U+1F375 teacup
     return QStringLiteral("&#9749;");  // ☕ espresso, and the fallback for a
                                        // legacy recipe with no stored type
 }
@@ -114,6 +121,14 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         // rare; the rendering bug was always-on and visible.
         auto escapeForJs = [](const QString& s) -> QString {
             QString escaped = s;
+            // '&' FIRST, before anything that emits a character reference below.
+            // The result lands inside a double-quoted HTML attribute
+            // (onclick="… setSearch('VALUE') …"), so the parser decodes character
+            // references BEFORE the JS is compiled: a name containing the literal
+            // text "&#39;" would decode to an apostrophe and close the string.
+            // Pre-existing hole, but recipe names reach here from device transfer
+            // and MCP recipe_create, not only from this device's keyboard.
+            escaped.replace("&", "&amp;");
             escaped.replace("\\", "\\\\");
             escaped.replace("'", "\\'");
             escaped.replace("\"", "&quot;");
@@ -165,8 +180,18 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         // below goes in via __MARKER__ + replace() rather than the .arg() chain
         // — a recipe name is user text and may contain '%', which .arg() does
         // not make safe (see the escapeForJs comment above).
-        const bool hasRecipe = shot.recipeId > 0;
-        const QString recipeNameHtml = shot.recipeName.toHtmlEscaped();
+        // Name must resolve too — an id whose recipes row is gone would
+        // otherwise render an empty identity slot with the profile already
+        // demoted out of it. Same gate as the in-app row.
+        const bool hasRecipe = shot.recipeId > 0 && !shot.recipeName.isEmpty();
+        // toHtmlEscaped() leaves underscores alone, so a name containing a literal
+        // "__IDENTITY__" / "__SECONDARY__" / "__RATING_CHIP__" would survive into
+        // the template and be substituted by a LATER replace() below. Neutralize
+        // the token itself rather than trying to order the replacements — user
+        // text can contain any marker, so no ordering is safe.
+        const QString recipeNameHtml =
+            shot.recipeName.toHtmlEscaped().replace(QStringLiteral("__"),
+                                                    QStringLiteral("&#95;&#95;"));
 
         QString identityHtml;
         QString secondaryHtml = beanDisplay;
@@ -917,11 +942,14 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
             // SUBSTRING matches against the card's data-recipe. Unlike the bare
             // text below — which matches the whole card, recipe name included —
             // this narrows to the recipe name alone.
-            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S+))/i.exec(searchText);
+            // Kept in step with the app's buildFilter(), including the empty-term
+            // rule: a bare `recipe:` or `recipe:""` filters to nothing rather than
+            // silently widening to every shot.
+            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S*))/i.exec(searchText);
             if (recipeMatch) {
                 var recipeTerm = recipeMatch[1] !== undefined ? recipeMatch[1] : recipeMatch[2];
-                if (recipeTerm && recipeTerm.trim().length > 0)
-                    filters.recipeName = recipeTerm.trim().toLowerCase();
+                recipeTerm = (recipeTerm || "").trim();
+                filters.recipeName = recipeTerm.length > 0 ? recipeTerm.toLowerCase() : " ";
                 searchText = searchText.replace(recipeMatch[0], "");
             }
             searchText = searchText.replace(/\brecipe:(?:"[^"]*"?|\S*)/gi, "");

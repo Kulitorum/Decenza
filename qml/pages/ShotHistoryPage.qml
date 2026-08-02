@@ -271,11 +271,16 @@ T.Page {
             // full — middot included — would make the keyword unusable. Exactness
             // is the tap-through's job, which compares an id rather than a string.
             // An unterminated quote runs to end-of-string instead of failing.
-            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S+))/i.exec(searchText)
+            // Matches a bare `recipe:` too (empty term). That case, and
+            // `recipe:""`, must NOT silently become "no filter" — the user asked
+            // to narrow and would get the widest possible result set instead,
+            // with nothing on screen saying so. A sentinel that cannot match any
+            // name turns it into an honest zero-results filter.
+            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S*))/i.exec(searchText)
             if (recipeMatch) {
                 var recipeTerm = recipeMatch[1] !== undefined ? recipeMatch[1] : recipeMatch[2]
-                if (recipeTerm && recipeTerm.trim().length > 0)
-                    filter.recipeName = recipeTerm.trim()
+                recipeTerm = (recipeTerm || "").trim()
+                filter.recipeName = recipeTerm.length > 0 ? recipeTerm : " "
                 searchText = searchText.replace(recipeMatch[0], "")
             }
 
@@ -692,7 +697,15 @@ T.Page {
                 // A shot made with a recipe (history-recipe-identity). The name
                 // and drink type ride in with the shot list itself (one LEFT
                 // JOIN in requestShotsFiltered), NOT resolved per delegate.
-                property bool hasRecipe: (model.recipeId || 0) > 0
+                // Gated on the NAME resolving, not just on the id. The invariant
+                // that a shot-linked recipe is never hard-deleted is enforced in
+                // exactly one function (RecipeStorage::requestDeleteRecipe) and
+                // there is no FK behind it, while a non-merge import does a
+                // wholesale DELETE FROM recipes. If an id ever fails to resolve,
+                // falling back to the profile row is a correct-looking row; an
+                // id-only gate would instead render an EMPTY identity line with
+                // the profile already demoted away from it.
+                property bool hasRecipe: (model.recipeId || 0) > 0 && !!model.recipeName
                 property bool recipeIsArchived: hasRecipe && (model.recipeArchived === true)
 
                 // Profile plus the shot's temperature override. Rendered on the
@@ -849,13 +862,17 @@ T.Page {
 
                             // Themed SVG, not an emoji — a colour glyph in a plain
                             // Text crashes the render thread on macOS.
-                            ColoredIcon {
+                            //
+                            // ThemedIcon, NOT ColoredIcon: the latter is a Button
+                            // that absorbs clicks by design (ColoredIcon.qml:35),
+                            // which would punch a dead spot into the row where
+                            // tap-to-select works everywhere else.
+                            ThemedIcon {
                                 visible: shotDelegate.hasRecipe
                                 source: DrinkType.icon(shotDelegate.model.recipeDrinkType || "")
-                                iconWidth: Theme.scaled(16)
-                                iconHeight: Theme.scaled(16)
-                                iconColor: shotDelegate.recipeIsArchived ? Theme.textSecondaryColor
-                                                                         : Theme.primaryColor
+                                iconSize: Theme.scaled(16)
+                                color: shotDelegate.recipeIsArchived ? Theme.textSecondaryColor
+                                                                     : Theme.primaryColor
                                 Layout.alignment: Qt.AlignVCenter
                                 Accessible.ignored: true
                             }
@@ -891,12 +908,27 @@ T.Page {
                                                               shotDelegate.model.recipeId,
                                                               shotDelegate.model.recipeName)
 
+                                // Sized to the PAINTED TEXT, not to the item: this Text
+                                // is Layout.fillWidth, so anchors.fill would claim the
+                                // whole remaining strip of the row. That stole two
+                                // things from every recipe row — a tap on the blank
+                                // space right of a short name (previously: toggle
+                                // selection) and press-and-hold anywhere on that strip
+                                // (previously: open detail), because the row's own
+                                // MouseArea sits at z: -1 and never sees a press this
+                                // one accepts.
                                 MouseArea {
-                                    anchors.fill: parent
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
+                                    width: Math.min(parent.width, parent.implicitWidth)
                                     enabled: shotDelegate.hasRecipe
                                     onClicked: shotHistoryPage.filterByRecipe(
                                                    shotDelegate.model.recipeId,
                                                    shotDelegate.model.recipeName)
+                                    // Forwarded so the row's gesture still works over
+                                    // the name itself, not just around it.
+                                    onPressAndHold: shotHistoryPage.openShotDetail(shotDelegate.model.id)
                                 }
                             }
                         }

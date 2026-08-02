@@ -213,13 +213,28 @@ T.Page {
                 }
                 property bool _hasBean: !!(favoriteDelegate.model.beanBrand || favoriteDelegate.model.beanType)
                 property bool _hasProfile: !!(favoriteDelegate.model.profileName && favoriteDelegate.model.profileName.length > 0)
+                // Recipe identity of the group's LATEST shot (history-recipe-identity),
+                // resolved by the same join the history list uses. A favorite is a
+                // bean+profile group, so this is "what this drink is currently made
+                // with", not a property of every shot in the group.
+                property bool _hasRecipe: (favoriteDelegate.model.recipeId || 0) > 0
+                    && !!favoriteDelegate.model.recipeName
+                property bool _recipeArchived: _hasRecipe && (favoriteDelegate.model.recipeArchived === true)
                 property bool _hasGrinder: Settings.network.autoFavoritesGroupBy.indexOf("grinder") >= 0 &&
                     !!(favoriteDelegate.model.grinderBrand || favoriteDelegate.model.grinderModel || favoriteDelegate.model.grinderSetting)
                 property string _grinderText: {
                     var name = ((favoriteDelegate.model.grinderBrand || "") + " " + (favoriteDelegate.model.grinderModel || "")).trim()
                     return name + (favoriteDelegate.model.grinderSetting ? " @ " + favoriteDelegate.model.grinderSetting : "")
                 }
-                property string _groupByText: autoFavoritesPage.buildGroupByText(
+                // Recipe first, and carrying the archived state as TEXT — the card
+                // shows that state only by dimming, so without this it is
+                // unreachable by screen reader.
+                property string _recipeSpoken: !_hasRecipe ? ""
+                    : (_recipeArchived
+                       ? TranslationManager.translate("autofavorites.accessible.recipeArchived",
+                                                      "%1 (archived recipe)").arg(favoriteDelegate.model.recipeName)
+                       : favoriteDelegate.model.recipeName) + ". "
+                property string _groupByText: _recipeSpoken + autoFavoritesPage.buildGroupByText(
                     favoriteDelegate.model.beanBrand, favoriteDelegate.model.beanType, favoriteDelegate.model.profileName,
                     favoriteDelegate.model.grinderBrand, favoriteDelegate.model.grinderModel, favoriteDelegate.model.grinderSetting,
                     favoriteDelegate.model.doseWeightG, favoriteDelegate.model.targetWeightG, favoriteDelegate.model.finalWeightG,
@@ -249,6 +264,45 @@ T.Page {
                             Layout.fillWidth: true
                             spacing: 0
 
+                            // Recipe leads the card when the group's latest shot had
+                            // one, mirroring the history row: the recipe is what the
+                            // user calls this drink, so it takes the accent and the
+                            // profile below drops to secondary.
+                            // ThemedIcon, not ColoredIcon — see the note on the
+                            // Shot History row: ColoredIcon is a Button and eats
+                            // taps meant for the card.
+                            ThemedIcon {
+                                visible: favoriteDelegate._hasRecipe
+                                source: DrinkType.icon(favoriteDelegate.model.recipeDrinkType || "")
+                                iconSize: Theme.subtitleFont.pixelSize
+                                color: favoriteDelegate._recipeArchived ? Theme.textSecondaryColor
+                                                                        : Theme.primaryColor
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                text: favoriteDelegate._hasRecipe
+                                      ? " " + favoriteDelegate.model.recipeName : ""
+                                font.family: Theme.subtitleFont.family
+                                font.pixelSize: Theme.subtitleFont.pixelSize
+                                color: favoriteDelegate._recipeArchived ? Theme.textSecondaryColor
+                                                                        : Theme.primaryColor
+                                visible: favoriteDelegate._hasRecipe
+                                width: Math.min(implicitWidth, parent.width)
+                                elide: Text.ElideRight
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                text: "  ·  "
+                                font.family: Theme.subtitleFont.family
+                                font.pixelSize: Theme.subtitleFont.pixelSize
+                                font.bold: true
+                                color: Theme.textSecondaryColor
+                                visible: favoriteDelegate._hasRecipe && favoriteDelegate._hasBean
+                                Accessible.ignored: true
+                            }
+
                             Text {
                                 text: favoriteDelegate._beanText
                                 font.family: Theme.subtitleFont.family
@@ -274,7 +328,10 @@ T.Page {
                                 text: favoriteDelegate.model.profileName || ""
                                 font.family: Theme.subtitleFont.family
                                 font.pixelSize: Theme.subtitleFont.pixelSize
-                                color: Theme.primaryColor
+                                // Demoted when a recipe is present — the accent belongs
+                                // to one thing per card, and the recipe outranks it.
+                                color: favoriteDelegate._hasRecipe ? Theme.textSecondaryColor
+                                                                   : Theme.primaryColor
                                 visible: favoriteDelegate._hasProfile
                                 width: Math.min(implicitWidth, parent.width)
                                 elide: Text.ElideRight
