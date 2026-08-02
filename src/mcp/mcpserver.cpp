@@ -1284,6 +1284,9 @@ bool McpServer::needsChatConfirmation(const QString& toolName) const
         toolName == "reset_saw_learning" ||
         toolName == "reset_saw_learning_for_profile" ||
         toolName == "clear_flow_calibration" ||
+        // Overwrites the profile's learned calibration with a hand-picked number,
+        // and it reaches the machine immediately — the old value is not recoverable.
+        toolName == "set_flow_calibration" ||
         toolName == "devices_disconnect_scale")
         return true;
 
@@ -1325,6 +1328,8 @@ QString McpServer::confirmationDescription(const QString& toolName) const
          "Erase stop-at-weight learning for one profile/scale pair — irreversible"},
         {"clear_flow_calibration",
          "Clear the profile's flow calibration (re-learned over future shots)"},
+        {"set_flow_calibration",
+         "Overwrite the profile's flow calibration with a hand-set multiplier"},
         {"devices_disconnect_scale",
          "Disconnect and forget the saved scale (must be re-paired)"},
     };

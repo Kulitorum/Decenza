@@ -87,9 +87,9 @@ Each tool has a `category` that determines the minimum access level required:
 
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
-| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context, dialing_get_grinder_calibration, ai_conversations_list, ai_conversation_get, bag_list, equipment_list, recipe_list, recipe_get, steam_pitcher_list, water_vessel_list |
+| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, get_flow_calibration, dialing_get_context, dialing_get_grinder_calibration, ai_conversations_list, ai_conversation_get, bag_list, equipment_list, recipe_list, recipe_get, steam_pitcher_list, water_vessel_list |
 | `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, shots_upload_to_visualizer, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_select, equipment_select, steam_pitcher_select, water_vessel_select, bag_extract_details  |
-| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme, bag_create, bag_update, equipment_update, equipment_merge, recipe_create, recipe_update, recipe_create_from_shot, recipe_clone, recipe_archive, steam_pitcher_add, steam_pitcher_update, steam_pitcher_delete, water_vessel_add, water_vessel_update, water_vessel_delete |
+| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, set_flow_calibration, apply_theme, bag_create, bag_update, equipment_update, equipment_merge, recipe_create, recipe_update, recipe_create_from_shot, recipe_clone, recipe_archive, steam_pitcher_add, steam_pitcher_update, steam_pitcher_delete, water_vessel_add, water_vessel_update, water_vessel_delete |
 
 ### Tool → Confirmation Level Mapping
 
@@ -112,6 +112,13 @@ Two confirmation mechanisms are used depending on where the user is:
 | profiles_rename | **Confirm** | Confirm | Chat |
 | shots_delete | **Confirm** | Confirm | Chat |
 | settings_set | **Confirm** | Confirm | Chat |
+| reset_saw_learning | **Confirm** | Confirm | Chat |
+| reset_saw_learning_for_profile | **Confirm** | Confirm | Chat |
+| clear_flow_calibration | **Confirm** | Confirm | Chat |
+| set_flow_calibration | **Confirm** | Confirm | Chat |
+| devices_set_scale_priority_mode | **Confirm** | Confirm | Chat |
+| devices_reset_scale_priority | **Confirm** | Confirm | Chat |
+| devices_disconnect_scale | **Confirm** | Confirm | Chat |
 | shots_update | No confirm | No confirm | — |
 | shots_upload_to_visualizer | No confirm | No confirm | — |
 
@@ -314,7 +321,9 @@ A recipe is the whole drink: profile + bean link + equipment + dose/yield/temp +
 | `settings_set` | Update any app setting across all QML Settings tabs. Covers 100+ fields: machine, calibration, connections, screensaver, accessibility, AI, espresso, steam, water, flush, DYE, MQTT, themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. `aiProvider` selects the provider; `aiModel` selects the model for the active (or same-call) provider, validated against that provider's catalog (invalid ids rejected with `validModels`); OpenRouter/Ollama use `openrouterModel`/`ollamaModel`. Sensitive fields (API keys, passwords) excluded. | settings |
 | `reset_saw_learning` | Reset stop-at-weight learning data globally. Useful when switching beans or grind settings. | settings |
 | `reset_saw_learning_for_profile` | Reset stop-at-weight learning for a single (profile, scale) pair only — other pairs and the global bootstrap are preserved. Defaults to active profile + configured scale. | settings |
-| `clear_flow_calibration` | Clear per-profile flow calibration multiplier. Defaults to current profile if none specified. | settings |
+| `get_flow_calibration` | Describe a profile's flow calibration: stored per-profile multiplier, global fallback, which one is in effect (`effectiveSource`), the auto-calibration switch, batch progress (`pendingAutoCalShots` of `autoCalBatchSize`), and a plain-language `state` sentence. Defaults to current profile. `allProfiles=true` lists every profile with a stored calibration instead, each with `profileExists` — the only way to answer "which profiles are calibrated?", and the only place an orphan entry (a key naming a deleted profile) is visible. | read |
+| `set_flow_calibration` | Set the per-profile flow calibration multiplier by hand, for a user who knows the right value. Range 0.5-2.7, refused (not clamped) outside it. Defaults to current profile. Reaches a connected machine immediately. With auto calibration ON it is the new starting point and future shots keep adjusting it; with auto OFF the value is stored but inert (the machine uses the global multiplier) and the result says so in `warning`. | settings |
+| `clear_flow_calibration` | Clear per-profile flow calibration multiplier. Defaults to current profile if none specified. Unlike get/set it accepts a profile that no longer exists, so orphan entries can be removed; `hadCalibration` reports whether anything was actually stored. | settings |
 | `apply_theme` | Apply a preset theme ('Default Dark', 'Default Light', or user-created). | settings |
 | `backup_now` | Create an immediate backup of database, settings, profiles, and media. | control |
 | `mqtt_connect` | Connect to the configured MQTT broker. | control |

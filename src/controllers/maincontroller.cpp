@@ -2697,7 +2697,12 @@ void MainController::computeAutoFlowCalibration() {
     constexpr double kMinWindowDuration = 1.5;       // seconds — shorter profiles (e.g. Adaptive v2) have brief steady phases
     constexpr int    kMinWindowSamples = 7;          // ~1.5s at 5Hz pressure sampling
     constexpr double kWaterDensity93C = 0.963;       // g/ml - density correction for water at ~93°C
-    constexpr double kCalibrationMin = 0.5;          // sanity lower bound
+    // Sanity lower bound. Shared with the persistence bound rather than re-typed: a
+    // computed value below it would be refused by setProfileFlowCalibration() anyway,
+    // so two copies could only ever drift into a value auto-cal produces and the store
+    // then rejects. (The UPPER bound is deliberately not shared — see below, it is
+    // firmware-dependent and tighter than what persistence accepts.)
+    constexpr double kCalibrationMin = SettingsCalibration::kProfileFlowCalMin;
     // Sanity upper bound. Keeps auto-cal ~10% below the firmware-side cap so the algorithm
     // has headroom before hitting the hard firmware limit:
     //   - Pre-v1337 firmware: 1.8 (firmware cap 2.0 × 0.9)
@@ -3021,7 +3026,7 @@ void MainController::computeAutoFlowCalibration() {
     // C update changes pump behavior, which changes puck dynamics, which changes the next
     // ideal — producing oscillation instead of convergence. The median also provides
     // natural outlier rejection (runaway shots, channeling anomalies).
-    constexpr qsizetype kBatchSize = 5;
+    constexpr qsizetype kBatchSize = SettingsCalibration::kFlowCalBatchSize;
     constexpr double kBatchEmaAlpha = 0.5;  // Higher alpha is safe because median of N shots is more reliable
 
     QString profileName = m_profileManager->baseProfileName();
