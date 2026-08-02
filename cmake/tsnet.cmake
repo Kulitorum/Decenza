@@ -8,9 +8,39 @@
 #   decenza_link_tsnet(<tgt>) links the prebuilt library + platform frameworks
 #
 # The pinned release + per-artifact SHA-256 come from the release manifest.json.
-# Bump TSNET_TAG (and the hashes) to adopt a newer libtailscale build.
+# To adopt a newer libtailscale build, bump _TSNET_EXPECTED_TAG *and* the three
+# hashes below, together — they are one unit. See the guard directly under them.
 
-set(TSNET_TAG "decenza-v1.94.1-5" CACHE STRING "libtailscale prebuilt release tag")
+# The tag this source tree expects. Not a cache variable: it is the pin, and a
+# stale build directory must not be able to silently disagree with it.
+set(_TSNET_EXPECTED_TAG "decenza-v1.94.1-5")
+
+set(TSNET_TAG "${_TSNET_EXPECTED_TAG}" CACHE STRING "libtailscale prebuilt release tag")
+
+# Guard: a cached TSNET_TAG wins over the default above, so bumping the pin does
+# NOTHING to an existing build directory — it keeps downloading and linking the
+# OLD library while the source says otherwise. That is a silent wrong-artifact
+# build, and it survived four tag bumps unnoticed: verifying decenza-v1.94.1-5
+# locally initially "passed" against the -4 archive still named in the cache.
+#
+# It cannot be fixed by just re-reading the file, because the SHA-256s below are
+# plain variables while the tag is cached — so a mismatched pair doesn't even
+# fail honestly: an intentional `-DTSNET_TAG=<other>` against this tree's hashes
+# dies as `download ... failed`, which reads like a network problem.
+#
+# So refuse, and say exactly what to run. CI is unaffected (it configures fresh
+# build dirs; no workflow caches CMakeCache.txt) — this only ever fires locally.
+if(NOT TSNET_TAG STREQUAL _TSNET_EXPECTED_TAG)
+    message(FATAL_ERROR
+        "tsnet: this source tree pins ${_TSNET_EXPECTED_TAG}, but this build "
+        "directory has TSNET_TAG=${TSNET_TAG} cached.\n"
+        "The hashes in cmake/tsnet.cmake belong to ${_TSNET_EXPECTED_TAG}, so "
+        "building against ${TSNET_TAG} would link the wrong libtailscale.\n"
+        "Fix the build directory:\n"
+        "    cmake -DTSNET_TAG=${_TSNET_EXPECTED_TAG} ${CMAKE_BINARY_DIR}\n"
+        "To deliberately test a different release, change _TSNET_EXPECTED_TAG "
+        "and its three SHA-256s in cmake/tsnet.cmake instead — they are one unit.")
+endif()
 set(TSNET_BASE_URL "https://github.com/skialpine/libtailscale/releases/download/${TSNET_TAG}")
 set(TSNET_DOWNLOAD_DIR "${CMAKE_BINARY_DIR}/tsnet-${TSNET_TAG}")
 
