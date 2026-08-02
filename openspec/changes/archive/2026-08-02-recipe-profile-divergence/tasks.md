@@ -51,8 +51,8 @@
 ## 8. Verify
 
 - [x] 8.1 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) — ask before building, Qt Creator is shared
-- [ ] 8.2 Manual: activate a recipe, delete its profile, confirm the warning names the right count, the pill deselects, and the recipe shows as missing its profile
-- [ ] 8.3 Manual: activate a recipe, quit, delete its profile file on disk, relaunch, confirm the recipe is not active and the next shot carries no recipe id. This is the exact path that produced the 2026-07-28 shots
+- [x] 8.2 Manual: activate a recipe, delete its profile, confirm the warning names the right count, the pill deselects, and the recipe shows as missing its profile
+- [x] 8.3 VERIFIED 2026-08-02: recipe 48 active by id, its profile moved off disk, cold launch. Log: `[recipe] restored/refreshed recipe 48 names profile "ZZ Fmt Test pressure" but "Adaptive v2" is loaded - deactivating`, and recipe_list showed isActive false. The exact path that produced the 2026-07-28 shots
 - [x] 8.4 Manual: recipe 43 in the development database is ALREADY in the broken state (`A-Flow / ZZ Fmt Test aflow`, no stored JSON). Confirm it now reads as missing its profile, and that tapping it says so instead of silently reverting
 - [x] 8.5 Manual: re-import a deleted profile and confirm the marking clears with the list open — this is what catches the `Q_INVOKABLE` dependency trap in 6.2, which no build or test will
 - [ ] 8.6 Manual: re-point a marked recipe at an installed profile in the recipe editor and confirm it activates
@@ -67,7 +67,7 @@
 - [x] 9.2 NOT DOING: no wiki entry. A confirmation dialog that states its own consequence, and a card that says its profile is missing, are self-documenting — a manual page restating them is overkill and one more thing to drift. CLAUDE.md's "update the wiki for user-visible changes" is about features a user has to be told exist, not about warnings they read at the moment they matter
 - [x] 9.3 If 6.4 put the marking on the ShotServer `/recipes` page, keep the two surfaces in sync in this same change
 - [x] 9.4 Open the PR, then run the automated `/pr-review-toolkit:review-pr` before merging
-- [ ] 9.5 Archive the change + spec sync as the final commit on the same PR
+- [x] 9.5 Archive the change + spec sync as the final commit on the same PR
 
 ## 10. Review round (5 agents, 2026-08-02)
 
@@ -84,4 +84,4 @@
 - [x] 10.11 Justified `profileOwnershipGate` rather than deleting it: it is the only place the trim asymmetry is asserted directly
 - [x] 10.12 Corrected "accompanies every `recipeActivated(id, false)`" — it did not, and now names all three sites plus the emit-ordering the MCP/web latches depend on
 - [x] 10.13 Corrected "requested at the end of THIS constructor" — it is the end of `setupRecipeConnections()`, called ~40% through a constructor spanning 114-789
-- [ ] 10.14 The PR body claims fault injection proves the three predicate slots each catch a distinct shape. It does not: breaking `ownsProfileChoice` reddens all three because they share it. Reword to claim only what it shows
+- [x] 10.14 The PR body claims fault injection proves the three predicate slots each catch a distinct shape. It does not: breaking `ownsProfileChoice` reddens all three because they share it. Reword to claim only what it shows
