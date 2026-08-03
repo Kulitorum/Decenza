@@ -27,8 +27,11 @@ Item {
     //
     // A child of a Qt Quick Layout that is not itself a layout and has no explicit
     // Layout.fillWidth gets QLayoutPolicy::Fixed — it cannot shrink below its own
-    // preferred width; only nested layouts get Preferred
-    // (qtdeclarative/src/quicklayouts/qquicklayout.cpp:1304-1330, effectiveSizePolicy_helper).
+    // preferred width; nested layouts get Preferred unconditionally
+    // (qtdeclarative/src/quicklayouts/qquicklayout.cpp:1304-1332, effectiveSizePolicy_helper).
+    // A non-layout child can also reach Preferred via :1319-1329, but only under
+    // Layout.useDefaultSizePolicy or the app-wide AA_QtQuickUseDefaultSizePolicy
+    // attribute — this app sets neither, so Fixed is what its children get.
     // The action buttons are therefore Fixed, so an oversized leftContent does not
     // squeeze them: the row's minimum sum simply exceeds the bar and the whole row
     // is laid out past the right edge, which is what a long profile name did on
@@ -37,14 +40,16 @@ Item {
     //
     // Floored at a couple of characters rather than at 0: Layout.maximumWidth: 0 is a
     // legal zero-width cell, so the text would vanish outright — no ellipsis, and the
-    // Accessible.name on the collapsed item goes with it. The subtraction can reach
-    // that point because contentRow.implicitWidth counts a fillWidth/WordWrap label
-    // (e.g. the upload-error text on Shot Review) at its full unwrapped width even
-    // though the layout can shrink it. Overflowing by this floor beats disappearing.
+    // Accessible.name on the collapsed item goes with it. Overflowing by this floor
+    // beats disappearing. Note the subtraction over-counts any fillWidth/WordWrap
+    // label in the content slot: the layout can shrink one, but the row still reports
+    // its UNCAPPED implicit width as preferred. Give such a label its own
+    // Layout.maximumWidth (Shot Review's upload status lines do) rather than leaning
+    // on this floor to absorb it.
     //
     // No binding loop: nothing here depends on leftContentRow's own width. A nested
     // layout's implicitWidth is its engine-preferred size, which already clamps each
-    // child to that child's Layout.maximumWidth (qquicklayout.cpp:1278, boundSize),
+    // child to that child's Layout.maximumWidth (qquicklayout.cpp:1279, boundSize),
     // so titleRow's term needs no cap of its own — rightTextLabel is a plain Text, so
     // its raw implicitWidth does. Invisible children are dropped from the engine
     // entirely (qquicklayout.cpp:883-890, shouldIgnoreItem), hence the gap count.

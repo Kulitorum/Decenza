@@ -2439,6 +2439,12 @@ T.Page {
             font: Theme.labelFont
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
+            // Capped so a long server message doesn't inflate contentRow.implicitWidth
+            // and starve BottomBar.leftContentMaxWidth: a fillWidth child is Preferred
+            // policy, so the layout shrinks it, but its UNCAPPED implicit width is what
+            // the row reports as preferred (qquicklayout.cpp:1279 clamps preferred to
+            // maximum, which is what makes this cap register).
+            Layout.maximumWidth: postShotReviewPage.width * 0.25
         }
 
         Text {
@@ -2448,6 +2454,12 @@ T.Page {
             font: Theme.labelFont
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
+            // Capped so a long server message doesn't inflate contentRow.implicitWidth
+            // and starve BottomBar.leftContentMaxWidth: a fillWidth child is Preferred
+            // policy, so the layout shrinks it, but its UNCAPPED implicit width is what
+            // the row reports as preferred (qquicklayout.cpp:1279 clamps preferred to
+            // maximum, which is what makes this cap register).
+            Layout.maximumWidth: postShotReviewPage.width * 0.25
         }
 
         // AI Advice button - visible when AI is configured and we have shot data
