@@ -90,15 +90,24 @@ public:
         return result;
     }
 
-    QJsonObject readResource(const QString& uri, QString& errorOut) const
+    // `failureOut`, when supplied, classifies a failure so the caller can pick a
+    // JSON-RPC code without reading `errorOut`'s wording. The resources spec
+    // gives "Resource not found" its own code (-32002), so this distinction is
+    // wire-visible here in a way it is not for tools.
+    QJsonObject readResource(const QString& uri, QString& errorOut,
+                             McpRegistryFailure* failureOut = nullptr) const
     {
+        if (failureOut)
+            *failureOut = McpRegistryFailure::None;
         auto it = m_resources.constFind(uri);
         if (it == m_resources.constEnd()) {
             errorOut = "Unknown resource: " + uri;
+            if (failureOut) *failureOut = McpRegistryFailure::NotFound;
             return {};
         }
         if (it.value().isAsync) {
             errorOut = "Resource is async, use readAsyncResource(): " + uri;
+            if (failureOut) *failureOut = McpRegistryFailure::WrongDispatch;
             return {};
         }
         return it.value().reader();
@@ -109,15 +118,20 @@ public:
     // QMetaObject::invokeMethod(qApp, ..., Qt::QueuedConnection).
     // The registry does not enforce this — it is the reader's responsibility.
     bool readAsyncResource(const QString& uri, QString& errorOut,
-                           std::function<void(QJsonObject)> respond) const
+                           std::function<void(QJsonObject)> respond,
+                           McpRegistryFailure* failureOut = nullptr) const
     {
+        if (failureOut)
+            *failureOut = McpRegistryFailure::None;
         auto it = m_resources.constFind(uri);
         if (it == m_resources.constEnd()) {
             errorOut = "Unknown resource: " + uri;
+            if (failureOut) *failureOut = McpRegistryFailure::NotFound;
             return false;
         }
         if (!it.value().isAsync || !it.value().asyncReader) {
             errorOut = "Resource is not async: " + uri;
+            if (failureOut) *failureOut = McpRegistryFailure::WrongDispatch;
             return false;
         }
         it.value().asyncReader(std::move(respond));

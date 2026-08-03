@@ -221,7 +221,14 @@ public:
     Q_INVOKABLE QString getThemeColor(const QString& colorName) const;
     Q_INVOKABLE void resetThemeToDefault();
     Q_INVOKABLE QVariantList getPresetThemes() const;
-    Q_INVOKABLE void applyPresetTheme(const QString& name);
+    // Returns whether a theme of that name existed and was applied.
+    //
+    // Three callers, and only one of them picks from a list: SettingsThemesTab.qml
+    // offers getPresetThemes() and can ignore the result; the MCP apply_theme tool
+    // and ShotServer's POST /api/theme/preset both take an arbitrary name from a
+    // request and must check it. Deliberately not [[nodiscard]] (one forced
+    // `(void)` for the QML path) — see ProfileManager::loadProfile.
+    Q_INVOKABLE bool applyPresetTheme(const QString& name);
     Q_INVOKABLE void saveCurrentTheme(const QString& name);
     Q_INVOKABLE void deleteUserTheme(const QString& name);
     Q_INVOKABLE bool saveThemeToFile(const QString& filePath);

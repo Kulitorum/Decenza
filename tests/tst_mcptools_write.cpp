@@ -106,6 +106,21 @@ private:
         QCoreApplication::processEvents();
     }
 
+    // Seed one row so an update/delete has something real to affect. The real
+    // schema, not the minimal one the storage tests build: uuid, timestamp,
+    // profile_name and duration_seconds are NOT NULL. Returns the new id, or -1.
+    static qint64 insertMinimalShot(ShotHistoryStorage& storage) {
+        qint64 id = -1;
+        withTempDb(storage.databasePath(), "tst_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                      "VALUES ('outcome-seed-shot', 1000, 'P', 25.0)");
+            if (q.exec())
+                id = q.lastInsertId().toLongLong();
+        });
+        return id;
+    }
+
     // Load a minimal D-Flow profile
     static void loadDFlowProfile(McpTestFixture& f, const QString& title = "D-Flow / Test") {
         QJsonObject json;
@@ -996,6 +1011,121 @@ private slots:
         // Timeout is untouched — preserved across enable/disable cycles.
         QCOMPARE(f.settings.app()->autoLoadRevertMinutes(), 27);
     }
+
+    // ===== Outcome reporting: success must mean the operation happened =====
+    //
+    // Each of these covers a tool that used to report success for an operation
+    // that did not take place. #1754 made a tool's `error` key reach the wire as
+    // `isError`; it cannot reach these, because no `error` key was written at
+    // all — the tool believed it had succeeded.
+
+    // shots_delete waited on `shotDeleted`, which fires only on success, so a
+    // delete that failed produced NO RESPONSE — the client hung with no error
+    // and no timeout anywhere in the deferred path. The assertion that matters
+    // is that a response arrives at all; `callAsyncTool` gives up after 5 s and
+    // warns, so a regression here shows up as both a failed compare and that
+    // warning.
+    void shotsDeleteNonexistentShotAnswersInsteadOfHanging()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("del.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        // The storage layer logs the failed delete; that is the point, not a fault.
+        ScopedWarningFilter deleteFilter("Failed to async delete shot");
+
+        QJsonObject args;
+        args["shotId"] = 99999;
+        QJsonObject result = f.callAsyncTool("shots_delete", args);
+
+        QVERIFY2(!result.isEmpty(), "shots_delete must respond even when the delete fails");
+        QVERIFY2(result.contains("error"),
+                 "deleting a shot that does not exist is a failure, not a success");
+        QVERIFY2(!result.contains("success"), "a failed delete must not also report success");
+
+        drainDbWorkAndClose(storage);
+    }
+
+    void shotsDeleteExistingShotStillReportsSuccess()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("del2.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const qint64 shotId = insertMinimalShot(storage);
+        QVERIFY(shotId > 0);
+
+        QJsonObject args;
+        args["shotId"] = shotId;
+        QJsonObject result = f.callAsyncTool("shots_delete", args);
+
+        QVERIFY2(result["success"].toBool(),
+                 "a delete that removed a row must still report success");
+        QVERIFY(!result.contains("error"));
+
+        drainDbWorkAndClose(storage);
+    }
+
+    // `query.exec()` succeeding means the statement RAN. An UPDATE whose WHERE
+    // matches nothing is a perfectly successful statement, and shots_update
+    // reported it as an updated shot.
+    void shotsUpdateNonexistentShotReportsError()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("upd.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        ScopedWarningFilter updateFilter("No shot with id");
+
+        QJsonObject args;
+        args["shotId"] = 99999;
+        args["enjoyment"] = 80;
+        QJsonObject result = f.callAsyncTool("shots_update", args);
+
+        QVERIFY2(result.contains("error"),
+                 "updating a shot that does not exist is a failure, not a success");
+        QVERIFY(!result.contains("success"));
+
+        drainDbWorkAndClose(storage);
+    }
+
+    void shotsUpdateExistingShotStillReportsSuccess()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("upd2.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const qint64 shotId = insertMinimalShot(storage);
+        QVERIFY(shotId > 0);
+
+        QJsonObject args;
+        args["shotId"] = static_cast<qint64>(shotId);
+        args["enjoyment"] = 80;
+        QJsonObject result = f.callAsyncTool("shots_update", args);
+
+        QVERIFY2(result["success"].toBool(),
+                 "an update that changed a row must still report success");
+
+        drainDbWorkAndClose(storage);
+    }
+
+    // profiles_set_active's own refusal path — loadProfile returning false — is
+    // covered in tst_profilemanager (loadProfileReportsRefusalAndKeepsTheActive-
+    // Profile). It needs a deliberately-broken profile ON DISK, and the only safe
+    // place to write one is the QStandardPaths test store, which that file
+    // already sets up and sweeps. Enabling test mode here instead turned every
+    // other test in this file red: an empty profile store makes ProfileManager
+    // warn at construction, and init()'s failOnWarning converts that to a
+    // failure of the whole file. What is NOT covered by a test either way is the
+    // one line in the tool that consults the return value.
 };
 
 QTEST_MAIN(tst_McpToolsWrite)

@@ -518,6 +518,34 @@ private slots:
         QVERIFY(result.contains("error"));
         QVERIFY(result["error"].toString().contains("not found", Qt::CaseInsensitive));
     }
+
+    // Four profile reads returned a bare `{}` when ProfileManager was null, while
+    // every other guard in the same file set `error`. An empty object is not an
+    // answer: the model cannot tell "no profiles" from "this app cannot answer",
+    // and — since #1754 marks failure off the `error` key — an empty result ships
+    // as a SUCCESSFUL call.
+    void profileReadsReportAnUnavailableManagerAsAnError_data() {
+        QTest::addColumn<QString>("tool");
+        QTest::newRow("profiles_list")       << "profiles_list";
+        QTest::newRow("profiles_get_active") << "profiles_get_active";
+        QTest::newRow("profiles_get_detail") << "profiles_get_detail";
+        QTest::newRow("profiles_get_params") << "profiles_get_params";
+    }
+
+    void profileReadsReportAnUnavailableManagerAsAnError() {
+        QFETCH(QString, tool);
+
+        McpToolRegistry registry;
+        registerProfileTools(&registry, nullptr, nullptr);
+
+        QString error;
+        const QJsonObject r = registry.callTool(tool, QJsonObject{}, 2, error);
+
+        QVERIFY2(error.isEmpty(), "the tool must run and report, not fail at the registry");
+        QVERIFY2(r.contains("error"),
+                 qPrintable(tool + " returned no error with a null ProfileManager: "
+                            + QString::fromUtf8(QJsonDocument(r).toJson(QJsonDocument::Compact))));
+    }
 };
 
 QTEST_MAIN(tst_McpToolsProfiles)

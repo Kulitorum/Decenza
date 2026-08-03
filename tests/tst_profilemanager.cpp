@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QJsonDocument>
 #include <QStandardPaths>
@@ -609,6 +610,65 @@ private slots:
 
         QCOMPARE(f.profileManager.currentProfile().targetWeight(), 42.0);
         QFile::remove(advPath);
+    }
+
+    // loadProfile REFUSES a profile it cannot read and keeps the previously
+    // active one. It used to be `void`, so no caller could tell that apart from
+    // a load that worked — and profiles_set_active reported "Profile activated"
+    // while the machine went on brewing the old profile. Its `profileExists`
+    // guard cannot see this: the file is present, it just does not parse.
+    //
+    // Both halves are asserted here. `false` alone would pass if the function
+    // also failed to keep the old profile, and keeping the old profile alone was
+    // already true before the return value existed.
+    void loadProfileReportsRefusalAndKeepsTheActiveProfile() {
+        McpTestFixture f;
+        clearTestProfileStore();
+        loadThreeFrameDFlow(f, "keeper", "D-Flow / Keeper");
+        const QString activeBefore = f.profileManager.baseProfileName();
+        QCOMPARE(activeBefore, QStringLiteral("keeper"));
+
+        // Valid JSON, not a valid profile — no frames, no type, nothing to brew.
+        //
+        // Removed by a scope guard, not by a statement at the end of the test.
+        // The QStandardPaths store PERSISTS ACROSS RUNS, and a failing QVERIFY
+        // below aborts this function — so an end-of-test cleanup runs only when
+        // the test passes, which is exactly when it is not needed. A file left
+        // here makes migrateProfileFormat() warn at every later ProfileManager
+        // construction (and never stamp profile_format_migrated, so it retries
+        // forever); neither warning is in McpTestFixture's filter, so one red
+        // test would turn the whole file red on the NEXT run, pointing nowhere
+        // near here. This file already documents that hazard for the dye
+        // settings at the `cleanup()` slot above.
+        const QString brokenPath = f.profileManager.userProfilesPath() + "/broken.json";
+        const auto removeBroken = qScopeGuard([&brokenPath] { QFile::remove(brokenPath); });
+
+        QFile broken(brokenPath);
+        QVERIFY(broken.open(QIODevice::WriteOnly));
+        broken.write(QJsonDocument(QJsonObject{{"title", "Broken"}}).toJson());
+        broken.close();
+        f.profileManager.refreshProfiles();
+
+        bool loaded = true;
+        {
+            ScopedWarningFilter refusalFilter("loadProfile: refusing");
+            loaded = f.profileManager.loadProfile("broken");
+        }
+
+        QVERIFY2(!loaded, "an unreadable profile must be reported as not loaded");
+        QCOMPARE(f.profileManager.baseProfileName(), activeBefore);
+
+        // The OTHER false-returning path: a name that resolves to nothing at all.
+        // loadProfile loads the default instead, so the requested profile did not
+        // become active either — one line, and it pins the half of the contract
+        // the refusal case cannot reach.
+        {
+            ScopedWarningFilter notFoundFilter("Profile not found");
+            QVERIFY2(!f.profileManager.loadProfile("no_such_profile_anywhere"),
+                     "a name that matches nothing must also report not loaded");
+        }
+
+        clearTestProfileStore();
     }
 
     // === Profile state after load ===

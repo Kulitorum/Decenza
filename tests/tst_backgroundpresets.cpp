@@ -1001,6 +1001,32 @@ private slots:
         SettingsTheme theme;
         QVERIFY(!theme.themeNames().contains("Glass"));
     }
+
+    // applyPresetTheme returns whether a theme of that name existed and was
+    // applied. Three callers take an arbitrary name and two of them — the MCP
+    // `apply_theme` tool and ShotServer's POST /api/theme/preset — used to
+    // discard it and report success for a theme that does not exist.
+    //
+    // Tested here rather than at those two callers because both live in source
+    // files no test binary links, while settings_theme.cpp is already linked
+    // everywhere — so this slot costs milliseconds and a new tst_*.cpp would
+    // cost ~1.4 s of build time forever. It also sits next to clearBackground-
+    // Preset, which applyPresetTheme calls, and which is this file's subject.
+    void applyPresetThemeReportsWhetherTheNameMatched() {
+        SettingsTheme theme;
+
+        QVERIFY2(theme.applyPresetTheme("Default Dark"),
+                 "a built-in name must report applied");
+        QVERIFY2(theme.applyPresetTheme("Default Light"),
+                 "the other built-in polarity too");
+
+        // Falls off the end of the user-theme loop. Before the return value
+        // existed this was indistinguishable from success at every call site.
+        QVERIFY2(!theme.applyPresetTheme("NoSuchThemeXYZ"),
+                 "an unknown name must report NOT applied");
+        QVERIFY2(!theme.applyPresetTheme(QString()),
+                 "an empty name is not a theme either");
+    }
 };
 
 QTEST_MAIN(TestBackgroundPresets)

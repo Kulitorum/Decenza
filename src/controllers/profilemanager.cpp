@@ -1487,7 +1487,7 @@ void ProfileManager::upgradeStoredEncoding(const QString& resolvedName,
                    << "- the profile loaded fine and is unchanged on disk";
 }
 
-void ProfileManager::loadProfile(const QString& profileName) {
+bool ProfileManager::loadProfile(const QString& profileName) {
     QString path;
     bool found = false;
     // Which tier satisfied the load. Only the writable ones may have their
@@ -1602,7 +1602,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
         emit profileRefusedUnreadable(resolvedName, candidate.title(),
                                       candidate.unsupportedStepKeys(),
                                       candidate.malformedValues());
-        return;
+        return false;
     }
 
     // Upgrade the STORED encoding to canonical, if that is lossless.
@@ -1780,6 +1780,11 @@ void ProfileManager::loadProfile(const QString& profileName) {
     if (wasModified) {
         emit profileModifiedChanged();
     }
+
+    // `found` and not refused — the requested profile is the active one. When it
+    // was not found we loaded the default above and carried on, which is a load
+    // but not the one that was asked for.
+    return found;
 }
 
 bool ProfileManager::loadProfileFromJson(const QString& jsonContent) {

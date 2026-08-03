@@ -19,6 +19,10 @@ public:
 public slots:
     void tare() override;
     void sendKeepAlive() override;
+    // Overridden to false, not merely left at the base default, because these
+    // three ARE overridden below — as empty bodies. Without this the scale would
+    // look like a timer implementer to anyone reading the override list.
+    bool supportsTimer() const override { return false; }
     void startTimer() override {}  // Acaia scales don't support remote timer control
     void stopTimer() override {}
     void resetTimer() override {}

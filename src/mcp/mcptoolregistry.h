@@ -19,6 +19,18 @@ using McpToolHandler = std::function<QJsonObject(const QJsonObject& arguments)>;
 using McpAsyncToolHandler = std::function<void(const QJsonObject& arguments,
                                                std::function<void(QJsonObject)> respond)>;
 
+// Why a registry lookup failed. The JSON-RPC code a caller should emit differs
+// per reason (a bad name is a bad *request*; a dispatch or access fault is
+// server-side), and the alternative to this enum is matching on the `errorOut`
+// TEXT — which silently stops working the day someone rewords a message.
+// Shared by the tool and resource registries; the latter includes this header.
+enum class McpRegistryFailure {
+    None,
+    NotFound,       // no tool/resource of that name or URI is registered
+    WrongDispatch,  // registered, but reached through the wrong sync/async path
+    AccessDenied,   // registered, but above the caller's access level
+};
+
 struct McpToolDefinition {
     QString name;
     QString description;
@@ -191,21 +203,29 @@ public:
     // Arguments are normalized against the tool's input schema before dispatch —
     // MCP clients may send integers as strings (especially after the confirmation
     // round-trip where args are serialized to JSON text and re-parsed).
+    // `failureOut`, when supplied, classifies a failure so the caller can pick a
+    // JSON-RPC code without reading `errorOut`'s wording.
     QJsonObject callTool(const QString& name, const QJsonObject& arguments,
-                         int accessLevel, QString& errorOut) const
+                         int accessLevel, QString& errorOut,
+                         McpRegistryFailure* failureOut = nullptr) const
     {
+        if (failureOut)
+            *failureOut = McpRegistryFailure::None;
         auto it = m_tools.constFind(name);
         if (it == m_tools.constEnd()) {
             errorOut = "Unknown tool: " + name;
+            if (failureOut) *failureOut = McpRegistryFailure::NotFound;
             return {};
         }
         const auto& tool = it.value();
         if (tool.isAsync || !tool.handler) {
             errorOut = "Tool is async, use callAsyncTool(): " + name;
+            if (failureOut) *failureOut = McpRegistryFailure::WrongDispatch;
             return {};
         }
         if (categoryMinLevel(tool.category) > accessLevel) {
             errorOut = "Access level insufficient";
+            if (failureOut) *failureOut = McpRegistryFailure::AccessDenied;
             return {};
         }
         return tool.handler(normalizeArguments(arguments, tool.inputSchema));
@@ -217,20 +237,26 @@ public:
     // The registry does not enforce this — it is the handler's responsibility.
     bool callAsyncTool(const QString& name, const QJsonObject& arguments,
                        int accessLevel, QString& errorOut,
-                       std::function<void(QJsonObject)> respond) const
+                       std::function<void(QJsonObject)> respond,
+                       McpRegistryFailure* failureOut = nullptr) const
     {
+        if (failureOut)
+            *failureOut = McpRegistryFailure::None;
         auto it = m_tools.constFind(name);
         if (it == m_tools.constEnd()) {
             errorOut = "Unknown tool: " + name;
+            if (failureOut) *failureOut = McpRegistryFailure::NotFound;
             return false;
         }
         const auto& tool = it.value();
         if (!tool.isAsync || !tool.asyncHandler) {
             errorOut = "Tool is not async: " + name;
+            if (failureOut) *failureOut = McpRegistryFailure::WrongDispatch;
             return false;
         }
         if (categoryMinLevel(tool.category) > accessLevel) {
             errorOut = "Access level insufficient";
+            if (failureOut) *failureOut = McpRegistryFailure::AccessDenied;
             return false;
         }
         tool.asyncHandler(normalizeArguments(arguments, tool.inputSchema), std::move(respond));

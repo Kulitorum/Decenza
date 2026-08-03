@@ -78,6 +78,14 @@ bool ScaleDeviceProxy::hasIndependentTimerReset() const
     return m_target ? m_target->hasIndependentTimerReset() : true;
 }
 
+// `false` with no target, which is also ScaleDevice's base-class default: there
+// is no scale, so there is no timer, and reporting one is exactly the lie this
+// flag exists to stop.
+bool ScaleDeviceProxy::supportsTimer() const
+{
+    return m_target && m_target->supportsTimer();
+}
+
 void ScaleDeviceProxy::sleep()
 {
     if (m_target) {

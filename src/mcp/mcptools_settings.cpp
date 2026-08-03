@@ -56,7 +56,14 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
         },
         [settings, accessibility, screensaver, translation, battery, aiManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
-            if (!settings) return result;
+            if (!settings) {
+                // Not a bare `{}`: with no `error` key this ships as a SUCCESSFUL
+                // call (#1754 marks failure off that key), so the model reads an
+                // empty settings object as "you have no settings" rather than
+                // "this app cannot answer".
+                result["error"] = "Settings not available";
+                return result;
+            }
 
             QJsonArray keys = args["keys"].toArray();
             QString category = args["category"].toString();

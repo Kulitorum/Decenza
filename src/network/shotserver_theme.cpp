@@ -262,7 +262,16 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
             sendResponse(socket, 400, "text/plain", "Missing name");
             return;
         }
-        m_settings->theme()->applyPresetTheme(name);
+        // `name` comes straight from the request body, so it can name nothing.
+        // This used to discard applyPresetTheme's outcome and answer 200 with the
+        // UNCHANGED theme — a caller that mistyped a name got a success carrying
+        // the old palette and no way to tell. Same silent-success defect the MCP
+        // tools in this change are fixing, on the web surface that has to stay at
+        // parity with them.
+        if (!m_settings->theme()->applyPresetTheme(name)) {
+            sendResponse(socket, 404, "text/plain", "No theme named '" + name.toUtf8() + "'");
+            return;
+        }
         QJsonDocument doc(buildThemeJson());
         sendJson(socket, doc.toJson(QJsonDocument::Compact));
         return;

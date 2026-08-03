@@ -418,6 +418,14 @@ signals:
     void shotSaved(qint64 shotId);
     void shotDeleted(qint64 shotId);
     void shotsDeleted(const QVariantList& shotIds);
+    // Terminal outcome of ONE requestDeleteShot(), success or failure, naming the
+    // shot it refers to. `shotDeleted` fires only on success and `errorOccurred`
+    // is storage-wide with no shot id, so a caller that wants to know how its own
+    // delete ended cannot assemble that from the two: waiting on `shotDeleted`
+    // alone waits forever on failure, and resolving on `errorOccurred` resolves on
+    // some other operation's failure. Emitted exactly once per request, on both
+    // outcomes, in addition to (not instead of) the two above, which the UI uses.
+    void shotDeleteFinished(qint64 shotId, bool success, const QString& reason);
     void errorOccurred(const QString& message);
     void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
     void loadingFilteredChanged();

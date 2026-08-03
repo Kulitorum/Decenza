@@ -17,6 +17,7 @@ public:
 
 public slots:
     void tare() override;
+    bool supportsTimer() const override { return true; }
     void startTimer() override;
     void stopTimer() override;
     void resetTimer() override;
