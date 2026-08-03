@@ -19,8 +19,10 @@ rediscovering each from a field report.
 
 - **JSON-RPC batches are accepted.** A POST whose body is a JSON array is
   processed element by element instead of rejected as a parse error. Required of
-  every server by the 2024-11-05 and 2025-03-26 base protocols, both of which
-  Decenza still negotiates.
+  every server by the 2025-03-26 base protocol ("MUST support receiving JSON-RPC
+  batches"), which Decenza still negotiates. Batching does not exist in
+  2024-11-05 and was removed again in 2025-06-18, so this is one revision of the
+  four rather than two — accepted unconditionally because the cost is one branch.
 - **A terminated session responds HTTP 404.** Session IDs the server has itself
   ended — by `DELETE` or by expiry — are remembered as tombstones and rejected,
   which is what tells a client to re-initialize. Today `DELETE` terminates

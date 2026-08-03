@@ -341,9 +341,15 @@ public slots:
     // no profile of that name was found (the default is loaded instead) — in both
     // cases the machine is not brewing what the caller asked for.
     //
-    // Deliberately NOT [[nodiscard]]: the UI callers show the outcome on screen
-    // and legitimately ignore the value, and the annotation would force `(void)`
-    // noise at every one of them. The value exists for MCP, which has no screen.
+    // Deliberately NOT [[nodiscard]]. Being a slot, it produces no diagnostic at
+    // QML call sites at all; it would force `(void)` at six C++ sites, none of
+    // which wants the value. The value exists for MCP, which has no screen.
+    //
+    // Only the refusal half is actually shown to a user: profileRefusedUnreadable
+    // drives ProfileRefusedDialog.qml. The not-found half emits profileLoadFailed,
+    // which as of this writing has ZERO handlers — nothing reaches the screen and
+    // the machine silently switches to default. That is a real gap, recorded here
+    // rather than fixed, because it is a UI change and this is not a UI change.
     bool loadProfile(const QString& profileName);
     Q_INVOKABLE bool loadProfileFromJson(const QString& jsonContent);
     bool persistCurrentProfile();  // Save to downloaded folder if not already installed (no re-upload)

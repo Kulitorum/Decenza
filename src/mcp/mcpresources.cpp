@@ -277,7 +277,12 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
         "application/json",
         [profileManager]() -> QJsonObject {
             QJsonObject result;
-            if (!profileManager) return result;
+            if (!profileManager) {
+                // Same reason as the tool guards: an empty object is not an
+                // answer, and a reader cannot tell it from "no profiles".
+                result["error"] = "Profile manager not available";
+                return result;
+            }
 
             QJsonArray profiles;
             for (const QVariant& v : profileManager->availableProfiles()) {

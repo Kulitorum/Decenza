@@ -12,6 +12,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QRegularExpression>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QPair>
@@ -696,6 +697,13 @@ private slots:
                  "an unknown tool is a protocol fault and must produce a JSON-RPC error");
         QVERIFY2(!resp.jsonBody.contains("result"),
                  "a JSON-RPC response carries error or result, never both");
+
+        // And it is Invalid params, not Internal error: the tools spec's own
+        // example returns -32602 for `Unknown tool: …`, and it describes a bad
+        // request the caller can fix, not a server fault. Asserted here rather
+        // than in a slot of its own — one response, one place that pins it, so
+        // the two halves cannot drift into contradicting each other.
+        QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32602);
     }
 
     // ─── Spec-version gating: 2024-11-05 clients see only legacy fields ───
@@ -1048,23 +1056,6 @@ private slots:
         QCOMPARE(error["data"].toObject()["uri"].toString(), QString("decenza://nonexistent"));
     }
 
-    // The tools spec's own example returns Invalid params for an unknown tool.
-    // -32603 described it as a server fault, which it is not — the caller can fix
-    // it by sending a name that exists.
-    void unknownToolReturnsInvalidParamsCode()
-    {
-        McpServer server;
-        const QString sid = openSession(server, "2025-11-25");
-
-        QJsonObject params;
-        params["name"] = "no_such_tool_was_ever_registered";
-        params["arguments"] = QJsonObject{};
-        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 52), sid);
-
-        QCOMPARE(resp.statusCode, 200);
-        QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32602);
-    }
-
     void sseStreamPrimesReconnection()
     {
         McpServer server;
@@ -1073,12 +1064,164 @@ private slots:
         auto resp = sendHttp(server, "GET", "", sid,
                              {{"Accept", "text/event-stream"}});
         QCOMPARE(resp.statusCode, 200);
-        QVERIFY2(resp.rawBody.contains("retry:"),
-                 "an SSE stream must tell the client how long to wait before reconnecting");
-        QVERIFY2(resp.rawBody.contains("id:"),
-                 "the priming event must carry an event ID");
-        QVERIFY2(resp.rawBody.contains("data:"),
-                 "the priming event must carry an (empty) data field");
+
+        // Anchored, not `contains`: a bare contains("id:") would be satisfied by
+        // an "id:" appearing anywhere, including inside a payload.
+        QVERIFY2(resp.rawBody.startsWith("retry: 3000\n"),
+                 qPrintable("stream must open with the retry interval, got: " + resp.rawBody));
+        QVERIFY2(QRegularExpression("\\bid: \\d+\\n").match(resp.rawBody).hasMatch(),
+                 "the priming event must carry a numeric event ID");
+
+        // NO `data` field, deliberately. Per the HTML SSE processing model a
+        // `data` field appends its value plus a newline, so `data: \n\n` leaves a
+        // non-empty buffer and DISPATCHES a message event carrying "" — which
+        // every MCP client JSON.parses, and which therefore throws on every
+        // stream open. A field-less block sets the last event ID and dispatches
+        // nothing, which is what priming means.
+        QVERIFY2(!resp.rawBody.contains("data:"),
+                 "the priming event must NOT carry a data field — it would dispatch an "
+                 "empty message the client tries to parse");
+    }
+
+    // A terminated session must 404 on GET too, not only POST. This is the verb a
+    // client reaches for FIRST after losing a session, and serving it hands back
+    // a stream that can never carry an event for that session — so the client
+    // waits forever instead of learning to re-initialize.
+    void terminatedSessionReturns404OnSseGet()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+        sendHttp(server, "DELETE", "", sid);
+
+        auto resp = sendHttp(server, "GET", "", sid, {{"Accept", "text/event-stream"}});
+        QCOMPARE(resp.statusCode, 404);
+    }
+
+    void terminatedSessionReturns404OnRepeatedDelete()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+        QCOMPARE(sendHttp(server, "DELETE", "", sid).statusCode, 200);
+        QCOMPARE(sendHttp(server, "DELETE", "", sid).statusCode, 404);
+    }
+
+    // A batched call to a deferring tool must NOT be dispatched. The refusal used
+    // to be read off handleJsonRpc's `_deferred` return — i.e. after the tool had
+    // already run — so the tool took effect and then wrote a second complete HTTP
+    // body onto a socket the batch response had already answered.
+    //
+    // The stub records whether it ran, which is the assertion that distinguishes
+    // "refused" from "refused after doing it anyway".
+    void batchedAsyncToolIsRefusedWithoutBeingDispatched()
+    {
+        McpServer server;
+        auto dispatched = std::make_shared<bool>(false);
+        server.toolRegistry()->registerAsyncTool(
+            "stub_async_side_effect",
+            "Records that it ran",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [dispatched](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+                *dispatched = true;
+                respond(QJsonObject{{"success", true}});
+            },
+            "read");
+
+        const QString sid = openSession(server, "2025-11-25");
+
+        QJsonObject callParams;
+        callParams["name"] = "stub_async_side_effect";
+        callParams["arguments"] = QJsonObject{};
+
+        QJsonArray batch;
+        batch.append(QJsonDocument::fromJson(rpcBody("ping", {}, 61)).object());
+        batch.append(QJsonDocument::fromJson(rpcBody("tools/call", callParams, 62)).object());
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Batched tools/call refused before dispatch"));
+
+        auto resp = sendHttp(server, "POST",
+                             QJsonDocument(batch).toJson(QJsonDocument::Compact), sid);
+
+        QCOMPARE(resp.statusCode, 200);
+        QCOMPARE(resp.jsonArrayBody.size(), 2);
+        QVERIFY2(!*dispatched,
+                 "a batched async tool must not run — refusing it after it has already "
+                 "taken effect is not refusing it");
+
+        // Look the slot up by id rather than by index: JSON-RPC 2.0 lets a server
+        // answer a batch in any order, and clients correlate by id.
+        QJsonObject refused;
+        for (const QJsonValue& v : std::as_const(resp.jsonArrayBody))
+            if (v.toObject()["id"].toInt() == 62) refused = v.toObject();
+        QVERIFY(!refused.isEmpty());
+        QCOMPARE(refused["error"].toObject()["code"].toInt(), -32600);
+
+        // Exactly one HTTP response on the socket — a second body would desync a
+        // keep-alive connection rather than merely confuse the parse.
+        QVERIFY2(!resp.rawBody.contains("HTTP/1.1"),
+                 "a second complete HTTP response was written into the body");
+    }
+
+    // JSON-RPC 2.0 §6's "rpc call with invalid Batch": a non-object element gets
+    // its own error slot with a null id. Shortening the array instead would
+    // desync the client's id correlation silently.
+    void batchWithNonObjectElementAnswersItWithNullId()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        QJsonArray batch;
+        batch.append(QJsonDocument::fromJson(rpcBody("ping", {}, 71)).object());
+        batch.append(QJsonValue(7));
+
+        auto resp = sendHttp(server, "POST",
+                             QJsonDocument(batch).toJson(QJsonDocument::Compact), sid);
+        QCOMPARE(resp.jsonArrayBody.size(), 2);
+        const QJsonObject bad = resp.jsonArrayBody[1].toObject();
+        QCOMPARE(bad["error"].toObject()["code"].toInt(), -32600);
+        QVERIFY2(bad["id"].isNull(), "an unidentifiable request answers with a null id");
+    }
+
+    // The empty-array and parse-error paths must answer with `id: null`, not
+    // `id: 0`. QJsonValue::Null is an unscoped enumerator of value 0, so passing
+    // it where a QVariant is expected picks QVariant(int) over
+    // QVariant(const QJsonValue&) — an integral promotion beats a user-defined
+    // conversion — and 0 is a legal id a client may correlate against a real
+    // request.
+    void unidentifiableRequestsAnswerWithNullId()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+
+        auto empty = sendHttp(server, "POST", "[]", sid);
+        QVERIFY2(empty.jsonBody["id"].isNull(), "empty batch must answer id: null");
+
+        auto garbage = sendHttp(server, "POST", "{not json}", sid);
+        QVERIFY2(garbage.jsonBody["id"].isNull(), "parse error must answer id: null");
+    }
+
+    // An access-level refusal is a server-side policy decision the caller cannot
+    // fix by changing its arguments, so it stays -32603. Pinned separately from
+    // the unknown-tool case because a "simplification" that mapped every registry
+    // failure to -32602 would tell a read-only client its ARGUMENTS were wrong,
+    // and a model would then rewrite them forever.
+    void accessDeniedStaysInternalError()
+    {
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "stub_control_tool", "Needs a higher access level",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{{"success", true}}; },
+            "control");
+
+        // No Settings wired, so mcpAccessLevel() is 0 — below "control".
+        const QString sid = openSession(server, "2025-11-25");
+        QJsonObject params;
+        params["name"] = "stub_control_tool";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 81), sid);
+
+        QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32603);
     }
 
     // ─── Pure helpers ──────────────────────────────────────────────────────

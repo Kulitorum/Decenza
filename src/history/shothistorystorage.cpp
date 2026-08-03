@@ -3289,7 +3289,11 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
     runOnDbThread([this, dbPath, shotId, destroyed]() {
         bool success = false;
         QString reason;
-        withTempDb(dbPath, "shs_rdel", [&](QSqlDatabase& db) {
+        // withTempDb's return is CHECKED: when the database will not open the
+        // work lambda never runs, so `reason` would stay empty and the tool would
+        // emit the dangling "Shot 42 was not deleted — ". An unnamed failure in
+        // the change whose whole point is that failures name themselves.
+        const bool opened = withTempDb(dbPath, "shs_rdel", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             query.prepare("DELETE FROM shots WHERE id = ?");
             query.bindValue(0, shotId);
@@ -3304,6 +3308,8 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
                 success = true;
             }
         });
+        if (!opened)
+            reason = QStringLiteral("the shot database could not be opened");
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, success, reason, destroyed]() {

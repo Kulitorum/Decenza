@@ -9,9 +9,17 @@ preserving each element's `id`. A batch consisting solely of notifications SHALL
 receive HTTP 202 with no body, matching the single-notification case.
 
 An element whose handling would be deferred — a tool requiring in-app
-confirmation, or an async tool — SHALL receive a JSON-RPC error in its array
-slot rather than a deferred response, because a deferred response is written to
-the socket as a complete HTTP body and cannot be folded into the array.
+confirmation, or an async tool or resource — SHALL receive a JSON-RPC error in
+its array slot rather than a deferred response, because a deferred response is
+written to the socket as a complete HTTP body and cannot be folded into the
+array. That determination SHALL be made BEFORE the element is dispatched, so
+that the refused element does not run: an element refused after dispatch has
+already taken its effect, and the client is told otherwise.
+
+The session serving a batch SHALL be resolved once for the whole request, before
+any element is handled. Resolving per element allows an unrecognized session
+header to create one session per element, and allows a request-level outcome
+discovered at element N to discard the results of elements already executed.
 
 #### Scenario: Batch of two requests
 
@@ -26,7 +34,12 @@ the socket as a complete HTTP body and cannot be folded into the array.
 #### Scenario: Batch containing a deferring tool
 
 - **WHEN** a batch element calls a tool that requires in-app confirmation
-- **THEN** that element's array slot carries a JSON-RPC error stating the call cannot be batched, and the other elements are answered normally
+- **THEN** that element's array slot carries a JSON-RPC error stating the call cannot be batched, the tool is not dispatched, and the other elements are answered normally
+
+#### Scenario: Batch carrying an unrecognized session header
+
+- **WHEN** a batch of several elements arrives with a session ID the server does not recognize
+- **THEN** at most one session is created for the whole request
 
 #### Scenario: Single message is unaffected
 
@@ -35,10 +48,17 @@ the socket as a complete HTTP body and cannot be folded into the array.
 
 ### Requirement: A Terminated Session Is Rejected With HTTP 404
 
-When the server ends a session — on an explicit `DELETE`, or when the expiry
-reaper collects it — it SHALL remember that session ID and SHALL respond HTTP
-404 to any subsequent request carrying it, so the client learns to start a new
-session.
+When a client ends a session with an explicit `DELETE`, the server SHALL
+remember that session ID and SHALL respond HTTP 404 to any subsequent request
+carrying it — on any HTTP method, not only POST — so the client learns to start
+a new session.
+
+Sessions the server ends on its own initiative — idle expiry, orphan collection,
+or eviction under a pool limit — SHALL NOT be recorded. Each of those ends a
+session belonging to a client that is expected to return, and rejecting it would
+defeat the recovery path described below. This is a deliberate shortfall against
+the specification, which does not distinguish who ended the session; it SHALL be
+revisited only against evidence from live clients.
 
 A session ID the server does not recognize and has not recorded as terminated
 SHALL continue to be served by the existing recovery path rather than rejected,
@@ -54,10 +74,15 @@ thereafter be treated as unrecognized.
 - **WHEN** a client sends `DELETE` with `Mcp-Session-Id: X` and then POSTs a request carrying `Mcp-Session-Id: X`
 - **THEN** the server responds HTTP 404
 
+#### Scenario: SSE stream on a terminated session
+
+- **WHEN** a client sends `DELETE` with `Mcp-Session-Id: X` and then issues `GET` with `Accept: text/event-stream` carrying `Mcp-Session-Id: X`
+- **THEN** the server responds HTTP 404 rather than opening a stream that can never carry an event for that session
+
 #### Scenario: Request after session expiry
 
 - **WHEN** a session is collected by the expiry reaper and a client then POSTs a request carrying that session ID
-- **THEN** the server responds HTTP 404
+- **THEN** the server serves the request via the existing recovery path and does not respond 404
 
 #### Scenario: Unrecognized session ID
 
@@ -117,10 +142,15 @@ insufficient for the caller — SHALL continue to return `-32603`.
 
 ### Requirement: SSE Streams Prime Clients For Reconnection
 
-On opening an SSE stream, the server SHALL immediately send one event carrying
-an event ID and an empty `data` field, and SHALL send a `retry` field giving the
-interval a client should wait before reconnecting. Every subsequent event on the
-stream SHALL carry an event ID unique across all streams within the session.
+On opening an SSE stream, the server SHALL immediately send a `retry` field
+giving the interval a client should wait before reconnecting, and one event
+carrying an event ID and NO `data` field. The `data` field SHALL be omitted: a
+`data` field appends its value and a newline to the event buffer, so an event
+carrying an empty `data` is dispatched to the client as a message with empty
+content, which a client parsing message data as JSON cannot consume.
+
+Every subsequent event on the stream SHALL carry an event ID unique across all
+streams within the session.
 
 The server SHALL NOT be required to replay missed events: a `Last-Event-ID`
 request header MAY be ignored, and the client recovers by re-reading the
@@ -129,7 +159,7 @@ resource named in any notification it missed.
 #### Scenario: Stream opens
 
 - **WHEN** a client issues `GET` with `Accept: text/event-stream`
-- **THEN** the first event sent carries an `id` field and an empty `data` field, and a `retry` field is present
+- **THEN** a `retry` field is present and the first event sent carries an `id` field and no `data` field
 
 #### Scenario: Notification carries an ID
 

@@ -447,7 +447,10 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                 // Note what is still NOT answered: whether the connected machine
                 // is the one that was asked for. DE1Device exposes no address
                 // getter, and adding one to answer a question nobody has asked is
-                // not this change's business. Use devices_connection_status.
+                // not this change's business. No MCP surface reports it today —
+                // devices_connection_status does NOT, despite the name of its
+                // `machineAddress` field, which carries the literal string
+                // "connected" or "disconnected".
                 result["success"] = true;
                 result["alreadyConnected"] = true;
                 result["requestedAddress"] = address;

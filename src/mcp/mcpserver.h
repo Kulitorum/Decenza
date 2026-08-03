@@ -101,10 +101,10 @@ private:
     // JSON-RPC dispatch
     QJsonObject handleJsonRpc(const QJsonObject& request, McpSession* session,
                               QTcpSocket* socket, const QVariant& requestId);
-    // A POST body that is a JSON array. Required of every server by the
-    // 2024-11-05 and 2025-03-26 base protocols, both of which we still
-    // negotiate. Answers with an array of the responses for `id`-bearing
-    // elements, or 202 when the batch is all notifications.
+    // A POST body that is a JSON array. Answers with an array of the responses
+    // for `id`-bearing elements, or 202 when the batch is all notifications.
+    // See handleHttpRequest's POST branch for which revisions require this — it
+    // is exactly one of the four we negotiate, not the two it first claimed.
     void handleJsonRpcBatch(QTcpSocket* socket, const QJsonArray& batch,
                             const QString& sessionHeader, const QString& protocolHeader,
                             bool remote);
@@ -134,6 +134,15 @@ private:
                                                const QString& sessionHeader,
                                                const QString& protocolHeader);
 
+    // Whether this server ended `sessionId` itself. One rule, consulted from
+    // every verb — see the definition.
+    bool isTerminatedSession(const QString& sessionId) const;
+
+    // Whether handling this message would defer its response (in-app
+    // confirmation, or an async tool/resource). Answerable WITHOUT dispatching,
+    // which is the point — see the definition.
+    bool willDeferResponse(const QJsonObject& request) const;
+
     // Session management
     McpSession* findOrCreateSession(const QString& sessionHeader);
     McpSession* findSession(const QString& sessionId);
@@ -148,6 +157,9 @@ private:
     int statefulSessionCount() const;
 
     // Confirmation helpers
+    // End a pending confirmation that will never be answered, ANSWERING the
+    // client holding the open request. See the definition.
+    void abandonPendingConfirmation(const QString& reason);
     bool needsInAppConfirmation(const QString& toolName) const;
     bool needsChatConfirmation(const QString& toolName) const;
     QString confirmationDescription(const QString& toolName) const;
@@ -199,21 +211,32 @@ private:
     QHash<QString, McpSession*> m_sessions;
     QTimer* m_cleanupTimer;
 
-    // Session IDs this server ended itself — by DELETE, or by the expiry reaper.
-    // A later request carrying one gets HTTP 404, which is what tells a client to
-    // re-initialize (MUST, 2025-03-26 onward). Oldest first.
+    // Session IDs this server ended on an explicit DELETE. A later request
+    // carrying one gets HTTP 404, which is what tells a client to re-initialize
+    // (MUST, 2025-03-26 onward). Oldest first.
+    //
+    // DELETE ONLY, deliberately. The server ends sessions three other ways — the
+    // idle-expiry reaper, the orphan reaper inside findOrCreateSession, and
+    // MaxTotalSessions eviction — and none of them records here. Each targets a
+    // client that is expected to come back, which is what the auto-recovery path
+    // exists for; 404ing those is the "permanently broken until restart" outcome
+    // that path's own comment warns about. See cleanupExpiredSessions for the
+    // full reasoning and what would have to be verified to tighten it.
     //
     // Bounded because the alternative grows with every session the app ever had,
     // for the whole process lifetime. Eviction is safe in a way that is worth
     // stating: an evicted ID stops being "terminated" and becomes merely
-    // unrecognized, so it falls back to the pre-existing auto-recovery path —
-    // more permissive than the spec, but the behaviour that shipped for a year,
-    // not a new failure mode.
+    // unrecognized, so it falls back to the auto-recovery path — more permissive
+    // than the spec, but the behaviour that shipped for a year, not a new
+    // failure mode.
     QList<QString> m_terminatedSessions;
 
-    // Monotonic SSE event ID (2025-11-25 SHOULD). One counter for the whole
-    // server run: the spec asks for uniqueness within a session, and unique
-    // across the process satisfies that for every session at once.
+    // Monotonic SSE event ID. Attaching one is a 2025-11-25 **MAY**, not a
+    // SHOULD — the SHOULDs alongside it are the `retry` field and the priming
+    // event. One counter for the whole server run: unique across the process is
+    // unique within every session at once. It does NOT satisfy the separate
+    // 2025-11-25 SHOULD that IDs encode their originating stream, which only
+    // buys something once Last-Event-ID replay exists, and that is out of scope.
     quint64 m_sseEventId = 0;
 
     // Rate limiting
@@ -254,9 +277,12 @@ private:
     // above any legitimate churn so it only ever trims a runaway/malicious peer.
     static constexpr int MaxTotalSessions = 128;
     static constexpr int MaxSseConnections = 4;
-    // Ceiling on remembered terminated session IDs. Far above any real client's
-    // session churn between app restarts (a session lives 30 idle minutes and a
-    // client holds one at a time), and ~10 KB at the cap.
+    // Ceiling on remembered terminated session IDs. Only explicit DELETEs land
+    // here, and a client sends at most one per session it finishes with, so 256
+    // is two full session pools (MaxTotalSessions is 128) — comfortably above any
+    // real churn between app restarts. At 36-char UUIDs that is roughly 26 KB
+    // including the QString and QList overhead, not the ~10 KB a
+    // one-byte-per-character estimate suggests.
     static constexpr int MaxTerminatedSessions = 256;
     static constexpr int SessionTimeoutMinutes = 30;  // idle-session cleanup; runs every 60s on m_cleanupTimer and again opportunistically when a new session is created
     static constexpr int RateLimitPerMinute = 60;

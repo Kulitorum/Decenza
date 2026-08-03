@@ -20,12 +20,42 @@ namespace {
 //
 // Returns true when the call must not proceed, having written `error` into
 // `result`.
-bool timerUnavailable(MachineState* machineState, QJsonObject& result)
+// Is there a real, connected scale to command at all? Shared by every tool here,
+// because none of them can do anything useful without one.
+bool scaleUnavailable(MachineState* machineState, QJsonObject& result)
 {
-    if (!machineState || !machineState->scale()) {
-        result["error"] = "No scale connected";
+    ScaleDevice* scale = machineState ? machineState->scale() : nullptr;
+
+    // `!scale` is defensive only. MachineState::m_scale is set to the FlowScale
+    // at startup and is never null afterwards — on disconnect it is swapped BACK
+    // to the FlowScale, not cleared. So a bare null check is not the "is a scale
+    // connected" test it looks like, and writing it that way is how the first
+    // version of this helper ended up telling a user with no scale at all that
+    // "This scale (Flow Scale) does not support remote timer control" — a
+    // hardware limitation attributed to a scale that does not exist.
+    if (!scale) {
+        result["error"] = "No scale is available";
         return true;
     }
+    if (scale->isFlowScale()) {
+        result["error"] = "No physical scale is connected — weight is being estimated "
+                          "from DE1 flow, and there is no scale timer to drive.";
+        return true;
+    }
+    if (!scale->isConnected()) {
+        result["error"] = "The scale (" + scale->name() + ") is not connected";
+        return true;
+    }
+    return false;
+}
+
+// The timer preconditions: a usable scale, plus a driver that actually sends
+// timer commands. Separate from scaleUnavailable so scale_tare shares the first
+// half without inheriting the second.
+bool timerUnavailable(MachineState* machineState, QJsonObject& result)
+{
+    if (scaleUnavailable(machineState, result))
+        return true;
     if (!machineState->scale()->supportsTimer()) {
         result["error"] = "This scale (" + machineState->scale()->name()
                           + ") does not support remote timer control";
@@ -45,13 +75,14 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!machineState || !machineState->scale()) {
-                result["error"] = "No scale connected";
+            // Same ladder as the timer tools: a bare null check is not a
+            // connectivity test here (see scaleUnavailable), so scale_tare used
+            // to report a successful tare of the FlowScale when no scale existed.
+            if (scaleUnavailable(machineState, result))
                 return result;
-            }
             QMetaObject::invokeMethod(machineState->scale(), "tare", Qt::QueuedConnection);
             result["success"] = true;
-            result["message"] = "Scale tared";
+            result["message"] = "Tare command sent to the scale";
             return result;
         },
         "control");
@@ -67,7 +98,7 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
                 return result;
             QMetaObject::invokeMethod(machineState->scale(), "startTimer", Qt::QueuedConnection);
             result["success"] = true;
-            result["message"] = "Timer started";
+            result["message"] = "Timer start command sent to the scale";
             return result;
         },
         "control");
@@ -83,7 +114,7 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
                 return result;
             QMetaObject::invokeMethod(machineState->scale(), "stopTimer", Qt::QueuedConnection);
             result["success"] = true;
-            result["message"] = "Timer stopped";
+            result["message"] = "Timer stop command sent to the scale";
             return result;
         },
         "control");
@@ -97,9 +128,21 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
             QJsonObject result;
             if (timerUnavailable(machineState, result))
                 return result;
+            // A scale can support the timer and still have no independent RESET:
+            // DiFluid's resetTimer() sends the same bytes as startTimer(), which
+            // is what hasIndependentTimerReset() reports. Passing the capability
+            // gate and then answering "Timer reset" would be the same fiction the
+            // gate was added to stop, one step narrower — the timer starts.
+            if (!machineState->scale()->hasIndependentTimerReset()) {
+                result["error"] = "This scale (" + machineState->scale()->name()
+                                  + ") cannot reset its timer independently — the reset "
+                                    "command also starts it. Use scale_timer_stop first, "
+                                    "or start a fresh timer with scale_timer_start.";
+                return result;
+            }
             QMetaObject::invokeMethod(machineState->scale(), "resetTimer", Qt::QueuedConnection);
             result["success"] = true;
-            result["message"] = "Timer reset";
+            result["message"] = "Timer reset command sent to the scale";
             return result;
         },
         "control");

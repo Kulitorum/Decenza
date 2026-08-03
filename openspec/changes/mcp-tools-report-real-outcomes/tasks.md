@@ -10,7 +10,7 @@ forever per file, ~ms per slot).
 - [x] 1.2 `shots_update` with a shot ID matching no row → result carries `error`
 - [x] 1.3 `shots_delete` with a shot ID matching no row → result carries `error`
 - [x] 1.4 `shots_delete` when storage reports a failure → a response arrives at all (this one currently HANGS; assert with a bounded wait, and make the assertion "responded", not "responded quickly")
-- [ ] 1.5 **NOT tested.** `apply_theme` lives in `mcptools_control.cpp`, which no test binary links; giving it one means a new `tst_*.cpp` (~1.4 s of build cost forever) for a one-line consumption of a `bool` that IS covered — `SettingsTheme::applyPresetTheme` returning false for an unknown name. Judged not worth a new file; say so rather than pretend
+- [x] 1.5 The claim this originally made — that `applyPresetTheme` returning false was already covered — was FALSE; nothing tested it. Now `tst_backgroundpresets::applyPresetThemeReportsWhetherTheNameMatched`, which costs milliseconds because `settings_theme.cpp` is already linked into every test binary. The tool's one-line consumption is still untested (`mcptools_control.cpp` is in no test binary), but the decision no longer rests on a false premise
 - [x] 1.6 `tst_mcptools_profiles::profileReadsReportAnUnavailableManagerAsAnError`, a `_data()` table over all four reads
 - [ ] 1.7 **NOT tested**, same reason as 1.5 — `mcptools_machine.cpp` is in no test binary. The distinction between `error` (no tracker) and `hasData: false` (no sessions) is stated in the spec delta and at the call site, and is the requirement most exposed by having no test
 - [x] 1.8 `shots_compare` with one bad ID among good ones → `unresolvedShotIds` names it; with all IDs bad → `error`
@@ -65,7 +65,7 @@ forever per file, ~ms per slot).
 
 - [x] 8.1 Full suite via `mcp__qtcreator__run_tests` (scope `all`) — ask first, Qt Creator is shared
 - [x] 8.2 Break each fix in turn and confirm its section-1 test goes red
-- [ ] 8.3 NOT done — the changed tools have not been exercised over the live HTTP endpoint. The tool layer is covered by tests; that `isError` rides along from #1754's shared path with no per-tool work is inferred from that change's own wire verification, not re-checked here
+- [x] 8.3 Done, over BOTH entry paths. ShotServer (`localhost:8888/mcp`) by raw HTTP: `shots_update`/`shots_delete` on a nonexistent id, `apply_theme` with an unknown name, `shots_compare` with mixed and all-bad ids, `steam_get_health`, and all three `scale_timer_*` against a Simulated Scale — every failure carried `isError: true`, and `machine_get_state` carried no `isError` key at all. `McpRemoteAccess` (the claude.ai remote connector) separately confirmed to deliver `isError` for `shots_update`, which raw curl could not reach
 - [ ] 8.4 Read the `text-invariants.yml` PR run — it gates `src/**` and nothing blocks a merge on it
 
 ## 9. Document

@@ -55,9 +55,9 @@ slot).
 
 - [x] 7.1 Full suite via `mcp__qtcreator__run_tests` (scope `all`) — ask first, Qt Creator is shared
 - [x] 7.2 Break each fix in turn and confirm its section-1 test goes red. Six fixes, six red proofs
-- [ ] 7.3 **NOT DONE — the one verification gap in this change.** Live `mcp-remote` / Claude Desktop / cloud-connector matrix against an EXPIRED session. The design's mitigation is in place (only IDs the server itself ended are tombstoned; unrecognized IDs keep the auto-recovery path, and `initialize` is always accepted), and `unrecognizedSessionIsStillServed` pins it, but that is an argument, not a live client. Called out in the PR body
+- [ ] 7.3 **STILL NOT DONE, and now less load-bearing.** The tombstone is DELETE-only, so an expired or reaped session keeps the auto-recovery path and only a client that explicitly said "I am done" can be 404ed. The remaining risk is a client that DELETEs and then reuses, which is not a shape any client here has. Original text: Live `mcp-remote` / Claude Desktop / cloud-connector matrix against an EXPIRED session. The design's mitigation is in place (only IDs the server itself ended are tombstoned; unrecognized IDs keep the auto-recovery path, and `initialize` is always accepted), and `unrecognizedSessionIsStillServed` pins it, but that is an argument, not a live client. Called out in the PR body
 - [ ] 7.4 Contingent on 7.3
-- [ ] 7.5 Not run — the protocol tests drive the same `handleHttpRequest` entry point over a real socket pair, which is what the curl probe was standing in for
+- [x] 7.5 Run against the live app: batch of two (array of two, ids preserved), all-notification batch (202, empty), `[]` (-32600), single object unchanged, `resources/read` carrying exactly `uri`/`mimeType`/`text`, unknown resource (-32002 + `data.uri`), unknown tool (-32602), SSE priming (`retry: 3000`, `id:`), `DELETE`-then-reuse (404), and an unrecognized id still served. The 404 probe also found a THIRD server-side termination path nobody had accounted for — the orphan reaper in `findOrCreateSession` — which is why the tombstone is now DELETE-only
 - [ ] 7.6 Read the `text-invariants.yml` PR run — it gates `src/**` and nothing blocks a merge on it
 
 ## 8. Document
