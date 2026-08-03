@@ -1608,7 +1608,7 @@ T.Page {
                 font: Theme.labelFont
                 color: Theme.textColor
                 elide: Text.ElideRight
-                Layout.maximumWidth: shotDetailPage.width * 0.3
+                Layout.maximumWidth: Math.min(shotDetailPage.width * 0.3, bottomBar.leftContentMaxWidth)
                 Accessible.ignored: true
             }
 
@@ -1617,7 +1617,7 @@ T.Page {
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 elide: Text.ElideRight
-                Layout.maximumWidth: shotDetailPage.width * 0.3
+                Layout.maximumWidth: Math.min(shotDetailPage.width * 0.3, bottomBar.leftContentMaxWidth)
                 Accessible.ignored: true
             }
         }

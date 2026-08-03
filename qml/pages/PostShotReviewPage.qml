@@ -2331,6 +2331,7 @@ T.Page {
 
     // Bottom bar (stays visible under keyboard)
     BottomBar {
+        id: bottomBar
         title: TranslationManager.translate("postshotreview.title", "Shot Review")
         onBackClicked: postShotReviewPage.handleBack()
 
@@ -2350,7 +2351,7 @@ T.Page {
                 font: Theme.labelFont
                 color: Theme.textColor
                 elide: Text.ElideRight
-                Layout.maximumWidth: postShotReviewPage.width * 0.3
+                Layout.maximumWidth: Math.min(postShotReviewPage.width * 0.3, bottomBar.leftContentMaxWidth)
                 Accessible.ignored: true
             }
             Text {
@@ -2358,7 +2359,7 @@ T.Page {
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 elide: Text.ElideRight
-                Layout.maximumWidth: postShotReviewPage.width * 0.3
+                Layout.maximumWidth: Math.min(postShotReviewPage.width * 0.3, bottomBar.leftContentMaxWidth)
                 Accessible.ignored: true
             }
         }

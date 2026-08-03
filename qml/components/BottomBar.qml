@@ -21,6 +21,18 @@ Item {
     // backgrounds became derivable: a light theme with a dark background colour derives
     // iconColor to WHITE while barColor stays the palette's white bar — white on white.
     readonly property color contentColor: Theme.contentColorOn(barColor, Theme.iconColor)
+
+    // How much width the title-side content may take before it starts pushing the
+    // action buttons off the end of the bar. Nothing in the row has a minimum width,
+    // so an oversized leftContent does NOT get shrunk by the layout — the buttons are
+    // squeezed to near-zero cells instead and their centred labels paint outside the
+    // bar, which is what a long profile name did on Shot Review / Shot Detail.
+    // Pages bind their leftContent's Layout.maximumWidth to this so the text elides.
+    // No binding loop: nothing here depends on leftContentRow's own width.
+    readonly property real leftContentMaxWidth: Math.max(0,
+        width - titleRow.implicitWidth - contentRow.implicitWidth
+              - (root.rightText !== "" ? Math.min(rightTextLabel.implicitWidth, width * 0.4) : 0)
+              - Theme.chartMarginSmall - Theme.spacingLarge - Theme.spacingMedium * 3)
     // Effective fill color, re-exposed for callers that mirror it (e.g.
     // CommunityBrowserPage's "Add to Library" label). The fill lives on the
     // nested bgRect, not this Item root, so alias it back to the public surface.
@@ -68,6 +80,7 @@ Item {
         // before the title. (With no back button the row collapses and the outer
         // leftMargin is the only inset.)
         RowLayout {
+            id: titleRow
             spacing: 0
 
             // Back button (square hitbox, full bar height)
@@ -143,6 +156,7 @@ Item {
 
         // Simple right text (alternative to custom content)
         Text {
+            id: rightTextLabel
             visible: root.rightText !== ""
             text: root.rightText
             color: root.contentColor
