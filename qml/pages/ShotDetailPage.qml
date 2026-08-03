@@ -70,14 +70,6 @@ T.Page {
         sourceRecipeId: shotDetailPage.shotData.recipeId || -1
     }
 
-    // Pick up toggle changes made on any other page sharing this setting
-    // (Post-Shot Review, Shot Comparison, Espresso view selector).
-    Connections {
-        target: Settings
-        function onValueChanged(key) {
-        }
-    }
-
     // RecipeField (labeled component row) is a shared component in
     // qml/components/RecipeField.qml.
 

@@ -70,12 +70,12 @@ that removed, all of it duplication that predates this feature:
 
 - 59 mirror property declarations across 5 QML files, replaced by direct bindings
 - the 12-case refresh switch and the hand-maintained watch list
-- 4 copies of the series list (legend model, comparison map, watch list, mirror blocks) →
-  one `GraphSeries` singleton
+- 4 copies of the series list (legend model, comparison table columns, watch list, mirror
+  blocks) → one `GraphSeries` singleton
 - 2 verbatim copies of the right-axis label column → `GraphRightAxisLabels`
-- 4 copies of the Advanced button → `GraphOptionsButton`
+- 3 copies of the Advanced button → `GraphOptionsButton`
 - 3 copies of the checkbox card in `ExtractionViewSelector` alone → `GraphOptionToggleCard`
-  (386 → 214 lines in that file)
+  (386 → 212 lines in that file)
 - identical `_niceTimeAxisStep` / `_timeAtPixel` helpers in two graphs each → `GraphUtils.js`
 - `shotReview/advancedMode` mirrored in 4 pages with 4 `Connections` blocks → one property
 

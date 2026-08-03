@@ -130,10 +130,7 @@ Item {
             if (phaseMarkers[m].time > markerMaxTime) markerMaxTime = phaseMarkers[m].time
         }
         var axisEnd = Math.max(maxTime, markerMaxTime)
-        var plotWidth = Math.max(1, graphsView.plotArea.width)
-        var paddingPx = Theme.scaled(5)
-        var scale = plotWidth / Math.max(1, plotWidth - paddingPx)
-        timeAxis.max = Math.max(5, axisEnd * scale)
+        timeAxis.max = Math.max(5, GraphUtils.paddedAxisEnd(axisEnd, graphsView.plotArea.width, Theme.scaled(5)))
     }
 
     // Split a goal data array into segments at time gaps (pump mode transitions).
@@ -305,8 +302,13 @@ Item {
     // by shrinking the range each flow-family trace is mapped through, never by rewriting
     // points — precisely so this stays true. Feed multiplied values in here and the axis
     // grows by the multiplier, the traces land in identical pixels, and the zoom silently
-    // does nothing while every test still passes. tst_historyshotgraph pins the invariant:
-    // this value is identical at 1x, 2x and 3x for the same shot.
+    // does nothing while every test still passes.
+    //
+    // NOTHING TESTS THIS. The invariant — this value identical at 1x, 2x and 3x for the
+    // same shot — holds by construction only, because asserting it needs a QML-level
+    // harness the suite does not have. See tasks.md 8.2 in the change folder. Do not read
+    // this comment as a safety net; if you change how the flow family is plotted, check
+    // this by hand.
     property double pressureAxisMax: {
         var maxVal = 0
         for (var i = 0; i < pressureData.length; i++) {

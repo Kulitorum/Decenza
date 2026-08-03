@@ -33,8 +33,14 @@ bool SettingsGraph::readBool(QLatin1String key, bool defaultValue) const {
     return v.toBool();
 }
 
-void SettingsGraph::writeBool(QLatin1String key, bool value, void (SettingsGraph::*signal)()) {
-    if (readBool(key, !value) == value) return;
+void SettingsGraph::writeBool(QLatin1String key, bool defaultValue, bool value,
+                              void (SettingsGraph::*signal)()) {
+    // Compare against the property's REAL default, not `!value`. With `!value` the guard
+    // could not fire while the key was unset, so writing a property its own default on a
+    // fresh install — Settings.graph.advancedMode = false, say — stored the key and emitted
+    // a change nothing had made. Every graph, the legend, the inspect bar and the last-shot
+    // chart's cache key then re-evaluated for a value that had not moved.
+    if (readBool(key, defaultValue) == value) return;
     m_settings.setValue(key, value);
     emit(this->*signal)();
 }
@@ -44,7 +50,7 @@ void SettingsGraph::writeBool(QLatin1String key, bool value, void (SettingsGraph
         return readBool(Key, Default);                               \
     }                                                                \
     void SettingsGraph::Setter(bool show) {                          \
-        writeBool(Key, show, &SettingsGraph::Signal);                \
+        writeBool(Key, Default, show, &SettingsGraph::Signal);       \
     }
 
 // Eleven properties differing only in key, default and signal. Written out by hand this is
@@ -67,7 +73,7 @@ bool SettingsGraph::advancedMode() const {
 }
 
 void SettingsGraph::setAdvancedMode(bool enabled) {
-    writeBool(kKeyAdvancedMode, enabled, &SettingsGraph::advancedModeChanged);
+    writeBool(kKeyAdvancedMode, false, enabled, &SettingsGraph::advancedModeChanged);
 }
 
 #undef DECENZA_GRAPH_BOOL

@@ -72,21 +72,24 @@ ColumnLayout {
         Settings.graph[key] = !Settings.graph[key]
     }
 
-    // Column definitions (order matches data cells in each shot row).
-    // Columns flagged `advanced` only render when advancedMode is on.
-    readonly property var allColumns: [
-        { key: "showPressure",    dataKey: "pressure",    label: "P",    dotColor: Theme.pressureColor,             advanced: false },
-        { key: "showFlow",        dataKey: "flow",        label: "F",    dotColor: Theme.flowColor,                 advanced: false },
-        { key: "showTemperature", dataKey: "temp",        label: "T",    dotColor: Theme.temperatureColor,          advanced: false },
-        { key: "showTemperatureMix",        dataKey: "mixTemp",label: "Tmix", dotColor: Theme.temperatureMixColor,         advanced: true  },
-        { key: "showTemperatureMixGoal",    dataKey: "mixTempGoal",label: "Tmixg", dotColor: Theme.temperatureMixGoalColor, advanced: true  },
-        { key: "showWeight",      dataKey: "weight",      label: "W",    dotColor: Theme.weightColor,               advanced: false },
-        { key: "showWeightFlow",  dataKey: "weightFlow",  label: "WF",   dotColor: Theme.weightFlowColor,           advanced: false },
-        { key: "showResistance",  dataKey: "resistance",  label: "R",    dotColor: Theme.resistanceColor,           advanced: true  },
-        { key: "showDarcyResistance",       dataKey: "darcyR", label: "dR",   dotColor: Theme.darcyResistanceColor,        advanced: true  },
-        { key: "showConductance", dataKey: "conductance", label: "C",    dotColor: Theme.conductanceColor,          advanced: true  },
-        { key: "showConductanceDerivative", dataKey: "dCdt",   label: "dC/dt",dotColor: Theme.conductanceDerivativeColor,  advanced: true  }
-    ]
+    // Column definitions, derived from the shared series list so a curve added to
+    // GraphSeries appears here without this file being edited. This was a hand-typed copy
+    // of all eleven series — the fourth copy of that list, and the one that would have
+    // drifted silently, since nothing renders both it and the legend side by side.
+    readonly property var allColumns: {
+        var out = []
+        var all = GraphSeries.entries
+        for (var i = 0; i < all.length; i++) {
+            out.push({
+                key: all[i].key,
+                dataKey: all[i].dataKey,
+                label: all[i].shortLabel,
+                dotColor: all[i].sColor,
+                advanced: all[i].advanced ?? false
+            })
+        }
+        return out
+    }
     readonly property var columns: {
         var out = []
         for (var i = 0; i < allColumns.length; i++) {

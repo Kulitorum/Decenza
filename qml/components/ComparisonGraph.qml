@@ -163,13 +163,10 @@ Item {
             }
         }
         var axisEnd = Math.max(comparisonModel.maxTime, markerMaxTime)
-        var plotWidth = Math.max(1, graphsView.plotArea.width)
-        var paddingPx = Theme.scaled(5)
-        var scale = plotWidth / Math.max(1, plotWidth - paddingPx)
         // Fit to data with a 5 s floor — short shots still fill the plot. Match
         // ShotGraph/SteamGraph dynamic tickInterval so labels stay readable from
         // a 5 s pour through a 60 s+ extraction.
-        timeAxis.max = Math.max(5, axisEnd * scale)
+        timeAxis.max = Math.max(5, GraphUtils.paddedAxisEnd(axisEnd, graphsView.plotArea.width, Theme.scaled(5)))
         timeAxis.tickInterval = GraphUtils.niceTimeAxisStep(timeAxis.max)
     }
 
@@ -369,8 +366,11 @@ Item {
     // DashedLineSeries reads min/max for its data→pixel mapping; QtObject
     // suffices — no Qt Graphs ValueAxis needed.
 
-    // Flow-family mapping. Tracks the pressure axis, including its expansion to 20 for the
-    // advanced curves, so flow keeps the same proportion of plot height either way.
+    // Flow-family mapping, tracking the pressure axis so one multiplier drives both.
+    //
+    // Note this axis also inherits the pressure axis's expansion to 20 under advanced
+    // curves, which shrinks the flow trace by 40% — inherited behaviour from when flow was
+    // plotted on the pressure axis directly, not something the multiplier introduces.
     QtObject {
         id: flowAxis
         property real min: pressureAxis.min

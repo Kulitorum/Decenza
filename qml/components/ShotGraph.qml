@@ -61,7 +61,7 @@ Item {
         // the right edge — matches the Qt Charts feel. Ticks land at multiples of
         // tickInterval; the rightmost one may sit short of the plot edge during the
         // shot, which is fine.
-        var raw = ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
+        var raw = GraphUtils.paddedAxisEnd(ShotDataModel.rawTime, cachedPlotWidth, paddingPixels)
         var newMax = Math.max(minTime, raw)
         var step = GraphUtils.niceTimeAxisStep(newMax)
         if (newMax !== _lastAxisMax || timeAxis.tickInterval !== step) {
@@ -275,6 +275,15 @@ Item {
         minX: timeAxis.min; maxX: timeAxis.max
         // Flow-family: the multiplier is applied by SHRINKING the mapped range, so the
         // trace grows without a per-point transform and the source data is untouched.
+        //
+        // clip is load-bearing at 2x/3x. FastLineRenderer maps y with no clamp
+        // (fastlinerenderer.cpp: `h - (y - m_minY) * scaleY`) and adds no clip node, so a
+        // sample above maxY paints as geometry ABOVE the plot area, out over the page. At
+        // 1x the ceiling was 12 and pump flow never reached it; at the 2x default it is
+        // 6.0 mL/s, which the puck-fill spike clears on most shots. The dashed flow goal
+        // beside it already clips (DashedLineSeries.qml), so without this the goal and the
+        // trace disagree exactly where the trace escapes.
+        clip: true
         minY: pressureAxis.min; maxY: pressureAxis.max / chart.flowMultiplier
         visible: Settings.graph.showFlow
     }
@@ -299,6 +308,15 @@ Item {
         minX: timeAxis.min; maxX: timeAxis.max
         // Flow-family: the multiplier is applied by SHRINKING the mapped range, so the
         // trace grows without a per-point transform and the source data is untouched.
+        //
+        // clip is load-bearing at 2x/3x. FastLineRenderer maps y with no clamp
+        // (fastlinerenderer.cpp: `h - (y - m_minY) * scaleY`) and adds no clip node, so a
+        // sample above maxY paints as geometry ABOVE the plot area, out over the page. At
+        // 1x the ceiling was 12 and pump flow never reached it; at the 2x default it is
+        // 6.0 mL/s, which the puck-fill spike clears on most shots. The dashed flow goal
+        // beside it already clips (DashedLineSeries.qml), so without this the goal and the
+        // trace disagree exactly where the trace escapes.
+        clip: true
         minY: pressureAxis.min; maxY: pressureAxis.max / chart.flowMultiplier
         visible: Settings.graph.showWeightFlow
     }

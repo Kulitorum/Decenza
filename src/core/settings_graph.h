@@ -132,7 +132,8 @@ signals:
 
 private:
     bool readBool(QLatin1String key, bool defaultValue) const;
-    void writeBool(QLatin1String key, bool value, void (SettingsGraph::*signal)());
+    void writeBool(QLatin1String key, bool defaultValue, bool value,
+                   void (SettingsGraph::*signal)());
 
     mutable AppSettings m_settings;
 };

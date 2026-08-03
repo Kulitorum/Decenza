@@ -31,14 +31,6 @@ T.Page {
     // Basic/Advanced mode toggle, shared with Post-Shot Review + Shot Detail via
     // Settings so a user who prefers advanced curves sees them everywhere.
 
-    // Pick up toggle changes made on any other page sharing this setting
-    // (Post-Shot Review, Shot Detail, Espresso view selector).
-    Connections {
-        target: Settings
-        function onValueChanged(key) {
-        }
-    }
-
     // Unique phase entries [{label, phaseIndex}] derived from graph data
     readonly property var phaseEntries: {
         var _dep = comparisonGraph.phaseData

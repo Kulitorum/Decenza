@@ -296,14 +296,6 @@ T.Page {
     property bool _firstUploadInFlight: false
     property bool _patchInFlight: false
 
-    // Pick up toggle changes made on any other page sharing this setting
-    // (Shot Detail, Shot Comparison, Espresso view selector).
-    Connections {
-        target: Settings
-        function onValueChanged(key) {
-        }
-    }
-
     // Auto-close timer: return to idle after configured timeout
     // 0 = instant (handled in main.qml, never reaches this page)
     // 1-30 = minutes, 31 = never

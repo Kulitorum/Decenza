@@ -17,7 +17,10 @@ DecenzaDialog {
     title: TranslationManager.translate("graph.options.title", "Graph Options")
     modal: true
     anchors.centerIn: parent
-    width: Math.min(parent.width * 0.85, Theme.scaled(360))
+    // parent is Overlay.overlay, assigned by GraphOptionsButton — null until the
+    // declaring item is in a window, so this is guarded like SelectionDialog,
+    // EquipmentInfoDialog and ChangeBeansDialog all guard theirs.
+    width: parent ? Math.min(parent.width * 0.85, Theme.scaled(360)) : Theme.scaled(360)
     padding: 0
 
     background: Rectangle {
