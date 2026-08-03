@@ -2335,33 +2335,11 @@ T.Page {
         title: TranslationManager.translate("postshotreview.title", "Shot Review")
         onBackClicked: postShotReviewPage.handleBack()
 
-        // Profile name + date remain visible while the user scrolls, providing context
-        // when the header is off-screen. It reads as a subtitle to the page title, so
-        // it lives in leftContent and stays beside it.
-        leftContent: ColumnLayout {
-            visible: !!(postShotReviewPage.editShotData.profileName)
-            spacing: 0
-            Layout.alignment: Qt.AlignVCenter
-            Accessible.role: Accessible.StaticText
-            Accessible.name: (postShotReviewPage.editShotData.profileName || "") + (postShotReviewPage.editShotData.dateTime ? ", " + postShotReviewPage.editShotData.dateTime : "")
-            Accessible.focusable: true
-
-            Text {
-                text: postShotReviewPage.editShotData.profileName || ""
-                font: Theme.labelFont
-                color: Theme.textColor
-                elide: Text.ElideRight
-                Layout.maximumWidth: Math.min(postShotReviewPage.width * 0.3, bottomBar.leftContentMaxWidth)
-                Accessible.ignored: true
-            }
-            Text {
-                text: postShotReviewPage.editShotData.dateTime || ""
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                elide: Text.ElideRight
-                Layout.maximumWidth: Math.min(postShotReviewPage.width * 0.3, bottomBar.leftContentMaxWidth)
-                Accessible.ignored: true
-            }
+        leftContent: BottomBarSubtitle {
+            bar: bottomBar
+            page: postShotReviewPage
+            primaryText: postShotReviewPage.editShotData.profileName || ""
+            secondaryText: postShotReviewPage.editShotData.dateTime || ""
         }
 
         // Undo button — edits autosave on every commit point; this reverts the

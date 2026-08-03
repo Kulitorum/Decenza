@@ -23,16 +23,36 @@ Item {
     readonly property color contentColor: Theme.contentColorOn(barColor, Theme.iconColor)
 
     // How much width the title-side content may take before it starts pushing the
-    // action buttons off the end of the bar. Nothing in the row has a minimum width,
-    // so an oversized leftContent does NOT get shrunk by the layout — the buttons are
-    // squeezed to near-zero cells instead and their centred labels paint outside the
-    // bar, which is what a long profile name did on Shot Review / Shot Detail.
-    // Pages bind their leftContent's Layout.maximumWidth to this so the text elides.
-    // No binding loop: nothing here depends on leftContentRow's own width.
-    readonly property real leftContentMaxWidth: Math.max(0,
+    // action buttons off the end of the bar.
+    //
+    // A child of a Qt Quick Layout that is not itself a layout and has no explicit
+    // Layout.fillWidth gets QLayoutPolicy::Fixed — it cannot shrink below its own
+    // preferred width; only nested layouts get Preferred
+    // (qtdeclarative/src/quicklayouts/qquicklayout.cpp:1304-1330, effectiveSizePolicy_helper).
+    // The action buttons are therefore Fixed, so an oversized leftContent does not
+    // squeeze them: the row's minimum sum simply exceeds the bar and the whole row
+    // is laid out past the right edge, which is what a long profile name did on
+    // Shot Review / Shot Detail. Capping leftContent lowers that minimum sum, so
+    // pages bind their leftContent's Layout.maximumWidth to this and the text elides.
+    //
+    // Floored at a couple of characters rather than at 0: Layout.maximumWidth: 0 is a
+    // legal zero-width cell, so the text would vanish outright — no ellipsis, and the
+    // Accessible.name on the collapsed item goes with it. The subtraction can reach
+    // that point because contentRow.implicitWidth counts a fillWidth/WordWrap label
+    // (e.g. the upload-error text on Shot Review) at its full unwrapped width even
+    // though the layout can shrink it. Overflowing by this floor beats disappearing.
+    //
+    // No binding loop: nothing here depends on leftContentRow's own width. A nested
+    // layout's implicitWidth is its engine-preferred size, which already clamps each
+    // child to that child's Layout.maximumWidth (qquicklayout.cpp:1278, boundSize),
+    // so titleRow's term needs no cap of its own — rightTextLabel is a plain Text, so
+    // its raw implicitWidth does. Invisible children are dropped from the engine
+    // entirely (qquicklayout.cpp:883-890, shouldIgnoreItem), hence the gap count.
+    readonly property real leftContentMaxWidth: Math.max(Theme.scaled(48),
         width - titleRow.implicitWidth - contentRow.implicitWidth
-              - (root.rightText !== "" ? Math.min(rightTextLabel.implicitWidth, width * 0.4) : 0)
-              - Theme.chartMarginSmall - Theme.spacingLarge - Theme.spacingMedium * 3)
+              - (rightTextLabel.visible ? Math.min(rightTextLabel.implicitWidth, width * 0.4) : 0)
+              - Theme.chartMarginSmall - Theme.spacingLarge
+              - Theme.spacingMedium * (rightTextLabel.visible ? 4 : 3))
     // Effective fill color, re-exposed for callers that mirror it (e.g.
     // CommunityBrowserPage's "Add to Library" label). The fill lives on the
     // nested bgRect, not this Item root, so alias it back to the public surface.

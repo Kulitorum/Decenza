@@ -1352,6 +1352,7 @@ set(QML_FILES
     qml/components/ProfilePreviewPopup.qml
     qml/components/ProfileInfoButton.qml
     qml/components/BottomBar.qml
+    qml/components/BottomBarSubtitle.qml
     qml/components/ThemedIcon.qml
     qml/components/TranslationErrorToast.qml
     qml/components/AccessibleMouseArea.qml
