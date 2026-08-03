@@ -4606,6 +4606,40 @@ int main(int argc, char *argv[])
 
     // Cleanup on exit
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot, &mainController, &scaleReconnectTimer, &shotHistoryExporter]() {
+        // Qt's own once-only guard on aboutToQuit does not hold for this handler,
+        // because this handler pumps events.
+        //
+        // QCoreApplication::exit() emits aboutToQuit and only THEN sets the flag
+        // that suppresses a second emission (qcoreapplication.cpp:1520-1522 in
+        // 6.11.1):
+        //
+        //     if (!d->aboutToQuitEmitted) {
+        //         emit self->aboutToQuit(QCoreApplication::QPrivateSignal());
+        //         d->aboutToQuitEmitted = true;   // <-- after the emit returns
+        //     }
+        //
+        // The emit is synchronous, so for the entire lifetime of this handler the
+        // flag is still false. Every nested loop below — the BLE drain wait, the
+        // database drain, the export wait — can therefore deliver a second
+        // exit()/quit(), which re-enters this handler from the top, which starts
+        // another nested loop, and so on.
+        //
+        // Not hypothetical: a user's iOS log for #1759 carries 3064 recursions of
+        // "Application exiting - shutting down devices" ~1 ms apart, each one
+        // re-sending the DE1 sleep command, so the machine was told to sleep
+        // roughly three thousand times on a single quit.
+        //
+        // Guarding here rather than removing the nested loops: the loops exist to
+        // let the BLE sleep/charger writes and the database writes finish, and
+        // each is already bounded and commented below. A plain latch is what the
+        // Qt flag would have been if it were set before the emit instead of after.
+        // Main thread only — aboutToQuit is emitted from QCoreApplication::exit(),
+        // which is documented as main-thread-only.
+        static bool shutdownHandlerRunning = false;
+        if (shutdownHandlerRunning)
+            return;
+        shutdownHandlerRunning = true;
+
         qDebug() << "Application exiting - shutting down devices";
 
         // Leave an honest "disconnected" snapshot so the Home Screen widget
