@@ -19,7 +19,7 @@ ColumnLayout {
 
     required property var graph
     required property var comparisonModel
-    property bool advancedMode: false
+    property bool advancedMode: Settings.graph.advancedMode
 
     Layout.fillWidth: true
     spacing: Theme.spacingSmall
@@ -64,43 +64,32 @@ ColumnLayout {
         return "\u2014"
     }
 
-    // Settings keys corresponding to each graph property (for persistence)
-    readonly property var settingsKeys: ({
-        "showPressure":    "graph/showPressure",
-        "showFlow":        "graph/showFlow",
-        "showTemperature": "graph/showTemperature",
-        "showWeight":      "graph/showWeight",
-        "showWeightFlow":  "graph/showWeightFlow",
-        "showResistance":  "graph/showResistance",
-        "showConductance": "graph/showConductance",
-        "showConductanceDerivative": "graph/showConductanceDerivative",
-        "showDarcyResistance":       "graph/showDarcyResistance",
-        "showTemperatureMix":        "graph/showTemperatureMix",
-        "showTemperatureMixGoal":    "graph/showTemperatureMixGoal"
-    })
-
+    // The column `key`s below are SettingsGraph property names, so toggling is a single
+    // write to the setting the graphs bind to. This replaced a hand-written property→key
+    // map plus a double write (mirror property, then setting) that existed only because the
+    // graph properties were one-shot reads no signal reached.
     function toggleCurve(key) {
-        var newVal = !graph[key]
-        graph[key] = newVal
-        var sKey = settingsKeys[key]
-        if (sKey) Settings.setValue(sKey, newVal)
+        Settings.graph[key] = !Settings.graph[key]
     }
 
-    // Column definitions (order matches data cells in each shot row).
-    // Columns flagged `advanced` only render when advancedMode is on.
-    readonly property var allColumns: [
-        { key: "showPressure",    dataKey: "pressure",    label: "P",    dotColor: Theme.pressureColor,             advanced: false },
-        { key: "showFlow",        dataKey: "flow",        label: "F",    dotColor: Theme.flowColor,                 advanced: false },
-        { key: "showTemperature", dataKey: "temp",        label: "T",    dotColor: Theme.temperatureColor,          advanced: false },
-        { key: "showTemperatureMix",        dataKey: "mixTemp",label: "Tmix", dotColor: Theme.temperatureMixColor,         advanced: true  },
-        { key: "showTemperatureMixGoal",    dataKey: "mixTempGoal",label: "Tmixg", dotColor: Theme.temperatureMixGoalColor, advanced: true  },
-        { key: "showWeight",      dataKey: "weight",      label: "W",    dotColor: Theme.weightColor,               advanced: false },
-        { key: "showWeightFlow",  dataKey: "weightFlow",  label: "WF",   dotColor: Theme.weightFlowColor,           advanced: false },
-        { key: "showResistance",  dataKey: "resistance",  label: "R",    dotColor: Theme.resistanceColor,           advanced: true  },
-        { key: "showDarcyResistance",       dataKey: "darcyR", label: "dR",   dotColor: Theme.darcyResistanceColor,        advanced: true  },
-        { key: "showConductance", dataKey: "conductance", label: "C",    dotColor: Theme.conductanceColor,          advanced: true  },
-        { key: "showConductanceDerivative", dataKey: "dCdt",   label: "dC/dt",dotColor: Theme.conductanceDerivativeColor,  advanced: true  }
-    ]
+    // Column definitions, derived from the shared series list so a curve added to
+    // GraphSeries appears here without this file being edited. This was a hand-typed copy
+    // of all eleven series — the fourth copy of that list, and the one that would have
+    // drifted silently, since nothing renders both it and the legend side by side.
+    readonly property var allColumns: {
+        var out = []
+        var all = GraphSeries.entries
+        for (var i = 0; i < all.length; i++) {
+            out.push({
+                key: all[i].key,
+                dataKey: all[i].dataKey,
+                label: all[i].shortLabel,
+                dotColor: all[i].sColor,
+                advanced: all[i].advanced ?? false
+            })
+        }
+        return out
+    }
     readonly property var columns: {
         var out = []
         for (var i = 0; i < allColumns.length; i++) {
@@ -137,14 +126,14 @@ ColumnLayout {
                 Layout.preferredWidth: root.dataColW
                 height: Theme.scaled(28)
                 radius: Theme.scaled(14)
-                color: root.graph[modelData.key] ? Theme.surfaceColor : "transparent"
-                border.color: root.graph[modelData.key] ? Theme.primaryColor : Theme.borderColor
+                color: Settings.graph[modelData.key] ? Theme.surfaceColor : "transparent"
+                border.color: Settings.graph[modelData.key] ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
-                opacity: root.graph[modelData.key] ? 1.0 : 0.5
+                opacity: Settings.graph[modelData.key] ? 1.0 : 0.5
 
                 Accessible.role: Accessible.CheckBox
                 Accessible.name: modelData.label
-                Accessible.checked: root.graph[modelData.key]
+                Accessible.checked: Settings.graph[modelData.key]
                 Accessible.focusable: true
                 Accessible.onPressAction: root.toggleCurve(modelData.key)
 

@@ -17,11 +17,9 @@ DecenzaDialog {
     property string currentMode: "chart"
     property bool showPhaseIndicator: true
     property bool showStats: true
-    property bool advancedMode: false
     signal modeSelected(string mode)
     signal phaseIndicatorToggled(bool enabled)
     signal statsToggled(bool enabled)
-    signal advancedModeToggled(bool enabled)
 
     title: TranslationManager.translate("espresso.viewSelector.title", "Extraction View")
     modal: true
@@ -177,210 +175,38 @@ DecenzaDialog {
             color: Theme.borderColor
         }
 
-        // Phase indicator toggle
-        Rectangle {
-            id: phaseToggleCard
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(48)
+        // Display options. These three cards were written out longhand — 200 lines of
+        // near-identical checkbox markup — before GraphOptionToggleCard existed.
+        GraphOptionToggleCard {
             Layout.topMargin: Theme.spacingSmall
-            radius: Theme.cardRadius
-            color: Theme.backgroundColor
-            Accessible.ignored: true
-
-            property bool isChecked: selectorDialog.showPhaseIndicator
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: Theme.spacingMedium
-                anchors.rightMargin: Theme.spacingMedium
-                spacing: Theme.spacingMedium
-
-                Text {
-                    text: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
-                    color: Theme.textColor
-                    font.family: Theme.bodyFont.family
-                    font.pixelSize: Theme.bodyFont.pixelSize
-                    Layout.fillWidth: true
-                    Accessible.ignored: true
-                }
-
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(20)
-                    Layout.preferredHeight: Theme.scaled(20)
-                    radius: Theme.scaled(4)
-                    color: phaseToggleCard.isChecked ? Theme.primaryColor : "transparent"
-                    border.color: phaseToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor
-                    border.width: Theme.scaled(2)
-                    Layout.alignment: Qt.AlignVCenter
-
-                    Image {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/tick.svg"
-                        sourceSize.width: Theme.scaled(14)
-                        sourceSize.height: Theme.scaled(14)
-                        visible: phaseToggleCard.isChecked
-                        Accessible.ignored: true
-
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: Theme.surfaceColor
-                        }
-                    }
-                }
-            }
-
-            AccessibleMouseArea {
-                anchors.fill: parent
-                accessibleName: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
-                accessibleItem: phaseToggleCard
-                accessibleRole: Accessible.CheckBox
-                accessibleChecked: phaseToggleCard.isChecked
-                onAccessibleClicked: selectorDialog.phaseIndicatorToggled(!phaseToggleCard.isChecked)
-            }
+            label: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
+            checked: selectorDialog.showPhaseIndicator
+            onToggled: (enabled) => selectorDialog.phaseIndicatorToggled(enabled)
         }
 
-        // Stats toggle
-        Rectangle {
-            id: statsToggleCard
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(48)
+        GraphOptionToggleCard {
             Layout.topMargin: Theme.spacingSmall
-            radius: Theme.cardRadius
-            color: Theme.backgroundColor
-            Accessible.ignored: true
-
-            property bool isChecked: selectorDialog.showStats
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: Theme.spacingMedium
-                anchors.rightMargin: Theme.spacingMedium
-                spacing: Theme.spacingMedium
-
-                Text {
-                    text: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
-                    color: Theme.textColor
-                    font.family: Theme.bodyFont.family
-                    font.pixelSize: Theme.bodyFont.pixelSize
-                    Layout.fillWidth: true
-                    Accessible.ignored: true
-                }
-
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(20)
-                    Layout.preferredHeight: Theme.scaled(20)
-                    radius: Theme.scaled(4)
-                    color: statsToggleCard.isChecked ? Theme.primaryColor : "transparent"
-                    border.color: statsToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor
-                    border.width: Theme.scaled(2)
-                    Layout.alignment: Qt.AlignVCenter
-
-                    Image {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/tick.svg"
-                        sourceSize.width: Theme.scaled(14)
-                        sourceSize.height: Theme.scaled(14)
-                        visible: statsToggleCard.isChecked
-                        Accessible.ignored: true
-
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: Theme.surfaceColor
-                        }
-                    }
-                }
-            }
-
-            AccessibleMouseArea {
-                anchors.fill: parent
-                accessibleName: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
-                accessibleItem: statsToggleCard
-                accessibleRole: Accessible.CheckBox
-                accessibleChecked: statsToggleCard.isChecked
-                onAccessibleClicked: selectorDialog.statsToggled(!statsToggleCard.isChecked)
-            }
+            label: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
+            checked: selectorDialog.showStats
+            onToggled: (enabled) => selectorDialog.statsToggled(enabled)
         }
 
-        // Advanced curves toggle — reveals Resistance, Conductance, Darcy R, Mix temp
-        // in the graph legend. Shares the `shotReview/advancedMode` setting with the
-        // post-shot review and shot detail pages.
-        Rectangle {
-            id: advancedToggleCard
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(48)
+        // Chart-only options. Both write settings every graph binds to, so the live graph
+        // behind the dialog re-renders as they change.
+        GraphOptionToggleCard {
+            Layout.topMargin: Theme.spacingSmall
+            visible: selectorDialog.currentMode === "chart"
+            label: TranslationManager.translate("espresso.viewSelector.advancedCurves", "Advanced Curves")
+            description: TranslationManager.translate("espresso.viewSelector.advancedCurvesDesc",
+                                                      "Resistance, Conductance, Darcy R, Mix temp")
+            checked: Settings.graph.advancedMode
+            onToggled: (enabled) => Settings.graph.advancedMode = enabled
+        }
+
+        GraphFlowScaleCard {
             Layout.topMargin: Theme.spacingSmall
             Layout.bottomMargin: Theme.spacingMedium
-            radius: Theme.cardRadius
-            color: Theme.backgroundColor
             visible: selectorDialog.currentMode === "chart"
-            Accessible.ignored: true
-
-            property bool isChecked: selectorDialog.advancedMode
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: Theme.spacingMedium
-                anchors.rightMargin: Theme.spacingMedium
-                spacing: Theme.spacingMedium
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(2)
-
-                    Text {
-                        text: TranslationManager.translate("espresso.viewSelector.advancedCurves", "Advanced Curves")
-                        color: Theme.textColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.bodyFont.pixelSize
-                        Accessible.ignored: true
-                    }
-                    Text {
-                        text: TranslationManager.translate("espresso.viewSelector.advancedCurvesDesc",
-                                                           "Resistance, Conductance, Darcy R, Mix temp")
-                        color: Theme.textSecondaryColor
-                        font: Theme.captionFont
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        Accessible.ignored: true
-                    }
-                }
-
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(20)
-                    Layout.preferredHeight: Theme.scaled(20)
-                    radius: Theme.scaled(4)
-                    color: advancedToggleCard.isChecked ? Theme.primaryColor : "transparent"
-                    border.color: advancedToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor
-                    border.width: Theme.scaled(2)
-                    Layout.alignment: Qt.AlignVCenter
-
-                    Image {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/tick.svg"
-                        sourceSize.width: Theme.scaled(14)
-                        sourceSize.height: Theme.scaled(14)
-                        visible: advancedToggleCard.isChecked
-                        Accessible.ignored: true
-
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: Theme.surfaceColor
-                        }
-                    }
-                }
-            }
-
-            AccessibleMouseArea {
-                anchors.fill: parent
-                accessibleName: TranslationManager.translate("espresso.viewSelector.advancedCurves", "Advanced Curves")
-                accessibleItem: advancedToggleCard
-                accessibleRole: Accessible.CheckBox
-                accessibleChecked: advancedToggleCard.isChecked
-                onAccessibleClicked: selectorDialog.advancedModeToggled(!advancedToggleCard.isChecked)
-            }
         }
     }
 }

@@ -1,16 +1,16 @@
 # Settings Architecture
 
-`Settings` is a **composition façade** that owns 12 domain sub-objects. Each sub-object is its own `QObject` with its own `QSettings` instance, its own `Q_PROPERTY` declarations, and its own NOTIFY signals.
+`Settings` is a **composition façade** that owns 13 domain sub-objects. Each sub-object is its own `QObject` with its own `QSettings` instance, its own `Q_PROPERTY` declarations, and its own NOTIFY signals.
 
 The split exists so that a **narrow consumer** — one that takes a `Settings<Domain>*` and includes only that domain's header — recompiles when its own domain changes and not when any other does (~9 files for `settings_mqtt.h`). That is still true and is still the reason to write consumers that way.
 
-What is **no longer** true: that a domain-header edit is cheap for everything else. `settings.h` includes all twelve domain headers (see "Why the includes are back"), so anything taking a `Settings*` rebuilds on any domain change — **~60 s, against ~26 s before**. The blast was already large before the change, so this is a widening of an existing cost, not a new one. The way to reduce it is to make more consumers narrow, or to trim what the domain headers themselves include.
+What is **no longer** true: that a domain-header edit is cheap for everything else. `settings.h` includes all thirteen domain headers (see "Why the includes are back"), so anything taking a `Settings*` rebuilds on any domain change — **~60 s, against ~26 s before**. The blast was already large before the change, so this is a widening of an existing cost, not a new one. The way to reduce it is to make more consumers narrow, or to trim what the domain headers themselves include.
 
 The split was tricky to get right — the rules below capture every gotcha that came up during PR #852 (issue #743). Follow them and the architecture stays healthy.
 
 ## Domain classes (today)
 
-`SettingsMqtt`, `SettingsAutoWake`, `SettingsHardware`, `SettingsAI`, `SettingsTheme`, `SettingsVisualizer`, `SettingsMcp`, `SettingsBrew`, `SettingsDye`, `SettingsNetwork`, `SettingsApp`, `SettingsCalibration`. What remains on `Settings` itself is machine/scale/refractometer/USB-serial — a candidate for a future `SettingsHardware` extension or a Tier 4 `SettingsMachine` split.
+`SettingsMqtt`, `SettingsAutoWake`, `SettingsHardware`, `SettingsAI`, `SettingsTheme`, `SettingsVisualizer`, `SettingsMcp`, `SettingsBrew`, `SettingsDye`, `SettingsNetwork`, `SettingsApp`, `SettingsCalibration`, `SettingsGraph`. What remains on `Settings` itself is machine/scale/refractometer/USB-serial — a candidate for a future `SettingsHardware` extension or a Tier 4 `SettingsMachine` split.
 
 ## Where new settings go
 
@@ -58,7 +58,7 @@ Full checklist (8 steps — missing one will silently break things):
 
 ## Why the includes are back
 
-`settings.h` includes all twelve domain headers, and the domain `Q_PROPERTY`s carry their
+`settings.h` includes all thirteen domain headers, and the domain `Q_PROPERTY`s carry their
 concrete types. Earlier guidance said the opposite — forward-declare, and declare the properties
 `QObject*` — purely to keep the recompile blast down.
 

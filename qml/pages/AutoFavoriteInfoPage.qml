@@ -299,7 +299,7 @@ T.Page {
             }
 
             // Graph legend
-            GraphLegend { graph: shotGraph; visible: autoFavoriteInfoPage.shotId > 0 }
+            GraphLegend { visible: autoFavoriteInfoPage.shotId > 0 }
 
             // Metrics row: Avg Duration, Avg Dose, Avg Yield, Avg Rating
             RowLayout {

@@ -270,7 +270,6 @@ T.Page {
     }
 
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
-    property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
     // Reason a policy-based skip rejected the upload (maintenance profile,
     // too-short shot). Surfaced as informational text — not red error styling —
@@ -296,16 +295,6 @@ T.Page {
     // uploadFailed carries no identifier at all — the flags are the only reliable discriminator.
     property bool _firstUploadInFlight: false
     property bool _patchInFlight: false
-
-    // Pick up toggle changes made on any other page sharing this setting
-    // (Shot Detail, Shot Comparison, Espresso view selector).
-    Connections {
-        target: Settings
-        function onValueChanged(key) {
-            if (key === "shotReview/advancedMode")
-                postShotReviewPage.advancedMode = Settings.boolValue("shotReview/advancedMode", false)
-        }
-    }
 
     // Auto-close timer: return to idle after configured timeout
     // 0 = instant (handled in main.qml, never reaches this page)
@@ -1270,46 +1259,8 @@ T.Page {
                     }
                 }
 
-                // Basic/Advanced mode toggle (matches espresso page view selector)
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(36)
-                    Layout.preferredHeight: Theme.scaled(36)
-                    Layout.alignment: Qt.AlignVCenter
-                    radius: Theme.scaled(18)
-                    color: postShotReviewPage.advancedMode ? Theme.accentColor : Theme.cardBackgroundColor
-                    border.color: Theme.borderColor
-                    border.width: Theme.scaled(1)
-
-                    Accessible.ignored: true
-
-                    Image {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/settings.svg"
-                        sourceSize.width: Theme.scaled(18)
-                        sourceSize.height: Theme.scaled(18)
-
-                        layer.enabled: true
-                        layer.smooth: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: postShotReviewPage.advancedMode ? Theme.primaryContrastColor : Theme.textColor
-                        }
-                    }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: postShotReviewPage.advancedMode
-                            ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
-                            : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
-                        accessibleItem: parent
-                        accessibleRole: Accessible.CheckBox
-                        accessibleChecked: postShotReviewPage.advancedMode
-                        onAccessibleClicked: {
-                            postShotReviewPage.advancedMode = !postShotReviewPage.advancedMode
-                            Settings.setValue("shotReview/advancedMode", postShotReviewPage.advancedMode)
-                        }
-                    }
-                }
+                // Graph display options (advanced curves, flow scale).
+                GraphOptionsButton {}
             }
 
             // Shot Plan snapshot line — this shot's dial-in rendered as a
@@ -1390,8 +1341,7 @@ T.Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
-                    advancedMode: postShotReviewPage.advancedMode
-                    showPhaseLabels: postShotReviewPage.advancedMode
+                    showPhaseLabels: Settings.graph.advancedMode
                     pressureData: postShotReviewPage.editShotData.pressure || []
                     flowData: postShotReviewPage.editShotData.flow || []
                     temperatureData: postShotReviewPage.editShotData.temperature || []
@@ -1490,8 +1440,6 @@ T.Page {
             }
 
             GraphLegend {
-                graph: reviewGraph
-                advancedMode: postShotReviewPage.advancedMode
                 visible: !!(postShotReviewPage.editShotData.pressure && postShotReviewPage.editShotData.pressure.length > 0)
             }
 
@@ -1499,7 +1447,7 @@ T.Page {
             PhaseSummaryPanel {
                 Layout.fillWidth: true
                 phaseSummaries: postShotReviewPage.editShotData.phaseSummaries || []
-                visible: postShotReviewPage.advancedMode && (postShotReviewPage.editShotData.phaseSummaries || []).length > 0
+                visible: Settings.graph.advancedMode && (postShotReviewPage.editShotData.phaseSummaries || []).length > 0
             }
 
             RowLayout {
@@ -1748,7 +1696,7 @@ T.Page {
 
                     // TDS (advanced mode only)
                     ColumnLayout {
-                        visible: postShotReviewPage.advancedMode
+                        visible: Settings.graph.advancedMode
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         spacing: Theme.scaled(2)
@@ -1812,7 +1760,7 @@ T.Page {
 
                     // EY (advanced mode only)
                     ColumnLayout {
-                        visible: postShotReviewPage.advancedMode
+                        visible: Settings.graph.advancedMode
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         spacing: Theme.scaled(2)
@@ -1948,7 +1896,7 @@ T.Page {
                 // Barista — advanced-only (most users are the sole barista).
                 SuggestionField {
                     id: baristaField
-                    visible: postShotReviewPage.advancedMode
+                    visible: Settings.graph.advancedMode
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
                     text: postShotReviewPage.editBarista

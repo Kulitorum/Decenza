@@ -8,6 +8,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtGraphs
 import Decenza
+import "GraphUtils.js" as GraphUtils
 
 // Outer Item wraps the GraphsView so dashed overlays, right-axis-mapped traces,
 // inspect crosshair, marker labels, and the right-axis label column render as
@@ -30,70 +31,25 @@ Item {
     property bool showLabels: true
     property bool showPhaseLabels: true
 
-    // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
-    // QSettings' INI-backed strings to real booleans; see Settings.h.
-    property bool showPressure: Settings.boolValue("graph/showPressure", true)
-    property bool showFlow: Settings.boolValue("graph/showFlow", true)
-    property bool showTemperature: Settings.boolValue("graph/showTemperature", true)
-    property bool showWeight: Settings.boolValue("graph/showWeight", true)
-    property bool showWeightFlow: Settings.boolValue("graph/showWeightFlow", true)
-    property bool showResistance: Settings.boolValue("graph/showResistance", false)
-    property bool showConductance: Settings.boolValue("graph/showConductance", false)
-    property bool showConductanceDerivative: Settings.boolValue("graph/showConductanceDerivative", false)
-    property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
-    property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
-    property bool showTemperatureMixGoal: Settings.boolValue("graph/showTemperatureMixGoal", false)
-
-    property bool advancedMode: false
-
-    // Re-read the toggles when they change anywhere in the app.
+    // Series visibility binds straight to Settings.graph, so a toggle anywhere in the app
+    // reaches every instance of this graph.
     //
-    // The properties above initialise from Settings.boolValue(), which is a Q_INVOKABLE —
-    // so the initialiser records no dependency and never re-evaluates. GraphLegend assigns
-    // `graph[key]` directly on the ONE instance it is attached to, which is why the review
-    // page looked like it worked; every other instance kept its startup values for the life
-    // of the process. That includes the last-shot background chart, whose whole promise is
-    // that the wallpaper follows the review page's legend — it followed it only until the
-    // first toggle, then silently froze. SteamGraph already does exactly this.
-    Connections {
-        target: Settings
-        function onValueChanged(key) {
-            switch (key) {
-            case "graph/showPressure":
-                chart.showPressure = Settings.boolValue(key, true); break
-            case "graph/showFlow":
-                chart.showFlow = Settings.boolValue(key, true); break
-            case "graph/showTemperature":
-                chart.showTemperature = Settings.boolValue(key, true); break
-            case "graph/showWeight":
-                chart.showWeight = Settings.boolValue(key, true); break
-            case "graph/showWeightFlow":
-                chart.showWeightFlow = Settings.boolValue(key, true); break
-            case "graph/showWeightAxis":
-                chart.showWeightAxis = Settings.boolValue(key, true); break
-            case "graph/showResistance":
-                chart.showResistance = Settings.boolValue(key, false); break
-            case "graph/showConductance":
-                chart.showConductance = Settings.boolValue(key, false); break
-            case "graph/showConductanceDerivative":
-                chart.showConductanceDerivative = Settings.boolValue(key, false); break
-            case "graph/showDarcyResistance":
-                chart.showDarcyResistance = Settings.boolValue(key, false); break
-            case "graph/showTemperatureMix":
-                chart.showTemperatureMix = Settings.boolValue(key, false); break
-            case "graph/showTemperatureMixGoal":
-                chart.showTemperatureMixGoal = Settings.boolValue(key, false); break
-            }
-        }
-    }
+    // What used to be here: eleven mirror properties initialised from Settings.boolValue()
+    // — a Q_INVOKABLE, so the initialiser recorded no dependency and never re-evaluated —
+    // plus a twelve-case switch over Settings.valueChanged to write them back by hand.
+    // GraphLegend also assigned graph[key] directly on the one instance it was attached to,
+    // which is why the review page appeared to work while the last-shot background chart
+    // silently froze at its startup values after the first toggle.
 
-    // Which right-side axis labels to display (tap axis to swap)
-    property bool showWeightAxis: Settings.boolValue("graph/showWeightAxis", true)
+    property bool advancedMode: Settings.graph.advancedMode
 
-    function toggleRightAxis() {
-        showWeightAxis = !showWeightAxis
-        Settings.setValue("graph/showWeightAxis", showWeightAxis)
-    }
+    // Right axis: "weight", "temperature" or "flow".
+    property string rightAxisMode: Settings.graph.rightAxisMode
+
+    function toggleRightAxis() { Settings.graph.cycleRightAxisMode() }
+
+    // Factor applied to the flow-family traces before plotting (1, 2 or 3).
+    property int flowMultiplier: Settings.graph.flowMultiplier
 
     // Inspect state (crosshair + tooltip)
     property bool inspecting: false
@@ -145,10 +101,16 @@ Item {
 
         for (var i = 0; i < pressureData.length; i++)
             pressureSeries.append(pressureData[i].x, pressureData[i].y)
+        // Flow family carries the multiplier. These are native Qt Graphs LineSeries bound to
+        // the view's shared axis, so unlike the live graph's renderers there is no per-series
+        // range to shrink — the factor is applied as the points are appended. The source
+        // arrays are NOT touched: pressureAxisMax and every readout still read true values
+        // from them, and doReload() re-appends from scratch whenever the factor changes.
+        var flowScale = chart.flowMultiplier
         for (i = 0; i < flowData.length; i++)
-            flowSeries.append(flowData[i].x, flowData[i].y)
+            flowSeries.append(flowData[i].x, flowData[i].y * flowScale)
         for (i = 0; i < weightFlowRateData.length; i++)
-            weightFlowRateSeries.append(weightFlowRateData[i].x, weightFlowRateData[i].y)
+            weightFlowRateSeries.append(weightFlowRateData[i].x, weightFlowRateData[i].y * flowScale)
         for (i = 0; i < resistanceData.length; i++)
             resistanceSeries.append(resistanceData[i].x, resistanceData[i].y)
         for (i = 0; i < conductanceData.length; i++)
@@ -168,10 +130,7 @@ Item {
             if (phaseMarkers[m].time > markerMaxTime) markerMaxTime = phaseMarkers[m].time
         }
         var axisEnd = Math.max(maxTime, markerMaxTime)
-        var plotWidth = Math.max(1, graphsView.plotArea.width)
-        var paddingPx = Theme.scaled(5)
-        var scale = plotWidth / Math.max(1, plotWidth - paddingPx)
-        timeAxis.max = Math.max(5, axisEnd * scale)
+        timeAxis.max = Math.max(5, GraphUtils.paddedAxisEnd(axisEnd, graphsView.plotArea.width, Theme.scaled(5)))
     }
 
     // Split a goal data array into segments at time gaps (pump mode transitions).
@@ -198,9 +157,7 @@ Item {
     // === Inspect: pixel → data, value lookup, accessibility ===
 
     function _timeAtPixel(pixelX) {
-        var plot = graphsView.plotArea
-        if (!plot || plot.width <= 0) return -1
-        return timeAxis.min + (pixelX - plot.x) / plot.width * (timeAxis.max - timeAxis.min)
+        return GraphUtils.timeAtPixel(pixelX, graphsView.plotArea, timeAxis.min, timeAxis.max)
     }
 
     // Find the y value in a data array closest to the given time.
@@ -234,6 +191,12 @@ Item {
         // inspect bar can react live when the user toggles curves on/off without
         // re-tapping the graph. GraphInspectBar filters by the current show*
         // flags at display time.
+        //
+        // These read the SOURCE arrays, never the plotted series, so the flow multiplier
+        // cannot leak into a readout: a 2.4 mL/s sample reports 2.4 at every setting. Do
+        // not "simplify" this to read back from flowSeries. Decaid ships that exact bug —
+        // its weight trace is plotted at ÷10 and the tooltip prints the plotted number, so
+        // a 36 g shot reads "Weight: 3.6 g" (lib/src/util/shot_chart.dart:105, :359).
         var vals = {}
         var curves = [
             { key: "pressure", name: "Pressure", data: pressureData, unit: "bar" },
@@ -286,17 +249,17 @@ Item {
         if (time < 0 || time > timeAxis.max) return
 
         var curves = [
-            { name: "Pressure", data: pressureData, show: showPressure, unit: "bar" },
-            { name: "Flow", data: flowData, show: showFlow, unit: "mL/s" },
-            { name: "Temp", data: temperatureData, show: showTemperature, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
-            { name: "Mix temp", data: temperatureMixData, show: showTemperatureMix && advancedMode, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
-            { name: "Mix temp goal", data: temperatureMixGoalData, show: showTemperatureMixGoal && advancedMode, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
-            { name: "Weight", data: weightData, show: showWeight, unit: "g" },
-            { name: "Weight flow", data: weightFlowRateData, show: showWeightFlow, unit: "g/s" },
-            { name: "Resistance", data: resistanceData, show: showResistance && advancedMode, unit: "" },
-            { name: "Darcy R", data: darcyResistanceData, show: showDarcyResistance && advancedMode, unit: "" },
-            { name: "Conductance", data: conductanceData, show: showConductance && advancedMode, unit: "" },
-            { name: "dC/dt", data: conductanceDerivativeData, show: showConductanceDerivative && advancedMode, unit: "" }
+            { name: "Pressure", data: pressureData, show: Settings.graph.showPressure, unit: "bar" },
+            { name: "Flow", data: flowData, show: Settings.graph.showFlow, unit: "mL/s" },
+            { name: "Temp", data: temperatureData, show: Settings.graph.showTemperature, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
+            { name: "Mix temp", data: temperatureMixData, show: Settings.graph.showTemperatureMix && chart.advancedMode, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
+            { name: "Mix temp goal", data: temperatureMixGoalData, show: Settings.graph.showTemperatureMixGoal && chart.advancedMode, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
+            { name: "Weight", data: weightData, show: Settings.graph.showWeight, unit: "g" },
+            { name: "Weight flow", data: weightFlowRateData, show: Settings.graph.showWeightFlow, unit: "g/s" },
+            { name: "Resistance", data: resistanceData, show: Settings.graph.showResistance && chart.advancedMode, unit: "" },
+            { name: "Darcy R", data: darcyResistanceData, show: Settings.graph.showDarcyResistance && chart.advancedMode, unit: "" },
+            { name: "Conductance", data: conductanceData, show: Settings.graph.showConductance && chart.advancedMode, unit: "" },
+            { name: "dC/dt", data: conductanceDerivativeData, show: Settings.graph.showConductanceDerivative && chart.advancedMode, unit: "" }
         ]
 
         var parts = []
@@ -327,10 +290,25 @@ Item {
     onConductanceDataChanged: Qt.callLater(doReload)
     onDarcyResistanceDataChanged: Qt.callLater(doReload)
     onPhaseMarkersChanged: Qt.callLater(doReload)
+    // The multiplier is baked into the appended points, so a change has to re-append them.
+    // The live graph needs no equivalent — its renderers are re-mapped by binding alone.
+    onFlowMultiplierChanged: Qt.callLater(doReload)
     Component.onCompleted: doReload()
 
     // Dynamic max for pressure/flow axis based on all data (ignores visibility
     // toggles so the graph doesn't jump when toggling curves on/off).
+    //
+    // These walks MUST stay on the unscaled source arrays. The flow multiplier is applied
+    // by shrinking the range each flow-family trace is mapped through, never by rewriting
+    // points — precisely so this stays true. Feed multiplied values in here and the axis
+    // grows by the multiplier, the traces land in identical pixels, and the zoom silently
+    // does nothing while every test still passes.
+    //
+    // NOTHING TESTS THIS. The invariant — this value identical at 1x, 2x and 3x for the
+    // same shot — holds by construction only, because asserting it needs a QML-level
+    // harness the suite does not have. See tasks.md 8.2 in the change folder. Do not read
+    // this comment as a safety net; if you change how the flow family is plotted, check
+    // this by hand.
     property double pressureAxisMax: {
         var maxVal = 0
         for (var i = 0; i < pressureData.length; i++) {
@@ -366,6 +344,15 @@ Item {
     // Plain QtObjects (not Qt Graphs ValueAxis) — Qt Graphs has no sanctioned
     // dual-Y-axis path here. DashedLineSeries reads `min`/`max` for its data→
     // pixel mapping, so a value-holder QObject is enough.
+
+    // Flow-family mapping for the right-axis label column. The traces themselves carry the
+    // factor in their appended points (see loadMainSeries), so this object exists to give
+    // the labels the same numbers the plot is drawn against.
+    QtObject {
+        id: flowAxis
+        property real min: 0
+        property real max: chart.pressureAxisMax / chart.flowMultiplier
+    }
 
     QtObject {
         id: tempAxis
@@ -445,7 +432,11 @@ Item {
             subTickCount: 0
             labelFormat: "%.0f"
             visible: chart.showLabels
-            titleText: chart.showLabels ? "bar / mL/s" : ""
+            // Pressure-only once a multiplier is active: the flow family no longer reads
+            // against this axis. It is also the only sign of an active multiplier that
+            // survives into a screenshot.
+            titleText: !chart.showLabels ? ""
+                                         : (chart.flowMultiplier === 1 ? "bar / mL/s" : "bar")
         }
 
         // === MAIN-AXIS DATA LINES (Qt Graphs native series) ===
@@ -454,42 +445,42 @@ Item {
             id: pressureSeries
             color: Theme.pressureColor
             width: Theme.scaled(3)
-            visible: chart.showPressure
+            visible: Settings.graph.showPressure
         }
 
         LineSeries {
             id: flowSeries
             color: Theme.flowColor
             width: Theme.scaled(3)
-            visible: chart.showFlow
+            visible: Settings.graph.showFlow
         }
 
         LineSeries {
             id: weightFlowRateSeries
             color: Theme.weightFlowColor
             width: Theme.scaled(2)
-            visible: chart.showWeightFlow
+            visible: Settings.graph.showWeightFlow
         }
 
         LineSeries {
             id: resistanceSeries
             color: Theme.resistanceColor
             width: Theme.scaled(2)
-            visible: chart.showResistance && chart.advancedMode
+            visible: Settings.graph.showResistance && chart.advancedMode
         }
 
         LineSeries {
             id: conductanceSeries
             color: Theme.conductanceColor
             width: Theme.scaled(2)
-            visible: chart.showConductance && chart.advancedMode
+            visible: Settings.graph.showConductance && chart.advancedMode
         }
 
         LineSeries {
             id: darcyResistanceSeries
             color: Theme.darcyResistanceColor
             width: Theme.scaled(2)
-            visible: chart.showDarcyResistance && chart.advancedMode
+            visible: Settings.graph.showDarcyResistance && chart.advancedMode
         }
     }
 
@@ -505,7 +496,7 @@ Item {
         strokeColor: Theme.temperatureColor
         strokeWidth: Theme.scaled(3)
         dashed: false
-        visible: chart.showTemperature
+        visible: Settings.graph.showTemperature
     }
 
     DashedLineSeries {
@@ -516,7 +507,7 @@ Item {
         strokeColor: Theme.temperatureMixColor
         strokeWidth: Theme.scaled(2)
         dashed: false
-        visible: chart.showTemperatureMix && chart.advancedMode
+        visible: Settings.graph.showTemperatureMix && chart.advancedMode
     }
 
     DashedLineSeries {
@@ -527,7 +518,7 @@ Item {
         strokeColor: Theme.weightColor
         strokeWidth: Theme.scaled(3)
         dashed: false
-        visible: chart.showWeight
+        visible: Settings.graph.showWeight
     }
 
     DashedLineSeries {
@@ -538,7 +529,7 @@ Item {
         strokeColor: Theme.conductanceDerivativeColor
         strokeWidth: Theme.scaled(2)
         dashed: false
-        visible: chart.showConductanceDerivative && chart.advancedMode
+        visible: Settings.graph.showConductanceDerivative && chart.advancedMode
     }
 
     // === DASHED GOAL CURVES ===
@@ -553,7 +544,7 @@ Item {
             points: modelData
             strokeColor: Theme.pressureGoalColor
             strokeWidth: Theme.scaled(2)
-            visible: chart.showPressure
+            visible: Settings.graph.showPressure
         }
     }
 
@@ -563,11 +554,13 @@ Item {
             required property var modelData
             graphsView: chart.graphsViewRef
             axisX: timeAxis
-            axisY: pressureAxis
+            // Mapped through flowAxis so the dashed target moves with the trace chasing it.
+            // DashedLineSeries only reads min/max, so a value holder is enough.
+            axisY: flowAxis
             points: modelData
             strokeColor: Theme.flowGoalColor
             strokeWidth: Theme.scaled(2)
-            visible: chart.showFlow
+            visible: Settings.graph.showFlow
         }
     }
 
@@ -578,7 +571,7 @@ Item {
         points: chart.temperatureGoalData
         strokeColor: Theme.temperatureGoalColor
         strokeWidth: Theme.scaled(2)
-        visible: chart.showTemperature
+        visible: Settings.graph.showTemperature
     }
 
     // Mix temperature goal (SetMixTemp) — advanced. Shots recorded before this
@@ -590,7 +583,7 @@ Item {
         points: chart.temperatureMixGoalData
         strokeColor: Theme.temperatureMixGoalColor
         strokeWidth: Theme.scaled(2)
-        visible: chart.showTemperatureMixGoal && chart.advancedMode && chart.temperatureMixGoalData.length > 0
+        visible: Settings.graph.showTemperatureMixGoal && chart.advancedMode && chart.temperatureMixGoalData.length > 0
     }
 
     // === VERTICAL PHASE / FRAME MARKER LINES ===
@@ -710,57 +703,18 @@ Item {
         Accessible.ignored: true
     }
 
-    // Manual right-axis labels (fixed position — no layout shift when swapping
-    // between weight and temperature scales).
-    Item {
-        id: rightAxisLabels
+    // Right-axis label column, shared with the live graph.
+    GraphRightAxisLabels {
         visible: chart.showLabels
         x: graphsView.plotArea.x + graphsView.plotArea.width + Theme.scaled(4)
         y: graphsView.plotArea.y
         width: chart.width - x
         height: graphsView.plotArea.height
 
-        Accessible.role: Accessible.Button
-        Accessible.name: chart.showWeightAxis ? TranslationManager.translate("graph.rightAxisWeight", "Right axis: Weight. Tap for Temperature")
-                                              : TranslationManager.translate("graph.rightAxisTemp", "Right axis: Temperature. Tap for Weight")
-        Accessible.focusable: true
-        Accessible.onPressAction: chart.toggleRightAxis()
-
-        property color labelColor: chart.showWeightAxis ? Theme.weightColor : Theme.temperatureColor
-
-        Repeater {
-            model: 5
-            Text {
-                required property int index
-                property real value: {
-                    var axisMin = chart.showWeightAxis ? weightAxis.min : tempAxis.min
-                    var axisMax = chart.showWeightAxis ? weightAxis.max : tempAxis.max
-                    return axisMax - index * (axisMax - axisMin) / 4
-                }
-                text: chart.showWeightAxis ? value.toFixed(0) : Theme.cToDisplay(value).toFixed(0)
-                x: 0
-                y: index / 4 * rightAxisLabels.height - height / 2
-                font: Theme.captionFont
-                color: rightAxisLabels.labelColor
-                Accessible.ignored: true
-            }
-        }
-
-        Text {
-            text: chart.showWeightAxis ? "g" : Theme.tempUnitSuffix()
-            font: Theme.captionFont
-            color: rightAxisLabels.labelColor
-            rotation: 90
-            transformOrigin: Item.Center
-            x: Theme.scaled(24)
-            y: rightAxisLabels.height / 2 - height / 2
-            Accessible.ignored: true
-        }
-
-        MouseArea {
-            id: axisToggleArea
-            anchors.fill: parent
-            onClicked: chart.toggleRightAxis()
-        }
+        mode: chart.rightAxisMode
+        weightAxis: weightAxis
+        tempAxis: tempAxis
+        flowAxis: flowAxis
+        onTapped: chart.toggleRightAxis()
     }
 }

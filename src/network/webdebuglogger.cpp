@@ -4,6 +4,7 @@
 #include "mcp/mcplogfilter.h"
 
 #include <QDebug>
+#include <QQmlEngine>
 #include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
@@ -46,7 +47,27 @@ WebDebugLogger* WebDebugLogger::create(QQmlEngine*, QJSEngine*)
     // Calling install() here removes the null case instead of asking every
     // future view to keep guessing whether it needs a guard.
     install();
+    // The QML engine must NOT own this. A singleton returned from create() is engine-owned
+    // by default, so the engine deleted the logger at its own teardown while the message
+    // handler was still installed and s_instance still pointed at it — every qDebug() after
+    // that read freed memory. It aborted under ASan in ShotServer::stop(), which logs from
+    // ~MainController long after QML is gone, and was a silent bad read in release.
+    //
+    // Logging has to outlive QML by definition: plenty of shutdown runs after the engine.
+    // So the logger is C++-owned and simply lives to process exit.
+    QQmlEngine::setObjectOwnership(s_instance, QQmlEngine::CppOwnership);
     return s_instance;
+}
+
+WebDebugLogger::~WebDebugLogger()
+{
+    // Nothing should destroy the process-wide logger now that it is CppOwnership, but a
+    // static left pointing at freed memory is the bug above, so do not leave one. The
+    // handler stays installed: it is not ours to restore (btlogfilter installed over us),
+    // and messageHandler() already null-checks s_instance and forwards to the previous
+    // handler, so logging keeps working without the web buffer.
+    if (s_instance == this)
+        s_instance = nullptr;
 }
 
 WebDebugLogger::WebDebugLogger(QObject* parent)

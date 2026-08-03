@@ -76,59 +76,27 @@ QtObject {
     readonly property real _targetWidth: targetWidth > 0 ? targetWidth : 1280
     readonly property real _targetHeight: targetHeight > 0 ? targetHeight : 800
 
-    // The curve set, as a plain property rather than a binding over Settings.boolValue().
+    // Identifies the current curve set, so a cached render is discarded when it no longer
+    // matches what the graph would draw.
     //
-    // boolValue() is a Q_INVOKABLE, so a binding that calls it records NO dependency and
-    // would never re-evaluate when a curve is toggled — the key would stay put and the app
-    // would keep drawing the old chart. This is the exact trap the project notes warn about,
-    // and here its symptom is invisible rather than merely wrong, so the value is recomputed
-    // from the Settings.valueChanged signal instead.
-    property string _visibilityKey: ""
-
-    // Named individually rather than hashed over a prefix, so a curve added later fails
-    // visibly — a missing entry here is a chart that silently stops updating. Paired with
-    // its default, because reading the wrong default flips a bit in the key and forces one
-    // needless re-render on first run.
+    // This is now a plain binding: every input is a SettingsGraph Q_PROPERTY, so the
+    // dependencies are recorded and it re-evaluates by itself. It used to be a property
+    // recomputed from Settings.valueChanged against a hand-maintained list of keys — because
+    // the old Settings.boolValue() was a Q_INVOKABLE and a binding over it recorded no
+    // dependency at all. That list had already shipped one entry short (showWeightAxis), and
+    // the symptom of an omission here is invisible: the chart simply keeps drawing the
+    // previous image. Deriving the set from GraphSeries removes the omission entirely.
     //
-    // tst_backgroundpresets compares this list against the settings HistoryShotGraph
-    // actually reads, and it earned that on its first run: showWeightAxis was missing here,
-    // so toggling the right-hand axis would have left the previous render in place.
-    readonly property var _visibilityKeys: [
-        { key: "graph/showPressure",              dflt: true  },
-        { key: "graph/showFlow",                  dflt: true  },
-        { key: "graph/showTemperature",           dflt: true  },
-        { key: "graph/showWeight",                dflt: true  },
-        { key: "graph/showWeightFlow",            dflt: true  },
-        { key: "graph/showWeightAxis",            dflt: true  },
-        { key: "graph/showResistance",            dflt: false },
-        { key: "graph/showConductance",           dflt: false },
-        { key: "graph/showConductanceDerivative", dflt: false },
-        { key: "graph/showDarcyResistance",       dflt: false },
-        { key: "graph/showTemperatureMix",        dflt: false },
-        { key: "graph/showTemperatureMixGoal",    dflt: false }
-    ]
-
-    function _computeVisibilityKey() {
+    // The right-axis mode and flow multiplier join the curve flags because both change what
+    // is drawn, not merely how it is labelled.
+    readonly property string _visibilityKey: {
         var parts = []
-        for (var i = 0; i < _visibilityKeys.length; i++)
-            parts.push(Settings.boolValue(_visibilityKeys[i].key, _visibilityKeys[i].dflt) ? "1" : "0")
-        _visibilityKey = parts.join("")
-    }
-
-    function _watchesKey(key) {
-        for (var i = 0; i < _visibilityKeys.length; i++) {
-            if (_visibilityKeys[i].key === key)
-                return true
-        }
-        return false
-    }
-
-    readonly property Connections _settingsWatch: Connections {
-        target: Settings
-        function onValueChanged(key) {
-            if (root._watchesKey(key))
-                root._computeVisibilityKey()
-        }
+        var keys = GraphSeries.keys
+        for (var i = 0; i < keys.length; i++)
+            parts.push(Settings.graph[keys[i]] ? "1" : "0")
+        parts.push(Settings.graph.rightAxisMode)
+        parts.push(String(Settings.graph.flowMultiplier))
+        return parts.join("")
     }
 
     // --- Internal state ------------------------------------------------------
@@ -249,7 +217,6 @@ QtObject {
     }
 
     Component.onCompleted: {
-        _computeVisibilityKey()
         if (shotBackgroundSelected)
             _refresh()
     }

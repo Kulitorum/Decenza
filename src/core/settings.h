@@ -11,7 +11,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #endif
-// The twelve domain sub-objects are INCLUDED, not forward-declared, and that is deliberate.
+// The thirteen domain sub-objects are INCLUDED, not forward-declared, and that is deliberate.
 //
 // These used to be forward declarations, with the QML-facing Q_PROPERTYs declared `QObject*` so
 // the includes could be avoided. That saved rebuilds and cost type information at the QML
@@ -58,6 +58,7 @@
 #include "settings_network.h"
 #include "settings_app.h"
 #include "settings_calibration.h"
+#include "settings_graph.h"
 
 
 class Settings : public QObject {
@@ -83,8 +84,8 @@ class Settings : public QObject {
     // the one available here.
     //
     // Measured, and the three numbers reconcile like this: the project had 574 shadowable-base
-    // skips; FINAL on these twelve accessors removed 429 of them, FINAL on the remaining
-    // settings properties removed 73 more (429 + 73 = 502), leaving 72 that live on other
+    // skips; FINAL on these accessors removed 429 of them (measured when there were twelve),
+    // FINAL on the remaining settings properties removed 73 more (429 + 73 = 502), leaving 72 that live on other
     // classes entirely. The 429 skips yielded only +394 AOT-compiled bindings, because 35 of
     // them then failed for a DIFFERENT reason — removing a skip reason is not the same as the
     // binding compiling, which is the single most misleading thing about this metric.
@@ -112,6 +113,7 @@ class Settings : public QObject {
     Q_PROPERTY(SettingsNetwork* network READ network CONSTANT FINAL)
     Q_PROPERTY(SettingsApp* app READ app CONSTANT FINAL)
     Q_PROPERTY(SettingsCalibration* calibration READ calibration CONSTANT FINAL)
+    Q_PROPERTY(SettingsGraph* graph READ graph CONSTANT FINAL)
 
     // Machine settings
     Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged FINAL)
@@ -177,6 +179,7 @@ public:
     SettingsNetwork* network() const { return m_network; }
     SettingsApp* app() const { return m_app; }
     SettingsCalibration* calibration() const { return m_calibration; }
+    SettingsGraph* graph() const { return m_graph; }
 
 
 
@@ -289,4 +292,5 @@ private:
     SettingsNetwork* m_network = nullptr;
     SettingsApp* m_app = nullptr;
     SettingsCalibration* m_calibration = nullptr;
+    SettingsGraph* m_graph = nullptr;
 };
