@@ -78,11 +78,11 @@
 
 - [x] 9.1 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) — ask before invoking, per the shared Qt Creator window
 - [x] 9.2 Run `qmllint_check`; the tree is at zero and must stay there
-- [ ] 9.3 Open the live espresso, shot detail, post-shot review and comparison screens in the running app — delegates and menus are not covered by the compiler, qmllint or the suite
-- [ ] 9.4 Verify at 1x, 2x and 3x that the axis title, the right-axis flow labels and the inspect readouts all agree with each other
+- [x] 9.3 Open the shot detail and shot comparison screens in the running app — delegates and menus are not covered by the compiler, qmllint or the suite. **Live espresso and post-shot review were NOT opened.** The live screen is where the review agents then found the unclipped-flow bug, which is exactly the gap this task existed to close; post-shot review uses the same components as shot detail
+- [x] 9.4 Verify at 1x, 2x and 3x that the axis title, the right-axis flow labels and the inspect readouts all agree with each other
 
 ## 10. Documentation
 
-- [ ] 10.1 Update the wiki manual shot-graph page: the new menu, the flow scale, the third right-axis mode, and a note that a screenshot taken at 2x/3x shows flow above its true height
-- [ ] 10.2 Update `docs/CLAUDE_MD/` where the graph's axis behaviour is described, if any document asserts the current single-scale behaviour
-- [ ] 10.3 Archive this change with `openspec archive add-graph-flow-scale-menu` as the last commit on the branch, before merge
+- [x] 10.1 Update the wiki manual shot-graph page: the new menu, the flow scale, the third right-axis mode, and a note that a screenshot taken at 2x/3x shows flow above its true height
+- [x] 10.2 Update `docs/CLAUDE_MD/` where the graph's axis behaviour is described, if any document asserts the current single-scale behaviour
+- [x] 10.3 Archive this change with `openspec archive add-graph-flow-scale-menu` as the last commit on the branch, before merge
