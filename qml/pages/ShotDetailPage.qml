@@ -1540,34 +1540,11 @@ T.Page {
         title: TranslationManager.translate("shotdetail.title", "Shot Detail")
         onBackClicked: AppShell.backRequested()
 
-        // Profile name + date in the bottom bar remain visible while the user scrolls,
-        // providing context when the header is off-screen. It reads as a subtitle to
-        // the page title, so it lives in leftContent and stays beside it.
-        leftContent: ColumnLayout {
-            visible: !!(shotDetailPage.shotData.profileName)
-            spacing: 0
-            Layout.alignment: Qt.AlignVCenter
-            Accessible.role: Accessible.StaticText
-            Accessible.name: (shotDetailPage.shotData.profileName || "") + (shotDetailPage.shotData.dateTime ? ", " + shotDetailPage.shotData.dateTime : "")
-            Accessible.focusable: true
-
-            Text {
-                text: shotDetailPage.shotData.profileName || ""
-                font: Theme.labelFont
-                color: Theme.textColor
-                elide: Text.ElideRight
-                Layout.maximumWidth: shotDetailPage.width * 0.3
-                Accessible.ignored: true
-            }
-
-            Text {
-                text: shotDetailPage.shotData.dateTime || ""
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                elide: Text.ElideRight
-                Layout.maximumWidth: shotDetailPage.width * 0.3
-                Accessible.ignored: true
-            }
+        leftContent: BottomBarSubtitle {
+            bar: bottomBar
+            page: shotDetailPage
+            primaryText: shotDetailPage.shotData.profileName || ""
+            secondaryText: shotDetailPage.shotData.dateTime || ""
         }
 
         // No upload button here by design: this page is read-only, and the edit icon
