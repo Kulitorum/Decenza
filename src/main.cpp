@@ -4856,19 +4856,20 @@ int main(int argc, char *argv[])
         // alone therefore made the DB row current while the exported JSON stayed
         // stale, silently. Same bounded shape as the drain above.
         //
-        // Skipped after a re-entrant quit for a different reason than the two above:
-        // processEvents() ignores quitNow, so this loop would still spin — but on
-        // iOS the dispatcher returns false without dispatching anything once
-        // termination is announced (qioseventdispatcher.mm:522-529), so it would
-        // burn the full 750 ms doing no work, inside the OS's termination grace
-        // window, and warn as if it had waited for something.
+        // NOT skipped on a re-entrant quit, unlike the two waits above, and the
+        // asymmetry is deliberate. Those use QEventLoop::exec(), which quitNow
+        // disables outright; this uses processEvents(), which ignores quitNow
+        // entirely (qcoreapplication.cpp:1393-1402). So off iOS this loop still
+        // does real work after a second quit, and skipping it would risk the stale
+        // exported JSON it exists to prevent. On iOS after termination is announced
+        // it spins without dispatching, wasting up to 750 ms of a process the OS is
+        // about to kill — the cheaper mistake of the two, so it is the one taken.
         {
             QElapsedTimer waited;
             waited.start();
-            while (!shutdownReentered && !shotHistoryExporter.isExportWorkIdle()
-                   && waited.elapsed() < 750)
+            while (!shotHistoryExporter.isExportWorkIdle() && waited.elapsed() < 750)
                 QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
-            if (!shutdownReentered && !shotHistoryExporter.isExportWorkIdle())
+            if (!shotHistoryExporter.isExportWorkIdle())
                 STORAGE_WARN_STDERR("Export", QStringLiteral(
                     "shot export threads still running at exit - the exported JSON for a "
                     "just-edited shot may be stale"));
