@@ -41,6 +41,11 @@ public:
     // undefined`), not the name.
     static WebDebugLogger* create(QQmlEngine* = nullptr, QJSEngine* = nullptr);
 
+    // Public because the testing constructor above lets a test own one by value.
+    // Clears s_instance so the installed message handler cannot dereference a
+    // destroyed logger — see the comment on create().
+    ~WebDebugLogger() override;
+
     // Get recent log lines (for polling)
     QStringList getLines(int afterIndex, int* lastIndex = nullptr) const;
 
