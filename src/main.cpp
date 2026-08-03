@@ -4607,7 +4607,8 @@ int main(int argc, char *argv[])
     // Cleanup on exit
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot, &mainController, &scaleReconnectTimer, &shotHistoryExporter]() {
         // Qt's own once-only guard on aboutToQuit does not hold for this handler,
-        // because this handler pumps events.
+        // because this handler pumps events in three places (all conditional: the
+        // BLE drain wait, drainDbWork(), and the export wait).
         //
         // QCoreApplication::exit() emits aboutToQuit and only THEN sets the flag
         // that suppresses a second emission (qcoreapplication.cpp:1520-1522 in
@@ -4619,25 +4620,67 @@ int main(int argc, char *argv[])
         //     }
         //
         // The emit is synchronous, so for the entire lifetime of this handler the
-        // flag is still false. Every nested loop below — the BLE drain wait, the
-        // database drain, the export wait — can therefore deliver a second
-        // exit()/quit(), which re-enters this handler from the top, which starts
-        // another nested loop, and so on.
+        // flag is still false, and a second exit() delivered inside any of those
+        // loops re-enters this handler from the top.
         //
-        // Not hypothetical: a user's iOS log for #1759 carries 3064 recursions of
-        // "Application exiting - shutting down devices" ~1 ms apart, each one
-        // re-sending the DE1 sleep command, so the machine was told to sleep
-        // roughly three thousand times on a single quit.
+        // On iOS that second exit() is not a race — it is unconditional. Once iOS
+        // announces termination, the event dispatcher re-issues it from EVERY
+        // processEvents() call (qioseventdispatcher.mm:522-529):
         //
-        // Guarding here rather than removing the nested loops: the loops exist to
-        // let the BLE sleep/charger writes and the database writes finish, and
-        // each is already bounded and commented below. A plain latch is what the
-        // Qt flag would have been if it were set before the emit instead of after.
-        // Main thread only — aboutToQuit is emitted from QCoreApplication::exit(),
-        // which is documented as main-thread-only.
+        //     if (applicationAboutToTerminate) {
+        //         // Re-issue exit, and return immediately
+        //         qApp->exit(kApplicationWillTerminateExitCode);
+        //         return false;
+        //     }
+        //
+        // applicationAboutToTerminate is set in applicationWillTerminate (:445)
+        // and never cleared. So the first pump re-enters, and each re-entry pumps
+        // again. Note the flags argument is never consulted: ExcludeUserInputEvents
+        // on the waits below would not have prevented any of this.
+        //
+        // Measured, from the log attached to #1759: 534 recursions in the worst
+        // single quit, ~2 ms per cycle, each re-sending the DE1 sleep command. That
+        // log holds six such episodes over three days; 3064 is the file-wide total
+        // and is NOT one quit — do not quote it as one, which an earlier draft of
+        // this comment and of the PR did.
+        //
+        // Guarding here rather than removing the loops: on a NORMAL quit they still
+        // do their job (finish the BLE sleep/charger writes, then the database
+        // writes) and each is bounded. What they cannot do is survive a re-entrant
+        // quit — see the shutdownReentered checks below, which is why this latch
+        // records the fact rather than just swallowing it.
+        //
+        // Main thread only, so a plain bool is enough. Not because exit() is
+        // "documented" main-thread-only — it is, at qcoreapplication.cpp:1502-1506,
+        // but that is a request with no enforcement (unlike exec(), which warns at
+        // :1444-1447). The real guarantee is that the cross-thread route posts:
+        // QCoreApplicationPrivate::quit() sends QEvent::Quit inline on the main
+        // thread and postEvent()s it otherwise (:2141-2146), and event() turns that
+        // into exit(0) back on the main thread. The one other emission site,
+        // Windows WM_ENDSESSION (qwindowscontext.cpp:1168-1171), runs in a window
+        // proc, also main-thread.
+        //
+        // The latch is never reset, where Qt's flag is cleared on every exec()
+        // entry (:1456). That difference is safe only because main() calls exec()
+        // exactly once (see app.exec() below). A second exec() would emit a
+        // legitimate aboutToQuit that this latch would silently swallow.
         static bool shutdownHandlerRunning = false;
-        if (shutdownHandlerRunning)
+        static bool shutdownReentered = false;
+        if (shutdownHandlerRunning) {
+            // First re-entry only. One line per re-entry would be ~534 of them,
+            // burying the shutdown story this exists to explain. The count is not
+            // the useful part; the consequence is, and nothing downstream can say
+            // it — a skipped wait is indistinguishable from a fast one in a log.
+            if (!shutdownReentered) {
+                shutdownReentered = true;
+                qWarning() << "Second quit request during shutdown - suppressed. "
+                              "exit() has now set quitNow, so every remaining event "
+                              "loop below would return immediately without waiting "
+                              "(qeventloop.cpp:141-142); the drains are skipped "
+                              "rather than reported as timeouts.";
+            }
             return;
+        }
         shutdownHandlerRunning = true;
 
         qDebug() << "Application exiting - shutting down devices";
@@ -4710,14 +4753,27 @@ int main(int argc, char *argv[])
                 physicalScale->sleep();
             }
 
-            qDebug() << "Waiting for BLE queue to drain before exit...";
-            QTimer::singleShot(timeoutMs, &waitLoop, [&]() { waitLoop.quit(); });
-            waitLoop.exec();
+            // The sleep commands above are queued either way — only the WAIT is
+            // conditional. After a re-entrant quit, exit() has set quitNow and
+            // QEventLoop::exec() returns -1 without dispatching a single event
+            // (qeventloop.cpp:141-142), so entering the loop would report a
+            // 2000 ms timeout having waited zero. #1759 was diagnosed from a
+            // submitted log; a warning naming a wait that never happened sends
+            // the next reader after BLE latency that is not there.
+            if (shutdownReentered) {
+                qWarning() << "BLE queue drain skipped — quit was re-issued, so the "
+                              "event loop cannot run. Sleep commands are queued but "
+                              "unconfirmed. This is an abort, not a timeout.";
+            } else {
+                qDebug() << "Waiting for BLE queue to drain before exit...";
+                QTimer::singleShot(timeoutMs, &waitLoop, [&]() { waitLoop.quit(); });
+                waitLoop.exec();
 
-            if (drained)
-                qDebug() << "BLE queue drained successfully, exiting.";
-            else
-                qWarning() << "BLE queue drain timed out after" << timeoutMs << "ms — sleep command may not have been delivered.";
+                if (drained)
+                    qDebug() << "BLE queue drained successfully, exiting.";
+                else
+                    qWarning() << "BLE queue drain timed out after" << timeoutMs << "ms — sleep command may not have been delivered.";
+            }
         }
 
         // IMPORTANT: Ensure charger is ON before exiting
@@ -4778,7 +4834,20 @@ int main(int argc, char *argv[])
         //
         // Bounded for the same reason the BLE waits are: Android kills a process
         // that lingers on quit.
-        mainController.drainDbWork();
+        //
+        // Skipped outright after a re-entrant quit. drainDbWork()'s own loop.exec()
+        // would return -1 immediately on quitNow (qeventloop.cpp:141-142) and then
+        // warn "did not drain within 750 ms" having waited none of them. Note the
+        // comment just above is only PARTLY right about what protects this loop:
+        // ExcludeUserInputEvents stops a second Quit TAP, but the re-issued exit()
+        // on iOS arrives from the event dispatcher itself and that flag does not
+        // stop it.
+        if (shutdownReentered)
+            qWarning() << "Database drain skipped — quit was re-issued, so the event "
+                          "loop cannot run. Queued writes depend on their worker "
+                          "reaching them before exit.";
+        else
+            mainController.drainDbWork();
 
         // A drained write may have just spawned an export thread (the exporter
         // subscribes to shotSaved/shotMetadataUpdated), and this object is
@@ -4786,12 +4855,20 @@ int main(int argc, char *argv[])
         // body starts with `if (*destroyed) return;`. Waiting on the database
         // alone therefore made the DB row current while the exported JSON stayed
         // stale, silently. Same bounded shape as the drain above.
+        //
+        // Skipped after a re-entrant quit for a different reason than the two above:
+        // processEvents() ignores quitNow, so this loop would still spin — but on
+        // iOS the dispatcher returns false without dispatching anything once
+        // termination is announced (qioseventdispatcher.mm:522-529), so it would
+        // burn the full 750 ms doing no work, inside the OS's termination grace
+        // window, and warn as if it had waited for something.
         {
             QElapsedTimer waited;
             waited.start();
-            while (!shotHistoryExporter.isExportWorkIdle() && waited.elapsed() < 750)
+            while (!shutdownReentered && !shotHistoryExporter.isExportWorkIdle()
+                   && waited.elapsed() < 750)
                 QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
-            if (!shotHistoryExporter.isExportWorkIdle())
+            if (!shutdownReentered && !shotHistoryExporter.isExportWorkIdle())
                 STORAGE_WARN_STDERR("Export", QStringLiteral(
                     "shot export threads still running at exit - the exported JSON for a "
                     "just-edited shot may be stale"));
