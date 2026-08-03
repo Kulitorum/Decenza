@@ -27,31 +27,31 @@ Flow {
     }
 
     Repeater {
-        // Rebuild the model whenever any show* flag changes — otherwise toggling
-        // a curve on (e.g. Resistance) wouldn't update the bar until the user
-        // taps the graph again. Each flag is read so QML tracks it as a binding
-        // dependency.
+        // Visibility comes from Settings.graph, which is where it lives for every graph.
+        // Reading each flag also makes it a binding dependency, so toggling a curve on
+        // updates the bar without the user re-tapping the graph — the hand-rolled `_deps`
+        // array that used to force that is unnecessary now these are real properties.
+        //
+        // The VALUES come from the graph's inspectValues, which is computed from the
+        // unscaled source arrays — so these read true mL/s and g/s at any flow multiplier.
         model: {
             var g = inspectBar.graph
-            var _deps = [g.showPressure, g.showFlow, g.showTemperature, g.showWeight, g.showWeightFlow,
-                         g.showResistance, g.showConductance, g.showDarcyResistance,
-                         g.showConductanceDerivative, g.showTemperatureMix, g.showTemperatureMixGoal,
-                         g.advancedMode]
+            var advanced = Settings.graph.advancedMode
             var vals = g.inspectValues
             // Order matches the legend: temperature pair, scale pair, resistance
             // pair, conductance pair.
             var entries = [
-                { key: "pressure",        show: g.showPressure },
-                { key: "flow",            show: g.showFlow },
-                { key: "temperature",     show: g.showTemperature },
-                { key: "mixTemp",         show: g.showTemperatureMix && g.advancedMode },
-                { key: "mixTempGoal",     show: g.showTemperatureMixGoal && g.advancedMode },
-                { key: "weight",          show: g.showWeight },
-                { key: "weightFlow",      show: g.showWeightFlow },
-                { key: "resistance",      show: g.showResistance && g.advancedMode },
-                { key: "darcyResistance", show: g.showDarcyResistance && g.advancedMode },
-                { key: "conductance",     show: g.showConductance && g.advancedMode },
-                { key: "dCdt",            show: g.showConductanceDerivative && g.advancedMode }
+                { key: "pressure",        show: Settings.graph.showPressure },
+                { key: "flow",            show: Settings.graph.showFlow },
+                { key: "temperature",     show: Settings.graph.showTemperature },
+                { key: "mixTemp",         show: Settings.graph.showTemperatureMix && advanced },
+                { key: "mixTempGoal",     show: Settings.graph.showTemperatureMixGoal && advanced },
+                { key: "weight",          show: Settings.graph.showWeight },
+                { key: "weightFlow",      show: Settings.graph.showWeightFlow },
+                { key: "resistance",      show: Settings.graph.showResistance && advanced },
+                { key: "darcyResistance", show: Settings.graph.showDarcyResistance && advanced },
+                { key: "conductance",     show: Settings.graph.showConductance && advanced },
+                { key: "dCdt",            show: Settings.graph.showConductanceDerivative && advanced }
             ]
             var items = []
             for (var i = 0; i < entries.length; i++) {

@@ -27,7 +27,6 @@ T.Page {
     property int currentIndex: -1  // Current position in shotIds
     // Persisted graph height (like PostShotReviewPage)
     property real graphHeight: Settings.value("shotDetail/graphHeight", Theme.scaled(250))
-    property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property int swipeDirection: 0  // 1 = going older, -1 = going newer; swipeDirection: 1 exits left, enters from right; -1 exits right, enters from left
     property bool navigating: false  // true only during a navigateToShot transition; guards enterAnimation from firing on non-navigation loads
 
@@ -76,8 +75,6 @@ T.Page {
     Connections {
         target: Settings
         function onValueChanged(key) {
-            if (key === "shotReview/advancedMode")
-                shotDetailPage.advancedMode = Settings.boolValue("shotReview/advancedMode", false)
         }
     }
 
@@ -508,46 +505,8 @@ T.Page {
                     }
                 }
 
-                // Basic/Advanced mode toggle (matches espresso page view selector)
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(36)
-                    Layout.preferredHeight: Theme.scaled(36)
-                    Layout.alignment: Qt.AlignVCenter
-                    radius: Theme.scaled(18)
-                    color: shotDetailPage.advancedMode ? Theme.accentColor : Theme.cardBackgroundColor
-                    border.color: Theme.borderColor
-                    border.width: Theme.scaled(1)
-
-                    Accessible.ignored: true
-
-                    Image {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/settings.svg"
-                        sourceSize.width: Theme.scaled(18)
-                        sourceSize.height: Theme.scaled(18)
-
-                        layer.enabled: true
-                        layer.smooth: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: shotDetailPage.advancedMode ? Theme.primaryContrastColor : Theme.textColor
-                        }
-                    }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: shotDetailPage.advancedMode
-                            ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
-                            : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
-                        accessibleItem: parent
-                        accessibleRole: Accessible.CheckBox
-                        accessibleChecked: shotDetailPage.advancedMode
-                        onAccessibleClicked: {
-                            shotDetailPage.advancedMode = !shotDetailPage.advancedMode
-                            Settings.setValue("shotReview/advancedMode", shotDetailPage.advancedMode)
-                        }
-                    }
-                }
+                // Graph display options (advanced curves, flow scale).
+                GraphOptionsButton {}
             }
 
             // Shot Plan snapshot line — this shot's frozen dial-in rendered as a
@@ -639,8 +598,7 @@ T.Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
-                    advancedMode: shotDetailPage.advancedMode
-                    showPhaseLabels: shotDetailPage.advancedMode
+                    showPhaseLabels: Settings.graph.advancedMode
                     pressureData: shotDetailPage.shotData.pressure || []
                     flowData: shotDetailPage.shotData.flow || []
                     temperatureData: shotDetailPage.shotData.temperature || []
@@ -744,8 +702,6 @@ T.Page {
             }
 
             GraphLegend {
-                graph: shotGraph
-                advancedMode: shotDetailPage.advancedMode
             }
 
             // Shot navigation buttons (list is newest-first, so lower index = newer)
@@ -928,7 +884,7 @@ T.Page {
             PhaseSummaryPanel {
                 Layout.fillWidth: true
                 phaseSummaries: shotDetailPage.shotData.phaseSummaries || []
-                visible: shotDetailPage.advancedMode && (shotDetailPage.shotData.phaseSummaries || []).length > 0
+                visible: Settings.graph.advancedMode && (shotDetailPage.shotData.phaseSummaries || []).length > 0
             }
 
             // Notes (shown first, above bean/grinder cards)
@@ -1276,7 +1232,7 @@ T.Page {
                 Layout.preferredHeight: analysisColumn.height + Theme.spacingLarge
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
-                visible: shotDetailPage.advancedMode && (shotDetailPage.shotData.drinkTdsPct > 0 || shotDetailPage.shotData.drinkEyPct > 0)
+                visible: Settings.graph.advancedMode && (shotDetailPage.shotData.drinkTdsPct > 0 || shotDetailPage.shotData.drinkEyPct > 0)
                 Accessible.role: Accessible.Grouping
                 Accessible.name: TranslationManager.translate("shotdetail.analysis", "Analysis")
 
@@ -1359,7 +1315,7 @@ T.Page {
                 spacing: Theme.spacingMedium
 
                 AccessibleButton {
-                    visible: shotDetailPage.advancedMode
+                    visible: Settings.graph.advancedMode
                     text: TranslationManager.translate("shotdetail.viewdebuglog", "View Debug Log")
                     accessibleName: TranslationManager.translate("shotDetail.viewDebugLog", "View debug log for this shot")
                     Layout.fillWidth: true

@@ -58,6 +58,7 @@
 #include "settings_network.h"
 #include "settings_app.h"
 #include "settings_calibration.h"
+#include "settings_graph.h"
 
 
 class Settings : public QObject {
@@ -112,6 +113,7 @@ class Settings : public QObject {
     Q_PROPERTY(SettingsNetwork* network READ network CONSTANT FINAL)
     Q_PROPERTY(SettingsApp* app READ app CONSTANT FINAL)
     Q_PROPERTY(SettingsCalibration* calibration READ calibration CONSTANT FINAL)
+    Q_PROPERTY(SettingsGraph* graph READ graph CONSTANT FINAL)
 
     // Machine settings
     Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged FINAL)
@@ -177,6 +179,7 @@ public:
     SettingsNetwork* network() const { return m_network; }
     SettingsApp* app() const { return m_app; }
     SettingsCalibration* calibration() const { return m_calibration; }
+    SettingsGraph* graph() const { return m_graph; }
 
 
 
@@ -289,4 +292,5 @@ private:
     SettingsNetwork* m_network = nullptr;
     SettingsApp* m_app = nullptr;
     SettingsCalibration* m_calibration = nullptr;
+    SettingsGraph* m_graph = nullptr;
 };

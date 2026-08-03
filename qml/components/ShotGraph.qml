@@ -8,6 +8,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtGraphs
 import Decenza
+import "GraphUtils.js" as GraphUtils
 
 // Outer Item wraps GraphsView so all overlays — FastLineRenderer traces, dashed
 // goal curves, phase-marker vertical lines, manual right-axis labels — render as
@@ -26,30 +27,24 @@ Item {
     // Qt Charts ChartView.plotArea API.
     readonly property rect plotArea: graphsView.plotArea
 
-    // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
-    // QSettings' INI-backend strings ("true"/"false") to real booleans — plain
-    // Settings.value() returns the raw QString which JavaScript treats as truthy,
-    // so toggled-off states wouldn't survive between shots.
-    property bool showPressure: Settings.boolValue("graph/showPressure", true)
-    property bool showFlow: Settings.boolValue("graph/showFlow", true)
-    property bool showTemperature: Settings.boolValue("graph/showTemperature", true)
-    property bool showWeight: Settings.boolValue("graph/showWeight", true)
-    property bool showWeightFlow: Settings.boolValue("graph/showWeightFlow", true)
-    property bool showResistance: Settings.boolValue("graph/showResistance", false)
-    property bool showConductance: Settings.boolValue("graph/showConductance", false)
-    property bool showConductanceDerivative: Settings.boolValue("graph/showConductanceDerivative", false)
-    property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
-    property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
-    property bool showTemperatureMixGoal: Settings.boolValue("graph/showTemperatureMixGoal", false)
+    // Series visibility is read straight off Settings.graph, which is a real binding: a
+    // change anywhere — the legend, the options menu, the comparison table — reaches this
+    // graph with no refresh handler. There used to be eleven mirror properties here (and
+    // eleven more in each of the other two graphs) initialised from Settings.boolValue(), a
+    // plain Q_INVOKABLE that records no dependency, so each was a one-shot read taken at
+    // construction and something else had to poke them.
 
-    property bool advancedMode: false
+    property bool advancedMode: Settings.graph.advancedMode
 
-    // Right axis toggle (weight vs temperature)
-    property bool showWeightAxis: Settings.boolValue("graph/showWeightAxis", true)
-    function toggleRightAxis() {
-        showWeightAxis = !showWeightAxis
-        Settings.setValue("graph/showWeightAxis", showWeightAxis)
-    }
+    // Right axis: "weight", "temperature" or "flow".
+    property string rightAxisMode: Settings.graph.rightAxisMode
+    function toggleRightAxis() { Settings.graph.cycleRightAxisMode() }
+
+    // Factor applied to the flow-family traces before plotting (1, 2 or 3). Flow, weight
+    // flow rate and the dashed flow goal all take the same factor so they stay readable
+    // against each other — the divergence between flow and weight flow is the tell this
+    // graph exists to show, and scaling only one of them would fake it.
+    property int flowMultiplier: Settings.graph.flowMultiplier
 
     // Auto-expanding time axis. timeAxis.max is set imperatively by recalcMax() to
     // avoid the binding-loop chain max → relayout → plotArea → cachedPlotWidth → recalcMax.
@@ -61,13 +56,6 @@ Item {
     // Pick a tickInterval that keeps the axis readable across the whole shot-length
     // range (5 s warm-up through a 60 s+ long pour) without leaving a huge dead
     // zone past the last tick. Mirrors the dynamic tickCount logic from Qt Charts.
-    function _niceTimeAxisStep(span) {
-        if (span <= 5)  return 1
-        if (span <= 10) return 2
-        if (span <= 30) return 5
-        return 10
-    }
-
     function recalcMax() {
         // Track rawTime continuously (no snap-to-tick) so live data always reaches
         // the right edge — matches the Qt Charts feel. Ticks land at multiples of
@@ -75,7 +63,7 @@ Item {
         // shot, which is fine.
         var raw = ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
         var newMax = Math.max(minTime, raw)
-        var step = _niceTimeAxisStep(newMax)
+        var step = GraphUtils.niceTimeAxisStep(newMax)
         if (newMax !== _lastAxisMax || timeAxis.tickInterval !== step) {
             _lastAxisMax = newMax
             timeAxis.max = newMax
@@ -145,7 +133,11 @@ Item {
             tickInterval: 3
             subTickCount: 0
             labelFormat: "%.0f"
-            titleText: "bar / mL·g/s"
+            // Names only the units it still reads for. At 2x/3x the flow-family traces are
+            // mapped through a shrunken range, so this axis is true for pressure alone —
+            // and this title is the only marker of that visible in a screenshot, which is
+            // how graphs arrive in bug reports.
+            titleText: chart.flowMultiplier === 1 ? "bar / mL·g/s" : "bar"
         }
     }
 
@@ -156,6 +148,16 @@ Item {
         id: tempAxis
         property real min: 40
         property real max: 100
+    }
+
+    // Flow-family mapping. Shrinking the range is what makes the trace grow: at 3x the
+    // traces map 0-4 mL/s across the full plot height while the left axis still reads
+    // 0-12 bar for pressure. The right-axis label column reads this object in flow mode,
+    // so what it prints and what is drawn cannot drift apart.
+    QtObject {
+        id: flowAxis
+        property real min: pressureAxis.min
+        property real max: pressureAxis.max / chart.flowMultiplier
     }
 
     QtObject {
@@ -184,7 +186,7 @@ Item {
             points: modelData
             strokeColor: Theme.pressureGoalColor
             strokeWidth: Theme.scaled(2)
-            visible: chart.showPressure
+            visible: Settings.graph.showPressure
         }
     }
 
@@ -195,11 +197,13 @@ Item {
             required property var modelData
             graphsView: chart.graphsViewRef
             axisX: timeAxis
-            axisY: pressureAxis
+            // Same multiplier as the flow trace it is the target for — a goal drawn at a
+            // different scale than the curve chasing it would be worse than no goal.
+            axisY: flowAxis
             points: modelData
             strokeColor: Theme.flowGoalColor
             strokeWidth: Theme.scaled(2)
-            visible: chart.showFlow
+            visible: Settings.graph.showFlow
         }
     }
 
@@ -211,7 +215,7 @@ Item {
         points: ShotDataModel.temperatureGoalPoints
         strokeColor: Theme.temperatureGoalColor
         strokeWidth: Theme.scaled(2)
-        visible: chart.showTemperature
+        visible: Settings.graph.showTemperature
     }
 
     // Mix temperature goal (SetMixTemp) — advanced, reads against the Mix temp line.
@@ -222,7 +226,7 @@ Item {
         points: ShotDataModel.temperatureMixGoalPoints
         strokeColor: Theme.temperatureMixGoalColor
         strokeWidth: Theme.scaled(2)
-        visible: chart.showTemperatureMixGoal && chart.advancedMode && points.length > 0
+        visible: Settings.graph.showTemperatureMixGoal && chart.advancedMode && points.length > 0
     }
 
     // === VERTICAL PHASE / FRAME MARKER LINES ===
@@ -259,7 +263,7 @@ Item {
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: chart.showPressure
+        visible: Settings.graph.showPressure
     }
 
     FastLineRenderer {
@@ -269,8 +273,10 @@ Item {
         color: Theme.flowColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
-        minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: chart.showFlow
+        // Flow-family: the multiplier is applied by SHRINKING the mapped range, so the
+        // trace grows without a per-point transform and the source data is untouched.
+        minY: pressureAxis.min; maxY: pressureAxis.max / chart.flowMultiplier
+        visible: Settings.graph.showFlow
     }
 
     FastLineRenderer {
@@ -281,7 +287,7 @@ Item {
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: tempAxis.min; maxY: tempAxis.max
-        visible: chart.showTemperature
+        visible: Settings.graph.showTemperature
     }
 
     FastLineRenderer {
@@ -291,8 +297,10 @@ Item {
         color: Theme.weightFlowColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
-        minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: chart.showWeightFlow
+        // Flow-family: the multiplier is applied by SHRINKING the mapped range, so the
+        // trace grows without a per-point transform and the source data is untouched.
+        minY: pressureAxis.min; maxY: pressureAxis.max / chart.flowMultiplier
+        visible: Settings.graph.showWeightFlow
     }
 
     FastLineRenderer {
@@ -303,7 +311,7 @@ Item {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: chart.showResistance && chart.advancedMode
+        visible: Settings.graph.showResistance && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -314,7 +322,7 @@ Item {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: chart.showConductance && chart.advancedMode
+        visible: Settings.graph.showConductance && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -325,7 +333,7 @@ Item {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: chart.showDarcyResistance && chart.advancedMode
+        visible: Settings.graph.showDarcyResistance && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -336,7 +344,7 @@ Item {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: tempAxis.min; maxY: tempAxis.max
-        visible: chart.showTemperatureMix && chart.advancedMode
+        visible: Settings.graph.showTemperatureMix && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -347,7 +355,7 @@ Item {
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: weightAxis.min; maxY: weightAxis.max
-        visible: chart.showWeight
+        visible: Settings.graph.showWeight
     }
 
     // Frame marker labels (rotated text)
@@ -458,58 +466,18 @@ Item {
         }
     }
 
-    // Manual right-axis labels — toggling visibility on Qt Graphs ValueAxis would
-    // resize the plot area, so we draw labels at a fixed position instead.
-    Item {
-        id: rightAxisLabels
+    // Right-axis label column. Shared with the history graph — see GraphRightAxisLabels
+    // for why the right axis is hand-drawn rather than a second ValueAxis.
+    GraphRightAxisLabels {
         x: graphsView.plotArea.x + graphsView.plotArea.width + Theme.scaled(4)
         y: graphsView.plotArea.y
         width: chart.width - x
         height: graphsView.plotArea.height
 
-        Accessible.role: Accessible.Button
-        Accessible.name: chart.showWeightAxis ? TranslationManager.translate("graph.rightAxisWeight", "Right axis: Weight. Tap for Temperature")
-                                              : TranslationManager.translate("graph.rightAxisTemp", "Right axis: Temperature. Tap for Weight")
-        Accessible.focusable: true
-        Accessible.onPressAction: axisToggleArea.clicked(null)
-
-        property color labelColor: chart.showWeightAxis ? Theme.weightColor : Theme.temperatureColor
-
-        // Tick labels — five evenly spaced labels mirror the original tickCount: 5.
-        Repeater {
-            model: 5
-            Text {
-                required property int index
-                property real value: {
-                    var axisMin = chart.showWeightAxis ? weightAxis.min : tempAxis.min
-                    var axisMax = chart.showWeightAxis ? weightAxis.max : tempAxis.max
-                    return axisMax - index * (axisMax - axisMin) / 4
-                }
-                text: chart.showWeightAxis ? value.toFixed(0) : Theme.cToDisplay(value).toFixed(0)
-                x: 0
-                y: index / 4 * rightAxisLabels.height - height / 2
-                font: Theme.captionFont
-                color: rightAxisLabels.labelColor
-                Accessible.ignored: true
-            }
-        }
-
-        // Axis title
-        Text {
-            text: chart.showWeightAxis ? "g" : Theme.tempUnitSuffix()
-            font: Theme.captionFont
-            color: rightAxisLabels.labelColor
-            rotation: 90
-            transformOrigin: Item.Center
-            x: Theme.scaled(24)
-            y: rightAxisLabels.height / 2 - height / 2
-            Accessible.ignored: true
-        }
-
-        MouseArea {
-            id: axisToggleArea
-            anchors.fill: parent
-            onClicked: chart.toggleRightAxis()
-        }
+        mode: chart.rightAxisMode
+        weightAxis: weightAxis
+        tempAxis: tempAxis
+        flowAxis: flowAxis
+        onTapped: chart.toggleRightAxis()
     }
 }

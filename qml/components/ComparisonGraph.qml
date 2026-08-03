@@ -7,6 +7,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtGraphs
 import Decenza
+import "GraphUtils.js" as GraphUtils
 
 // Outer Item wraps the GraphsView so all 30 trace overlays (3 shots × 10
 // curves), the Canvas phase markers, the crosshair, and phase labels render
@@ -18,20 +19,13 @@ Item {
     // Shot comparison model
     property var comparisonModel: null
 
-    // Visibility toggles for curve types (shared with HistoryShotGraph via Settings).
-    property bool showPressure: Settings.boolValue("graph/showPressure", true)
-    property bool showFlow: Settings.boolValue("graph/showFlow", true)
-    property bool showTemperature: Settings.boolValue("graph/showTemperature", true)
-    property bool showWeight: Settings.boolValue("graph/showWeight", true)
-    property bool showWeightFlow: Settings.boolValue("graph/showWeightFlow", true)
-    property bool showResistance: Settings.boolValue("graph/showResistance", false)
-    property bool showConductance: Settings.boolValue("graph/showConductance", false)
-    property bool showConductanceDerivative: Settings.boolValue("graph/showConductanceDerivative", false)
-    property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
-    property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
-    property bool showTemperatureMixGoal: Settings.boolValue("graph/showTemperatureMixGoal", false)
+    // Curve visibility is shared with the live and history graphs — it binds straight to
+    // SettingsGraph rather than mirroring it into local properties.
 
-    property bool advancedMode: false
+    property bool advancedMode: Settings.graph.advancedMode
+
+    // Factor applied to the flow-family traces before plotting (1, 2 or 3).
+    property int flowMultiplier: Settings.graph.flowMultiplier
 
     // Per-shot visibility (window slot 0/1/2)
     property bool showShot0: true
@@ -83,10 +77,10 @@ Item {
     // at bind time, by which point every axis id is valid.
     readonly property var _curves: [
         { key: "pressure",              axisKey: "pressure", color: Theme.pressureColor,             width: Theme.graphLineWidth,                 advanced: false, showFlag: "showPressure" },
-        { key: "flow",                  axisKey: "pressure", color: Theme.flowColor,                 width: Theme.graphLineWidth,                 advanced: false, showFlag: "showFlow" },
+        { key: "flow",                  axisKey: "flow"    , color: Theme.flowColor,                 width: Theme.graphLineWidth,                 advanced: false, showFlag: "showFlow" },
         { key: "temperature",           axisKey: "temp",     color: Theme.temperatureColor,          width: Theme.graphLineWidth,                 advanced: false, showFlag: "showTemperature" },
         { key: "weight",                axisKey: "weight",   color: Theme.weightColor,               width: Math.max(1, Theme.graphLineWidth-1),  advanced: false, showFlag: "showWeight" },
-        { key: "weightFlow",            axisKey: "pressure", color: Theme.weightFlowColor,           width: Math.max(1, Theme.graphLineWidth-1),  advanced: false, showFlag: "showWeightFlow" },
+        { key: "weightFlow",            axisKey: "flow"    , color: Theme.weightFlowColor,           width: Math.max(1, Theme.graphLineWidth-1),  advanced: false, showFlag: "showWeightFlow" },
         { key: "resistance",            axisKey: "pressure", color: Theme.resistanceColor,           width: Math.max(1, Theme.graphLineWidth-1),  advanced: true,  showFlag: "showResistance" },
         { key: "conductance",           axisKey: "pressure", color: Theme.conductanceColor,          width: Math.max(1, Theme.graphLineWidth-1),  advanced: true,  showFlag: "showConductance" },
         { key: "conductanceDerivative", axisKey: "dCdt",     color: Theme.conductanceDerivativeColor,width: Math.max(1, Theme.graphLineWidth-1),  advanced: true,  showFlag: "showConductanceDerivative" },
@@ -98,6 +92,9 @@ Item {
     function _axisFor(axisKey) {
         switch (axisKey) {
             case "pressure": return pressureAxis
+            // Flow family maps through a shrunken range so the multiplier scales the trace
+            // without touching the data or the pressure axis everything else reads.
+            case "flow":     return flowAxis
             case "temp":     return tempAxis
             case "weight":   return weightAxis
             case "dCdt":     return dCdtAxis
@@ -156,13 +153,6 @@ Item {
 
     // === Axis fitting (timeAxis stretches to maxTime + padding; dCdtAxis fits the data) ===
 
-    function _niceTimeAxisStep(span) {
-        if (span <= 5)  return 1
-        if (span <= 10) return 2
-        if (span <= 30) return 5
-        return 10
-    }
-
     function _updateTimeAxis() {
         if (!comparisonModel) return
         var markerMaxTime = 0
@@ -180,7 +170,7 @@ Item {
         // ShotGraph/SteamGraph dynamic tickInterval so labels stay readable from
         // a 5 s pour through a 60 s+ extraction.
         timeAxis.max = Math.max(5, axisEnd * scale)
-        timeAxis.tickInterval = _niceTimeAxisStep(timeAxis.max)
+        timeAxis.tickInterval = GraphUtils.niceTimeAxisStep(timeAxis.max)
     }
 
     function _updateDCdtAxis() {
@@ -260,9 +250,7 @@ Item {
     // === Inspect / crosshair ===
 
     function _timeAtPixel(pixelX) {
-        var plot = graphsView.plotArea
-        if (!plot || plot.width <= 0) return -1
-        return timeAxis.min + (pixelX - plot.x) / plot.width * (timeAxis.max - timeAxis.min)
+        return GraphUtils.timeAtPixel(pixelX, graphsView.plotArea, timeAxis.min, timeAxis.max)
     }
 
     function inspectAtPosition(pixelX, pixelY) {
@@ -365,19 +353,30 @@ Item {
         ValueAxis {
             id: pressureAxis
             readonly property bool hasAdvancedCurve: chart.advancedMode
-                && (chart.showResistance || chart.showConductance || chart.showDarcyResistance)
+                && (Settings.graph.showResistance || Settings.graph.showConductance || Settings.graph.showDarcyResistance)
             min: 0
             max: hasAdvancedCurve ? 20 : 12
             tickInterval: hasAdvancedCurve ? 5 : 3
             subTickCount: 0
             labelFormat: "%.0f"
-            titleText: "bar / mL/s"
+            // Pressure-only once a multiplier is active — the flow family no longer reads
+            // against this axis.
+            titleText: chart.flowMultiplier === 1 ? "bar / mL/s" : "bar"
         }
     }
 
     // === HIDDEN RIGHT-AXIS HOLDERS ===
     // DashedLineSeries reads min/max for its data→pixel mapping; QtObject
     // suffices — no Qt Graphs ValueAxis needed.
+
+    // Flow-family mapping. Tracks the pressure axis, including its expansion to 20 for the
+    // advanced curves, so flow keeps the same proportion of plot height either way.
+    QtObject {
+        id: flowAxis
+        property real min: pressureAxis.min
+        property real max: pressureAxis.max / chart.flowMultiplier
+    }
+
     QtObject {
         id: tempAxis
         property real min: 40
@@ -439,7 +438,7 @@ Item {
             dashed: shotStyle.dashed
             dashPattern: shotStyle.pattern
             visible: chart._shotVisibleAt(modelData.shotIdx)
-                     && chart[curveDef.showFlag]
+                     && Settings.graph[curveDef.showFlag]
                      && (!curveDef.advanced || chart.advancedMode)
         }
     }

@@ -11,6 +11,7 @@
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
 #include "core/settings_network.h"
+#include "core/settings_graph.h"
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
 #include "core/settingsserializer.h"
@@ -137,6 +138,95 @@ private slots:
             QStringLiteral("profile/current"),
         }));
         QVERIFY(!Settings::looksLikeFreshInstall({QStringLiteral("calibration/steamTwoTapStop")}));
+    }
+
+    // === Graph display transforms ===================================================
+    //
+    // Both resolvers are static and pure, so these need no settings store and no Settings
+    // instance — same reasoning as looksLikeFreshInstall above.
+
+    void graphFlowMultiplier_resolvesOnlyOneTwoOrThree_data()
+    {
+        QTest::addColumn<QVariant>("stored");
+        QTest::addColumn<int>("expected");
+
+        const int dflt = SettingsGraph::kFlowMultiplierDefault;
+
+        QTest::newRow("unset") << QVariant() << dflt;
+        QTest::newRow("empty string") << QVariant(QString()) << dflt;
+        QTest::newRow("zero") << QVariant(0) << dflt;
+        QTest::newRow("negative") << QVariant(-2) << dflt;
+        QTest::newRow("above range") << QVariant(7) << dflt;
+        QTest::newRow("non-numeric") << QVariant(QStringLiteral("2x")) << dflt;
+        QTest::newRow("1") << QVariant(1) << 1;
+        QTest::newRow("2") << QVariant(2) << 2;
+        QTest::newRow("3") << QVariant(3) << 3;
+        // The INI backend used on Android/Linux/iOS hands numbers back as strings, so the
+        // resolver must accept them. Reading these as unparseable would silently pin every
+        // one of those platforms to the default.
+        QTest::newRow("string 3") << QVariant(QStringLiteral("3")) << 3;
+    }
+
+    void graphFlowMultiplier_resolvesOnlyOneTwoOrThree()
+    {
+        QFETCH(QVariant, stored);
+        QFETCH(int, expected);
+        QCOMPARE(SettingsGraph::resolveFlowMultiplier(stored), expected);
+    }
+
+    // The three-state right-axis mode supersedes the graph/showWeightAxis boolean. An
+    // upgrading user must keep the choice they made under the old setting, and resolution
+    // must never write, so the old value survives a rollback.
+    void graphRightAxisMode_migratesTheSupersededBoolean_data()
+    {
+        QTest::addColumn<QVariant>("storedMode");
+        QTest::addColumn<QVariant>("legacyBool");
+        QTest::addColumn<QString>("expected");
+
+        const QString weight = SettingsGraph::kRightAxisWeight;
+        const QString temperature = SettingsGraph::kRightAxisTemperature;
+        const QString flow = SettingsGraph::kRightAxisFlow;
+
+        QTest::newRow("fresh install") << QVariant() << QVariant() << weight;
+        QTest::newRow("legacy true -> weight") << QVariant() << QVariant(true) << weight;
+        QTest::newRow("legacy false -> temperature") << QVariant() << QVariant(false) << temperature;
+        // INI backends store booleans as these strings; toBool() handles them.
+        QTest::newRow("legacy \"false\" string") << QVariant() << QVariant(QStringLiteral("false")) << temperature;
+        // An explicit mode always wins over the superseded boolean.
+        QTest::newRow("mode wins over legacy") << QVariant(flow) << QVariant(true) << flow;
+        QTest::newRow("weight") << QVariant(weight) << QVariant() << weight;
+        QTest::newRow("temperature") << QVariant(temperature) << QVariant() << temperature;
+        QTest::newRow("flow") << QVariant(flow) << QVariant() << flow;
+        // Unrecognised falls back rather than persisting nonsense — including a case
+        // mismatch, which is the shape a hand-typed literal in QML would take.
+        QTest::newRow("wrong case") << QVariant(QStringLiteral("Flow")) << QVariant() << weight;
+        QTest::newRow("garbage") << QVariant(QStringLiteral("sideways")) << QVariant() << weight;
+        QTest::newRow("garbage falls back to legacy") << QVariant(QStringLiteral("sideways")) << QVariant(false) << temperature;
+    }
+
+    void graphRightAxisMode_migratesTheSupersededBoolean()
+    {
+        QFETCH(QVariant, storedMode);
+        QFETCH(QVariant, legacyBool);
+        QFETCH(QString, expected);
+        QCOMPARE(SettingsGraph::resolveRightAxisMode(storedMode, legacyBool), expected);
+    }
+
+    // Three graphs share the right-axis control, so the order lives in one place. A cycle
+    // that failed to return to its start would strand a mode as unreachable.
+    void graphRightAxisMode_cyclesThroughAllThreeAndWraps()
+    {
+        const QString weight = SettingsGraph::kRightAxisWeight;
+        const QString temperature = SettingsGraph::kRightAxisTemperature;
+        const QString flow = SettingsGraph::kRightAxisFlow;
+
+        QCOMPARE(SettingsGraph::nextRightAxisMode(weight), temperature);
+        QCOMPARE(SettingsGraph::nextRightAxisMode(temperature), flow);
+        QCOMPARE(SettingsGraph::nextRightAxisMode(flow), weight);
+
+        // An unrecognised current mode still advances somewhere reachable rather than
+        // sticking, so a corrupt stored value cannot freeze the control.
+        QCOMPARE(SettingsGraph::nextRightAxisMode(QStringLiteral("sideways")), weight);
     }
 
     void init() { QTest::failOnWarning();

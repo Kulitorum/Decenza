@@ -681,6 +681,7 @@ set(SOURCES
     src/core/settings_network.cpp
     src/core/settings_app.cpp
     src/core/settings_calibration.cpp
+    src/core/settings_graph.cpp
     src/core/widgetlibrary.cpp
     src/widget/machinestatussnapshot.cpp
     src/core/batterymanager.cpp
@@ -907,6 +908,7 @@ set(HEADERS
     src/core/settings_network.h
     src/core/settings_app.h
     src/core/settings_calibration.h
+    src/core/settings_graph.h
     src/core/grinderaliases.h
     src/core/basketaliases.h
     src/core/widgetlibrary.h
@@ -1265,6 +1267,7 @@ set_source_files_properties(qml/components/SettingsTabs.qml PROPERTIES QT_QML_SI
 set_source_files_properties(qml/components/layout/WidgetColor.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/DrinkType.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/LastShotChartSource.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/GraphSeries.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Define QML files list for dependency tracking
 set(QML_FILES
@@ -1402,6 +1405,12 @@ set(QML_FILES
     qml/components/ComparisonDataTable.qml
     qml/components/ComparisonShotTable.qml
     qml/components/GraphLegend.qml
+    qml/components/GraphFlowScaleCard.qml
+    qml/components/GraphOptionsButton.qml
+    qml/components/GraphOptionsDialog.qml
+    qml/components/GraphOptionToggleCard.qml
+    qml/components/GraphRightAxisLabels.qml
+    qml/components/GraphSeries.qml
     qml/components/QualityBadges.qml
     qml/components/PhaseSummaryPanel.qml
     qml/components/ShotAnalysisDialog.qml
@@ -1430,6 +1439,7 @@ set(QML_FILES
     qml/components/CrtShaderEffect.qml
     qml/components/QrCode.qml
     qml/components/DateUtils.js
+    qml/components/GraphUtils.js
     qml/components/qrcode.js
     qml/components/RecipeSearch.js
     qml/components/SettingsSearchIndex.js
@@ -2375,6 +2385,7 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_network.cpp
         src/core/settings_app.cpp
         src/core/settings_calibration.cpp
+        src/core/settings_graph.cpp
         src/ble/scales/scaletypeids.cpp
     )
     target_link_libraries(saw_parity PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)

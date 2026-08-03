@@ -8,7 +8,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Templates as T
-import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
 
@@ -31,15 +30,12 @@ T.Page {
 
     // Basic/Advanced mode toggle, shared with Post-Shot Review + Shot Detail via
     // Settings so a user who prefers advanced curves sees them everywhere.
-    property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Post-Shot Review, Shot Detail, Espresso view selector).
     Connections {
         target: Settings
         function onValueChanged(key) {
-            if (key === "shotReview/advancedMode")
-                shotComparisonPage.advancedMode = Settings.boolValue("shotReview/advancedMode", false)
         }
     }
 
@@ -81,7 +77,7 @@ T.Page {
             width: parent.width
             spacing: Theme.spacingSmall
 
-            // Basic/Advanced mode toggle (matches Post-Shot Review / Shot Detail pages)
+            // Graph options button, right-aligned.
             RowLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacingSmall
@@ -89,43 +85,8 @@ T.Page {
 
                 Item { Layout.fillWidth: true }
 
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(36)
-                    Layout.preferredHeight: Theme.scaled(36)
-                    radius: Theme.scaled(18)
-                    color: shotComparisonPage.advancedMode ? Theme.accentColor : Theme.cardBackgroundColor
-                    border.color: Theme.borderColor
-                    border.width: Theme.scaled(1)
-
-                    Accessible.ignored: true
-
-                    Image {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/settings.svg"
-                        sourceSize.width: Theme.scaled(18)
-                        sourceSize.height: Theme.scaled(18)
-                        layer.enabled: true
-                        layer.smooth: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: shotComparisonPage.advancedMode ? Theme.primaryContrastColor : Theme.textColor
-                        }
-                    }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: shotComparisonPage.advancedMode
-                            ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
-                            : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
-                        accessibleItem: parent
-                        accessibleRole: Accessible.CheckBox
-                        accessibleChecked: shotComparisonPage.advancedMode
-                        onAccessibleClicked: {
-                            shotComparisonPage.advancedMode = !shotComparisonPage.advancedMode
-                            Settings.setValue("shotReview/advancedMode", shotComparisonPage.advancedMode)
-                        }
-                    }
-                }
+                // Graph display options (advanced curves, flow scale).
+                GraphOptionsButton {}
             }
 
             // Graph with resize handle and window navigation
@@ -147,7 +108,6 @@ T.Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
-                    advancedMode: shotComparisonPage.advancedMode
                     comparisonModel: shotComparisonPage.comparisonModel
                 }
 
@@ -347,7 +307,6 @@ T.Page {
                     ComparisonDataTable {
                         graph: comparisonGraph
                         comparisonModel: shotComparisonPage.comparisonModel
-                        advancedMode: shotComparisonPage.advancedMode
                         Layout.fillWidth: true
                     }
 
