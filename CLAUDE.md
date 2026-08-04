@@ -7,6 +7,10 @@ Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE co
 
 The end-user manual lives in the GitHub wiki at https://github.com/Kulitorum/Decenza/wiki/Manual. Consult it when working on user-visible behaviour to confirm documented expectations or the official wording for features. The wiki is a separate git repo (`Kulitorum/Decenza.wiki.git`) — clone it locally if you need to edit a manual page.
 
+**Write manual entries SHORT.** The manual is read by people standing at a machine wanting an answer, not by anyone studying the feature. A new section is typically 3-5 sentences: what it is, where to find it, and the one rule that is not obvious. A table earns its place when it replaces prose; a paragraph explaining the rationale behind a design decision does not — that belongs in the code or the OpenSpec change, not here. Edge cases, failure modes and "why we built it this way" are exactly what makes a page nobody finishes.
+
+This needs saying because the failure is one-directional and constant: an assistant writing docs will produce four paragraphs where four sentences do, every time, and each one reads as reasonable in isolation. When you finish a manual entry, cut it by half before committing it. If something in the cut half is genuinely load-bearing, it is usually a sign the FEATURE needs to be clearer, not the doc longer.
+
 **When adding or changing a user-visible feature, update the wiki manual as part of that work** — add a task for it in the change's `tasks.md` (or do it directly for small fixes). Don't leave it as an afterthought; a shipped feature with no manual entry is incomplete.
 
 ## Reference Documents
