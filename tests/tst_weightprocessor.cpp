@@ -104,6 +104,158 @@ private slots:
                  qPrintable(QString("Rising 2g/s should give ~2.0 flow, got %1").arg(flowRate)));
     }
 
+    // A bursty transport must not blind the short-flow estimate.
+    //
+    // Regression for the Half Decent WiFi scale: frames arrive several to a read,
+    // so the de-jitter interval — calibrated from non-batched gaps only — learned
+    // the INTER-BURST gap (~490 ms) instead of the 100 ms cadence. Synthetic
+    // timestamps then outran wall-clock, hit the lead cap, and every later frame in
+    // a burst was pinned to the same clamped value. computeLSLR's fill gate saw a
+    // span far under 65% of the window and returned 0.0, so flowRateShort read
+    // exactly 0.00 while the cup was filling at 2 g/s and SAW could not trigger.
+    //
+    // Asserted through flowRatesReady rather than by reaching into m_weightSamples:
+    // a wrong short-flow on a rising feed IS the user-visible defect, and a test on
+    // the timestamps alone would keep passing if the gate arithmetic changed
+    // underneath it.
+    //
+    // The assertion is ACCURACY, deliberately, and the first version of this test
+    // was wrong for want of that. It asserted only "not zero, roughly 1-3.5 g/s"
+    // and PASSED against the unfixed code, because this burst shape does not drive
+    // flowRateShort to zero — it drives it to 1.22 g/s on a true 2.00 g/s pour, the
+    // inflated interval stretching the apparent spacing. A 40% under-read is not a
+    // milder version of the bug: SAW's threshold is target minus expectedDrip(flow),
+    // so under-read flow under-predicts drip, raises the threshold and stops LATE,
+    // which is the overshoot actually measured on the device. Bounds are ±10% —
+    // wide enough for LSLR window fill, far too tight for 1.22.
+    void burstyDeliveryKeepsShortFlowValid() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        // 10 Hz scale delivered as 5-frame bursts every 500 ms, 2 g/s, ~4 s.
+        feedBursty(wp, 2.0, /*cadenceMs=*/100, /*framesPerBurst=*/5, /*bursts=*/8);
+        // The last burst only — the first second is the calibration window, where a
+        // wrong estimate is expected and self-corrects.
+        assertShortFlowNear(spy, 2.0, 5, "5-frame burst at 10 Hz");
+    }
+
+    // Feed `bursts` groups of `framesPerBurst` arrivals, each group delivered within
+    // a couple of ms and then silent for the rest of its period. Weight tracks each
+    // frame's TRUE sample instant, not its arrival, which is the whole point: a
+    // correct de-jitter reconstructs the former from the latter.
+    void feedBursty(WeightProcessor& wp, double flowRate, int cadenceMs,
+                    int framesPerBurst, int bursts, int stallBeforeBurst = -1,
+                    int stallMs = 0) {
+        int frame = 0;
+        for (int b = 0; b < bursts; ++b) {
+            if (b == stallBeforeBurst) m_fakeClock += stallMs;
+            for (int f = 0; f < framesPerBurst; ++f) {
+                wp.processWeight(flowRate * (frame * cadenceMs / 1000.0));
+                m_fakeClock += 2;  // batched: under the 20 ms threshold
+                ++frame;
+            }
+            m_fakeClock += framesPerBurst * (cadenceMs - 2);
+        }
+    }
+
+    void assertShortFlowNear(QSignalSpy& spy, double expected, int lastN,
+                             const char* what) {
+        QVERIFY(spy.count() > lastN);
+        for (qsizetype i = spy.count() - lastN; i < spy.count(); ++i) {
+            const double f = spy.at(i).at(2).toDouble();
+            // 10%, matching what the callers' comments claim. It was 20% here while
+            // a comment above asserted 10% — the looser bound still failed the
+            // 1.22 g/s regression, so nothing was caught, but the guarantee a
+            // reader took from the comment was twice what the code delivered.
+            QVERIFY2(qAbs(f - expected) < 0.1 * expected,
+                     qPrintable(QString("%1: sample %2 read %3 g/s, expected ~%4")
+                                    .arg(what).arg(i).arg(f).arg(expected)));
+        }
+    }
+
+    // A burst longer than the synthetic lead allowance must not silently break.
+    //
+    // The lead allowance was a flat 1000 ms at one point in this fix, which made it
+    // an unstated cap on burst size: a burst of N frames needs (N-1) intervals of
+    // lead, so 10 Hz was exact to 11 frames and then collapsed to 0.00 g/s at 14 —
+    // the identical symptom the fix exists to remove. Sizing the allowance from the
+    // burst in hand is what removes the cliff, and this is the case that has to
+    // fail if anyone reinstates a constant.
+    void longBurstDoesNotCapTheLeadAllowance() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        feedBursty(wp, 2.0, 100, 14, 12);
+        assertShortFlowNear(spy, 2.0, 14, "14-frame burst at 10 Hz");
+    }
+
+    // A hiccup shorter than a reconnect must not poison the cadence estimate.
+    //
+    // kScaleStaleMs and kReconnectGapMs are both 2000, so a 1.5 s gap is by
+    // definition neither a stall nor a reconnect, and an averaging estimator folded
+    // it in as ordinary spacing: 145 ms learned for a 100 ms feed, and ~1 s of pour
+    // reading 1.38-1.53 g/s. Taking the minimum of recent windows discards the
+    // contaminated one instead — contamination is one-directional, since nothing
+    // can deliver MORE samples than the scale sent.
+    void subReconnectHiccupDoesNotPoisonTheInterval() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        feedBursty(wp, 2.0, 100, 5, 30, /*stallBeforeBurst=*/10, /*stallMs=*/1500);
+        // Well past the hiccup: the estimate must have shrugged it off entirely,
+        // not merely recovered eventually.
+        assertShortFlowNear(spy, 2.0, 40, "10 Hz feed after a 1.5 s hiccup");
+    }
+
+    // A reconnect-sized gap must not leave the cadence estimate serving a
+    // measurement it just discarded.
+    //
+    // The reconnect branch clears the ring's fill count, and that count doubles as
+    // the index bound for the minimum loop — so it only means anything while the
+    // write index is also back at zero. Clearing one and not the other left the
+    // next window writing at a stale index: the loop read the pre-reconnect value
+    // it had been told to drop and never read the fresh one, for two windows, at
+    // the exact moment a feed came back. Both fields now move through
+    // resetRateCalibration().
+    //
+    // Drives the case the other tests cannot: a >2 s silence (kReconnectGapMs),
+    // then a genuinely different cadence. The old estimate is 5x too small for the
+    // new feed, which spaces timestamps far too tightly and collapses the LSLR
+    // span — so a stale estimate shows up as short flow going wrong, not merely as
+    // an internal field being off.
+    void reconnectGapDoesNotServeAStaleCadence() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        // The returning feed must be BURSTY, and that is the whole design of this
+        // test rather than a detail. A stale interval is only ever CONSULTED on the
+        // batched branch: a non-bursty feed takes ts = wallClock on every sample and
+        // never reads the estimate at all, so an evenly-paced feed after the gap
+        // passes whether or not the ring is desynced. The first version of this test
+        // did exactly that and passed against the bug it was written for.
+        //
+        // 10 Hz before, 5 Hz after: the stale estimate is then half the true cadence,
+        // which spaces a burst's timestamps at 100 ms for samples 200 ms apart and
+        // reads as roughly double the real flow.
+        feedBursty(wp, 2.0, /*cadenceMs=*/100, /*framesPerBurst=*/5, /*bursts=*/6);
+        m_fakeClock += 2500;  // > kReconnectGapMs
+        const qsizetype afterReconnect = spy.count();
+        // Five bursts, and the count is load-bearing rather than arbitrary: the
+        // desync costs TWO extra rate windows, so the two versions differ only
+        // for about two seconds after the gap. Feed long enough and the buggy
+        // ring converges too and the test goes quiet — at 8 bursts both read
+        // 2.00. Simulated across this window, 4-6 bursts separate them cleanly
+        // (buggy 1.43/1.43/0.00 against fixed 2.00/2.00/2.00).
+        feedBursty(wp, 2.0, /*cadenceMs=*/200, /*framesPerBurst=*/3, /*bursts=*/5);
+
+        QVERIFY(spy.count() > afterReconnect + 10);
+        assertShortFlowNear(spy, 2.0, 3, "5 Hz bursty feed after a >2 s reconnect gap");
+    }
+
     void negativeWeightClampedToZero() {
         WeightProcessor wp;
         installFakeClock(wp);

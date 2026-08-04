@@ -161,14 +161,90 @@ void WeightProcessor::processWeight(double weight)
     // blinding SAW for the entire pour.
     //
     // Fix: detect batching (gap < 20ms) and assign synthetic timestamps spaced by
-    // the calibrated scale interval. Non-batched events calibrate the interval via
-    // exponential moving average, so this adapts to any scale rate (10Hz, 5Hz, 2Hz).
+    // the calibrated scale interval, so this adapts to any scale rate (10Hz, 5Hz, 2Hz).
     constexpr qint64 kBatchThresholdMs = 20;    // Below this, events are batched
     constexpr qint64 kReconnectGapMs = 2000;    // Above this, ignore as reconnect
-    constexpr double kEmaAlpha = 0.3;           // Smoothing factor for interval estimate
+    constexpr qint64 kRateWindowMs = 1000;      // Arrival-rate calibration window
 
     qint64 sinceLast = m_lastWallClockMs > 0 ? (wallClock - m_lastWallClockMs) : -1;
     m_lastWallClockMs = wallClock;
+
+    // Calibrate the interval from the ARRIVAL RATE, counting every arrival.
+    //
+    // This used to EMA `sinceLast` over non-batched gaps only, and on a bursty
+    // transport those gaps are the INTER-BURST gaps — nothing like the scale's
+    // cadence. A 10 Hz feed delivering 5-frame bursts every 500 ms calibrated to
+    // ~496 ms instead of 100 ms, so the synthetic clock advanced ~5x faster than
+    // real time, ran past `maxAhead` below, and pinned frame after frame to the
+    // same clamped value: one burst stamped [0, 496, 992, 992, 992]. Three samples
+    // sharing a timestamp contribute no span, computeLSLR's fill gate refused to
+    // fit, flowRateShort read exactly 0.00, and SAW was blind mid-pour — measured
+    // at ~175 ms and 0.36 g past its own threshold on a Half Decent WiFi scale.
+    //
+    // Counting arrivals over a wall-clock window is immune to how they are bunched:
+    // 10 arrivals in 1000 ms is 100 ms/sample whether they came evenly or all at
+    // once. The old EMA is kept below as the bootstrap for the first window, since
+    // this one cannot report until kRateWindowMs of wall time has passed.
+    if (m_rateWindowStartMs == 0 || sinceLast > kReconnectGapMs) {
+        // Measurements from before a reconnect describe a different stream.
+        // Through the helper, never field-by-field: m_rateRecentCount is a FILL
+        // count that the minimum loop below uses as an index bound, which is only
+        // valid while writes restart at zero. Clearing the count here and leaving
+        // m_rateRecentNext where it was is a two-line edit that reads correct and
+        // is not — the next window writes at the stale index, the loop reads
+        // [0, count) and so reads the pre-reconnect value it was just told to
+        // discard while never reading the fresh one. Two windows, ~2 s, of the
+        // wrong cadence, arriving exactly when a feed has just come back.
+        resetRateCalibration(wallClock);
+    }
+    ++m_rateWindowCount;
+    const qint64 rateSpanMs = wallClock - m_rateWindowStartMs;
+    if (rateSpanMs >= kRateWindowMs && m_rateWindowCount >= 2) {
+        // count-1 intervals span the window. qMax guards a pathological burst that
+        // puts every arrival on one wall-clock millisecond: a 0 interval would make
+        // every synthetic timestamp identical, the exact failure being fixed here.
+        const int measured =
+            qMax(1, static_cast<int>(rateSpanMs / (m_rateWindowCount - 1)));
+        // MINIMUM of the last few windows, not an average and not the latest.
+        //
+        // Contamination here is one-directional, which is what makes the minimum
+        // the right statistic rather than merely a robust-looking one: a dropped
+        // frame or a sub-reconnect hiccup removes arrivals from a window and can
+        // only ever push `measured` UP. Nothing pushes it down — no mechanism
+        // delivers more samples than the scale sent. So the smallest recent window
+        // is the one least contaminated, and taking it discards a bad window
+        // outright instead of blending its error in.
+        //
+        // The alternative tried first was rejecting the contaminated GAP before it
+        // reached the average, by restarting the window on anything more than a few
+        // times the cadence. That cannot work on a bunching transport: the
+        // inter-burst gap (~490 ms against a 100 ms cadence) is itself many times
+        // the cadence, so the window would restart on every burst and never close.
+        // Averaging ACROSS bursts is the whole point; the gap is signal, not noise.
+        //
+        // Simulated on a 10 Hz feed with one 1.5 s hiccup: an EMA pulled the
+        // estimate to 145 ms and ~1 s of pour read 1.38-1.53 g/s against a true
+        // 2.00; the minimum holds 100 ms and 2.00 g/s throughout.
+        //
+        // A genuine rate change still lands, ASYMMETRICALLY, which is worth stating
+        // because the obvious reading is wrong: a scale speeding UP takes effect on
+        // the very next closed window, since a smaller value wins the minimum
+        // immediately. Only a slowdown waits for the smaller stale entries to age
+        // out, i.e. up to kRateRecentWindows windows. That is the safe way round —
+        // an interval briefly too SMALL leaves synthetic behind wall-clock, where
+        // the non-batched branch corrects it, while one too large is what builds a
+        // runaway lead.
+        m_rateRecent[m_rateRecentNext] = measured;
+        m_rateRecentNext = (m_rateRecentNext + 1) % kRateRecentWindows;
+        if (m_rateRecentCount < kRateRecentWindows) ++m_rateRecentCount;
+        int lowest = m_rateRecent[0];
+        for (int i = 1; i < m_rateRecentCount; ++i) {
+            lowest = qMin(lowest, m_rateRecent[i]);
+        }
+        m_estimatedIntervalMs = lowest;
+        m_rateWindowStartMs = wallClock;
+        m_rateWindowCount = 1;
+    }
 
     // #1176 liveness diagnostic. An unchanged-value sample during a shot's
     // static window (classically an empty cup through EspressoPreheating)
@@ -226,6 +302,17 @@ void WeightProcessor::processWeight(double weight)
     // + idempotent (clears the no-stall path too).
     resetStallTracking();
 
+    // How many arrivals deep we are into the current burst. Resets on the first
+    // non-batched arrival, so it measures THIS burst and cannot ratchet across
+    // bursts — which is what keeps the lead allowance below from growing without
+    // bound. Counted before the timestamp is assigned because the allowance is an
+    // input to that assignment.
+    if (sinceLast >= 0 && sinceLast <= kBatchThresholdMs) {
+        ++m_burstFrames;
+    } else {
+        m_burstFrames = 1;
+    }
+
     qint64 sampleTs;
     if (sinceLast < 0 || sinceLast > kBatchThresholdMs) {
         // First call or non-batched: use wall-clock as ground truth.
@@ -235,39 +322,119 @@ void WeightProcessor::processWeight(double weight)
         // use wall-clock directly and only enforce minimal monotonicity (+1ms).
         // This lets synthetic reconverge with wall-clock within a few samples.
         sampleTs = wallClock;
-        if (m_lastSampleTs > 0 && sampleTs < m_lastSampleTs) {
-            // Minimal advance: just +1ms to maintain monotonicity. This means synthetic
-            // barely advances while wall-clock catches up, closing the gap naturally.
-            sampleTs = m_lastSampleTs + 1;
+        if (m_lastSampleTs > 0 && sampleTs <= m_lastSampleTs) {
+            // Advance a full CADENCE step, not +1 ms. Synthetic sitting ahead of
+            // wall-clock is the normal resting state on a bursty transport, not
+            // drift to be squeezed out: a burst hands over a whole period of sample
+            // time at one instant of arrival time, so the lead is real and constant.
+            // The old +1 ms treated it as an error to unwind, and since the first
+            // frame of every burst lands here, one frame per burst advanced 1 ms
+            // while its weight advanced a full step — a ~200 g/s spike injected into
+            // the LSLR fit once per burst. Simulated against this file's own
+            // arithmetic, a true 2.00 g/s pour read 2.25-2.59 g/s with the +1 ms and
+            // exactly 2.00 g/s with the cadence step.
+            //
+            // Nothing reconverges downward any more, and nothing needs to: the
+            // interval is measured from arrival RATE, so synthetic advances at real
+            // time's pace by construction and the lead cannot grow. It is bounded
+            // regardless by the lead cap below.
+            //
+            // `<=`, not `<`: an equal timestamp is a duplicate, and duplicates are
+            // the defect this whole block exists to stop producing.
+            sampleTs = m_lastSampleTs + (m_estimatedIntervalMs > 0 ? m_estimatedIntervalMs : 1);
         }
-        if (sinceLast > kBatchThresholdMs && sinceLast < kReconnectGapMs) {
-            // EMA calibration (ignores gaps > 2s as reconnects)
-            if (m_estimatedIntervalMs == 0)
-                m_estimatedIntervalMs = static_cast<int>(sinceLast);
-            else
-                m_estimatedIntervalMs = static_cast<int>((1.0 - kEmaAlpha) * m_estimatedIntervalMs + kEmaAlpha * sinceLast);
-        }
+        // NO bootstrap seed here, deliberately. There was one — "first estimate,
+        // then the arrival-rate window owns it" — and it was worse than having no
+        // estimate at all.
+        //
+        // On a bursty feed every gap reaching this line is an INTER-BURST gap, so
+        // the seed is biased by exactly the factor the rate window exists to
+        // remove: ~492 ms for a 100 ms cadence. The next burst then spreads at
+        // 492 ms a frame, and the lead allowance below cannot stop it because that
+        // allowance is computed from the same wrong interval and inflates in
+        // lockstep. Simulated: synthetic ran 1960 ms ahead inside one 8 ms burst,
+        // and when the rate window then corrected the interval to 100 ms the
+        // allowance collapsed to 700 ms, the cap bit on every frame, and four
+        // consecutive samples landed 1 ms apart reading 0.00 g/s — the precise
+        // failure this change exists to remove, produced by its own warm-up.
+        //
+        // With no seed, m_estimatedIntervalMs stays 0 until the first rate window
+        // closes and batched frames take the uncalibrated branch below, which
+        // stamps wall-clock. That is also wrong for under a second, but it is
+        // BOUNDED and self-clearing: no lead accumulates, so nothing is still
+        // unwinding after the estimate becomes correct. Measured over the same
+        // simulated feed, dropping the seed took post-warm-up bad samples from 9
+        // to 0 and the settled lead from 1000 ms to 392 ms.
+        //
+        // Both windows sit inside SAW's own 5 s suppression, so neither reaches a
+        // stop decision; the difference is what the live flow readout and the
+        // settling logic see.
     } else if (m_estimatedIntervalMs > 0) {
         // Batched (< 20ms since last) and calibrated: spread using estimated interval.
-        // Cap synthetic so it can't drift more than 2 intervals ahead of wall-clock.
-        // Without this cap, a burst of N batched events pushes synthetic N*interval ms
-        // ahead, and subsequent non-batched events take many cycles to reconverge.
+        //
+        // The lead allowance is the LSLR buffer length, not 2 intervals as it was.
+        // A burst is a whole cadence period of SAMPLE time delivered at one instant
+        // of ARRIVAL time, so synthetic leading wall-clock is the model working, not
+        // drifting: five 100 ms samples handed over together need 400 ms of lead to
+        // land on the instants they were actually taken at. Allowing only two
+        // intervals crushed a five-frame burst into 200 ms and left the tail of it
+        // pinned — a compressed span reaching LSLR as a stalled feed.
+        //
+        // The allowance TRACKS THE BURST rather than being a flat ceiling, because a
+        // flat one silently caps burst size: a burst of N frames needs (N-1)
+        // intervals of lead, so any fixed value is a limit on N that nothing states
+        // and nothing reports. Swept in simulation, a flat 1000 ms was exact up to
+        // 11 frames at 10 Hz and then fell off a cliff at 14 — to 0.00 g/s, the
+        // identical symptom this change exists to remove. A ceiling whose breach
+        // reproduces the bug is not a safety net.
+        //
+        // m_burstFrames counts the arrivals in the current burst, so the allowance
+        // grows exactly as far as the burst in hand requires, +2 intervals of slack
+        // for the next frames. The 1000 ms floor keeps it from tightening below what
+        // a short burst on a slow scale needs.
+        //
+        // What still bounds it: the burst counter resets on the first non-batched
+        // arrival, so the allowance cannot ratchet up across bursts, and a stream
+        // whose gaps exceed kReconnectGapMs restarts calibration entirely. Swept in
+        // a development-time simulation of this function's arithmetic to 20 frames
+        // at 10 Hz and 8 at 5 Hz — NOT ctest coverage, which reaches 14 frames at
+        // 10 Hz (longBurstDoesNotCapTheLeadAllowance). The one shape still wrong is 2 Hz in
+        // 5-frame bursts, whose 2.5 s inter-burst silence is longer than
+        // kReconnectGapMs AND kScaleStaleMs — a feed the app already calls stalled,
+        // so it is out of scope here rather than unhandled.
+        const qint64 leadAllowanceMs =
+            qMax(qint64(1000),
+                 static_cast<qint64>(m_burstFrames + 2) * m_estimatedIntervalMs);
         sampleTs = m_lastSampleTs + m_estimatedIntervalMs;
-        qint64 maxAhead = wallClock + m_estimatedIntervalMs * 2;
+        qint64 maxAhead = wallClock + leadAllowanceMs;
         if (sampleTs > maxAhead) {
-            sampleTs = maxAhead;
-        }
-        // Enforce monotonicity after capping — cap could push below m_lastSampleTs.
-        // Use estimated interval (not +1ms) to avoid near-zero dt in LSLR.
-        if (sampleTs < m_lastSampleTs) {
-            sampleTs = m_lastSampleTs + m_estimatedIntervalMs;
+            // STRICTLY monotonic, even when the cap bites. Pinning to `maxAhead`
+            // outright was the collapse: once m_lastSampleTs reached the cap, every
+            // later frame in the burst computed the same clamped value, and the
+            // guard below tested `<`, not `<=`, so nothing separated them. Runs of
+            // identical timestamps followed — many samples, no span, and LSLR's
+            // fill gate zeroing flowRateShort with SAW mid-pour.
+            //
+            // With the arrival-rate calibration above this branch should now be
+            // unreachable in steady state (synthetic no longer outruns wall-clock
+            // systematically). It is kept as the backstop for a genuinely late
+            // burst, where +1 ms is the honest statement: we know the ordering, we
+            // do not know the spacing, and a degenerate dt is the caller's to
+            // reject rather than ours to invent.
+            sampleTs = qMax(maxAhead, m_lastSampleTs + 1);
         }
     } else {
         // Batched but uncalibrated: use wall-clock (LSLR may see dt≈0 until calibrated)
         sampleTs = wallClock;
         if (m_active && !m_uncalibratedBatchWarned) {
+            // Reworded with the arrival-rate calibration: this used to say "until a
+            // non-batched gap is observed", which described the old gaps-only
+            // estimator. Every arrival now feeds the window, batched or not, so a
+            // feed that never produces a non-batched gap still calibrates — the
+            // wait is for wall-clock, not for a particular kind of arrival.
             SAWW_WARN(QStringLiteral("De-jitter: batched event before calibration — LSLR may "
-                                     "return 0 until a non-batched gap is observed"));
+                                     "return 0 until the first arrival-rate window closes "
+                                     "(~1 s of samples)"));
             m_uncalibratedBatchWarned = true;
         }
     }
@@ -371,19 +538,32 @@ void WeightProcessor::processWeight(double weight)
         if (wallClock - m_lastLowFlowLogMs >= 5000) {
             // Compute dt for the short window to diagnose why LSLR returns 0
             double shortDt = 0;
+            qsizetype shortN = 0;
             if (m_weightSamples.size() >= 2) {
                 qint64 cutoff = m_weightSamples.last().timestamp - shortWindowMs;
                 qsizetype si = m_weightSamples.size() - 1;
                 while (si > 0 && m_weightSamples[si - 1].timestamp >= cutoff) --si;
                 shortDt = (m_weightSamples.last().timestamp - m_weightSamples[si].timestamp) / 1000.0;
+                shortN = m_weightSamples.size() - si;
             }
+            // shortN and interval are what make this line diagnostic rather than
+            // merely alarming. `samples` counts the whole 1 s buffer, so a short
+            // `shortDt` beside a healthy `samples` is ambiguous — it reads the same
+            // whether timestamps collapsed onto each other or the feed genuinely
+            // went quiet. shortN separates them: many samples in a short span means
+            // collapse (a de-jitter fault, ours), few means a delivery gap (the
+            // transport's). `interval` says which cadence the de-jitter believes it
+            // is spreading to, which is the input that was wrong when this was
+            // found. Reading a field log without these two cost a round trip.
             SAWW_LOG(QStringLiteral("Flow too low for stop-at-weight check: flowShort=%1 g/s "
-                                    "weight=%2 g target=%3 g samples=%4 shortWindow=%5 ms "
-                                    "shortDt=%6 s gate=%7 s")
+                                    "weight=%2 g target=%3 g samples=%4 shortN=%5 "
+                                    "shortWindow=%6 ms shortDt=%7 s gate=%8 s interval=%9 ms")
                          .arg(flowRateShort, 0, 'f', 2).arg(weight, 0, 'f', 2)
                          .arg(m_targetWeight, 0, 'f', 2).arg(m_weightSamples.size())
+                         .arg(shortN)
                          .arg(shortWindowMs).arg(shortDt, 0, 'f', 3)
-                         .arg(shortWindowMs * 0.65 / 1000.0, 0, 'f', 3));
+                         .arg(shortWindowMs * 0.65 / 1000.0, 0, 'f', 3)
+                         .arg(m_estimatedIntervalMs));
             m_lastLowFlowLogMs = wallClock;
         }
     }
@@ -519,6 +699,18 @@ void WeightProcessor::resetStallTracking()
     m_feedStallStartMs = 0;
 }
 
+void WeightProcessor::resetRateCalibration(qint64 windowStartMs)
+{
+    // All five move together — see the header. m_rateRecent[]'s CONTENTS are left
+    // alone on purpose: m_rateRecentCount is what makes an entry readable, and with
+    // the write index back at zero no stale slot is inside [0, count) any more.
+    m_rateWindowStartMs = windowStartMs;
+    m_rateWindowCount = 0;
+    m_rateRecentCount = 0;
+    m_rateRecentNext = 0;
+    m_burstFrames = 0;
+}
+
 void WeightProcessor::checkScaleFeedStall(int frameNumber)
 {
     // Scale-agnostic in-shot liveness backstop (BLE connection-priority).
@@ -631,6 +823,12 @@ void WeightProcessor::startExtraction()
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
     m_uncalibratedBatchWarned = false;
+    // Drop the arrival-rate window with the clocks it is measured against. Left
+    // standing, its start time would be an arbitrary distance in the past and the
+    // first window to close after the reset would divide that whole idle gap by a
+    // handful of arrivals — a wildly inflated interval, which is the same failure
+    // this calibration was written to remove.
+    resetRateCalibration();
     resetStallTracking();
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
 }
@@ -712,6 +910,7 @@ void WeightProcessor::resetForRetare()
     m_stepExitArbiter.reset();
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
+    resetRateCalibration();
     resetStallTracking();
     m_uncalibratedBatchWarned = false;  // Timestamps cleared — de-jitter needs recalibration
     m_lastTareWarnMs = 0;

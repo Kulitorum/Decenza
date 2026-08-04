@@ -15,7 +15,9 @@
 // independently of main thread congestion.
 //
 // Input (via QueuedConnection from main thread):
-//   - processWeight(): called at ~5Hz with each scale reading
+//   - processWeight(): called at the scale's own rate (2-10 Hz), and NOT
+//     necessarily evenly — a transport may hand over several samples at
+//     once, which is what the de-jitter block in processWeight() exists for
 //   - configure(): called once at shot start with targets and learning data
 //   - setTargetWeight(): may update SAW target mid-shot (e.g. user +10g bump)
 //   - setCurrentFrame(): called at ~5Hz from DE1 shot samples
@@ -117,6 +119,21 @@ private:
     // without stale) — which gates the real enforce backoff — is impossible
     // by construction, mirroring ScaleSkipHighLatch::clear()'s discipline.
     void resetStallTracking();
+    // Single chokepoint for the arrival-rate calibration state, in the same spirit
+    // as resetStallTracking() above: m_rateRecentCount doubles as the index bound
+    // for the minimum loop, so it is only meaningful while m_rateRecentNext is back
+    // at zero. Clearing one without the other reads correct and silently serves a
+    // discarded measurement — see the reconnect branch in processWeight(). Having
+    // one function own all five fields makes that half-reset unwritable.
+    // windowStartMs is the wall-clock the fresh window begins at: pass the current
+    // clock to START one (the mid-stream reconnect path, which must keep
+    // measuring), or leave it 0 to leave calibration DORMANT until the next
+    // sample opens a window (the per-shot resets, which have no clock to hand).
+    // Zeroing it unconditionally is not a safe default — m_rateWindowStartMs == 0
+    // is itself the "open a window" trigger, so a reset that always zeroed it
+    // re-triggered on every following sample, the count never reached two, and
+    // the estimate stayed uncalibrated for the whole stream.
+    void resetRateCalibration(qint64 windowStartMs = 0);
 
     // Weight sample buffer (1-second rolling window for LSLR)
     struct WeightSample {
@@ -187,8 +204,29 @@ private:
     // De-jitter: compensates for main thread event batching (see processWeight comments)
     qint64 m_lastWallClockMs = 0;       // Wall-clock time of last processWeight() call
     qint64 m_lastSampleTs = 0;          // Last synthetic timestamp assigned to a sample
-    int m_estimatedIntervalMs = 0;      // Calibrated from non-batched gaps (0 = uncalibrated)
+    // Calibrated from arrival RATE over a wall-clock window, counting every
+    // arrival. 0 until the first window closes (~1 s) — there is deliberately no
+    // single-gap seed, see processWeight().
+    int m_estimatedIntervalMs = 0;
     bool m_uncalibratedBatchWarned = false;  // Throttle: log once per shot when fallback fires
+    // Arrival-rate calibration window. Counts EVERY arrival, batched or not, so a
+    // bursty transport reports its true cadence rather than its inter-burst gap —
+    // the non-batched-gaps-only estimate this replaced inflated the interval on the
+    // WiFi scale until synthetic timestamps outran wall-clock. See processWeight().
+    qint64 m_rateWindowStartMs = 0;     // Wall-clock start of the current rate window
+    int m_rateWindowCount = 0;          // Arrivals seen in the current rate window
+    // Recent closed-window measurements, of which the MINIMUM is the estimate.
+    // Dropped frames and sub-reconnect hiccups can only inflate a window's
+    // measurement, never deflate it, so the smallest is the least contaminated.
+    // Three windows is the shortest run that survives one bad window while still
+    // following a genuine rate change within a few seconds. See processWeight().
+    static constexpr int kRateRecentWindows = 3;
+    int m_rateRecent[kRateRecentWindows] = {0, 0, 0};
+    int m_rateRecentNext = 0;           // Ring write position
+    int m_rateRecentCount = 0;          // Valid entries (< kRateRecentWindows while filling)
+    // Arrivals deep into the current burst; sizes the synthetic lead allowance so
+    // burst length is not silently capped. Reset by the first non-batched arrival.
+    int m_burstFrames = 0;
 
     // Log throttle timestamps — reset each shot so warnings are never suppressed at shot start
     qint64 m_lastTareWarnMs = 0;
