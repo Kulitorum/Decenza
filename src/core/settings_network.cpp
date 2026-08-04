@@ -828,8 +828,51 @@ const QHash<QString, QStringList>& readoutOptionSchema() {
         { QStringLiteral("doseWeight"),       { QStringLiteral("displayMode"), QStringLiteral("color") } },
         { QStringLiteral("milkWeight"),       { QStringLiteral("displayMode"), QStringLiteral("color") } },
         { QStringLiteral("profileName"),      { QStringLiteral("color") } },
+        // Built-in ACTION widgets (layout-widget-gesture-overrides). They carry no
+        // readout keys; what makes them configurable is that a user may override a
+        // gesture. Listing them here is what turns on the has-options indicator and
+        // the instance editor for them, on both surfaces.
+        { QStringLiteral("recipes"),          { QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction") } },
+        { QStringLiteral("beans"),            { QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction") } },
+        { QStringLiteral("steam"),            { QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction") } },
+        { QStringLiteral("hotwater"),         { QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction") } },
+        { QStringLiteral("flush"),            { QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction") } },
+        { QStringLiteral("espresso"),         { QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction") } },
+        { QStringLiteral("equipment"),        { QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction") } },
+        { QStringLiteral("history"),          { QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction") } },
+        { QStringLiteral("autofavorites"),    { QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction") } },
+        { QStringLiteral("settings"),         { QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction") } },
     };
     return schema;
+}
+
+// Which gesture a widget type must KEEP for reaching its own page, expressed as the
+// navigate action that gesture performs.
+//
+// These seven widgets spend their tap on an operation (togglePreset:<mode>), so their page
+// is reachable ONLY by long-press and double-click — and today BOTH open it. That
+// redundancy is the budget a gesture override spends: override one, and the other stays
+// bound to the page. Whichever gesture the user leaves empty is the reserved one, so the
+// choice of which carries the action is theirs.
+//
+// A type ABSENT from this table has no reservation: history, autofavorites and settings
+// open their page on TAP, so both gestures are genuinely free.
+//
+// Declared here so both editors DERIVE the rule — which slot locks, and the label for the
+// destination it opens (resolved through layoutActionLabels()). The alternative is two
+// hand-written lists that must agree about ten widgets, which is the drift the action
+// catalog was just centralized to end.
+const QHash<QString, QString>& gestureReservedDestination() {
+    static const QHash<QString, QString> kReserved = {
+        { QStringLiteral("recipes"),   QStringLiteral("navigate:recipeList") },
+        { QStringLiteral("beans"),     QStringLiteral("navigate:beaninfo") },
+        { QStringLiteral("steam"),     QStringLiteral("navigate:steam") },
+        { QStringLiteral("hotwater"),  QStringLiteral("navigate:hotwater") },
+        { QStringLiteral("flush"),     QStringLiteral("navigate:flush") },
+        { QStringLiteral("espresso"),  QStringLiteral("navigate:profiles") },
+        { QStringLiteral("equipment"), QStringLiteral("navigate:equipment") },
+    };
+    return kReserved;
 }
 
 // Types with a dedicated editor popup (no readout option keys). Screensavers
@@ -1215,6 +1258,14 @@ QVariantMap SettingsNetwork::layoutActionLabels() {
     return map;
 }
 
+QString SettingsNetwork::gestureReservedActionForType(const QString& type) {
+    return gestureReservedDestination().value(type);
+}
+
+bool SettingsNetwork::typeSupportsGestureOverrides(const QString& type) {
+    return readoutOptionSchema().value(type).contains(QStringLiteral("longPressAction"));
+}
+
 QJsonObject SettingsNetwork::layoutActionCatalogJson() {
     // Shape consumed by the web layout editor: English labels only, since that
     // editor has no translation layer. Two channels, for the same reason the
@@ -1238,9 +1289,19 @@ QJsonObject SettingsNetwork::layoutActionCatalogJson() {
               QJsonArray::fromStringList(splitActionContexts(e.contexts)) },
         });
     }
+    // Gesture-override rule per widget type, so the web editor derives the reserved
+    // slot exactly as the in-app one does: { type: reservedActionId }, with an empty
+    // string meaning "both gestures free".
+    QJsonObject gestures;
+    for (auto it = readoutOptionSchema().constBegin(); it != readoutOptionSchema().constEnd(); ++it) {
+        if (!it.value().contains(QStringLiteral("longPressAction")))
+            continue;
+        gestures[it.key()] = gestureReservedDestination().value(it.key());
+    }
     return QJsonObject{
         { QStringLiteral("actions"), actions },
         { QStringLiteral("labels"), labels },
+        { QStringLiteral("gestureTypes"), gestures },
     };
 }
 

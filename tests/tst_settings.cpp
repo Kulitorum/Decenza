@@ -1193,8 +1193,15 @@ private slots:
         QVERIFY(!SettingsNetwork::typeHasOptions("spacer"));
         QVERIFY(!SettingsNetwork::typeHasOptions("separator"));
         QVERIFY(!SettingsNetwork::typeHasOptions("pageTitle"));
-        QVERIFY(!SettingsNetwork::typeHasOptions("espresso"));
         QVERIFY(!SettingsNetwork::typeHasOptions(""));
+
+        // Built-in ACTION widgets ARE configurable now — they carry gesture
+        // overrides (layout-widget-gesture-overrides). `espresso` used to stand
+        // here as the example of a non-configurable widget; that is what the
+        // feature changed, so it moves sides rather than being deleted.
+        QVERIFY(SettingsNetwork::typeHasOptions("espresso"));
+        QVERIFY(SettingsNetwork::typeHasOptions("beans"));
+        QVERIFY(SettingsNetwork::typeHasOptions("history"));
     }
 
     // The capability schema drives the unified readout options editor (which
@@ -1212,8 +1219,12 @@ private slots:
         // Bespoke-editor and unknown types carry no readout keys.
         QVERIFY(SettingsNetwork::optionKeysForType("custom").isEmpty());
         QVERIFY(SettingsNetwork::optionKeysForType("shotPlan").isEmpty());
-        QVERIFY(SettingsNetwork::optionKeysForType("espresso").isEmpty());
         QVERIFY(SettingsNetwork::optionKeysForType("").isEmpty());
+        // Action widgets carry gesture keys and nothing else.
+        QCOMPARE(SettingsNetwork::optionKeysForType("espresso"),
+                 (QStringList{"longPressAction", "doubleclickAction"}));
+        QCOMPARE(SettingsNetwork::optionKeysForType("history"),
+                 (QStringList{"longPressAction", "doubleclickAction"}));
 
         // Every type with readout keys must be configurable.
         const QStringList readouts = {
@@ -1239,13 +1250,22 @@ private slots:
             QVERIFY2(caps.contains(t), qPrintable("bespoke missing from web JSON: " + t));
             QVERIFY(caps.value(t).toArray().isEmpty());
         }
-        QVERIFY(!caps.contains("espresso"));
+        // Action widgets are in the web JSON too, carrying their gesture keys —
+        // that is what makes the web editor show them as configurable.
+        for (const QString& t : {QStringLiteral("espresso"), QStringLiteral("beans"),
+                                 QStringLiteral("history")}) {
+            QVERIFY2(caps.contains(t), qPrintable("action widget missing from web JSON: " + t));
+            QCOMPARE(caps.value(t).toArray(),
+                     QJsonArray::fromStringList(SettingsNetwork::optionKeysForType(t)));
+        }
 
         // Generic invariants over EVERY entry, so future types are covered
         // without extending the hand-pinned lists above:
         const QSet<QString> knownKeys = {
             QStringLiteral("dataMode"), QStringLiteral("displayMode"),
-            QStringLiteral("showRatio"), QStringLiteral("color")
+            QStringLiteral("showRatio"), QStringLiteral("color"),
+            // Gesture overrides on the built-in action widgets.
+            QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction")
         };
         for (const QString& t : caps.keys()) {
             // Web JSON and the QML-facing keys must agree for every type. A
@@ -1267,7 +1287,8 @@ private slots:
         QVERIFY(SettingsNetwork::optionKeysForType("screensaverFlipClock").isEmpty());
         // Pin the entry count so adding a configurable type is as deliberate a
         // change as removing one (every entry changes web-editor behavior).
-        QCOMPARE(caps.size(), 15);
+        // 15 readout/bespoke types + the 10 built-in action widgets.
+        QCOMPARE(caps.size(), 25);
     }
 
     // The widget catalog drives the in-app palette, chip names, the library

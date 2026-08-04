@@ -102,8 +102,8 @@ LayoutWidgetItem {
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.steam.hint", "Tap to toggle presets. Double-tap or long-press to configure steam.")
             onAccessibleClicked: root.togglePresets()
-            onAccessibleDoubleClicked: root.goToSteam()
-            onAccessibleLongPressed: root.goToSteam()
+            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", "steam", { idlePage: root.idlePage })
+            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", "steam", { idlePage: root.idlePage })
         }
     }
 

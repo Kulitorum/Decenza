@@ -57,7 +57,12 @@ LayoutWidgetItem {
         AccessibleTapHandler {
             anchors.fill: parent
             accessibleName: TranslationManager.translate("idle.accessible.history.description", "View and compare past shots")
+            supportDoubleClick: true
             onAccessibleClicked: root.goToHistory()
+            // Tap already opens the page, so BOTH gestures are free to override.
+            // With nothing stored these do nothing, which is exactly today's behaviour.
+            onAccessibleLongPressed: LayoutActions.runGesture(root.modelData, "longPressAction", null)
+            onAccessibleDoubleClicked: LayoutActions.runGesture(root.modelData, "doubleclickAction", null)
         }
     }
 

@@ -21,6 +21,23 @@ DecenzaDialog {
     property string dataMode: "gross"
     property string displayMode: "text"
     property bool showRatio: true
+    // Gesture overrides (layout-widget-gesture-overrides). Empty = no override,
+    // which is what keeps an untouched widget behaving exactly as before.
+    property string longPressAction: ""
+    property string doubleclickAction: ""
+    // The action this type's RESERVED gesture performs, "" when both are free.
+    // Read from the C++ table — the single declaration of every destination.
+    readonly property string reservedAction: Settings.network.gestureReservedActionForType(popup.widgetType)
+    // A one-slot widget reserves whichever gesture the user has NOT filled. Once
+    // one carries an override the other is locked, so the page stays reachable;
+    // clearing the override frees both again.
+    // LOCKED is not the same as WHAT IT DOES. An empty gesture on a one-slot
+    // widget already opens the page; it only becomes un-editable once the OTHER
+    // gesture carries an override, because then it is the last way in.
+    readonly property bool longPressLocked: popup.reservedAction !== "" && popup.longPressAction === ""
+                                            && popup.doubleclickAction !== ""
+    readonly property bool doubleclickLocked: popup.reservedAction !== "" && popup.doubleclickAction === ""
+                                              && popup.longPressAction !== ""
 
     // An absent stored displayMode always means "today's rendering"; the
     // per-type default is declared once in the capability schema.
@@ -35,6 +52,8 @@ DecenzaDialog {
         popup.dataMode = props.dataMode || "gross"
         popup.displayMode = props.displayMode || defaultDisplayMode(popup.widgetType)
         popup.showRatio = props.showRatio !== undefined ? props.showRatio : true
+        popup.longPressAction = props.longPressAction || ""
+        popup.doubleclickAction = props.doubleclickAction || ""
         colorPicker.colorChoice = props.color || "default"
         popup.open()
     }
@@ -51,6 +70,45 @@ DecenzaDialog {
     function pickDisplay(mode) {
         popup.displayMode = mode
         Settings.network.setItemProperty(popup.itemId, "displayMode", mode)
+    }
+
+    // The label a gesture shows: the user's action, the reserved destination, or
+    // "None". All three resolve through layoutActionLabels(), so no destination
+    // name is written out here.
+    // What a gesture row SHOWS. Never "None": an empty slot is not "nothing
+    // happens", it is "unchanged". On a widget that reserves a destination an
+    // empty gesture already OPENS THAT PAGE — the row says which one, because
+    // that is its behaviour today. Elsewhere "Default" says stock behaviour
+    // without claiming the gesture is dead.
+    function gestureLabel(actionId) {
+        if (actionId === "none")
+            return TranslationManager.translate("customeditor.action.none", "None")
+        if (actionId) {
+            var entry = Settings.network.layoutActionLabels()[actionId]
+            if (entry === undefined) return actionId
+            return TranslationManager.translate(entry.key, entry.fallback)
+        }
+        // No reserved destination means there is no default behaviour to return
+        // to — the gesture simply does nothing, and the picker calls that "None".
+        // Saying "Default" here made the row disagree with the row that set it.
+        if (popup.reservedAction === "")
+            return TranslationManager.translate("customeditor.action.none", "None")
+        var r = Settings.network.layoutActionLabels()[popup.reservedAction]
+        var rLabel = r === undefined ? popup.reservedAction
+                                     : TranslationManager.translate(r.key, r.fallback)
+        // "Opens Recipes", not "Opens Go to Recipes": the catalog label is written
+        // for a picker row and reads as a double verb inside a sentence. The
+        // prefix is translated, so strip the translated form rather than "Go to".
+        var goTo = TranslationManager.translate("customaction.prefix.goTo", "Go to ")
+        if (rLabel.indexOf(goTo) === 0)
+            rLabel = rLabel.substring(goTo.length)
+        return TranslationManager.translate("gesturerow.opens", "Opens %1").arg(rLabel)
+    }
+
+    function setGesture(key, actionId) {
+        if (key === "longPressAction") popup.longPressAction = actionId
+        else popup.doubleclickAction = actionId
+        Settings.network.setItemProperty(popup.itemId, key, actionId)
     }
 
     function setShowRatio(v) {
@@ -217,6 +275,51 @@ DecenzaDialog {
                     }
                 }
 
+                // Gestures (layout-widget-gesture-overrides). Same rows as the
+                // Custom widget editor — one GestureActionRow component — and the
+                // same action picker, so an action means the same thing wherever
+                // it is assigned.
+                ColumnLayout {
+                    visible: popup.hasOption("longPressAction")
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(6)
+
+                    Text {
+                        text: TranslationManager.translate("layoutEditor.gestures", "Gestures")
+                        color: Theme.textColor
+                        font: Theme.bodyFont
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: popup.reservedAction !== ""
+                        text: TranslationManager.translate("layoutEditor.gesturesHint",
+                                  "One gesture stays reserved so this widget's page is still reachable.")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        wrapMode: Text.WordWrap
+                    }
+
+                    GestureActionRow {
+                        gestureLabel: TranslationManager.translate("customeditor.gesture.long", "Long:")
+                        accessibleLabel: TranslationManager.translate("customeditor.accessible.longPressAction", "Long press action")
+                        actionId: popup.longPressAction
+                        actionLabel: popup.gestureLabel(popup.longPressAction)
+                        reserved: popup.longPressLocked
+                        reservedLabel: popup.gestureLabel("")
+                        onPicked: gesturePicker.openFor("longPressAction")
+                    }
+
+                    GestureActionRow {
+                        gestureLabel: TranslationManager.translate("customeditor.gesture.dblclick", "DblClk:")
+                        accessibleLabel: TranslationManager.translate("customeditor.accessible.dblClickAction", "Double click action")
+                        actionId: popup.doubleclickAction
+                        actionLabel: popup.gestureLabel(popup.doubleclickAction)
+                        reserved: popup.doubleclickLocked
+                        reservedLabel: popup.gestureLabel("")
+                        onPicked: gesturePicker.openFor("doubleclickAction")
+                    }
+                }
+
                 WidgetColorPicker {
                     id: colorPicker
                     visible: popup.hasOption("color")
@@ -243,6 +346,48 @@ DecenzaDialog {
                 font: Theme.bodyFont
             }
             MouseArea { id: doneMa; anchors.fill: parent; onClicked: popup.close() }
+        }
+    }
+
+    // === Gesture action picker ===
+    // Same list the Custom widget editor offers, from the same singleton — one
+    // implementation of "read the catalog, filter by context, translate".
+    SelectionDialog {
+        id: gesturePicker
+        property string gestureKey: "longPressAction"
+        property var _items: []
+
+        function openFor(key) {
+            gesturePicker.gestureKey = key
+            gesturePicker.open()
+        }
+
+        title: gestureKey === "longPressAction"
+            ? TranslationManager.translate("customeditor.dialog.longPressAction", "Long Press Action")
+            : TranslationManager.translate("customeditor.dialog.doubleClickAction", "Double Click Action")
+        options: _items.map(function(i) { return i.label })
+        currentIndex: {
+            var cur = gesturePicker.gestureKey === "longPressAction" ? popup.longPressAction
+                                                                    : popup.doubleclickAction
+            for (var i = 0; i < gesturePicker._items.length; i++)
+                if (gesturePicker._items[i].id === cur) return i
+            return 0
+        }
+
+        // Idle context: these widgets live on the idle screen.
+        // excludeSubmenu: this popup has no profile sub-picker, so a parameterized
+        // action would be stored as a bare id the dispatch rejects.
+        // includeDefault only where unset differs from "nothing": a widget that
+        // reserves a destination opens a page when unset, so Default and None are
+        // genuinely different choices there.
+        // The default row NAMES its destination, so restoring it is unambiguous.
+        onAboutToShow: _items = LayoutActions.pickerItems("idle", true,
+            popup.reservedAction === "" ? ""
+                : TranslationManager.translate("customeditor.action.defaultOpens", "Default (%1)")
+                      .arg(popup.gestureLabel("")))
+
+        onSelected: function(index, value) {
+            popup.setGesture(gesturePicker.gestureKey, gesturePicker._items[index].id)
         }
     }
 }

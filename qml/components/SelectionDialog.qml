@@ -46,10 +46,18 @@ DecenzaDialog {
     height: Math.min(dialogContent.implicitHeight + Theme.scaled(16),
                      parent ? parent.height - Theme.scaled(80) : Theme.scaled(500))
 
-    // Snapshot refreshed each time the dialog opens
+    // Snapshot refreshed each time the dialog opens, so the list cannot re-layout
+    // under the user's finger while they are choosing.
     property var _snapshot: []
 
     onAboutToShow: _snapshot = root.options.slice()
+    // ...but a caller that FILLS `options` from its own onAboutToShow handler runs
+    // AFTER this one, so the snapshot above would capture the previous contents —
+    // empty on the very first open, one selection stale afterwards. Re-snapshot
+    // while open so late population still lands. This does not reintroduce
+    // mid-interaction churn: `options` only changes when a caller sets it, which
+    // in practice is exactly this fill-on-open case.
+    onOptionsChanged: if (root.visible) _snapshot = root.options.slice()
     onOpened: {
         if (dialogList.count > 0) {
             if (root.currentValue.length > 0) {

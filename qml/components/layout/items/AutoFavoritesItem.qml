@@ -56,7 +56,12 @@ LayoutWidgetItem {
         AccessibleTapHandler {
             anchors.fill: parent
             accessibleName: TranslationManager.translate("idle.accessible.autofavorites.description", "Open auto-favorites list of recent bean and profile combinations")
+            supportDoubleClick: true
             onAccessibleClicked: root.goToAutoFavorites()
+            // Tap already opens the page, so BOTH gestures are free to override.
+            // With nothing stored these do nothing, which is exactly today's behaviour.
+            onAccessibleLongPressed: LayoutActions.runGesture(root.modelData, "longPressAction", null)
+            onAccessibleDoubleClicked: LayoutActions.runGesture(root.modelData, "doubleclickAction", null)
         }
     }
 

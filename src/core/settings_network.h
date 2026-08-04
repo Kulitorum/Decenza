@@ -234,6 +234,13 @@ public:
     // picker — the analogue of widgetChipNames(). Without it a stored legacy
     // action renders as its raw id.
     Q_INVOKABLE static QVariantMap layoutActionLabels();
+    // For a widget type whose page is reachable ONLY by gesture, the navigate action
+    // its RESERVED gesture performs — empty for types that open their page on tap and
+    // may therefore override both gestures. Both editors derive the lock and the
+    // destination label from this rather than carrying a list.
+    // See: layout-widget-gesture-overrides.
+    Q_INVOKABLE static QString gestureReservedActionForType(const QString& type);
+    Q_INVOKABLE static bool typeSupportsGestureOverrides(const QString& type);
     // { actions: [...offered on the web...], labels: { id: label } }
     static QJsonObject layoutActionCatalogJson();
 

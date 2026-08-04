@@ -170,8 +170,8 @@ LayoutWidgetItem {
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.equipment.hint", "Tap to switch equipment. Double-tap or long-press for the equipment inventory.")
             onAccessibleClicked: root.togglePresets()
-            onAccessibleDoubleClicked: root.goToEquipment()
-            onAccessibleLongPressed: root.goToEquipment()
+            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", "equipment", { idlePage: root.idlePage })
+            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", "equipment", { idlePage: root.idlePage })
         }
     }
 

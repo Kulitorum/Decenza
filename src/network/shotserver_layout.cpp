@@ -2669,8 +2669,18 @@ QString ShotServer::generateLayoutPage() const
     var CATALOG = (typeof LAYOUT_ACTION_CATALOG !== "undefined" && LAYOUT_ACTION_CATALOG)
         || { actions: [], labels: {} };
     var ACTION_LABELS = CATALOG.labels || {};
-    var ACTIONS = [{id:"",label:"None",contexts:["idle","espresso","steam","hotwater","flush","all"]}]
+    var ALL_CONTEXTS = ["idle","espresso","steam","hotwater","flush","all"];
+    var ACTIONS = [{id:"",label:"None",contexts:ALL_CONTEXTS}]
         .concat(CATALOG.actions || []);
+    // For a widget that RESERVES a destination, unset and "do nothing" are
+    // different choices, so both are offered — and the default row NAMES what it
+    // restores, because "Default" alone does not say what you are going back to.
+    function gestureActionsFor(reservedAction) {
+        var dest = getActionLabel(reservedAction).replace(/^Go to /, "");
+        return [{id:"",label:"Default (opens " + dest + ")",contexts:ALL_CONTEXTS},
+                {id:"none",label:"None",contexts:ALL_CONTEXTS}]
+            .concat(CATALOG.actions || []);
+    }
     var PAGE_CONTEXT = "idle";
     function getFilteredActions() {
         return ACTIONS.filter(function(a) {
@@ -3335,6 +3345,62 @@ QString ShotServer::generateLayoutPage() const
         return html;
     }
 
+    // Gesture-override rows for the built-in action widgets. The reserved-slot
+    // rule is DERIVED from the injected catalog (CATALOG.gestureTypes: type ->
+    // the navigate action its reserved gesture performs, "" when both are free),
+    // so this editor carries no list of which widget reserves which gesture.
+    // Same rule, same presentation as the in-app popup.
+    function roGestureSection(type, props) {
+        var reserved = (CATALOG.gestureTypes || {})[type] || "";
+        var lp = props.longPressAction || "";
+        var dc = props.doubleclickAction || "";
+        // A one-slot widget reserves whichever gesture the user has NOT filled;
+        // clearing the override frees both again.
+        // LOCKED is not the same as WHAT IT DOES. On a one-slot widget an empty
+        // gesture already opens the page — that is its current behaviour and the
+        // row must say so, not "None". It only becomes un-editable once the OTHER
+        // gesture carries an override, because then it is the last way in.
+        var lpLocked = reserved !== "" && lp === "" && dc !== "";
+        var dcLocked = reserved !== "" && dc === "" && lp !== "";
+        var html = '<div class="section-label" style="margin-top:0.9rem">Gestures</div>';
+        if (reserved !== "") {
+            html += '<div style="font-size:0.75rem;color:var(--text-secondary);margin:0 0 0.4rem 0">'
+                 + "One gesture stays reserved so this widget's page is still reachable.</div>";
+        }
+        html += roGestureRow("longPressAction", "Long press", lp, lpLocked, reserved);
+        html += roGestureRow("doubleclickAction", "Double-click", dc, dcLocked, reserved);
+        return html;
+    }
+
+    function roGestureRow(key, label, actionId, isLocked, reservedAction) {
+        // No override: the gesture does whatever the widget reserves — say that.
+        // Only a widget that reserves nothing (tap already opens its page) is
+        // honestly "None" when empty.
+        // Never "None": an empty slot is not "nothing happens", it is "unchanged".
+        // Where the widget reserves a destination, say which one — that is the
+        // gesture's actual behaviour today. Elsewhere "Default" says stock
+        // behaviour without claiming the gesture is dead.
+        // "Opens Recipes", not "Opens Go to Recipes" — the catalog label is
+        // written for a picker row ("Go to X"), which reads as a double verb once
+        // it is embedded in a sentence.
+        var dest = getActionLabel(reservedAction).replace(/^Go to /, "");
+        // Three states, not two: an explicit "none" silences the gesture, unset
+        // means the widget's default (which usually opens its page).
+        // "Default" only where there IS a default to return to. A widget that
+        // reserves nothing does nothing on this gesture when unset, and its
+        // picker offers that state as "None" — calling it "Default" in the row
+        // meant picking None and being told Default.
+        var text = actionId === "none" ? "None"
+                 : actionId ? getActionLabel(actionId)
+                 : (reservedAction ? "Opens " + dest : "None");
+        var cls = "action-selector" + (actionId ? " has-action" : "");
+        var style = isLocked ? ' style="opacity:0.6;cursor:default"' : '';
+        var onclick = isLocked ? '' : ' onclick="roOpenGesturePicker(\'' + key + '\')"';
+        return '<div class="' + cls + '"' + style + onclick + '>'
+             + '<span style="color:var(--text-secondary);font-size:0.8rem">' + label + ':</span> '
+             + '<span style="font-size:0.8rem">' + text + '</span></div>';
+    }
+
     function roSectionsHtml(type, props) {
         if (type === "sleep") {
             var aq = (props.allowQuit === undefined) ? true : props.allowQuit;
@@ -3356,6 +3422,10 @@ QString ShotServer::generateLayoutPage() const
                 html += roCheckboxRow("showRatio", "Show ratio", "Off = weight only, no 1:X.X suffix", sr);
             } else if (key === "color") {
                 html += roRadioSection("Color", "color", RO_COLOR_CHOICES, props.color || "default");
+            } else if (key === "longPressAction") {
+                // Both gestures render in one section; doubleclickAction is
+                // covered here, so its own key is skipped below.
+                html += roGestureSection(type, props);
             }
         }
         return html;
@@ -4332,12 +4402,36 @@ QString ShotServer::generateLayoutPage() const
         document.getElementById("dblClickActionSel").className = "action-selector" + (currentDoubleclickAction ? " has-action" : "");
     }
 
+    // Which editor the picker is serving. The Custom widget editor and the
+    // built-in widgets' options editor share one picker — a second copy of "list
+    // the actions, let the user choose" is what this change exists to avoid.
+    var actionPickerTarget = "custom";   // "custom" | "readout"
+    var roGestureKey = "";
+
+    function roOpenGesturePicker(key) {
+        actionPickerTarget = "readout";
+        roGestureKey = key;
+        openActionPicker(key === "longPressAction" ? "longpress" : "doubleclick");
+    }
+
     function openActionPicker(gesture) {
         actionPickerGesture = gesture;
         var titles = {click: "Tap Action", longpress: "Long Press Action", doubleclick: "Double-Click Action"};
         document.getElementById("actionPickerTitle").textContent = titles[gesture] || "Action";
-        var currentVal = gesture === "click" ? currentAction : gesture === "longpress" ? currentLongPressAction : currentDoubleclickAction;
-        var filtered = getFilteredActions();
+        var currentVal;
+        if (actionPickerTarget === "readout") {
+            currentVal = (roPendingValues[roGestureKey] !== undefined)
+                ? roPendingValues[roGestureKey] : (roEditingProps[roGestureKey] || "");
+        } else {
+            currentVal = gesture === "click" ? currentAction
+                       : gesture === "longpress" ? currentLongPressAction : currentDoubleclickAction;
+        }
+        var reservedForType = actionPickerTarget === "readout"
+            ? ((CATALOG.gestureTypes || {})[roEditingType] || "") : "";
+        var pool = reservedForType ? gestureActionsFor(reservedForType) : ACTIONS;
+        var filtered = pool.filter(function(a) {
+            return a.contexts.indexOf(PAGE_CONTEXT) >= 0 || a.contexts.indexOf("all") >= 0;
+        });
         var html = "";
         for (var i = 0; i < filtered.length; i++) {
             var a = filtered[i];
@@ -4350,9 +4444,26 @@ QString ShotServer::generateLayoutPage() const
 
     function closeActionPicker() {
         document.getElementById("actionOverlay").classList.remove("open");
+        // Reset the routing HERE, not only on a successful pick. The picker is
+        // shared by the Custom editor and the built-in widgets' options editor;
+        // dismissing it without choosing used to leave it aimed at the readout
+        // editor, so the NEXT Custom-widget action was written onto the widget
+        // edited before it — wrong widget, no error.
+        actionPickerTarget = "custom";
+        roGestureKey = "";
     }
 
     function pickAction(id) {
+        if (actionPickerTarget === "readout") {
+            roFieldChanged(roGestureKey, id);
+            // Re-render so the reserved slot locks/unlocks immediately.
+            var merged = {};
+            for (var k in roEditingProps) merged[k] = roEditingProps[k];
+            for (var pk in roPendingValues) merged[pk] = roPendingValues[pk];
+            document.getElementById("roSections").innerHTML = roSectionsHtml(roEditingType, merged);
+            closeActionPicker();   // also resets the routing
+            return;
+        }
         if (actionPickerGesture === "click") currentAction = id;
         else if (actionPickerGesture === "longpress") currentLongPressAction = id;
         else if (actionPickerGesture === "doubleclick") currentDoubleclickAction = id;
@@ -5078,7 +5189,14 @@ QString ShotServer::generateLayoutPage() const
     // Listen for layout changes pushed from the tablet via SSE
     var layoutEvents = new EventSource("/api/layout/events");
     layoutEvents.addEventListener("layout-changed", function() {
-        if (editingItem || ssEditingItem) return;
+        // EVERY open editor suppresses the reload, not just two of them. Both
+        // editors are meant to be open at once — that is what this SSE is for —
+        // and reloading the page underneath an open editor destroys its DOM
+        // while roPendingValues and the auto-save timer still reference the item
+        // being edited. roEditingItem was missing here: harmless while only
+        // readout widgets had options, reachable the moment the ten built-in
+        // action widgets gained gesture overrides.
+        if (editingItem || ssEditingItem || roEditingItem) return;
         loadLayout();
     });
     layoutEvents.onerror = function() {

@@ -1265,6 +1265,7 @@ set_source_files_properties(qml/AppShell.qml PROPERTIES QT_QML_SINGLETON_TYPE TR
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/SettingsTabs.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/layout/WidgetColor.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/layout/LayoutActions.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/DrinkType.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/LastShotChartSource.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/GraphSeries.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -1472,6 +1473,8 @@ set(QML_FILES
     qml/components/layout/items/GrindQuickSelectItem.qml
     qml/components/layout/items/ShotPlanItem.qml
     qml/components/layout/items/SpacerItem.qml
+    qml/components/layout/LayoutActions.qml
+    qml/components/layout/GestureActionRow.qml
     qml/components/layout/items/CustomItem.qml
     qml/components/layout/items/WeatherItem.qml
     qml/components/layout/items/PageTitleItem.qml
