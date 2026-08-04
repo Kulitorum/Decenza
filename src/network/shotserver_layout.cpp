@@ -2638,6 +2638,13 @@ QString ShotServer::generateLayoutPage() const
     html += QStringLiteral("    var WIDGET_DISPLAY_DEFAULTS = %1;\n")
         .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::displayModeDefaultsJson())
             .toJson(QJsonDocument::Compact)));
+    // Custom-widget action catalog, from the same C++ table as the in-app action
+    // picker. This list used to be written out below by hand and had drifted
+    // sixteen entries behind the in-app one. The "None" entry is prepended in JS
+    // because it is the absence of an action, not an action.
+    html += QStringLiteral("    var LAYOUT_ACTIONS = %1;\n")
+        .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::layoutActionCatalogJson())
+            .toJson(QJsonDocument::Compact)));
     html += R"HTML(
     var WIDGET_TYPES = WIDGET_CATALOG.types;
     var DISPLAY_NAMES = WIDGET_CATALOG.chipNames;
@@ -2651,28 +2658,8 @@ QString ShotServer::generateLayoutPage() const
         return typeOptionKeys(type).indexOf(key) >= 0;
     }
 
-    var ACTIONS = [
-        {id:"",label:"None",contexts:["idle","espresso","steam","hotwater","flush","all"]},
-        {id:"navigate:settings",label:"Go to Settings",contexts:["idle","all"]},
-        {id:"navigate:history",label:"Go to History",contexts:["idle","all"]},
-        {id:"navigate:profiles",label:"Go to Profiles",contexts:["idle","all"]},
-        {id:"navigate:profileEditor",label:"Go to Profile Editor",contexts:["idle","all"]},
-        {id:"navigate:recipes",label:"Go to Recipes",contexts:["idle","all"]},
-        {id:"navigate:descaling",label:"Go to Descaling",contexts:["idle","all"]},
-        {id:"navigate:ai",label:"Go to AI Settings",contexts:["idle","all"]},
-        {id:"navigate:visualizer",label:"Go to Visualizer",contexts:["idle","all"]},
-        {id:"navigate:autofavorites",label:"Go to Favorites",contexts:["idle","all"]},
-        {id:"command:sleep",label:"Sleep",contexts:["idle"]},
-        {id:"command:startEspresso",label:"Start Espresso",contexts:["idle"]},
-        {id:"command:startSteam",label:"Start Steam",contexts:["idle"]},
-        {id:"command:startHotWater",label:"Start Hot Water",contexts:["idle"]},
-        {id:"command:startFlush",label:"Start Flush",contexts:["idle"]},
-        {id:"command:idle",label:"Stop (Idle)",contexts:["idle","espresso","steam","hotwater","flush"]},
-        {id:"command:tare",label:"Tare Scale",contexts:["idle","espresso","all"]},
-        {id:"command:scanDE1",label:"Scan for DE1",contexts:["idle","all"]},
-        {id:"command:scanScale",label:"Scan for Scale",contexts:["idle","all"]},
-        {id:"command:quit",label:"Quit App",contexts:["idle"]}
-    ];
+    var ACTIONS = [{id:"",label:"None",contexts:["idle","espresso","steam","hotwater","flush","all"]}]
+        .concat(LAYOUT_ACTIONS);
     var PAGE_CONTEXT = "idle";
     function getFilteredActions() {
         return ACTIONS.filter(function(a) {

@@ -1408,47 +1408,28 @@ DecenzaDialog {
         }
     }
 
-    // Action registry with page context filtering
+    // Action registry with page context filtering. The list itself lives in ONE
+    // place — layoutActionTable() in settings_network.cpp — because it used to
+    // live here AND in the web editor's ACTIONS array, and the two drifted by
+    // sixteen entries with nothing to notice it. See: layout-action-catalog.
     function getFilteredActions() {
-        var allActions = [
-            { id: "navigate:settings",      label: TranslationManager.translate("customaction.navigate.settings", "Go to Settings"),             contexts: ["idle", "all"] },
-            { id: "navigate:history",        label: TranslationManager.translate("customaction.navigate.history", "Go to History"),               contexts: ["idle", "all"] },
-            { id: "navigate:profiles",       label: TranslationManager.translate("customaction.navigate.profiles", "Go to Profiles"),             contexts: ["idle", "all"] },
-            { id: "navigate:profileEditor",  label: TranslationManager.translate("customaction.navigate.profileEditor", "Go to Profile Editor"),  contexts: ["idle", "all"] },
-            { id: "navigate:recipes",        label: TranslationManager.translate("customaction.navigate.recipes", "Go to Recipes"),               contexts: ["idle", "all"] },
-            { id: "navigate:descaling",      label: TranslationManager.translate("customaction.navigate.descaling", "Go to Descaling"),           contexts: ["idle", "all"] },
-            { id: "navigate:ai",             label: TranslationManager.translate("customaction.navigate.ai", "Go to AI Settings"),                contexts: ["idle", "all"] },
-            { id: "navigate:visualizer",     label: TranslationManager.translate("customaction.navigate.visualizer", "Go to Visualizer"),         contexts: ["idle", "all"] },
-            { id: "navigate:autofavorites",  label: TranslationManager.translate("customaction.navigate.autofavorites", "Go to Favorites"),       contexts: ["idle", "all"] },
-            { id: "navigate:steam",          label: TranslationManager.translate("customaction.navigate.steam", "Go to Steam"),                   contexts: ["idle"] },
-            { id: "navigate:hotwater",       label: TranslationManager.translate("customaction.navigate.hotwater", "Go to Hot Water"),             contexts: ["idle"] },
-            { id: "navigate:flush",          label: TranslationManager.translate("customaction.navigate.flush", "Go to Flush"),                   contexts: ["idle"] },
-            { id: "navigate:beaninfo",       label: TranslationManager.translate("customaction.navigate.beaninfo", "Go to Bean Info"),             contexts: ["idle", "all"] },
-            { id: "navigate:espresso",       label: TranslationManager.translate("customaction.navigate.espresso", "Go to Espresso"),             contexts: ["idle"] },
-            { id: "navigate:community",      label: TranslationManager.translate("customaction.navigate.community", "Go to Community"),           contexts: ["idle", "all"] },
-            { id: "navigate:flowCalibration", label: TranslationManager.translate("customaction.navigate.flowCalibration", "Go to Flow Calibration"), contexts: ["idle", "all"] },
-            { id: "navigate:profileImport",  label: TranslationManager.translate("customaction.navigate.profileImport", "Go to Profile Import"),  contexts: ["idle", "all"] },
-            { id: "navigate:shotReview",     label: TranslationManager.translate("customaction.navigate.shotReview", "Go to Shot Review"),        contexts: ["idle"] },
-            { id: "command:sleep",           label: TranslationManager.translate("customaction.command.sleep", "Sleep"),                           contexts: ["idle"] },
-            { id: "command:startEspresso",   label: TranslationManager.translate("customaction.command.startEspresso", "Start Espresso"),         contexts: ["idle"] },
-            { id: "command:startSteam",      label: TranslationManager.translate("customaction.command.startSteam", "Start Steam"),               contexts: ["idle"] },
-            { id: "command:startHotWater",   label: TranslationManager.translate("customaction.command.startHotWater", "Start Hot Water"),        contexts: ["idle"] },
-            { id: "command:startFlush",      label: TranslationManager.translate("customaction.command.startFlush", "Start Flush"),               contexts: ["idle"] },
-            { id: "command:idle",            label: TranslationManager.translate("customaction.command.idle", "Stop (Idle)"),                     contexts: ["idle", "espresso", "steam", "hotwater", "flush"] },
-            { id: "command:tare",            label: TranslationManager.translate("customaction.command.tare", "Tare Scale"),                      contexts: ["idle", "espresso", "all"] },
-            { id: "command:scanScale",       label: TranslationManager.translate("customaction.command.scanScale", "Scan for Devices"),           contexts: ["idle", "all"] },
-            { id: "command:brewSettings",    label: TranslationManager.translate("customaction.command.brewSettings", "Open Brew Settings"),      contexts: ["idle"] },
-            { id: "command:tempToggleSteam", label: TranslationManager.translate("customaction.command.tempToggleSteam", "Toggle Steam (temporary)"), contexts: ["idle"] },
-            { id: "command:toggleCharging",  label: TranslationManager.translate("customaction.command.toggleCharging", "Toggle Charging Mode"),  contexts: ["idle", "all"] },
-            { id: "command:uploadVisualizer", label: TranslationManager.translate("customaction.command.uploadVisualizer", "Upload to Visualizer"), contexts: ["idle"] },
-            { id: "command:disconnectDE1",   label: TranslationManager.translate("customaction.command.disconnectDE1", "Disconnect DE1"),         contexts: ["idle"] },
-            { id: "command:loadProfile",     label: TranslationManager.translate("customaction.command.loadProfile", "Load Profile") + "...",     contexts: ["idle"] },
-            { id: "command:previousProfile", label: TranslationManager.translate("customaction.command.previousProfile", "Previous Profile"),   contexts: ["idle"] },
-            { id: "command:quit",            label: TranslationManager.translate("customaction.command.quit", "Quit App"),                        contexts: ["idle"] }
-        ]
         var ctx = popup.pageContext
-        return allActions.filter(function(a) {
-            return a.contexts.indexOf(ctx) >= 0 || a.contexts.indexOf("all") >= 0
-        })
+        var out = []
+        var catalog = Settings.network.layoutActionCatalog()
+        for (var i = 0; i < catalog.length; ++i) {
+            var a = catalog[i]
+            if (a.contexts.indexOf(ctx) < 0 && a.contexts.indexOf("all") < 0)
+                continue
+            // Reading TranslationManager.translate (a Q_PROPERTY holding a
+            // callable) establishes the dependency, so these labels re-resolve
+            // on a language change.
+            var label = TranslationManager.translate(a.labelKey, a.label)
+            // The one entry whose picker text differs from its catalog label:
+            // selecting it opens a second list rather than committing.
+            if (a.id === "command:loadProfile")
+                label += "..."
+            out.push({ id: a.id, label: label, contexts: a.contexts })
+        }
+        return out
     }
 }

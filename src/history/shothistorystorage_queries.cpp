@@ -163,6 +163,8 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.searchText = filterMap.value("searchText").toString();
     filter.recipeId = filterMap.value("recipeId", -1).toLongLong();
     filter.recipeName = filterMap.value("recipeName").toString();
+    filter.bagId = filterMap.value("bagId", -1).toLongLong();
+    filter.bagTerm = filterMap.value("bagTerm").toString();
     filter.onlyWithVisualizer = filterMap.value("onlyWithVisualizer", false).toBool();
     filter.filterChanneling = filterMap.value("filterChanneling", false).toBool();
     filter.filterGrindIssue = filterMap.value("filterGrindIssue", false).toBool();
@@ -258,6 +260,32 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
             conditions << "0";
         } else {
             conditions << ("shots.recipe_id IN (SELECT id FROM recipes WHERE " + terms + ")");
+        }
+    }
+    // Bag identity (history-bag-filter), built to the same shape as recipe
+    // above. `> 0` and not `>= 0`: a shot pulled before bags existed has a NULL
+    // bag_id, and an unset filter must not be spelled the same way as one that
+    // asks for those rows.
+    if (filter.bagId > 0) {
+        conditions << "shots.bag_id = ?";
+        bindValues << filter.bagId;
+    }
+    if (!filter.bagTerm.isEmpty()) {
+        // One concatenated identity expression rather than three OR'd columns,
+        // so the word-order independence works ACROSS fields too: bag:"ethiopia
+        // july" matches a coffee named Ethiopia roasted in July, which a
+        // per-column OR would miss (neither column holds both terms). Same
+        // construction as grinderIdentityExpr in requestShotsFiltered.
+        const QString bagIdentityExpr = QStringLiteral(
+            "LOWER(IFNULL(coffee_name,'') || ' ' || IFNULL(roaster_name,'') || ' ' || "
+            "IFNULL(roast_date,''))");
+        const QString terms = likeAllTermsLiteral(bagIdentityExpr, filter.bagTerm);
+        if (terms.isEmpty()) {
+            // Whitespace-only term: an explicit no-match, never a no-op — the
+            // sentinel the search box sends for `bag:""`.
+            conditions << "0";
+        } else {
+            conditions << ("shots.bag_id IN (SELECT id FROM coffee_bags WHERE " + terms + ")");
         }
     }
     if (filter.minEnjoyment >= 0) {

@@ -279,6 +279,24 @@ struct ShotFilter {
     qint64 recipeId = -1;      // -1 = unset; matches shots.recipe_id exactly
     QString recipeName;        // substring of recipes.name
 
+    // Bag identity (history-bag-filter). The same two scopes as recipe above,
+    // for the same reasons: bagId is the exact selection (the Custom widget's
+    // "this bag" action, rename-proof and unambiguous between two bags of the
+    // same coffee), bagTerm is the `bag:` keyword's substring.
+    //
+    // bagTerm matches across coffee_name + roaster_name + roast_date rather
+    // than one column: bag identity is spread over all three and a user
+    // narrowing by "the July Ethiopian" should not have to know which field
+    // carries which word.
+    //
+    // A bag filter is strictly narrower than beanBrand/beanType above — those
+    // match the coffee across every bag of it, this matches one bag. Both are
+    // kept because they answer different questions.
+    qint64 bagId = -1;         // -1 = unset; matches shots.bag_id exactly.
+                               // Guard on `> 0`, never `>= 0`: pre-bag shots
+                               // carry a NULL bag_id and must not match "any bag".
+    QString bagTerm;           // substring of a bag's coffee/roaster/roast date
+
     bool onlyWithVisualizer = false;
     bool filterChanneling = false;
     bool filterGrindIssue = false;

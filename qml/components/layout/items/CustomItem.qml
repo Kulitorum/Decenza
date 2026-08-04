@@ -291,6 +291,52 @@ LayoutWidgetItem {
         return Theme.replaceEmojiWithImg(result, Theme.bodyFont.pixelSize, true)
     }
 
+    // --- Context-filtered Shot History filters (custom-widget-history-actions).
+    // Each returns the props object AppShell.shotHistoryRequested expects: an
+    // `initialFilter` map, or {} when there is nothing active to filter on.
+    //
+    // Recipe and bag match on an ID, so a rename cannot orphan the filter and
+    // two records sharing a name stay distinct; their names ride along under
+    // recipeName/bagLabel, which ShotHistoryPage uses for the banner label ONLY
+    // and never as a query term. Bean has no such id on a shot row (shots store
+    // bean_brand/bean_type as text), so it matches those two strings — which is
+    // also what makes it the wider of the two coffee filters: the same coffee
+    // across every bag of it, where the bag filter is one bag.
+    function _recipeHistoryFilter() {
+        var id = Settings.dye.activeRecipeId
+        if (!(id > 0)) return {}
+        return { initialFilter: { recipeId: id,
+                                  recipeName: (MainController.activeRecipe.name || "") } }
+    }
+
+    function _beanHistoryFilter() {
+        var f = {}
+        // Omit rather than send "" — ShotHistoryPage drops empty fields anyway,
+        // and omitting keeps a brand-only bean filtering on the brand.
+        if (Settings.dye.dyeBeanBrand) f.beanBrand = Settings.dye.dyeBeanBrand
+        if (Settings.dye.dyeBeanType) f.beanType = Settings.dye.dyeBeanType
+        return Object.keys(f).length > 0 ? { initialFilter: f } : {}
+    }
+
+    function _bagHistoryFilter() {
+        var id = Settings.dye.activeBagId
+        if (!(id > 0)) return {}
+        // The bag's own label, resolved synchronously from the DYE fields the
+        // bag writes through on activation (maincontroller.cpp: roasterName →
+        // dyeBeanBrand, coffeeName → dyeBeanType). Coffee name first, roaster as
+        // the fallback — the same rule BeansItem.bagLabel() uses. Reading the
+        // bag row instead would mean an async requestBag() round trip to label a
+        // filter whose query does not need it.
+        var label = Settings.dye.dyeBeanType || Settings.dye.dyeBeanBrand || ""
+        return { initialFilter: { bagId: id, bagLabel: label } }
+    }
+
+    function _profileHistoryFilter() {
+        var name = ProfileManager.currentProfileName || ""
+        if (name === "") return {}
+        return { initialFilter: { profileName: name } }
+    }
+
     function executeActionString(actionStr) {
         if (!actionStr) return
         var parts = actionStr.split(":")
@@ -324,6 +370,18 @@ LayoutWidgetItem {
             switch (target) {
             case "settings":        AppShell.settingsRequested(""); break
             case "history":         AppShell.shotHistoryRequested({}); break
+            // Context-filtered History (custom-widget-history-actions). Each
+            // resolves its filter HERE, from live state, so the widget stores
+            // only the action id and follows whatever is active now — a layout
+            // exported to another device filters by that device's beans.
+            //
+            // Empty context sends {} rather than doing nothing: a home-screen
+            // button that silently ignores a tap reads as a bug, and unfiltered
+            // History is a defensible answer for a button labelled History.
+            case "historyRecipe":   AppShell.shotHistoryRequested(_recipeHistoryFilter()); break
+            case "historyBean":     AppShell.shotHistoryRequested(_beanHistoryFilter()); break
+            case "historyBag":      AppShell.shotHistoryRequested(_bagHistoryFilter()); break
+            case "historyProfile":  AppShell.shotHistoryRequested(_profileHistoryFilter()); break
             case "profiles":        AppShell.profileSelectorRequested(); break
             case "profileEditor":   AppShell.profileEditorRequested(); break
             case "recipes":         AppShell.recipeEditorRequested(); break

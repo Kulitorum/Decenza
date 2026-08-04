@@ -290,12 +290,30 @@ T.Page {
                 searchText = searchText.replace(recipeMatch[0], "")
             }
 
+            // bag: — the SECOND string-valued keyword, deliberately identical in
+            // grammar to recipe: above (quoted or single-token, \S+ not \S*, an
+            // explicitly empty quoted term getting the no-match sentinel), so a
+            // user who learned one has learned the other. What differs is only
+            // what it matches: a bag's coffee name, roaster and roast date
+            // combined, because bag identity is spread over all three and the
+            // user narrowing by "the July Ethiopian" cannot be expected to know
+            // which field holds which word. Storage-side name is `bagTerm`, not
+            // `bagName`, so it never reads as the banner's `bagLabel`.
+            var bagMatch = /\bbag:(?:"([^"]*)"?|(\S+))/i.exec(searchText)
+            if (bagMatch) {
+                var bagTerm = bagMatch[1] !== undefined ? bagMatch[1] : bagMatch[2]
+                bagTerm = (bagTerm || "").trim()
+                filter.bagTerm = bagTerm.length > 0 ? bagTerm : " "
+                searchText = searchText.replace(bagMatch[0], "")
+            }
+
             // Strip any remaining keyword tokens (e.g. duplicate dose:18 dose:20)
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "")
             searchText = searchText.replace(/\b(channeling|temp|grind|skipframe|puckfailed):yes\b/gi, "")
             // \S* (not \S+) so a bare "recipe:" with no term is stripped too,
             // rather than falling through to FTS as the literal word "recipe".
             searchText = searchText.replace(/\brecipe:(?:"[^"]*"?|\S*)/gi, "")
+            searchText = searchText.replace(/\bbag:(?:"[^"]*"?|\S*)/gi, "")
 
             // Pass remaining text as FTS search (skipped when exact initialFilter is active)
             searchText = searchText.trim().replace(/\s+/g, " ")
@@ -316,8 +334,9 @@ T.Page {
             // ID, not a name: a rename cannot move it and two recipes sharing a
             // name stay distinct. initialFilter also carries `recipeName`, which is
             // deliberately absent from both loops — it is the banner's label only,
-            // never a query term.
-            var numericFields = ["minDose", "maxDose", "minYield", "maxYield", "targetWeight", "recipeId"]
+            // never a query term. `bagId` (history-bag-filter) is the same shape,
+            // with `bagLabel` playing recipeName's banner-only part.
+            var numericFields = ["minDose", "maxDose", "minYield", "maxYield", "targetWeight", "recipeId", "bagId"]
             for (var m = 0; m < numericFields.length; m++) {
                 var nf = numericFields[m]
                 if (initialFilter[nf] !== undefined && initialFilter[nf] !== null)
@@ -343,6 +362,39 @@ T.Page {
         searchField.lastTriggeredText = ""
         _populatingSearch = false
         initialFilter = { "recipeId": recipeId, "recipeName": recipeName || "" }
+        loadShots()
+    }
+
+    // Same channel, same reasoning, for a bag (history-bag-filter). Reached from
+    // the Custom widget's "this bag" action rather than a tap on a row; bagLabel
+    // is the banner's text only, never a query term.
+    function filterByBag(bagId, bagLabel) {
+        if (!bagId || bagId <= 0)
+            return
+        Keyboard.commit()
+        _populatingSearch = true
+        searchField.text = ""
+        searchField.lastTriggeredText = ""
+        _populatingSearch = false
+        initialFilter = { "bagId": bagId, "bagLabel": bagLabel || "" }
+        loadShots()
+    }
+
+    // Apply an arbitrary initialFilter to the page that is ALREADY showing —
+    // what main.qml's goToShotHistory() calls when Shot History is the current
+    // page. An empty (or absent) filter clears, so a plain "Go to History" tap
+    // from the status bar is a clear rather than the silent no-op it used to be.
+    function applyInitialFilter(f) {
+        if (!f || Object.keys(f).length === 0) {
+            clearInitialFilter()
+            return
+        }
+        Keyboard.commit()
+        _populatingSearch = true
+        searchField.text = ""
+        searchField.lastTriggeredText = ""
+        _populatingSearch = false
+        initialFilter = f
         loadShots()
     }
 
@@ -595,6 +647,7 @@ T.Page {
                         if (!shotHistoryPage.initialFilter) return ""
                         var parts = []
                         if (shotHistoryPage.initialFilter.recipeName) parts.push(shotHistoryPage.initialFilter.recipeName)
+                        if (shotHistoryPage.initialFilter.bagLabel) parts.push(shotHistoryPage.initialFilter.bagLabel)
                         if (shotHistoryPage.initialFilter.beanBrand) parts.push(shotHistoryPage.initialFilter.beanBrand)
                         if (shotHistoryPage.initialFilter.beanType) parts.push(shotHistoryPage.initialFilter.beanType)
                         if (shotHistoryPage.initialFilter.profileName) parts.push(shotHistoryPage.initialFilter.profileName)

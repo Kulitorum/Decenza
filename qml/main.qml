@@ -3908,6 +3908,24 @@ T.ApplicationWindow {
 
     function goToShotHistory(filter) {
         if (!startNavigation()) return
+        // Already looking at Shot History? pushUnlessCurrent() would return
+        // without applying the props, so the filter was silently dropped and the
+        // tap did nothing at all — reachable because Custom widgets also live in
+        // the persistent status bar, which is visible from every page. Re-filter
+        // the page that is showing instead. An empty filter clears, so a plain
+        // "Go to History" tap from the status bar is a clear rather than a
+        // no-op. Handled here rather than in each caller: the shell decides
+        // push-vs-anything-else (QML_NAVIGATION.md), and there are five callers.
+        // `as ShotHistoryPage` rather than an objectName test: currentItem is
+        // typed QQuickItem, so a bare member call is invisible to qmllint (it
+        // fails the diagnostics gate as missing-property) and a typo in the
+        // method name would only surface at runtime. Same idiom as the IdlePage
+        // and SettingsPage casts above.
+        var history = pageStack.currentItem as ShotHistoryPage
+        if (history) {
+            history.applyInitialFilter((filter && filter.initialFilter) || null)
+            return
+        }
         pushUnlessCurrent(shotHistoryPage, "shotHistoryPage", filter || ({}))
     }
 
