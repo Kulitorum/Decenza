@@ -47,7 +47,7 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Update the wiki manual's Custom widget action list with the four actions, stating that the bean filter spans bags of the same coffee and the bag filter does not
-- [ ] 7.2 Update the wiki manual's Shot History search-keyword list with `bag:`, including the quoted form and what it matches (coffee name, roaster, roast date)
+- [x] 7.1 Update the wiki manual's Custom widget action list with the four actions, stating that the bean filter spans bags of the same coffee and the bag filter does not
+- [x] 7.2 Update the wiki manual's Shot History search-keyword list with `bag:`, including the quoted form and what it matches (coffee name, roaster, roast date)
 - [x] 7.3 Note the centralized action catalog beside the widget-catalog note in `CLAUDE.md`, so the next person adding an action edits one table
 - [ ] 7.4 Archive this change with `openspec archive add-history-filter-widget-actions` as the last commit on the feature branch
