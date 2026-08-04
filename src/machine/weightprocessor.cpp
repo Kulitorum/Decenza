@@ -207,41 +207,70 @@ void WeightProcessor::processWeight(double weight)
             qMax(1, static_cast<int>(rateSpanMs / (m_rateWindowCount - 1)));
         // MINIMUM of the last few windows, not an average and not the latest.
         //
-        // Contamination here is one-directional, which is what makes the minimum
-        // the right statistic rather than merely a robust-looking one: a dropped
-        // frame or a sub-reconnect hiccup removes arrivals from a window and can
-        // only ever push `measured` UP. Nothing pushes it down — no mechanism
-        // delivers more samples than the scale sent. So the smallest recent window
-        // is the one least contaminated, and taking it discards a bad window
-        // outright instead of blending its error in.
+        // Contamination here is one-directional: a dropped frame or a sub-reconnect
+        // hiccup removes arrivals from a window and can only ever push `measured`
+        // UP, since nothing delivers more samples than the scale sent. So the
+        // smallest recent window is the least contaminated, and taking it discards a
+        // bad window outright instead of blending its error in. An EMA was tried
+        // first and is worse: simulated on a 10 Hz feed with one 1.5 s hiccup it
+        // pulled the estimate to 145 ms and ~1 s of pour read 1.38-1.53 g/s against
+        // a true 2.00 g/s.
         //
-        // The alternative tried first was rejecting the contaminated GAP before it
-        // reached the average, by restarting the window on anything more than a few
-        // times the cadence. That cannot work on a bunching transport: the
-        // inter-burst gap (~490 ms against a 100 ms cadence) is itself many times
-        // the cadence, so the window would restart on every burst and never close.
-        // Averaging ACROSS bursts is the whole point; the gap is signal, not noise.
+        // A MEDIAN was tried, and the honest answer is that IT MAKES NO DIFFERENCE
+        // to the problem it was reached for. The argument was that ordinary jitter
+        // is two-directional, so the minimum of three noisy windows sits on their
+        // low tail. Measured at matching sample positions on the jittered bursty
+        // fixture in cadenceEstimateDoesNotTrackTheLowTail, one burst reads:
         //
-        // Simulated on a 10 Hz feed with one 1.5 s hiccup: an EMA pulled the
-        // estimate to 145 ms and ~1 s of pour read 1.38-1.53 g/s against a true
-        // 2.00; the minimum holds 100 ms and 2.00 g/s throughout.
+        //     minimum   2.25  2.92  2.92  2.25  0.04
+        //     median    2.16  2.96  2.96  2.16  0.04
         //
-        // A genuine rate change still lands, ASYMMETRICALLY, which is worth stating
-        // because the obvious reading is wrong: a scale speeding UP takes effect on
-        // the very next closed window, since a smaller value wins the minimum
-        // immediately. Only a slowdown waits for the smaller stale entries to age
-        // out, i.e. up to kRateRecentWindows windows. That is the safe way round —
-        // an interval briefly too SMALL leaves synthetic behind wall-clock, where
-        // the non-batched branch corrects it, while one too large is what builds a
-        // runaway lead.
+        // Same shape, same magnitude, same near-zero at the burst boundary. An
+        // earlier version of this comment claimed the median was "twice as wrong"
+        // at 2.96 against 2.25; that was two different FRAMES of the oscillation
+        // above compared against each other, not one measurement under two
+        // statistics. Recorded because the wrong comparison looked convincing.
+        //
+        // The real defect is the oscillation itself — flow swinging from 0.04 to
+        // ~2.9 g/s inside a single burst on a true 2.00 g/s feed, with the last
+        // sample of every burst reading near zero. Which statistic is committed to
+        // does not touch it, so do not spend another pass on the statistic. It is
+        // held by cadenceEstimateDoesNotTrackTheLowTail as a QEXPECT_FAIL.
+        //
+        // A genuine rate change still lands asymmetrically: a scale speeding UP
+        // takes effect on the next closed window, since a smaller value wins the
+        // minimum immediately, while a slowdown waits for the stale entries to age
+        // out.
         m_rateRecent[m_rateRecentNext] = measured;
         m_rateRecentNext = (m_rateRecentNext + 1) % kRateRecentWindows;
         if (m_rateRecentCount < kRateRecentWindows) ++m_rateRecentCount;
-        int lowest = m_rateRecent[0];
+        int committed = m_rateRecent[0];
         for (int i = 1; i < m_rateRecentCount; ++i) {
-            lowest = qMin(lowest, m_rateRecent[i]);
+            committed = qMin(committed, m_rateRecent[i]);
         }
-        m_estimatedIntervalMs = lowest;
+
+        // Disagreement between this window and what we are committing to. Silent
+        // while the estimator is stable, which is most of the time — it exists to
+        // catch the shape that was invisible until now: the per-window measurements
+        // are the input, and only their aggregate was ever logged, so an estimator
+        // walking the low tail of its own noise could not be seen from a field log.
+        if (committed > 0
+            && qAbs(measured - committed) * 100 > kRateDisagreementPct * committed) {
+            // SCALEFEED, not SAWW: this answers "were the readings timed right",
+            // which is a [Scale] question. The file header, the constant-weight
+            // diagnostic below and LOGGING.md all state that rule; this line was
+            // filed under [SAW] first, where a reader chasing a stop-at-weight
+            // problem would meet rate-estimator noise and a reader checking feed
+            // health would never see it.
+            SCALEFEED_LOG(QStringLiteral("De-jitter rate window disagrees: measured=%1 ms "
+                                    "committed=%2 ms (arrivals=%3 over %4 ms)")
+                         .arg(measured).arg(committed)
+                         .arg(m_rateWindowCount).arg(rateSpanMs));
+        }
+        m_estimatedIntervalMs = committed;
+        if (m_djIntervalMinMs == 0 || committed < m_djIntervalMinMs)
+            m_djIntervalMinMs = committed;
+        if (committed > m_djIntervalMaxMs) m_djIntervalMaxMs = committed;
         m_rateWindowStartMs = wallClock;
         m_rateWindowCount = 1;
     }
@@ -309,9 +338,12 @@ void WeightProcessor::processWeight(double weight)
     // input to that assignment.
     if (sinceLast >= 0 && sinceLast <= kBatchThresholdMs) {
         ++m_burstFrames;
+        ++m_djBatchedArrivals;
     } else {
         m_burstFrames = 1;
     }
+    ++m_djArrivals;
+    if (m_burstFrames > m_djMaxBurstFrames) m_djMaxBurstFrames = m_burstFrames;
 
     qint64 sampleTs;
     if (sinceLast < 0 || sinceLast > kBatchThresholdMs) {
@@ -533,6 +565,14 @@ void WeightProcessor::processWeight(double weight)
     bool pastPreinfusion = (m_currentFrame >= m_preinfuseFrameCount);
 
     // Stop-at-weight check (requires valid flow rate for drip prediction)
+    // Counts the samples that MATTER: mid-pour, past preinfusion, with real weight
+    // in the cup, where the flow estimate came back at exactly zero. Distinct from
+    // the throttled log below, which shows at most one per 5 s and so cannot say
+    // how often this happened — the question the Aug 4 shots could not answer.
+    if (pastPreinfusion && !m_stopTriggered && m_targetWeight > 0
+        && weight > 5.0 && flowRateShort <= 0.0) {
+        ++m_djBlindSamples;
+    }
     if (pastPreinfusion && !m_stopTriggered && m_targetWeight > 0 && flowRateShort < 0.5) {
         // Throttle this log to every 5s, include LSLR diagnostic info
         if (wallClock - m_lastLowFlowLogMs >= 5000) {
@@ -699,6 +739,22 @@ void WeightProcessor::resetStallTracking()
     m_feedStallStartMs = 0;
 }
 
+void WeightProcessor::resetShotDiagnostics()
+{
+    // Through a chokepoint, like resetStallTracking() and resetRateCalibration()
+    // above, and for the same reason those exist: these were six hand-written
+    // assignments and m_djIntervalMinMs uses a 0-means-unset sentinel, so dropping
+    // one line in a later edit would carry the previous shot's minimum into this
+    // shot's summary and read entirely plausible.
+    m_djArrivals = 0;
+    m_djBatchedArrivals = 0;
+    m_djMaxBurstFrames = 0;
+    m_djIntervalMinMs = 0;
+    m_djIntervalMaxMs = 0;
+    m_djBlindSamples = 0;
+    m_djSummaryPending = true;
+}
+
 void WeightProcessor::resetRateCalibration(qint64 windowStartMs)
 {
     // All five move together — see the header. m_rateRecent[]'s CONTENTS are left
@@ -830,6 +886,7 @@ void WeightProcessor::startExtraction()
     // this calibration was written to remove.
     resetRateCalibration();
     resetStallTracking();
+    resetShotDiagnostics();
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
 }
 
@@ -837,6 +894,13 @@ void WeightProcessor::markExtractionStart()
 {
     if (!m_active || m_extractionStartTime != 0) return;
     m_extractionStartTime = m_wallClock();
+    // Restart the diagnostic counters HERE, not only at startExtraction(). The
+    // summary divides arrivals by (now - m_extractionStartTime), and this is where
+    // that clock starts — counting from startExtraction() instead meant the
+    // numerator included the whole preheat while the denominator did not, reporting
+    // roughly double the true arrival rate next to a committed interval that
+    // contradicted it.
+    resetShotDiagnostics();
     // Flow has begun, so whatever the scale reads now is its post-tare zero even if
     // it never passed through the near-zero window (an untared cup left on the
     // platter, say). Arm the spike filter unconditionally here.
@@ -883,12 +947,39 @@ void WeightProcessor::stopExtraction()
         qint64 span = m_weightSamples.last().timestamp - m_weightSamples.first().timestamp;
         if (span > 0) {
             double avgIntervalMs = span / static_cast<double>(m_weightSamples.size() - 1);
+            // Scope stated explicitly, and the calibrated interval deliberately NOT
+            // repeated here: this average covers only what is left in the 1 s LSLR
+            // buffer at shot end, while the summary below carries the whole-shot
+            // range and the committed value. Printing m_estimatedIntervalMs on both
+            // lines put the same field in the log twice under two different names,
+            // one line apart.
             SCALEFEED_LOG(QStringLiteral("Scale interval: avg %1 ms (%2 Hz) over %3 samples "
-                                         "(last 1s) | de-jitter calibrated: %4 ms")
+                                         "in the trailing 1 s")
                               .arg(static_cast<int>(avgIntervalMs))
                               .arg(1000.0 / avgIntervalMs, 0, 'f', 1)
-                              .arg(m_weightSamples.size()).arg(m_estimatedIntervalMs));
+                              .arg(m_weightSamples.size()));
         }
+    }
+
+    // One line carrying the whole de-jitter story for this shot. Everything here
+    // had to be INFERRED from indirect evidence while diagnosing the Aug 4 shots:
+    // burst sizes were never logged at all, the arrival rate could only be guessed
+    // from sample counts, and the number of blind samples was unknowable because
+    // its log line is throttled to one per 5 s. One line per shot, so it cannot
+    // dominate anything.
+    if (m_djSummaryPending && m_djArrivals > 0 && m_extractionStartTime > 0) {
+        m_djSummaryPending = false;
+        const qint64 elapsedMs = m_wallClock() - m_extractionStartTime;
+        const double perSec = elapsedMs > 0 ? (m_djArrivals * 1000.0 / elapsedMs) : 0.0;
+        SCALEFEED_LOG(QStringLiteral("De-jitter summary: %1 arrivals in %2 s (%3/s) | "
+                                     "interval %4-%5 ms, committed %6 | batched %7% | "
+                                     "max burst %8 | blind samples %9")
+                          .arg(m_djArrivals).arg(elapsedMs / 1000.0, 0, 'f', 1)
+                          .arg(perSec, 0, 'f', 1)
+                          .arg(m_djIntervalMinMs).arg(m_djIntervalMaxMs)
+                          .arg(m_estimatedIntervalMs)
+                          .arg(m_djArrivals > 0 ? (m_djBatchedArrivals * 100 / m_djArrivals) : 0)
+                          .arg(m_djMaxBurstFrames).arg(m_djBlindSamples));
     }
 
     // Don't clear weight samples — logging block above reads them for rate diagnostics,
@@ -912,6 +1003,7 @@ void WeightProcessor::resetForRetare()
     m_lastSampleTs = 0;
     resetRateCalibration();
     resetStallTracking();
+    resetShotDiagnostics();  // pre-retare arrivals do not describe the shot that follows
     m_uncalibratedBatchWarned = false;  // Timestamps cleared — de-jitter needs recalibration
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;

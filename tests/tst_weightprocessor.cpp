@@ -256,6 +256,86 @@ private slots:
         assertShortFlowNear(spy, 2.0, 3, "5 Hz bursty feed after a >2 s reconnect gap");
     }
 
+    // KNOWN DEFECT, held here on purpose: jittered burst timing over-reads flow.
+    //
+    // This test FAILS by design (QEXPECT_FAIL). It reproduces a real defect that
+    // has no fix yet, so that the defect is a running, measured thing rather than a
+    // note someone has to rediscover.
+    //
+    // A 10 Hz feed delivered in bursts whose PERIOD jitters +-60 ms does not read a
+    // steady flow at all. It OSCILLATES within each burst — measured across one
+    // burst on a true 2.00 g/s feed:
+    //
+    //     2.25  2.92  2.92  2.25  0.04
+    //
+    // The last sample of every burst is near zero, which is stop-at-weight going
+    // blind on a regular beat rather than occasionally.
+    //
+    // What it is NOT: a choice of averaging statistic. The estimate was switched
+    // from minimum-of-three to median-of-three specifically to fix this. Measured
+    // at MATCHING sample positions the median gives 2.16 2.96 2.96 2.16 0.04 —
+    // the same shape, the same near-zero. An earlier version of this comment
+    // claimed the median was "twice as wrong" at 2.96 against 2.25; those were two
+    // different frames of the oscillation above, compared against each other.
+    // Recorded because the wrong comparison was convincing enough to ship.
+    //
+    // Do not compare statistics on a single sample from this fixture. Any one frame
+    // is a different number, so any two runs can be made to say anything.
+    //
+    // Bursty on purpose: the cadence estimate only reaches the timestamps through
+    // the batched branch, so an evenly-paced feed cannot exercise this at all.
+    //
+    // If this ever XPASSes, the underlying behaviour changed — work out why before
+    // deleting the QEXPECT_FAIL.
+    void cadenceEstimateDoesNotTrackTheLowTail() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        constexpr int kCadenceMs = 100;
+        constexpr double kFlow = 2.0;
+        constexpr int kFramesPerBurst = 5;
+        const int jitter[] = {-60, 40, -30, 55, -45, 25, 60, -50};
+        const qint64 t0 = m_fakeClock;
+        for (int b = 0; b < 24; ++b) {
+            for (int f = 0; f < kFramesPerBurst; ++f) {
+                // Weight follows the WALL CLOCK, not the frame index. Deriving it
+                // from the index looks equivalent and is not once the burst period
+                // jitters: it delivers a fixed 1.0 g per burst over a varying real
+                // interval, i.e. 1.8-2.27 g/s, and the test then measures the
+                // fixture instead of the estimator. It read 1.75 g/s that way under
+                // BOTH statistics, which is what exposed the mistake.
+                wp.processWeight(kFlow * (m_fakeClock - t0) / 1000.0);
+                m_fakeClock += 2;
+            }
+            m_fakeClock += kFramesPerBurst * (kCadenceMs - 2) + jitter[b % 8];
+        }
+
+        // Asserted inline rather than through assertShortFlowNear: that helper's
+        // first check is a QVERIFY on the sample count, which PASSES, and
+        // QEXPECT_FAIL binds to the very next check — so routing through the helper
+        // marks the count check as an unexpected pass and never reaches the flow.
+        // Asserts the SPREAD across one burst, not a single sample, because the
+        // defect is an oscillation and any one frame of it is a different number.
+        // Reading a single sample is how the first version of this test produced a
+        // false comparison between two statistics.
+        QVERIFY(spy.count() > kFramesPerBurst);
+        double lo = 1e9, hi = -1e9;
+        for (qsizetype i = spy.count() - kFramesPerBurst; i < spy.count(); ++i) {
+            const double f = spy.at(i).at(2).toDouble();
+            lo = qMin(lo, f);
+            hi = qMax(hi, f);
+        }
+        QEXPECT_FAIL("", "Jittered burst timing makes short flow oscillate within "
+                         "each burst (measured 0.04-2.92 g/s on a true 2.00, with the "
+                         "last sample of every burst near zero). Open. NOT a choice "
+                         "of averaging statistic — median measures the same. See the "
+                         "comment above this test.", Abort);
+        QVERIFY2(hi - lo < 0.2 * kFlow,
+                 qPrintable(QString("short flow swung %1 to %2 g/s within one burst "
+                                    "on a steady %3 g/s feed").arg(lo).arg(hi).arg(kFlow)));
+    }
+
     void negativeWeightClampedToZero() {
         WeightProcessor wp;
         installFakeClock(wp);
