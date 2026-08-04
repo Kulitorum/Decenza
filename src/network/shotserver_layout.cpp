@@ -3335,6 +3335,40 @@ QString ShotServer::generateLayoutPage() const
         return html;
     }
 
+    // Gesture-override rows for the built-in action widgets. The reserved-slot
+    // rule is DERIVED from the injected catalog (CATALOG.gestureTypes: type ->
+    // the navigate action its reserved gesture performs, "" when both are free),
+    // so this editor carries no list of which widget reserves which gesture.
+    // Same rule, same presentation as the in-app popup.
+    function roGestureSection(type, props) {
+        var reserved = (CATALOG.gestureTypes || {})[type] || "";
+        var lp = props.longPressAction || "";
+        var dc = props.doubleclickAction || "";
+        // A one-slot widget reserves whichever gesture the user has NOT filled;
+        // clearing the override frees both again.
+        var lpReserved = reserved !== "" && lp === "" && dc !== "";
+        var dcReserved = reserved !== "" && dc === "" && lp !== "";
+        var html = '<div class="section-label" style="margin-top:0.9rem">Gestures</div>';
+        if (reserved !== "") {
+            html += '<div style="font-size:0.75rem;color:var(--text-secondary);margin:0 0 0.4rem 0">'
+                 + "One gesture stays reserved so this widget's page is still reachable.</div>";
+        }
+        html += roGestureRow("longPressAction", "Long press", lp, lpReserved, reserved);
+        html += roGestureRow("doubleclickAction", "Double-click", dc, dcReserved, reserved);
+        return html;
+    }
+
+    function roGestureRow(key, label, actionId, isReserved, reservedAction) {
+        var text = isReserved ? ("Opens " + getActionLabel(reservedAction))
+                              : getActionLabel(actionId);
+        var cls = "action-selector" + (!isReserved && actionId ? " has-action" : "");
+        var style = isReserved ? ' style="opacity:0.6;cursor:default"' : '';
+        var onclick = isReserved ? '' : ' onclick="roOpenGesturePicker(\'' + key + '\')"';
+        return '<div class="' + cls + '"' + style + onclick + '>'
+             + '<span style="color:var(--text-secondary);font-size:0.8rem">' + label + ':</span> '
+             + '<span style="font-size:0.8rem">' + text + '</span></div>';
+    }
+
     function roSectionsHtml(type, props) {
         if (type === "sleep") {
             var aq = (props.allowQuit === undefined) ? true : props.allowQuit;
@@ -3356,6 +3390,10 @@ QString ShotServer::generateLayoutPage() const
                 html += roCheckboxRow("showRatio", "Show ratio", "Off = weight only, no 1:X.X suffix", sr);
             } else if (key === "color") {
                 html += roRadioSection("Color", "color", RO_COLOR_CHOICES, props.color || "default");
+            } else if (key === "longPressAction") {
+                // Both gestures render in one section; doubleclickAction is
+                // covered here, so its own key is skipped below.
+                html += roGestureSection(type, props);
             }
         }
         return html;
@@ -4332,11 +4370,30 @@ QString ShotServer::generateLayoutPage() const
         document.getElementById("dblClickActionSel").className = "action-selector" + (currentDoubleclickAction ? " has-action" : "");
     }
 
+    // Which editor the picker is serving. The Custom widget editor and the
+    // built-in widgets' options editor share one picker — a second copy of "list
+    // the actions, let the user choose" is what this change exists to avoid.
+    var actionPickerTarget = "custom";   // "custom" | "readout"
+    var roGestureKey = "";
+
+    function roOpenGesturePicker(key) {
+        actionPickerTarget = "readout";
+        roGestureKey = key;
+        openActionPicker(key === "longPressAction" ? "longpress" : "doubleclick");
+    }
+
     function openActionPicker(gesture) {
         actionPickerGesture = gesture;
         var titles = {click: "Tap Action", longpress: "Long Press Action", doubleclick: "Double-Click Action"};
         document.getElementById("actionPickerTitle").textContent = titles[gesture] || "Action";
-        var currentVal = gesture === "click" ? currentAction : gesture === "longpress" ? currentLongPressAction : currentDoubleclickAction;
+        var currentVal;
+        if (actionPickerTarget === "readout") {
+            currentVal = (roPendingValues[roGestureKey] !== undefined)
+                ? roPendingValues[roGestureKey] : (roEditingProps[roGestureKey] || "");
+        } else {
+            currentVal = gesture === "click" ? currentAction
+                       : gesture === "longpress" ? currentLongPressAction : currentDoubleclickAction;
+        }
         var filtered = getFilteredActions();
         var html = "";
         for (var i = 0; i < filtered.length; i++) {
@@ -4353,6 +4410,17 @@ QString ShotServer::generateLayoutPage() const
     }
 
     function pickAction(id) {
+        if (actionPickerTarget === "readout") {
+            roFieldChanged(roGestureKey, id);
+            // Re-render so the reserved slot locks/unlocks immediately.
+            var merged = {};
+            for (var k in roEditingProps) merged[k] = roEditingProps[k];
+            for (var pk in roPendingValues) merged[pk] = roPendingValues[pk];
+            document.getElementById("roSections").innerHTML = roSectionsHtml(roEditingType, merged);
+            closeActionPicker();
+            actionPickerTarget = "custom";
+            return;
+        }
         if (actionPickerGesture === "click") currentAction = id;
         else if (actionPickerGesture === "longpress") currentLongPressAction = id;
         else if (actionPickerGesture === "doubleclick") currentDoubleclickAction = id;
