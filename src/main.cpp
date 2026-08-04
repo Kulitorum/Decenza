@@ -3337,7 +3337,19 @@ int main(int argc, char *argv[])
         // This tick is a RECOVERY path, not a second scanner: while the hunt's
         // back-to-back chain is running there is always a scan in flight, so
         // tryDirectConnectToRefractometer() would decline with "a scan is already
-        // in flight" and the attempt below would be pure fiction. It was reported
+        // in flight" and the attempt below would be pure fiction.
+        //
+        // isScanningForScales() is NOT hunt-scoped, and that matters enough to say
+        // out loud — blemanager.cpp warns about this exact flag ("looks like the
+        // right flag and is not: the refractometer hunt sets it too"), here in the
+        // mirror image. A user-initiated scan or the scale's own always-on
+        // reconnect ladder sets it too, so this branch can be taken while the hunt
+        // chain is NOT what is scanning. It is still correct, for a reason worth
+        // writing down rather than inferring: every scan finishes through the one
+        // shared onScanFinished(), whose hunt re-chain fires regardless of who
+        // started it. So any scan in flight really does mean the chain will be
+        // re-kicked, and the recovery this tick provides is genuinely not needed
+        // yet. It was reported
         // as fact anyway — a device log showed six consecutive "Auto-reconnect
         // attempt N" lines at INFO, every one of them immediately followed by the
         // skip, and not one of them a real attempt.

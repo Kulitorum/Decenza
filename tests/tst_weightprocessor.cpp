@@ -164,7 +164,11 @@ private slots:
         QVERIFY(spy.count() > lastN);
         for (qsizetype i = spy.count() - lastN; i < spy.count(); ++i) {
             const double f = spy.at(i).at(2).toDouble();
-            QVERIFY2(qAbs(f - expected) < 0.2 * expected,
+            // 10%, matching what the callers' comments claim. It was 20% here while
+            // a comment above asserted 10% — the looser bound still failed the
+            // 1.22 g/s regression, so nothing was caught, but the guarantee a
+            // reader took from the comment was twice what the code delivered.
+            QVERIFY2(qAbs(f - expected) < 0.1 * expected,
                      qPrintable(QString("%1: sample %2 read %3 g/s, expected ~%4")
                                     .arg(what).arg(i).arg(f).arg(expected)));
         }
@@ -204,6 +208,52 @@ private slots:
         // Well past the hiccup: the estimate must have shrugged it off entirely,
         // not merely recovered eventually.
         assertShortFlowNear(spy, 2.0, 40, "10 Hz feed after a 1.5 s hiccup");
+    }
+
+    // A reconnect-sized gap must not leave the cadence estimate serving a
+    // measurement it just discarded.
+    //
+    // The reconnect branch clears the ring's fill count, and that count doubles as
+    // the index bound for the minimum loop — so it only means anything while the
+    // write index is also back at zero. Clearing one and not the other left the
+    // next window writing at a stale index: the loop read the pre-reconnect value
+    // it had been told to drop and never read the fresh one, for two windows, at
+    // the exact moment a feed came back. Both fields now move through
+    // resetRateCalibration().
+    //
+    // Drives the case the other tests cannot: a >2 s silence (kReconnectGapMs),
+    // then a genuinely different cadence. The old estimate is 5x too small for the
+    // new feed, which spaces timestamps far too tightly and collapses the LSLR
+    // span — so a stale estimate shows up as short flow going wrong, not merely as
+    // an internal field being off.
+    void reconnectGapDoesNotServeAStaleCadence() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        // The returning feed must be BURSTY, and that is the whole design of this
+        // test rather than a detail. A stale interval is only ever CONSULTED on the
+        // batched branch: a non-bursty feed takes ts = wallClock on every sample and
+        // never reads the estimate at all, so an evenly-paced feed after the gap
+        // passes whether or not the ring is desynced. The first version of this test
+        // did exactly that and passed against the bug it was written for.
+        //
+        // 10 Hz before, 5 Hz after: the stale estimate is then half the true cadence,
+        // which spaces a burst's timestamps at 100 ms for samples 200 ms apart and
+        // reads as roughly double the real flow.
+        feedBursty(wp, 2.0, /*cadenceMs=*/100, /*framesPerBurst=*/5, /*bursts=*/6);
+        m_fakeClock += 2500;  // > kReconnectGapMs
+        const qsizetype afterReconnect = spy.count();
+        // Five bursts, and the count is load-bearing rather than arbitrary: the
+        // desync costs TWO extra rate windows, so the two versions differ only
+        // for about two seconds after the gap. Feed long enough and the buggy
+        // ring converges too and the test goes quiet — at 8 bursts both read
+        // 2.00. Simulated across this window, 4-6 bursts separate them cleanly
+        // (buggy 1.43/1.43/0.00 against fixed 2.00/2.00/2.00).
+        feedBursty(wp, 2.0, /*cadenceMs=*/200, /*framesPerBurst=*/3, /*bursts=*/5);
+
+        QVERIFY(spy.count() > afterReconnect + 10);
+        assertShortFlowNear(spy, 2.0, 3, "5 Hz bursty feed after a >2 s reconnect gap");
     }
 
     void negativeWeightClampedToZero() {
