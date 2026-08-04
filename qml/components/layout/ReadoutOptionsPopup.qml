@@ -81,6 +81,8 @@ DecenzaDialog {
     // that is its behaviour today. Elsewhere "Default" says stock behaviour
     // without claiming the gesture is dead.
     function gestureLabel(actionId) {
+        if (actionId === "none")
+            return TranslationManager.translate("customeditor.action.none", "None")
         if (actionId) {
             var entry = Settings.network.layoutActionLabels()[actionId]
             if (entry === undefined) return actionId
@@ -372,7 +374,14 @@ DecenzaDialog {
         // Idle context: these widgets live on the idle screen.
         // excludeSubmenu: this popup has no profile sub-picker, so a parameterized
         // action would be stored as a bare id the dispatch rejects.
-        onAboutToShow: _items = LayoutActions.pickerItems("idle", true)
+        // includeDefault only where unset differs from "nothing": a widget that
+        // reserves a destination opens a page when unset, so Default and None are
+        // genuinely different choices there.
+        // The default row NAMES its destination, so restoring it is unambiguous.
+        onAboutToShow: _items = LayoutActions.pickerItems("idle", true,
+            popup.reservedAction === "" ? ""
+                : TranslationManager.translate("customeditor.action.defaultOpens", "Default (%1)")
+                      .arg(popup.gestureLabel("")))
 
         onSelected: function(index, value) {
             popup.setGesture(gesturePicker.gestureKey, gesturePicker._items[index].id)

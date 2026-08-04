@@ -166,18 +166,40 @@ QtObject {
 
     // Same list with the leading "None" entry the pickers show. "None" is the absence
     // of an action, which is why it is not in the catalog.
-    function pickerItems(pageContext, excludeSubmenu) {
-        var items = [{ id: "", label: TranslationManager.translate("customeditor.action.none", "None") }]
+    // `defaultLabel`, when non-empty, adds a restore-the-default row ABOVE "None"
+    // and NAMES what it restores ("Default (opens Bean Info)") — "Default" alone
+    // does not tell the user what they are going back to, and going back is the
+    // thing they most need to be able to do confidently.
+    //
+    // Only passed where unset and "nothing" actually differ: a widget that
+    // reserves a destination opens a page when unset. Everywhere else unset
+    // already means nothing happens, and two rows with one effect is worse than
+    // one honest row.
+    function pickerItems(pageContext, excludeSubmenu, defaultLabel) {
+        var items = []
+        if (defaultLabel)
+            items.push({ id: "", label: defaultLabel })
+        items.push({ id: defaultLabel ? layoutActions.kNoAction : "",
+                     label: TranslationManager.translate("customeditor.action.none", "None") })
         var filtered = pickerActions(pageContext, excludeSubmenu)
         for (var i = 0; i < filtered.length; i++)
             items.push(filtered[i])
         return items
     }
 
+    // Explicitly "do nothing on this gesture" — DISTINCT from unset. Unset ("")
+    // means "whatever this widget does by default", which on most action widgets
+    // is opening its page. A user who wants the gesture silenced needs a way to
+    // say so that is not the same value as "I haven't chosen".
+    readonly property string kNoAction: "none"
+
     function runGesture(modelData, gestureKey, ctx) {
         if (!modelData) return false
         var stored = modelData[gestureKey]
         if (!stored) return false
+        // Consumed, not dispatched: returning true is what stops
+        // runGestureOrReserved falling through to the reserved destination.
+        if (stored === layoutActions.kNoAction) return true
         execute(stored, ctx)
         return true
     }

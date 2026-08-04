@@ -2669,8 +2669,18 @@ QString ShotServer::generateLayoutPage() const
     var CATALOG = (typeof LAYOUT_ACTION_CATALOG !== "undefined" && LAYOUT_ACTION_CATALOG)
         || { actions: [], labels: {} };
     var ACTION_LABELS = CATALOG.labels || {};
-    var ACTIONS = [{id:"",label:"None",contexts:["idle","espresso","steam","hotwater","flush","all"]}]
+    var ALL_CONTEXTS = ["idle","espresso","steam","hotwater","flush","all"];
+    var ACTIONS = [{id:"",label:"None",contexts:ALL_CONTEXTS}]
         .concat(CATALOG.actions || []);
+    // For a widget that RESERVES a destination, unset and "do nothing" are
+    // different choices, so both are offered — and the default row NAMES what it
+    // restores, because "Default" alone does not say what you are going back to.
+    function gestureActionsFor(reservedAction) {
+        var dest = getActionLabel(reservedAction).replace(/^Go to /, "");
+        return [{id:"",label:"Default (opens " + dest + ")",contexts:ALL_CONTEXTS},
+                {id:"none",label:"None",contexts:ALL_CONTEXTS}]
+            .concat(CATALOG.actions || []);
+    }
     var PAGE_CONTEXT = "idle";
     function getFilteredActions() {
         return ACTIONS.filter(function(a) {
@@ -3374,7 +3384,10 @@ QString ShotServer::generateLayoutPage() const
         // written for a picker row ("Go to X"), which reads as a double verb once
         // it is embedded in a sentence.
         var dest = getActionLabel(reservedAction).replace(/^Go to /, "");
-        var text = actionId ? getActionLabel(actionId)
+        // Three states, not two: an explicit "none" silences the gesture, unset
+        // means the widget's default (which usually opens its page).
+        var text = actionId === "none" ? "None"
+                 : actionId ? getActionLabel(actionId)
                  : (reservedAction ? "Opens " + dest : "Default");
         var cls = "action-selector" + (actionId ? " has-action" : "");
         var style = isLocked ? ' style="opacity:0.6;cursor:default"' : '';
@@ -4409,7 +4422,12 @@ QString ShotServer::generateLayoutPage() const
             currentVal = gesture === "click" ? currentAction
                        : gesture === "longpress" ? currentLongPressAction : currentDoubleclickAction;
         }
-        var filtered = getFilteredActions();
+        var reservedForType = actionPickerTarget === "readout"
+            ? ((CATALOG.gestureTypes || {})[roEditingType] || "") : "";
+        var pool = reservedForType ? gestureActionsFor(reservedForType) : ACTIONS;
+        var filtered = pool.filter(function(a) {
+            return a.contexts.indexOf(PAGE_CONTEXT) >= 0 || a.contexts.indexOf("all") >= 0;
+        });
         var html = "";
         for (var i = 0; i < filtered.length; i++) {
             var a = filtered[i];
