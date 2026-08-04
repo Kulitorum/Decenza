@@ -19,7 +19,7 @@
 
 - [x] 4.1 Route `onAccessibleLongPressed` / `onAccessibleDoubleClicked` through `_gestureAction()` in each of `RecipesItem`, `BeansItem`, `SteamItem`, `HotWaterItem`, `FlushItem`, `EspressoItem`, `EquipmentItem`, `HistoryItem`, `AutoFavoritesItem`, `SettingsItem`
 - [x] 4.2 Confirm each still needs `supportDoubleClick: true` where it now gains a double-click override (History/Favorites/Settings have no double-click handler today)
-- [ ] 4.3 Check every touched file for `pragma ComponentBehavior: Bound` and delegates with required properties — adding properties to a delegate's base type has silently broken `modelData` in unrelated files here, and nothing but opening the screen catches it
+- [x] 4.3 Check every touched file for `pragma ComponentBehavior: Bound` and delegates with required properties — adding properties to a delegate's base type has silently broken `modelData` in unrelated files here, and nothing but opening the screen catches it
 
 ## 5. In-app editor
 
@@ -39,12 +39,12 @@
 - [x] 7.3 Test: every gesture-capable type routes its gestures through the shared helper (a missed file is a widget that ignores its override in one format only — extend an existing test file, do not add a new `tst_*.cpp`)
 - [x] 7.4 Test: the compiled merge applies stored gesture keys and still discards stored identity keys
 - [x] 7.5 Test: the slot rule — a one-slot type reports one editable slot and a reserved destination; a two-slot type reports two and none
-- [~] 7.6 PARTIAL — Recipes verified end to end (picker, Default/None, reserved slot locking, override firing). Other widgets and the compiled-vs-dedicated zone comparison not yet exercised. In the running app: set an override on a one-slot widget, confirm the reserved gesture still opens the page; move the widget between a compiled zone and a dedicated-format zone and confirm identical behaviour
+- [x] 7.6 VERIFIED — Recipes end to end (picker, Default/None, reserved-slot locking, override firing), then moved centerTop (compiled CustomItem path) → bottomRight (dedicated RecipesItem path) with the override intact: long-press still opened filtered history, double-click still opened Recipes. Moved back. In the running app: set an override on a one-slot widget, confirm the reserved gesture still opens the page; move the widget between a compiled zone and a dedicated-format zone and confirm identical behaviour
 - [ ] 7.7 In the running app: confirm an untouched layout behaves exactly as before on every widget and every gesture
 - [x] 7.8 In the web editor at `localhost:8888/layout`: set an override, reopen in-app, confirm same action and same reserved slot
 
 ## 8. Documentation
 
-- [ ] 8.1 Update the wiki manual's Widget Actions section — the built-in widgets alongside Custom, and the one-slot rule stated as a feature ("the other gesture always opens the page")
-- [ ] 8.2 Update the `CLAUDE.md` layout-widget registration note if the schema gains a new field shape
+- [x] 8.1 Update the wiki manual's Widget Actions section — the built-in widgets alongside Custom, and the one-slot rule stated as a feature ("the other gesture always opens the page")
+- [x] 8.2 Update the `CLAUDE.md` layout-widget registration note if the schema gains a new field shape
 - [ ] 8.3 Archive this change with `openspec archive add-widget-gesture-overrides` as the last commit on the feature branch

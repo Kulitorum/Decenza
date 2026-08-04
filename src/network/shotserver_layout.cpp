@@ -3386,9 +3386,13 @@ QString ShotServer::generateLayoutPage() const
         var dest = getActionLabel(reservedAction).replace(/^Go to /, "");
         // Three states, not two: an explicit "none" silences the gesture, unset
         // means the widget's default (which usually opens its page).
+        // "Default" only where there IS a default to return to. A widget that
+        // reserves nothing does nothing on this gesture when unset, and its
+        // picker offers that state as "None" — calling it "Default" in the row
+        // meant picking None and being told Default.
         var text = actionId === "none" ? "None"
                  : actionId ? getActionLabel(actionId)
-                 : (reservedAction ? "Opens " + dest : "Default");
+                 : (reservedAction ? "Opens " + dest : "None");
         var cls = "action-selector" + (actionId ? " has-action" : "");
         var style = isLocked ? ' style="opacity:0.6;cursor:default"' : '';
         var onclick = isLocked ? '' : ' onclick="roOpenGesturePicker(\'' + key + '\')"';

@@ -88,8 +88,11 @@ DecenzaDialog {
             if (entry === undefined) return actionId
             return TranslationManager.translate(entry.key, entry.fallback)
         }
+        // No reserved destination means there is no default behaviour to return
+        // to — the gesture simply does nothing, and the picker calls that "None".
+        // Saying "Default" here made the row disagree with the row that set it.
         if (popup.reservedAction === "")
-            return TranslationManager.translate("gesturerow.default", "Default")
+            return TranslationManager.translate("customeditor.action.none", "None")
         var r = Settings.network.layoutActionLabels()[popup.reservedAction]
         var rLabel = r === undefined ? popup.reservedAction
                                      : TranslationManager.translate(r.key, r.fallback)
