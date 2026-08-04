@@ -187,8 +187,15 @@ private:
     // De-jitter: compensates for main thread event batching (see processWeight comments)
     qint64 m_lastWallClockMs = 0;       // Wall-clock time of last processWeight() call
     qint64 m_lastSampleTs = 0;          // Last synthetic timestamp assigned to a sample
-    int m_estimatedIntervalMs = 0;      // Calibrated from non-batched gaps (0 = uncalibrated)
+    int m_estimatedIntervalMs = 0;      // Calibrated from arrival RATE, all arrivals (0 = uncalibrated)
     bool m_uncalibratedBatchWarned = false;  // Throttle: log once per shot when fallback fires
+    // Arrival-rate calibration window. Counts EVERY arrival, batched or not, so a
+    // bursty transport reports its true cadence rather than its inter-burst gap —
+    // the non-batched-gaps-only estimate this replaced inflated the interval on the
+    // WiFi scale until synthetic timestamps outran wall-clock. See processWeight().
+    qint64 m_rateWindowStartMs = 0;     // Wall-clock start of the current rate window
+    int m_rateWindowCount = 0;          // Arrivals seen in the current rate window
+    bool m_rateCalibrated = false;      // A rate window has closed (bootstrap superseded)
 
     // Log throttle timestamps — reset each shot so warnings are never suppressed at shot start
     qint64 m_lastTareWarnMs = 0;

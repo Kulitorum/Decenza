@@ -104,6 +104,62 @@ private slots:
                  qPrintable(QString("Rising 2g/s should give ~2.0 flow, got %1").arg(flowRate)));
     }
 
+    // A bursty transport must not blind the short-flow estimate.
+    //
+    // Regression for the Half Decent WiFi scale: frames arrive several to a read,
+    // so the de-jitter interval — calibrated from non-batched gaps only — learned
+    // the INTER-BURST gap (~490 ms) instead of the 100 ms cadence. Synthetic
+    // timestamps then outran wall-clock, hit the lead cap, and every later frame in
+    // a burst was pinned to the same clamped value. computeLSLR's fill gate saw a
+    // span far under 65% of the window and returned 0.0, so flowRateShort read
+    // exactly 0.00 while the cup was filling at 2 g/s and SAW could not trigger.
+    //
+    // Asserted through flowRatesReady rather than by reaching into m_weightSamples:
+    // a wrong short-flow on a rising feed IS the user-visible defect, and a test on
+    // the timestamps alone would keep passing if the gate arithmetic changed
+    // underneath it.
+    //
+    // The assertion is ACCURACY, deliberately, and the first version of this test
+    // was wrong for want of that. It asserted only "not zero, roughly 1-3.5 g/s"
+    // and PASSED against the unfixed code, because this burst shape does not drive
+    // flowRateShort to zero — it drives it to 1.22 g/s on a true 2.00 g/s pour, the
+    // inflated interval stretching the apparent spacing. A 40% under-read is not a
+    // milder version of the bug: SAW's threshold is target minus expectedDrip(flow),
+    // so under-read flow under-predicts drip, raises the threshold and stops LATE,
+    // which is the overshoot actually measured on the device. Bounds are ±10% —
+    // wide enough for LSLR window fill, far too tight for 1.22.
+    void burstyDeliveryKeepsShortFlowValid() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        // 10 Hz scale delivered as 5-frame bursts every 500 ms, 2 g/s, ~4 s.
+        // Weight tracks each frame's true sample instant, not its arrival.
+        constexpr int kCadenceMs = 100;
+        constexpr int kFramesPerBurst = 5;
+        constexpr int kBursts = 8;
+        int frame = 0;
+        for (int b = 0; b < kBursts; ++b) {
+            for (int f = 0; f < kFramesPerBurst; ++f) {
+                wp.processWeight(2.0 * (frame * kCadenceMs / 1000.0));
+                m_fakeClock += 2;  // batched: under the 20 ms threshold
+                ++frame;
+            }
+            // Silence for the remainder of the burst period.
+            m_fakeClock += kFramesPerBurst * (kCadenceMs - 2);
+        }
+
+        QVERIFY(spy.count() >= kBursts * kFramesPerBurst - 2);
+        // The last burst only — the first second is the calibration window, where a
+        // wrong estimate is expected and self-corrects.
+        for (qsizetype i = spy.count() - kFramesPerBurst; i < spy.count(); ++i) {
+            const double shortFlow = spy.at(i).at(2).toDouble();
+            QVERIFY2(shortFlow > 1.8 && shortFlow < 2.2,
+                     qPrintable(QString("Bursty 2.00 g/s feed read as %1 g/s short flow "
+                                        "at sample %2").arg(shortFlow).arg(i)));
+        }
+    }
+
     void negativeWeightClampedToZero() {
         WeightProcessor wp;
         installFakeClock(wp);
