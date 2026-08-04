@@ -101,6 +101,4 @@ inline constexpr const char* WEB_HTML_THEME_BODY = R"HTML(
     <canvas class="shader-noise" id="shaderNoise" style="display:none"></canvas>
     <div class="shader-vignette" id="shaderVignette" style="display:none"></div>
 </div>
-
-<div class="lib-toast" id="libToast"></div>
 )HTML";

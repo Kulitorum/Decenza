@@ -433,22 +433,9 @@ inline constexpr const char* WEB_CSS_THEME_ACTIONS = R"CSS(
 }
 .btn-small.btn-share:hover { opacity: 0.85; }
 .btn-small.btn-share:disabled { opacity: 0.3; }
-.lib-toast {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--accent);
-    color: white;
-    padding: 10px 20px;
-    border-radius: 8px;
-    font-size: 14px;
-    z-index: 300;
-    opacity: 0;
-    transition: opacity 0.3s;
-    pointer-events: none;
-}
-.lib-toast.show { opacity: 1; }
+/* The toast itself is WEB_CSS_TOAST (webtemplates/toast.h). Keep it below the
+   CRT shader overlay (.shader-overlay, z 9999) so the effect covers it too. */
+:root { --z-toast: 300; }
 .comm-filters {
     display: flex;
     gap: 6px;

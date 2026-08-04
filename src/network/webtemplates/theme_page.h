@@ -10,6 +10,7 @@
 #include "theme_js.h"
 #include "shader_css.h"
 #include "shader_js.h"
+#include "toast.h"
 
 inline QString generateThemePageHtml(const QString& deviceId = QString())
 {
@@ -28,6 +29,7 @@ inline QString generateThemePageHtml(const QString& deviceId = QString())
     html += WEB_CSS_THEME_EDITOR;
     html += WEB_CSS_THEME_ACTIONS;
     html += WEB_CSS_SHADERS;
+    html += WEB_CSS_TOAST;
 
     html += R"HTML(
 </style>
@@ -53,6 +55,7 @@ inline QString generateThemePageHtml(const QString& deviceId = QString())
 )HTML";
 
     html += WEB_HTML_THEME_BODY;
+    html += WEB_HTML_TOAST;
 
     html += R"HTML(
 <script>
@@ -65,6 +68,7 @@ inline QString generateThemePageHtml(const QString& deviceId = QString())
         html += "const LOCAL_DEVICE_ID = '';\n";
     }
 
+    html += WEB_JS_TOAST;
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
     html += WEB_JS_THEME_EDITOR;
