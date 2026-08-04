@@ -174,22 +174,40 @@ DecenzaDialog {
         return Theme.replaceEmojiWithImg(result, Theme.bodyFont.pixelSize, true)  // user-authored template may contain markup
     }
 
+    // Built once per popup rather than per lookup: getActionLabel() is read from
+    // six bindings, and rebuilding a 41-entry map across the C++/QML boundary for
+    // each single-key read would be work nobody asked for. Not a cache — there is
+    // nothing to invalidate; the table is a compile-time constant.
+    readonly property var _actionLabels: Settings.network.layoutActionLabels()
+
     // Helper to get action label
     function getActionLabel(actionId) {
         if (!actionId) return TranslationManager.translate("customeditor.action.none", "None")
-        // Handle parameterized actions like command:loadProfile:<name>
-        if (actionId.indexOf("command:loadProfile:") === 0) {
-            var profileName = actionId.substring("command:loadProfile:".length)
-            var profiles = ProfileManager.availableProfiles
-            for (var j = 0; j < profiles.length; j++) {
-                if (profiles[j].name === profileName)
-                    return TranslationManager.translate("customaction.command.loadProfile", "Load Profile") + ": " + profiles[j].title
+        // The LABEL table, not getFilteredActions(): a stored action can be one
+        // the picker no longer offers — a legacy alias, or one filtered out by
+        // this page's context — and falling through to `return actionId` would
+        // show the user the raw string `command:scanDE1` where their widget
+        // plainly says "Scan for DE1".
+        var entry = popup._actionLabels[actionId]
+        if (entry !== undefined)
+            return TranslationManager.translate(entry.key, entry.fallback)
+        // A parameterized action stores its argument in the id
+        // (command:loadProfile:<filename>), so it misses above. Resolve the stem
+        // through the same table — writing "Load Profile" out here again would
+        // put a third copy of a label the catalog owns.
+        var stem = actionId.split(":").slice(0, 2).join(":")
+        var stemEntry = popup._actionLabels[stem]
+        if (stemEntry !== undefined) {
+            var arg = actionId.substring(stem.length + 1)
+            var label = TranslationManager.translate(stemEntry.key, stemEntry.fallback)
+            if (stem === "command:loadProfile") {
+                var profiles = ProfileManager.availableProfiles
+                for (var j = 0; j < profiles.length; j++) {
+                    if (profiles[j].name === arg)
+                        return label + ": " + profiles[j].title
+                }
             }
-            return TranslationManager.translate("customaction.command.loadProfile", "Load Profile") + ": " + profileName
-        }
-        var actions = getFilteredActions()
-        for (var i = 0; i < actions.length; i++) {
-            if (actions[i].id === actionId) return actions[i].label
+            return label + ": " + arg
         }
         return actionId
     }
@@ -1416,6 +1434,14 @@ DecenzaDialog {
         var ctx = popup.pageContext
         var out = []
         var catalog = Settings.network.layoutActionCatalog()
+        // An empty catalog means the C++ table did not reach QML at all. The
+        // picker would render as a lone "None" row, which reads like a context
+        // restriction rather than a fault — say so instead of showing nothing.
+        if (!catalog || catalog.length === 0) {
+            console.warn("CustomEditorPopup: layoutActionCatalog() returned nothing; "
+                         + "the action picker will be empty")
+            return out
+        }
         for (var i = 0; i < catalog.length; ++i) {
             var a = catalog[i]
             if (a.contexts.indexOf(ctx) < 0 && a.contexts.indexOf("all") < 0)
@@ -1424,9 +1450,11 @@ DecenzaDialog {
             // callable) establishes the dependency, so these labels re-resolve
             // on a language change.
             var label = TranslationManager.translate(a.labelKey, a.label)
-            // The one entry whose picker text differs from its catalog label:
-            // selecting it opens a second list rather than committing.
-            if (a.id === "command:loadProfile")
+            // Marked in the catalog, not matched by id here: an id comparison
+            // sitting on the far side of the C++/QML boundary goes stale in
+            // silence if the id is ever renamed, taking with it the only cue
+            // that this row opens a second list rather than committing.
+            if (a.expandsToSubmenu)
                 label += "..."
             out.push({ id: a.id, label: label, contexts: a.contexts })
         }

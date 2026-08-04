@@ -969,72 +969,102 @@ const QVector<WidgetCategoryName>& widgetCategoryTable() {
 // differently in each. Nothing failed when they diverged, which is exactly why
 // they did.
 //
-// `inPicker=false` marks a legacy alias that a stored layout may still carry and
-// that therefore needs a label, but that is not offered in the picker —
-// `command:scanDE1` is one: CustomItem dispatches it identically to
+// Two flags, each stating a FACT about the action. Nothing here names a
+// consequence — the surfaces derive their own rules, so an action does not have
+// to be mislabelled to get the behaviour it needs.
+//
+// `inPicker=false` — a legacy alias a stored layout may still carry. It still
+// needs a LABEL: `command:scanDE1` dispatches identically to
 // `command:scanScale` (both call BLEManager::scanForDevices()), so offering both
-// would be two rows that do the same thing. Same role as `inPalette` in the
-// widget catalog above.
+// would be two rows that do the same thing, but a widget saved with it must not
+// render as its raw id. Same role as `inPalette` in the widget catalog above,
+// and note how that one delivers on the label half — widgetChipNames() and
+// widgetCatalogJson()'s chipNames iterate the WHOLE table before the inPalette
+// skip. layoutActionLabels() below is the analogue.
+//
+// `expandsToSubmenu=true` — selecting it opens a second list rather than
+// committing, because the stored form carries an argument
+// (`command:loadProfile:<filename>`). Two things DERIVE from that one fact: the
+// in-app picker appends "..." to the label, and the web editor omits the action
+// entirely, because it has no submenu and its pickAction() would store the bare
+// id, which CustomItem then rejects. Centralizing the catalog is what put such
+// an action in reach of that surface; deriving the exclusion is what keeps the
+// fix from creating a dead button. An earlier draft stored this inverted, as
+// `webCapable`, and published `!webCapable` under this name — one fact, two
+// names, negated between them, so an action that was web-incapable for any
+// OTHER reason would have silently grown an ellipsis.
 //
 // The picker's "None" entry is NOT here: it is an absence of an action, not an
 // action, and each surface renders it its own way.
 //
 // Adding an entry here does NOT make it work — CustomItem.executeActionString()
-// still needs the matching dispatch arm.
+// still needs the matching dispatch arm (tst_customwidgethtml asserts that).
 struct LayoutActionEntry {
     const char* id;
     const char* labelKey;  // translation key, resolved in-app
     const char* label;     // English fallback; what the web editor shows
     const char* contexts;  // space-separated page contexts; "all" means every page
     bool inPicker;
+    bool expandsToSubmenu;
 };
 
 const QVector<LayoutActionEntry>& layoutActionTable() {
     static const QVector<LayoutActionEntry> kActions = {
+        //                            id                             translation key                          English fallback               contexts     inPicker expandsToSubmenu
         // Navigate
-        { "navigate:settings",        "customaction.navigate.settings",        "Go to Settings",            "idle all", true },
-        { "navigate:history",         "customaction.navigate.history",         "Go to History",             "idle all", true },
-        { "navigate:historyRecipe",   "customaction.navigate.historyRecipe",   "Go to History (this recipe)",  "idle all", true },
-        { "navigate:historyBean",     "customaction.navigate.historyBean",     "Go to History (this bean)",    "idle all", true },
-        { "navigate:historyBag",      "customaction.navigate.historyBag",      "Go to History (this bag)",     "idle all", true },
-        { "navigate:historyProfile",  "customaction.navigate.historyProfile",  "Go to History (this profile)", "idle all", true },
-        { "navigate:profiles",        "customaction.navigate.profiles",        "Go to Profiles",            "idle all", true },
-        { "navigate:profileEditor",   "customaction.navigate.profileEditor",   "Go to Profile Editor",      "idle all", true },
-        { "navigate:recipes",         "customaction.navigate.recipes",         "Go to Recipes",             "idle all", true },
-        { "navigate:descaling",       "customaction.navigate.descaling",       "Go to Descaling",           "idle all", true },
-        { "navigate:ai",              "customaction.navigate.ai",              "Go to AI Settings",         "idle all", true },
-        { "navigate:visualizer",      "customaction.navigate.visualizer",      "Go to Visualizer",          "idle all", true },
-        { "navigate:autofavorites",   "customaction.navigate.autofavorites",   "Go to Favorites",           "idle all", true },
-        { "navigate:steam",           "customaction.navigate.steam",           "Go to Steam",               "idle",     true },
-        { "navigate:hotwater",        "customaction.navigate.hotwater",        "Go to Hot Water",           "idle",     true },
-        { "navigate:flush",           "customaction.navigate.flush",           "Go to Flush",               "idle",     true },
-        { "navigate:beaninfo",        "customaction.navigate.beaninfo",        "Go to Bean Info",           "idle all", true },
-        { "navigate:espresso",        "customaction.navigate.espresso",        "Go to Espresso",            "idle",     true },
-        { "navigate:community",       "customaction.navigate.community",       "Go to Community",           "idle all", true },
-        { "navigate:flowCalibration", "customaction.navigate.flowCalibration", "Go to Flow Calibration",    "idle all", true },
-        { "navigate:profileImport",   "customaction.navigate.profileImport",   "Go to Profile Import",      "idle all", true },
-        { "navigate:shotReview",      "customaction.navigate.shotReview",      "Go to Shot Review",         "idle",     true },
+        { "navigate:settings",        "customaction.navigate.settings",        "Go to Settings",            "idle all", true,  false },
+        { "navigate:history",         "customaction.navigate.history",         "Go to History",             "idle all", true,  false },
+        { "navigate:historyRecipe",   "customaction.navigate.historyRecipe",   "Go to History (this recipe)",  "idle all", true, false },
+        { "navigate:historyBean",     "customaction.navigate.historyBean",     "Go to History (this bean)",    "idle all", true, false },
+        { "navigate:historyBag",      "customaction.navigate.historyBag",      "Go to History (this bag)",     "idle all", true, false },
+        { "navigate:historyProfile",  "customaction.navigate.historyProfile",  "Go to History (this profile)", "idle all", true, false },
+        { "navigate:profiles",        "customaction.navigate.profiles",        "Go to Profiles",            "idle all", true,  false },
+        { "navigate:profileEditor",   "customaction.navigate.profileEditor",   "Go to Profile Editor",      "idle all", true,  false },
+        // `navigate:recipes` pushes the D-FLOW PROFILE editor (main.qml
+        // goToRecipeEditor), not the drink Recipes page — it was labelled "Go to
+        // Recipes" and a user picking it landed somewhere else entirely. New
+        // translation key, because the old one's 66 translations all say
+        // "Recipes" and would now be wrong. The id is unchanged, so stored
+        // layouts keep working. `navigate:recipeList` below is the actual
+        // Recipes page; it and `navigate:equipment` dispatch fine in CustomItem
+        // but were in neither hand-written list, so neither picker ever offered
+        // them.
+        { "navigate:recipes",         "customaction.navigate.dflowEditor",     "Go to D-Flow Editor",       "idle all", true,  false },
+        { "navigate:recipeList",      "customaction.navigate.recipeList",      "Go to Recipes",             "idle all", true,  false },
+        { "navigate:equipment",       "customaction.navigate.equipment",       "Go to Equipment",           "idle all", true,  false },
+        { "navigate:descaling",       "customaction.navigate.descaling",       "Go to Descaling",           "idle all", true,  false },
+        { "navigate:ai",              "customaction.navigate.ai",              "Go to AI Settings",         "idle all", true,  false },
+        { "navigate:visualizer",      "customaction.navigate.visualizer",      "Go to Visualizer",          "idle all", true,  false },
+        { "navigate:autofavorites",   "customaction.navigate.autofavorites",   "Go to Favorites",           "idle all", true,  false },
+        { "navigate:steam",           "customaction.navigate.steam",           "Go to Steam",               "idle",     true,  false },
+        { "navigate:hotwater",        "customaction.navigate.hotwater",        "Go to Hot Water",           "idle",     true,  false },
+        { "navigate:flush",           "customaction.navigate.flush",           "Go to Flush",               "idle",     true,  false },
+        { "navigate:beaninfo",        "customaction.navigate.beaninfo",        "Go to Bean Info",           "idle all", true,  false },
+        { "navigate:espresso",        "customaction.navigate.espresso",        "Go to Espresso",            "idle",     true,  false },
+        { "navigate:community",       "customaction.navigate.community",       "Go to Community",           "idle all", true,  false },
+        { "navigate:flowCalibration", "customaction.navigate.flowCalibration", "Go to Flow Calibration",    "idle all", true,  false },
+        { "navigate:profileImport",   "customaction.navigate.profileImport",   "Go to Profile Import",      "idle all", true,  false },
+        { "navigate:shotReview",      "customaction.navigate.shotReview",      "Go to Shot Review",         "idle",     true,  false },
         // Command
-        { "command:sleep",            "customaction.command.sleep",            "Sleep",                     "idle",     true },
-        { "command:startEspresso",    "customaction.command.startEspresso",    "Start Espresso",            "idle",     true },
-        { "command:startSteam",       "customaction.command.startSteam",       "Start Steam",               "idle",     true },
-        { "command:startHotWater",    "customaction.command.startHotWater",    "Start Hot Water",           "idle",     true },
-        { "command:startFlush",       "customaction.command.startFlush",       "Start Flush",               "idle",     true },
-        { "command:idle",             "customaction.command.idle",             "Stop (Idle)",               "idle espresso steam hotwater flush", true },
-        { "command:tare",             "customaction.command.tare",             "Tare Scale",                "idle espresso all", true },
-        { "command:scanScale",        "customaction.command.scanScale",        "Scan for Devices",          "idle all", true },
-        { "command:brewSettings",     "customaction.command.brewSettings",     "Open Brew Settings",        "idle",     true },
-        { "command:tempToggleSteam",  "customaction.command.tempToggleSteam",  "Toggle Steam (temporary)",  "idle",     true },
-        { "command:toggleCharging",   "customaction.command.toggleCharging",   "Toggle Charging Mode",      "idle all", true },
-        { "command:uploadVisualizer", "customaction.command.uploadVisualizer", "Upload to Visualizer",      "idle",     true },
-        { "command:disconnectDE1",    "customaction.command.disconnectDE1",    "Disconnect DE1",            "idle",     true },
-        // The in-app picker appends an ellipsis and expands this into a profile
-        // list on selection; the entry itself is ordinary.
-        { "command:loadProfile",      "customaction.command.loadProfile",      "Load Profile",              "idle",     true },
-        { "command:previousProfile",  "customaction.command.previousProfile",  "Previous Profile",          "idle",     true },
-        { "command:quit",             "customaction.command.quit",             "Quit App",                  "idle",     true },
+        { "command:sleep",            "customaction.command.sleep",            "Sleep",                     "idle",     true,  false },
+        { "command:startEspresso",    "customaction.command.startEspresso",    "Start Espresso",            "idle",     true,  false },
+        { "command:startSteam",       "customaction.command.startSteam",       "Start Steam",               "idle",     true,  false },
+        { "command:startHotWater",    "customaction.command.startHotWater",    "Start Hot Water",           "idle",     true,  false },
+        { "command:startFlush",       "customaction.command.startFlush",       "Start Flush",               "idle",     true,  false },
+        { "command:idle",             "customaction.command.idle",             "Stop (Idle)",               "idle espresso steam hotwater flush", true, false },
+        { "command:tare",             "customaction.command.tare",             "Tare Scale",                "idle espresso all", true, false },
+        { "command:scanScale",        "customaction.command.scanScale",        "Scan for Devices",          "idle all", true,  false },
+        { "command:brewSettings",     "customaction.command.brewSettings",     "Open Brew Settings",        "idle",     true,  false },
+        { "command:tempToggleSteam",  "customaction.command.tempToggleSteam",  "Toggle Steam (temporary)",  "idle",     true,  false },
+        { "command:toggleCharging",   "customaction.command.toggleCharging",   "Toggle Charging Mode",      "idle all", true,  false },
+        { "command:uploadVisualizer", "customaction.command.uploadVisualizer", "Upload to Visualizer",      "idle",     true,  false },
+        { "command:disconnectDE1",    "customaction.command.disconnectDE1",    "Disconnect DE1",            "idle",     true,  false },
+        // The one parameterized action — see the expandsToSubmenu note above.
+        { "command:loadProfile",      "customaction.command.loadProfile",      "Load Profile",              "idle",     true,  true },
+        { "command:previousProfile",  "customaction.command.previousProfile",  "Previous Profile",          "idle",     true,  false },
+        { "command:quit",             "customaction.command.quit",             "Quit App",                  "idle",     true,  false },
         // Legacy alias, see inPicker note above.
-        { "command:scanDE1",          "customaction.command.scanDE1",          "Scan for DE1",              "idle all", false },
+        { "command:scanDE1",          "customaction.command.scanDE1",          "Scan for DE1",              "idle all", false, false },
     };
     return kActions;
 }
@@ -1163,18 +1193,43 @@ QVariantList SettingsNetwork::layoutActionCatalog() {
             { QStringLiteral("labelKey"), QString::fromLatin1(e.labelKey) },
             { QStringLiteral("label"), QString::fromLatin1(e.label) },
             { QStringLiteral("contexts"), splitActionContexts(e.contexts) },
+            { QStringLiteral("expandsToSubmenu"), e.expandsToSubmenu },
         });
     }
     return list;
 }
 
-QJsonArray SettingsNetwork::layoutActionCatalogJson() {
-    // Shape consumed by the web layout editor's ACTIONS array: English labels
-    // only, since that editor has no translation layer. The "None" entry it
-    // prepends is not an action and stays on that side.
-    QJsonArray actions;
+QVariantMap SettingsNetwork::layoutActionLabels() {
+    // EVERY entry, including !inPicker — the analogue of widgetChipNames().
+    // A layout can carry an action that is no longer offered, and both editors
+    // fall back to printing the raw id when a lookup misses, so this is what
+    // keeps `command:scanDE1` reading "Scan for DE1" rather than
+    // "command:scanDE1".
+    QVariantMap map;
     for (const auto& e : layoutActionTable()) {
-        if (!e.inPicker)
+        map.insert(QString::fromLatin1(e.id), QVariantMap{
+            { QStringLiteral("key"), QString::fromLatin1(e.labelKey) },
+            { QStringLiteral("fallback"), QString::fromLatin1(e.label) },
+        });
+    }
+    return map;
+}
+
+QJsonObject SettingsNetwork::layoutActionCatalogJson() {
+    // Shape consumed by the web layout editor: English labels only, since that
+    // editor has no translation layer. Two channels, for the same reason the
+    // widget catalog has `types` and `chipNames`:
+    //   actions — what this editor may OFFER (inPicker, minus parameterized)
+    //   labels  — what any stored id RESOLVES to (every entry)
+    // The "None" entry the picker prepends is not an action and stays on that
+    // side.
+    QJsonArray actions;
+    QJsonObject labels;
+    for (const auto& e : layoutActionTable()) {
+        labels[QString::fromLatin1(e.id)] = QString::fromLatin1(e.label);
+        // A parameterized action is omitted here rather than flagged: this editor
+        // has no submenu to expand it with.
+        if (!e.inPicker || e.expandsToSubmenu)
             continue;
         actions.append(QJsonObject{
             { QStringLiteral("id"), QString::fromLatin1(e.id) },
@@ -1183,7 +1238,28 @@ QJsonArray SettingsNetwork::layoutActionCatalogJson() {
               QJsonArray::fromStringList(splitActionContexts(e.contexts)) },
         });
     }
-    return actions;
+    return QJsonObject{
+        { QStringLiteral("actions"), actions },
+        { QStringLiteral("labels"), labels },
+    };
+}
+
+QVector<QPair<QString, QString>> SettingsNetwork::layoutCatalogTranslationStrings() {
+    QVector<QPair<QString, QString>> out;
+    // Actions: every entry, not just inPicker ones — a legacy action still shows
+    // its label wherever a stored layout is edited.
+    for (const auto& e : layoutActionTable())
+        out.append({ QString::fromLatin1(e.labelKey), QString::fromLatin1(e.label) });
+    // Widgets: palette label and chip label are separate keys with separate
+    // fallbacks (several types deliberately differ, e.g. "Machine Status" vs
+    // "Machine"), so both are declared.
+    for (const auto& e : widgetCatalogTable()) {
+        out.append({ QString::fromLatin1(e.labelKey), QString::fromLatin1(e.label) });
+        out.append({ QString::fromLatin1(e.chipKey), QString::fromLatin1(e.chip) });
+    }
+    for (const auto& c : widgetCategoryTable())
+        out.append({ QString::fromLatin1(c.key), QString::fromLatin1(c.fallback) });
+    return out;
 }
 
 bool SettingsNetwork::itemIsConfigured(const QString& itemId) const {

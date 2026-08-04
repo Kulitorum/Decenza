@@ -85,20 +85,8 @@ T.Page {
     StackView.onActivated: {
         if (!_initialized) {
             _initialized = true
-            if (initialFilter) {
-                // Populate search field with filter terms so user can edit/save
-                var parts = []
-                if (initialFilter.beanBrand) parts.push(initialFilter.beanBrand)
-                if (initialFilter.beanType) parts.push(initialFilter.beanType)
-                if (initialFilter.profileName) parts.push(initialFilter.profileName)
-                if (initialFilter.grinderBrand) parts.push(initialFilter.grinderBrand)
-                if (initialFilter.grinderModel) parts.push(initialFilter.grinderModel)
-                if (initialFilter.grinderSetting) parts.push(initialFilter.grinderSetting)
-                _populatingSearch = true
-                searchField.text = parts.join(" ")
-                searchField.lastTriggeredText = searchField.text.trim()
-                _populatingSearch = false
-            }
+            if (initialFilter)
+                _populateSearchFromFilter(initialFilter)
             loadShots()
         } else {
             // Returning from a pushed child page (Shot Detail, comparison,
@@ -260,60 +248,65 @@ T.Page {
                 }
             }
 
-            // recipe: — the first STRING-valued keyword here. Every other one is
-            // numeric or boolean, so none of them has had to decide where a term
-            // ends. Two forms, because names routinely share a leading word
+            // STRING-valued keywords. Every other keyword above is numeric or
+            // boolean, so none of them has had to decide where a term ends.
+            // Two forms, because names routinely share a leading word
             // ("Dad Monday", "Dad Tuesday"):
             //   recipe:dad             single token
             //   recipe:"dad tuesday"   quoted, spaces allowed
-            // Both are SUBSTRING matches, not exact: an auto-suggested name looks
-            // like "Hometown Blend Latte · D-Flow / Q", and requiring that typed in
-            // full — middot included — would make the keyword unusable. Exactness
-            // is the tap-through's job, which compares an id rather than a string.
-            // An unterminated quote runs to end-of-string instead of failing.
-            // The unquoted branch requires at least one character (\S+, NOT \S*).
-            // With \S* a bare "recipe:" matched an EMPTY term, so "recipe: dad" —
-            // a space after the colon, which people type — set the no-match
-            // sentinel while "dad" stayed in the free text and got ANDed against
-            // it, returning zero shots where it used to find Dad Monday and Dad
-            // Tuesday. An incomplete "recipe:" is better treated as not-a-keyword
-            // and left to free text.
+            // Both are SUBSTRING matches, not exact: an auto-suggested recipe
+            // name looks like "Hometown Blend Latte · D-Flow / Q", and requiring
+            // that typed in full — middot included — would make the keyword
+            // unusable. Exactness is the tap-through's job, which compares an id
+            // rather than a string. An unterminated quote runs to end-of-string
+            // instead of failing.
             //
-            // An explicitly EMPTY quoted term (`recipe:""`) is different — that is
-            // a deliberate narrowing request with nothing to narrow by, so it gets
+            // The unquoted branch requires at least one character (\S+, NOT
+            // \S*). With \S* a bare "recipe:" matched an EMPTY term, so
+            // "recipe: dad" — a space after the colon, which people type — set
+            // the no-match sentinel while "dad" stayed in the free text and got
+            // ANDed against it, returning zero shots where it used to find Dad
+            // Monday and Dad Tuesday. An incomplete keyword is better treated as
+            // not-a-keyword and left to free text. The STRIP pass below uses
+            // \S* deliberately, so that bare "recipe:" is still removed rather
+            // than reaching FTS as the literal word.
+            //
+            // An explicitly EMPTY quoted term (`recipe:""`) is different — a
+            // deliberate narrowing request with nothing to narrow by, so it gets
             // the sentinel and honestly matches nothing.
-            var recipeMatch = /\brecipe:(?:"([^"]*)"?|(\S+))/i.exec(searchText)
-            if (recipeMatch) {
-                var recipeTerm = recipeMatch[1] !== undefined ? recipeMatch[1] : recipeMatch[2]
-                recipeTerm = (recipeTerm || "").trim()
-                filter.recipeName = recipeTerm.length > 0 ? recipeTerm : " "
-                searchText = searchText.replace(recipeMatch[0], "")
-            }
-
-            // bag: — the SECOND string-valued keyword, deliberately identical in
-            // grammar to recipe: above (quoted or single-token, \S+ not \S*, an
-            // explicitly empty quoted term getting the no-match sentinel), so a
-            // user who learned one has learned the other. What differs is only
-            // what it matches: a bag's coffee name, roaster and roast date
-            // combined, because bag identity is spread over all three and the
-            // user narrowing by "the July Ethiopian" cannot be expected to know
-            // which field holds which word. Storage-side name is `bagTerm`, not
-            // `bagName`, so it never reads as the banner's `bagLabel`.
-            var bagMatch = /\bbag:(?:"([^"]*)"?|(\S+))/i.exec(searchText)
-            if (bagMatch) {
-                var bagTerm = bagMatch[1] !== undefined ? bagMatch[1] : bagMatch[2]
-                bagTerm = (bagTerm || "").trim()
-                filter.bagTerm = bagTerm.length > 0 ? bagTerm : " "
-                searchText = searchText.replace(bagMatch[0], "")
+            //
+            // Table-driven like the numeric and flag keywords above, so this
+            // grammar is stated ONCE. It was written out twice, and the \S+ fix
+            // recorded above had to be found and applied to a single copy.
+            // `bag:` matches a bag's coffee name, roaster and roast date
+            // combined — identity is spread over all three, and a user narrowing
+            // by `bag:"guji 2026-07"` cannot be expected to know which field
+            // holds which word. (Roast dates are stored ISO, so a month reads
+            // "2026-07"; `bag:july` matches nothing.) Its storage-side name is
+            // `bagTerm`, not `bagName`, so it never reads as the banner's
+            // `bagLabel`.
+            var stringKeywords = [
+                { pattern: /\brecipe:(?:"([^"]*)"?|(\S+))/i, filterKey: "recipeName",
+                  strip: /\brecipe:(?:"[^"]*"?|\S*)/gi },
+                { pattern: /\bbag:(?:"([^"]*)"?|(\S+))/i,    filterKey: "bagTerm",
+                  strip: /\bbag:(?:"[^"]*"?|\S*)/gi }
+            ]
+            for (var sk = 0; sk < stringKeywords.length; sk++) {
+                var kwd = stringKeywords[sk]
+                var m = kwd.pattern.exec(searchText)
+                if (!m) continue
+                var term = (m[1] !== undefined ? m[1] : m[2]) || ""
+                term = term.trim()
+                filter[kwd.filterKey] = term.length > 0 ? term : " "
+                searchText = searchText.replace(m[0], "")
             }
 
             // Strip any remaining keyword tokens (e.g. duplicate dose:18 dose:20)
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "")
             searchText = searchText.replace(/\b(channeling|temp|grind|skipframe|puckfailed):yes\b/gi, "")
-            // \S* (not \S+) so a bare "recipe:" with no term is stripped too,
-            // rather than falling through to FTS as the literal word "recipe".
-            searchText = searchText.replace(/\brecipe:(?:"[^"]*"?|\S*)/gi, "")
-            searchText = searchText.replace(/\bbag:(?:"[^"]*"?|\S*)/gi, "")
+            // Same table, so a keyword can never be parsed without being stripped.
+            for (var sp = 0; sp < stringKeywords.length; sp++)
+                searchText = searchText.replace(stringKeywords[sp].strip, "")
 
             // Pass remaining text as FTS search (skipped when exact initialFilter is active)
             searchText = searchText.trim().replace(/\s+/g, " ")
@@ -321,26 +314,32 @@ T.Page {
                 filter.searchText = searchText
             }
         }
-        // Merge initialFilter fields (from AutoFavoritesPage "Show" button etc.)
+        // Merge initialFilter (from AutoFavoritesPage "Show", the recipe
+        // tap-through, and the Custom widget's History actions).
+        //
+        // Everything is forwarded EXCEPT the banner labels. This used to be two
+        // hand-written allowlists, which read as the schema and were not:
+        // parseFilterMap() accepts ~30 keys and the lists covered 13, so a
+        // caller sending `roastLevel` or `minEnjoyment` — both understood by
+        // storage — had it dropped here in silence while the banner, which reads
+        // initialFilter DIRECTLY, still announced "Filtered:" over an unfiltered
+        // list. parseFilterMap is the schema; an unknown key is inert there.
+        //
+        // The exclusions are labels, not filters: recipeName and bagLabel exist
+        // for the banner's text. recipeName in particular IS a real query term in
+        // parseFilterMap (the `recipe:` keyword's substring match), so forwarding
+        // it would silently widen an exact id filter into a name search.
+        // tst_customwidgethtml asserts the widget helpers only emit keys storage
+        // reads, which is where a typo like `bagID` is caught — at build time,
+        // rather than by a runtime warning nobody reads.
         if (initialFilter) {
-            var filterFields = ["profileName", "beanBrand", "beanType", "grinderBrand", "grinderModel", "grinderSetting"]
-            for (var k = 0; k < filterFields.length; k++) {
-                var field = filterFields[k]
-                if (initialFilter[field] !== undefined && initialFilter[field] !== "")
-                    filter[field] = initialFilter[field]
-            }
-            // Numeric filters from the Auto-Favorites "Show" button in weight mode,
-            // plus the recipe tap-through (history-recipe-identity). recipeId is an
-            // ID, not a name: a rename cannot move it and two recipes sharing a
-            // name stay distinct. initialFilter also carries `recipeName`, which is
-            // deliberately absent from both loops — it is the banner's label only,
-            // never a query term. `bagId` (history-bag-filter) is the same shape,
-            // with `bagLabel` playing recipeName's banner-only part.
-            var numericFields = ["minDose", "maxDose", "minYield", "maxYield", "targetWeight", "recipeId", "bagId"]
-            for (var m = 0; m < numericFields.length; m++) {
-                var nf = numericFields[m]
-                if (initialFilter[nf] !== undefined && initialFilter[nf] !== null)
-                    filter[nf] = initialFilter[nf]
+            var bannerOnlyKeys = ["recipeName", "bagLabel"]
+            for (var key in initialFilter) {
+                if (bannerOnlyKeys.indexOf(key) >= 0)
+                    continue
+                var val = initialFilter[key]
+                if (val !== undefined && val !== null && val !== "")
+                    filter[key] = val
             }
         }
 
@@ -356,55 +355,62 @@ T.Page {
     function filterByRecipe(recipeId, recipeName) {
         if (!recipeId || recipeId <= 0)
             return
-        Keyboard.commit()
-        _populatingSearch = true
-        searchField.text = ""
-        searchField.lastTriggeredText = ""
-        _populatingSearch = false
-        initialFilter = { "recipeId": recipeId, "recipeName": recipeName || "" }
-        loadShots()
+        applyInitialFilter({ "recipeId": recipeId, "recipeName": recipeName || "" })
     }
 
-    // Same channel, same reasoning, for a bag (history-bag-filter). Reached from
-    // the Custom widget's "this bag" action rather than a tap on a row; bagLabel
-    // is the banner's text only, never a query term.
-    function filterByBag(bagId, bagLabel) {
-        if (!bagId || bagId <= 0)
-            return
-        Keyboard.commit()
+    // ONE writer for the search box. The flag suppresses onTextEdited, which
+    // would otherwise null initialFilter as a side effect of us setting the text;
+    // three hand-written copies of that dance is how one of them ends up missing
+    // the reset.
+    function _setSearchText(str) {
         _populatingSearch = true
-        searchField.text = ""
-        searchField.lastTriggeredText = ""
+        searchField.text = str
+        searchField.lastTriggeredText = str.trim()
         _populatingSearch = false
-        initialFilter = { "bagId": bagId, "bagLabel": bagLabel || "" }
-        loadShots()
     }
 
-    // Apply an arbitrary initialFilter to the page that is ALREADY showing —
-    // what main.qml's goToShotHistory() calls when Shot History is the current
-    // page. An empty (or absent) filter clears, so a plain "Go to History" tap
-    // from the status bar is a clear rather than the silent no-op it used to be.
+    // Mirror a filter's human-readable terms into the search box so the user can
+    // edit or save it. ONE definition, used by both entry points: the push path
+    // (StackView.onActivated) and the already-showing path (applyInitialFilter).
+    // They previously disagreed — push populated, apply cleared — so the same
+    // widget tap left a different screen depending on whether History happened to
+    // be open, which is also how the destructive-clear bug below stayed invisible
+    // in testing.
+    //
+    // Id-matched filters (recipeId, bagId) contribute nothing here on purpose:
+    // their labels are not search terms, and typing one back would widen an exact
+    // filter into a substring match.
+    function _populateSearchFromFilter(f) {
+        var parts = []
+        if (f.beanBrand) parts.push(f.beanBrand)
+        if (f.beanType) parts.push(f.beanType)
+        if (f.profileName) parts.push(f.profileName)
+        if (f.grinderBrand) parts.push(f.grinderBrand)
+        if (f.grinderModel) parts.push(f.grinderModel)
+        if (f.grinderSetting) parts.push(f.grinderSetting)
+        _setSearchText(parts.join(" "))
+    }
+
+    // Apply an arbitrary initialFilter — used both by the in-page tap-throughs
+    // and by main.qml's goToShotHistory() when Shot History is already showing.
+    //
+    // `null`/empty means the caller explicitly asked for everything (the plain
+    // "Go to History" action), so it clears. A widget action that found NO
+    // context does not reach this function at all — goToShotHistory() returns
+    // early — because clearing on "nothing to filter by" turns a narrowing button
+    // into one that destroys the user's filter and typed search.
     function applyInitialFilter(f) {
-        if (!f || Object.keys(f).length === 0) {
-            clearInitialFilter()
-            return
-        }
         Keyboard.commit()
-        _populatingSearch = true
-        searchField.text = ""
-        searchField.lastTriggeredText = ""
-        _populatingSearch = false
-        initialFilter = f
+        var hasFilter = f && Object.keys(f).length > 0
+        initialFilter = hasFilter ? f : null
+        _populateSearchFromFilter(hasFilter ? f : {})
         loadShots()
     }
 
+    // The banner's Clear control. Kept as its own name because that is what the
+    // call site means; the body is just the empty case of applyInitialFilter.
     function clearInitialFilter() {
-        initialFilter = null
-        _populatingSearch = true
-        searchField.text = ""
-        searchField.lastTriggeredText = ""
-        _populatingSearch = false
-        loadShots()
+        applyInitialFilter(null)
     }
 
     function toggleSelection(shotId) {

@@ -26,6 +26,7 @@
 #include <QTextCharFormat>
 
 #include "core/documentformatter.h"
+#include "core/settings_network.h"
 
 class TestCustomWidgetHtml : public QObject {
     Q_OBJECT
@@ -44,6 +45,8 @@ private slots:
     void clearColorLeavesOtherRunsAlone();
 
     void everyCatalogActionHasADispatchArm();
+    void webCatalogOmitsActionsTheWebCannotAuthor();
+    void actionContextsAreDrawnFromTheKnownVocabulary();
     void neitherEditorHardCodesItsOwnActionList();
     void historyFilterKeysAreUnderstoodByTheStorageLayer();
 
@@ -58,9 +61,8 @@ private:
 // rather than regex'd, so a nested `}` inside the function body cannot truncate it.
 void TestCustomWidgetHtml::initTestCase()
 {
-    QFile f(QStringLiteral(DECENZA_SOURCE_DIR) + "/src/network/shotserver_layout.cpp");
-    QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(f.errorString()));
-    const QString src = QString::fromUtf8(f.readAll());
+    const QString src = readSource(QStringLiteral("/src/network/shotserver_layout.cpp"));
+    QVERIFY2(!src.isEmpty(), "could not read shotserver_layout.cpp");
 
     const QString needle = QStringLiteral("function segmentsToHtml(");
     const qsizetype start = src.indexOf(needle);
@@ -95,62 +97,159 @@ QString TestCustomWidgetHtml::readSource(const QString &relativePath)
     return QString::fromUtf8(f.readAll());
 }
 
+// Slice CustomItem.executeActionString() into its per-category switches. The
+// function branches on `category === "togglePreset" / "navigate" / "command"`
+// and each branch has its OWN switch over the target, so a whole-file search for
+// `case "x":` cannot tell which switch the arm landed in. An arm in the wrong
+// branch is unreachable — exactly the dead button these tests exist to catch.
+static QString dispatchBranch(const QString &itemSrc, const QString &category)
+{
+    const QString needle = QStringLiteral("category === \"%1\"").arg(category);
+    const qsizetype start = itemSrc.indexOf(needle);
+    if (start < 0)
+        return QString();
+    // Runs to the next category test, or to the end of the function.
+    qsizetype end = itemSrc.size();
+    // navigate and command are each other's boundary; togglePreset precedes both
+    // and so never bounds either.
+    for (const QString &other : { QStringLiteral("navigate"), QStringLiteral("command") }) {
+        if (other == category)
+            continue;
+        const qsizetype at = itemSrc.indexOf(
+            QStringLiteral("category === \"%1\"").arg(other), start + needle.size());
+        if (at >= 0 && at < end)
+            end = at;
+    }
+    return itemSrc.mid(start, end - start);
+}
+
 // Centralizing the action catalog (layout-action-catalog) moved the picker's
 // list away from the code that dispatches it. That buys one declaration and
 // costs the adjacency that used to make a missing dispatch arm obvious: an entry
 // can now be offered in both editors, saved onto a widget, and do nothing when
 // tapped, with no warning anywhere until a user reports a dead button.
 //
-// So: every id the catalog offers must have a matching `case` in
-// CustomItem.executeActionString(). Read out of shipping source rather than
-// linked, which keeps this target's link set unchanged (the catalog lives in
-// settings_network.cpp, which drags in the whole Settings facade).
+// So: every id the catalog offers must have a matching `case` in the RIGHT
+// branch of CustomItem.executeActionString(). The catalog side is the real
+// function, not a source scrape — settings_network.cpp is in CORE_SOURCES
+// (tests/CMakeLists.txt) and so is already linked into every test target, which
+// an earlier version of this comment got wrong. Calling it also sees what a
+// scrape cannot: the inPicker filtering, and whether the accessor returns the
+// table at all. The QML side stays textual because there is no QML engine here.
 void TestCustomWidgetHtml::everyCatalogActionHasADispatchArm()
 {
-    const QString catalogSrc = readSource(QStringLiteral("/src/core/settings_network.cpp"));
-    QVERIFY2(!catalogSrc.isEmpty(), "could not read settings_network.cpp");
-
-    const qsizetype tableStart = catalogSrc.indexOf(QStringLiteral("kActions = {"));
-    QVERIFY2(tableStart >= 0, "layoutActionTable's kActions initializer not found — the catalog "
-                              "moved or was renamed; this test is now blind");
-    const qsizetype tableEnd = catalogSrc.indexOf(QStringLiteral("};"), tableStart);
-    QVERIFY(tableEnd > tableStart);
-    const QString table = catalogSrc.mid(tableStart, tableEnd - tableStart);
-
-    // { "navigate:historyBag", "customaction...", ... }  →  navigate / historyBag
-    static const QRegularExpression entryRe(
-        QStringLiteral("\\{\\s*\"(navigate|command):([A-Za-z0-9]+)\""));
-    QStringList ids;
-    auto it = entryRe.globalMatch(table);
-    while (it.hasNext()) {
-        const QRegularExpressionMatch m = it.next();
-        ids << m.captured(1) + QLatin1Char(':') + m.captured(2);
-    }
-    // A regex that silently matched nothing would make this test pass forever.
-    QVERIFY2(ids.size() > 20, qPrintable(QStringLiteral("only %1 catalog entries parsed — the "
-             "table's formatting changed and this test is no longer reading it").arg(ids.size())));
+    const QVariantList catalog = SettingsNetwork::layoutActionCatalog();
+    QVERIFY2(catalog.size() > 35,
+             qPrintable(QStringLiteral("layoutActionCatalog() returned %1 entries; the table holds "
+                                       "far more, so the accessor is not reading it")
+                        .arg(catalog.size())));
 
     const QString itemSrc = readSource(QStringLiteral("/qml/components/layout/items/CustomItem.qml"));
     QVERIFY2(!itemSrc.isEmpty(), "could not read CustomItem.qml");
 
+    QMap<QString, QString> branches;
+    for (const QString &cat : { QStringLiteral("navigate"), QStringLiteral("command") }) {
+        branches[cat] = dispatchBranch(itemSrc, cat);
+        QVERIFY2(!branches[cat].isEmpty(),
+                 qPrintable(QStringLiteral("could not find the '%1' branch of "
+                                           "executeActionString(); this test is now blind").arg(cat)));
+    }
+
     QStringList missing;
-    for (const QString &id : ids) {
+    for (const QVariant &v : catalog) {
+        const QString id = v.toMap().value(QStringLiteral("id")).toString();
+        const QString category = id.section(QLatin1Char(':'), 0, 0);
         const QString target = id.section(QLatin1Char(':'), 1);
-        // executeActionString() splits `category:target` and switches on the
-        // target within the category's branch, so the arm is `case "target":`.
-        // One action is PARAMETERIZED instead — `command:loadProfile:<file>` is
-        // matched by prefix before the switch, so it has no case of its own and
-        // the bare id is never stored. Accept either shape.
-        if (itemSrc.contains(QStringLiteral("case \"%1\":").arg(target)))
+        const QString branch = branches.value(category);
+        if (branch.isEmpty()) {
+            missing << id + QStringLiteral(" (unknown category)");
             continue;
-        if (itemSrc.contains(QStringLiteral("indexOf(\"%1:\") === 0").arg(target)))
+        }
+        // A PARAMETERIZED action has no case of its own —
+        // `command:loadProfile:<file>` is matched by prefix in the switch's
+        // default arm, and the bare id is never stored by the in-app picker.
+        if (branch.contains(QStringLiteral("case \"%1\":").arg(target)))
+            continue;
+        if (branch.contains(QStringLiteral("indexOf(\"%1:\") === 0").arg(target)))
             continue;
         missing << id;
     }
     QVERIFY2(missing.isEmpty(),
-             qPrintable(QStringLiteral("catalog actions with no dispatch arm in CustomItem.qml "
-                                       "(they would be offered in both editors and do nothing): ")
+             qPrintable(QStringLiteral("catalog actions with no dispatch arm in their own branch of "
+                                       "CustomItem.executeActionString() (they would be offered in "
+                                       "an editor and do nothing): ")
                         + missing.join(QStringLiteral(", "))));
+}
+
+// A parameterized action cannot be authored by a surface that has no way to
+// supply the parameter: the web editor's pickAction() stores the bare id, which
+// CustomItem then rejects at dispatch. Centralizing the catalog is what put such
+// an action within that editor's reach, so the exclusion has to hold.
+void TestCustomWidgetHtml::webCatalogOmitsActionsTheWebCannotAuthor()
+{
+    const QJsonObject json = SettingsNetwork::layoutActionCatalogJson();
+    const QJsonArray actions = json.value(QStringLiteral("actions")).toArray();
+    const QJsonObject labels = json.value(QStringLiteral("labels")).toObject();
+
+    QVERIFY2(actions.size() > 35, "the web action list is far shorter than the table");
+    // Labels cover EVERY id, offered or not — that is what keeps a stored legacy
+    // action from rendering as its raw string.
+    QVERIFY2(labels.size() > actions.size(),
+             "the label map should cover more ids than the picker offers (legacy aliases)");
+    QVERIFY2(labels.contains(QStringLiteral("command:scanDE1")),
+             "the legacy alias lost its label; a stored layout will show a raw id");
+
+    QStringList offered;
+    for (const QJsonValue &v : actions)
+        offered << v.toObject().value(QStringLiteral("id")).toString();
+
+    QVERIFY2(!offered.contains(QStringLiteral("command:loadProfile")),
+             "the web picker is offering a parameterized action it cannot expand; picking it "
+             "stores a bare id that CustomItem rejects");
+    QVERIFY2(!offered.contains(QStringLiteral("command:scanDE1")),
+             "a non-picker alias is being offered");
+    // The in-app picker DOES offer it — the two surfaces differ deliberately, and
+    // asserting only the absence above would also pass if the action vanished.
+    QStringList inApp;
+    for (const QVariant &v : SettingsNetwork::layoutActionCatalog())
+        inApp << v.toMap().value(QStringLiteral("id")).toString();
+    QVERIFY2(inApp.contains(QStringLiteral("command:loadProfile")),
+             "the in-app picker lost Load Profile");
+}
+
+// `contexts` is a space-separated string in the table, so a typo ("idel") or an
+// empty value costs nothing at compile time and silently removes the action from
+// every picker — invisible to whoever typed it, since a stored layout keeps
+// dispatching it correctly.
+void TestCustomWidgetHtml::actionContextsAreDrawnFromTheKnownVocabulary()
+{
+    static const QSet<QString> kKnown{
+        QStringLiteral("idle"), QStringLiteral("espresso"), QStringLiteral("steam"),
+        QStringLiteral("hotwater"), QStringLiteral("flush"), QStringLiteral("all") };
+
+    const QVariantList catalog = SettingsNetwork::layoutActionCatalog();
+    QVERIFY(catalog.size() > 35);
+
+    QStringList problems;
+    QSet<QString> seenIds;
+    for (const QVariant &v : catalog) {
+        const QVariantMap a = v.toMap();
+        const QString id = a.value(QStringLiteral("id")).toString();
+        if (seenIds.contains(id))
+            problems << id + QStringLiteral(" (duplicate id)");
+        seenIds.insert(id);
+
+        const QStringList ctx = a.value(QStringLiteral("contexts")).toStringList();
+        if (ctx.isEmpty()) {
+            problems << id + QStringLiteral(" (no contexts — unreachable in every picker)");
+            continue;
+        }
+        for (const QString &c : ctx) {
+            if (!kKnown.contains(c))
+                problems << id + QStringLiteral(" (unknown context '%1')").arg(c);
+        }
+    }
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QStringLiteral(", "))));
 }
 
 // The two editors must READ the catalog, not carry their own copies. They each
@@ -162,8 +261,21 @@ void TestCustomWidgetHtml::neitherEditorHardCodesItsOwnActionList()
 {
     const QString webSrc = readSource(QStringLiteral("/src/network/shotserver_layout.cpp"));
     QVERIFY2(!webSrc.isEmpty(), "could not read shotserver_layout.cpp");
-    QVERIFY2(webSrc.contains(QStringLiteral("LAYOUT_ACTIONS")),
-             "the web editor no longer consumes the injected LAYOUT_ACTIONS catalog");
+    // The CONSUMPTION sites, not just the name: a bare `contains("LAYOUT_...")`
+    // is satisfied by the C++ injection line alone, so the catalog could be
+    // injected into the page and then ignored while this still passed. The page
+    // normalizes the injected object into `CATALOG` once, so that is what the
+    // two readers derive from.
+    QVERIFY2(webSrc.contains(QStringLiteral("var CATALOG = ")),
+             "the web editor no longer normalizes the injected catalog");
+    QVERIFY2(webSrc.contains(QStringLiteral("CATALOG.actions")),
+             "the web editor's ACTIONS no longer derives from the injected catalog");
+    QVERIFY2(webSrc.contains(QStringLiteral("CATALOG.labels")),
+             "the web editor's label lookup no longer derives from the injected catalog");
+    // The community-library filter was the third hand-written copy; it is now
+    // built from the same catalog.
+    QVERIFY2(webSrc.contains(QStringLiteral("fillCommActionFilter")),
+             "the community action filter no longer derives from the catalog");
 
     const QString popupSrc = readSource(
         QStringLiteral("/qml/components/layout/CustomEditorPopup.qml"));
@@ -183,6 +295,12 @@ void TestCustomWidgetHtml::neitherEditorHardCodesItsOwnActionList()
         QStringLiteral("id:\\s*\"(?:navigate|command):[A-Za-z0-9]+\"\\s*,\\s*label\\s*:"));
     QVERIFY2(!qmlPairRe.match(popupSrc).hasMatch(),
              "CustomEditorPopup.qml has re-grown a hand-written {id, label} action list");
+    // Same shape in an HTML <option> list — how the community filter's copy was
+    // written, and the form the two regexes above cannot see.
+    static const QRegularExpression optionRe(
+        QStringLiteral("<option value=\"(?:navigate|command):[A-Za-z0-9]+\">"));
+    QVERIFY2(!optionRe.match(webSrc).hasMatch(),
+             "shotserver_layout.cpp has re-grown a hand-written <option> action list");
 }
 
 // The Custom widget's four History actions hand ShotHistoryPage an
@@ -210,6 +328,12 @@ void TestCustomWidgetHtml::historyFilterKeysAreUnderstoodByTheStorageLayer()
              "the _*HistoryFilter helpers moved or were renamed; this test is now blind");
     const QString helpers = itemSrc.mid(from, to - from);
 
+    // Every helper must be INSIDE that range. A fifth one added below
+    // executeActionString would otherwise contribute no keys and be checked by
+    // nothing, while the key-count floor below still passed on the existing four.
+    QCOMPARE(helpers.count(QStringLiteral("HistoryFilter()")),
+             itemSrc.count(QStringLiteral("HistoryFilter()")) - 4);  // 4 call sites in the switch
+
     // Keys assigned into a filter object, in either shape the helpers use:
     // `f.beanBrand = ...` and `{ bagId: id, bagLabel: label }`.
     QSet<QString> keys;
@@ -227,8 +351,17 @@ void TestCustomWidgetHtml::historyFilterKeysAreUnderstoodByTheStorageLayer()
         if (k != QLatin1String("initialFilter"))
             keys.insert(k);
     }
-    QVERIFY2(keys.size() >= 6, qPrintable(QStringLiteral("only %1 filter keys parsed — the helpers' "
-             "formatting changed and this test is no longer reading them").arg(keys.size())));
+    // By NAME, not by count. A floor only defends against losing keys, and the
+    // direction that matters here is the opposite one — a key added or renamed
+    // while the existing seven stay put would sail past `size() >= 6`.
+    for (const QString &expected : { QStringLiteral("recipeId"), QStringLiteral("recipeName"),
+                                     QStringLiteral("beanBrand"), QStringLiteral("beanType"),
+                                     QStringLiteral("bagId"), QStringLiteral("bagLabel"),
+                                     QStringLiteral("profileName") }) {
+        QVERIFY2(keys.contains(expected),
+                 qPrintable(QStringLiteral("filter key '%1' is no longer produced by the helpers — "
+                                           "renamed, or the scan stopped seeing it").arg(expected)));
+    }
 
     const QString storageSrc =
         readSource(QStringLiteral("/src/history/shothistorystorage_queries.cpp"));
@@ -251,23 +384,26 @@ void TestCustomWidgetHtml::historyFilterKeysAreUnderstoodByTheStorageLayer()
                                        "are dropped silently and yield an UNFILTERED list: ")
                         + unknown.join(QStringLiteral(", "))));
 
-    // The banner-only keys must stay OUT of the page's two passthrough arrays.
-    // Checked against those arrays specifically, not the whole file: both names
-    // legitimately appear elsewhere in it, where filterByRecipe/filterByBag
-    // CONSTRUCT a filter. Adding one to a passthrough list would send a display
-    // label to the query, where it would be matched as a term.
+    // The page forwards initialFilter WHOLESALE to the query now, excluding only
+    // the banner labels. So the check is the mirror of what it was: those two
+    // names must be IN the exclusion list. If one fell out, recipeName in
+    // particular is a real query term in parseFilterMap (the `recipe:` keyword's
+    // substring match), so forwarding it would silently widen an exact id filter
+    // into a name search — a wrong result set, not an error.
+    //
+    // Read from the exclusion list specifically rather than the whole file: both
+    // names legitimately appear elsewhere in it, where filterByRecipe and the
+    // banner CONSTRUCT or display a filter.
     const QString pageSrc = readSource(QStringLiteral("/qml/pages/ShotHistoryPage.qml"));
     QVERIFY2(!pageSrc.isEmpty(), "could not read ShotHistoryPage.qml");
-    for (const QString &arrayName : { QStringLiteral("filterFields"), QStringLiteral("numericFields") }) {
-        const qsizetype at = pageSrc.indexOf(arrayName + QStringLiteral(" = ["));
-        QVERIFY2(at >= 0, qPrintable(QStringLiteral("%1 array not found in ShotHistoryPage.qml — "
-                                                    "this test is now blind").arg(arrayName)));
-        const QString list = pageSrc.mid(at, pageSrc.indexOf(QLatin1Char(']'), at) - at);
-        for (const QString &k : kBannerOnly) {
-            QVERIFY2(!list.contains(QStringLiteral("\"%1\"").arg(k)),
-                     qPrintable(QStringLiteral("%1 is in the %2 passthrough array — it is a banner "
-                                               "label, never a query term").arg(k, arrayName)));
-        }
+    const qsizetype at = pageSrc.indexOf(QStringLiteral("bannerOnlyKeys = ["));
+    QVERIFY2(at >= 0, "bannerOnlyKeys not found in ShotHistoryPage.qml — the merge changed shape "
+                      "and this test is now blind");
+    const QString list = pageSrc.mid(at, pageSrc.indexOf(QLatin1Char(']'), at) - at);
+    for (const QString &k : kBannerOnly) {
+        QVERIFY2(list.contains(QStringLiteral("\"%1\"").arg(k)),
+                 qPrintable(QStringLiteral("%1 is missing from bannerOnlyKeys — it is a display "
+                                           "label and would now be forwarded to the query").arg(k)));
     }
 }
 

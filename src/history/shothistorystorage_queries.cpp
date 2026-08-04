@@ -238,56 +238,81 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
         conditions << "shots.roast_level = ?";
         bindValues << filter.roastLevel;
     }
+    // Identity keywords resolve through a SUBQUERY on the other table rather
+    // than through the display join, so they work identically in the count
+    // query, which does not join. One helper because the shape — and especially
+    // the empty-term sentinel — is subtle enough to have needed a paragraph of
+    // comment each time it was written out:
+    //
+    // a whitespace-only term is an explicit NO-MATCH, never a no-op. The search
+    // box sends `" "` for an explicitly empty quoted term (`recipe:""`,
+    // `bag:""`), and a clause that treated that as "nothing to filter by" would
+    // return EVERYTHING — the opposite of what the user asked for.
+    //
+    // Terms are spliced as literals rather than bound because the term count
+    // varies with what was typed; likeAllTermsLiteral escapes each one, so user
+    // input stays inert.
+    auto identitySubquery = [&](const QString& fkCol, const QString& table,
+                                const QString& identityExpr, const QString& term) {
+        if (term.isEmpty())
+            return;
+        const QString terms = likeAllTermsLiteral(identityExpr, term);
+        conditions << (terms.isEmpty()
+            ? QStringLiteral("0")
+            : QStringLiteral("shots.%1 IN (SELECT id FROM %2 WHERE %3)")
+                  .arg(fkCol, table, terms));
+    };
+
     // Recipe identity (history-recipe-identity). recipeId is the exact
     // tap-through: an id, so a rename cannot move it and two same-named recipes
     // stay distinct. recipeName is the `recipe:` keyword — a case-insensitive
     // substring on recipes.name ONLY, which is what makes it narrower than the
-    // free-text clause in requestShotsFiltered. Both resolve through a subquery
-    // rather than the display join, so they work identically in the count query.
+    // free-text clause in requestShotsFiltered. Word-order independent, matching
+    // that clause and FTS: recipe:"tuesday dad" means the same recipe as
+    // "dad tuesday".
     if (filter.recipeId > 0) {
         conditions << "shots.recipe_id = ?";
         bindValues << filter.recipeId;
     }
-    if (!filter.recipeName.isEmpty()) {
-        // Word-order independent, matching the free-text clause and FTS: a user
-        // who types recipe:"tuesday dad" means the same recipe as "dad tuesday".
-        // Built as a literal rather than a bind because the term count varies;
-        // likeAllTermsLiteral escapes each term, so user input stays inert.
-        const QString terms = likeAllTermsLiteral(QStringLiteral("LOWER(name)"), filter.recipeName);
-        if (terms.isEmpty()) {
-            // Whitespace-only term: an explicit no-match, never a no-op. See the
-            // empty-term sentinel the search box sends for a bare `recipe:`.
-            conditions << "0";
-        } else {
-            conditions << ("shots.recipe_id IN (SELECT id FROM recipes WHERE " + terms + ")");
-        }
-    }
-    // Bag identity (history-bag-filter), built to the same shape as recipe
-    // above. `> 0` and not `>= 0`: a shot pulled before bags existed has a NULL
-    // bag_id, and an unset filter must not be spelled the same way as one that
-    // asks for those rows.
-    if (filter.bagId > 0) {
+    identitySubquery(QStringLiteral("recipe_id"), QStringLiteral("recipes"),
+                     QStringLiteral("LOWER(name)"), filter.recipeName);
+
+    // Bag identity (history-bag-filter), the same two scopes. bagIdIsSet()
+    // rather than a hand-rolled `> 0` — bagid.h defines the sentinel once and
+    // says in as many words not to re-spell it here.
+    //
+    // What that guard actually protects against is NOT pre-bag shots: a NULL
+    // bag_id fails `bag_id = 0` under SQL three-valued logic no matter what the
+    // guard is (verified against sqlite3; an earlier version of this comment
+    // claimed otherwise and was wrong in the opposite direction). It protects
+    // against parseFilterMap yielding 0 for a present-but-malformed value —
+    // coffee_bags.id is INTEGER PRIMARY KEY AUTOINCREMENT, never 0, so a filter
+    // of 0 would return an empty history rather than an over-broad one.
+    if (bagIdIsSet(filter.bagId)) {
         conditions << "shots.bag_id = ?";
         bindValues << filter.bagId;
     }
-    if (!filter.bagTerm.isEmpty()) {
-        // One concatenated identity expression rather than three OR'd columns,
-        // so the word-order independence works ACROSS fields too: bag:"ethiopia
-        // july" matches a coffee named Ethiopia roasted in July, which a
-        // per-column OR would miss (neither column holds both terms). Same
-        // construction as grinderIdentityExpr in requestShotsFiltered.
-        const QString bagIdentityExpr = QStringLiteral(
-            "LOWER(IFNULL(coffee_name,'') || ' ' || IFNULL(roaster_name,'') || ' ' || "
-            "IFNULL(roast_date,''))");
-        const QString terms = likeAllTermsLiteral(bagIdentityExpr, filter.bagTerm);
-        if (terms.isEmpty()) {
-            // Whitespace-only term: an explicit no-match, never a no-op — the
-            // sentinel the search box sends for `bag:""`.
-            conditions << "0";
-        } else {
-            conditions << ("shots.bag_id IN (SELECT id FROM coffee_bags WHERE " + terms + ")");
-        }
-    }
+    // ONE concatenated identity expression rather than three OR'd columns, so
+    // word-order independence works ACROSS fields: bag:"guji 2026-07" matches a
+    // coffee named Guji roasted in July, which a per-column OR would miss
+    // (neither column holds both terms). Roast dates are stored ISO
+    // (YYYY-MM-DD), so the date half of such a term is a numeric prefix —
+    // "july" appears nowhere and would match nothing. Same construction as
+    // grinderIdentityExpr in requestShotsFiltered.
+    //
+    // Every column QUALIFIED, like the shots.* rule above and for the same
+    // reason: `roast_date` also exists on `shots` (shothistorystorage.cpp:295).
+    // Unqualified it resolves to the inner scope and is correct today, but a
+    // rename or drop of the bags column would silently turn this into a
+    // correlated subquery matching the shot's own denormalised date — a
+    // plausible wrong row set with NO SQL error, so none of the errorOccurred
+    // machinery would fire. Qualified, that same change is a hard "no such
+    // column" the error path reports.
+    identitySubquery(QStringLiteral("bag_id"), QStringLiteral("coffee_bags"),
+                     QStringLiteral("LOWER(IFNULL(coffee_bags.coffee_name,'') || ' ' "
+                                    "|| IFNULL(coffee_bags.roaster_name,'') || ' ' "
+                                    "|| IFNULL(coffee_bags.roast_date,''))"),
+                     filter.bagTerm);
     if (filter.minEnjoyment >= 0) {
         conditions << "shots.enjoyment >= ?";
         bindValues << filter.minEnjoyment;

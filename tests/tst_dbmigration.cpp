@@ -196,9 +196,17 @@ private:
                 // column and in no bag column, and single letters do not
                 // qualify — "P" is inside "EthioPia", which is how the first
                 // version of that assertion failed.
+                // shots.roast_date is set DELIBERATELY, and to a value no bag
+                // has. `roast_date` exists on both tables, so if the bag
+                // subquery's columns are ever left unqualified and resolve to
+                // the outer scope, this seed turns it into a correlated query
+                // that returns the wrong rows — with no SQL error to report.
+                // With every shot carrying the same date as its bag, that
+                // regression would pass green.
                 sh.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
-                           "bean_brand, bean_type, bag_id) "
-                           "VALUES (?, ?, 'Londinium Ristretto', 30, 'Roaster', 'Ethiopia Guji', ?)");
+                           "bean_brand, bean_type, roast_date, bag_id) "
+                           "VALUES (?, ?, 'Londinium Ristretto', 30, 'Roaster', 'Ethiopia Guji', "
+                           "'1999-01-01', ?)");
                 sh.addBindValue(uuid); sh.addBindValue(ts);
                 if (bagId > 0) sh.addBindValue(bagId); else sh.addBindValue(QVariant());
                 QVERIFY(sh.exec());
@@ -2389,7 +2397,7 @@ private slots:
     }
 
     // An unset bagId must be a no-op, and must never be spelled the same way as
-    // "the rows with no bag". The guard is `> 0`; with `>= 0` a default-ish 0
+    // "the rows with no bag". The guard is bagIdIsSet(); with a hand-rolled `>= 0` a 0
     // would emit `bag_id = 0`, matching nothing while looking like a filter.
     void bagIdUnsetIsNotAFilter() {
         const QString path = freshDbPath();
@@ -2401,8 +2409,10 @@ private slots:
 
         QSignalSpy spy(&s, &ShotHistoryStorage::shotsFilteredReady);
 
-        // -1 (the struct default and what the QML sends for "no active bag")
-        // and 0 both mean unset: every shot, including the NULL-bag one.
+        // -1 is parseFilterMap's default for an absent key; 0 is what a
+        // present-but-malformed value parses to. Both mean unset — every shot,
+        // including the NULL-bag one. (QML sends neither: the widget helper
+        // returns no filter at all when there is no active bag.)
         s.requestShotsFiltered({{"bagId", -1}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 4);
@@ -2415,26 +2425,35 @@ private slots:
     }
 
     // A pre-bag shot (NULL bag_id) belongs to no bag, so no bag filter may
-    // return it. SQL's NULL semantics give this for free — which is exactly why
-    // it needs a test: a rewrite to IFNULL(bag_id,0) would break it silently.
-    void bagFilterExcludesPreBagShots() {
+    // return it.
+    //
+    // The EXACT form gets this free from SQL's three-valued logic — `bag_id = ?`
+    // never matches NULL whatever the id — so there is nothing here for a bag
+    // test to earn. (An earlier version of this test claimed a rewrite to
+    // `IFNULL(bag_id,0)` would break it silently; checked against sqlite3, that
+    // rewrite returns identical rows. The claim was wrong and the assertion it
+    // justified could not fail.) What IS worth pinning is the KEYWORD form: it
+    // resolves through a subquery over coffee_bags, where a NULL bag_id landing
+    // in an `IN (...)` is a real shape to get wrong.
+    void bagKeywordExcludesPreBagShots() {
         const QString path = freshDbPath();
         ShotHistoryStorage s;
         QVERIFY(s.initialize(path));
         BagSeed seed;
         seedBagShots(path, seed);
+        Q_UNUSED(seed)
 
         QSignalSpy spy(&s, &ShotHistoryStorage::shotsFilteredReady);
 
-        s.requestShotsFiltered({{"bagId", seed.julyId}}, 0, 50);
-        QVERIFY(spy.wait(3000));
-        for (const QVariant& v : spy.last().at(0).toList())
-            QVERIFY(v.toMap().value("uuid").toString() != QLatin1String("b-prebag"));
-
-        // The keyword form matches every seeded bag, and still must not reach it.
+        // "roaster" is in BOTH bags' roaster_name and in the pre-bag shot's
+        // bean_brand, so a clause that leaked to the shot row would return 4.
         s.requestShotsFiltered({{"bagTerm", "roaster"}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 3);
+        const QVariantList rows = spy.last().at(0).toList();
+        QCOMPARE(rows.size(), 3);
+        for (const QVariant& v : rows)
+            QVERIFY(v.toMap().value("uuid").toString() != QLatin1String("b-prebag"));
 
         s.close();
     }
@@ -2480,6 +2499,14 @@ private slots:
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 3);
 
+        // The subquery reads the BAG's roast_date, not the shot's. Both tables
+        // have that column, so an unqualified reference would resolve outward
+        // and match every shot on its own '1999-01-01' — silently, with no SQL
+        // error, since the query stays valid either way.
+        s.requestShotsFiltered({{"bagTerm", "1999"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 0);
+
         // An explicitly empty quoted term (`bag:""`) is the whitespace sentinel
         // the search box sends: filter to NOTHING, never to everything.
         s.requestShotsFiltered({{"bagTerm", QStringLiteral(" ")}}, 0, 50);
@@ -2502,8 +2529,21 @@ private slots:
         s.close();
     }
 
-    // LIKE metacharacters in a bag's name are matched literally — the same
-    // escaping guarantee the recipe keyword has, on the other table.
+    // LIKE metacharacters in a BAG's identity are matched literally.
+    //
+    // The decoy has to SHARE the literal prefix, or the test cannot fail: with
+    // "Plain Kenya" as the second bag — the first version of this — the term
+    // "100%" unescaped becomes '%100%%', which still needs the substring "100"
+    // and so still matches only the first bag. Deleting escapeLikeWildcards left
+    // it green. "100 Kenya" is the decoy that distinguishes them, the same shape
+    // recipeNameLikeMetacharactersAreLiteral uses ("50% off" vs "50 off").
+    //
+    // The escaping itself is shared with the recipe keyword (both go through
+    // likeContainsLiteral), so this is insurance rather than new coverage. It
+    // earns a slot in an existing file — milliseconds of build — because the bag
+    // clause matches a CONCATENATED expression over a different table, and the
+    // one thing this pins is that the term, not the expression, is what gets
+    // escaped.
     void bagTermLikeMetacharactersAreLiteral() {
         const QString path = freshDbPath();
         ShotHistoryStorage s;
@@ -2514,7 +2554,7 @@ private slots:
                            "VALUES ('R', '100% Kenya', '2026-07-04')"));
             const qint64 pct = b.lastInsertId().toLongLong();
             QVERIFY(b.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, roast_date) "
-                           "VALUES ('R', 'Plain Kenya', '2026-07-05')"));
+                           "VALUES ('R', '100 Kenya', '2026-07-05')"));
             const qint64 plain = b.lastInsertId().toLongLong();
             QSqlQuery sh(db);
             sh.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, bag_id) "
@@ -2528,12 +2568,18 @@ private slots:
         QSignalSpy spy(&s, &ShotHistoryStorage::shotsFilteredReady);
 
         // '%' is a literal here. Unescaped it is a wildcard, so "100%" would
-        // match "Plain Kenya" too and the count would read 2.
+        // match "100 Kenya" too and the count would read 2.
         s.requestShotsFiltered({{"bagTerm", "100%"}}, 0, 50);
         QVERIFY(spy.wait(3000));
         QCOMPARE(spy.last().at(2).toInt(), 1);
         QCOMPARE(spy.last().at(0).toList().first().toMap().value("uuid").toString(),
                  QString("b-pct"));
+
+        // Positive control: without the metacharacter both bags match, so the 1
+        // above is the escaping working and not the term simply missing.
+        s.requestShotsFiltered({{"bagTerm", "100"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 2);
 
         s.close();
     }
