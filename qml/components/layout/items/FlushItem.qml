@@ -138,8 +138,8 @@ LayoutWidgetItem {
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.flush.hint", "Tap to toggle presets. Double-tap or long-press to configure flush.")
             onAccessibleClicked: root.togglePresets()
-            onAccessibleDoubleClicked: root.goToFlush()
-            onAccessibleLongPressed: root.goToFlush()
+            onAccessibleDoubleClicked: LayoutActions.runGestureOrReserved(root.modelData, "doubleclickAction", "flush", { idlePage: root.idlePage })
+            onAccessibleLongPressed: LayoutActions.runGestureOrReserved(root.modelData, "longPressAction", "flush", { idlePage: root.idlePage })
         }
     }
 

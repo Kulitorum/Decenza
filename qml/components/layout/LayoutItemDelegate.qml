@@ -79,58 +79,42 @@ Item {
                 emoji: "qrc:/icons/profile.svg",
                 content: TranslationManager.translate("idle.button.profiles", "Profiles"),
                 action: "togglePreset:espresso",
-                longPressAction: "navigate:profiles",
-                doubleclickAction: "navigate:profiles",
                 backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : root._tileFill
             }
             case "steam": return {
                 emoji: "qrc:/icons/steam.svg",
                 content: TranslationManager.translate("idle.button.steam", "Steam"),
                 action: "togglePreset:steam",
-                longPressAction: "navigate:steam",
-                doubleclickAction: "navigate:steam",
                 backgroundColor: root._tileFill
             }
             case "hotwater": return {
                 emoji: "qrc:/icons/water.svg",
                 content: TranslationManager.translate("idle.button.hotwater", "Hot Water"),
                 action: "togglePreset:hotwater",
-                longPressAction: "navigate:hotwater",
-                doubleclickAction: "navigate:hotwater",
                 backgroundColor: root._tileFill
             }
             case "flush": return {
                 emoji: "qrc:/icons/flush.svg",
                 content: TranslationManager.translate("idle.button.flush", "Flush"),
                 action: "togglePreset:flush",
-                longPressAction: "navigate:flush",
-                doubleclickAction: "navigate:flush",
                 backgroundColor: root._tileFill
             }
             case "beans": return {
                 emoji: "qrc:/icons/coffeebeans.svg",
                 content: TranslationManager.translate("idle.button.beaninfo", "Beans"),
                 action: "togglePreset:beans",
-                longPressAction: "navigate:beaninfo",
-                doubleclickAction: "navigate:beaninfo",
                 backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : root._tileFill
             }
             case "recipes": return {
                 emoji: "qrc:/icons/espresso.svg",
                 content: TranslationManager.translate("idle.button.recipes", "Recipes"),
                 action: "togglePreset:recipes",
-                // "recipeList" (drink recipes) — the bare "recipes" navigate
-                // target is the pre-existing profile Recipe Editor.
-                longPressAction: "navigate:recipeList",
-                doubleclickAction: "navigate:recipeList",
                 backgroundColor: root._tileFill
             }
             case "equipment": return {
                 emoji: "qrc:/icons/grind.svg",
                 content: TranslationManager.translate("idle.button.equipment", "Equipment"),
                 action: "togglePreset:equipment",
-                longPressAction: "navigate:equipment",
-                doubleclickAction: "navigate:equipment",
                 backgroundColor: root._tileFill
             }
             case "history": return {
@@ -294,6 +278,27 @@ Item {
                     for (var key in compiled) {
                         if (compiled.hasOwnProperty(key))
                             merged[key] = compiled[key]
+                    }
+                    // Gestures (layout-widget-gesture-overrides): the user's stored
+                    // override if there is one, otherwise the type's RESERVED
+                    // destination — read from the C++ table, which is the only place
+                    // that destination is declared. The compiled entries above used to
+                    // spell it out a second time, and the dedicated items a third.
+                    //
+                    // Deliberately ONLY these two keys: the merge above rebuilds the
+                    // widget from its type on purpose, so a layout saved long ago
+                    // cannot resurrect a stale `content`, `emoji` or `backgroundColor`
+                    // that the compiled defaults have since changed. Widening this to
+                    // every stored key would silently change how existing widgets look.
+                    var reserved = Settings.network.gestureReservedActionForType(root.itemType)
+                    var gestureKeys = ["longPressAction", "doubleclickAction"]
+                    for (var g = 0; g < gestureKeys.length; ++g) {
+                        var gk = gestureKeys[g]
+                        var stored = root.modelData[gk]
+                        if (stored !== undefined && stored !== "")
+                            merged[gk] = stored
+                        else if (reserved)
+                            merged[gk] = reserved
                     }
                     return merged
                 })

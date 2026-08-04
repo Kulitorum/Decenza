@@ -884,133 +884,31 @@ DecenzaDialog {
                         font: Theme.captionFont
                     }
 
-                    // Click action selector
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(28)
-                        radius: Theme.scaled(4)
-                        color: Theme.backgroundColor
-                        border.color: popup.textAction ? Theme.primaryColor : Theme.borderColor
-                        border.width: 1
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("customeditor.accessible.clickAction", "Click action") + ", " + popup.getActionLabel(popup.textAction)
-                        Accessible.focusable: true
-                        Accessible.onPressAction: clickActionMa.clicked(null)
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.scaled(4)
-                            anchors.rightMargin: Theme.scaled(4)
-
-                            Text {
-                                text: TranslationManager.translate("customeditor.gesture.click", "Click:")
-                                color: Theme.textSecondaryColor
-                                font: Theme.captionFont
-                                Accessible.ignored: true
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: popup.getActionLabel(popup.textAction)
-                                color: popup.textAction ? Theme.primaryColor : Theme.textColor
-                                font: Theme.captionFont
-                                elide: Text.ElideRight
-                                Accessible.ignored: true
-                            }
-                        }
-                        MouseArea {
-                            id: clickActionMa
-                            anchors.fill: parent
-                            onClicked: {
-                                actionPickerPopup.gesture = "click"
-                                actionPickerPopup.open()
-                            }
-                        }
+                    // Three rows, one component (GestureActionRow) — they were three
+                    // ~40-line copies differing in a label and a property name, and the
+                    // built-in action widgets need the same row.
+                    GestureActionRow {
+                        gestureLabel: TranslationManager.translate("customeditor.gesture.click", "Click:")
+                        accessibleLabel: TranslationManager.translate("customeditor.accessible.clickAction", "Click action")
+                        actionId: popup.textAction
+                        actionLabel: popup.getActionLabel(popup.textAction)
+                        onPicked: { actionPickerPopup.gesture = "click"; actionPickerPopup.open() }
                     }
 
-                    // Long Press action selector
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(28)
-                        radius: Theme.scaled(4)
-                        color: Theme.backgroundColor
-                        border.color: popup.textLongPressAction ? Theme.primaryColor : Theme.borderColor
-                        border.width: 1
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("customeditor.accessible.longPressAction", "Long press action") + ", " + popup.getActionLabel(popup.textLongPressAction)
-                        Accessible.focusable: true
-                        Accessible.onPressAction: longPressActionMa.clicked(null)
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.scaled(4)
-                            anchors.rightMargin: Theme.scaled(4)
-
-                            Text {
-                                text: TranslationManager.translate("customeditor.gesture.long", "Long:")
-                                color: Theme.textSecondaryColor
-                                font: Theme.captionFont
-                                Accessible.ignored: true
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: popup.getActionLabel(popup.textLongPressAction)
-                                color: popup.textLongPressAction ? Theme.primaryColor : Theme.textColor
-                                font: Theme.captionFont
-                                elide: Text.ElideRight
-                                Accessible.ignored: true
-                            }
-                        }
-                        MouseArea {
-                            id: longPressActionMa
-                            anchors.fill: parent
-                            onClicked: {
-                                actionPickerPopup.gesture = "longpress"
-                                actionPickerPopup.open()
-                            }
-                        }
+                    GestureActionRow {
+                        gestureLabel: TranslationManager.translate("customeditor.gesture.long", "Long:")
+                        accessibleLabel: TranslationManager.translate("customeditor.accessible.longPressAction", "Long press action")
+                        actionId: popup.textLongPressAction
+                        actionLabel: popup.getActionLabel(popup.textLongPressAction)
+                        onPicked: { actionPickerPopup.gesture = "longpress"; actionPickerPopup.open() }
                     }
 
-                    // Double Click action selector
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(28)
-                        radius: Theme.scaled(4)
-                        color: Theme.backgroundColor
-                        border.color: popup.textDoubleclickAction ? Theme.primaryColor : Theme.borderColor
-                        border.width: 1
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("customeditor.accessible.doubleClickAction", "Double click action") + ", " + popup.getActionLabel(popup.textDoubleclickAction)
-                        Accessible.focusable: true
-                        Accessible.onPressAction: dblClickActionMa.clicked(null)
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.scaled(4)
-                            anchors.rightMargin: Theme.scaled(4)
-
-                            Text {
-                                text: TranslationManager.translate("customeditor.gesture.doubleClick", "DblClk:")
-                                color: Theme.textSecondaryColor
-                                font: Theme.captionFont
-                                Accessible.ignored: true
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: popup.getActionLabel(popup.textDoubleclickAction)
-                                color: popup.textDoubleclickAction ? Theme.primaryColor : Theme.textColor
-                                font: Theme.captionFont
-                                elide: Text.ElideRight
-                                Accessible.ignored: true
-                            }
-                        }
-                        MouseArea {
-                            id: dblClickActionMa
-                            anchors.fill: parent
-                            onClicked: {
-                                actionPickerPopup.gesture = "doubleclick"
-                                actionPickerPopup.open()
-                            }
-                        }
+                    GestureActionRow {
+                        gestureLabel: TranslationManager.translate("customeditor.gesture.dblclick", "DblClk:")
+                        accessibleLabel: TranslationManager.translate("customeditor.accessible.dblClickAction", "Double click action")
+                        actionId: popup.textDoubleclickAction
+                        actionLabel: popup.getActionLabel(popup.textDoubleclickAction)
+                        onPicked: { actionPickerPopup.gesture = "doubleclick"; actionPickerPopup.open() }
                     }
                 }
             }
@@ -1328,14 +1226,6 @@ DecenzaDialog {
         return false
     }
 
-    // Build action items list with "None" prepended
-    function buildActionItems() {
-        var items = [{ id: "", label: TranslationManager.translate("customeditor.action.none", "None") }]
-        var filtered = popup.getFilteredActions()
-        for (var i = 0; i < filtered.length; i++)
-            items.push(filtered[i])
-        return items
-    }
 
     // Find the currently selected action index for a given gesture
     function findCurrentActionIndex(gesture, items) {
@@ -1369,7 +1259,7 @@ DecenzaDialog {
         options: _actionItems.map(function(item) { return item.label })
         currentIndex: popup.findCurrentActionIndex(gesture, _actionItems)
 
-        onAboutToShow: _actionItems = popup.buildActionItems()
+        onAboutToShow: _actionItems = LayoutActions.pickerItems(popup.pageContext)
 
         onSelected: function(index, value) {
             var actionId = _actionItems[index].id
@@ -1426,38 +1316,4 @@ DecenzaDialog {
         }
     }
 
-    // Action registry with page context filtering. The list itself lives in ONE
-    // place — layoutActionTable() in settings_network.cpp — because it used to
-    // live here AND in the web editor's ACTIONS array, and the two drifted by
-    // sixteen entries with nothing to notice it. See: layout-action-catalog.
-    function getFilteredActions() {
-        var ctx = popup.pageContext
-        var out = []
-        var catalog = Settings.network.layoutActionCatalog()
-        // An empty catalog means the C++ table did not reach QML at all. The
-        // picker would render as a lone "None" row, which reads like a context
-        // restriction rather than a fault — say so instead of showing nothing.
-        if (!catalog || catalog.length === 0) {
-            console.warn("CustomEditorPopup: layoutActionCatalog() returned nothing; "
-                         + "the action picker will be empty")
-            return out
-        }
-        for (var i = 0; i < catalog.length; ++i) {
-            var a = catalog[i]
-            if (a.contexts.indexOf(ctx) < 0 && a.contexts.indexOf("all") < 0)
-                continue
-            // Reading TranslationManager.translate (a Q_PROPERTY holding a
-            // callable) establishes the dependency, so these labels re-resolve
-            // on a language change.
-            var label = TranslationManager.translate(a.labelKey, a.label)
-            // Marked in the catalog, not matched by id here: an id comparison
-            // sitting on the far side of the C++/QML boundary goes stale in
-            // silence if the id is ever renamed, taking with it the only cue
-            // that this row opens a second list rather than committing.
-            if (a.expandsToSubmenu)
-                label += "..."
-            out.push({ id: a.id, label: label, contexts: a.contexts })
-        }
-        return out
-    }
 }
