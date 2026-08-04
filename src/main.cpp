@@ -3332,6 +3332,41 @@ int main(int argc, char *argv[])
             return;
         }
 
+        // The chain is alive — reschedule without spending a rung of the ramp.
+        //
+        // This tick is a RECOVERY path, not a second scanner: while the hunt's
+        // back-to-back chain is running there is always a scan in flight, so
+        // tryDirectConnectToRefractometer() would decline with "a scan is already
+        // in flight" and the attempt below would be pure fiction. It was reported
+        // as fact anyway — a device log showed six consecutive "Auto-reconnect
+        // attempt N" lines at INFO, every one of them immediately followed by the
+        // skip, and not one of them a real attempt.
+        //
+        // The counter is what makes this more than cosmetic. Incrementing it on a
+        // no-op walked the ramp out to its 60 s tail while nothing was wrong, so a
+        // chain that died AFTER that (onScanError clears the scan flag and
+        // deliberately does not re-chain — BLEManager::onScanError) waited a
+        // minute for the recovery this timer exists to provide, instead of 5 s.
+        // The safety net degraded itself precisely while it was idle.
+        //
+        // Re-arms at the FIRST rung, not the current one, and that is the whole
+        // point of the branch: this is now a watchdog polling for a dead chain,
+        // and the hunt windows it polls are short — four in one device session,
+        // the longest 120 s. A 60 s tail would let the chain die and stay dead for
+        // most of a window. The ramp itself is left where it was, so the first
+        // REAL attempt after a death still starts at 5 s.
+        //
+        // Silent on purpose. A watchdog that finds nothing wrong is not news, and
+        // at a 5 s cadence a line here would be the dominant [Refractometer] entry
+        // in every hunt window — the same cry-wolf shape the INFO lines it
+        // replaces already had. The story stays readable without it: "Hunt active
+        // — chaining another scan" with no "Auto-reconnect attempt" between says
+        // the chain was healthy and the watchdog had nothing to do.
+        if (bleManager.isScanningForScales()) {
+            refractometerReconnectTimer.start(reconnectDelays[0]);
+            return;
+        }
+
         // One line for the attempt, where there were three: an unmarked
         // "[R2-diag] reconnect tick attempt=N — scanning", an unmarked
         // "Refractometer reconnect: attempt N", and an appendScaleLog that reached
