@@ -2,6 +2,7 @@
 #include "translationmanager.h"
 #include "settings.h"
 #include "settings_ai.h"
+#include "settings_network.h"
 #include "logpaths.h"
 // Header-only, no AI-stack dependency — see the note in airequestshape.h about
 // why this file must not include aiprovider.h.
@@ -881,6 +882,23 @@ void TranslationManager::applyScanResults(const QList<ScannedString>& found, con
     // resolves the same way it did when this loop was interleaved with the parsing.
     for (const ScannedString& s : found) {
         if (noteSourceString(s.key, s.fallback)) {
+            stringsFound++;
+        }
+    }
+
+    // Strings declared in C++ TABLES rather than in QML. The scan above walks QML source, so it
+    // cannot see them, and the registry's other filler — translate() running — only fires if the
+    // user opens the screen that renders them. Anything not registered by the time a bulk AI
+    // translation or a community upload runs is published missing, and stays English in every
+    // locale with nothing reporting it. That was already true of the widget catalog's palette,
+    // chip and category labels; the Custom-widget action catalog joined them when it moved out of
+    // CustomEditorPopup.qml. Declared here so neither depends on having been looked at.
+    //
+    // If a SECOND C++ file grows translatable string tables, aggregate them into
+    // layoutCatalogTranslationStrings()'s neighbourhood and keep ONE loop here —
+    // a second loop beside this one is the copy that drifts.
+    for (const auto& s : SettingsNetwork::layoutCatalogTranslationStrings()) {
+        if (noteSourceString(s.first, s.second)) {
             stringsFound++;
         }
     }

@@ -3768,8 +3768,17 @@ T.ApplicationWindow {
     // startNavigation() does not cover this: it clears via Qt.callLater, so it only blocks
     // re-entry inside one event-loop turn, not a second deliberate tap.
     function pushUnlessCurrent(component, pageObjectName, props) {
-        if (pageStack.currentItem && pageStack.currentItem.objectName === pageObjectName)
+        if (pageStack.currentItem && pageStack.currentItem.objectName === pageObjectName) {
+            // Props supplied and dropped on the floor. Harmless for the nine
+            // callers that pass none, but Shot History passed a filter here and
+            // the tap silently did nothing — say so rather than let the next page
+            // that grows props rediscover it the same way. (History itself no
+            // longer reaches this: goToShotHistory re-filters in place.)
+            if (props && Object.keys(props).length > 0)
+                console.warn("pushUnlessCurrent: " + pageObjectName + " is already current; "
+                             + "its props were NOT applied — that page needs an in-place path")
             return null
+        }
         return props ? pageStack.push(component, props) : pageStack.push(component)
     }
 
@@ -3908,6 +3917,31 @@ T.ApplicationWindow {
 
     function goToShotHistory(filter) {
         if (!startNavigation()) return
+        // Already looking at Shot History? pushUnlessCurrent() would return
+        // without applying the props, so the filter was silently dropped and the
+        // tap did nothing at all — reachable because Custom widgets also live in
+        // the persistent status bar, which is visible from every page. Re-filter
+        // the page that is showing instead. An empty filter clears, so a plain
+        // "Go to History" tap from the status bar is a clear rather than a
+        // no-op. Handled here rather than in each caller: the shell decides
+        // push-vs-anything-else (QML_NAVIGATION.md), and there are five callers.
+        // `as ShotHistoryPage` rather than an objectName test: currentItem is
+        // typed QQuickItem, so a bare member call is invisible to qmllint (it
+        // fails the diagnostics gate as missing-property) and a typo in the
+        // method name would only surface at runtime. Same idiom as the IdlePage
+        // and SettingsPage casts above.
+        var history = pageStack.currentItem as ShotHistoryPage
+        if (history) {
+            // `null` from a context-filtered widget action means "nothing is
+            // active to filter on". On the push path that harmlessly opens the
+            // full list, but here the page is ALREADY showing and may be
+            // carrying a filter and search text the user typed — re-filtering
+            // with nothing would wipe both. A button meant to narrow must never
+            // destroy work, so leave the visible list alone.
+            if (!filter) return
+            history.applyInitialFilter(filter.initialFilter || null)
+            return
+        }
         pushUnlessCurrent(shotHistoryPage, "shotHistoryPage", filter || ({}))
     }
 

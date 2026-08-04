@@ -2291,21 +2291,15 @@ QString ShotServer::generateLayoutPage() const
                     <option value="%DOSE%">%DOSE%</option>
                     <option value="%TARGET_WEIGHT%">%TARGET_WEIGHT%</option>
                 </select>
+                <!-- Populated from the injected action catalog by
+                     fillCommActionFilter(). This was the THIRD hand-written copy
+                     of the action list in the app: it carried a third set of
+                     labels ("Settings"/"History"/"Favorites"/"Quit"), the
+                     "Scan for Scale" wording the catalog since unified, and none
+                     of the actions added after it was written — so a user could
+                     not filter community layouts by any of them. -->
                 <select class="lib-filter-select" id="commActionFilter" onchange="browseCommunity()">
                     <option value="">Any action</option>
-                    <option value="navigate:settings">Settings</option>
-                    <option value="navigate:history">History</option>
-                    <option value="navigate:profiles">Profiles</option>
-                    <option value="navigate:autofavorites">Favorites</option>
-                    <option value="command:sleep">Sleep</option>
-                    <option value="command:startEspresso">Start Espresso</option>
-                    <option value="command:startSteam">Start Steam</option>
-                    <option value="command:startHotWater">Start Hot Water</option>
-                    <option value="command:startFlush">Start Flush</option>
-                    <option value="command:tare">Tare Scale</option>
-                    <option value="command:scanDE1">Scan for DE1</option>
-                    <option value="command:scanScale">Scan for Scale</option>
-                    <option value="command:quit">Quit</option>
                 </select>
                 <input class="lib-filter-input" id="commSearchInput" type="text" placeholder="Search..."
                        onkeydown="if(event.key==='Enter')browseCommunity()">
@@ -2638,6 +2632,16 @@ QString ShotServer::generateLayoutPage() const
     html += QStringLiteral("    var WIDGET_DISPLAY_DEFAULTS = %1;\n")
         .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::displayModeDefaultsJson())
             .toJson(QJsonDocument::Compact)));
+    // Custom-widget action catalog, from the same C++ table as the in-app action
+    // picker. This list used to be written out below by hand and had drifted
+    // sixteen entries behind the in-app one. Two channels: `actions` is what
+    // this editor may OFFER (a parameterized action the web cannot expand is
+    // excluded there), `labels` resolves ANY stored id — including ones no
+    // longer offered — so a legacy layout never renders a raw id. The "None"
+    // entry is prepended in JS because it is the absence of an action.
+    html += QStringLiteral("    var LAYOUT_ACTION_CATALOG = %1;\n")
+        .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::layoutActionCatalogJson())
+            .toJson(QJsonDocument::Compact)));
     html += R"HTML(
     var WIDGET_TYPES = WIDGET_CATALOG.types;
     var DISPLAY_NAMES = WIDGET_CATALOG.chipNames;
@@ -2651,33 +2655,47 @@ QString ShotServer::generateLayoutPage() const
         return typeOptionKeys(type).indexOf(key) >= 0;
     }
 
-    var ACTIONS = [
-        {id:"",label:"None",contexts:["idle","espresso","steam","hotwater","flush","all"]},
-        {id:"navigate:settings",label:"Go to Settings",contexts:["idle","all"]},
-        {id:"navigate:history",label:"Go to History",contexts:["idle","all"]},
-        {id:"navigate:profiles",label:"Go to Profiles",contexts:["idle","all"]},
-        {id:"navigate:profileEditor",label:"Go to Profile Editor",contexts:["idle","all"]},
-        {id:"navigate:recipes",label:"Go to Recipes",contexts:["idle","all"]},
-        {id:"navigate:descaling",label:"Go to Descaling",contexts:["idle","all"]},
-        {id:"navigate:ai",label:"Go to AI Settings",contexts:["idle","all"]},
-        {id:"navigate:visualizer",label:"Go to Visualizer",contexts:["idle","all"]},
-        {id:"navigate:autofavorites",label:"Go to Favorites",contexts:["idle","all"]},
-        {id:"command:sleep",label:"Sleep",contexts:["idle"]},
-        {id:"command:startEspresso",label:"Start Espresso",contexts:["idle"]},
-        {id:"command:startSteam",label:"Start Steam",contexts:["idle"]},
-        {id:"command:startHotWater",label:"Start Hot Water",contexts:["idle"]},
-        {id:"command:startFlush",label:"Start Flush",contexts:["idle"]},
-        {id:"command:idle",label:"Stop (Idle)",contexts:["idle","espresso","steam","hotwater","flush"]},
-        {id:"command:tare",label:"Tare Scale",contexts:["idle","espresso","all"]},
-        {id:"command:scanDE1",label:"Scan for DE1",contexts:["idle","all"]},
-        {id:"command:scanScale",label:"Scan for Scale",contexts:["idle","all"]},
-        {id:"command:quit",label:"Quit App",contexts:["idle"]}
-    ];
+    // Fail LOUDLY if the catalog did not arrive. Empty would otherwise render a
+    // picker holding only "None", which looks like a context restriction rather
+    // than a broken page; and an outright missing variable throws during this
+    // inline script, killing every button on the editor with nothing but a
+    // devtools entry to show for it.
+    if (typeof LAYOUT_ACTION_CATALOG === "undefined" || !LAYOUT_ACTION_CATALOG
+            || !(LAYOUT_ACTION_CATALOG.actions || []).length) {
+        console.error("LAYOUT_ACTION_CATALOG missing or empty — the action catalog did not load");
+    }
+    // Normalized ONCE. The console.error above is the report; repeating its
+    // guard at every read would be the defensive layer, not the fix.
+    var CATALOG = (typeof LAYOUT_ACTION_CATALOG !== "undefined" && LAYOUT_ACTION_CATALOG)
+        || { actions: [], labels: {} };
+    var ACTION_LABELS = CATALOG.labels || {};
+    var ACTIONS = [{id:"",label:"None",contexts:["idle","espresso","steam","hotwater","flush","all"]}]
+        .concat(CATALOG.actions || []);
     var PAGE_CONTEXT = "idle";
     function getFilteredActions() {
         return ACTIONS.filter(function(a) {
             return a.contexts.indexOf(PAGE_CONTEXT) >= 0 || a.contexts.indexOf("all") >= 0;
         });
+    }
+
+    // Community-library action filter, from the same catalog as the picker —
+    // every offerable action, unfiltered by page context (a library layout can
+    // hold an action for any page). Keeps the "Any action" option authored in
+    // the HTML as the leading entry.
+    function fillCommActionFilter() {
+        var sel = document.getElementById("commActionFilter");
+        if (!sel) return;
+        // Reuse ACTIONS rather than re-deriving from the catalog: a second
+        // independent reader is how this dropdown fell sixteen entries behind
+        // the picker in the first place. Skip its leading "None" (empty id) —
+        // the HTML authors that option as "Any action".
+        for (var i = 0; i < ACTIONS.length; i++) {
+            if (!ACTIONS[i].id) continue;
+            var o = document.createElement("option");
+            o.value = ACTIONS[i].id;
+            o.textContent = ACTIONS[i].label;
+            sel.appendChild(o);
+        }
     }
 )HTML";
     html += R"HTML(
@@ -4293,9 +4311,15 @@ QString ShotServer::generateLayoutPage() const
 
     function getActionLabel(id) {
         if (!id) return "None";
-        for (var i = 0; i < ACTIONS.length; i++) {
-            if (ACTIONS[i].id === id) return ACTIONS[i].label;
-        }
+        // A parameterized action stores its argument in the id
+        // (command:loadProfile:<filename>); label it by its stem.
+        var stem = id.split(":").slice(0, 2).join(":");
+        // ACTION_LABELS, not ACTIONS: a stored action may be one this editor does
+        // not offer — a legacy alias, or one it cannot author — and falling
+        // through to `return id` would print the raw string `command:scanDE1`
+        // where the widget plainly says "Scan for DE1".
+        if (ACTION_LABELS[id]) return ACTION_LABELS[id];
+        if (ACTION_LABELS[stem]) return ACTION_LABELS[stem] + ": " + id.slice(stem.length + 1);
         return id;
     }
 
@@ -5047,6 +5071,7 @@ QString ShotServer::generateLayoutPage() const
     }
 
     // Initial load
+    fillCommActionFilter();
     loadLayout();
     loadLibrary();
 

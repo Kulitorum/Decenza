@@ -58,6 +58,13 @@ class ProfileManager : public QObject {
     QML_SINGLETON
 
     Q_PROPERTY(QString currentProfileName READ currentProfileName NOTIFY currentProfileChanged)
+    // The UNDECORATED title — what `shots.profile_name` is written from
+    // (ShotHistoryStorage::saveShot: `profile->title()`). currentProfileName
+    // above is a DISPLAY string and prefixes "*" (or appends " (modified)" for a
+    // read-only profile) once the profile is edited, so it must never be used as
+    // a query term: matching it against stored shots returns nothing the moment
+    // the user nudges a dose. Use this for lookups, that one for labels.
+    Q_PROPERTY(QString currentProfileTitle READ currentProfileTitle NOTIFY currentProfileChanged)
     Q_PROPERTY(QString baseProfileName READ baseProfileName NOTIFY currentProfileChanged)
     Q_PROPERTY(bool profileModified READ isProfileModified NOTIFY profileModifiedChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
@@ -129,6 +136,7 @@ public:
 
     // === Profile state ===
     QString currentProfileName() const;
+    QString currentProfileTitle() const { return m_currentProfile.title(); }
     QString baseProfileName() const { return m_baseProfileName; }
     Q_INVOKABLE QString previousProfileName() const { return m_previousProfileName; }
     bool isProfileModified() const { return m_profileModified; }

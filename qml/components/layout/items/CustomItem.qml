@@ -200,7 +200,7 @@ LayoutWidgetItem {
                 if (ch === '"') inQuote = false
                 else if (ch === '<') {
                     // Tag inside a quoted attribute — HTML is broken, strip all tags
-                    console.warn("[CustomItem] Malformed HTML detected, stripping tags:", html.substring(0, 80))
+                    root._warn("Malformed HTML detected, stripping tags: " + html.substring(0, 80))
                     return html.replace(/<[^>]*>/g, "")
                 }
             } else if (inTag) {
@@ -291,11 +291,105 @@ LayoutWidgetItem {
         return Theme.replaceEmojiWithImg(result, Theme.bodyFont.pixelSize, true)
     }
 
+    // ONE prefix for this file's diagnostics. It was written by hand at eleven
+    // sites in two families — "CustomItem: " and "[CustomItem] " — so no single
+    // grep returned the widget's story from a submitted log, which is how these
+    // are actually read (docs/CLAUDE_MD/LOGGING.md).
+    function _warn(msg) {
+        console.warn("CustomItem: " + msg)
+    }
+
+    // --- Context-filtered Shot History filters (custom-widget-history-actions).
+    // Each returns the props object AppShell.shotHistoryRequested expects: an
+    // `initialFilter` map, or `null` when there is nothing active to filter on.
+    //
+    // `null`, NOT `{}`, and the difference is load-bearing. An empty props object
+    // reaching the already-showing path reads as "show everything" and CLEARS the
+    // filter and the search text the user typed — so a button meant to narrow
+    // would wipe their work. `null` means "no context"; goToShotHistory() leaves a
+    // visible list alone and only opens unfiltered History on the push path, where
+    // there is no state to lose.
+    //
+    // Recipe and bag match on an ID, so a rename cannot orphan the filter and
+    // two records sharing a name stay distinct; their names ride along under
+    // recipeName/bagLabel, which ShotHistoryPage uses for the banner label ONLY
+    // and never as a query term. Bean has no such id on a shot row (shots store
+    // bean_brand/bean_type as text), so it matches those two strings — which is
+    // also what makes it the wider of the two coffee filters: the same coffee
+    // across every bag of it, where the bag filter is one bag.
+    //
+    // Each warns when it finds no context. Every other unresolvable case in
+    // executeActionString() warns; these were the only silent arms, and "the
+    // button did nothing" is exactly the report that needs a log line behind it.
+    function _recipeHistoryFilter() {
+        var id = Settings.dye.activeRecipeId
+        if (!(id > 0)) {
+            root._warn("historyRecipe with no active recipe")
+            return null
+        }
+        // activeRecipe can briefly LEAD activeRecipeId during activation
+        // (maincontroller.h documents it as self-healing), so the name may not
+        // have landed yet. The query is unaffected — it matches the id — but a
+        // blank label would render a bare "Filtered:" with nothing after it.
+        var name = MainController.activeRecipe.name || ""
+        return { initialFilter: { recipeId: id, recipeName: name } }
+    }
+
+    function _beanHistoryFilter() {
+        var f = {}
+        // Omit rather than send "" — ShotHistoryPage drops empty fields anyway,
+        // and omitting keeps a brand-only bean filtering on the brand.
+        if (Settings.dye.dyeBeanBrand) f.beanBrand = Settings.dye.dyeBeanBrand
+        if (Settings.dye.dyeBeanType) f.beanType = Settings.dye.dyeBeanType
+        if (Object.keys(f).length === 0) {
+            root._warn("historyBean with no bean selected")
+            return null
+        }
+        return { initialFilter: f }
+    }
+
+    function _bagHistoryFilter() {
+        var id = Settings.dye.activeBagId
+        if (!(id > 0)) {
+            root._warn("historyBag with no active bag")
+            return null
+        }
+        // The bag's label, read from the DYE fields the bag writes through on
+        // activation — SettingsDye::applyActiveBag() (settings_dye.cpp:776-777)
+        // maps roasterName → dyeBeanBrand and coffeeName → dyeBeanType. That is
+        // the path EVERY direct bag selection takes; maincontroller.cpp's copy is
+        // only the recipe-linked branch. Coffee name first, roaster as fallback —
+        // the rule BeansItem.bagLabel() uses.
+        //
+        // The read here is synchronous, but the write-through behind it is not:
+        // between selecting a bag and its row arriving, activeBagId is already the
+        // new bag while these fields still hold the previous one's. That can
+        // mislabel the banner for an instant; it cannot mis-scope the query, which
+        // matches on bagId.
+        var label = Settings.dye.dyeBeanType || Settings.dye.dyeBeanBrand || ""
+        return { initialFilter: { bagId: id, bagLabel: label } }
+    }
+
+    function _profileHistoryFilter() {
+        // currentProfileTitle, NOT currentProfileName: the latter is a DISPLAY
+        // string that becomes "*Londinium" (or "Londinium (modified)" for a
+        // read-only profile) as soon as the profile is edited, while shots store
+        // the bare title. Filtering on the decorated form matched nothing and
+        // showed an empty list under a "Filtered:" banner — indistinguishable
+        // from "you have never pulled this profile".
+        var title = ProfileManager.currentProfileTitle || ""
+        if (title === "") {
+            root._warn("historyProfile with no profile loaded")
+            return null
+        }
+        return { initialFilter: { profileName: title } }
+    }
+
     function executeActionString(actionStr) {
         if (!actionStr) return
         var parts = actionStr.split(":")
         if (parts.length < 2) {
-            console.warn("CustomItem: malformed action '" + actionStr + "' (expected 'category:target')")
+            root._warn("malformed action '" + actionStr + "' (expected 'category:target')")
             return
         }
         var category = parts[0]
@@ -306,7 +400,7 @@ LayoutWidgetItem {
             if (p && typeof p.activePresetFunction !== "undefined") {
                 p.activePresetFunction = (p.activePresetFunction === target) ? "" : target
             } else {
-                console.warn("CustomItem: togglePreset couldn't find IdlePage ancestor; preset '" + target + "' not toggled")
+                root._warn("togglePreset couldn't find IdlePage ancestor; preset '" + target + "' not toggled")
             }
         } else if (category === "navigate") {
             // `target` is USER CONFIGURATION — the widget editor stores whichever destination the
@@ -324,6 +418,16 @@ LayoutWidgetItem {
             switch (target) {
             case "settings":        AppShell.settingsRequested(""); break
             case "history":         AppShell.shotHistoryRequested({}); break
+            // Context-filtered History (custom-widget-history-actions). Each
+            // resolves its filter HERE, from live state, so the widget stores
+            // only the action id and follows whatever is active now — a layout
+            // exported to another device filters by that device's beans. A
+            // helper returns null when there is no context; see the note on
+            // them for why that is not the same as {}.
+            case "historyRecipe":   AppShell.shotHistoryRequested(_recipeHistoryFilter()); break
+            case "historyBean":     AppShell.shotHistoryRequested(_beanHistoryFilter()); break
+            case "historyBag":      AppShell.shotHistoryRequested(_bagHistoryFilter()); break
+            case "historyProfile":  AppShell.shotHistoryRequested(_profileHistoryFilter()); break
             case "profiles":        AppShell.profileSelectorRequested(); break
             case "profileEditor":   AppShell.profileEditorRequested(); break
             case "recipes":         AppShell.recipeEditorRequested(); break
@@ -347,7 +451,7 @@ LayoutWidgetItem {
                     AppShell.postShotReviewRequested(shotId, false)
                 break
             default:
-                console.warn("CustomItem: unknown navigate target '" + target + "'")
+                root._warn("unknown navigate target '" + target + "'")
             }
         } else if (category === "command") {
             // The hardware Group Head Controller (GHC), when present and active, takes
@@ -422,7 +526,7 @@ LayoutWidgetItem {
                         MainController.shotHistory.shotReady.connect(handler)
                         MainController.shotHistory.requestShot(lastId)
                     } else {
-                        console.warn("CustomItem: uploadVisualizer — no saved shot this session, nothing to upload")
+                        root._warn("uploadVisualizer — no saved shot this session, nothing to upload")
                     }
                     break
                 case "disconnectDE1":
@@ -444,14 +548,14 @@ LayoutWidgetItem {
                         if (profileName)
                             ProfileManager.loadProfile(profileName)
                         else
-                            console.warn("CustomItem: loadProfile command with empty profile name")
+                            root._warn("loadProfile command with empty profile name")
                     } else {
-                        console.warn("CustomItem: unknown command '" + target + "'")
+                        root._warn("unknown command '" + target + "'")
                     }
                     break
             }
         } else {
-            console.warn("CustomItem: unknown action category '" + category + "' in '" + actionStr + "'")
+            root._warn("unknown action category '" + category + "' in '" + actionStr + "'")
         }
     }
 

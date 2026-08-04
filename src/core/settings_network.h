@@ -7,7 +7,10 @@
 #include <QVariant>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QJsonArray>
 #include <QJsonObject>
+#include <QPair>
+#include <QVector>
 
 // Network/web/layout settings: shot server, web security, auto-favorites,
 // saved searches, shot history sort, layout configuration, Discuss-Shot URLs.
@@ -216,6 +219,37 @@ public:
     Q_INVOKABLE static QVariantMap widgetChipNames();
     Q_INVOKABLE static QVariantList widgetCategoryNames();
     static QJsonObject widgetCatalogJson();
+
+    // Action catalog (single source of truth for the Custom widget's assignable
+    // actions): ordered entries {id, labelKey, label, contexts, expandsToSubmenu}
+    // for the action
+    // picker. Same arrangement as the widget catalog above and for the same
+    // reason — this list was hand-copied into CustomEditorPopup.qml and the web
+    // editor's ACTIONS array, and the two had already drifted by sixteen
+    // entries before anyone noticed. QML resolves labels via
+    // TranslationManager.translate(key, fallback); the web editor receives the
+    // same table as JSON. See: layout-action-catalog.
+    Q_INVOKABLE static QVariantList layoutActionCatalog();
+    // Label lookup for EVERY action id, including ones no longer offered in the
+    // picker — the analogue of widgetChipNames(). Without it a stored legacy
+    // action renders as its raw id.
+    Q_INVOKABLE static QVariantMap layoutActionLabels();
+    // { actions: [...offered on the web...], labels: { id: label } }
+    static QJsonObject layoutActionCatalogJson();
+
+    // Every (translation key, English fallback) pair declared by the C++ catalog
+    // tables in this file — action labels, widget palette/chip labels, category
+    // names.
+    //
+    // TranslationManager's completeness scan parses QML SOURCE only, and the
+    // registry is otherwise filled lazily by translate() actually running. So a
+    // key that lives in C++ is absent from the registry unless the user happens
+    // to open the screen that renders it — and a bulk AI translation or a
+    // community upload run before that publishes without it, silently, leaving
+    // those labels English in every locale. That was already true of the widget
+    // catalog before the action catalog joined it. The scan calls this so both
+    // are declared rather than discovered.
+    static QVector<QPair<QString, QString>> layoutCatalogTranslationStrings();
     // Whether a placed item instance is "configured" — its type has options, or
     // it carries any per-instance property beyond the bare type/id. Used to gate
     // remove-confirmation so an accidental tap can't discard a set-up widget.
