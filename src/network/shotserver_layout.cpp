@@ -729,6 +729,7 @@ QString ShotServer::generateLayoutPage() const
     html += WEB_CSS_VARIABLES;
     html += WEB_CSS_HEADER;
     html += WEB_CSS_MENU;
+    html += WEB_CSS_TOAST;
 
     // Part 2: Page-specific CSS
     html += R"HTML(
@@ -749,6 +750,8 @@ QString ShotServer::generateLayoutPage() const
             position: fixed;
             inset: 0;
             background: rgba(0,0,0,0.5);
+            /* .action-overlay (220) opens on top of this and must stay above
+               it — change one of the two and change the other. See #1765. */
             z-index: 210;
             align-items: center;
             justify-content: center;
@@ -1534,13 +1537,24 @@ QString ShotServer::generateLayoutPage() const
             color: var(--text-secondary);
         }
 
-        /* Action picker overlay */
+        /* Action picker overlay. It is always raised over an open .editor-panel
+           modal — never on its own — so it MUST stack above one, whatever the
+           numbers are. Below it (at 200) it rendered behind the editor, and how
+           that looked depended on which editor: the 280px dialog stood taller
+           than the short readout-options card, so it peeked out above and below
+           it and a click on the peeking part hit the editor's backdrop and
+           closed the editor; under the 900px-wide Custom widget card it was
+           covered outright and nothing responded at all. Neither editor's close
+           path clears the picker, so the pick was also lost — the reported
+           "choice is not kept" (#1765). (220 rather than .color-popup-overlay's
+           2000 only because nothing needs to sit between the two; the picker
+           and the colour popup are never open at the same time.) */
         .action-overlay {
             display: none;
             position: fixed;
             inset: 0;
             background: rgba(0,0,0,0.5);
-            z-index: 200;
+            z-index: 220;
             align-items: center;
             justify-content: center;
         }
@@ -1902,22 +1916,6 @@ QString ShotServer::generateLayoutPage() const
             margin-top: 0.5rem;
         }
         .lib-load-more:hover { background: var(--surface-hover); }
-        .lib-toast {
-            position: fixed;
-            bottom: 1.5rem;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--accent);
-            color: #fff;
-            padding: 0.6rem 1.2rem;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            z-index: 9999;
-            opacity: 0;
-            transition: opacity 0.3s;
-            pointer-events: none;
-        }
-        .lib-toast.show { opacity: 1; }
         .lib-spinner-overlay {
             display: none;
             position: absolute;
@@ -2319,8 +2317,8 @@ QString ShotServer::generateLayoutPage() const
     </div><!-- end main-wrapper -->
 
     <!-- Toast notification -->
-    <div class="lib-toast" id="libToast"></div>
 )HTML";
+    html += WEB_HTML_TOAST;
     html += R"HTML(
     <!-- Color picker popup with theme swatches -->
     <div class="color-popup-overlay" id="colorPopupOverlay" onclick="if(event.target===this)closeColorPopup()">
@@ -2398,6 +2396,7 @@ QString ShotServer::generateLayoutPage() const
     html += R"HTML(
     <script>
 )HTML";
+    html += WEB_JS_TOAST;
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
     html += R"HTML(
@@ -5172,13 +5171,11 @@ QString ShotServer::generateLayoutPage() const
         document.getElementById('libSpinner').classList.remove('active');
     }
 
+    // The library toast also dismisses the spinner, and holds a second longer
+    // than the shared default because its messages are error text, not "Saved".
     function showLibToast(msg) {
         hideLibSpinner();
-        var el = document.getElementById('libToast');
-        el.textContent = msg;
-        el.classList.add('show');
-        clearTimeout(window._toastTimer);
-        window._toastTimer = setTimeout(function() { el.classList.remove('show'); }, 3000);
+        showToast(msg, 3000);
     }
 
     // Initial load

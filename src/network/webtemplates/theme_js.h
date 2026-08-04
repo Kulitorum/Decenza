@@ -558,13 +558,6 @@ let commSelectedId = '';
 let commPage = 1;
 let commTotal = 0;
 
-function showToast(msg) {
-    var t = document.getElementById('libToast');
-    t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(function() { t.classList.remove('show'); }, 2000);
-}
-
 function switchLibTab(tab) {
     libCurrentTab = tab;
     document.getElementById('libTabLocal').classList.toggle('active', tab === 'local');
