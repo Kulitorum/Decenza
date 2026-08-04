@@ -256,6 +256,67 @@ private slots:
         assertShortFlowNear(spy, 2.0, 3, "5 Hz bursty feed after a >2 s reconnect gap");
     }
 
+    // KNOWN DEFECT, held here on purpose: jittered burst timing over-reads flow.
+    //
+    // This test FAILS by design (QEXPECT_FAIL). It reproduces a real defect that
+    // has no fix yet, so that the defect is a running, measured thing rather than a
+    // note someone has to rediscover.
+    //
+    // A 10 Hz feed delivered in bursts whose PERIOD jitters +-60 ms reads 2.25 g/s
+    // where the truth is 2.00 — 12% high. Remove the jitter and it reads exactly
+    // 2.00 (burstyDeliveryKeepsShortFlowValid), so the jitter is what breaks it,
+    // and jittered burst timing is the normal condition on a WiFi feed.
+    //
+    // What it is NOT: a choice of averaging statistic. The estimate was switched
+    // from minimum-of-three to median-of-three specifically to fix this, on the
+    // reasoning that the minimum sits on the low tail of two-directional jitter.
+    // The median measured WORSE — 2.96 g/s, twice the error — so the change was
+    // reverted. The error is in how a burst is spread against a moving wall-clock,
+    // not in which window measurement is committed to.
+    //
+    // Bursty on purpose: the cadence estimate only reaches the timestamps through
+    // the batched branch, so an evenly-paced feed cannot exercise this at all.
+    //
+    // If this ever XPASSes, the underlying behaviour changed — work out why before
+    // deleting the QEXPECT_FAIL.
+    void cadenceEstimateDoesNotTrackTheLowTail() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        constexpr int kCadenceMs = 100;
+        constexpr double kFlow = 2.0;
+        constexpr int kFramesPerBurst = 5;
+        const int jitter[] = {-60, 40, -30, 55, -45, 25, 60, -50};
+        const qint64 t0 = m_fakeClock;
+        for (int b = 0; b < 24; ++b) {
+            for (int f = 0; f < kFramesPerBurst; ++f) {
+                // Weight follows the WALL CLOCK, not the frame index. Deriving it
+                // from the index looks equivalent and is not once the burst period
+                // jitters: it delivers a fixed 1.0 g per burst over a varying real
+                // interval, i.e. 1.8-2.27 g/s, and the test then measures the
+                // fixture instead of the estimator. It read 1.75 g/s that way under
+                // BOTH statistics, which is what exposed the mistake.
+                wp.processWeight(kFlow * (m_fakeClock - t0) / 1000.0);
+                m_fakeClock += 2;
+            }
+            m_fakeClock += kFramesPerBurst * (kCadenceMs - 2) + jitter[b % 8];
+        }
+
+        // Asserted inline rather than through assertShortFlowNear: that helper's
+        // first check is a QVERIFY on the sample count, which PASSES, and
+        // QEXPECT_FAIL binds to the very next check — so routing through the helper
+        // marks the count check as an unexpected pass and never reaches the flow.
+        QVERIFY(spy.count() > kFramesPerBurst);
+        const double shortFlow = spy.last().at(2).toDouble();
+        QEXPECT_FAIL("", "Jittered burst timing over-reads flow (~2.25 g/s on a true "
+                         "2.00). Open: not a statistic choice — median measured worse "
+                         "at 2.96. See the comment above this test.", Abort);
+        QVERIFY2(qAbs(shortFlow - kFlow) < 0.1 * kFlow,
+                 qPrintable(QString("jittered bursty 10 Hz feed read %1 g/s, expected ~%2")
+                                .arg(shortFlow).arg(kFlow)));
+    }
+
     void negativeWeightClampedToZero() {
         WeightProcessor wp;
         installFakeClock(wp);
