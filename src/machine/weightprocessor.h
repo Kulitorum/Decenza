@@ -195,7 +195,18 @@ private:
     // WiFi scale until synthetic timestamps outran wall-clock. See processWeight().
     qint64 m_rateWindowStartMs = 0;     // Wall-clock start of the current rate window
     int m_rateWindowCount = 0;          // Arrivals seen in the current rate window
-    bool m_rateCalibrated = false;      // A rate window has closed (bootstrap superseded)
+    // Recent closed-window measurements, of which the MINIMUM is the estimate.
+    // Dropped frames and sub-reconnect hiccups can only inflate a window's
+    // measurement, never deflate it, so the smallest is the least contaminated.
+    // Three windows is the shortest run that survives one bad window while still
+    // following a genuine rate change within a few seconds. See processWeight().
+    static constexpr int kRateRecentWindows = 3;
+    int m_rateRecent[kRateRecentWindows] = {0, 0, 0};
+    int m_rateRecentNext = 0;           // Ring write position
+    int m_rateRecentCount = 0;          // Valid entries (< kRateRecentWindows while filling)
+    // Arrivals deep into the current burst; sizes the synthetic lead allowance so
+    // burst length is not silently capped. Reset by the first non-batched arrival.
+    int m_burstFrames = 0;
 
     // Log throttle timestamps — reset each shot so warnings are never suppressed at shot start
     qint64 m_lastTareWarnMs = 0;

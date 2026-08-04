@@ -164,7 +164,6 @@ void WeightProcessor::processWeight(double weight)
     // the calibrated scale interval, so this adapts to any scale rate (10Hz, 5Hz, 2Hz).
     constexpr qint64 kBatchThresholdMs = 20;    // Below this, events are batched
     constexpr qint64 kReconnectGapMs = 2000;    // Above this, ignore as reconnect
-    constexpr double kEmaAlpha = 0.3;           // Smoothing factor for interval estimate
     constexpr qint64 kRateWindowMs = 1000;      // Arrival-rate calibration window
 
     qint64 sinceLast = m_lastWallClockMs > 0 ? (wallClock - m_lastWallClockMs) : -1;
@@ -186,9 +185,10 @@ void WeightProcessor::processWeight(double weight)
     // 10 arrivals in 1000 ms is 100 ms/sample whether they came evenly or all at
     // once. The old EMA is kept below as the bootstrap for the first window, since
     // this one cannot report until kRateWindowMs of wall time has passed.
-    if (m_rateWindowStartMs == 0 || (sinceLast > kReconnectGapMs)) {
+    if (m_rateWindowStartMs == 0 || sinceLast > kReconnectGapMs) {
         m_rateWindowStartMs = wallClock;
         m_rateWindowCount = 0;
+        m_rateRecentCount = 0;  // measurements across a reconnect describe a different stream
     }
     ++m_rateWindowCount;
     const qint64 rateSpanMs = wallClock - m_rateWindowStartMs;
@@ -198,19 +198,36 @@ void WeightProcessor::processWeight(double weight)
         // every synthetic timestamp identical, the exact failure being fixed here.
         const int measured =
             qMax(1, static_cast<int>(rateSpanMs / (m_rateWindowCount - 1)));
-        // The FIRST rate measurement replaces the bootstrap outright instead of
-        // blending with it. The bootstrap is a single inter-burst gap, i.e. exactly
-        // the biased quantity this calibration exists to discard — EMA-ing toward
-        // the truth from there took ~10 s at alpha 0.3, most of a pour, with the
-        // synthetic clock collapsing timestamps the whole way. Later measurements
-        // do blend, because by then both sides are honest and smoothing is worth
-        // having.
-        m_estimatedIntervalMs =
-            m_rateCalibrated
-                ? static_cast<int>((1.0 - kEmaAlpha) * m_estimatedIntervalMs
-                                   + kEmaAlpha * measured)
-                : measured;
-        m_rateCalibrated = true;
+        // MINIMUM of the last few windows, not an average and not the latest.
+        //
+        // Contamination here is one-directional, which is what makes the minimum
+        // the right statistic rather than merely a robust-looking one: a dropped
+        // frame or a sub-reconnect hiccup removes arrivals from a window and can
+        // only ever push `measured` UP. Nothing pushes it down — no mechanism
+        // delivers more samples than the scale sent. So the smallest recent window
+        // is the one least contaminated, and taking it discards a bad window
+        // outright instead of blending its error in.
+        //
+        // The alternative tried first was rejecting the contaminated GAP before it
+        // reached the average, by restarting the window on anything more than a few
+        // times the cadence. That cannot work on a bunching transport: the
+        // inter-burst gap (~490 ms against a 100 ms cadence) is itself many times
+        // the cadence, so the window would restart on every burst and never close.
+        // Averaging ACROSS bursts is the whole point; the gap is signal, not noise.
+        //
+        // Simulated on a 10 Hz feed with one 1.5 s hiccup: an EMA pulled the
+        // estimate to 145 ms and ~1 s of pour read 1.38-1.53 g/s against a true
+        // 2.00; the minimum holds 100 ms and 2.00 g/s throughout. A GENUINE rate
+        // change still lands — every window agrees once the old ones age out, so it
+        // takes effect within kRateRecentWindows windows instead of instantly.
+        m_rateRecent[m_rateRecentNext] = measured;
+        m_rateRecentNext = (m_rateRecentNext + 1) % kRateRecentWindows;
+        if (m_rateRecentCount < kRateRecentWindows) ++m_rateRecentCount;
+        int lowest = m_rateRecent[0];
+        for (int i = 1; i < m_rateRecentCount; ++i) {
+            lowest = qMin(lowest, m_rateRecent[i]);
+        }
+        m_estimatedIntervalMs = lowest;
         m_rateWindowStartMs = wallClock;
         m_rateWindowCount = 1;
     }
@@ -271,6 +288,17 @@ void WeightProcessor::processWeight(double weight)
     // + idempotent (clears the no-stall path too).
     resetStallTracking();
 
+    // How many arrivals deep we are into the current burst. Resets on the first
+    // non-batched arrival, so it measures THIS burst and cannot ratchet across
+    // bursts — which is what keeps the lead allowance below from growing without
+    // bound. Counted before the timestamp is assigned because the allowance is an
+    // input to that assignment.
+    if (sinceLast >= 0 && sinceLast <= kBatchThresholdMs) {
+        ++m_burstFrames;
+    } else {
+        m_burstFrames = 1;
+    }
+
     qint64 sampleTs;
     if (sinceLast < 0 || sinceLast > kBatchThresholdMs) {
         // First call or non-batched: use wall-clock as ground truth.
@@ -322,14 +350,31 @@ void WeightProcessor::processWeight(double weight)
         // intervals crushed a five-frame burst into 200 ms and left the tail of it
         // pinned — a compressed span reaching LSLR as a stalled feed.
         //
-        // 1000 ms because that is how long m_weightSamples keeps anything: a lead
-        // beyond the buffer cannot influence any fit, so there is nothing further to
-        // protect. Unbounded runaway is not reachable from here now that the
-        // interval is calibrated from arrival rate — that took a systematically
-        // inflated interval, which is exactly what the rate window removes.
-        constexpr qint64 kMaxSyntheticLeadMs = 1000;
+        // The allowance TRACKS THE BURST rather than being a flat ceiling, because a
+        // flat one silently caps burst size: a burst of N frames needs (N-1)
+        // intervals of lead, so any fixed value is a limit on N that nothing states
+        // and nothing reports. Swept in simulation, a flat 1000 ms was exact up to
+        // 11 frames at 10 Hz and then fell off a cliff at 14 — to 0.00 g/s, the
+        // identical symptom this change exists to remove. A ceiling whose breach
+        // reproduces the bug is not a safety net.
+        //
+        // m_burstFrames counts the arrivals in the current burst, so the allowance
+        // grows exactly as far as the burst in hand requires, +2 intervals of slack
+        // for the next frames. The 1000 ms floor keeps it from tightening below what
+        // a short burst on a slow scale needs.
+        //
+        // What still bounds it: the burst counter resets on the first non-batched
+        // arrival, so the allowance cannot ratchet up across bursts, and a stream
+        // whose gaps exceed kReconnectGapMs restarts calibration entirely. Verified
+        // to 20 frames at 10 Hz and 8 at 5 Hz. The one shape still wrong is 2 Hz in
+        // 5-frame bursts, whose 2.5 s inter-burst silence is longer than
+        // kReconnectGapMs AND kScaleStaleMs — a feed the app already calls stalled,
+        // so it is out of scope here rather than unhandled.
+        const qint64 leadAllowanceMs =
+            qMax(qint64(1000),
+                 static_cast<qint64>(m_burstFrames + 2) * m_estimatedIntervalMs);
         sampleTs = m_lastSampleTs + m_estimatedIntervalMs;
-        qint64 maxAhead = wallClock + kMaxSyntheticLeadMs;
+        qint64 maxAhead = wallClock + leadAllowanceMs;
         if (sampleTs > maxAhead) {
             // STRICTLY monotonic, even when the cap bites. Pinning to `maxAhead`
             // outright was the collapse: once m_lastSampleTs reached the cap, every
@@ -735,6 +780,9 @@ void WeightProcessor::startExtraction()
     // this calibration was written to remove.
     m_rateWindowStartMs = 0;
     m_rateWindowCount = 0;
+    m_rateRecentCount = 0;
+    m_rateRecentNext = 0;
+    m_burstFrames = 0;
     resetStallTracking();
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
 }
@@ -818,6 +866,9 @@ void WeightProcessor::resetForRetare()
     m_lastSampleTs = 0;
     m_rateWindowStartMs = 0;  // Same reasoning as reset() — see the note there
     m_rateWindowCount = 0;
+    m_rateRecentCount = 0;
+    m_rateRecentNext = 0;
+    m_burstFrames = 0;
     resetStallTracking();
     m_uncalibratedBatchWarned = false;  // Timestamps cleared — de-jitter needs recalibration
     m_lastTareWarnMs = 0;
