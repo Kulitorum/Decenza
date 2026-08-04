@@ -1534,13 +1534,19 @@ QString ShotServer::generateLayoutPage() const
             color: var(--text-secondary);
         }
 
-        /* Action picker overlay */
+        /* Action picker overlay. Opened only from ON TOP of an editor — the
+           Custom widget editor's Click/Long/DblClk selectors and the built-in
+           widgets' Options editor gesture rows — both of which are
+           .editor-panel (z-index 210), so this MUST stack above it. At 200 it
+           rendered behind the editor: the choices were unreadable and
+           unclickable, and a click on the visible part landed on the editor's
+           backdrop and closed the editor instead (#1765). */
         .action-overlay {
             display: none;
             position: fixed;
             inset: 0;
             background: rgba(0,0,0,0.5);
-            z-index: 200;
+            z-index: 220;
             align-items: center;
             justify-content: center;
         }
