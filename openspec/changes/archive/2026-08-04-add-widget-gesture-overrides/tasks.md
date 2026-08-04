@@ -40,7 +40,7 @@
 - [x] 7.4 Test: the compiled merge applies stored gesture keys and still discards stored identity keys
 - [x] 7.5 Test: the slot rule — a one-slot type reports one editable slot and a reserved destination; a two-slot type reports two and none
 - [x] 7.6 VERIFIED — Recipes end to end (picker, Default/None, reserved-slot locking, override firing), then moved centerTop (compiled CustomItem path) → bottomRight (dedicated RecipesItem path) with the override intact: long-press still opened filtered history, double-click still opened Recipes. Moved back. In the running app: set an override on a one-slot widget, confirm the reserved gesture still opens the page; move the widget between a compiled zone and a dedicated-format zone and confirm identical behaviour
-- [ ] 7.7 In the running app: confirm an untouched layout behaves exactly as before on every widget and every gesture
+- [~] 7.7 PARTIAL — the app was used throughout development with a live layout whose widgets carried no overrides, and no behaviour change was observed on any of them; the compiled merge is gated to the two gesture keys precisely so nothing else can move. NOT a deliberate sweep of every widget and gesture, which is what this task asked for. In the running app: confirm an untouched layout behaves exactly as before on every widget and every gesture
 - [x] 7.8 In the web editor at `localhost:8888/layout`: set an override, reopen in-app, confirm same action and same reserved slot
 
 ## 8. Documentation
