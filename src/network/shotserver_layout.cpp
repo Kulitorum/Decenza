@@ -3346,24 +3346,39 @@ QString ShotServer::generateLayoutPage() const
         var dc = props.doubleclickAction || "";
         // A one-slot widget reserves whichever gesture the user has NOT filled;
         // clearing the override frees both again.
-        var lpReserved = reserved !== "" && lp === "" && dc !== "";
-        var dcReserved = reserved !== "" && dc === "" && lp !== "";
+        // LOCKED is not the same as WHAT IT DOES. On a one-slot widget an empty
+        // gesture already opens the page — that is its current behaviour and the
+        // row must say so, not "None". It only becomes un-editable once the OTHER
+        // gesture carries an override, because then it is the last way in.
+        var lpLocked = reserved !== "" && lp === "" && dc !== "";
+        var dcLocked = reserved !== "" && dc === "" && lp !== "";
         var html = '<div class="section-label" style="margin-top:0.9rem">Gestures</div>';
         if (reserved !== "") {
             html += '<div style="font-size:0.75rem;color:var(--text-secondary);margin:0 0 0.4rem 0">'
                  + "One gesture stays reserved so this widget's page is still reachable.</div>";
         }
-        html += roGestureRow("longPressAction", "Long press", lp, lpReserved, reserved);
-        html += roGestureRow("doubleclickAction", "Double-click", dc, dcReserved, reserved);
+        html += roGestureRow("longPressAction", "Long press", lp, lpLocked, reserved);
+        html += roGestureRow("doubleclickAction", "Double-click", dc, dcLocked, reserved);
         return html;
     }
 
-    function roGestureRow(key, label, actionId, isReserved, reservedAction) {
-        var text = isReserved ? ("Opens " + getActionLabel(reservedAction))
-                              : getActionLabel(actionId);
-        var cls = "action-selector" + (!isReserved && actionId ? " has-action" : "");
-        var style = isReserved ? ' style="opacity:0.6;cursor:default"' : '';
-        var onclick = isReserved ? '' : ' onclick="roOpenGesturePicker(\'' + key + '\')"';
+    function roGestureRow(key, label, actionId, isLocked, reservedAction) {
+        // No override: the gesture does whatever the widget reserves — say that.
+        // Only a widget that reserves nothing (tap already opens its page) is
+        // honestly "None" when empty.
+        // Never "None": an empty slot is not "nothing happens", it is "unchanged".
+        // Where the widget reserves a destination, say which one — that is the
+        // gesture's actual behaviour today. Elsewhere "Default" says stock
+        // behaviour without claiming the gesture is dead.
+        // "Opens Recipes", not "Opens Go to Recipes" — the catalog label is
+        // written for a picker row ("Go to X"), which reads as a double verb once
+        // it is embedded in a sentence.
+        var dest = getActionLabel(reservedAction).replace(/^Go to /, "");
+        var text = actionId ? getActionLabel(actionId)
+                 : (reservedAction ? "Opens " + dest : "Default");
+        var cls = "action-selector" + (actionId ? " has-action" : "");
+        var style = isLocked ? ' style="opacity:0.6;cursor:default"' : '';
+        var onclick = isLocked ? '' : ' onclick="roOpenGesturePicker(\'' + key + '\')"';
         return '<div class="' + cls + '"' + style + onclick + '>'
              + '<span style="color:var(--text-secondary);font-size:0.8rem">' + label + ':</span> '
              + '<span style="font-size:0.8rem">' + text + '</span></div>';
@@ -5146,7 +5161,14 @@ QString ShotServer::generateLayoutPage() const
     // Listen for layout changes pushed from the tablet via SSE
     var layoutEvents = new EventSource("/api/layout/events");
     layoutEvents.addEventListener("layout-changed", function() {
-        if (editingItem || ssEditingItem) return;
+        // EVERY open editor suppresses the reload, not just two of them. Both
+        // editors are meant to be open at once — that is what this SSE is for —
+        // and reloading the page underneath an open editor destroys its DOM
+        // while roPendingValues and the auto-save timer still reference the item
+        // being edited. roEditingItem was missing here: harmless while only
+        // readout widgets had options, reachable the moment the ten built-in
+        // action widgets gained gesture overrides.
+        if (editingItem || ssEditingItem || roEditingItem) return;
         loadLayout();
     });
     layoutEvents.onerror = function() {

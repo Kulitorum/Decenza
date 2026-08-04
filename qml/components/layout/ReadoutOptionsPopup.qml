@@ -31,10 +31,13 @@ DecenzaDialog {
     // A one-slot widget reserves whichever gesture the user has NOT filled. Once
     // one carries an override the other is locked, so the page stays reachable;
     // clearing the override frees both again.
-    readonly property bool longPressReserved: popup.reservedAction !== "" && popup.longPressAction === ""
-                                              && popup.doubleclickAction !== ""
-    readonly property bool doubleclickReserved: popup.reservedAction !== "" && popup.doubleclickAction === ""
-                                                && popup.longPressAction !== ""
+    // LOCKED is not the same as WHAT IT DOES. An empty gesture on a one-slot
+    // widget already opens the page; it only becomes un-editable once the OTHER
+    // gesture carries an override, because then it is the last way in.
+    readonly property bool longPressLocked: popup.reservedAction !== "" && popup.longPressAction === ""
+                                            && popup.doubleclickAction !== ""
+    readonly property bool doubleclickLocked: popup.reservedAction !== "" && popup.doubleclickAction === ""
+                                              && popup.longPressAction !== ""
 
     // An absent stored displayMode always means "today's rendering"; the
     // per-type default is declared once in the capability schema.
@@ -72,14 +75,29 @@ DecenzaDialog {
     // The label a gesture shows: the user's action, the reserved destination, or
     // "None". All three resolve through layoutActionLabels(), so no destination
     // name is written out here.
-    function gestureLabel(actionId, reserved) {
-        var id = reserved ? popup.reservedAction : actionId
-        if (!id) return TranslationManager.translate("customeditor.action.none", "None")
-        var entry = Settings.network.layoutActionLabels()[id]
-        if (entry === undefined) return id
-        var label = TranslationManager.translate(entry.key, entry.fallback)
-        return reserved ? TranslationManager.translate("gesturerow.opens", "Opens %1").arg(label)
-                        : label
+    // What a gesture row SHOWS. Never "None": an empty slot is not "nothing
+    // happens", it is "unchanged". On a widget that reserves a destination an
+    // empty gesture already OPENS THAT PAGE — the row says which one, because
+    // that is its behaviour today. Elsewhere "Default" says stock behaviour
+    // without claiming the gesture is dead.
+    function gestureLabel(actionId) {
+        if (actionId) {
+            var entry = Settings.network.layoutActionLabels()[actionId]
+            if (entry === undefined) return actionId
+            return TranslationManager.translate(entry.key, entry.fallback)
+        }
+        if (popup.reservedAction === "")
+            return TranslationManager.translate("gesturerow.default", "Default")
+        var r = Settings.network.layoutActionLabels()[popup.reservedAction]
+        var rLabel = r === undefined ? popup.reservedAction
+                                     : TranslationManager.translate(r.key, r.fallback)
+        // "Opens Recipes", not "Opens Go to Recipes": the catalog label is written
+        // for a picker row and reads as a double verb inside a sentence. The
+        // prefix is translated, so strip the translated form rather than "Go to".
+        var goTo = TranslationManager.translate("customaction.prefix.goTo", "Go to ")
+        if (rLabel.indexOf(goTo) === 0)
+            rLabel = rLabel.substring(goTo.length)
+        return TranslationManager.translate("gesturerow.opens", "Opens %1").arg(rLabel)
     }
 
     function setGesture(key, actionId) {
@@ -280,9 +298,9 @@ DecenzaDialog {
                         gestureLabel: TranslationManager.translate("customeditor.gesture.long", "Long:")
                         accessibleLabel: TranslationManager.translate("customeditor.accessible.longPressAction", "Long press action")
                         actionId: popup.longPressAction
-                        actionLabel: popup.gestureLabel(popup.longPressAction, false)
-                        reserved: popup.longPressReserved
-                        reservedLabel: popup.gestureLabel("", true)
+                        actionLabel: popup.gestureLabel(popup.longPressAction)
+                        reserved: popup.longPressLocked
+                        reservedLabel: popup.gestureLabel("")
                         onPicked: gesturePicker.openFor("longPressAction")
                     }
 
@@ -290,9 +308,9 @@ DecenzaDialog {
                         gestureLabel: TranslationManager.translate("customeditor.gesture.dblclick", "DblClk:")
                         accessibleLabel: TranslationManager.translate("customeditor.accessible.dblClickAction", "Double click action")
                         actionId: popup.doubleclickAction
-                        actionLabel: popup.gestureLabel(popup.doubleclickAction, false)
-                        reserved: popup.doubleclickReserved
-                        reservedLabel: popup.gestureLabel("", true)
+                        actionLabel: popup.gestureLabel(popup.doubleclickAction)
+                        reserved: popup.doubleclickLocked
+                        reservedLabel: popup.gestureLabel("")
                         onPicked: gesturePicker.openFor("doubleclickAction")
                     }
                 }
