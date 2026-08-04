@@ -262,17 +262,25 @@ private slots:
     // has no fix yet, so that the defect is a running, measured thing rather than a
     // note someone has to rediscover.
     //
-    // A 10 Hz feed delivered in bursts whose PERIOD jitters +-60 ms reads 2.25 g/s
-    // where the truth is 2.00 — 12% high. Remove the jitter and it reads exactly
-    // 2.00 (burstyDeliveryKeepsShortFlowValid), so the jitter is what breaks it,
-    // and jittered burst timing is the normal condition on a WiFi feed.
+    // A 10 Hz feed delivered in bursts whose PERIOD jitters +-60 ms does not read a
+    // steady flow at all. It OSCILLATES within each burst — measured across one
+    // burst on a true 2.00 g/s feed:
+    //
+    //     2.25  2.92  2.92  2.25  0.04
+    //
+    // The last sample of every burst is near zero, which is stop-at-weight going
+    // blind on a regular beat rather than occasionally.
     //
     // What it is NOT: a choice of averaging statistic. The estimate was switched
-    // from minimum-of-three to median-of-three specifically to fix this, on the
-    // reasoning that the minimum sits on the low tail of two-directional jitter.
-    // The median measured WORSE — 2.96 g/s, twice the error — so the change was
-    // reverted. The error is in how a burst is spread against a moving wall-clock,
-    // not in which window measurement is committed to.
+    // from minimum-of-three to median-of-three specifically to fix this. Measured
+    // at MATCHING sample positions the median gives 2.16 2.96 2.96 2.16 0.04 —
+    // the same shape, the same near-zero. An earlier version of this comment
+    // claimed the median was "twice as wrong" at 2.96 against 2.25; those were two
+    // different frames of the oscillation above, compared against each other.
+    // Recorded because the wrong comparison was convincing enough to ship.
+    //
+    // Do not compare statistics on a single sample from this fixture. Any one frame
+    // is a different number, so any two runs can be made to say anything.
     //
     // Bursty on purpose: the cadence estimate only reaches the timestamps through
     // the batched branch, so an evenly-paced feed cannot exercise this at all.
@@ -307,14 +315,25 @@ private slots:
         // first check is a QVERIFY on the sample count, which PASSES, and
         // QEXPECT_FAIL binds to the very next check — so routing through the helper
         // marks the count check as an unexpected pass and never reaches the flow.
+        // Asserts the SPREAD across one burst, not a single sample, because the
+        // defect is an oscillation and any one frame of it is a different number.
+        // Reading a single sample is how the first version of this test produced a
+        // false comparison between two statistics.
         QVERIFY(spy.count() > kFramesPerBurst);
-        const double shortFlow = spy.last().at(2).toDouble();
-        QEXPECT_FAIL("", "Jittered burst timing over-reads flow (~2.25 g/s on a true "
-                         "2.00). Open: not a statistic choice — median measured worse "
-                         "at 2.96. See the comment above this test.", Abort);
-        QVERIFY2(qAbs(shortFlow - kFlow) < 0.1 * kFlow,
-                 qPrintable(QString("jittered bursty 10 Hz feed read %1 g/s, expected ~%2")
-                                .arg(shortFlow).arg(kFlow)));
+        double lo = 1e9, hi = -1e9;
+        for (qsizetype i = spy.count() - kFramesPerBurst; i < spy.count(); ++i) {
+            const double f = spy.at(i).at(2).toDouble();
+            lo = qMin(lo, f);
+            hi = qMax(hi, f);
+        }
+        QEXPECT_FAIL("", "Jittered burst timing makes short flow oscillate within "
+                         "each burst (measured 0.04-2.92 g/s on a true 2.00, with the "
+                         "last sample of every burst near zero). Open. NOT a choice "
+                         "of averaging statistic — median measures the same. See the "
+                         "comment above this test.", Abort);
+        QVERIFY2(hi - lo < 0.2 * kFlow,
+                 qPrintable(QString("short flow swung %1 to %2 g/s within one burst "
+                                    "on a steady %3 g/s feed").arg(lo).arg(hi).arg(kFlow)));
     }
 
     void negativeWeightClampedToZero() {

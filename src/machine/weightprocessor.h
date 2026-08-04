@@ -134,6 +134,9 @@ private:
     // re-triggered on every following sample, the count never reached two, and
     // the estimate stayed uncalibrated for the whole stream.
     void resetRateCalibration(qint64 windowStartMs = 0);
+    // Third chokepoint, same discipline: owns every per-shot diagnostic counter so
+    // a partial reset cannot be written. Also arms m_djSummaryPending.
+    void resetShotDiagnostics();
 
     // Weight sample buffer (1-second rolling window for LSLR)
     struct WeightSample {
@@ -239,6 +242,12 @@ private:
     int m_djIntervalMinMs = 0;
     int m_djIntervalMaxMs = 0;
     int m_djBlindSamples = 0;
+    // One summary per SHOT. stopExtraction() runs on MachineState::shotEnded, which
+    // fires on any flowing-to-not-flowing edge — steam, hot water and flush
+    // included — so without this latch a flush after a shot logged a second summary
+    // carrying that shot's counters over an elapsed time measured from its flow
+    // start, indistinguishable in the log from a real one.
+    bool m_djSummaryPending = false;
     // A closing rate window this far from the committed estimate (percent) is worth
     // a line. Loose enough that ordinary jitter stays silent.
     static constexpr int kRateDisagreementPct = 15;

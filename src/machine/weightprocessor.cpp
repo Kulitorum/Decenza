@@ -216,20 +216,26 @@ void WeightProcessor::processWeight(double weight)
         // pulled the estimate to 145 ms and ~1 s of pour read 1.38-1.53 g/s against
         // a true 2.00 g/s.
         //
-        // A MEDIAN was tried and REJECTED, which is worth recording because the
-        // argument for it is persuasive and wrong. The reasoning: ordinary jitter is
-        // two-directional, so the minimum of three noisy windows sits on their low
-        // tail, and a median would reject the same one-directional contamination
-        // without that bias. Measured against cadenceEstimateDoesNotTrackTheLowTail
-        // — a jittered bursty 10 Hz feed at a true 2.00 g/s — the minimum reads
-        // 2.25 g/s and the median reads 2.96 g/s. The median is twice as wrong.
+        // A MEDIAN was tried, and the honest answer is that IT MAKES NO DIFFERENCE
+        // to the problem it was reached for. The argument was that ordinary jitter
+        // is two-directional, so the minimum of three noisy windows sits on their
+        // low tail. Measured at matching sample positions on the jittered bursty
+        // fixture in cadenceEstimateDoesNotTrackTheLowTail, one burst reads:
         //
-        // Neither is right, and that is the actual open problem: under jittered
-        // burst TIMING this function over-reads flow whatever statistic it commits
-        // to, because the error is in how a burst is spread against a moving
-        // wall-clock, not in which window measurement is chosen. Do not swap the
-        // statistic again without running that test; the direction of the effect is
-        // not what intuition suggests, and it was predicted wrong twice.
+        //     minimum   2.25  2.92  2.92  2.25  0.04
+        //     median    2.16  2.96  2.96  2.16  0.04
+        //
+        // Same shape, same magnitude, same near-zero at the burst boundary. An
+        // earlier version of this comment claimed the median was "twice as wrong"
+        // at 2.96 against 2.25; that was two different FRAMES of the oscillation
+        // above compared against each other, not one measurement under two
+        // statistics. Recorded because the wrong comparison looked convincing.
+        //
+        // The real defect is the oscillation itself — flow swinging from 0.04 to
+        // ~2.9 g/s inside a single burst on a true 2.00 g/s feed, with the last
+        // sample of every burst reading near zero. Which statistic is committed to
+        // does not touch it, so do not spend another pass on the statistic. It is
+        // held by cadenceEstimateDoesNotTrackTheLowTail as a QEXPECT_FAIL.
         //
         // A genuine rate change still lands asymmetrically: a scale speeding UP
         // takes effect on the next closed window, since a smaller value wins the
@@ -250,7 +256,13 @@ void WeightProcessor::processWeight(double weight)
         // walking the low tail of its own noise could not be seen from a field log.
         if (committed > 0
             && qAbs(measured - committed) * 100 > kRateDisagreementPct * committed) {
-            SAWW_LOG(QStringLiteral("De-jitter rate window disagrees: measured=%1 ms "
+            // SCALEFEED, not SAWW: this answers "were the readings timed right",
+            // which is a [Scale] question. The file header, the constant-weight
+            // diagnostic below and LOGGING.md all state that rule; this line was
+            // filed under [SAW] first, where a reader chasing a stop-at-weight
+            // problem would meet rate-estimator noise and a reader checking feed
+            // health would never see it.
+            SCALEFEED_LOG(QStringLiteral("De-jitter rate window disagrees: measured=%1 ms "
                                     "committed=%2 ms (arrivals=%3 over %4 ms)")
                          .arg(measured).arg(committed)
                          .arg(m_rateWindowCount).arg(rateSpanMs));
@@ -727,6 +739,22 @@ void WeightProcessor::resetStallTracking()
     m_feedStallStartMs = 0;
 }
 
+void WeightProcessor::resetShotDiagnostics()
+{
+    // Through a chokepoint, like resetStallTracking() and resetRateCalibration()
+    // above, and for the same reason those exist: these were six hand-written
+    // assignments and m_djIntervalMinMs uses a 0-means-unset sentinel, so dropping
+    // one line in a later edit would carry the previous shot's minimum into this
+    // shot's summary and read entirely plausible.
+    m_djArrivals = 0;
+    m_djBatchedArrivals = 0;
+    m_djMaxBurstFrames = 0;
+    m_djIntervalMinMs = 0;
+    m_djIntervalMaxMs = 0;
+    m_djBlindSamples = 0;
+    m_djSummaryPending = true;
+}
+
 void WeightProcessor::resetRateCalibration(qint64 windowStartMs)
 {
     // All five move together — see the header. m_rateRecent[]'s CONTENTS are left
@@ -858,14 +886,7 @@ void WeightProcessor::startExtraction()
     // this calibration was written to remove.
     resetRateCalibration();
     resetStallTracking();
-    // Per-shot observation counters: the summary at stopExtraction() describes ONE
-    // shot, so they start clean here rather than accumulating across the session.
-    m_djArrivals = 0;
-    m_djBatchedArrivals = 0;
-    m_djMaxBurstFrames = 0;
-    m_djIntervalMinMs = 0;
-    m_djIntervalMaxMs = 0;
-    m_djBlindSamples = 0;
+    resetShotDiagnostics();
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
 }
 
@@ -873,6 +894,13 @@ void WeightProcessor::markExtractionStart()
 {
     if (!m_active || m_extractionStartTime != 0) return;
     m_extractionStartTime = m_wallClock();
+    // Restart the diagnostic counters HERE, not only at startExtraction(). The
+    // summary divides arrivals by (now - m_extractionStartTime), and this is where
+    // that clock starts — counting from startExtraction() instead meant the
+    // numerator included the whole preheat while the denominator did not, reporting
+    // roughly double the true arrival rate next to a committed interval that
+    // contradicted it.
+    resetShotDiagnostics();
     // Flow has begun, so whatever the scale reads now is its post-tare zero even if
     // it never passed through the near-zero window (an untared cup left on the
     // platter, say). Arm the spike filter unconditionally here.
@@ -919,11 +947,17 @@ void WeightProcessor::stopExtraction()
         qint64 span = m_weightSamples.last().timestamp - m_weightSamples.first().timestamp;
         if (span > 0) {
             double avgIntervalMs = span / static_cast<double>(m_weightSamples.size() - 1);
+            // Scope stated explicitly, and the calibrated interval deliberately NOT
+            // repeated here: this average covers only what is left in the 1 s LSLR
+            // buffer at shot end, while the summary below carries the whole-shot
+            // range and the committed value. Printing m_estimatedIntervalMs on both
+            // lines put the same field in the log twice under two different names,
+            // one line apart.
             SCALEFEED_LOG(QStringLiteral("Scale interval: avg %1 ms (%2 Hz) over %3 samples "
-                                         "(last 1s) | de-jitter calibrated: %4 ms")
+                                         "in the trailing 1 s")
                               .arg(static_cast<int>(avgIntervalMs))
                               .arg(1000.0 / avgIntervalMs, 0, 'f', 1)
-                              .arg(m_weightSamples.size()).arg(m_estimatedIntervalMs));
+                              .arg(m_weightSamples.size()));
         }
     }
 
@@ -933,7 +967,8 @@ void WeightProcessor::stopExtraction()
     // from sample counts, and the number of blind samples was unknowable because
     // its log line is throttled to one per 5 s. One line per shot, so it cannot
     // dominate anything.
-    if (m_djArrivals > 0 && m_extractionStartTime > 0) {
+    if (m_djSummaryPending && m_djArrivals > 0 && m_extractionStartTime > 0) {
+        m_djSummaryPending = false;
         const qint64 elapsedMs = m_wallClock() - m_extractionStartTime;
         const double perSec = elapsedMs > 0 ? (m_djArrivals * 1000.0 / elapsedMs) : 0.0;
         SCALEFEED_LOG(QStringLiteral("De-jitter summary: %1 arrivals in %2 s (%3/s) | "
@@ -968,6 +1003,7 @@ void WeightProcessor::resetForRetare()
     m_lastSampleTs = 0;
     resetRateCalibration();
     resetStallTracking();
+    resetShotDiagnostics();  // pre-retare arrivals do not describe the shot that follows
     m_uncalibratedBatchWarned = false;  // Timestamps cleared — de-jitter needs recalibration
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
