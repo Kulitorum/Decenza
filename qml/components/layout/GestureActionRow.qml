@@ -49,7 +49,11 @@ Rectangle {
         ? TranslationManager.translate("gesturerow.accessible.reserved",
               "Reserved so this widget's page stays reachable. Clear the other gesture to free it.")
         : ""
-    Accessible.focusable: !row.reserved
+    // Focusable EITHER WAY. A reserved row is not editable, but it carries real
+    // information — which page the gesture opens, and why it is locked — and a
+    // screen-reader user who cannot reach it sees one gesture where there are
+    // two. Non-editable is not non-readable: only the press action is suppressed.
+    Accessible.focusable: true
     Accessible.onPressAction: if (!row.reserved) row.picked()
 
     RowLayout {

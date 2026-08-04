@@ -4422,6 +4422,13 @@ QString ShotServer::generateLayoutPage() const
 
     function closeActionPicker() {
         document.getElementById("actionOverlay").classList.remove("open");
+        // Reset the routing HERE, not only on a successful pick. The picker is
+        // shared by the Custom editor and the built-in widgets' options editor;
+        // dismissing it without choosing used to leave it aimed at the readout
+        // editor, so the NEXT Custom-widget action was written onto the widget
+        // edited before it — wrong widget, no error.
+        actionPickerTarget = "custom";
+        roGestureKey = "";
     }
 
     function pickAction(id) {
@@ -4432,8 +4439,7 @@ QString ShotServer::generateLayoutPage() const
             for (var k in roEditingProps) merged[k] = roEditingProps[k];
             for (var pk in roPendingValues) merged[pk] = roPendingValues[pk];
             document.getElementById("roSections").innerHTML = roSectionsHtml(roEditingType, merged);
-            closeActionPicker();
-            actionPickerTarget = "custom";
+            closeActionPicker();   // also resets the routing
             return;
         }
         if (actionPickerGesture === "click") currentAction = id;

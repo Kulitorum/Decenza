@@ -387,7 +387,7 @@ LayoutWidgetItem {
             accessibleName: Theme.toAccessibleText(root.resolvedText) + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
-            supportDoubleClick: root.doubleclickAction !== ""
+            supportDoubleClick: true
             onAccessibleClicked: root._runGesture("action")
             onAccessibleLongPressed: root._runGesture("longPressAction")
             onAccessibleDoubleClicked: root._runGesture("doubleclickAction")
@@ -475,7 +475,7 @@ LayoutWidgetItem {
             accessibleName: Theme.toAccessibleText(root.resolvedText) + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
-            supportDoubleClick: root.doubleclickAction !== ""
+            supportDoubleClick: true
             onAccessibleClicked: root._runGesture("action")
             onAccessibleLongPressed: root._runGesture("longPressAction")
             onAccessibleDoubleClicked: root._runGesture("doubleclickAction")

@@ -550,6 +550,30 @@ void TestCustomWidgetHtml::everyGestureCapableTypeRoutesThroughTheSharedHelper()
     }
     QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QStringLiteral("; "))));
 
+    // Double-click is ALWAYS supported, on every widget and in both render
+    // formats. An action can be assigned to it at any time, and a widget that
+    // only starts listening once one is stored is a widget whose gesture set
+    // changes shape under the user. CustomItem used to gate on
+    // `doubleclickAction !== ""`, which left the compiled form deaf until
+    // configured; this pins the uniform behaviour so it cannot creep back.
+    QStringList hardcoded;
+    for (const QString &f : kFiles + QStringList{ QStringLiteral("CustomItem") }) {
+        const QString src = readSource(SrcPath::widgetItem(f));
+        if (src.isEmpty()) { hardcoded << f + QStringLiteral(" (unreadable)"); continue; }
+        qsizetype at = 0;
+        while ((at = src.indexOf(QStringLiteral("supportDoubleClick:"), at)) >= 0) {
+            const QString line = src.mid(at, src.indexOf(QLatin1Char('\n'), at) - at);
+            if (!line.contains(QStringLiteral("true")))
+                hardcoded << f + QStringLiteral(": ") + line.trimmed();
+            at += 1;
+        }
+    }
+    QVERIFY2(hardcoded.isEmpty(),
+             qPrintable(QStringLiteral("supportDoubleClick is conditional; it must be "
+                                       "unconditionally true so a double-click action can be "
+                                       "added at any time: ")
+                        + hardcoded.join(QStringLiteral("; "))));
+
     // And the dispatch itself stays in one place: CustomItem must delegate, not carry a
     // second copy of the switch.
     const QString custom = readSource(SrcPath::kCustomItem);
