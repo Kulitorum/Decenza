@@ -63,7 +63,7 @@ inline double clampValue(const QString& mode, double value) {
 // "none" (the next ladder rung, typically the profile's target_weight).
 // A ratio with no usable dose resolves to the fallback too — a 0 g stop
 // target must never reach the machine (see mcptools_control's dose-less
-// machine_start_espresso).
+// machine_start action=espresso).
 inline double resolveGrams(const QString& mode, double value, double doseG, double fallbackG) {
     if (mode == modeAbsolute() && value > 0)
         return value;

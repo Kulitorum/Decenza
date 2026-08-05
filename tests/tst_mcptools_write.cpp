@@ -56,6 +56,20 @@ class tst_McpToolsWrite : public QObject {
     Q_OBJECT
 
 private:
+    // The merged tools take their verb in `action` (and `auto_load` also takes a
+    // `target`). These two keep the argument-building out of every call site.
+    static QJsonObject withAction(const QString& action, QJsonObject args)
+    {
+        args["action"] = action;
+        return args;
+    }
+    static QJsonObject withRecipeAutoLoad(const QString& action, QJsonObject args)
+    {
+        args["action"] = action;
+        args["target"] = QStringLiteral("recipe");
+        return args;
+    }
+
     // Wait for a storage's background DB work to actually finish, before letting it
     // go out of scope.
     //
@@ -419,7 +433,7 @@ private slots:
         args["origin"] = "Ethiopia";
         args["tastingNotes"] = "floral, bergamot";
         args["link"] = "https://example.com/bag";
-        QJsonObject result = f.callAsyncTool("bag_update", args);
+        QJsonObject result = f.callAsyncTool("bag", withAction("update", args));
         QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
         QJsonObject beanBase = result["bag"].toObject()["beanBase"].toObject();
         QCOMPARE(beanBase["origin"].toString(), QString("Ethiopia"));
@@ -434,7 +448,7 @@ private slots:
         args2["bagId"] = bagId;
         args2["origin"] = "";
         args2["coffeeName"] = "First Batch 2026";
-        QJsonObject result2 = f.callAsyncTool("bag_update", args2);
+        QJsonObject result2 = f.callAsyncTool("bag", withAction("update", args2));
         QVERIFY(result2["success"].toBool());
         QJsonObject bag2 = result2["bag"].toObject();
         QCOMPARE(bag2["coffeeName"].toString(), QString("First Batch 2026"));
@@ -454,7 +468,7 @@ private slots:
         QJsonObject args3;
         args3["bagId"] = plainBagId;
         args3["coffeeName"] = "Renamed";
-        QJsonObject result3 = f.callAsyncTool("bag_update", args3);
+        QJsonObject result3 = f.callAsyncTool("bag", withAction("update", args3));
         QVERIFY(result3["success"].toBool());
         QVERIFY(!result3["bag"].toObject().contains("beanBase"));
 
@@ -496,7 +510,7 @@ private slots:
         QJsonObject args;
         args["packageId"] = packageId;
         args["name"] = "Bench Grinder (renamed)";
-        QJsonObject result = f.callAsyncTool("equipment_update", args);
+        QJsonObject result = f.callAsyncTool("equipment", withAction("update", args));
 
         QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
         QCOMPARE(result["package"].toObject()["name"].toString(),
@@ -556,7 +570,7 @@ private slots:
         QJsonObject args;
         args["sourcePackageId"] = source;
         args["targetPackageId"] = target;
-        const QJsonObject result = f.callAsyncTool("equipment_merge", args);
+        const QJsonObject result = f.callAsyncTool("equipment", withAction("merge", args));
         QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
         QCOMPARE(result["shotsMoved"].toInteger(), (qint64)1);
         QCOMPARE(result["package"].toObject()["id"].toInteger(), target);
@@ -585,7 +599,7 @@ private slots:
         QJsonObject same;
         same["sourcePackageId"] = target;
         same["targetPackageId"] = target;
-        const QJsonObject refused = f.callAsyncTool("equipment_merge", same);
+        const QJsonObject refused = f.callAsyncTool("equipment", withAction("merge", same));
         QVERIFY(!refused["success"].toBool());
         QVERIFY(refused.contains("error"));
 
@@ -612,7 +626,7 @@ private slots:
         tea["coffeeName"] = "Decaf Ceylon";
         tea["teaType"] = "black";
         tea["brewTempC"] = 100;
-        QJsonObject r = f.callAsyncTool("bag_create", tea);
+        QJsonObject r = f.callAsyncTool("bag", withAction("create", tea));
         QVERIFY2(r["success"].toBool(), qPrintable(QJsonDocument(r).toJson()));
         QJsonObject bag = r["bag"].toObject();
         QCOMPARE(bag["kind"].toString(), QString("tea"));
@@ -622,23 +636,23 @@ private slots:
         // kind=coffee + a tea field: rejected (synchronous, before storage).
         QJsonObject bad1;
         bad1["kind"] = "coffee"; bad1["roasterName"] = "X"; bad1["teaType"] = "black";
-        QVERIFY(f.callAsyncTool("bag_create", bad1).contains("error"));
+        QVERIFY(f.callAsyncTool("bag", withAction("create", bad1)).contains("error"));
 
         // kind=tea + a coffee-only field: rejected.
         QJsonObject bad2;
         bad2["kind"] = "tea"; bad2["roasterName"] = "X"; bad2["roastLevel"] = "Light";
-        QVERIFY(f.callAsyncTool("bag_create", bad2).contains("error"));
+        QVERIFY(f.callAsyncTool("bag", withAction("create", bad2)).contains("error"));
 
         // Omitted kind defaults to coffee.
         QJsonObject def;
         def["roasterName"] = "Onyx"; def["coffeeName"] = "Geometry";
-        QJsonObject dr = f.callAsyncTool("bag_create", def);
+        QJsonObject dr = f.callAsyncTool("bag", withAction("create", def));
         QVERIFY2(dr["success"].toBool(), qPrintable(QJsonDocument(dr).toJson()));
         QCOMPARE(dr["bag"].toObject()["kind"].toString(), QString("coffee"));
 
         // Neither roaster nor coffee name: rejected.
         QJsonObject empty; empty["kind"] = "tea";
-        QVERIFY(f.callAsyncTool("bag_create", empty).contains("error"));
+        QVERIFY(f.callAsyncTool("bag", withAction("create", empty)).contains("error"));
 
         // Drain BEFORE close(). close() calls QSqlDatabase::removeDatabase(), which
         // qWarns "connection is still in use" if background work still holds one —
@@ -670,17 +684,17 @@ private slots:
 
         // teaType on a coffee bag: rejected.
         QJsonObject t1; t1["bagId"] = coffeeId; t1["teaType"] = "black";
-        QVERIFY(f.callAsyncTool("bag_update", t1).contains("error"));
+        QVERIFY(f.callAsyncTool("bag", withAction("update", t1)).contains("error"));
 
         // roastLevel/grinderSetting on a tea bag: rejected.
         QJsonObject t2; t2["bagId"] = teaId; t2["roastLevel"] = "Light";
-        QVERIFY(f.callAsyncTool("bag_update", t2).contains("error"));
+        QVERIFY(f.callAsyncTool("bag", withAction("update", t2)).contains("error"));
         QJsonObject t3; t3["bagId"] = teaId; t3["grinderSetting"] = "12";
-        QVERIFY(f.callAsyncTool("bag_update", t3).contains("error"));
+        QVERIFY(f.callAsyncTool("bag", withAction("update", t3)).contains("error"));
 
         // teaType on the tea bag: accepted.
         QJsonObject ok; ok["bagId"] = teaId; ok["teaType"] = "black";
-        QJsonObject r = f.callAsyncTool("bag_update", ok);
+        QJsonObject r = f.callAsyncTool("bag", withAction("update", ok));
         QVERIFY2(r["success"].toBool(), qPrintable(QJsonDocument(r).toJson()));
         QCOMPARE(r["bag"].toObject()["teaType"].toString(), QString("black"));
 
@@ -721,7 +735,7 @@ private slots:
         args["bagId"] = bagId;
         args["tastingNotes"] = "plum";
         args["coffeeName"] = "First Batch 2026";
-        QJsonObject result = f.callAsyncTool("bag_update", args);
+        QJsonObject result = f.callAsyncTool("bag", withAction("update", args));
         QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
         const QJsonObject beanBase = result["bag"].toObject()["beanBase"].toObject();
         // Link intact, identity mirror applied, snapshot = pre-edit values.
@@ -738,7 +752,7 @@ private slots:
         QJsonObject again;
         again["bagId"] = bagId;
         again["tastingNotes"] = "plum";
-        QJsonObject result2 = f.callAsyncTool("bag_update", again);
+        QJsonObject result2 = f.callAsyncTool("bag", withAction("update", again));
         QVERIFY2(result2["success"].toBool(), qPrintable(QJsonDocument(result2).toJson()));
         // And the snapshot is untouched by the second edit.
         QCOMPARE(result2["bag"].toObject()["beanBase"].toObject()
@@ -776,7 +790,7 @@ private slots:
         f.settings.app()->setAutoLoadRevertMinutes(9);
         registerTools(f);
 
-        QJsonObject result = f.callAsyncTool("recipe_get_auto_load", {});
+        QJsonObject result = f.callAsyncTool("auto_load", withRecipeAutoLoad("get", {}));
         QVERIFY(result["recipeId"].isNull());
         QCOMPARE(result["revertMinutes"].toInt(), 9);
         QVERIFY(!result.contains("name"));
@@ -795,7 +809,7 @@ private slots:
         f.settings.dye()->setAutoLoadRecipeId(static_cast<int>(recipeId));
         f.settings.app()->setAutoLoadRevertMinutes(15);
 
-        QJsonObject result = f.callAsyncTool("recipe_get_auto_load", {});
+        QJsonObject result = f.callAsyncTool("auto_load", withRecipeAutoLoad("get", {}));
         QCOMPARE(result["recipeId"].toInteger(), recipeId);
         QCOMPARE(result["name"].toString(), QString("Morning Latte"));
         QCOMPARE(result["revertMinutes"].toInt(), 15);
@@ -814,7 +828,7 @@ private slots:
         // not an error — the next auto-load trigger discovers and clears it.
         f.settings.dye()->setAutoLoadRecipeId(99999);
 
-        QJsonObject result = f.callAsyncTool("recipe_get_auto_load", {});
+        QJsonObject result = f.callAsyncTool("auto_load", withRecipeAutoLoad("get", {}));
         QVERIFY(result["recipeId"].isNull());
         QVERIFY(!result.contains("error"));
         drainDbWorkAndClose(storage);
@@ -831,7 +845,7 @@ private slots:
         f.settings.dye()->setAutoLoadRecipeId(42);
         registerTools(f);  // shotHistory is nullptr here
 
-        QJsonObject result = f.callAsyncTool("recipe_get_auto_load", {});
+        QJsonObject result = f.callAsyncTool("auto_load", withRecipeAutoLoad("get", {}));
         QCOMPARE(result["error"].toString(), QString("Storage not available"));
         QVERIFY(!result.contains("recipeId"));
 
@@ -852,7 +866,7 @@ private slots:
 
         QJsonObject args;
         args["recipeId"] = recipeId;
-        QJsonObject result = f.callAsyncTool("recipe_set_auto_load", args);
+        QJsonObject result = f.callAsyncTool("auto_load", withRecipeAutoLoad("set", args));
 
         QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
         QCOMPARE(result["recipeId"].toInteger(), recipeId);
@@ -868,7 +882,7 @@ private slots:
         McpTestFixture f;
         registerTools(f);
 
-        QJsonObject result = f.callAsyncTool("recipe_set_auto_load", {});
+        QJsonObject result = f.callAsyncTool("auto_load", withRecipeAutoLoad("set", {}));
         QCOMPARE(result["error"].toString(), QString("recipeId is required"));
     }
 
@@ -883,12 +897,12 @@ private slots:
 
         QJsonObject zero;
         zero["recipeId"] = 0;
-        QCOMPARE(f.callAsyncTool("recipe_set_auto_load", zero)["error"].toString(),
+        QCOMPARE(f.callAsyncTool("auto_load", withRecipeAutoLoad("set", zero))["error"].toString(),
                  QString("recipeId must be a positive integer"));
 
         QJsonObject negative;
         negative["recipeId"] = -5;
-        QCOMPARE(f.callAsyncTool("recipe_set_auto_load", negative)["error"].toString(),
+        QCOMPARE(f.callAsyncTool("auto_load", withRecipeAutoLoad("set", negative))["error"].toString(),
                  QString("recipeId must be a positive integer"));
     }
 
@@ -902,7 +916,7 @@ private slots:
 
         QJsonObject args;
         args["recipeId"] = static_cast<qint64>(std::numeric_limits<int>::max()) + 1;
-        QCOMPARE(f.callAsyncTool("recipe_set_auto_load", args)["error"].toString(),
+        QCOMPARE(f.callAsyncTool("auto_load", withRecipeAutoLoad("set", args))["error"].toString(),
                  QString("recipeId is out of range"));
     }
 
@@ -920,7 +934,7 @@ private slots:
 
         QJsonObject args;
         args["recipeId"] = 99999;
-        QJsonObject result = f.callAsyncTool("recipe_set_auto_load", args);
+        QJsonObject result = f.callAsyncTool("auto_load", withRecipeAutoLoad("set", args));
         QCOMPARE(result["error"].toString(), QString("Recipe not found: 99999"));
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), before);
         drainDbWorkAndClose(storage);
@@ -940,7 +954,7 @@ private slots:
 
         QJsonObject args;
         args["recipeId"] = recipeId;
-        QJsonObject result = f.callAsyncTool("recipe_set_auto_load", args);
+        QJsonObject result = f.callAsyncTool("auto_load", withRecipeAutoLoad("set", args));
         QCOMPARE(result["error"].toString(), QString("Recipe is archived"));
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), before);
         drainDbWorkAndClose(storage);
@@ -963,13 +977,13 @@ private slots:
 
         QJsonObject argsFirst;
         argsFirst["recipeId"] = first;
-        QJsonObject resultFirst = f.callAsyncTool("recipe_set_auto_load", argsFirst);
+        QJsonObject resultFirst = f.callAsyncTool("auto_load", withRecipeAutoLoad("set", argsFirst));
         QVERIFY2(resultFirst["success"].toBool(), qPrintable(QJsonDocument(resultFirst).toJson()));
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), static_cast<int>(first));
 
         QJsonObject argsSecond;
         argsSecond["recipeId"] = second;
-        QJsonObject resultSecond = f.callAsyncTool("recipe_set_auto_load", argsSecond);
+        QJsonObject resultSecond = f.callAsyncTool("auto_load", withRecipeAutoLoad("set", argsSecond));
         QVERIFY2(resultSecond["success"].toBool(), qPrintable(QJsonDocument(resultSecond).toJson()));
         QCOMPARE(resultSecond["recipeId"].toInteger(), second);
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), static_cast<int>(second));
@@ -990,7 +1004,7 @@ private slots:
         QJsonObject args;
         args["recipeId"] = recipeId;
         args["revertMinutes"] = 33;
-        QJsonObject result = f.callAsyncTool("recipe_set_auto_load", args);
+        QJsonObject result = f.callAsyncTool("auto_load", withRecipeAutoLoad("set", args));
         QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
         QCOMPARE(result["revertMinutes"].toInt(), 33);
         // Shared with the profile side.
@@ -1005,7 +1019,7 @@ private slots:
         f.settings.app()->setAutoLoadRevertMinutes(27);
         registerTools(f);
 
-        QJsonObject result = f.callAsyncTool("recipe_clear_auto_load", {});
+        QJsonObject result = f.callAsyncTool("auto_load", withRecipeAutoLoad("clear", {}));
         QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), -1);
         // Timeout is untouched — preserved across enable/disable cycles.

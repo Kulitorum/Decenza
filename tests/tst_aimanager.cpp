@@ -127,6 +127,18 @@ struct AiSettingsGuard {
 class tst_AIManager : public QObject {
     Q_OBJECT
 
+private:
+    // `ai_conversations` dispatches on `action`, and a merged tool always goes
+    // through the async path even when the verb it selects is synchronous.
+    static QJsonObject callConversations(McpToolRegistry& registry, const QJsonObject& args,
+                                         QString& err)
+    {
+        QJsonObject out;
+        registry.callAsyncTool("ai_conversations", args, 0, err,
+                               [&out](QJsonObject r) { out = r; });
+        return out;
+    }
+
 private slots:
     void init() { QTest::failOnWarning(); }
     // parseBagExtraction: the "Get info" response contract — JSON possibly
@@ -3108,7 +3120,7 @@ private slots:
     }
 
     // -------------------------------------------------------------
-    // ai_conversations_list / ai_conversation_get MCP tools (#639 support).
+    // The ai_conversations tool's list/get verbs (#639 support).
     // registerAIConversationTools lives in mcptools_ai_conversations.cpp —
     // linked into this target so it can run against a real AIManager.
     // -------------------------------------------------------------
@@ -3136,7 +3148,7 @@ private slots:
         registerAIConversationTools(&registry, &mgr);
 
         QString err;
-        const QJsonObject listResult = registry.callTool("ai_conversations_list", {}, 0, err);
+        const QJsonObject listResult = callConversations(registry, {{"action", "list"}}, err);
         QVERIFY2(err.isEmpty(), qPrintable(err));
         const QJsonArray conversations = listResult["conversations"].toArray();
         QCOMPARE(conversations.size(), 1);
@@ -3147,7 +3159,7 @@ private slots:
         QVERIFY(!entry["lastUpdated"].toString().isEmpty());
         QVERIFY2(!entry.contains("corrupted"), "healthy entries must not carry the corrupted key at all");
 
-        const QJsonObject getResult = registry.callTool("ai_conversation_get", {{"key", key}}, 0, err);
+        const QJsonObject getResult = callConversations(registry, {{"action", "get"}, {"key", key}}, err);
         QVERIFY2(err.isEmpty(), qPrintable(err));
         QVERIFY(!getResult.contains("error"));
         QCOMPARE(getResult["key"].toString(), key);
@@ -3177,8 +3189,7 @@ private slots:
         registerAIConversationTools(&registry, &mgr);
 
         QString err;
-        const QJsonObject r = registry.callTool(
-            "ai_conversation_get", {{"key", "nonexistent_key"}}, 0, err);
+        const QJsonObject r = callConversations(registry, {{"action", "get"}, {"key", "nonexistent_key"}}, err);
         QVERIFY2(err.isEmpty(), qPrintable(err));  // tool-level error, not a registry dispatch error
         QVERIFY(r.contains("error"));
         QVERIFY2(r["error"].toString().contains("not found"), qPrintable(r["error"].toString()));
@@ -3209,7 +3220,7 @@ private slots:
         registerAIConversationTools(&registry, &mgr);
 
         QString err;
-        const QJsonObject listResult = registry.callTool("ai_conversations_list", {}, 0, err);
+        const QJsonObject listResult = callConversations(registry, {{"action", "list"}}, err);
         const QJsonArray conversations = listResult["conversations"].toArray();
         QCOMPARE(conversations.size(), 1);
         const QJsonObject entry = conversations[0].toObject();
@@ -3217,7 +3228,7 @@ private slots:
                  "corrupted transcript must be flagged, not silently reported as messageCount:0");
         QCOMPARE(entry["messageCount"].toInt(), 0);
 
-        const QJsonObject getResult = registry.callTool("ai_conversation_get", {{"key", key}}, 0, err);
+        const QJsonObject getResult = callConversations(registry, {{"action", "get"}, {"key", key}}, err);
         QVERIFY(getResult.contains("error"));
         QVERIFY2(getResult["error"].toString().contains("Corrupted"),
                  qPrintable(getResult["error"].toString()));
@@ -3255,7 +3266,7 @@ private slots:
         registerAIConversationTools(&registry, &mgr);
 
         QString err;
-        const QJsonObject getResult = registry.callTool("ai_conversation_get", {{"key", key}}, 0, err);
+        const QJsonObject getResult = callConversations(registry, {{"action", "get"}, {"key", key}}, err);
         QVERIFY2(err.isEmpty(), qPrintable(err));
         QVERIFY(!getResult.contains("error"));
         const QJsonObject metadata = getResult["metadata"].toObject();

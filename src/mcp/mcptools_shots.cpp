@@ -383,7 +383,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "read");
+        "read", McpTierCore);
 
     // shots_get_detail
     registry->registerAsyncTool(
@@ -458,7 +458,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "read");
+        "read", McpTierCore);
 
     // shots_compare
     registry->registerAsyncTool(
@@ -646,20 +646,17 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "read");
+        "read", McpTierCore);
 
     // shots_get_debug_log — read the per-shot debug log with pagination
     registry->registerAsyncTool(
         "shots_get_debug_log",
-        "Read the debug log captured during a shot extraction. Contains BLE frames, "
-        "phase transitions, stop-at-weight events, flow calibration, and all qDebug output "
-        "from the shot. `filter` (substring, or regex when `regex` is true; case-insensitive) "
-        "narrows which lines qualify before pagination. `dedupe` collapses consecutive qualifying "
-        "lines that are identical apart from any leading timestamp into one entry carrying `count` "
-        "and `lastLine` (non-consecutive repeats are not collapsed). `tail` (last N qualifying/"
-        "deduped entries) takes precedence over `offset` when both are given. `minLevel` is "
-        "accepted but has no effect — shot debug log lines are not level-tagged. Every returned "
-        "line carries its absolute line number in the `lines` array.",
+        "Read the debug log captured during one shot: BLE frames, phase transitions, stop-at-weight "
+        "events, flow calibration, and every qDebug line from the shot. `filter` (substring, or "
+        "regex when `regex` is true) narrows before pagination, `dedupe` collapses consecutive "
+        "repeats, and `tail` beats `offset` when both are given. `minLevel` is accepted but has no "
+        "effect — these lines are not level-tagged. Details: get_agent_file topic "
+        "\"shots_get_debug_log\".",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -681,11 +678,11 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 }},
                 {"tail", QJsonObject{
                     {"type", "integer"},
-                    {"description", "Return only the last N qualifying lines instead of paginating from offset. Takes precedence over offset when both are set."}
+                    {"description", "Return the last N qualifying lines. Takes precedence over offset when both are set"}
                 }},
                 {"dedupe", QJsonObject{
                     {"type", "boolean"},
-                    {"description", "Collapse consecutive qualifying lines that are identical apart from any leading timestamp into one entry carrying count/lastLine. Non-consecutive repeats are not collapsed."}
+                    {"description", "Collapse CONSECUTIVE identical lines (ignoring timestamps) into one carrying count/lastLine"}
                 }}
             }},
             {"required", QJsonArray{"shotId"}}

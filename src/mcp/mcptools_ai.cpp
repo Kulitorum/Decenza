@@ -48,36 +48,23 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
     // hops back to the main thread (race window).
     registry->registerAsyncTool(
         "ai_advisor_invoke",
-        "Invoke the configured AI advisor with the dial-in context for a shot. "
-        "Builds the same system prompt and user prompt the in-app advisor would build, "
-        "sends to the provider currently selected in settings (OpenAI/Anthropic/Gemini/"
-        "OpenRouter/Ollama), and returns the response. Always echoes the assembled "
-        "systemPromptUsed + userPromptUsed in the response so the caller can see exactly "
-        "what was sent — useful for prompt A/B testing and end-to-end advisor validation. "
-        "When the response makes a concrete parameter recommendation (grind / dose / profile change), "
-        "the trailing fenced ```json `nextShot` block defined in the system prompt is parsed and "
-        "surfaced as a top-level `structuredNext` object alongside `response`. The `structuredNext` "
-        "field is OMITTED (no null placeholder) when the response is a clarifying question or "
-        "otherwise carries no recommendation. "
-        "Pass dryRun: true to skip the network call and just return the assembled "
-        "prompts (no network call, no token cost — but does still spawn a worker thread "
-        "and read the shot row from SQLite). "
-        "Side effects (when not dry-run): the response also reaches the in-app "
-        "conversation overlay (updates lastRecommendation, fires recommendationReceived). "
-        "Returns an error if the advisor is already busy with another request. "
-        "Optional overrides let the caller substitute custom system/user prompts to "
-        "test alternate prompt shapes against the same provider config.",
+        "Invoke the configured AI advisor over a shot's dial-in context, using the provider selected "
+        "in settings and no other. Returns the advisor's `response`, the assembled "
+        "`systemPromptUsed`/`userPromptUsed`, and a `structuredNext` object when the reply makes a "
+        "concrete recommendation. dryRun assembles the prompts without calling the provider. "
+        "Errors if the advisor is already busy. Side effects and prompt overrides: get_agent_file "
+        "topic \"ai_advisor_invoke\".",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
                 {"shot_id", QJsonObject{{"type", "integer"},
                     {"description", "Shot ID to build context for. If omitted, uses the most recent shot."}}},
                 {"dryRun", QJsonObject{{"type", "boolean"},
-                    {"description", "If true, assemble the prompts and return them without sending to the provider. No network call, no token cost. Default false."}}},
+                    {"description", "Assemble the prompts and return them without calling the provider. Default false"}}},
                 {"userPromptOverride", QJsonObject{{"type", "string"},
                     {"description", "Replace the auto-built user prompt with custom text. Useful for prompt A/B testing."}}},
                 {"systemPromptOverride", QJsonObject{{"type", "string"},
-                    {"description", "Replace the auto-built system prompt with custom text. When omitted, uses ShotSummarizer::shotAnalysisSystemPrompt for the resolved shot's profile."}}}
+                    {"description", "Replace the auto-built system prompt. Omitted: the shot profile's standard analysis prompt"}}}
             }}
         },
         [mainController](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
@@ -411,7 +398,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
     // extraction; stage 2 fallback = the provider fetches the URL itself via
     // its web tool (JS-rendered shops). Read-only diagnostics: returns the
     // extracted fields plus which stage/provider ran — it never writes the
-    // bag (apply the fields with bag_update). Lives here (not
+    // bag (apply the fields with bag action=update). Lives here (not
     // mcptools_write.cpp) because it invokes the AI like ai_advisor_invoke:
     // same control tier, and the lean write-tools test binary must not need
     // AIManager/BeanBaseClient moc symbols.
@@ -580,7 +567,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             QObject::connect(loadThread, &QThread::finished, loadThread, &QObject::deleteLater);
             loadThread->start();
         },
-        "control");
+        "control", McpTierNiche);
 
     // ai_conversations_list / ai_conversation_get — split into their own
     // translation unit (mcptools_ai_conversations.cpp) so tests can link

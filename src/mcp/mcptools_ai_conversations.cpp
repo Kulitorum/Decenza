@@ -34,16 +34,8 @@
 // file download.
 void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager)
 {
-    registry->registerTool(
-        "ai_conversations_list",
-        "List saved multi-shot AI dialing conversations, most recently active first. "
-        "Each entry is a bean+profile conversation thread the in-app Dialing Assistant "
-        "keeps continuity across shots for — up to 5 are retained, oldest evicted first. "
-        "An entry carries `corrupted: true` (omitted otherwise) when its stored transcript "
-        "failed to parse — `messageCount` is unreliable for that entry; fetch it via "
-        "ai_conversation_get to see the actual parse error. "
-        "Pass the returned `key` to ai_conversation_get to fetch the full transcript.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+    const QVector<McpToolAction> conversationActions{
+        McpRegistryHelpers::syncAction("list", "read",
         [aiManager](const QJsonObject&) -> QJsonObject {
             if (!aiManager) return QJsonObject{{"error", "AI advisor not available"}};
 
@@ -88,23 +80,8 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
                 conversations.append(convObj);
             }
             return QJsonObject{{"conversations", conversations}};
-        },
-        "read");
-
-    registry->registerTool(
-        "ai_conversation_get",
-        "Get the full transcript of one saved AI dialing conversation: system prompt plus "
-        "every user/assistant turn, in order. Assistant turns that made a concrete "
-        "recommendation carry a `structuredNext` object; turns tied to a specific shot carry "
-        "`shotId`. Use ai_conversations_list first to find the `key`.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"key", QJsonObject{{"type", "string"},
-                    {"description", "Conversation key from ai_conversations_list."}}}
-            }},
-            {"required", QJsonArray{"key"}}
-        },
+        }),
+        McpRegistryHelpers::syncAction("get", "read",
         [aiManager](const QJsonObject& args) -> QJsonObject {
             if (!aiManager) return QJsonObject{{"error", "AI advisor not available"}};
 
@@ -164,6 +141,22 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
                 {"systemPrompt", settings.value(prefix + "systemPrompt").toString()},
                 {"messages", msgDoc.array()}
             };
+        }),
+    };
+
+    registry->registerActionTool(
+        "ai_conversations",
+        "Saved multi-shot AI dialing conversations. action=list returns the retained threads "
+        "(up to 5, most recently active first, each with a `key`); action=get returns one "
+        "thread's full transcript — system prompt plus every user/assistant turn, in order. "
+        "An entry marked `corrupted` failed to parse; fetch it with action=get for the error.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"key", QJsonObject{{"type", "string"},
+                    {"description", "get only: conversation key from action=list"}}}
+            }}
         },
-        "read");
+        conversationActions,
+        McpTierNiche);
 }

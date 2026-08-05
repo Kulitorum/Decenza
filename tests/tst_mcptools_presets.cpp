@@ -39,9 +39,17 @@ class tst_McpToolsPresets : public QObject {
     int m_origSelectedSteam = 0;
     int m_origSelectedWater = 0;
 
+    // Merged tools dispatch through the async path even when every verb is
+    // synchronous (see registerActionTool), so the helper takes both routes and
+    // the sync-in-async verbs answer inline.
     QJsonObject call(const QString& name, const QJsonObject& args, int accessLevel = 2) {
         QString err;
-        QJsonObject r = m_registry.callTool(name, args, accessLevel, err);
+        QJsonObject r;
+        if (m_registry.isAsyncTool(name))
+            m_registry.callAsyncTool(name, args, accessLevel, err,
+                                     [&r](QJsonObject out) { r = out; });
+        else
+            r = m_registry.callTool(name, args, accessLevel, err);
         if (!err.isEmpty()) r.insert("callError", err);
         return r;
     }
@@ -73,8 +81,7 @@ private slots:
     // --- steam ---------------------------------------------------------------
 
     void steamAddConvertsFlowAndReportsBack() {
-        QJsonObject add = call("steam_pitcher_add",
-            {{"name", "Conv"}, {"durationSec", 28}, {"flowMlPerSec", 1.5}, {"temperatureC", 134.0}});
+        QJsonObject add = call("steam_pitcher", {{"action", "add"}, {"name", "Conv"}, {"durationSec", 28}, {"flowMlPerSec", 1.5}, {"temperatureC", 134.0}});
         QVERIFY(add["success"].toBool());
         const int idx = add["selectedIndex"].toInt();
 
@@ -83,7 +90,7 @@ private slots:
         QCOMPARE(m_settings.brew()->getSteamPitcherPreset(idx)["temperature"].toDouble(), 134.0);
 
         // list reports mL/s.
-        QJsonArray presets = call("steam_pitcher_list", {})["presets"].toArray();
+        QJsonArray presets = call("steam_pitcher", {{"action", "list"}})["presets"].toArray();
         QJsonObject p = presets[idx].toObject();
         QCOMPARE(p["flowMlPerSec"].toDouble(), 1.5);
         QCOMPARE(p["durationSec"].toInt(), 28);
@@ -91,12 +98,11 @@ private slots:
     }
 
     void steamPartialUpdatePreservesOtherFields() {
-        QJsonObject add = call("steam_pitcher_add",
-            {{"name", "Edit"}, {"durationSec", 40}, {"flowMlPerSec", 1.2}, {"temperatureC", 145.0}});
+        QJsonObject add = call("steam_pitcher", {{"action", "add"}, {"name", "Edit"}, {"durationSec", 40}, {"flowMlPerSec", 1.2}, {"temperatureC", 145.0}});
         const int idx = add["selectedIndex"].toInt();
 
         // Change only the temperature.
-        QVERIFY(call("steam_pitcher_update", {{"index", idx}, {"temperatureC", 150.0}})["success"].toBool());
+        QVERIFY(call("steam_pitcher", {{"action", "update"}, {"index", idx}, {"temperatureC", 150.0}})["success"].toBool());
 
         QVariantMap p = m_settings.brew()->getSteamPitcherPreset(idx);
         QCOMPARE(p["temperature"].toDouble(), 150.0);
@@ -106,52 +112,51 @@ private slots:
     }
 
     void steamSelectAppliesTemperatureToActive() {
-        const int a = call("steam_pitcher_add", {{"name", "A"}, {"temperatureC", 130.0}})["selectedIndex"].toInt();
-        call("steam_pitcher_add", {{"name", "B"}, {"temperatureC", 150.0}});  // now selected, active = 150
+        const int a = call("steam_pitcher", {{"action", "add"}, {"name", "A"}, {"temperatureC", 130.0}})["selectedIndex"].toInt();
+        call("steam_pitcher", {{"action", "add"}, {"name", "B"}, {"temperatureC", 150.0}});  // now selected, active = 150
         QCOMPARE(m_settings.brew()->steamTemperature(), 150.0);
 
-        QVERIFY(call("steam_pitcher_select", {{"index", a}}, /*control*/ 1)["success"].toBool());
+        QVERIFY(call("steam_pitcher", {{"action", "select"}, {"index", a}}, /*control*/ 1)["success"].toBool());
         QCOMPARE(m_settings.brew()->steamTemperature(), 130.0);  // apply-on-select
     }
 
     void steamUpdateOfSelectedReappliesActive() {
-        const int a = call("steam_pitcher_add", {{"name", "Sel"}, {"temperatureC", 128.0}})["selectedIndex"].toInt();
+        const int a = call("steam_pitcher", {{"action", "add"}, {"name", "Sel"}, {"temperatureC", 128.0}})["selectedIndex"].toInt();
         QCOMPARE(m_settings.brew()->steamTemperature(), 128.0);
-        QVERIFY(call("steam_pitcher_update", {{"index", a}, {"temperatureC", 137.0}})["success"].toBool());
+        QVERIFY(call("steam_pitcher", {{"action", "update"}, {"index", a}, {"temperatureC", 137.0}})["success"].toBool());
         QCOMPARE(m_settings.brew()->steamTemperature(), 137.0);  // re-applied because it's selected
     }
 
     void steamUpdateDisabledRejected() {
         const qsizetype before = m_settings.brew()->steamPitcherPresets().size();
-        call("steam_pitcher_add", {{"name", "Off"}, {"disabled", true}});
+        call("steam_pitcher", {{"action", "add"}, {"name", "Off"}, {"disabled", true}});
         const qsizetype idx = m_settings.brew()->steamPitcherPresets().size() - 1;
         QVERIFY(idx >= before);
-        QJsonObject r = call("steam_pitcher_update", {{"index", idx}, {"temperatureC", 150.0}});
+        QJsonObject r = call("steam_pitcher", {{"action", "update"}, {"index", idx}, {"temperatureC", 150.0}});
         QVERIFY(!r["success"].toBool());
         QVERIFY(r.contains("error"));
     }
 
     void steamUpdateOutOfRangeErrors() {
-        QJsonObject r = call("steam_pitcher_update", {{"index", 9999}, {"temperatureC", 150.0}});
+        QJsonObject r = call("steam_pitcher", {{"action", "update"}, {"index", 9999}, {"temperatureC", 150.0}});
         QVERIFY(!r["success"].toBool());
         QCOMPARE(r["error"].toString(), QString("index out of range"));
     }
 
     void steamAddRequiresName() {
-        QJsonObject r = call("steam_pitcher_add", {{"name", "   "}});
+        QJsonObject r = call("steam_pitcher", {{"action", "add"}, {"name", "   "}});
         QVERIFY(r.contains("error"));
     }
 
     // --- water ---------------------------------------------------------------
 
     void waterAddConvertsFlowAndReportsBack() {
-        QJsonObject add = call("water_vessel_add",
-            {{"name", "WConv"}, {"volumeMl", 150}, {"flowMlPerSec", 4.0}, {"temperatureC", 79.0}, {"mode", "volume"}});
+        QJsonObject add = call("water_vessel", {{"action", "add"}, {"name", "WConv"}, {"volumeMl", 150}, {"flowMlPerSec", 4.0}, {"temperatureC", 79.0}, {"mode", "volume"}});
         QVERIFY(add["success"].toBool());
         const int idx = add["selectedIndex"].toInt();
 
         QCOMPARE(m_settings.brew()->getWaterVesselPreset(idx)["flowRate"].toInt(), 40);  // tenths of mL/s
-        QJsonObject p = call("water_vessel_list", {})["presets"].toArray()[idx].toObject();
+        QJsonObject p = call("water_vessel", {{"action", "list"}})["presets"].toArray()[idx].toObject();
         QCOMPARE(p["flowMlPerSec"].toDouble(), 4.0);
         QCOMPARE(p["volumeMl"].toInt(), 150);
         QCOMPARE(p["mode"].toString(), QString("volume"));
@@ -159,11 +164,10 @@ private slots:
     }
 
     void waterPartialUpdatePreservesOtherFields() {
-        QJsonObject add = call("water_vessel_add",
-            {{"name", "WEdit"}, {"volumeMl", 250}, {"flowMlPerSec", 3.0}, {"temperatureC", 86.0}});
+        QJsonObject add = call("water_vessel", {{"action", "add"}, {"name", "WEdit"}, {"volumeMl", 250}, {"flowMlPerSec", 3.0}, {"temperatureC", 86.0}});
         const int idx = add["selectedIndex"].toInt();
 
-        QVERIFY(call("water_vessel_update", {{"index", idx}, {"temperatureC", 90.0}})["success"].toBool());
+        QVERIFY(call("water_vessel", {{"action", "update"}, {"index", idx}, {"temperatureC", 90.0}})["success"].toBool());
 
         QVariantMap p = m_settings.brew()->getWaterVesselPreset(idx);
         QCOMPARE(p["temperature"].toDouble(), 90.0);
@@ -172,17 +176,17 @@ private slots:
     }
 
     void waterSelectAppliesToActive() {
-        const int a = call("water_vessel_add", {{"name", "WA"}, {"temperatureC", 74.0}, {"volumeMl", 120}})["selectedIndex"].toInt();
-        call("water_vessel_add", {{"name", "WB"}, {"temperatureC", 95.0}});  // selected, active = 95
+        const int a = call("water_vessel", {{"action", "add"}, {"name", "WA"}, {"temperatureC", 74.0}, {"volumeMl", 120}})["selectedIndex"].toInt();
+        call("water_vessel", {{"action", "add"}, {"name", "WB"}, {"temperatureC", 95.0}});  // selected, active = 95
         QCOMPARE(m_settings.brew()->waterTemperature(), 95.0);
 
-        QVERIFY(call("water_vessel_select", {{"index", a}}, /*control*/ 1)["success"].toBool());
+        QVERIFY(call("water_vessel", {{"action", "select"}, {"index", a}}, /*control*/ 1)["success"].toBool());
         QCOMPARE(m_settings.brew()->waterTemperature(), 74.0);
         QCOMPARE(m_settings.brew()->waterVolume(), 120);
     }
 
     void waterDeleteOutOfRangeErrors() {
-        QJsonObject r = call("water_vessel_delete", {{"index", 9999}});
+        QJsonObject r = call("water_vessel", {{"action", "delete"}, {"index", 9999}});
         QVERIFY(!r["success"].toBool());
         QCOMPARE(r["error"].toString(), QString("index out of range"));
     }

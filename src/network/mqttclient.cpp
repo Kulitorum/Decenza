@@ -578,7 +578,7 @@ void MqttClient::onInternalDisconnected()
     emit connectedChanged();
 
     // A disconnect the USER asked for is not a fault to recover from. Without this,
-    // tapping Disconnect (or calling the mqtt_disconnect MCP tool, or the web
+    // tapping Disconnect (or calling mqtt action=disconnect, or the web
     // endpoint) immediately re-armed the timer and dialled back 5 s later — the
     // status would read "reconnecting (1/10)..." while the tool that just returned
     // {"success": true, "message": "MQTT disconnected"} was already being undone.
@@ -660,7 +660,7 @@ void MqttClient::scheduleReconnect(const QString& reason)
     if (!m_settingsMqtt || !m_settingsMqtt->mqttEnabled()) {
         // Do NOT retry — but do not swallow the failure either. A connect can be
         // initiated while MQTT is disabled: the Home Automation tab's Connect button
-        // gates only on host-non-empty, and neither the mqtt_connect MCP tool nor the
+        // gates only on host-non-empty, and neither mqtt action=connect nor the
         // ShotServer endpoint checks mqttEnabled(). Returning silently here left the
         // status latched at "Connecting...", discarded the Paho rc, and turned a precise
         // BAD_PROTOCOL (the tcp://tcp:// typo) into the ShotServer poller's generic

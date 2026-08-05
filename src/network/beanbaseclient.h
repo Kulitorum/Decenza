@@ -119,7 +119,7 @@ public:
 
     // --- Blob edit helpers (add-bag-detail-editing) ---
     // Thin QML bridges over the header-only BeanBaseBlob helpers so the bag
-    // editor and MCP bag_update share ONE merge/revert implementation. Pure
+    // editor and MCP bag action=update share ONE merge/revert implementation. Pure
     // string→string; no instance state.
     Q_INVOKABLE static QString mergeBeanDetails(const QString& blob, const QVariantMap& edits);
     Q_INVOKABLE static QString revertToCanonical(const QString& blob);

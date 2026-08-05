@@ -164,7 +164,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
 
             return result;
         },
-        "read");
+        "read", McpTierCore);
 
     // app_get_info — diagnostics block previously embedded in machine_get_state.
     // Split out so tight polling loops (monitoring a shot) don't re-ship ~10
@@ -212,7 +212,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             }
             return platform;
         },
-        "read");
+        "read", McpTierNiche);
 
     // machine_get_telemetry
     registry->registerTool(
@@ -265,7 +265,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             }
             return result;
         },
-        "read");
+        "read", McpTierCore);
 
     // steam_get_health
     registry->registerTool(
@@ -311,5 +311,5 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
 
             return result;
         },
-        "read");
+        "read", McpTierNiche);
 }

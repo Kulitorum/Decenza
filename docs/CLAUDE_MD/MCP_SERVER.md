@@ -58,6 +58,63 @@ src/mcp/
 - `listResources()` → JSON array
 - `readResource(uri)` → JSON content
 
+## The tool surface is a budget
+
+`tools/list` is sent in full to every client on every connection, and real clients **truncate it
+silently**. ChatGPT exposed 87 of the app's 97 tools: `get_flow_calibration` and
+`set_flow_calibration` simply did not exist for that user, while `clear_flow_calibration` from
+the same trio did. Nothing in the app reported a problem, because nothing in the app had one.
+
+Two causes, both now bounded by `scripts/check_mcp_tool_budget.py` in the per-PR
+`text-invariants` job:
+
+**Size.** The listing carried a base64 SVG icon per tool: ~216 KB against ~32 KB of descriptions
+— 87% of the payload — and 41 of 97 tools shipped the SAME 2292-byte generic fallback, because
+`iconQrcForTool()` mapped a tool's NAME PREFIX to an icon and every `recipe_*`, `bag_*`,
+`equipment_*`, `water_vessel_*`, `mqtt_*` and `ai_*` tool missed. Tools no longer emit `icons` at
+any protocol version; resources still do (five records, five distinct icons). The check's
+no-inline-`data:` rule is what stops it coming back, because nothing about 216 KB of base64 was
+visible at the call site — it was one call to a helper.
+
+**Count.** Every feature added tools; none folded them in. Twelve same-noun families merged into
+one tool each, 97 → 65.
+
+The four limits — 80 tools, 500 chars per tool description, 120 per property description, 85 KB
+estimated payload — live in `LIMITS` at the top of that script, so tightening them is one edit.
+
+### Adding a tool
+
+1. **Does it belong to a noun that already has a tool?** Add an action to that tool, not a new
+   one. One family, one name.
+2. **Declare a tier** — `McpTierCore`, `McpTierStandard` (default) or `McpTierNiche`.
+   `listTools()` emits in `(tier, name)` order, so a client that truncates loses the niche tail
+   first, and the same build always presents the same order. It used to emit in `QHash` order,
+   which is why WHICH tools went missing was arbitrary and changed between runs.
+3. **Keep the description under 500 characters** — what a client needs to CHOOSE the tool and
+   fill its arguments. Everything else (output fields, worked sequences, interaction rules) goes
+   in `resources/ai/tools/<topic>.md`, is listed in `resources/ai.qrc`, and is served by
+   `get_agent_file(topic)` and `decenza://tools/<topic>`. Both surfaces enumerate the resource
+   directory (`src/mcp/mcpagentdocs.h`), so there is no topic list in code to update.
+
+### Merged tools: `action` dispatch
+
+`registerActionTool(name, description, schema, actions, tier)` takes a `QVector<McpToolAction>`
+built with `McpRegistryHelpers::syncAction` / `asyncAction`. Each action declares its own
+`category` and, when it needs confirmation, the wording for the dialog — confirmation is implied
+by supplying that wording, so there is no bool that can disagree with the text beside it.
+
+- The `action` property is **injected by the registry**, with its enum built from the actions
+  themselves, so the schema a client validates against cannot drift from what dispatch accepts.
+- `action` is **required and has no default**. A default would let an omitted argument resolve to
+  some behaviour, and the destructive verbs are exactly where that is worst.
+- Dispatch is uniformly **async** even when every verb is synchronous, so a family that mixes the
+  two (`auto_load` reads sync, writes async) needs no special case. A sync verb responds inline.
+- `categoryFor(tool, args)` and `confirmationFor(tool, args)` **fail closed**: an `action` the
+  registry cannot resolve is gated as the tool's strictest verb, and confirmed if ANY verb would
+  confirm. The handler's "valid actions are…" error comes after that gate, not instead of it.
+- Handlers still **never** inspect `confirmed` — the server strips it before dispatch. A
+  handler-side check is unreachable-true and was the shipped #1219 bug.
+
 ## Settings: MCP Configuration (new `Settings` properties)
 
 ```cpp
@@ -83,13 +140,22 @@ Q_PROPERTY(int mcpConfirmationLevel READ mcpConfirmationLevel WRITE setMcpConfir
 
 ### Tool Category → Access Level Mapping
 
-Each tool has a `category` that determines the minimum access level required:
+Each tool has a `category` that determines the minimum access level required. A **merged
+tool declares a category per action**, so `bag` action=list is `read` while action=update is
+`settings`; the resolution is `McpToolRegistry::categoryFor(tool, args)` and it is what both the
+access check and the rate limiter consult.
 
-| Category | Min Access Level | Tools |
+| Category | Min Access Level | Tools (merged tools listed by verb where the verbs differ) |
 |----------|-----------------|-------|
-| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, get_flow_calibration, dialing_get_context, dialing_get_grinder_calibration, ai_conversations_list, ai_conversation_get, bag_list, equipment_list, recipe_list, recipe_get, steam_pitcher_list, water_vessel_list |
-| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, shots_upload_to_visualizer, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_select, equipment_select, steam_pitcher_select, water_vessel_select, bag_extract_details  |
-| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, set_flow_calibration, apply_theme, bag_create, bag_update, equipment_update, equipment_merge, recipe_create, recipe_update, recipe_create_from_shot, recipe_clone, recipe_archive, steam_pitcher_add, steam_pitcher_update, steam_pitcher_delete, water_vessel_add, water_vessel_update, water_vessel_delete |
+| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, settings_get, get_agent_file, dialing_get_context, dialing_get_grinder_calibration, steam_get_health, recipe_list, recipe_get, `ai_conversations` (all), `auto_load` get, `bag` list, `equipment` list, `flow_calibration` get, `steam_pitcher` list, `water_vessel` list, `devices_wifi` results |
+| `control` | 1 (Control) | machine_wake, machine_sleep, machine_stop, machine_skip_frame, `machine_start` (all), `scale_timer` (all), scale_tare, shots_update, shots_upload_to_visualizer, backup_now, `mqtt` (all), devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_extract_details, `bag` select, `equipment` select, `steam_pitcher` select, `water_vessel` select, `devices_wifi` browse |
+| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, apply_theme, `reset_saw_learning` (all), recipe_create, recipe_update, recipe_create_from_shot, recipe_clone, recipe_archive, `auto_load` set/clear, `bag` create/update, `equipment` update/merge, `flow_calibration` set/clear, `steam_pitcher` add/update/delete, `water_vessel` add/update/delete |
+
+**An `action` the server cannot resolve is gated as the tool's STRICTEST verb**, not as its
+most permissive one. Omitting `action` on `bag` is therefore refused at Monitor level and
+confirmed like a destructive write, and only then does the handler return its "valid actions
+are…" error. That ordering is the point: the alternative lets a caller drop an argument to be
+gated as a read.
 
 ### Tool → Confirmation Level Mapping
 
@@ -100,7 +166,7 @@ Two confirmation mechanisms are used depending on where the user is:
 
 | Tool | Dangerous Only (1) | All Control (2) | Mechanism |
 |------|-------------------|-----------------|-----------|
-| machine_start_* | **Confirm** | Confirm | In-app dialog |
+| machine_start (any action) | **Confirm** | Confirm | In-app dialog |
 | machine_wake/sleep | No confirm | Confirm | Chat |
 | machine_stop | No confirm | Confirm | Chat |
 | machine_skip_frame | No confirm | Confirm | Chat |
@@ -112,10 +178,9 @@ Two confirmation mechanisms are used depending on where the user is:
 | profiles_rename | **Confirm** | Confirm | Chat |
 | shots_delete | **Confirm** | Confirm | Chat |
 | settings_set | **Confirm** | Confirm | Chat |
-| reset_saw_learning | **Confirm** | Confirm | Chat |
-| reset_saw_learning_for_profile | **Confirm** | Confirm | Chat |
-| clear_flow_calibration | **Confirm** | Confirm | Chat |
-| set_flow_calibration | **Confirm** | Confirm | Chat |
+| reset_saw_learning (both actions) | **Confirm** | Confirm | Chat |
+| flow_calibration set / clear | **Confirm** | Confirm | Chat |
+| equipment merge | **Confirm** | Confirm | Chat |
 | devices_set_scale_priority_mode | **Confirm** | Confirm | Chat |
 | devices_reset_scale_priority | **Confirm** | Confirm | Chat |
 | devices_disconnect_scale | **Confirm** | Confirm | Chat |
@@ -124,13 +189,13 @@ Two confirmation mechanisms are used depending on where the user is:
 
 When confirmation level is 0 (None), all tools execute immediately regardless of mechanism.
 
-### In-App Confirmation (machine_start_* tools)
+### In-App Confirmation (the machine_start tool)
 
 For operations that physically affect the machine, confirmation happens on the device screen where the user can see and control the machine:
 
 1. `McpServer::handleToolsCall()` detects the tool needs in-app confirmation
 2. The HTTP response is **held** — stored in `PendingConfirmation` with a `QPointer<QTcpSocket>`
-3. McpServer emits `confirmationRequested(toolName, toolDescription, sessionId)`
+3. McpServer emits `confirmationRequested(actionId, toolDescription, sessionId)` — `actionId` is `machine_start.espresso` for a merged tool, so the dialog names the verb rather than the family
 4. QML shows `McpConfirmDialog`: "An AI assistant wants to: Start pulling an espresso shot. Allow?"
 5. The dialog has a **15-second auto-dismiss timer** (legitimate UI auto-dismiss per CLAUDE.md) that denies by default
 6. The dialog's `onClosed` signal drives the C++ callback — not the raw timer. The timer only closes the dialog UI; `onClosed` then calls `McpServer::confirmationResolved(sessionId, accepted)`
@@ -148,7 +213,7 @@ For operations that physically affect the machine, confirmation happens on the d
 For operations where the user is at their desk interacting with the AI remotely (not at the machine):
 
 1. `McpServer::handleToolsCall()` checks if the tool needs chat confirmation and `"confirmed"` is not in the arguments
-2. If not confirmed, returns immediately with: `{"needs_confirmation": true, "action": "settings_set", "description": "Change machine settings", "parameters": {...}}`
+2. If not confirmed, returns immediately with: `{"needs_confirmation": true, "action": "settings_set", "description": "Change machine settings", "parameters": {...}}`. For a merged tool the `action` field carries `<tool>.<verb>`, e.g. `steam_pitcher.delete`
 3. The AI sees this response and asks the user in chat: "I'd like to change the brew temperature to 94°C. Should I proceed?"
 4. If the user approves, the AI re-calls the tool with `"confirmed": true` in the arguments
 5. The tool executes normally (the `confirmed` key is stripped before passing to the handler)
@@ -236,10 +301,7 @@ the `refresh()` / `rotateToken()` invokables.
 |------|-------------|----------|
 | `machine_wake` | Wake from sleep | control |
 | `machine_sleep` | Put to sleep | control |
-| `machine_start_espresso` | Start pulling a shot. Optional brew overrides (dose, yield, temperature, grind) apply for this shot only, matching QML BrewDialog. | control |
-| `machine_start_steam` | Start steaming | control |
-| `machine_start_hot_water` | Dispense hot water | control |
-| `machine_start_flush` | Flush group head | control |
+| `machine_start` | Start an operation: `action` = `espresso` \| `steam` \| `hot_water` \| `flush`. `action=espresso` takes optional brew overrides (dose, yield, temperature, grind, rpm) that apply to this shot only, matching QML BrewDialog. Every action raises the in-app dialog. | control |
 | `machine_stop` | Stop current operation | control |
 | `machine_skip_frame` | Skip to next profile frame | control |
 
@@ -267,20 +329,20 @@ the `refresh()` / `rotateToken()` invokables.
 ### Coffee Bags (bean-bag-inventory)
 | Tool | Description | Category |
 |------|-------------|----------|
-| `bag_list` | List coffee bags (inventory by default; `includeEmpty=true` adds bags marked empty). Each bag carries identity, `kind` ("coffee"/"tea", creation-time), freeze lifecycle, last-used grinder/dose, a parsed `beanBase` snapshot, `isActive`, and — tea bags — the structured brewing fields (teaType, brewTemperatureC, leafGramsPer100Ml, steepTime). | read |
-| `bag_select` | Set the active bag — what the next shot is pulled with (applies bean identity + last-used grinder/dose). `bagId: 0` clears the selection. | control |
-| `bag_extract_details` | Run the "Get info from page" AI extraction for a bag's URL and return the fields WITHOUT writing (bag_update applies them). Reports stage (1 local fetch / 2 provider web-fetch fallback) + provider/model. Consumes provider tokens. | control |
-| `bag_create` | Create an inventory bag; `kind` = coffee (default) \| tea, stamped at creation and immutable — the MCP counterpart of Add Coffee / Add Tea. Tea vocabulary only on tea bags; roastLevel/grinderSetting only on coffee. NOT auto-activated (use `bag_select`). | settings |
-| `bag_update` | Update bag fields (metadata + freeze lifecycle + bean/tea details). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished" (marks the bag empty); setting `defrostDate` records a thaw. `kind` is NOT editable (creation-time identity); tea vocabulary is rejected on coffee bags. | settings |
+| `bag` action=`list` | List coffee bags (inventory by default; `includeEmpty=true` adds bags marked empty). Each bag carries identity, `kind` ("coffee"/"tea", creation-time), freeze lifecycle, last-used grinder/dose, a parsed `beanBase` snapshot, `isActive`, and — tea bags — the structured brewing fields (teaType, brewTemperatureC, leafGramsPer100Ml, steepTime). | read |
+| `bag` action=`select` | Set the active bag — what the next shot is pulled with (applies bean identity + last-used grinder/dose). `bagId: 0` clears the selection. | control |
+| `bag_extract_details` | Run the "Get info from page" AI extraction for a bag's URL and return the fields WITHOUT writing (`bag` action=update applies them). Reports stage (1 local fetch / 2 provider web-fetch fallback) + provider/model. Consumes provider tokens. Stays a separate tool: parsing a photographed label is a different job that happens to share the noun. | control |
+| `bag` action=`create` | Create an inventory bag; `kind` = coffee (default) \| tea, stamped at creation and immutable — the MCP counterpart of Add Coffee / Add Tea. Tea vocabulary only on tea bags; roastLevel/grinderSetting only on coffee. NOT auto-activated (use action=select). | settings |
+| `bag` action=`update` | Update bag fields (metadata + freeze lifecycle + bean/tea details). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished"; setting `defrostDate` records a thaw. `kind` is NOT editable; tea vocabulary is rejected on coffee bags. | settings |
 
 ### Equipment Packages (add-equipment-packages)
 The grinder is a first-class, switchable **equipment package** (the active bag points at one via `equipment_id`). The grind setting + `rpm` stay as per-bag dial-in.
 | Tool | Description | Category |
 |------|-------------|----------|
-| `equipment_list` | List equipment packages. Each carries `id`, `name`, `grinderBrand/Model/Burrs`, `rpmAdjustable`, `inInventory`, last dial (`lastGrindSetting`/`lastRpm`), `shotCount`, and `isActive`. | read |
-| `equipment_select` | Set the active equipment package — the grinder the next shot is ground on. Applies the package's grinder identity + last grind/rpm and points the active bag at it. | control |
-| `equipment_update` | Edit a package's grinder identity (`grinderBrand/Model/Burrs`) and/or `name`. Partial; re-derives `rpmAdjustable`. Reference semantics (applies to all referencing bags/shots). CHANGING a component on a package that has shots forks a new package (returned `package.id` differs); filling in a component that was EMPTY is enrichment and edits in place. | settings |
-| `equipment_merge` | Fold `sourcePackageId` into `targetPackageId`: shots, bags and recipes move to the target, the target returns to inventory, the source is deleted. The repair for a grinder wrongly split in two. Destructive and not undoable — the user names both packages. | settings |
+| `equipment` action=`list` | List equipment packages. Each carries `id`, `name`, `grinderBrand/Model/Burrs`, `rpmAdjustable`, `inInventory`, last dial (`lastGrindSetting`/`lastRpm`), `shotCount`, and `isActive`. | read |
+| `equipment` action=`select` | Set the active equipment package — the grinder the next shot is ground on. Applies the package's grinder identity + last grind/rpm and points the active bag at it. | control |
+| `equipment` action=`update` | Edit a package's grinder identity (`grinderBrand/Model/Burrs`) and/or `name`. Partial; re-derives `rpmAdjustable`. Reference semantics (applies to all referencing bags/shots). CHANGING a component on a package that has shots forks a new package (returned `package.id` differs); filling in a component that was EMPTY is enrichment and edits in place. | settings |
+| `equipment` action=`merge` | Fold `sourcePackageId` into `targetPackageId`: shots, bags and recipes move to the target, the target returns to inventory, the source is deleted. The repair for a grinder wrongly split in two. Destructive and not undoable — the user names both packages. | settings |
 
 The `de1://dialing` resource's grinder block also exposes `packageId`, `rpmAdjustable`, and `rpm`.
 
@@ -310,40 +372,40 @@ A recipe is the whole drink: profile + bean link + equipment + dose/yield/temp +
 | `profiles_delete` | Delete a user/downloaded profile. For built-in profiles, removes local overrides and reverts to the original built-in version. | settings |
 | `profiles_create` | Create a new blank profile with a given editor type (dflow, aflow, pressure, flow, advanced) and title. Uses the same creation functions as the QML UI. | settings |
 | `profiles_rename` | Rename a user/downloaded profile in place — changes only the display title, keeps the filename so favorites/auto-load/selected references stay valid. Built-in profiles are read-only and rejected (use `profiles_save` Save As to copy). | settings |
-| `profiles_get_auto_load` | Get the configured auto-load profile filename, title, and revert-minutes. Returns `filename: ""` and the current `revertMinutes` when no auto-load is set. | read |
-| `profiles_set_auto_load` | Pin a profile as the auto-load target (reloads on app start, DE1 wake, and after N idle minutes on the Idle page). Validates filename existence + Selected-list membership. Accepts optional `revertMinutes` (0..60). | settings |
-| `profiles_clear_auto_load` | Disable auto-load by clearing the pinned filename. Preserves the configured `revertMinutes`. | settings |
+
+The auto-load pin (profile OR recipe) is the `auto_load` tool — see its own row in Settings below.
 
 ### Settings
 | Tool | Description | Category |
 |------|-------------|----------|
 | `settings_get` | Read all app settings, specific keys, or a category. Categories: machine, calibration, connections, screensaver, accessibility, ai, espresso, steam, water, flush, dye, mqtt, themes, visualizer, update, data, history, language, debug, battery, heater, autofavorites. The `ai` category includes `aiProvider`, the effective `aiModel` + `aiModelDisplay` for the active provider, and `aiAvailableModels` (the catalog of selectable `{id,name}` for that provider — use it to discover valid `aiModel` values). Sensitive fields (API keys, passwords) are excluded. | read |
 | `settings_set` | Update any app setting across all QML Settings tabs. Covers 100+ fields: machine, calibration, connections, screensaver, accessibility, AI, espresso, steam, water, flush, DYE, MQTT, themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. `aiProvider` selects the provider; `aiModel` selects the model for the active (or same-call) provider, validated against that provider's catalog (invalid ids rejected with `validModels`); OpenRouter/Ollama use `openrouterModel`/`ollamaModel`. Sensitive fields (API keys, passwords) excluded. | settings |
-| `reset_saw_learning` | Reset stop-at-weight learning data globally. Useful when switching beans or grind settings. | settings |
-| `reset_saw_learning_for_profile` | Reset stop-at-weight learning for a single (profile, scale) pair only — other pairs and the global bootstrap are preserved. Defaults to active profile + configured scale. | settings |
-| `get_flow_calibration` | Describe a profile's flow calibration: stored per-profile multiplier, global fallback, which one is in effect (`effectiveSource`), the auto-calibration switch, batch progress (`pendingAutoCalShots` of `autoCalBatchSize`), and a plain-language `state` sentence. Defaults to current profile. `allProfiles=true` lists every profile with a stored calibration instead, each with `profileExists` — the only way to answer "which profiles are calibrated?", and the only place an orphan entry (a key naming a deleted profile) is visible. | read |
-| `set_flow_calibration` | Set the per-profile flow calibration multiplier by hand, for a user who knows the right value. Range 0.5-2.7, refused (not clamped) outside it. Defaults to current profile. Reaches a connected machine immediately. With auto calibration ON it is the new starting point and future shots keep adjusting it; with auto OFF the value is stored but inert (the machine uses the global multiplier) and the result says so in `warning`. | settings |
-| `clear_flow_calibration` | Clear per-profile flow calibration multiplier. Defaults to current profile if none specified. Unlike get/set it accepts a profile that no longer exists, so orphan entries can be removed; `hadCalibration` reports whether anything was actually stored. | settings |
+| `reset_saw_learning` action=`all` | Erase ALL stop-at-weight learning: global pool, every per-(profile, scale) history and pending batch, and the bootstrap. | settings |
+| `reset_saw_learning` action=`profile` | Erase one (profile, scale) pair only. Defaults to the active profile and the scale currently serving shots. Kept as a VERB rather than an optional argument on the global form: an omitted argument that means "wipe everything" is the wrong default for an irreversible tool. | settings |
+| `flow_calibration` action=`get` | Describe a profile's flow calibration: stored per-profile multiplier, global fallback, which one is in effect (`effectiveSource`), the auto-calibration switch, batch progress (`pendingAutoCalShots` of `autoCalBatchSize`), and a plain-language `state` sentence. `allProfiles=true` lists every calibrated profile with `profileExists` — the only way to answer "which profiles are calibrated?", and the only place an orphan entry is visible. | read |
+| `flow_calibration` action=`set` | Set the multiplier by hand. Range 0.5-2.7, refused (not clamped) outside it. Reaches a connected machine immediately. With auto calibration ON it is the new starting point and future shots keep adjusting it; with auto OFF it is stored but inert and the result says so in `warning`. | settings |
+| `flow_calibration` action=`clear` | Clear the per-profile multiplier. Unlike get/set it accepts a profile that no longer exists, so orphan entries can be removed; `hadCalibration` reports whether anything was stored. | settings |
+| `auto_load` action=`get`/`set`/`clear`, target=`profile`/`recipe` | The auto-load pin: what reloads on app start, DE1 wake, and after `revertMinutes` idle on the Idle page. `target` is required. The profile and recipe pins are mutually exclusive — setting one clears the other, which is why they are one tool. `clear` leaves `revertMinutes` untouched. | read (get) / settings (set, clear) |
 | `apply_theme` | Apply a preset theme ('Default Dark', 'Default Light', or user-created). | settings |
 | `backup_now` | Create an immediate backup of database, settings, profiles, and media. | control |
-| `mqtt_connect` | Connect to the configured MQTT broker. | control |
-| `mqtt_disconnect` | Disconnect from the MQTT broker. | control |
-| `mqtt_publish_discovery` | Publish Home Assistant MQTT discovery messages. Requires connected broker. | control |
+| `mqtt` action=`connect`/`disconnect`/`publish_discovery` | The Home Assistant MQTT bridge. `publish_discovery` requires a live connection; `disconnect` on an already-disconnected broker is a success carrying `alreadyDisconnected: true`, not an error. | control |
 
 ### Steam & Hot Water Presets
-Steam pitcher / hot-water vessel presets each carry their own duration/flow/volume and a **per-preset temperature**. `*_select` switches the active preset and applies it to the machine (like `bag_select`/`equipment_select`); `*_add` appends and selects the new preset; updates are partial (only provided fields change, and editing the selected preset re-applies it). Units are human-readable (temperatureC, flowMlPerSec, durationSec, volumeMl) — the store keeps steam flow in hundredths and water flow in tenths of mL/s, converted in the tool layer.
+Two tools, `steam_pitcher` and `water_vessel`, each with `action` = `list` \| `add` \| `update` \| `delete` \| `select`. Presets carry their own duration/flow/volume and a **per-preset temperature**. `select` switches the active preset and applies it to the machine (like `bag`/`equipment` select); `add` appends and selects; `update` is partial, and editing the selected preset re-applies it. Units are human-readable (temperatureC, flowMlPerSec, durationSec, volumeMl) — the store keeps steam flow in hundredths and water flow in tenths of mL/s, converted in the tool layer.
+
+The five `steam_pitcher_*` tools this replaced each declared a `confirmed` argument that nothing enforced — none was ever in McpServer's confirmation list. The argument is gone rather than honoured: these are small, re-creatable presets, and the confirmation net is worth more unspent on routine edits.
 | Tool | Description | Category |
 |------|-------------|----------|
-| `steam_pitcher_list` | List steam pitcher presets (name, durationSec, flowMlPerSec, temperatureC; pitcherWeightG/calibMilkG when calibrated; disabled "Off" presets carry only name+disabled) plus `selectedIndex`. | read |
-| `steam_pitcher_add` | Add a steam pitcher preset and select it. Optional durationSec/flowMlPerSec/temperatureC (temperature defaults to the current global steam temperature); `disabled=true` adds an "Off" preset that turns the heater off. | settings |
-| `steam_pitcher_update` | Update a pitcher by index — partial; unspecified fields keep their values. Editing the selected pitcher re-applies it to the machine. Disabled presets can't be edited (delete + re-add). | settings |
-| `steam_pitcher_delete` | Delete a steam pitcher preset by index. | settings |
-| `steam_pitcher_select` | Switch the active pitcher by index; applies its duration/flow/temperature to the machine. | control |
-| `water_vessel_list` | List hot water vessel presets (name, volumeMl, mode "weight"/"volume", flowMlPerSec, temperatureC) plus `selectedIndex`. | read |
-| `water_vessel_add` | Add a hot water vessel preset and select it. Optional volumeMl/mode/flowMlPerSec/temperatureC (temperature defaults to the current global hot water temperature). | settings |
-| `water_vessel_update` | Update a vessel by index — partial. Editing the selected vessel re-applies it to the machine. | settings |
-| `water_vessel_delete` | Delete a hot water vessel preset by index. | settings |
-| `water_vessel_select` | Switch the active vessel by index; applies its volume/mode/flow/temperature to the machine. | control |
+| `steam_pitcher` action=`list` | Presets (name, durationSec, flowMlPerSec, temperatureC; pitcherWeightG/calibMilkG when calibrated; disabled "Off" presets carry only name+disabled) plus `selectedIndex`. | read |
+| `steam_pitcher` action=`add` | Add a preset and select it. Optional durationSec/flowMlPerSec/temperatureC (temperature defaults to the global steam temperature); `disabled=true` adds an "Off" preset that turns the heater off. | settings |
+| `steam_pitcher` action=`update` | Update by index — partial; unspecified fields keep their values. Editing the selected pitcher re-applies it. Disabled presets can't be edited (delete + re-add). | settings |
+| `steam_pitcher` action=`delete` | Delete a preset by index. | settings |
+| `steam_pitcher` action=`select` | Switch the active pitcher by index; applies its duration/flow/temperature to the machine. | control |
+| `water_vessel` action=`list` | Presets (name, volumeMl, mode "weight"/"volume", flowMlPerSec, temperatureC) plus `selectedIndex`. | read |
+| `water_vessel` action=`add` | Add a preset and select it. Optional volumeMl/mode/flowMlPerSec/temperatureC (temperature defaults to the global hot water temperature). | settings |
+| `water_vessel` action=`update` | Update by index — partial. Editing the selected vessel re-applies it. | settings |
+| `water_vessel` action=`delete` | Delete a preset by index. | settings |
+| `water_vessel` action=`select` | Switch the active vessel by index; applies its volume/mode/flow/temperature to the machine. | control |
 
 ### Devices & Scale
 | Tool | Description | Category |
@@ -356,16 +418,14 @@ Steam pitcher / hot-water vessel presets each carry their own duration/flow/volu
 | `devices_connection_status` | Get connection status of DE1 machine and scale, incl. in-memory scale connection-priority (dual-HIGH backoff) state | read |
 | `devices_reset_scale_priority` | Clear the in-memory scale connection-priority dual-HIGH backoff latch (re-detects on next scale (re)connect; eventually-consistent) | control |
 | `scale_tare` | Tare (zero) the connected scale | control |
-| `scale_timer_start` | Start the scale's built-in timer | control |
-| `scale_timer_stop` | Stop the scale's built-in timer | control |
-| `scale_timer_reset` | Reset the scale's built-in timer | control |
+| `scale_timer` action=`start`/`stop`/`reset` | The scale's built-in timer. Not every scale supports remote timer control, and some cannot reset independently — their reset also starts the timer, which `action=reset` refuses rather than pretending. | control |
 | `scale_get_weight` | Get current weight and flow rate from the scale | read |
 
 ### Debug & Agent
 | Tool | Description | Category |
 |------|-------------|----------|
 | `debug_get_log` | Read the persisted app debug log. Three addressing modes: (1) `sessions=true` lists all sessions with index/start line/timestamp/line count (session-boundary index is cached, keyed on the log file's size+mtime, instead of rescanned per call); (2) `session=N` addresses that session (-1 = most recent); (3) default — addresses the whole log. Within modes 2/3: `filter` (substring, or regex when `regex` is true; case-insensitive) and `minLevel` (`DEBUG`/`INFO`/`WARN`/`ERROR`/`FATAL`, combines with `filter` via AND) narrow which lines qualify; `dedupe` then collapses consecutive qualifying lines that are identical apart from each line's own leading timestamp into one entry carrying `count`/`lastLine` (non-consecutive repeats, or lines that differ elsewhere — e.g. different shot ids in an otherwise-identical template — are never collapsed together); `tail` (last N qualifying/deduped entries) takes precedence over `offset` when both are given, ahead of `offset`/`limit` (1–2000 lines) pagination. Omitting `filter`/`minLevel`/`dedupe`/`tail` reproduces the exact original response shape. Every returned line carries its absolute line number in a `lines` array alongside the existing `log` string. | read |
-| `get_agent_file` | Returns the current Decenza `claude_agent.md` system-prompt content + the app's version string. Any MCP client (Claude Desktop, Claude mobile, Claude Code, etc.) should call this at session start to load behavioral guidance for dialing assistance. Clients with filesystem access (Claude Code Remote Control) additionally use the version to self-update a local CLAUDE.md. | read |
+| `get_agent_file` | With no arguments: the current `claude_agent.md` system-prompt content, the app version, and the list of documentation topics. Any MCP client should call this at session start. Clients with filesystem access (Claude Code Remote Control) additionally use the version to self-update a local CLAUDE.md. With `topic`: that tool's long-form documentation from `resources/ai/tools/<topic>.md` — the detail that used to sit in tools/list descriptions. An unknown topic errors with `availableTopics`. | read |
 
 ### AI Dial-In Conversation (key feature)
 
@@ -375,8 +435,8 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 |------|-------------|----------|
 | `dialing_get_context` | Get full dial-in context bundle: current profile recipe + profile knowledge (includes espresso system prompt, dial-in reference tables, and profile-specific KB) + recent shot summary (via `ShotSummarizer`) + dial-in history (last N shots with same profile family) + bean metadata + grinder context (observed settings range and noise-filtered typical `stepSize`). This is the primary read tool for dial-in — a single call gives the AI everything it needs to analyze a shot and suggest changes. The cross-profile grinder calibration table is **not** in this bundle — see `dialing_get_grinder_calibration` (#1164). | read |
 | `dialing_get_grinder_calibration` | On-demand cross-profile grinder calibration: per-user recommended grinder setting (rgs) for every KB espresso profile, derived from all-time shot history on the same grinder model + burrs. Returns `fineAnchor` / `coarseAnchor`, `conversionKey`, `calibratedUgsRange`, and a `profiles[]` array (each with `ugs`, `rgs`, `source` ∈ history/derived/extrapolated). Split out of `dialing_get_context` (#1164) because it is a ~33-row table that only matters when the user is weighing a profile switch and is a stable physical property of the grinder — so the AI fetches it once on demand instead of re-receiving it every conversational turn. Returns `{available:false, reason}` when fewer than 2 qualifying anchor profiles exist. Same shared `DialingBlocks::buildGrinderCalibrationBlock()` builder the one-shot in-app advisor / `ai_advisor_invoke` still use inline. | read |
-| `ai_conversations_list` | List saved multi-shot AI dialing conversations (in-app advisor + `ai_advisor_invoke` turns both land here), most recently active first. Up to `AIManager::MAX_CONVERSATIONS` (5) are retained, oldest evicted. Each entry: `key`, `label`, `beanBrand`/`beanType`/`profileName`, `messageCount`, `lastUpdated`; `corrupted: true` is added (omitted otherwise) when the entry's stored transcript failed to parse, in which case `messageCount` is unreliable. Same underlying index as the web UI's `/ai-conversations` page. | read |
-| `ai_conversation_get` | Get the full transcript for one conversation `key` from `ai_conversations_list`: top-level `key` echo, a `metadata` object (`beanBrand`/`beanType`/`profileName`/`lastUpdated`), `systemPrompt`, and `messages[]` — every turn in order (`role`, `content`, optional `shotId`, optional `structuredNext` on assistant turns that made a concrete recommendation). Same QSettings data as the web UI's JSON download, returned as structured JSON. Useful for collecting real conversation transcripts to validate prompt changes (issue #639). | read |
+| `ai_conversations` action=`list` | List saved multi-shot AI dialing conversations (in-app advisor + `ai_advisor_invoke` turns both land here), most recently active first. Up to `AIManager::MAX_CONVERSATIONS` (5) are retained, oldest evicted. Each entry: `key`, `label`, `beanBrand`/`beanType`/`profileName`, `messageCount`, `lastUpdated`; `corrupted: true` is added (omitted otherwise) when the entry's stored transcript failed to parse, in which case `messageCount` is unreliable. Same underlying index as the web UI's `/ai-conversations` page. | read |
+| `ai_conversations` action=`get` | Get the full transcript for one conversation `key` from action=list: top-level `key` echo, a `metadata` object (`beanBrand`/`beanType`/`profileName`/`lastUpdated`), `systemPrompt`, and `messages[]` — every turn in order (`role`, `content`, optional `shotId`, optional `structuredNext` on assistant turns that made a concrete recommendation). Same QSettings data as the web UI's JSON download, returned as structured JSON. Useful for collecting real conversation transcripts to validate prompt changes (issue #639). | read |
 | ~~`dialing_suggest_change`~~ | **Removed.** Was a no-op stub that returned `"suggestion_displayed"` without actually displaying anything or changing settings. The AI mistakenly treated it as applying changes (e.g., grind size). Use `settings_set` to change grind (`dyeGrinderSetting`), dose (`dyeBeanWeight`), yield (`targetWeight`), temperature (`espressoTemperature`), etc. | — |
 | ~~`dialing_apply_change`~~ | **Removed.** Was a convenience wrapper that duplicated `settings_set` + `profiles_set_active`. Caused the advanced-profile-corruption bug due to duplicated code paths. Use `settings_set` for temp/weight/DYE changes and `profiles_set_active` for profile switches. | — |
 

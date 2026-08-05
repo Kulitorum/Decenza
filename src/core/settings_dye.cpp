@@ -264,7 +264,7 @@ QString SettingsDye::dyeGrinderBrand() const {
 // package resolves) and emit — they do NOT write through to the bag. The cache
 // is refreshed from the package by applyEquipmentIdentity() whenever the active
 // package changes; callers wanting to *change* identity go through the equipment
-// package (switchToEquipment / equipment_update), not these setters.
+// package (switchToEquipment / equipment action=update), not these setters.
 void SettingsDye::setDyeGrinderBrand(const QString& value) {
     if (dyeGrinderBrand() != value) {
         m_dyeGrinderBrandCache = value;

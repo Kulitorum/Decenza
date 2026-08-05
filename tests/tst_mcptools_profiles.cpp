@@ -14,7 +14,7 @@ using namespace DE1::Characteristic;
 class ProfileManager;
 class McpToolRegistry;
 class Settings;
-void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager, Settings* settings);
+void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager);
 
 // Test MCP profile tools against ProfileManager + MockTransport.
 // Critical regression: profiles_edit_params must trigger BLE upload (PR #561).
@@ -147,7 +147,7 @@ private slots:
     // reporting IGNORED is the one outcome the redirect exists to prevent.
     void editParamsDoseWritesTheRecommendedDose() {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f, "D-Flow / Dose");
 
         const QJsonObject r = f.callTool("profiles_edit_params",
@@ -169,7 +169,7 @@ private slots:
     // left DISABLED — `dose` is set-and-enable, `recommended_dose` set-only.
     void doseAppliesOnAnAdvancedProfile() {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadAdvancedProfile(f, "Advanced Dose");
         QCOMPARE(f.profileManager.currentEditorType(), QString("advanced"));
 
@@ -185,7 +185,7 @@ private slots:
 
     void aRetiredDoseSpellingIsReportedNotApplied() {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadAdvancedProfile(f, "Advanced Retired");
         // Not pre-set through setCurrentProfileRecommendedDose: that marks the
         // profile modified, which would make the "did the rejected edit dirty
@@ -227,7 +227,7 @@ private slots:
     // argument.
     void aRetiredSpellingIsReportedOnRecipeEditorsToo() {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f, "D-Flow / Retired Reported");
 
         const QJsonObject r = f.callTool(
@@ -249,7 +249,7 @@ private slots:
     // delete the profile's dose and report success.
     void aNonNumericDoseIsRejectedRatherThanClearingTheRecommendation() {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f, "D-Flow / String Dose");
         f.profileManager.setCurrentProfileRecommendedDose(19.0);
 
@@ -273,7 +273,7 @@ private slots:
     // told — echoing success with no note reads as "stored 150".
     void anOutOfRangeDoseIsClampedAndSaidSo() {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f, "D-Flow / Clamped Dose");
 
         const QJsonObject r = f.callTool(
@@ -288,7 +288,7 @@ private slots:
     // The retired names losing does not cost `dose` its effect in the same call.
     void doseStillAppliesAlongsideARetiredSpelling() {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f, "D-Flow / One Spelling");
 
         const QJsonObject r = f.callTool(
@@ -327,7 +327,7 @@ private slots:
         // Every profile holds 18 g whether one was set or not, so a bare figure
         // would tell an AI there is a recommendation when there is not.
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f, "D-Flow / Dose Read");
 
         QJsonObject r = f.callTool("profiles_get_params", QJsonObject{});
@@ -349,7 +349,7 @@ private slots:
     // the reason is gone and the asymmetry with it.
     void getParamsReportsTheDoseOnAdvancedToo() {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadAdvancedProfile(f, "Advanced Dose Read");
         f.profileManager.setCurrentProfileRecommendedDose(20.0);
 
@@ -366,7 +366,7 @@ private slots:
     void profilesListReturnsArray()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
 
         QJsonObject result = f.callTool("profiles_list", {});
         QVERIFY(result.contains("profiles"));
@@ -379,7 +379,7 @@ private slots:
     void profilesGetActiveReturnsFilename()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f);
 
         QJsonObject result = f.callTool("profiles_get_active", {});
@@ -394,7 +394,7 @@ private slots:
     void profilesGetParamsReturnsDFlowFields()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f);
 
         QJsonObject result = f.callTool("profiles_get_params", {});
@@ -407,7 +407,7 @@ private slots:
     void profilesGetParamsReturnsAdvancedFields()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadAdvancedProfile(f);
 
         QJsonObject result = f.callTool("profiles_get_params", {});
@@ -422,7 +422,7 @@ private slots:
         // The critical test: editing recipe params must write frames to BLE.
         // PR #561 was a regression where this path silently stopped uploading.
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f);
         f.transport.clearWrites();
 
@@ -444,7 +444,7 @@ private slots:
     void editParamsAdvancedTriggersBleUpload()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadAdvancedProfile(f);
         f.transport.clearWrites();
 
@@ -462,7 +462,7 @@ private slots:
     void editParamsUpdatesProfileState()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f);
 
         QJsonObject args;
@@ -479,7 +479,7 @@ private slots:
     void profilesGetDetailRequiresFilename()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
 
         QJsonObject result = f.callTool("profiles_get_detail", {{"filename", ""}});
         QVERIFY(result.contains("error"));
@@ -490,7 +490,7 @@ private slots:
     void renameRequiresFilename()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
 
         QJsonObject result = f.callTool("profiles_rename", {{"filename", ""}, {"title", "New Name"}});
         QVERIFY(result.contains("error"));
@@ -500,7 +500,7 @@ private slots:
     void renameRequiresTitle()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
 
         // Whitespace-only title trims to empty and must be rejected.
         QJsonObject result = f.callTool("profiles_rename", {{"filename", "some_profile"}, {"title", "   "}});
@@ -511,7 +511,7 @@ private slots:
     void renameUnknownProfileReturnsError()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+        registerProfileTools(&f.registry, &f.profileManager);
 
         QJsonObject result = f.callTool("profiles_rename",
                                         {{"filename", "definitely_not_a_real_profile"}, {"title", "New Name"}});
@@ -536,7 +536,7 @@ private slots:
         QFETCH(QString, tool);
 
         McpToolRegistry registry;
-        registerProfileTools(&registry, nullptr, nullptr);
+        registerProfileTools(&registry, nullptr);
 
         QString error;
         const QJsonObject r = registry.callTool(tool, QJsonObject{}, 2, error);

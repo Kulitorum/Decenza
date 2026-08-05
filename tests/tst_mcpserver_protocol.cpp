@@ -41,7 +41,7 @@ class MemoryMonitor;
 class AIManager;
 void registerMachineTools(McpToolRegistry*, DE1Device*, MachineState*, MainController*, ProfileManager*) {}
 void registerShotTools(McpToolRegistry*, ShotHistoryStorage*) {}
-void registerProfileTools(McpToolRegistry*, ProfileManager*, Settings*) {}
+void registerProfileTools(McpToolRegistry*, ProfileManager*) {}
 void registerPresetsTools(McpToolRegistry*, Settings*, MainController*, MachineState*) {}
 class RecipeStorage;
 void registerRecipeTools(McpToolRegistry*, ShotHistoryStorage*, RecipeStorage*, MainController*, Settings*) {}
@@ -391,12 +391,12 @@ private slots:
 
     // ─── tools/list shape (title, icons, JSON Schema dialect) ──────────────
 
-    void toolsListIncludesTitleAndIcons()
+    void toolsListCarriesTitleAndSchemaButNoIcons()
     {
         McpServer server;
         // Register one inline tool so tools/list has something to inspect.
         server.toolRegistry()->registerTool(
-            "shots_get_detail",  // Use a real prefix so icon mapping resolves.
+            "shots_get_detail",
             "Test tool",
             QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
             [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; },
@@ -414,24 +414,47 @@ private slots:
         // 2025-06-18: human-readable title separate from programmatic name.
         QCOMPARE(t["title"].toString(), QString("Shots Get Detail"));
 
-        // 2025-11-25: icons as data URIs.
-        const QJsonArray icons = t["icons"].toArray();
-        QVERIFY2(!icons.isEmpty(), "tools/list entries must include at least one icon");
-        const QJsonObject icon = icons[0].toObject();
-        QCOMPARE(icon["mimeType"].toString(), QString("image/svg+xml"));
-        QVERIFY(icon["src"].toString().startsWith("data:image/svg+xml;base64,"));
-        // MCP icon schema (HTML-style): `sizes` must be string[], not a bare
-        // string. Strict clients (e.g. Claude Code's zod validator) drop every
-        // tool entry that ships `"sizes":"any"`, surfacing zero tools despite
-        // a successful initialize handshake.
-        const QJsonValue sizes = icon["sizes"];
-        QVERIFY2(sizes.isArray(), "icon.sizes must be an array (string[])");
-        QVERIFY(!sizes.toArray().isEmpty());
-        QVERIFY(sizes.toArray()[0].isString());
+        // Tools carry NO icons, at any protocol version. They used to, as base64
+        // data URIs, and it cost 216 KB of a ~248 KB tools/list — 87% of the
+        // payload, with 41 of 97 tools shipping the same generic fallback. Real
+        // clients truncate a list that size (ChatGPT exposed 87 of 97 tools), so
+        // this is the byte budget, not a style preference. Resources keep theirs:
+        // see resourcesListAt2025_11_25EmitsTitleAndIcons.
+        QVERIFY2(!t.contains("icons"), "tools/list must not carry icons");
+        QVERIFY2(!QString::fromUtf8(QJsonDocument(t).toJson(QJsonDocument::Compact))
+                      .contains(QStringLiteral("data:")),
+                 "no tool record may carry an inline data: URI");
 
         // 2025-11-25: JSON Schema 2020-12 dialect declared.
         QCOMPARE(t["inputSchema"].toObject()["$schema"].toString(),
                  QString("https://json-schema.org/draft/2020-12/schema"));
+    }
+
+    // Order is (tier, name) and nothing else — not hash order, which is what it
+    // was. Under hash order two runs of the same build could present tools in
+    // different orders, so which tools a truncating client dropped was
+    // unreproducible; that is how get_flow_calibration went missing while
+    // clear_flow_calibration survived.
+    void toolsListSortsByTierThenName()
+    {
+        McpServer server;
+        auto reg = [&](const QString& name, int tier) {
+            server.toolRegistry()->registerTool(
+                name, "t", QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+                [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; }, "read", tier);
+        };
+        reg("zzz_core", McpTierCore);
+        reg("aaa_niche", McpTierNiche);
+        reg("mmm_standard", McpTierStandard);
+        reg("aaa_core", McpTierCore);
+
+        const QString sid = openSession(server, "2025-11-25");
+        auto resp = sendHttp(server, "POST", rpcBody("tools/list", {}, 2), sid);
+        const QJsonArray tools = resp.jsonBody["result"].toObject()["tools"].toArray();
+
+        QStringList names;
+        for (const QJsonValue& v : tools) names << v.toObject()["name"].toString();
+        QCOMPARE(names, QStringList({"aaa_core", "zzz_core", "mmm_standard", "aaa_niche"}));
     }
 
     // ─── tools/call response: structuredContent + resource_link extraction ─
@@ -1224,7 +1247,106 @@ private slots:
         QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32603);
     }
 
+    // ─── Merged (action-dispatch) tools ────────────────────────────────────
+    //
+    // A merged tool has one name and several verbs with different answers to
+    // "may this caller run it?" and "must a human confirm it first?". Both used
+    // to be looked up by tool NAME, which would have collapsed every verb onto
+    // the family's most dangerous member. These four tests pin the resolution,
+    // including the case the design turns on: an `action` the server cannot
+    // resolve is gated as the strictest verb, not waved through as a read.
+    void mergedToolResolvesAccessLevelPerAction()
+    {
+        McpServer server;
+        registerStubActionTool(server);
+
+        // No Settings wired, so mcpAccessLevel() is 0 (Monitor).
+        const QString sid = openSession(server, "2025-11-25");
+
+        QCOMPARE(callStubAction(server, sid, QJsonObject{{"action", "list"}})
+                     .jsonBody["error"].toObject()["code"].toInt(), 0);
+        QCOMPARE(callStubAction(server, sid, QJsonObject{{"action", "erase"}})
+                     .jsonBody["error"].toObject()["code"].toInt(), -32603);
+    }
+
+    void mergedToolWithUnresolvableActionIsGatedAsTheStrictestVerb()
+    {
+        McpServer server;
+        registerStubActionTool(server);
+        const QString sid = openSession(server, "2025-11-25");
+
+        // Monitor level. Omitting `action` must NOT resolve to the read verb.
+        QCOMPARE(callStubAction(server, sid, QJsonObject{})
+                     .jsonBody["error"].toObject()["code"].toInt(), -32603);
+        QCOMPARE(callStubAction(server, sid, QJsonObject{{"action", "frobnicate"}})
+                     .jsonBody["error"].toObject()["code"].toInt(), -32603);
+    }
+
+    void mergedToolReportsUnknownActionWithTheValidOnes()
+    {
+        McpToolRegistry registry;
+        registerStubActionsOn(&registry);
+
+        QString err;
+        QJsonObject out;
+        QVERIFY(registry.callAsyncTool("stub_family", QJsonObject{{"action", "frobnicate"}}, 2, err,
+                                       [&out](QJsonObject r) { out = r; }));
+        const QString message = out["error"].toString();
+        QVERIFY2(message.contains("frobnicate"), qPrintable(message));
+        QVERIFY2(message.contains("list") && message.contains("erase"), qPrintable(message));
+
+        QVERIFY(registry.callAsyncTool("stub_family", QJsonObject{}, 2, err,
+                                       [&out](QJsonObject r) { out = r; }));
+        QVERIFY2(out["error"].toString().contains("requires an `action`"),
+                 qPrintable(out["error"].toString()));
+    }
+
+    void mergedToolConfirmationIsPerActionAndNamesTheVerb()
+    {
+        McpToolRegistry registry;
+        registerStubActionsOn(&registry);
+
+        QVERIFY(!registry.confirmationFor("stub_family", QJsonObject{{"action", "list"}}).required);
+
+        const McpConfirmationRequirement erase =
+            registry.confirmationFor("stub_family", QJsonObject{{"action", "erase"}});
+        QVERIFY(erase.required);
+        QCOMPARE(erase.actionId, QString("stub_family.erase"));
+        QCOMPARE(erase.description, QString("Erase the stub"));
+
+        // Fail closed: no action named, but the tool has a confirmable verb.
+        QVERIFY(registry.confirmationFor("stub_family", QJsonObject{}).required);
+    }
+
     // ─── Pure helpers ──────────────────────────────────────────────────────
+
+    static void registerStubActionsOn(McpToolRegistry* registry)
+    {
+        registry->registerActionTool(
+            "stub_family", "A read verb and a destructive one",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            QVector<McpToolAction>{
+                McpRegistryHelpers::syncAction("list", "read",
+                    [](const QJsonObject&) -> QJsonObject { return QJsonObject{{"ok", true}}; }),
+                McpRegistryHelpers::syncAction("erase", "settings",
+                    [](const QJsonObject&) -> QJsonObject { return QJsonObject{{"ok", true}}; },
+                    QStringLiteral("Erase the stub")),
+            });
+    }
+
+    static void registerStubActionTool(McpServer& server)
+    {
+        registerStubActionsOn(server.toolRegistry());
+    }
+
+    HttpResponse callStubAction(McpServer& server, const QString& sid, const QJsonObject& args)
+    {
+        QJsonObject params;
+        params["name"] = "stub_family";
+        params["arguments"] = args;
+        return sendHttp(server, "POST", rpcBody("tools/call", params, 90), sid);
+    }
+
 
     void deriveTitleProducesTitleCaseFromSnakeCase()
     {

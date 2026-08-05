@@ -18,7 +18,7 @@
 namespace {
 
 // The profile a flow-calibration tool acts on: the explicit `profileFilename`
-// argument, else the active profile. Shared by get/set/clear_flow_calibration so
+// argument, else the active profile. Shared by the flow_calibration verbs so
 // the three cannot disagree about what "the current profile" means — they must
 // resolve identically or a caller can read one profile's value and write another's.
 //
@@ -33,7 +33,7 @@ namespace {
 // profile-taking tool (profiles_delete, profiles_rename, profiles_set_active)
 // already guards the same way.
 //
-// `requireExists` is false for clear_flow_calibration alone: REMOVING a key that
+// `requireExists` is false for action=clear alone: REMOVING a key that
 // names a missing profile is the one operation that should still work, because
 // that is how an orphan written before this check existed gets cleaned up. Reading
 // or writing one is always a mistake.
@@ -83,7 +83,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["message"] = "Wake command sent";
             return result;
         },
-        "control");
+        "control", McpTierCore);
 
     // machine_sleep
     registry->registerTool(
@@ -107,36 +107,31 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["message"] = "Sleep command sent";
             return result;
         },
-        "control");
+        "control", McpTierCore);
 
-    // machine_start_espresso
-    registry->registerTool(
-        "machine_start_espresso",
-        "Start pulling an espresso shot. Machine must be in Ready state. Only works on DE1 v1.0 headless machines — "
-        "most machines with GHC require a physical button press. Do not offer this unless the user explicitly asks. "
-        "Optional brew overrides (dose, yield, temperature, grind, rpm) are applied for this shot only — they are "
-        "automatically cleared when the shot ends, matching the QML BrewDialog behavior.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
-            {"dose", QJsonObject{{"type", "number"}, {"description", "Override dose weight for this shot (grams)"}}},
-            {"yield", QJsonObject{{"type", "number"}, {"description", "Override target yield for this shot (grams)"}}},
-            {"temperature", QJsonObject{{"type", "number"}, {"description", "Override temperature for this shot (Celsius)"}}},
-            {"grind", QJsonObject{{"type", "string"}, {"description", "Override grind setting for this shot"}}},
-            {"rpm", QJsonObject{{"type", "integer"}, {"description", "Override grinder motor RPM for this shot (variable-RPM grinders only); the second half of the dial-in alongside grind"}}}
-        }}},
-        [device, machineState, profileManager, settings](const QJsonObject& args) -> QJsonObject {
+    // machine_start — one tool, four operations. The readiness guard the four used
+    // to repeat verbatim lives once, here.
+    auto startGuard = [device, machineState](QJsonObject& result) -> bool {
+        if (!device || !device->isConnected()) {
+            result["error"] = "Machine not connected";
+            return false;
+        }
+        if (!machineState) {
+            result["error"] = "Machine state not available";
+            return false;
+        }
+        if (!machineState->isReady()) {
+            result["error"] = "Machine not ready (current phase: " + machineState->phaseString() + ")";
+            return false;
+        }
+        return true;
+    };
+
+    const QVector<McpToolAction> startActions{
+        McpRegistryHelpers::syncAction("espresso", "control",
+        [device, profileManager, settings, startGuard](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
-            if (!device || !device->isConnected()) {
-                result["error"] = "Machine not connected";
-                return result;
-            }
-            if (!machineState) {
-                result["error"] = "Machine state not available";
-                return result;
-            }
-            if (!machineState->isReady()) {
-                result["error"] = "Machine not ready (current phase: " + machineState->phaseString() + ")";
-                return result;
-            }
+            if (!startGuard(result)) return result;
 
             // Apply brew overrides if provided — same as QML BrewDialog.
             // Absent arguments default to the CURRENT effective values, never
@@ -184,86 +179,53 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["success"] = true;
             result["message"] = hasOverrides ? "Espresso started with brew overrides" : "Espresso started";
             return result;
-        },
-        "control");
-
-    // machine_start_steam
-    registry->registerTool(
-        "machine_start_steam",
-        "Start steaming milk. Machine must be in Ready state. Only works on DE1 v1.0 headless machines — most machines with GHC require a physical button press. Do not offer this unless the user explicitly asks.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [device, machineState](const QJsonObject&) -> QJsonObject {
+        }, QStringLiteral("Start pulling an espresso shot")),
+        McpRegistryHelpers::syncAction("steam", "control",
+        [device, startGuard](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!device || !device->isConnected()) {
-                result["error"] = "Machine not connected";
-                return result;
-            }
-            if (!machineState) {
-                result["error"] = "Machine state not available";
-                return result;
-            }
-            if (!machineState->isReady()) {
-                result["error"] = "Machine not ready (current phase: " + machineState->phaseString() + ")";
-                return result;
-            }
+            if (!startGuard(result)) return result;
             device->startSteam();
             result["success"] = true;
             result["message"] = "Steam started";
             return result;
-        },
-        "control");
-
-    // machine_start_hot_water
-    registry->registerTool(
-        "machine_start_hot_water",
-        "Dispense hot water. Machine must be in Ready state. Only works on DE1 v1.0 headless machines — most machines with GHC require a physical button press. Do not offer this unless the user explicitly asks.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [device, machineState](const QJsonObject&) -> QJsonObject {
+        }, QStringLiteral("Start steaming milk")),
+        McpRegistryHelpers::syncAction("hot_water", "control",
+        [device, startGuard](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!device || !device->isConnected()) {
-                result["error"] = "Machine not connected";
-                return result;
-            }
-            if (!machineState) {
-                result["error"] = "Machine state not available";
-                return result;
-            }
-            if (!machineState->isReady()) {
-                result["error"] = "Machine not ready (current phase: " + machineState->phaseString() + ")";
-                return result;
-            }
+            if (!startGuard(result)) return result;
             device->startHotWater();
             result["success"] = true;
             result["message"] = "Hot water started";
             return result;
-        },
-        "control");
-
-    // machine_start_flush
-    registry->registerTool(
-        "machine_start_flush",
-        "Flush the group head. Machine must be in Ready state. Only works on DE1 v1.0 headless machines — most machines with GHC require a physical button press. Do not offer this unless the user explicitly asks.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [device, machineState](const QJsonObject&) -> QJsonObject {
+        }, QStringLiteral("Dispense hot water")),
+        McpRegistryHelpers::syncAction("flush", "control",
+        [device, startGuard](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!device || !device->isConnected()) {
-                result["error"] = "Machine not connected";
-                return result;
-            }
-            if (!machineState) {
-                result["error"] = "Machine state not available";
-                return result;
-            }
-            if (!machineState->isReady()) {
-                result["error"] = "Machine not ready (current phase: " + machineState->phaseString() + ")";
-                return result;
-            }
+            if (!startGuard(result)) return result;
             device->startFlush();
             result["success"] = true;
             result["message"] = "Flush started";
             return result;
-        },
-        "control");
+        }, QStringLiteral("Flush the group head")),
+    };
+
+    registry->registerActionTool(
+        "machine_start",
+        "Start an operation on the machine: espresso, steam, hot_water or flush. The machine must "
+        "be in Ready state. Only works on DE1 v1.0 headless machines — most machines have a GHC "
+        "and require a physical button press. Do not offer this unless the user explicitly asks. "
+        "action=espresso takes optional brew overrides that apply to this shot only and clear when "
+        "it ends, matching the QML BrewDialog.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"dose", QJsonObject{{"type", "number"}, {"description", "espresso: override dose weight for this shot (grams)"}}},
+            {"yield", QJsonObject{{"type", "number"}, {"description", "espresso: override target yield for this shot (grams)"}}},
+            {"temperature", QJsonObject{{"type", "number"}, {"description", "espresso: override temperature for this shot (Celsius)"}}},
+            {"grind", QJsonObject{{"type", "string"}, {"description", "espresso: override grind setting for this shot"}}},
+            {"rpm", QJsonObject{{"type", "integer"}, {"description", "espresso: override grinder motor RPM for this shot (variable-RPM grinders), paired with grind"}}}
+        }}},
+        startActions,
+        McpTierCore,
+        QStringLiteral("Which operation to start"));
 
     // machine_stop
     registry->registerTool(
@@ -304,7 +266,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["message"] = "Stop command sent";
             return result;
         },
-        "control");
+        "control", McpTierCore);
 
     // machine_skip_frame
     registry->registerTool(
@@ -328,7 +290,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["message"] = "Skipped to next frame";
             return result;
         },
-        "control");
+        "control", McpTierCore);
 
     // backup_now
     registry->registerTool(
@@ -353,17 +315,13 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             }
             return result;
         },
-        "control");
+        "control", McpTierNiche);
 
-    // reset_saw_learning
-    registry->registerTool(
-        "reset_saw_learning",
-        "Reset stop-at-weight learning data. Clears the global pool, all per-(profile, scale) "
-        "histories and pending batches, and the global bootstrap. Useful when switching beans "
-        "or grind settings, as the learned flow deceleration curve may not apply to the new setup.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
-            {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
-        }}},
+    // reset_saw_learning — two verbs, and they stay verbs rather than "one tool
+    // whose optional argument decides how much it erases". An omitted argument that
+    // means "wipe everything" is the wrong default for an irreversible tool.
+    const QVector<McpToolAction> sawActions{
+        McpRegistryHelpers::syncAction("all", "settings",
         [settings](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!settings) {
@@ -374,20 +332,9 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["success"] = true;
             result["message"] = "SAW learning data reset";
             return result;
-        },
-        "settings");
-
-    // reset_saw_learning_for_profile
-    registry->registerTool(
-        "reset_saw_learning_for_profile",
-        "Reset stop-at-weight learning for a single (profile, scale) pair only. Other pairs "
-        "and the global bootstrap are preserved. Defaults to the active profile and the "
-        "scale currently serving shots when arguments are omitted.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
-            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename (defaults to active profile)"}}},
-            {"scaleType", QJsonObject{{"type", "string"}, {"description", "Scale type (defaults to the scale currently serving shots, which is not always the saved primary)"}}},
-            {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
-        }}},
+        }, QStringLiteral("Erase ALL stop-at-weight learning (global pool, every profile/scale "
+                          "history, bootstrap) — irreversible")),
+        McpRegistryHelpers::syncAction("profile", "settings",
         [settings, profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) {
@@ -420,71 +367,30 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["scaleType"] = scale;
             result["message"] = QString("SAW learning reset for %1 on %2").arg(filename, scale);
             return result;
-        },
-        "settings");
+        }, QStringLiteral("Erase stop-at-weight learning for one profile/scale pair — irreversible")),
+    };
 
-    // clear_flow_calibration
-    registry->registerTool(
-        "clear_flow_calibration",
-        "Clear the per-profile flow calibration multiplier. The calibration will be re-learned "
-        "from subsequent shots. If no profile is specified, clears for the current profile. "
-        "Accepts a profile that no longer exists, so an orphan entry reported by "
-        "get_flow_calibration allProfiles=true can be removed; `hadCalibration` says whether "
-        "anything was actually stored under that name.",
+    registry->registerActionTool(
+        "reset_saw_learning",
+        "Erase stop-at-weight learning. action=all clears the global pool, every "
+        "per-(profile, scale) history and pending batch, and the bootstrap. action=profile clears "
+        "one pair only, defaulting to the active profile and the scale currently serving shots. "
+        "Both are irreversible. Useful when switching beans or grind, where the learned flow "
+        "deceleration curve no longer applies.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
-            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename, without the .json extension, to clear calibration for (defaults to current profile)"}}},
-            // Undeclared until now, which made the tool UNCALLABLE from a client that
-            // validates arguments against the schema: the server answers
-            // needs_confirmation, and the caller has no declared way to say yes. Every
-            // other confirmation-gated tool declares it; this one was missed.
+            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "action=profile: profile filename (defaults to the active profile)"}}},
+            {"scaleType", QJsonObject{{"type", "string"}, {"description", "action=profile: scale type (defaults to the scale currently serving shots, which is not always the saved primary)"}}},
             {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
         }}},
-        [settings, profileManager](const QJsonObject& args) -> QJsonObject {
-            QJsonObject result;
-            if (!settings) {
-                result["error"] = "Settings not available";
-                return result;
-            }
-            QString resolveError;
-            QString filename = resolveFlowCalProfile(args, profileManager, resolveError,
-                                                     /*requireExists=*/false);
-            if (filename.isEmpty()) {
-                result["error"] = resolveError;
-                return result;
-            }
-            // Reported rather than treated as an error: clearing an already-clear
-            // profile is not a failure, but a caller that believed it was removing
-            // something should be able to tell that nothing was there.
-            const bool hadCalibration =
-                settings->calibration()->profileFlowCalibration(filename) > 0.0;
-            settings->calibration()->clearProfileFlowCalibration(filename);
-            result["success"] = true;
-            result["profileFilename"] = filename;
-            result["hadCalibration"] = hadCalibration;
-            result["message"] = hadCalibration
-                ? "Flow calibration cleared for " + filename
-                : "No flow calibration was stored for " + filename + "; nothing to clear";
-            return result;
-        },
-        "settings");
+        sawActions,
+        McpTierStandard,
+        QStringLiteral("How much to erase"));
 
-    // get_flow_calibration
-    registry->registerTool(
-        "get_flow_calibration",
-        "Read the flow calibration multiplier for one profile. The multiplier scales the "
-        "DE1's flow-sensor reading, so a value above 1.0 means the machine was under-"
-        "reporting flow. Returns the per-profile value (learned by auto calibration or "
-        "written by set_flow_calibration), the global fallback, and which of the two is "
-        "actually in effect — they differ whenever auto calibration is off, because that "
-        "switch makes the machine use the global value and ignore every per-profile one. "
-        "Defaults to the current profile. Pass allProfiles=true instead to list every "
-        "profile that has a stored calibration, which is the only way to answer \"which "
-        "profiles are calibrated?\" — the per-profile answer cannot be probed by guessing "
-        "names, since an unknown name is rejected.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
-            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename, without the .json extension, to read calibration for (defaults to current profile)"}}},
-            {"allProfiles", QJsonObject{{"type", "boolean"}, {"description", "List every profile with a stored calibration instead of reading one. Ignores profileFilename."}}}
-        }}},
+    // flow_calibration — read, hand-set and clear one profile's multiplier. These
+    // three were already documented as a set (each old description had to explain
+    // the other two), so one tool with three verbs is what they always were.
+    const QVector<McpToolAction> flowCalActions{
+        McpRegistryHelpers::syncAction("get", "read",
         [settings, profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) {
@@ -532,7 +438,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 if (orphanCount > 0) {
                     result["orphanNote"] =
                         QString("%1 entry/entries name a profile that no longer exists. They are "
-                                "never read; clear_flow_calibration removes one by name.")
+                                "never read; action=clear removes one by name.")
                             .arg(orphanCount);
                 }
                 return result;
@@ -593,29 +499,8 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             }
             result["state"] = state;
             return result;
-        },
-        "read");
-
-    // set_flow_calibration
-    registry->registerTool(
-        "set_flow_calibration",
-        "Set the per-profile flow calibration multiplier by hand, for a user who already "
-        "knows the right value for this profile. Accepted range 0.5-2.7 (values outside it "
-        "are refused, not clamped). Defaults to the current profile. This writes the same "
-        "value auto calibration learns, so with auto calibration ON the number takes effect "
-        "immediately but later shots keep adjusting it. To freeze an exact number instead, "
-        "turn auto calibration off (settings_set autoFlowCalibration=false) AND set that "
-        "number as the global multiplier (settings_set flowCalibrationMultiplier) — with "
-        "auto off the machine uses the global value and ignores per-profile ones.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"multiplier", QJsonObject{{"type", "number"}, {"description", "Flow calibration multiplier to store, 0.5-2.7"}}},
-                {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename, without the .json extension, to set calibration for (defaults to current profile)"}}},
-                {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
-            }},
-            {"required", QJsonArray{"multiplier"}}
-        },
+        }),
+        McpRegistryHelpers::syncAction("set", "settings",
         [settings, profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) {
@@ -675,8 +560,51 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                                         .arg(cal->flowCalibrationMultiplier());
             }
             return result;
-        },
-        "settings");
+        }, QStringLiteral("Overwrite the profile's flow calibration with a hand-set multiplier")),
+        McpRegistryHelpers::syncAction("clear", "settings",
+        [settings, profileManager](const QJsonObject& args) -> QJsonObject {
+            QJsonObject result;
+            if (!settings) {
+                result["error"] = "Settings not available";
+                return result;
+            }
+            QString resolveError;
+            QString filename = resolveFlowCalProfile(args, profileManager, resolveError,
+                                                     /*requireExists=*/false);
+            if (filename.isEmpty()) {
+                result["error"] = resolveError;
+                return result;
+            }
+            // Reported rather than treated as an error: clearing an already-clear
+            // profile is not a failure, but a caller that believed it was removing
+            // something should be able to tell that nothing was there.
+            const bool hadCalibration =
+                settings->calibration()->profileFlowCalibration(filename) > 0.0;
+            settings->calibration()->clearProfileFlowCalibration(filename);
+            result["success"] = true;
+            result["profileFilename"] = filename;
+            result["hadCalibration"] = hadCalibration;
+            result["message"] = hadCalibration
+                ? "Flow calibration cleared for " + filename
+                : "No flow calibration was stored for " + filename + "; nothing to clear";
+            return result;
+        }, QStringLiteral("Clear the profile's flow calibration (re-learned over future shots)")),
+    };
+
+    registry->registerActionTool(
+        "flow_calibration",
+        "Per-profile flow calibration multiplier: get, set or clear it. Above 1.0 means the machine "
+        "under-reported flow. All three default to the current profile. get with allProfiles=true "
+        "lists every calibrated profile — the only way to ask that, since an unknown name is "
+        "rejected. set takes 0.5-2.7 and refuses anything outside it. Auto calibration and the "
+        "global fallback: get_agent_file topic \"flow_calibration\".",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename without the .json extension (defaults to the current profile)"}}},
+            {"allProfiles", QJsonObject{{"type", "boolean"}, {"description", "get only: list every profile with a stored calibration; ignores profileFilename"}}},
+            {"multiplier", QJsonObject{{"type", "number"}, {"description", "set only: the multiplier to store, 0.5-2.7"}}},
+            {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
+        }}},
+        flowCalActions);
 
     // apply_theme
     registry->registerTool(
@@ -711,14 +639,12 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["message"] = "Applied theme: " + name;
             return result;
         },
-        "settings");
+        "settings", McpTierNiche);
 
-    // mqtt_connect
-    registry->registerTool(
-        "mqtt_connect",
-        "Connect to the configured MQTT broker for Home Assistant integration. "
-        "Broker settings (host, port, credentials) must be configured first via settings_set.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+    // mqtt — connect / disconnect / publish_discovery. Tier niche: a Home Assistant
+    // bridge is not what a client should be shown first when the list is long.
+    const QVector<McpToolAction> mqttActions{
+        McpRegistryHelpers::syncAction("connect", "control",
         [mainController](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!mainController || !mainController->mqttClient()) {
@@ -734,14 +660,8 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["success"] = true;
             result["message"] = "MQTT connection initiated";
             return result;
-        },
-        "control");
-
-    // mqtt_disconnect
-    registry->registerTool(
-        "mqtt_disconnect",
-        "Disconnect from the MQTT broker.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        }),
+        McpRegistryHelpers::syncAction("disconnect", "control",
         [mainController](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!mainController || !mainController->mqttClient()) {
@@ -757,7 +677,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 // used to return a bare `message` and neither `success` nor
                 // `error`, which is a third state a model cannot classify.
                 //
-                // `mqtt_publish_discovery` treats the same state as an error, and
+                // action=publish_discovery treats the same state as an error, and
                 // that is deliberate: it cannot do its job without a connection,
                 // whereas the job here is already done.
                 result["success"] = true;
@@ -770,14 +690,8 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["alreadyDisconnected"] = false;
             result["message"] = "MQTT disconnected";
             return result;
-        },
-        "control");
-
-    // mqtt_publish_discovery
-    registry->registerTool(
-        "mqtt_publish_discovery",
-        "Publish Home Assistant MQTT discovery messages. The broker must be connected first.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        }),
+        McpRegistryHelpers::syncAction("publish_discovery", "control",
         [mainController](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!mainController || !mainController->mqttClient()) {
@@ -786,13 +700,22 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             }
             MqttClient* mqtt = mainController->mqttClient();
             if (!mqtt->isConnected()) {
-                result["error"] = "Not connected to MQTT broker. Call mqtt_connect first.";
+                result["error"] = "Not connected to MQTT broker. Call action=connect first.";
                 return result;
             }
             mqtt->publishDiscovery();
             result["success"] = true;
             result["message"] = "Home Assistant discovery messages published";
             return result;
-        },
-        "control");
+        }),
+    };
+
+    registry->registerActionTool(
+        "mqtt",
+        "MQTT broker for Home Assistant: connect, disconnect, or publish_discovery. Broker "
+        "settings (host, port, credentials) are configured with settings_set first, and "
+        "publish_discovery needs a live connection.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        mqttActions,
+        McpTierNiche);
 }

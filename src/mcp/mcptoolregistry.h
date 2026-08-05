@@ -6,8 +6,11 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QHash>
+#include <QList>
+#include <QVector>
 #include <QFile>
 #include <QByteArray>
+#include <algorithm>
 #include <functional>
 
 // Synchronous tool handler: takes arguments, returns result immediately.
@@ -31,14 +34,48 @@ enum class McpRegistryFailure {
     AccessDenied,   // registered, but above the caller's access level
 };
 
+// One verb of a merged tool. A family that used to be N tools (`steam_pitcher_add`,
+// `steam_pitcher_delete`, …) becomes one tool whose `action` argument selects the
+// verb, and each verb keeps its OWN category and confirmation policy — the two
+// things that used to be looked up by tool name and would otherwise collapse onto
+// the family's most dangerous member.
+struct McpToolAction {
+    QString name;               // the `action` value, e.g. "list", "delete"
+    QString category;           // "read", "control", or "settings"
+    bool confirm = false;       // requires user confirmation before dispatch
+    QString confirmDescription; // shown in the confirmation dialog / chat payload
+    McpToolHandler handler;     // sync handler (null when asyncHandler is set)
+    McpAsyncToolHandler asyncHandler;
+};
+
+// Where a tool sorts in `tools/list`. Clients truncate long tool lists, so the
+// order is not cosmetic: it decides what a client loses. Emitted order is
+// (tier, name), so the niche tail goes first and the same build always presents
+// the same order.
+enum McpToolTier {
+    McpTierCore = 0,      // machine control and state, shots, dialing, profiles, recipes, scale
+    McpTierStandard = 1,  // everything not deliberately placed
+    McpTierNiche = 2,     // mqtt, theme, backup, saved AI conversations, debug
+};
+
 struct McpToolDefinition {
     QString name;
     QString description;
     QJsonObject inputSchema;    // JSON Schema for the tool's parameters
     McpToolHandler handler;     // sync handler (null for async tools)
     McpAsyncToolHandler asyncHandler; // async handler (null for sync tools)
-    QString category;           // "read", "control", or "settings"
+    QString category;           // "read", "control", or "settings" (see actions)
     bool isAsync = false;
+    int tier = McpTierStandard;
+    QVector<McpToolAction> actions;  // empty for a single-verb tool
+};
+
+// What the server needs to know before dispatching a call: whether to confirm,
+// and what to tell the user it is about to do.
+struct McpConfirmationRequirement {
+    bool required = false;
+    QString actionId;     // "steam_pitcher.delete", or just the tool name if unmerged
+    QString description;
 };
 
 namespace McpRegistryHelpers {
@@ -54,32 +91,19 @@ namespace McpRegistryHelpers {
 
     // Read an SVG from qrc and encode as a data: URI suitable for the
     // MCP `icons[].src` field (2025-11-25). Returns an empty string on miss.
+    //
+    // RESOURCES ONLY. Tools used to carry these too, and it cost 216 KB of the
+    // ~248 KB `tools/list` payload — 87% of it, with 41 of 97 tools shipping the
+    // same 2292-byte generic fallback because their name prefix was not in the
+    // map below. Resource listings are five records with five distinct icons, so
+    // they keep theirs. See scripts/check_mcp_tool_budget.py, which now fails a
+    // PR that puts a `data:` URI back into a tool listing.
     inline QString iconDataUri(const QString& qrcPath) {
         QFile f(qrcPath);
         if (!f.open(QIODevice::ReadOnly)) return QString();
         const QByteArray svg = f.readAll();
         return QStringLiteral("data:image/svg+xml;base64,")
             + QString::fromLatin1(svg.toBase64());
-    }
-
-    // Map a tool name's leading namespace (`scale_*`, `machine_*`, `shots_*`,
-    // `profiles_*`, etc.) to a qrc icon path. Falls back to a generic asset.
-    inline QString iconQrcForTool(const QString& name) {
-        const QString prefix = name.section(QLatin1Char('_'), 0, 0);
-        static const QHash<QString, QString> map = {
-            {"machine",  ":/icons/decent-de1.svg"},
-            {"shots",    ":/icons/Graph.svg"},
-            {"profiles", ":/icons/coffeebeans.svg"},
-            {"settings", ":/icons/settings.svg"},
-            {"scale",    ":/icons/scale.svg"},
-            {"steam",    ":/icons/steam.svg"},
-            {"devices",  ":/icons/bluetooth.svg"},
-            {"agent",    ":/icons/sparkle.svg"},
-            {"dialing",  ":/icons/grind.svg"},
-            {"debug",    ":/icons/list.svg"},
-        };
-        auto it = map.constFind(prefix);
-        return it != map.cend() ? *it : QStringLiteral(":/icons/decent-de1.svg");
     }
 
     // Map a resource URI scheme path to a qrc icon path.
@@ -102,6 +126,47 @@ namespace McpRegistryHelpers {
         return QJsonArray{ icon };
     }
 
+    // Build one verb of a merged tool. Confirmation is implied by supplying the
+    // wording for it: an action that needs a dialog has to say what the dialog will
+    // tell the user, so there is no bool that can disagree with the text beside it.
+    inline McpToolAction syncAction(const QString& name, const QString& category,
+                                    McpToolHandler handler,
+                                    const QString& confirmDescription = QString())
+    {
+        McpToolAction a;
+        a.name = name;
+        a.category = category;
+        a.confirm = !confirmDescription.isEmpty();
+        a.confirmDescription = confirmDescription;
+        a.handler = std::move(handler);
+        return a;
+    }
+
+    inline McpToolAction asyncAction(const QString& name, const QString& category,
+                                     McpAsyncToolHandler handler,
+                                     const QString& confirmDescription = QString())
+    {
+        McpToolAction a;
+        a.name = name;
+        a.category = category;
+        a.confirm = !confirmDescription.isEmpty();
+        a.confirmDescription = confirmDescription;
+        a.asyncHandler = std::move(handler);
+        return a;
+    }
+
+    // The `action` property every merged tool declares, with its enum filled in
+    // from the actions themselves so the schema cannot drift from the dispatch.
+    inline QJsonObject actionProperty(const QVector<McpToolAction>& actions,
+                                      const QString& description)
+    {
+        QJsonArray values;
+        for (const McpToolAction& a : actions) values.append(a.name);
+        return QJsonObject{{"type", "string"},
+                           {"enum", values},
+                           {"description", description}};
+    }
+
     // Stamp a tool/resource input schema with the JSON Schema 2020-12 dialect
     // declaration (2025-11-25). No-op if the schema already declares `$schema`.
     inline QJsonObject withJsonSchemaDialect(QJsonObject schema) {
@@ -121,7 +186,7 @@ public:
     // it can be gated on the negotiated protocol version.
     void registerTool(const QString& name, const QString& description,
                       const QJsonObject& inputSchema, McpToolHandler handler,
-                      const QString& category)
+                      const QString& category, int tier = McpTierStandard)
     {
         McpToolDefinition tool;
         tool.name = name;
@@ -129,12 +194,13 @@ public:
         tool.inputSchema = inputSchema;
         tool.handler = handler;
         tool.category = category;
+        tool.tier = tier;
         m_tools[name] = tool;
     }
 
     void registerAsyncTool(const QString& name, const QString& description,
                            const QJsonObject& inputSchema, McpAsyncToolHandler handler,
-                           const QString& category)
+                           const QString& category, int tier = McpTierStandard)
     {
         McpToolDefinition tool;
         tool.name = name;
@@ -143,7 +209,124 @@ public:
         tool.asyncHandler = handler;
         tool.isAsync = true;
         tool.category = category;
+        tool.tier = tier;
         m_tools[name] = tool;
+    }
+
+    // Register a merged tool: one name, one schema, N verbs selected by `action`.
+    //
+    // Dispatch is uniformly ASYNC even when every action is synchronous, so that a
+    // family mixing the two (`auto_load` reads sync, writes async) needs no special
+    // case anywhere. A sync action's result is handed to respond() inline, on the
+    // thread that called it, which is the main thread — the same place a sync tool's
+    // return value was already produced.
+    //
+    // `action` is required and has no default. An absent or unrecognised action is an
+    // error naming the valid values; it is NOT a shortcut past the gate, because
+    // categoryFor()/confirmationFor() below resolve an unmatched action to the tool's
+    // most restrictive one before this handler is ever reached.
+    void registerActionTool(const QString& name, const QString& description,
+                            const QJsonObject& inputSchema,
+                            const QVector<McpToolAction>& actions,
+                            int tier = McpTierStandard,
+                            const QString& actionDescription = QStringLiteral("Which operation to perform"))
+    {
+        McpToolDefinition tool;
+        tool.name = name;
+        tool.description = description;
+        // The `action` property is injected here, never written at a registration
+        // site: its enum comes from the actions themselves, so the schema a client
+        // validates against cannot drift from what dispatch will accept.
+        QJsonObject schema = inputSchema;
+        QJsonObject props = schema.value("properties").toObject();
+        props["action"] = McpRegistryHelpers::actionProperty(actions, actionDescription);
+        schema["properties"] = props;
+        QJsonArray required = schema.value("required").toArray();
+        if (!required.contains(QJsonValue(QStringLiteral("action"))))
+            required.prepend(QStringLiteral("action"));
+        schema["required"] = required;
+        tool.inputSchema = schema;
+        tool.actions = actions;
+        tool.isAsync = true;
+        tool.tier = tier;
+        // Legacy single-category readers (and the deny-by-default paths) see the
+        // strictest verb; every access decision that has the arguments in hand uses
+        // categoryFor() instead.
+        tool.category = strictestCategory(actions);
+        tool.asyncHandler = [actions, name](const QJsonObject& args,
+                                            std::function<void(QJsonObject)> respond) {
+            const QString requested = args["action"].toString();
+            for (const McpToolAction& a : actions) {
+                if (a.name != requested) continue;
+                if (a.asyncHandler) { a.asyncHandler(args, std::move(respond)); return; }
+                respond(a.handler(args));
+                return;
+            }
+            QStringList valid;
+            for (const McpToolAction& a : actions) valid << a.name;
+            QJsonObject err;
+            err["error"] = requested.isEmpty()
+                ? QStringLiteral("%1 requires an `action`. Valid actions: %2")
+                      .arg(name, valid.join(QStringLiteral(", ")))
+                : QStringLiteral("Unknown action \"%1\" for %2. Valid actions: %3")
+                      .arg(requested, name, valid.join(QStringLiteral(", ")));
+            respond(err);
+        };
+        m_tools[name] = tool;
+    }
+
+    // The category that governs THIS call: the named action's own category, or —
+    // when `action` is missing or unknown — the tool's most restrictive one.
+    // Failing closed matters: the alternative lets a caller omit an argument to be
+    // gated as a read, and only then discover it was asking to delete something.
+    QString categoryFor(const QString& name, const QJsonObject& args) const
+    {
+        auto it = m_tools.constFind(name);
+        if (it == m_tools.constEnd()) return QString();
+        const auto& tool = it.value();
+        if (tool.actions.isEmpty()) return tool.category;
+        const QString requested = args["action"].toString();
+        for (const McpToolAction& a : tool.actions)
+            if (a.name == requested) return a.category;
+        return strictestCategory(tool.actions);
+    }
+
+    // Whether this call must be confirmed, and what to say it will do. Unmerged
+    // tools report nothing here — McpServer keeps its own name list for those.
+    McpConfirmationRequirement confirmationFor(const QString& name, const QJsonObject& args) const
+    {
+        McpConfirmationRequirement req;
+        auto it = m_tools.constFind(name);
+        if (it == m_tools.constEnd() || it.value().actions.isEmpty()) return req;
+        const auto& actions = it.value().actions;
+        const QString requested = args["action"].toString();
+        for (const McpToolAction& a : actions) {
+            if (a.name != requested) continue;
+            req.required = a.confirm;
+            req.actionId = name + QLatin1Char('.') + a.name;
+            req.description = a.confirmDescription;
+            return req;
+        }
+        // Unmatched action: confirm if ANY verb of this tool would have, so that a
+        // malformed call cannot be the cheap way past the dialog.
+        for (const McpToolAction& a : actions) {
+            if (!a.confirm) continue;
+            req.required = true;
+            req.actionId = name;
+            req.description = a.confirmDescription;
+            return req;
+        }
+        return req;
+    }
+
+    // The tool's declared actions, for tests and for error messages.
+    QStringList actionNames(const QString& name) const
+    {
+        QStringList names;
+        auto it = m_tools.constFind(name);
+        if (it == m_tools.constEnd()) return names;
+        for (const McpToolAction& a : it.value().actions) names << a.name;
+        return names;
     }
 
     // List all tools. Tools above the current access level are still listed
@@ -154,17 +337,37 @@ public:
     // protocolVersion gates spec-versioned optional fields. Strict clients reject
     // tools/list responses containing fields from a newer spec than was negotiated,
     // which surfaces as the server connecting with zero tools.
+    //
+    // Emission order is (tier, name), never hash order. Real clients truncate this
+    // list — ChatGPT exposed 87 of 97 tools — and under hash order WHICH tools they
+    // dropped was arbitrary and changed between runs of the same build, so a missing
+    // tool looked like a bug in that tool. Sorted, a truncating client always loses
+    // the same niche tail.
+    //
+    // No `icons` here at any protocol version: see iconDataUri() above.
     QJsonArray listTools(int accessLevel, const QString& protocolVersion) const
     {
         static const char* levelNames[] = {"Monitor", "Control", "Full"};
         const bool emitTitle = protocolVersion >= QStringLiteral("2025-06-18");
-        const bool emitIcons = protocolVersion >= QStringLiteral("2025-11-25");
         const bool emitSchemaDialect = protocolVersion >= QStringLiteral("2025-11-25");
 
+        QList<const McpToolDefinition*> ordered;
+        ordered.reserve(m_tools.size());
+        for (auto it = m_tools.constBegin(); it != m_tools.constEnd(); ++it)
+            ordered.append(&it.value());
+        std::sort(ordered.begin(), ordered.end(),
+                  [](const McpToolDefinition* a, const McpToolDefinition* b) {
+                      if (a->tier != b->tier) return a->tier < b->tier;
+                      return a->name < b->name;
+                  });
+
         QJsonArray result;
-        for (auto it = m_tools.constBegin(); it != m_tools.constEnd(); ++it) {
-            const auto& tool = it.value();
-            int required = categoryMinLevel(tool.category);
+        for (const McpToolDefinition* toolPtr : ordered) {
+            const auto& tool = *toolPtr;
+            // A merged tool is "disabled" only when EVERY one of its verbs is out of
+            // reach; a client at Control level can still call `bag` with action=list.
+            int required = tool.actions.isEmpty() ? categoryMinLevel(tool.category)
+                                                  : leastRestrictiveLevel(tool.actions);
 
             QJsonObject toolJson;
             toolJson["name"] = tool.name;
@@ -183,16 +386,6 @@ public:
             toolJson["inputSchema"] = emitSchemaDialect
                 ? McpRegistryHelpers::withJsonSchemaDialect(tool.inputSchema)
                 : tool.inputSchema;
-
-            if (emitIcons) {
-                // MCP 2025-11-25: optional icons for client UIs. Derived from the
-                // tool's name prefix so each tool gets a category-appropriate SVG
-                // without having to thread icons through every registration site.
-                QJsonArray icons = McpRegistryHelpers::iconsArrayFromQrc(
-                    McpRegistryHelpers::iconQrcForTool(tool.name));
-                if (!icons.isEmpty())
-                    toolJson["icons"] = icons;
-            }
 
             result.append(toolJson);
         }
@@ -223,7 +416,7 @@ public:
             if (failureOut) *failureOut = McpRegistryFailure::WrongDispatch;
             return {};
         }
-        if (categoryMinLevel(tool.category) > accessLevel) {
+        if (categoryMinLevel(categoryFor(name, arguments)) > accessLevel) {
             errorOut = "Access level insufficient";
             if (failureOut) *failureOut = McpRegistryFailure::AccessDenied;
             return {};
@@ -254,7 +447,7 @@ public:
             if (failureOut) *failureOut = McpRegistryFailure::WrongDispatch;
             return false;
         }
-        if (categoryMinLevel(tool.category) > accessLevel) {
+        if (categoryMinLevel(categoryFor(name, arguments)) > accessLevel) {
             errorOut = "Access level insufficient";
             if (failureOut) *failureOut = McpRegistryFailure::AccessDenied;
             return false;
@@ -314,6 +507,27 @@ private:
         if (category == "control") return 1;
         if (category == "settings") return 2;
         return 3; // unknown category — deny
+    }
+
+    // The strictest verb of a merged tool. This is what an unresolvable `action`
+    // gets gated as, and what legacy single-category readers see.
+    static QString strictestCategory(const QVector<McpToolAction>& actions)
+    {
+        QString strictest = QStringLiteral("read");
+        for (const McpToolAction& a : actions)
+            if (categoryMinLevel(a.category) > categoryMinLevel(strictest))
+                strictest = a.category;
+        return strictest;
+    }
+
+    // The access level at which a merged tool becomes useful at all — used only to
+    // decide whether to stamp the "[DISABLED — …]" prefix on its listing.
+    static int leastRestrictiveLevel(const QVector<McpToolAction>& actions)
+    {
+        int lowest = 3;
+        for (const McpToolAction& a : actions)
+            lowest = qMin(lowest, categoryMinLevel(a.category));
+        return lowest;
     }
 
     QHash<QString, McpToolDefinition> m_tools;

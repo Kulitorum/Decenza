@@ -16,7 +16,7 @@
 #include <QJsonDocument>
 #include <QSet>
 
-void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager, Settings* settings)
+void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager)
 {
     // profiles_list
     registry->registerTool(
@@ -114,33 +114,9 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             result["_resourceLinks"] = links;
             return result;
         },
-        "read");
+        "read", McpTierCore);
 
-    // profiles_get_auto_load
-    registry->registerTool(
-        "profiles_get_auto_load",
-        "Get the configured auto-load profile filename and revert timeout. "
-        "Auto-load reloads the pinned profile on app start, DE1 wake-from-sleep, "
-        "and after `revertMinutes` of inactivity on the Idle page.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [profileManager, settings](const QJsonObject&) -> QJsonObject {
-            QJsonObject result;
-            if (!settings) {
-                result["error"] = "Settings not available";
-                return result;
-            }
-            const QString filename = settings->app()->autoLoadProfileFilename();
-            result["filename"] = filename;
-            result["revertMinutes"] = settings->app()->autoLoadRevertMinutes();
-            if (!filename.isEmpty() && profileManager) {
-                QVariantMap profile = profileManager->getProfileByFilename(filename);
-                if (!profile.isEmpty()) {
-                    result["title"] = profile["title"].toString();
-                }
-            }
-            return result;
-        },
-        "read");
+
 
     // profiles_get_active
     registry->registerTool(
@@ -180,7 +156,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             }
             return result;
         },
-        "read");
+        "read", McpTierCore);
 
     // profiles_get_detail
     registry->registerTool(
@@ -223,7 +199,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             result["_resourceLinks"] = QJsonArray{ link };
             return result;
         },
-        "read");
+        "read", McpTierCore);
 
     // profiles_get_params
     registry->registerTool(
@@ -391,7 +367,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
 
             return result;
         },
-        "read");
+        "read", McpTierCore);
 
     // profiles_edit_params
     registry->registerTool(
@@ -407,7 +383,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 // Recipe params (dflow/aflow/pressure/flow)
                 {"targetWeight", QJsonObject{{"type", "number"}, {"description", "Stop at weight (grams)"}}},
                 {"targetVolume", QJsonObject{{"type", "number"}, {"description", "Stop at volume (mL, 0=disabled)"}}},
-                {"dose", QJsonObject{{"type", "number"}, {"description", "Recommended dose for this profile (grams, 0-100). Sets recommended_dose and enables it; 0 CLEARS the recommendation. Works on every editor type. Must be a number — a string is rejected, not coerced."}}},
+                {"dose", QJsonObject{{"type", "number"}, {"description", "Recommended dose, grams 0-100; 0 clears it. Must be a number — a string is rejected"}}},
                 {"fillTemperature", QJsonObject{{"type", "number"}, {"description", "Fill water temperature (Celsius)"}}},
                 {"infusePressure", QJsonObject{{"type", "number"}, {"description", "Soak pressure (bar)"}}},
                 {"infuseTime", QJsonObject{{"type", "number"}, {"description", "Soak duration (seconds, 0=no soak)"}}},
@@ -623,7 +599,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             result["editorType"] = editorType;
             return result;
         },
-        "settings");
+        "settings", McpTierCore);
 
     // profiles_save
     registry->registerTool(
@@ -709,7 +685,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             }
             return result;
         },
-        "settings");
+        "settings", McpTierCore);
 
     // profiles_delete
     registry->registerTool(
@@ -766,7 +742,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             result["filename"] = filename;
             return result;
         },
-        "settings");
+        "settings", McpTierCore);
 
     // profiles_rename
     registry->registerTool(
@@ -827,7 +803,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             }
             return result;
         },
-        "settings");
+        "settings", McpTierCore);
 
     // profiles_create
     registry->registerTool(
@@ -888,5 +864,5 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             result["filename"] = profileManager->baseProfileName();
             return result;
         },
-        "settings");
+        "settings", McpTierCore);
 }

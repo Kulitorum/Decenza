@@ -230,7 +230,24 @@ MCP tool responses are consumed by LLMs which cannot reliably interpret raw numb
 - **Include scale in field names for bounded values.** `enjoyment0to100` instead of `enjoyment`.
 - **Use human-readable strings for enums.** Machine phases, editor types, and states as strings (`"idle"`, `"pouring"`), not numeric codes.
 
-See `docs/CLAUDE_MD/MCP_SERVER.md` for the full data conventions section.
+**Adding a tool is adding to a budget, and it is enforced.** `tools/list` goes to every client on
+every connection and real clients TRUNCATE it silently — ChatGPT exposed 87 of 97 tools, so two
+flow-calibration tools simply did not exist for that user while a third from the same trio did.
+`scripts/check_mcp_tool_budget.py` runs in the build-free per-PR job and fails on more than 80
+tools, a tool description over 500 characters, a property description over 120, an inline `data:`
+payload, or an estimated `tools/list` over 85 KB. Three rules follow from it:
+
+- **A verb of an existing noun is an `action` on that tool, not a new tool.** Twelve families
+  merged this way (97 → 65). Each action declares its own category and confirmation, resolved
+  server-side from the ARGUMENTS and failing closed on an action it cannot resolve.
+- **Declare a tier** (`McpTierCore` / `McpTierStandard` / `McpTierNiche`). Listing order is
+  `(tier, name)`, so a truncating client loses the niche tail rather than an arbitrary ten.
+- **Long-form prose goes in `resources/ai/tools/<topic>.md`**, served by `get_agent_file(topic)`
+  and `decenza://tools/<topic>`. The description keeps only what picks the tool and fills its
+  arguments.
+
+Full rules, the measured payload breakdown, and the `registerActionTool` contract are in
+`docs/CLAUDE_MD/MCP_SERVER.md`, which also carries the full data conventions section.
 
 ## Subsystem Pointers
 

@@ -104,7 +104,7 @@ inline bool isCorruptBlob(const QString& blob)
 // blob, or "" when the result carries no keys at all (a manual bag whose last
 // detail was cleared goes back to a truly empty blob). A corrupt input blob
 // is returned unchanged (edits refused) rather than destructively rebuilt.
-// Shared by the bag editor (via the QML bridge) and MCP bag_update so both
+// Shared by the bag editor (via the QML bridge) and MCP bag action=update so both
 // paths have identical merge semantics (the callers assemble their own edit
 // maps: the editor always sends every detail key, MCP only provided params).
 inline QString mergeBeanDetails(const QString& blob, const QVariantMap& edits)

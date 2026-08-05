@@ -126,5 +126,5 @@ void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client)
             gather->grace.start(20000);
             client->search(query);
         },
-        "read");
+        "read", McpTierNiche);
 }

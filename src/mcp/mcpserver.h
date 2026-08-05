@@ -160,9 +160,16 @@ private:
     // End a pending confirmation that will never be answered, ANSWERING the
     // client holding the open request. See the definition.
     void abandonPendingConfirmation(const QString& reason);
-    bool needsInAppConfirmation(const QString& toolName) const;
-    bool needsChatConfirmation(const QString& toolName) const;
-    QString confirmationDescription(const QString& toolName) const;
+    // All three take the call's arguments, not just its name: a merged tool has one
+    // name and several verbs, and only the arguments say which one is being asked
+    // for. For an unmerged tool the arguments are ignored and the name list below
+    // decides, exactly as before.
+    bool needsInAppConfirmation(const QString& toolName, const QJsonObject& arguments) const;
+    bool needsChatConfirmation(const QString& toolName, const QJsonObject& arguments) const;
+    QString confirmationDescription(const QString& toolName, const QJsonObject& arguments) const;
+    // "steam_pitcher.delete" for a merged tool, the bare name otherwise — what the
+    // confirmation payload and the in-app dialog report as the pending action.
+    QString confirmationActionId(const QString& toolName, const QJsonObject& arguments) const;
 
     // Response helpers
     void sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& result,
@@ -258,7 +265,7 @@ private:
     // ending in `:*` match any port.
     QSet<QString> m_allowedOrigins;
 
-    // In-app confirmation (machine_start_* tools)
+    // In-app confirmation (the machine_start tool)
     std::optional<PendingConfirmation> m_pendingConfirmation;
 
     // Async tool response helper — sends the tool result back on the held HTTP connection.

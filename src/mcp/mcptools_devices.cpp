@@ -57,30 +57,10 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
         },
         "control");
 
-    // devices_wifi_browse
-    registry->registerTool(
-        "devices_wifi_browse",
-        "Run WiFi scale discovery only (DNS-SD browse for _decentscale._tcp plus the "
-        "hds/hds-2/hds-3 A-record fallback), without a BLE scan. Diagnostic tool: lets the "
-        "mDNS backend be chosen explicitly so the two implementations can be compared on the "
-        "same network. Call devices_wifi_results after a few seconds to read what was found.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"backend", QJsonObject{
-                    {"type", "string"},
-                    {"enum", QJsonArray{"auto", "bonjour", "mjansson"}},
-                    {"description", "Which mDNS implementation to browse with. "
-                                    "'auto' is what ships (bonjour on macOS/iOS, mjansson elsewhere). "
-                                    "'mjansson' on macOS exercises the backend Android and "
-                                    "Windows/Linux actually use. 'bonjour' is unavailable off Apple."}}},
-                {"timeoutMs", QJsonObject{
-                    {"type", "integer"},
-                    {"description", "How long to browse, in milliseconds. Default 8000. "
-                                    "Short windows return the resolver's cache including stale "
-                                    "entries; longer ones let it prune them."}}}
-            }}
-        },
+    // devices_wifi — browse for WiFi scales, then read what the browse found.
+    // Diagnostic pair: two verbs of one operation, always used together.
+    const QVector<McpToolAction> wifiActions{
+        McpRegistryHelpers::syncAction("browse", "control",
         [bleManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!bleManager) {
@@ -104,23 +84,12 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             result["backendActive"] = MdnsResolver::activeBrowseBackendName();
             result["timeoutMs"] = timeoutMs;
             result["message"] = QString("WiFi discovery started using the %1 backend. "
-                                        "Call devices_wifi_results after about %2 seconds.")
+                                        "Call action=results after about %2 seconds.")
                                     .arg(MdnsResolver::activeBrowseBackendName())
                                     .arg((timeoutMs / 1000) + 1);
             return result;
-        },
-        "control");
-
-    // devices_wifi_results
-    registry->registerTool(
-        "devices_wifi_results",
-        "Read the raw results of the most recent WiFi scale discovery, including the DNS-SD "
-        "detail the device list flattens away: instance name, TXT name, port, WebSocket path, "
-        "firmware version, and whether each was found by service browse or hostname fallback. "
-        "Also reports browseRan/fallbackProbeRan: false means that transport could not run at "
-        "all (no backend, socket refused, Local Network permission denied) rather than running "
-        "and finding nothing — a distinction a count of 0 cannot make.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        }),
+        McpRegistryHelpers::syncAction("results", "read",
         [bleManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!bleManager) {
@@ -152,8 +121,29 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             result["browseRan"] = bleManager->lastWifiBrowseRan();
             result["fallbackProbeRan"] = bleManager->lastWifiProbeRan();
             return result;
+        }),
+    };
+
+    registry->registerActionTool(
+        "devices_wifi",
+        "WiFi scale discovery, without a BLE scan. action=browse runs DNS-SD for "
+        "_decentscale._tcp plus the hds/hds-2/hds-3 A-record fallback; action=results reads what "
+        "the last browse found, with the DNS-SD detail the device list flattens away. Wait a few "
+        "seconds between the two. Backends, timeouts and the browseRan/fallbackProbeRan flags: "
+        "get_agent_file topic \"devices_wifi\".",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"backend", QJsonObject{
+                    {"type", "string"},
+                    {"enum", QJsonArray{"auto", "bonjour", "mjansson"}},
+                    {"description", "browse only: which mDNS implementation to use. 'auto' is what ships; 'bonjour' is Apple-only"}}},
+                {"timeoutMs", QJsonObject{
+                    {"type", "integer"},
+                    {"description", "browse only: how long to browse, in milliseconds (default 8000)"}}}
+            }}
         },
-        "read");
+        wifiActions);
 
     // devices_connect_scale
     registry->registerTool(
@@ -338,21 +328,11 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
     // do not assume confirmation parity with that tool.
     registry->registerTool(
         "devices_set_scale_priority_mode",
-        "Set the persistent scale connection-priority backoff policy mode. "
-        "'enforce' (default) is the normal dual-HIGH backoff: on a detected "
-        "stall/fault cluster it latches the scale link to BALANCED and "
-        "reconnects. 'observe' is detect-and-log-only: detection still runs "
-        "but takes NO action — the link is forced to HIGH (overriding, but "
-        "not erasing, any existing BALANCED latch) and would-back-off / "
-        "recovery events are logged and surfaced in devices_connection_status, "
-        "so the backoff's aggressiveness can be evaluated on a production "
-        "build. The mode persists across app restarts AND build upgrades "
-        "until explicitly changed (it is not scoped at all, unlike the latch "
-        "which is epoch-scoped). "
-        "Eventually-consistent: the change is queued onto the BLE-manager "
-        "thread (this response does NOT assert the persist has executed yet), "
-        "and the HIGH-forcing additionally only applies on the next scale "
-        "(re)connect; the current connection is not torn down.",
+        "Set the scale connection-priority backoff policy. 'enforce' (default) latches the link to "
+        "BALANCED and reconnects on a detected stall cluster; 'observe' detects and logs without "
+        "acting, so the backoff can be evaluated on a production build. The mode persists across "
+        "restarts and upgrades until changed, and the write is eventually consistent. Full "
+        "semantics: get_agent_file topic \"devices_set_scale_priority_mode\".",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
             {"mode", QJsonObject{{"type", "string"},
                 {"enum", QJsonArray{"enforce", "observe"}},

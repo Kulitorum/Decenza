@@ -30,7 +30,7 @@ class MemoryMonitor;
 class AIManager;
 void registerMachineTools(McpToolRegistry*, DE1Device*, MachineState*, MainController*, ProfileManager*) {}
 void registerShotTools(McpToolRegistry*, ShotHistoryStorage*) {}
-void registerProfileTools(McpToolRegistry*, ProfileManager*, Settings*) {}
+void registerProfileTools(McpToolRegistry*, ProfileManager*) {}
 void registerPresetsTools(McpToolRegistry*, Settings*, MainController*, MachineState*) {}
 class RecipeStorage;
 void registerRecipeTools(McpToolRegistry*, ShotHistoryStorage*, RecipeStorage*, MainController*, Settings*) {}
