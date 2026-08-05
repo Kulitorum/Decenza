@@ -39,6 +39,37 @@ struct PendingConfirmation {
     QString protocolVersion = QStringLiteral("2024-11-05");  // captured at request time; default to legacy gating so a missed assignment never silently emits 2025-spec fields
 };
 
+// The MCP server's own version, reported as `serverInfo.version` at initialize.
+//
+// BUMP THIS WHENEVER THE TOOL SURFACE CHANGES — a tool added, removed or renamed, an
+// action added to a merged tool, an argument that changes meaning. It is not the app
+// version and does not follow it: 2.0.2 shipped a 97-tool server and then a 66-tool
+// one, and a client reporting the app version would have shown the same string for
+// both. `serverInfo.appVersion` carries the build alongside it.
+//
+// This is a correctness obligation before it is anything else. The handshake is
+// where a server states what it is, and a server whose surface has changed while
+// its version has not is making a false statement on the wire — independently of
+// whether any particular client acts on it. A client that DOES key on the version
+// (today, or under the 2026-07-28 caching semantics) can only behave correctly if
+// we tell it the truth; pinning "1.0.0" forever defeated exactly those clients.
+//
+// It does not, on its own, invalidate an existing cache: a client caches the tool
+// list it fetched at initialize and refreshes only on RECONNECT, some not even
+// then. This server declares no `tools.listChanged` and could not usefully send
+// one, since tools are registered once at startup and never change while the app
+// runs. The useful side effect is that a stale session becomes VISIBLE — a
+// connector still reporting an old version is talking to a session that predates
+// the change, which otherwise can only be inferred by counting tools.
+//
+// scripts/check_mcp_tool_budget.py fingerprints the registered tools and their
+// actions and fails the PR if the surface moved without this string moving, so the
+// rule above is enforced rather than remembered.
+inline constexpr const char* McpSurfaceVersion = "1.0.1";
+// Fingerprint of the tool surface this version was recorded against. Update it in
+// the same edit as the version; the check prints the value to paste.
+inline constexpr const char* McpSurfaceFingerprint = "8ada4d203b66";
+
 class McpServer : public QObject {
     Q_OBJECT
     Q_PROPERTY(int activeSessionCount READ activeSessionCount NOTIFY activeSessionCountChanged)

@@ -1,4 +1,5 @@
 #include "mcpserver.h"
+#include "version.h"
 #include "mcpsession.h"
 #include "mcptoolregistry.h"
 #include "mcpresourceregistry.h"
@@ -1082,7 +1083,12 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
 
     QJsonObject serverInfo;
     serverInfo["name"] = "Decenza MCP Server";
-    serverInfo["version"] = "1.0.0";
+    // The app version identifies the BUILD; this identifies the SURFACE. Both are
+    // needed and neither substitutes for the other: 2.0.2 shipped both a 97-tool and
+    // a 66-tool server, so a client that reported the app version would have looked
+    // identical across the change that halved its tool list.
+    serverInfo["version"] = QString::fromLatin1(McpSurfaceVersion);
+    serverInfo["appVersion"] = QStringLiteral(VERSION_STRING);
 
     // Negotiate protocol version — accept what the client requests if we support it,
     // otherwise return our preferred version (the first entry).

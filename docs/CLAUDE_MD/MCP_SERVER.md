@@ -81,6 +81,51 @@ one tool each, 97 → 66.
 The four limits — 80 tools, 500 chars per tool description, 120 per property description, 85 KB
 estimated payload — live in `LIMITS` at the top of that script, so tightening them is one edit.
 
+### The server version identifies the SURFACE, not the build
+
+`initialize` returns `serverInfo.version` — `McpSurfaceVersion` in `src/mcp/mcpserver.h` — plus
+`serverInfo.appVersion`, which carries the build. They are separate facts and neither substitutes
+for the other: **2.0.2 shipped both a 97-tool server and a 66-tool one**, so a version that
+followed the app version would have read identically across the change that halved the list.
+
+**Bump `McpSurfaceVersion` whenever the tool surface changes** — a tool added, removed or renamed,
+an action added to a merged tool, an argument whose meaning changes. `check_mcp_tool_budget.py`
+fingerprints the registered tools and their actions and fails the PR when the surface moves
+without the version moving, printing the fingerprint to paste into `McpSurfaceFingerprint`. So the
+rule is enforced rather than remembered.
+
+**Why it must be right, separately from what clients do with it.** `initialize` is where the
+server states what it is. A server whose surface has changed while its version has not is putting
+a false statement on the wire, and a client that keys on the version — today, or under the
+2026-07-28 caching semantics — can only behave correctly if we tell the truth. Pinning `1.0.0`
+forever defeated exactly the clients that would have done the right thing.
+
+**What it does not do on its own is refresh an existing cache.** Clients cache the catalogue they
+fetched at `initialize` and refresh only on reconnect — and some not even then. Reported,
+repeatedly, and not by us:
+
+- Claude Code caches by SERVER NAME and never invalidates; a server that went 5 → 15 tools kept
+  showing 5 until the entry was renamed in `.mcp.json`
+  ([claude-code#40025](https://github.com/anthropics/claude-code/issues/40025)).
+- claude.ai keeps the list through disconnect/reconnect and even delete-and-re-add
+  ([claude-ai-mcp#137](https://github.com/anthropics/claude-ai-mcp/issues/137),
+  [claude-code#38324](https://github.com/anthropics/claude-code/issues/38324)).
+- Codex fails to invalidate on an explicit `tools/list_changed`
+  ([codex#33266](https://github.com/openai/codex/issues/33266)).
+
+Observed here: after this app dropped to 66 tools, ChatGPT still reported 97 across a manual
+disconnect and reconnect.
+
+This server declares no `tools.listChanged` and should not: tools are registered once at startup
+and never change while the app runs, so the notification could never fire. The version's job is
+narrower and still worth having — it makes a stale session **visible**, which is otherwise only
+inferable by counting tools.
+
+The actual fix is protocol-level. MCP 2026-07-28 adds `ttlMs` and `cacheScope` to list results
+precisely because clients cache catalogues; adopting it here is real work (that revision also
+makes the core stateless, and this server is session-based with held responses for in-app
+confirmation), and whether the clients honour the hints is unverified.
+
 ### Adding a tool
 
 1. **Does it belong to a noun that already has a tool?** Add an action to that tool, not a new
