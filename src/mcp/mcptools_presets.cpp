@@ -59,6 +59,24 @@ bool indexInRange(int index, qsizetype count)
     return index >= 0 && index < static_cast<int>(count);
 }
 
+// A missing `index` is NOT index 0, and the difference is a deleted preset.
+//
+// Each of these verbs used to be its own tool carrying {"required": ["index"]}, and
+// that schema line was the only guard: the handlers read args.value("index").toInt(),
+// which returns 0 for an absent key, and 0 passes indexInRange(). Merging the family
+// moved `required` up to the tool, where it can only say "action" — JSON Schema
+// cannot express a per-verb requirement without allOf/if-then. So the check moves
+// into the handler, where it should have been anyway. Without it, {"action":"delete"}
+// deletes the first preset and answers success, and recipes snapshot pitchers BY NAME,
+// so the wrong delete quietly breaks every recipe that referenced it.
+bool missingIndex(const QJsonObject& args, const QString& action, QJsonObject& result)
+{
+    if (args.contains("index")) return false;
+    result["error"] = QStringLiteral("index is required for action=%1 (get it from action=list)")
+                          .arg(action);
+    return true;
+}
+
 } // namespace
 
 void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController,
@@ -162,6 +180,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
         [settings, applySteamPitcher](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
+            if (missingIndex(args, QStringLiteral("update"), result)) return result;
             const int index = args.value("index").toInt();
             const QVariantList list = settings->brew()->steamPitcherPresets();
             if (!indexInRange(index, list.size())) { result["error"] = "index out of range"; return result; }
@@ -194,6 +213,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
         [settings](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
+            if (missingIndex(args, QStringLiteral("delete"), result)) return result;
             const int index = args.value("index").toInt();
             if (!indexInRange(index, settings->brew()->steamPitcherPresets().size())) {
                 result["error"] = "index out of range"; return result;
@@ -208,6 +228,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
         [settings, applySteamPitcher](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
+            if (missingIndex(args, QStringLiteral("select"), result)) return result;
             const int index = args.value("index").toInt();
             if (!indexInRange(index, settings->brew()->steamPitcherPresets().size())) {
                 result["error"] = "index out of range"; return result;
@@ -283,6 +304,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
         [settings, applyWaterVessel](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
+            if (missingIndex(args, QStringLiteral("update"), result)) return result;
             const int index = args.value("index").toInt();
             const QVariantList list = settings->brew()->waterVesselPresets();
             if (!indexInRange(index, list.size())) { result["error"] = "index out of range"; return result; }
@@ -318,6 +340,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
         [settings](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
+            if (missingIndex(args, QStringLiteral("delete"), result)) return result;
             const int index = args.value("index").toInt();
             if (!indexInRange(index, settings->brew()->waterVesselPresets().size())) {
                 result["error"] = "index out of range"; return result;
@@ -330,6 +353,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
         [settings, applyWaterVessel](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
+            if (missingIndex(args, QStringLiteral("select"), result)) return result;
             const int index = args.value("index").toInt();
             if (!indexInRange(index, settings->brew()->waterVesselPresets().size())) {
                 result["error"] = "index out of range"; return result;

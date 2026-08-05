@@ -8,6 +8,6 @@ values to the machine; `add` also selects what it just added.
 
 `add` defaults: 200 mL, `weight` mode, 4.0 mL/s, and the current global hot water temperature.
 
-Indexes come from `list` and are positional, so they shift after a `delete`. A name is required
+Indexes come from `list` and are positional, so they shift after a `delete`. `update`, `delete` and `select` all require `index` explicitly — an omitted one is an error, never index 0. A name is required
 and cannot be blanked by an update: recipes snapshot the vessel BY NAME, so a nameless preset is
 one nothing can refer to afterwards.

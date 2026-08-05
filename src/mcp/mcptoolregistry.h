@@ -42,10 +42,15 @@ enum class McpRegistryFailure {
 struct McpToolAction {
     QString name;               // the `action` value, e.g. "list", "delete"
     QString category;           // "read", "control", or "settings"
-    bool confirm = false;       // requires user confirmation before dispatch
     QString confirmDescription; // shown in the confirmation dialog / chat payload
     McpToolHandler handler;     // sync handler (null when asyncHandler is set)
     McpAsyncToolHandler asyncHandler;
+
+    // Confirmation is the presence of the wording for it. There is deliberately no
+    // separate bool: two fields meaning one thing can disagree, and the failure that
+    // matters here is silent — a `confirm = true` with no description raises a dialog
+    // that does not say what it will do.
+    bool confirms() const { return !confirmDescription.isEmpty(); }
 };
 
 // Where a tool sorts in `tools/list`. Clients truncate long tool lists, so the
@@ -53,9 +58,17 @@ struct McpToolAction {
 // (tier, name), so the niche tail goes first and the same build always presents
 // the same order.
 enum McpToolTier {
-    McpTierCore = 0,      // machine control and state, shots, dialing, profiles, recipes, scale
-    McpTierStandard = 1,  // everything not deliberately placed
-    McpTierNiche = 2,     // mqtt, theme, backup, saved AI conversations, debug
+    // 0: what a dial-in conversation reaches for — machine control and state,
+    //    shots, dialing, profiles, recipes, scale, settings.
+    McpTierCore = 0,
+    // 1: the default. Everything not deliberately placed in one of the others.
+    McpTierStandard = 1,
+    // 2: real but rarely first — the Home Assistant bridge, themes, backups,
+    //    saved AI conversations, bean search, one-shot diagnostics.
+    //
+    // Do not read these lists as an inventory: they say what the tiers are FOR.
+    // Which tools are in each is the registration sites, and only those.
+    McpTierNiche = 2,
 };
 
 struct McpToolDefinition {
@@ -66,7 +79,7 @@ struct McpToolDefinition {
     McpAsyncToolHandler asyncHandler; // async handler (null for sync tools)
     QString category;           // "read", "control", or "settings" (see actions)
     bool isAsync = false;
-    int tier = McpTierStandard;
+    McpToolTier tier = McpTierStandard;
     QVector<McpToolAction> actions;  // empty for a single-verb tool
 };
 
@@ -92,12 +105,14 @@ namespace McpRegistryHelpers {
     // Read an SVG from qrc and encode as a data: URI suitable for the
     // MCP `icons[].src` field (2025-11-25). Returns an empty string on miss.
     //
-    // RESOURCES ONLY. Tools used to carry these too, and it cost 216 KB of the
-    // ~248 KB `tools/list` payload — 87% of it, with 41 of 97 tools shipping the
-    // same 2292-byte generic fallback because their name prefix was not in the
-    // map below. Resource listings are five records with five distinct icons, so
-    // they keep theirs. See scripts/check_mcp_tool_budget.py, which now fails a
-    // PR that puts a `data:` URI back into a tool listing.
+    // RESOURCES ONLY, and only where the URI maps to an icon of its own.
+    //
+    // Tools used to carry these: 216 KB of a ~312 KB `tools/list` (measured), with
+    // 41 of 97 tools shipping the SAME 2292-byte generic fallback because their name
+    // prefix was not in the map and the map had a default. Resources keep icons
+    // because the handful that map to one map to DIFFERENT ones; iconQrcForResource()
+    // now returns empty rather than defaulting, so a new resource family cannot
+    // silently re-buy the fallback.
     inline QString iconDataUri(const QString& qrcPath) {
         QFile f(qrcPath);
         if (!f.open(QIODevice::ReadOnly)) return QString();
@@ -106,14 +121,20 @@ namespace McpRegistryHelpers {
             + QString::fromLatin1(svg.toBase64());
     }
 
-    // Map a resource URI scheme path to a qrc icon path.
+    // Map a resource URI scheme path to a qrc icon path. Empty means NO icon, and
+    // that is the right answer for a family with no icon of its own: a default here
+    // is how 41 of 97 tools came to ship the same 2292-byte drawing. The
+    // decenza://tools/<topic> documentation resources are 15 records that would have
+    // fallen through to exactly that fallback — ~46 KB of identical base64 on every
+    // resources/list, the same defect this change removed from tools/list, one
+    // listing over.
     inline QString iconQrcForResource(const QString& uri) {
         if (uri.startsWith(QStringLiteral("decenza://machine"))) return ":/icons/decent-de1.svg";
         if (uri.startsWith(QStringLiteral("decenza://shots")))   return ":/icons/Graph.svg";
         if (uri.startsWith(QStringLiteral("decenza://profiles"))) return ":/icons/coffeebeans.svg";
         if (uri.startsWith(QStringLiteral("decenza://dialing"))) return ":/icons/grind.svg";
         if (uri.startsWith(QStringLiteral("decenza://debug")))   return ":/icons/list.svg";
-        return ":/icons/decent-de1.svg";
+        return QString();
     }
 
     inline QJsonArray iconsArrayFromQrc(const QString& qrcPath) {
@@ -136,7 +157,6 @@ namespace McpRegistryHelpers {
         McpToolAction a;
         a.name = name;
         a.category = category;
-        a.confirm = !confirmDescription.isEmpty();
         a.confirmDescription = confirmDescription;
         a.handler = std::move(handler);
         return a;
@@ -149,7 +169,6 @@ namespace McpRegistryHelpers {
         McpToolAction a;
         a.name = name;
         a.category = category;
-        a.confirm = !confirmDescription.isEmpty();
         a.confirmDescription = confirmDescription;
         a.asyncHandler = std::move(handler);
         return a;
@@ -186,7 +205,7 @@ public:
     // it can be gated on the negotiated protocol version.
     void registerTool(const QString& name, const QString& description,
                       const QJsonObject& inputSchema, McpToolHandler handler,
-                      const QString& category, int tier = McpTierStandard)
+                      const QString& category, McpToolTier tier = McpTierStandard)
     {
         McpToolDefinition tool;
         tool.name = name;
@@ -200,7 +219,7 @@ public:
 
     void registerAsyncTool(const QString& name, const QString& description,
                            const QJsonObject& inputSchema, McpAsyncToolHandler handler,
-                           const QString& category, int tier = McpTierStandard)
+                           const QString& category, McpToolTier tier = McpTierStandard)
     {
         McpToolDefinition tool;
         tool.name = name;
@@ -228,7 +247,7 @@ public:
     void registerActionTool(const QString& name, const QString& description,
                             const QJsonObject& inputSchema,
                             const QVector<McpToolAction>& actions,
-                            int tier = McpTierStandard,
+                            McpToolTier tier = McpTierStandard,
                             const QString& actionDescription = QStringLiteral("Which operation to perform"))
     {
         McpToolDefinition tool;
@@ -249,9 +268,10 @@ public:
         tool.actions = actions;
         tool.isAsync = true;
         tool.tier = tier;
-        // Legacy single-category readers (and the deny-by-default paths) see the
-        // strictest verb; every access decision that has the arguments in hand uses
-        // categoryFor() instead.
+        // Kept in step with the actions purely as a safe default: every reader that
+        // has the call's arguments uses categoryFor() and takes the merged branch
+        // before reaching this field. It is the value anything added later would see
+        // if it forgot to, and the strictest verb is the right thing to see.
         tool.category = strictestCategory(actions);
         tool.asyncHandler = [actions, name](const QJsonObject& args,
                                             std::function<void(QJsonObject)> respond) {
@@ -259,6 +279,15 @@ public:
             for (const McpToolAction& a : actions) {
                 if (a.name != requested) continue;
                 if (a.asyncHandler) { a.asyncHandler(args, std::move(respond)); return; }
+                // An action with neither handler set is a registration bug, but calling
+                // a null std::function throws out of a socket read and takes the app
+                // with it. A machine controller does not abort on a network request.
+                if (!a.handler) {
+                    respond(QJsonObject{{"error",
+                        QStringLiteral("%1 action \"%2\" has no handler registered")
+                            .arg(name, requested)}});
+                    return;
+                }
                 respond(a.handler(args));
                 return;
             }
@@ -302,18 +331,30 @@ public:
         const QString requested = args["action"].toString();
         for (const McpToolAction& a : actions) {
             if (a.name != requested) continue;
-            req.required = a.confirm;
+            req.required = a.confirms();
             req.actionId = name + QLatin1Char('.') + a.name;
             req.description = a.confirmDescription;
             return req;
         }
         // Unmatched action: confirm if ANY verb of this tool would have, so that a
         // malformed call cannot be the cheap way past the dialog.
+        //
+        // The wording is about the unrecognised action, NOT borrowed from the first
+        // confirmable verb. Borrowing it put "Start pulling an espresso shot" on the
+        // machine for a call that would then be rejected — and a confirmation net
+        // works only while the dialog is worth reading.
         for (const McpToolAction& a : actions) {
-            if (!a.confirm) continue;
+            if (!a.confirms()) continue;
+            QStringList valid;
+            for (const McpToolAction& each : actions) valid << each.name;
             req.required = true;
             req.actionId = name;
-            req.description = a.confirmDescription;
+            req.description = requested.isEmpty()
+                ? QStringLiteral("%1 with no action — the request will be rejected. "
+                                 "Valid actions: %2").arg(name, valid.join(QStringLiteral(", ")))
+                : QStringLiteral("%1: unrecognised action \"%2\" — the request will be "
+                                 "rejected. Valid actions: %3")
+                      .arg(name, requested, valid.join(QStringLiteral(", ")));
             return req;
         }
         return req;
@@ -513,6 +554,12 @@ private:
     // gets gated as, and what legacy single-category readers see.
     static QString strictestCategory(const QVector<McpToolAction>& actions)
     {
+        // No actions at all is a registration bug, and the two derivations must not
+        // disagree about it: leastRestrictiveLevel() denies an empty list, so this
+        // returns an unrecognised category, which categoryMinLevel() also denies.
+        // Seeding with "read" instead made an actionless tool list as DISABLED while
+        // passing the gate at Monitor.
+        if (actions.isEmpty()) return QString();
         QString strictest = QStringLiteral("read");
         for (const McpToolAction& a : actions)
             if (categoryMinLevel(a.category) > categoryMinLevel(strictest))

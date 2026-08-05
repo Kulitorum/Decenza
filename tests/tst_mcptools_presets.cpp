@@ -117,6 +117,12 @@ private slots:
         QCOMPARE(m_settings.brew()->steamTemperature(), 150.0);
 
         QVERIFY(call("steam_pitcher", {{"action", "select"}, {"index", a}}, /*control*/ 1)["success"].toBool());
+        // The other half of the boundary: a Control-level client may switch pitchers
+        // but must not rewrite them. Declaring add/update/delete as "control" would
+        // let a network client edit the user's presets, and every other assertion
+        // here would stay green.
+        QCOMPARE(call("steam_pitcher", {{"action", "delete"}, {"index", a}}, /*control*/ 1)["callError"].toString(),
+                 QString("Access level insufficient"));
         QCOMPARE(m_settings.brew()->steamTemperature(), 130.0);  // apply-on-select
     }
 
@@ -141,6 +147,21 @@ private slots:
         QJsonObject r = call("steam_pitcher", {{"action", "update"}, {"index", 9999}, {"temperatureC", 150.0}});
         QVERIFY(!r["success"].toBool());
         QCOMPARE(r["error"].toString(), QString("index out of range"));
+    }
+
+    // A missing index is not index 0. The per-tool `required: ["index"]` that used to
+    // guarantee this could not survive the merge — a merged tool's `required` can only
+    // name `action` — so the guard moved into the handlers.
+    void presetVerbsRequireAnIndexRatherThanDefaultingToZero() {
+        const int a = call("steam_pitcher", {{"action", "add"}, {"name", "Keep"}})["selectedIndex"].toInt();
+        QVERIFY(a >= 0);
+        const int before = call("steam_pitcher", {{"action", "list"}})["count"].toInt();
+        for (const char* verb : {"delete", "update", "select"}) {
+            const QJsonObject r = call("steam_pitcher", {{"action", verb}});
+            QVERIFY2(r["error"].toString().contains("index is required"), verb);
+        }
+        QCOMPARE(call("steam_pitcher", {{"action", "list"}})["count"].toInt(), before);
+        QVERIFY(call("water_vessel", {{"action", "delete"}})["error"].toString().contains("index is required"));
     }
 
     void steamAddRequiresName() {

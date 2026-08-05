@@ -86,6 +86,12 @@ public:
     McpToolRegistry* toolRegistry() const { return m_toolRegistry; }
     McpResourceRegistry* resourceRegistry() const { return m_resourceRegistry; }
 
+    // Control/settings calls allowed per session per minute. Public because it is a
+    // policy a test asserts against: the per-action rate limiting added with merged
+    // tools is only meaningful if a read verb can be shown NOT to spend this budget
+    // and a write verb can be shown to.
+    static constexpr int RateLimitPerMinute = 60;
+
     // Protocol versions this server can negotiate. First entry is preferred.
     static const QStringList& supportedProtocolVersions();
 
@@ -292,5 +298,5 @@ private:
     // one-byte-per-character estimate suggests.
     static constexpr int MaxTerminatedSessions = 256;
     static constexpr int SessionTimeoutMinutes = 30;  // idle-session cleanup; runs every 60s on m_cleanupTimer and again opportunistically when a new session is created
-    static constexpr int RateLimitPerMinute = 60;
+
 };

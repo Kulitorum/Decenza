@@ -1741,15 +1741,12 @@ bool McpServer::needsChatConfirmation(const QString& toolName, const QJsonObject
         toolName == "settings_set" ||
         toolName == "devices_set_scale_priority_mode" ||
         toolName == "devices_reset_scale_priority" ||
-        // Irreversible learning/calibration wipes + forget-the-scale (the
-        // last also advertises a `confirmed` arg that was never enforced —
-        // same class as the #1219 bug above).
-        toolName == "reset_saw_learning" ||
-        toolName == "reset_saw_learning_for_profile" ||
-        toolName == "clear_flow_calibration" ||
-        // Overwrites the profile's learned calibration with a hand-picked number,
-        // and it reaches the machine immediately — the old value is not recoverable.
-        toolName == "set_flow_calibration" ||
+        // Forget-the-scale, which also advertises a `confirmed` arg that was never
+        // enforced — same class as the #1219 bug above. The irreversible learning and
+        // calibration wipes used to be named here too; they are now verbs of
+        // `reset_saw_learning` and `flow_calibration`, and each declares its own
+        // confirmation wording at its registration site. A name kept here after its
+        // tool is gone is dead text that reads like a live rule.
         toolName == "devices_disconnect_scale")
         return true;
 
@@ -1793,15 +1790,6 @@ QString McpServer::confirmationDescription(const QString& toolName,
          "Change the scale connection-priority backoff policy (enforce/observe)"},
         {"devices_reset_scale_priority",
          "Clear the scale connection-priority backoff latch"},
-        {"reset_saw_learning",
-         "Erase ALL stop-at-weight learning (global pool, every profile/scale "
-         "history, bootstrap) — irreversible"},
-        {"reset_saw_learning_for_profile",
-         "Erase stop-at-weight learning for one profile/scale pair — irreversible"},
-        {"clear_flow_calibration",
-         "Clear the profile's flow calibration (re-learned over future shots)"},
-        {"set_flow_calibration",
-         "Overwrite the profile's flow calibration with a hand-set multiplier"},
         {"devices_disconnect_scale",
          "Disconnect and forget the saved scale (must be re-paired)"},
     };

@@ -32,6 +32,7 @@
 #include <QDate>
 
 #include "ai/aimanager.h"
+#include "mcp/mcpagentdocs.h"
 #include "ai/aiconversation.h"
 #include "core/settings.h"
 #include "core/settings_dye.h"
@@ -3120,6 +3121,22 @@ private slots:
     }
 
     // -------------------------------------------------------------
+    // The documentation topics tool descriptions point at. A .md added to
+    // resources/ai/tools/ but NOT to resources/ai.qrc is invisible at runtime — the
+    // description still says get_agent_file topic "x" and the server reports it as
+    // the caller's typo. This test links ai.qrc, so it is the one place that can
+    // tell the difference between "shipped" and "in the tree".
+    void agentDocTopicsAreShippedInTheResourceBundle()
+    {
+        const QStringList topics = McpAgentDocs::availableTopics();
+        QVERIFY2(!topics.isEmpty(), "no :/ai/tools topics — ai.qrc did not link");
+        for (const QString& topic : topics) {
+            QFile doc(McpAgentDocs::topicPath(topic));
+            QVERIFY2(doc.open(QIODevice::ReadOnly), qPrintable(topic));
+            QVERIFY2(doc.size() > 0, qPrintable(topic));
+        }
+    }
+
     // The ai_conversations tool's list/get verbs (#639 support).
     // registerAIConversationTools lives in mcptools_ai_conversations.cpp —
     // linked into this target so it can run against a real AIManager.

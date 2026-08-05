@@ -47,7 +47,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 }},
                 {"category", QJsonObject{
                     {"type", "string"},
-                    {"description", "Return only this category's settings. Omit to list every category with its keys"}
+                    {"description", "Return only this category's settings; omit to return all of them"}
                 }}
             }}
         },

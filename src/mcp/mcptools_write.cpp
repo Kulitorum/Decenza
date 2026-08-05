@@ -1507,6 +1507,12 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
 
     // auto_load target=profile, action=set — pin a profile. Validated
     // synchronously (filename non-empty, profile exists, profile is in the
+    // The recipe half of auto_load lives in THIS file rather than
+    // mcptools_recipes.cpp: that file's recipe_activate/recipe_archive call real
+    // MainController methods, so linking it at all — even for tools that do not need
+    // MainController — pulls in MainController's whole subsystem closure, which the
+    // auto-load tests do not want.
+
     // auto_load — one tool over both auto-loads, because they are ONE setting with two
     // faces: pinning a profile clears a pinned recipe and vice versa. Six tools each
     // had to restate that exclusivity in prose; here `target` makes it structural.
@@ -1780,31 +1786,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         autoLoadActions);
 
 
-    // auto_load target=profile, action=clear — disable it without modifying the
-    // revert-timeout setting (so enabling auto-load later preserves the
-
-
-    // auto_load target=recipe, action=get — mirrors the profile form (recipe-auto-load).
-    // Lives here rather than mcptools_recipes.cpp: that file's
-    // recipe_activate/recipe_archive call real MainController methods, so
-    // linking it at all (even for tools that don't need MainController) pulls
-    // in MainController's full subsystem closure — this file already tests
-
-
-    // auto_load target=recipe, action=set — pin a recipe. Mirrors
-    // the profile form; validates recipeId against the DB on a
-    // background thread (existence + not archived), then hops to the GUI
-    // thread for the settings write. Setting this clears any profile
-    // auto-load (SettingsApp::autoLoadProfileFilename), wired via Settings'
-
-
-    // auto_load target=recipe, action=clear — disable it without affecting the
-
-
-    // --- Coffee bag tools (bean-bag-inventory) ---
-
-    // Shared bag -> MCP JSON shape: units in field names, ISO dates as-is,
-    // Bean Base snapshot parsed into an object (matching shots_get_detail).
     auto bagToJson = [settings](const CoffeeBag& bag) {
         QJsonObject obj;
         obj["bagId"] = bag.id;
@@ -1855,6 +1836,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     // bag — the coffee bags CRUD family, one tool with four verbs. `extract_details`
     // stays its own tool: it parses a photographed label, which is a different job
     // that happens to share the noun.
+    //
+    // action=create stamps `kind` once and never lets it change afterwards (the same
+    // rule as the Add Coffee / Add Tea entry points in the UI), and does NOT make the
+    // new bag active: a remote client must not silently switch what the user's next
+    // shot is recorded against.
     const QVector<McpToolAction> bagActions{
         McpRegistryHelpers::asyncAction("list", "read",
 [shotHistory, bagToJson](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
@@ -2329,6 +2315,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 respond(QJsonObject{{"error", "Settings not available"}});
                 return;
             }
+            // Absent is NOT zero. Zero means "clear the bean selection" and is
+            // documented as such; an omitted argument means the caller forgot, and
+            // treating the two the same wipes the bag new shots record against and
+            // answers "success". `bag_select` used to require bagId in its schema,
+            // and a merged tool's `required` can only name `action`.
+            if (!args.contains("bagId")) {
+                respond(QJsonObject{{"error", "bagId is required for action=select "
+                                              "(0 clears the selection)"}});
+                return;
+            }
             const qint64 bagId = args["bagId"].toInteger();
             if (!bagIdIsSet(bagId)) {
                 QMetaObject::invokeMethod(qApp, [settings, respond]() {
@@ -2345,10 +2341,17 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             const QString dbPath = shotHistory->databasePath();
             QThread* thread = QThread::create([dbPath, bagId, settings, respond]() {
                 CoffeeBag bag;
-                withTempDb(dbPath, "mcp_bagsel", [&](QSqlDatabase& db) {
+                // The open result is checked: a database that cannot be opened
+                // otherwise reports as "Bag not found", which sends the caller
+                // looking for a bag that is right there.
+                const bool opened = withTempDb(dbPath, "mcp_bagsel", [&](QSqlDatabase& db) {
                     bag = CoffeeBagStorage::loadBagStatic(db, bagId);
                 });
-                QMetaObject::invokeMethod(qApp, [bag, bagId, settings, respond]() {
+                QMetaObject::invokeMethod(qApp, [bag, bagId, opened, settings, respond]() {
+                    if (!opened) {
+                        respond(QJsonObject{{"error", "Bag storage could not be opened"}});
+                        return;
+                    }
                     if (!bag.isValid()) {
                         respond(QJsonObject{{"error", "Bag not found: " + QString::number(bagId)}});
                         return;
@@ -2418,17 +2421,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         },
         bagActions,
         McpTierStandard);
-
-
-
-
-    // bag action=create — new inventory bag (add-recipe-wizard-tea). The MCP
-    // counterpart of the Add Coffee / Add Tea entry points: kind is stamped
-    // at creation and immutable after (same rule as the UI). The created bag
-    // is NOT made active — a remote client must not silently switch what the
-
-
-
 
     // ----- Equipment packages (add-equipment-packages) -----
 
@@ -2529,7 +2521,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             const QString dbPath = shotHistory->databasePath();
             QThread* thread = QThread::create([dbPath, packageId, settings, respond]() {
                 EquipmentPackageView view;
-                withTempDb(dbPath, "mcp_equip_sel", [&](QSqlDatabase& db) {
+                // Checked, like the `list` action above it: an unopenable database
+                // otherwise answers "Package not found", which is a different problem
+                // with a different fix.
+                const bool opened = withTempDb(dbPath, "mcp_equip_sel", [&](QSqlDatabase& db) {
                     view.package = EquipmentStorage::loadPackageStatic(db, packageId);
                     view.grinder = EquipmentStorage::loadGrinderItemStatic(db, packageId);
                     view.basket = EquipmentStorage::loadBasketItemStatic(db, packageId);
@@ -2537,7 +2532,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 });
                 const bool found = view.package.isValid();
                 const QVariantMap pkgMap = view.toVariantMap();
-                QMetaObject::invokeMethod(qApp, [found, pkgMap, packageId, settings, respond]() {
+                QMetaObject::invokeMethod(qApp, [found, opened, pkgMap, packageId, settings, respond]() {
+                    if (!opened) {
+                        respond(QJsonObject{{"error", "Could not open shot database"}});
+                        return;
+                    }
                     if (!found) {
                         respond(QJsonObject{{"error", "Package not found: " + QString::number(packageId)}});
                         return;
@@ -2736,8 +2735,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "equipment",
         "Equipment packages — a grinder identity plus an optional basket, shared by every bag and "
         "shot that references it. list returns the inventory with each package's last grind/rpm; "
-        "select sets the active bag's package and applies that package's last dial; update edits "
-        "or creates one; merge folds a wrongly forked package into another and deletes it. Edits "
+        "select sets the active bag's package and applies that package's last dial; update edits one "
+        "(and forks a new identity when a component changes); merge folds a wrongly forked package "
+        "into another and deletes it. Edits "
         "apply to every referencing bag and shot: get_agent_file topic \"equipment\".",
         QJsonObject{
             {"type", "object"},

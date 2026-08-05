@@ -390,13 +390,13 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
     // assistant never tries, so the story simply looks absent.
     // The registered-marker CATALOG (every marker and what it covers) is returned by
     // `families=true`, derived from DecenzaLog::subsystems() — it is NOT written into
-    // this tool's description. It used to be, and it cost 6.5 KB on every tools/list:
-    // this one tool was 7024 characters, 9% of the whole payload and 14x the next
-    // largest, while clients were already truncating the list. Deriving it is still
-    // right; the question is where it is served, and on-demand is where a 40-line
-    // table belongs. The long-form guidance that went with it — the regex trap, what
-    // each severity is for, why the markers are a minority of the log — is in
-    // resources/ai/tools/debug_get_log.md.
+    // this tool's description. It used to be: 7024 characters, of which 6.5 KB was
+    // this table, on every tools/list — 21% of all tool descriptions in the tree and
+    // 3x the next-largest description, while clients were already truncating the
+    // list. Deriving it is still right; the question is where it is SERVED, and
+    // on-demand is where a 40-line table belongs. The guidance that went with it —
+    // the regex trap, what each severity is for, why the markers are a minority of
+    // the log — is in resources/ai/tools/debug_get_log.md.
 
     // debug_get_log — chunked access to the persisted debug log with session awareness
     registry->registerTool(

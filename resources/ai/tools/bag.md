@@ -2,7 +2,8 @@
 
 Coffee (and tea) bags. `action` is `list`, `create`, `update` or `select`.
 
-`select` makes a bag active, so new shots record against it. `bagId: 0` clears the selection.
+`select` makes a bag active, so new shots record against it. `bagId: 0` clears the selection —
+but `bagId` itself is required: omitting it is an error, not a clear.
 
 ## kind
 

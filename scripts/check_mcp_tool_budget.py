@@ -9,14 +9,16 @@ app reported a problem, because nothing in the app had one.
 
 Two things caused it and both are checked here.
 
-  1. SIZE. The listing carried a base64 SVG icon per tool: ~216 KB against ~32 KB of
-     descriptions, 87% of the payload, and 41 of 97 tools shipped the SAME 2292-byte
-     generic fallback because their name prefix was not in the icon map. None of that
-     was visible in review — it was one call to a helper. Hence the `data:` rule
-     below, which is about payload rather than icons specifically.
+  1. SIZE. The listing carried a base64 SVG icon per tool: 216 KB of a ~312 KB
+     payload (measured), and 41 of 97 tools shipped the SAME 2292-byte generic
+     fallback because their name prefix was not in the icon map. None of that was
+     visible in review — it was one call to a helper, which is also the limit of what
+     the `data:` rule below can see: it catches a payload written as a literal in a
+     scanned file. The helper path is held by tst_mcpserver_protocol's assertion that
+     no tool record contains "data:" anywhere.
 
   2. COUNT. Every feature added tools; none folded them in. The merges that took the
-     surface from 97 to 65 buy nothing if the next twenty features add one each.
+     surface from 97 to 66 buy nothing if the next twenty features add one each.
 
 The four limits are deliberately in ONE place (LIMITS below) so tightening them after
 a measurement is a one-line edit rather than an archaeology exercise.
@@ -35,19 +37,20 @@ from pathlib import Path
 
 # --- The budget. One edit, one place. ---------------------------------------
 LIMITS = {
-    # Tool count. 65 today; the headroom is for features, not for un-merged families.
+    # Tool count. 66 today; the headroom is for features, not for un-merged families.
     "max_tools": 80,
     # Per-tool description. Enough to CHOOSE the tool and fill its arguments; the rest
     # goes to resources/ai/tools/<topic>.md, served by get_agent_file(topic).
     "max_description_chars": 500,
     # Per-property description inside an input schema.
     "max_property_description_chars": 120,
-    # Rough estimate of the whole tools/list payload (see estimate_payload_bytes).
-    # ~64 KB today, against ~270 KB before the icons came out and the families
-    # merged. Set so that 80 in-budget tools still fit: the COUNT limit is what a
-    # new feature should run into, and this one exists to catch a payload that
-    # grows without the count growing — which is exactly how the icons got in.
-    "max_payload_bytes": 85 * 1024,
+    # The whole tools/list payload: ~72 KB estimated today, 68.4 KB measured live.
+    # This bounds DESCRIPTION and property-description growth — it cannot see an
+    # icon, which contributes nothing to the formula below, so it is not what would
+    # have caught the 216 KB of base64 (that is the `data:` rule and the test).
+    # Sized so 80 tools at today's ~1.1 KB each still fit, keeping the COUNT limit
+    # the one a new feature runs into first.
+    "max_payload_bytes": 95 * 1024,
 }
 
 # mcpresources.cpp is in the list because registerDebugTools() lives there and
@@ -68,6 +71,22 @@ REGISTRATION = re.compile(
     re.S,
 )
 PROPERTY_DESCRIPTION = re.compile(r'\{"description", ((?:"(?:[^"\\]|\\.)*"\s*)+)\}')
+# A merged tool's verbs: syncAction("name", "category", … / asyncAction(same).
+# Checked here because the type cannot check them — `category` is a QString, and a
+# typo'd one resolves to "deny at every access level", which is a verb that silently
+# never works for anybody rather than a compile error. Duplicate names are the same
+# shape of problem: the second one becomes dead code that nothing reports.
+ACTION_BUILDER = re.compile(r'(?:sync|async)Action\(\s*"([a-z_0-9]+)",\s*"([a-z_]+)"')
+ACTION_TOOL_START = re.compile(r'const QVector<McpToolAction>\s+(\w+)\s*\{')
+VALID_CATEGORIES = {"read", "control", "settings"}
+# McpServer's name-keyed confirmation list, for the tools that are not merged. A name
+# left here after its tool became a verb of a merged tool is dead text that reads like
+# a live rule — and the next reader trusts it.
+CONFIRM_NAME = re.compile(r'toolName == "([a-z_0-9]+)"')
+# `get_agent_file topic "x"` in a description promises resources/ai/tools/x.md exists
+# AND is listed in resources/ai.qrc. Miss the qrc line and the topic silently does not
+# exist: the tool still points at it and the server reports it as the caller's typo.
+TOPIC_REFERENCE = re.compile(r'get_agent_file topic \\?"([a-z_0-9]+)\\?"')
 # A data: URI reachable from a tool listing. The icons were introduced as one helper
 # call and nothing about their size showed up at the call site.
 DATA_URI = re.compile(r'"data:[a-z]+/')
@@ -80,9 +99,10 @@ def literal_text(source: str) -> str:
 
 
 def scan(repo_root: Path):
-    tools = []          # (name, description, file, line)
+    tools = []          # (name, description, file, line, composed)
     properties = []     # (text, file, line)
     data_uris = []      # (file, line)
+    actions = []        # (family, action, category, file, line)
 
     paths = sorted({p for glob in TOOLS_GLOBS for p in repo_root.glob(glob)})
     for path in paths:
@@ -102,7 +122,16 @@ def scan(repo_root: Path):
             line = source.count("\n", 0, match.start()) + 1
             data_uris.append((rel, line))
 
-    return tools, properties, data_uris
+        # Attribute each action to the QVector<McpToolAction> block it sits in, so a
+        # duplicate is reported against its own family rather than the whole file.
+        family_starts = [(m.start(), m.group(1)) for m in ACTION_TOOL_START.finditer(source)]
+        for match in ACTION_BUILDER.finditer(source):
+            line = source.count("\n", 0, match.start()) + 1
+            family = next((name for pos, name in reversed(family_starts)
+                           if pos < match.start()), "<unknown>")
+            actions.append((family, match.group(1), match.group(2), rel, line))
+
+    return tools, properties, data_uris, actions
 
 
 def estimate_payload_bytes(tools, properties) -> int:
@@ -134,7 +163,7 @@ def estimate_payload_bytes(tools, properties) -> int:
 def main() -> int:
     verbose = "--verbose" in sys.argv
     repo_root = Path(__file__).resolve().parent.parent
-    tools, properties, data_uris = scan(repo_root)
+    tools, properties, data_uris, actions = scan(repo_root)
 
     violations = []
 
@@ -173,6 +202,54 @@ def main() -> int:
             f"binary payloads — per-tool base64 icons were 87% of tools/list and are why clients "
             f"were truncating it."
         )
+
+    for family, action, category, path, line in actions:
+        if category not in VALID_CATEGORIES:
+            violations.append(
+                f"{path}:{line}: action `{family}.{action}` declares category \"{category}\", "
+                f"which is not one of {sorted(VALID_CATEGORIES)}. An unrecognised category is "
+                f"denied at every access level, so that verb would never work for anyone."
+            )
+
+    seen_actions = {}
+    for family, action, _category, path, line in actions:
+        key = (family, action)
+        if key in seen_actions:
+            violations.append(
+                f"{path}:{line}: action `{action}` is declared twice in `{family}`. The second "
+                f"is dead — every reader resolves the first — and nothing reports it at runtime."
+            )
+        seen_actions[key] = line
+
+    tool_names = {name for name, _desc, _path, _line, _composed in tools}
+    server = (repo_root / "src/mcp/mcpserver.cpp").read_text(encoding="utf-8")
+    for match in CONFIRM_NAME.finditer(server):
+        if match.group(1) in tool_names:
+            continue
+        line = server.count("\n", 0, match.start()) + 1
+        violations.append(
+            f"src/mcp/mcpserver.cpp:{line}: the confirmation list names `{match.group(1)}`, which "
+            f"is not a registered tool. If it became a verb of a merged tool, its confirmation "
+            f"wording belongs on that action; if it is gone, so is this line."
+        )
+
+    topic_dir = repo_root / "resources/ai/tools"
+    qrc = (repo_root / "resources/ai.qrc").read_text(encoding="utf-8")
+    topics_on_disk = {p.stem for p in topic_dir.glob("*.md")}
+    for topic in sorted(topics_on_disk):
+        if f"ai/tools/{topic}.md" not in qrc:
+            violations.append(
+                f"resources/ai.qrc: resources/ai/tools/{topic}.md is not listed, so the topic "
+                f"does not exist at runtime — get_agent_file reports it as an unknown topic."
+            )
+    for name, desc, path, line, _composed in tools:
+        for match in TOPIC_REFERENCE.finditer(desc):
+            if match.group(1) not in topics_on_disk:
+                violations.append(
+                    f"{path}:{line}: `{name}` points at get_agent_file topic "
+                    f"\"{match.group(1)}\", but resources/ai/tools/{match.group(1)}.md does "
+                    f"not exist."
+                )
 
     payload = estimate_payload_bytes(tools, properties)
     if payload > LIMITS["max_payload_bytes"]:

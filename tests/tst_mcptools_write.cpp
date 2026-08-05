@@ -1039,6 +1039,46 @@ private slots:
     // is that a response arrives at all; `callAsyncTool` gives up after 5 s and
     // warns, so a regression here shows up as both a failed compare and that
     // warning.
+    // `target` is required, and the reason is destructive: with a default, "clear the
+    // auto-load" would clear whichever pin the default named while the other stayed
+    // set, and the caller would be told it succeeded. The state assertion is the
+    // load-bearing half — an error message alone passes even if something was cleared
+    // on the way to producing it.
+    void autoLoadWithoutTargetChangesNothing()
+    {
+        McpTestFixture f;
+        f.settings.dye()->setAutoLoadRecipeId(4242);
+        registerTools(f);
+
+        const QJsonObject result = f.callAsyncTool("auto_load", {{"action", "clear"}});
+        QVERIFY2(result["error"].toString().contains("profile"), qPrintable(result["error"].toString()));
+        QVERIFY2(result["error"].toString().contains("recipe"), qPrintable(result["error"].toString()));
+        QCOMPARE(f.settings.dye()->autoLoadRecipeId(), 4242);
+    }
+
+    void autoLoadWithUnknownTargetChangesNothing()
+    {
+        McpTestFixture f;
+        f.settings.dye()->setAutoLoadRecipeId(4242);
+        registerTools(f);
+
+        const QJsonObject result =
+            f.callAsyncTool("auto_load", {{"action", "clear"}, {"target", "recipes"}});
+        QVERIFY2(result["error"].toString().contains("recipes"), qPrintable(result["error"].toString()));
+        QCOMPARE(f.settings.dye()->autoLoadRecipeId(), 4242);
+    }
+
+    // equipment action=merge is destructive and irreversible, and its confirmation is
+    // now a string at its registration site rather than a name in McpServer's list —
+    // delete the string and the prompt disappears with no other signal.
+    void equipmentMergeStillRequiresConfirmation()
+    {
+        McpTestFixture f;
+        registerTools(f);
+        QVERIFY(f.registry.confirmationFor("equipment", {{"action", "merge"}}).required);
+        QVERIFY(!f.registry.confirmationFor("equipment", {{"action", "list"}}).required);
+    }
+
     void shotsDeleteNonexistentShotAnswersInsteadOfHanging()
     {
         McpTestFixture f;

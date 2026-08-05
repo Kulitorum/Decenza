@@ -21,6 +21,8 @@ delete it and add a new one.
 
 ## Indexes
 
-Indexes come from `list` and are positional, so they shift after a `delete`. Names must be
+Indexes come from `list` and are positional, so they shift after a `delete`. `update`,
+`delete` and `select` all require `index` explicitly — an omitted one is an error, never
+index 0. Names must be
 unique: recipes snapshot a pitcher BY NAME, so a duplicate is refused rather than silently
 dropped.

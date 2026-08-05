@@ -68,8 +68,7 @@ the same trio did. Nothing in the app reported a problem, because nothing in the
 Two causes, both now bounded by `scripts/check_mcp_tool_budget.py` in the per-PR
 `text-invariants` job:
 
-**Size.** The listing carried a base64 SVG icon per tool: ~216 KB against ~32 KB of descriptions
-— 87% of the payload — and 41 of 97 tools shipped the SAME 2292-byte generic fallback, because
+**Size.** The listing carried a base64 SVG icon per tool — 216 KB of a ~312 KB payload, measured — and 41 of 97 tools shipped the SAME 2292-byte generic fallback, because
 `iconQrcForTool()` mapped a tool's NAME PREFIX to an icon and every `recipe_*`, `bag_*`,
 `equipment_*`, `water_vessel_*`, `mqtt_*` and `ai_*` tool missed. Tools no longer emit `icons` at
 any protocol version; resources still do (five records, five distinct icons). The check's
@@ -77,7 +76,7 @@ no-inline-`data:` rule is what stops it coming back, because nothing about 216 K
 visible at the call site — it was one call to a helper.
 
 **Count.** Every feature added tools; none folded them in. Twelve same-noun families merged into
-one tool each, 97 → 65.
+one tool each, 97 → 66.
 
 The four limits — 80 tools, 500 chars per tool description, 120 per property description, 85 KB
 estimated payload — live in `LIMITS` at the top of that script, so tightening them is one edit.

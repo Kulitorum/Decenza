@@ -21,6 +21,8 @@
 #include "mcp/mcpsession.h"
 #include "mcp/mcptoolregistry.h"
 #include "mcp/mcpresourceregistry.h"
+#include "core/settings.h"
+#include "core/settings_mcp.h"
 
 // Stub register functions — tests pin behavior at the protocol layer; no full
 // tool/resource graph required (matches tst_mcpserver_session.cpp).
@@ -438,7 +440,7 @@ private slots:
     void toolsListSortsByTierThenName()
     {
         McpServer server;
-        auto reg = [&](const QString& name, int tier) {
+        auto reg = [&](const QString& name, McpToolTier tier) {
             server.toolRegistry()->registerTool(
                 name, "t", QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
                 [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; }, "read", tier);
@@ -455,6 +457,41 @@ private slots:
         QStringList names;
         for (const QJsonValue& v : tools) names << v.toObject()["name"].toString();
         QCOMPARE(names, QStringList({"aaa_core", "zzz_core", "mmm_standard", "aaa_niche"}));
+    }
+
+    // A merged tool is "disabled" only when EVERY verb is out of reach. Marking it
+    // by its strictest verb instead would stamp "[DISABLED — requires 'Full'…]" on
+    // `bag` for a Monitor client, which then stops calling action=list at all — the
+    // same "the tool does not exist for that user" failure this whole change is
+    // about. The schema's injected `action` enum is checked here too: it is built
+    // from the action vector, and nothing else asserts that it is.
+    void mergedToolListsUsablyAtTheLevelOfItsWeakestVerb()
+    {
+        McpServer server;   // no Settings → access level 0 (Monitor)
+        registerStubActionsOn(server.toolRegistry());
+        server.toolRegistry()->registerTool(
+            "settings_only_tool", "needs Full",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; }, "settings");
+
+        const QString sid = openSession(server, "2025-11-25");
+        auto resp = sendHttp(server, "POST", rpcBody("tools/list", {}, 3), sid);
+
+        QJsonObject merged, singleVerb;
+        for (const QJsonValue& v : resp.jsonBody["result"].toObject()["tools"].toArray()) {
+            const QJsonObject t = v.toObject();
+            if (t["name"].toString() == "stub_family") merged = t;
+            if (t["name"].toString() == "settings_only_tool") singleVerb = t;
+        }
+        QVERIFY(!merged.isEmpty());
+        QVERIFY2(!merged["description"].toString().startsWith("[DISABLED"),
+                 "a merged tool with a read verb must stay callable-looking at Monitor");
+        QVERIFY(singleVerb["description"].toString().startsWith("[DISABLED"));
+
+        const QJsonObject schema = merged["inputSchema"].toObject();
+        QVERIFY(schema["required"].toArray().contains(QJsonValue(QStringLiteral("action"))));
+        QCOMPARE(schema["properties"].toObject()["action"].toObject()["enum"].toArray(),
+                 QJsonArray({"list", "erase"}));
     }
 
     // ─── tools/call response: structuredContent + resource_link extraction ─
@@ -1258,7 +1295,7 @@ private slots:
     void mergedToolResolvesAccessLevelPerAction()
     {
         McpServer server;
-        registerStubActionTool(server);
+        registerStubActionsOn(server.toolRegistry());
 
         // No Settings wired, so mcpAccessLevel() is 0 (Monitor).
         const QString sid = openSession(server, "2025-11-25");
@@ -1272,7 +1309,7 @@ private slots:
     void mergedToolWithUnresolvableActionIsGatedAsTheStrictestVerb()
     {
         McpServer server;
-        registerStubActionTool(server);
+        registerStubActionsOn(server.toolRegistry());
         const QString sid = openSession(server, "2025-11-25");
 
         // Monitor level. Omitting `action` must NOT resolve to the read verb.
@@ -1318,7 +1355,115 @@ private slots:
         QVERIFY(registry.confirmationFor("stub_family", QJsonObject{}).required);
     }
 
+    // The three things McpServer DOES with the registry's per-action answers. The
+    // four tests above pin the resolution; these pin its consumption, which is
+    // where the change actually lives — every line this added to handleToolsCall
+    // could be reverted with the tests above still green.
+    void mergedToolReadActionDoesNotSpendTheControlRateLimit()
+    {
+        McpServer server;
+        Settings settings;
+        settings.mcp()->setMcpAccessLevel(2);
+        settings.mcp()->setMcpConfirmationLevel(0);
+        server.setSettings(&settings);
+        registerStubActionsOn(server.toolRegistry());
+
+        const QString sid = openSession(server, "2025-11-25");
+        // Comfortably past the 60/min control budget. A read verb must not touch it;
+        // resolving the category from the tool NAME (which reports the strictest verb
+        // for a merged tool) would start refusing routine reads at call 61.
+        for (int i = 0; i < McpServer::RateLimitPerMinute + 10; ++i) {
+            auto resp = callStubAction(server, sid, QJsonObject{{"action", "list"}});
+            QVERIFY2(resp.jsonBody["error"].toObject()["code"].toInt() != -32000,
+                     qPrintable(QStringLiteral("read verb rate-limited at call %1").arg(i + 1)));
+        }
+    }
+
+    void mergedToolWriteActionSpendsTheControlRateLimit()
+    {
+        McpServer server;
+        Settings settings;
+        settings.mcp()->setMcpAccessLevel(2);
+        settings.mcp()->setMcpConfirmationLevel(0);
+        server.setSettings(&settings);
+        registerStubActionsOn(server.toolRegistry());
+
+        const QString sid = openSession(server, "2025-11-25");
+        // Exactly at the budget, so the refusal lands on a known call and its (single,
+        // deliberate) warning can be consumed — this suite fails on an unexpected one.
+        for (int i = 0; i < McpServer::RateLimitPerMinute; ++i)
+            QCOMPARE(callStubAction(server, sid, QJsonObject{{"action", "erase"}})
+                         .jsonBody["error"].toObject()["code"].toInt(), 0);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Rate limit exceeded"));
+        QCOMPARE(callStubAction(server, sid, QJsonObject{{"action", "erase"}})
+                     .jsonBody["error"].toObject()["code"].toInt(), -32000);
+    }
+
+    void mergedToolConfirmationPayloadNamesTheVerbOverHttp()
+    {
+        McpServer server;
+        Settings settings;
+        settings.mcp()->setMcpAccessLevel(2);
+        settings.mcp()->setMcpConfirmationLevel(1);
+        server.setSettings(&settings);
+        registerStubActionsOn(server.toolRegistry());
+
+        const QString sid = openSession(server, "2025-11-25");
+
+        const QString erase = confirmationPayloadText(
+            callStubAction(server, sid, QJsonObject{{"action", "erase"}}));
+        QVERIFY2(erase.contains("needs_confirmation"), qPrintable(erase));
+        QVERIFY2(erase.contains("stub_family.erase"), qPrintable(erase));
+        QVERIFY2(erase.contains("Erase the stub"), qPrintable(erase));
+
+        // A read verb is not confirmed, and an unresolvable one is — through the
+        // server, not just the registry.
+        QVERIFY(!confirmationPayloadText(
+                     callStubAction(server, sid, QJsonObject{{"action", "list"}}))
+                     .contains("needs_confirmation"));
+        QVERIFY(confirmationPayloadText(callStubAction(server, sid, QJsonObject{}))
+                    .contains("needs_confirmation"));
+    }
+
+    // Starting the machine is confirmed on the machine's own screen, and NOT a
+    // second time in chat. Both halves are one string equality apart from silence:
+    // if `needsInAppConfirmation`'s name stops matching the registration, a network
+    // client starts the machine with no confirmation of any kind.
+    void machineStartConfirmsInAppAndNotInChat()
+    {
+        McpServer server;
+        Settings settings;
+        settings.mcp()->setMcpAccessLevel(2);
+        settings.mcp()->setMcpConfirmationLevel(1);
+        server.setSettings(&settings);
+        server.toolRegistry()->registerTool(
+            "machine_start", "stub",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{{"success", true}}; },
+            "control");
+
+        QSignalSpy spy(&server, &McpServer::confirmationRequested);
+        const QString sid = openSession(server, "2025-11-25");
+        QJsonObject params;
+        params["name"] = "machine_start";
+        params["arguments"] = QJsonObject{{"action", "espresso"}};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 91), sid);
+
+        QCOMPARE(spy.count(), 1);
+        QVERIFY2(!confirmationPayloadText(resp).contains("needs_confirmation"),
+                 "the in-app dialog owns this tool; a chat prompt as well is a double prompt");
+    }
+
     // ─── Pure helpers ──────────────────────────────────────────────────────
+
+    // The tool-call response body as text, for asserting on the confirmation
+    // payload without caring which content block carries it at which protocol
+    // version.
+    static QString confirmationPayloadText(const HttpResponse& resp)
+    {
+        return QString::fromUtf8(QJsonDocument(resp.jsonBody).toJson(QJsonDocument::Compact));
+    }
 
     static void registerStubActionsOn(McpToolRegistry* registry)
     {
@@ -1332,11 +1477,6 @@ private slots:
                     [](const QJsonObject&) -> QJsonObject { return QJsonObject{{"ok", true}}; },
                     QStringLiteral("Erase the stub")),
             });
-    }
-
-    static void registerStubActionTool(McpServer& server)
-    {
-        registerStubActionsOn(server.toolRegistry());
     }
 
     HttpResponse callStubAction(McpServer& server, const QString& sid, const QJsonObject& args)

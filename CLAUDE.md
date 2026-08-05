@@ -238,7 +238,7 @@ tools, a tool description over 500 characters, a property description over 120, 
 payload, or an estimated `tools/list` over 85 KB. Three rules follow from it:
 
 - **A verb of an existing noun is an `action` on that tool, not a new tool.** Twelve families
-  merged this way (97 → 65). Each action declares its own category and confirmation, resolved
+  merged this way (97 → 66). Each action declares its own category and confirmation, resolved
   server-side from the ARGUMENTS and failing closed on an action it cannot resolve.
 - **Declare a tier** (`McpTierCore` / `McpTierStandard` / `McpTierNiche`). Listing order is
   `(tier, name)`, so a truncating client loses the niche tail rather than an arbitrary ten.
