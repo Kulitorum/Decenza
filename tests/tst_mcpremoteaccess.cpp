@@ -49,7 +49,7 @@ class VisualizerUploader;
 class RecipeStorage;
 void registerMachineTools(McpToolRegistry*, DE1Device*, MachineState*, MainController*, ProfileManager*) {}
 void registerShotTools(McpToolRegistry*, ShotHistoryStorage*) {}
-void registerProfileTools(McpToolRegistry*, ProfileManager*, Settings*) {}
+void registerProfileTools(McpToolRegistry*, ProfileManager*) {}
 void registerPresetsTools(McpToolRegistry*, Settings*, MainController*, MachineState*) {}
 void registerRecipeTools(McpToolRegistry*, ShotHistoryStorage*, RecipeStorage*, MainController*, Settings*) {}
 void registerSettingsReadTools(McpToolRegistry*, Settings*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*) {}

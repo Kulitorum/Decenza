@@ -1529,8 +1529,10 @@ target_link_libraries(tst_mcpserver_protocol PRIVATE decenza_mcpserverlib decenz
 target_include_directories(tst_mcpserver_protocol PRIVATE ${CMAKE_BINARY_DIR})
 
 # Compile the production qrc so :/icons/* paths resolve at runtime — the
-# `icons[]` round-trip test reads SVGs out of the resource bundle and would
-# fail with an empty array otherwise.
+# RESOURCE listing still carries icons (five records, five distinct icons) and
+# resourcesListAt2025_11_25EmitsTitleAndIcons reads the SVGs out of the bundle.
+# Tools no longer carry icons at all, so the tool-side round-trip test this
+# comment used to name is gone; the link is still load-bearing for resources.
 target_link_libraries(tst_mcpserver_protocol PRIVATE decenza_testresources)
 
 # --- tst_mcpremoteaccess: remote connector (add-remote-mcp-connector) —

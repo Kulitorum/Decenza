@@ -1347,7 +1347,7 @@ int main(int argc, char *argv[])
     // type — correct today only because the USB path always calls setPrimaryScale(), i.e.
     // by the same luck the WiFi→BLE fallback removes.
     //
-    // The Calibration tab and the reset_saw_learning_for_profile MCP tool read the same
+    // The Calibration tab and reset_saw_learning action=profile read the same
     // property, so the pool being trained is the pool the user sees and can clear. Keeping
     // those in sync matters as much as the key itself: a write path that diverges from the
     // read path is worse than a consistently wrong key, because nothing on screen reveals it.

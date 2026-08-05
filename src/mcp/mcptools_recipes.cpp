@@ -41,7 +41,7 @@
 namespace {
 
 // Water preset "flowRate" is stored in tenths of mL/s; the MCP surface uses
-// mL/s (flowMlPerSec), matching the water_vessel_* tools (mcptools_presets.cpp).
+// mL/s (flowMlPerSec), matching the water_vessel tool (mcptools_presets.cpp).
 constexpr double kWaterFlowScale = 10.0;
 
 QString isoFromEpoch(qint64 epochSecs)
@@ -55,7 +55,7 @@ QString isoFromEpoch(qint64 epochSecs)
 // The recipe hot-water block is stored with the water vessel's NATIVE field
 // names (volume, flowRate) so it round-trips straight through the vessel preset
 // API. The MCP surface, however, uses the house conventions the sibling
-// water_vessel_* tools expose (volumeMl, flowMlPerSec = flowRate / 10) so an LLM
+// the water_vessel tool exposes (volumeMl, flowMlPerSec = flowRate / 10) so an LLM
 // can carry values between the two surfaces without a 10x flow error.
 QJsonObject hotWaterBlockToMcp(const QJsonObject& native)
 {
@@ -250,9 +250,7 @@ QJsonObject steamBlockSchema()
 {
     return QJsonObject{
         {"type", "object"},
-        {"description", "The drink's steam block. hasMilk drives steam-heater intent on "
-                        "activation. The pitcher is snapshotted by value (name + parameters), "
-                        "never referenced by preset index."},
+        {"description", "Steam block. hasMilk drives heater intent; the pitcher is snapshotted by value, not by index"},
         {"properties", QJsonObject{
             {"hasMilk", QJsonObject{{"type", "boolean"}}},
             {"milkWeightG", QJsonObject{{"type", "number"}}},
@@ -274,19 +272,16 @@ QJsonObject hotWaterBlockSchema()
 {
     return QJsonObject{
         {"type", "object"},
-        {"description", "The drink's added-hot-water block (for an Americano or long black). "
-                        "hasWater turns it on; the water vessel is snapshotted by value (name + "
-                        "parameters), never referenced by preset index. order is the pour intent: "
-                        "'before' the espresso (a long black) or 'after' it (an Americano)."},
+        {"description", "Hot-water block. hasWater turns it on; vessel snapshotted by value; order 'before' or 'after'"},
         {"properties", QJsonObject{
             {"hasWater", QJsonObject{{"type", "boolean"}}},
             {"vesselName", QJsonObject{{"type", "string"}}},
             {"volumeMl", QJsonObject{{"type", "integer"},
                 {"description", "Water amount — mL when mode='volume', grams when mode='weight' "
-                                "(matches the water_vessel_* tools' volumeMl)"}}},
+                                "(matches the water_vessel tool's volumeMl)"}}},
             {"mode", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"weight", "volume"}}}},
             {"flowMlPerSec", QJsonObject{{"type", "number"},
-                {"description", "Hot-water flow in mL/s, matching the water_vessel_* tools' "
+                {"description", "Hot-water flow in mL/s, matching the water_vessel tool's "
                                 "flowMlPerSec field"}}},
             {"temperatureC", QJsonObject{{"type", "number"}}},
             {"order", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"before", "after"}},
@@ -352,7 +347,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "read");
+        "read", McpTierCore);
 
     // recipe_get — one recipe, fully resolved.
     registry->registerAsyncTool(
@@ -400,26 +395,23 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "read");
+        "read", McpTierCore);
 
-    // recipe_get_auto_load / recipe_set_auto_load / recipe_clear_auto_load
+    // The recipe half of the auto_load tool (target=recipe)
     // (recipe-auto-load) live in mcptools_write.cpp, not here — they only
     // need ShotHistoryStorage + Settings, and keeping them out of this file
-    // means they (and profiles_set_auto_load's tests) don't drag in
+    // means they (and the profile half's tests) don't drag in
     // MainController's full closure the way recipe_activate/recipe_archive
     // below do (this file is not linked by any test target as a result).
 
     // recipe_create — new recipe from explicit fields.
     registry->registerAsyncTool(
         "recipe_create",
-        "Create a recipe. Only name is always required; profileTitle is required unless the "
-        "recipe carries a hot-water block with hasWater true (a profile-less hot-water tea). "
-        "Bag link, equipment, and every parameter are optional (a recipe works with whatever "
-        "the user tracks). Link the specific bag with bagId (from bag_list); passing only bean "
-        "identity fields resolves them to that bean's open bag once, at save time. Grind lives "
-        "on the recipe: OMIT grindPinned to adopt the linked bag's current dial as this "
-        "recipe's own starting grind (recommended), or set it explicitly; an explicitly empty "
-        "string stores no grind.",
+        "Create a recipe. Only `name` is always required; `profileTitle` is required unless the recipe "
+        "is a profile-less hot-water tea. Bag link, equipment and every parameter are optional. "
+        "Link a bag with bagId, or pass bean identity fields to resolve that bean's open bag once "
+        "at save time. Grind lives on the recipe: omit grindPinned to adopt the bag's current dial "
+        "(recommended). Field rules: get_agent_file topic \"recipe_create\".",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -430,33 +422,20 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"drinkType", QJsonObject{{"type", "string"},
                     {"enum", QJsonArray{"espresso", "filter", "americano", "long_black",
                                         "latte", "latte_hotwater", "tea", "tea_hotwater"}},
-                    {"description", "The drink this recipe makes (user intent; presentation "
-                                    "only — machine behavior follows the blocks). Derived "
-                                    "from the blocks when omitted"}}},
+                    {"description", "The drink this recipe makes. Presentation only; derived from the blocks when omitted"}}},
                 {"bagId", QJsonObject{{"type", "integer"},
-                    {"description", "The specific coffee bag this recipe is made with (from "
-                                    "bag_list). The bag's bean identity is adopted "
-                                    "automatically."}}},
+                    {"description", "Coffee bag this recipe is made with (bag action=list). Its bean identity is adopted"}}},
                 {"beanBaseId", QJsonObject{{"type", "string"},
                     {"description", "Canonical bean UUID (display fallback + relink matching "
                                     "key; resolved to the bean's open bag when bagId is omitted)"}}},
                 {"roasterName", QJsonObject{{"type", "string"}}},
                 {"coffeeName", QJsonObject{{"type", "string"}}},
-                {"equipmentId", QJsonObject{{"type", "integer"}, {"description", "Equipment package id (equipment_list)"}}},
+                {"equipmentId", QJsonObject{{"type", "integer"}, {"description", "Equipment package id (equipment action=list)"}}},
                 {"doseG", QJsonObject{{"type", "number"}}},
                 {"yieldG", QJsonObject{{"type", "number"},
-                    {"description", "Absolute yield target in grams. Mutually exclusive with "
-                                    "yieldRatio: a recipe holds ONE yield anchor, and writing "
-                                    "yieldG replaces any stored ratio (no separate clear "
-                                    "needed). Sending both keys in one call is rejected. "
-                                    "0 clears the yield entirely."}}},
+                    {"description", "Absolute yield in grams. Replaces any stored yieldRatio; sending both is rejected; 0 clears"}}},
                 {"yieldRatio", QJsonObject{{"type", "number"},
-                    {"description", "Yield as a multiplier of the dose (2.0 = a 1:2 ratio; "
-                                    "clamped to 0.5-6.0). The gram target then follows the "
-                                    "dose actually weighed. Mutually exclusive with yieldG: "
-                                    "writing yieldRatio replaces any stored absolute yield "
-                                    "(no separate clear needed). Sending both keys in one "
-                                    "call is rejected. 0 clears the yield entirely."}}},
+                    {"description", "Yield as a multiple of dose (2.0 = 1:2, clamped 0.5-6.0). Replaces any stored yieldG; 0 clears"}}},
                 {"tempOffsetC", QJsonObject{{"type", "number"},
                     {"description", "Signed temperature delta in Celsius against the recipe's "
                                     "profile (0/omitted = brew at the profile's own temperature)"}}},
@@ -539,7 +518,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 });
             recipeStorage->requestCreateRecipe(fields);
         },
-        "settings");
+        "settings", McpTierCore);
 
     // recipe_update — edit fields; only provided keys change.
     registry->registerAsyncTool(
@@ -560,24 +539,16 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     {"enum", QJsonArray{"espresso", "filter", "americano", "long_black",
                                         "latte", "latte_hotwater", "tea", "tea_hotwater"}}}},
                 {"bagId", QJsonObject{{"type", "integer"},
-                    {"description", "Re-point the recipe at this coffee bag (from bag_list)"}}},
+                    {"description", "Re-point the recipe at this coffee bag (bag action=list)"}}},
                 {"beanBaseId", QJsonObject{{"type", "string"}}},
                 {"roasterName", QJsonObject{{"type", "string"}}},
                 {"coffeeName", QJsonObject{{"type", "string"}}},
                 {"equipmentId", QJsonObject{{"type", "integer"}}},
                 {"doseG", QJsonObject{{"type", "number"}}},
                 {"yieldG", QJsonObject{{"type", "number"},
-                    {"description", "Absolute yield target in grams. Mutually exclusive with "
-                                    "yieldRatio; sending yieldG alone REPLACES a stored ratio "
-                                    "(updates are present-keys-only, but the yield anchor is "
-                                    "one field — no explicit clear of yieldRatio is needed or "
-                                    "possible). 0 clears the yield entirely."}}},
+                    {"description", "Absolute yield in grams. Replaces any stored yieldRatio — the anchor is one field; 0 clears"}}},
                 {"yieldRatio", QJsonObject{{"type", "number"},
-                    {"description", "Yield as a multiplier of the dose (2.0 = 1:2; clamped to "
-                                    "0.5-6.0); the gram target then follows the dose actually "
-                                    "weighed. Mutually exclusive with yieldG; sending "
-                                    "yieldRatio alone REPLACES a stored absolute yield. "
-                                    "0 clears the yield entirely."}}},
+                    {"description", "Yield as a multiple of dose (2.0 = 1:2, clamped 0.5-6.0). Replaces any stored yieldG; 0 clears"}}},
                 {"tempOffsetC", QJsonObject{{"type", "number"},
                     {"description", "Signed temperature delta in Celsius against the recipe's "
                                     "profile (0 clears it)"}}},
@@ -664,7 +635,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 });
             recipeStorage->requestUpdateRecipe(recipeId, fields);
         },
-        "settings");
+        "settings", McpTierCore);
 
     // recipe_create_from_shot — the promotion path.
     registry->registerAsyncTool(
@@ -747,7 +718,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "settings");
+        "settings", McpTierCore);
 
     // recipe_clone — copy + rename (the family-variant workflow).
     registry->registerAsyncTool(
@@ -793,7 +764,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 });
             recipeStorage->requestCloneRecipe(sourceId, name, token);
         },
-        "settings");
+        "settings", McpTierCore);
 
     // recipe_archive — retire (or restore); delete only for unused recipes.
     registry->registerAsyncTool(
@@ -880,7 +851,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
             else
                 recipeStorage->requestArchiveRecipe(recipeId);
         },
-        "settings");
+        "settings", McpTierCore);
 
     // recipe_activate — the pill-tap equivalent (single shared path).
     registry->registerAsyncTool(
@@ -946,5 +917,5 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 });
             mainController->activateRecipe(recipeId);
         },
-        "control");
+        "control", McpTierCore);
 }

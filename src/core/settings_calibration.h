@@ -74,7 +74,7 @@ public:
     // runtime auto-cal algorithm can produce (kCalibrationMin/kCalibrationMax in
     // MainController); they are NOT the tighter firmware-version ceiling it applies on
     // top. Public because every writer has to agree on them — settings import and the
-    // set_flow_calibration MCP tool both pre-check so they can report WHY a value was
+    // flow_calibration action=set both pre-check so they can report WHY a value was
     // refused, and a second hand-typed copy of the numbers is exactly how the two would
     // drift apart from the one enforced below.
     static constexpr double kProfileFlowCalMin = 0.5;
@@ -92,7 +92,7 @@ public:
     // until a full batch is collected, then the median is used to update C.
     // The batch size lives here, with the store it describes, because two consumers
     // need it: MainController::computeAutoFlowCalibration decides when to commit, and
-    // get_flow_calibration reports progress toward the next update ("3 of 5 shots").
+    // flow_calibration action=get reports progress toward the next update ("3 of 5 shots").
     // A reported size that disagrees with the enforced one is a wrong answer nothing
     // would flag.
     static constexpr qsizetype kFlowCalBatchSize = 5;

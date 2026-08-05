@@ -29,12 +29,34 @@
 #include <QCoreApplication>
 
 #include "../core/dbutils.h"
+#include "mcpagentdocs.h"
+
+#include <QFile>
 
 void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                           MachineState* machineState, ProfileManager* profileManager,
                           ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor,
                           Settings* settings)
 {
+    // decenza://tools/<topic> — the long-form tool documentation, for clients that
+    // read resources rather than calling get_agent_file(topic). Both surfaces
+    // derive from the same resource directory (see mcpagentdocs.h), so a new
+    // markdown file appears in both without a list to update.
+    for (const QString& topic : McpAgentDocs::availableTopics()) {
+        registry->registerResource(
+            QStringLiteral("decenza://tools/%1").arg(topic),
+            topic + QStringLiteral(" documentation"),
+            QStringLiteral("Long-form documentation for the %1 MCP tool").arg(topic),
+            "application/json",
+            [topic]() -> QJsonObject {
+                QFile doc(McpAgentDocs::topicPath(topic));
+                if (!doc.open(QIODevice::ReadOnly))
+                    return QJsonObject{{"error", QStringLiteral("Documentation for \"%1\" could not be read").arg(topic)}};
+                return QJsonObject{{"topic", topic},
+                                   {"content", QString::fromUtf8(doc.readAll())}};
+            });
+    }
+
     // decenza://machine/state
     registry->registerResource(
         "decenza://machine/state",
@@ -366,56 +388,25 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
     // exist. A hand-written list here would be a second copy free to drift, and the
     // failure mode is invisible: a marker the description omits is a marker the
     // assistant never tries, so the story simply looks absent.
-    QString markerHelp =
-        QStringLiteral("\n\nSUBSYSTEM MARKERS. Device and radio log lines begin with a "
-                       "bracketed subsystem marker, then optionally their own source "
-                       "(\"[Scale][BLE AcaiaScale] tare sent\"). Pass one as `filter` to "
-                       "retrieve that subsystem's whole narrative. Registered markers:");
-    for (const DecenzaLog::Subsystem& sub : DecenzaLog::subsystems()) {
-        markerHelp += QStringLiteral("\n  %1 — %2")
-                          .arg(DecenzaLog::markerFilter(sub.marker), QLatin1String(sub.description));
-    }
-    markerHelp += QStringLiteral(
-        "\n\nA bracketed marker is a SUBSTRING, not a pattern: pass it with `regex` "
-        "false/absent. Under `regex: true`, \"[Scale]\" is a character class matching "
-        "any line containing S, c, a, l or e — i.e. almost every line — which looks "
-        "like a working query returning everything.\n\n"
-        "Severity carries audience, so `minLevel: \"INFO\"` plus a marker is the "
-        "user-facing story for that subsystem and nothing else: DEBUG is developer "
-        "detail (protocol frames, per-poll state), INFO is the narrative a user may "
-        "need (lifecycle, discovery outcomes, connect/disconnect, fallback), WARN and "
-        "above are problems. That pairing is the same predicate the app's own "
-        "connections page uses, so these lines are the ones a user can read on "
-        "screen — but the page shows only the current session and only its last few "
-        "hundred lines, while you are addressing the whole file. Expect to see more "
-        "than the user does, not less.");
+    // The registered-marker CATALOG (every marker and what it covers) is returned by
+    // `families=true`, derived from DecenzaLog::subsystems() — it is NOT written into
+    // this tool's description. It used to be: 7024 characters, of which 6.5 KB was
+    // this table, on every tools/list — 21% of all tool descriptions in the tree and
+    // 3x the next-largest description, while clients were already truncating the
+    // list. Deriving it is still right; the question is where it is SERVED, and
+    // on-demand is where a 40-line table belongs. The guidance that went with it —
+    // the regex trap, what each severity is for, why the markers are a minority of
+    // the log — is in resources/ai/tools/debug_get_log.md.
 
     // debug_get_log — chunked access to the persisted debug log with session awareness
     registry->registerTool(
         "debug_get_log",
-        "Read the persisted debug log. Supports three addressing modes: "
-        "(0) families=true: census of this log's line prefixes — start here when you do not "
-        "already know which subsystem you need, because the markers named below are a "
-        "MINORITY of the log and a subsystem missing from them is not missing from the log. "
-        "(1) sessions=true: list all sessions with index, start line, timestamp, and line count. "
-        "(2) session=N: address session N (-1=most recent, -2=previous, 0=first). "
-        "(3) Default: address the whole log. "
-        "Sessions are listed in the order they were recorded, so index 0 is the oldest "
-        "surviving session and -1 is the run happening now. A session may be reported with "
-        "`timestamp` null and `startTimeKnown` false; its lines are intact and only its "
-        "start time is unknown, so treat null as \"unknown\", never as \"just now\". There "
-        "is more than one cause — the log is capped and trimmed from the front, which can "
-        "remove the oldest session's marker, and a marker can also be left unparseable by a "
-        "run that ended abruptly — so read `startTimeNote` on that session rather than "
-        "assuming which happened. "
-        "Within modes 2/3, `filter` (substring, or regex when `regex` is true; case-insensitive) "
-        "and `minLevel` (DEBUG/INFO/WARN/ERROR/FATAL, mode-2/3 app log only) narrow which lines "
-        "qualify before pagination. `dedupe` collapses consecutive qualifying lines that are "
-        "identical apart from each line's own leading timestamp into one entry carrying `count` "
-        "and `lastLine` (non-consecutive repeats are not collapsed). `tail` (last N qualifying/"
-        "deduped entries) takes precedence over `offset` when both are given. Every returned line "
-        "carries its absolute line number in the `lines` array."
-        + markerHelp,
+        "Read the persisted debug log. `families=true` censuses this log's prefixes and returns "
+        "the registered-marker catalog — start there when you do not know the subsystem. "
+        "`sessions=true` lists sessions; `session=N` addresses one (-1 current run, 0 "
+        "oldest kept); default is the whole log. `filter`/`regex`, `minLevel`, `dedupe`, `tail` "
+        "and `offset` narrow the latter two. A marker like [Scale] is a SUBSTRING; under "
+        "`regex: true` it matches almost everything. get_agent_file topic \"debug_get_log\".",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -464,11 +455,11 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 }},
                 {"tail", QJsonObject{
                     {"type", "integer"},
-                    {"description", "Return only the last N qualifying lines instead of paginating from offset. Takes precedence over offset when both are set."}
+                    {"description", "Return the last N qualifying lines. Takes precedence over offset when both are set"}
                 }},
                 {"dedupe", QJsonObject{
                     {"type", "boolean"},
-                    {"description", "Collapse consecutive qualifying lines that are identical apart from each line's own leading timestamp into one entry carrying count/lastLine. Non-consecutive repeats are not collapsed."}
+                    {"description", "Collapse CONSECUTIVE identical lines (ignoring timestamps) into one carrying count/lastLine"}
                 }}
             }}
         },
@@ -605,8 +596,19 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                                                      "genuinely holds no lines").arg(path);
                 }
 
+                // The catalog of registered markers, derived from the subsystem
+                // registry so it cannot drift from what the app actually logs. This
+                // is where it is served now — see the note above markerHelp.
+                QJsonArray markerCatalog;
+                for (const DecenzaLog::Subsystem& sub : DecenzaLog::subsystems()) {
+                    markerCatalog.append(QJsonObject{
+                        {"marker", DecenzaLog::markerFilter(sub.marker)},
+                        {"covers", QString::fromUtf8(sub.description)}});
+                }
+
                 QJsonObject census{
                     {"linesScanned", static_cast<double>(all.size())},
+                    {"registeredMarkerCatalog", markerCatalog},
                     {"registeredMarkers", toArray(reg, QStringLiteral("filter=\"[%1]\""))},
                     {"unregisteredBracketPrefixes",
                      toArray(unreg, QStringLiteral("filter=\"[%1]\""))},

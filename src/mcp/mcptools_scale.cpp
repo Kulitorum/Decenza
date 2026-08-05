@@ -8,7 +8,7 @@
 
 namespace {
 
-// Shared precondition for the three scale_timer_* tools: a scale must be
+// Shared precondition for the scale_timer verbs: a scale must be
 // connected AND must actually implement the timer. The three slots are virtual
 // with empty default bodies, so a scale that does not implement them accepts
 // every command and does nothing — which is what these tools used to report as
@@ -85,13 +85,11 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
             result["message"] = "Tare command sent to the scale";
             return result;
         },
-        "control");
+        "control", McpTierCore);
 
-    // scale_timer_start
-    registry->registerTool(
-        "scale_timer_start",
-        "Start the scale's built-in timer (if supported by the scale)",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+    // scale_timer — start / stop / reset the scale's own timer.
+    const QVector<McpToolAction> timerActions{
+        McpRegistryHelpers::syncAction("start", "control",
         [machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (timerUnavailable(machineState, result))
@@ -100,14 +98,8 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
             result["success"] = true;
             result["message"] = "Timer start command sent to the scale";
             return result;
-        },
-        "control");
-
-    // scale_timer_stop
-    registry->registerTool(
-        "scale_timer_stop",
-        "Stop the scale's built-in timer",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        }),
+        McpRegistryHelpers::syncAction("stop", "control",
         [machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (timerUnavailable(machineState, result))
@@ -116,14 +108,8 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
             result["success"] = true;
             result["message"] = "Timer stop command sent to the scale";
             return result;
-        },
-        "control");
-
-    // scale_timer_reset
-    registry->registerTool(
-        "scale_timer_reset",
-        "Reset the scale's built-in timer to zero",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        }),
+        McpRegistryHelpers::syncAction("reset", "control",
         [machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (timerUnavailable(machineState, result))
@@ -136,16 +122,25 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
             if (!machineState->scale()->hasIndependentTimerReset()) {
                 result["error"] = "This scale (" + machineState->scale()->name()
                                   + ") cannot reset its timer independently — the reset "
-                                    "command also starts it. Use scale_timer_stop first, "
-                                    "or start a fresh timer with scale_timer_start.";
+                                    "command also starts it. Use action=stop first, "
+                                    "or start a fresh timer with action=start.";
                 return result;
             }
             QMetaObject::invokeMethod(machineState->scale(), "resetTimer", Qt::QueuedConnection);
             result["success"] = true;
             result["message"] = "Timer reset command sent to the scale";
             return result;
-        },
-        "control");
+        }),
+    };
+
+    registry->registerActionTool(
+        "scale_timer",
+        "Control the connected scale's built-in timer: start, stop or reset. Not every scale "
+        "supports remote timer control, and some cannot reset independently — their reset also "
+        "starts the timer, which action=reset refuses rather than pretending.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        timerActions,
+        McpTierCore);
 
     // scale_get_weight
     registry->registerTool(
@@ -170,5 +165,5 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
             result["connected"] = machineState->scale()->isConnected();
             return result;
         },
-        "read");
+        "read", McpTierCore);
 }

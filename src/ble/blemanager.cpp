@@ -2645,7 +2645,7 @@ void BLEManager::ensureWifiDiscovery() {
     // `ran` is not decoration: false means the transport could not run at all
     // (no backend, socket refused, Local Network denied) as opposed to running
     // and finding nothing. Both leave the list empty, so keep the distinction
-    // where a diagnostic can read it — otherwise devices_wifi_results reports
+    // where a diagnostic can read it — otherwise devices_wifi action=results reports
     // "0 results" for a permission denial exactly as it does for a quiet LAN.
     connect(m_wifiDiscovery, &WifiScaleDiscovery::probeFinished, this,
             [this](bool ran) { m_lastWifiProbeRan = ran; emit scanningChanged(); });
@@ -2766,7 +2766,7 @@ void BLEManager::ensureReconnectDiscovery() {
     // resultFound only. Deliberately NOT wired to browseFinished/probeFinished:
     // those drive m_lastWifiBrowseRan/m_lastWifiProbeRan and emit
     // scanningChanged(), which is user-scan state. A background browse must not
-    // rewrite what devices_wifi_results reports about the user's last scan, and
+    // rewrite what devices_wifi action=results reports about the user's last scan, and
     // must not touch the Scan button.
     connect(m_reconnectDiscovery, &WifiScaleDiscovery::resultFound, this,
         [this](const WifiScaleResult& result) {

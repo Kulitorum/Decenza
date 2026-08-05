@@ -213,40 +213,40 @@ The system SHALL enforce that only an existing, non-archived recipe can be the a
 
 ### Requirement: MCP — get auto-load
 
-The MCP server SHALL expose a `recipe_get_auto_load` tool returning the current recipe auto-load configuration with a read access level.
+The MCP server SHALL expose the `auto_load` tool's `action: "get"` with `target: "recipe"`, returning the current recipe auto-load configuration at a read access level.
 
 #### Scenario: Configured auto-load is reported
 
-- **WHEN** an MCP client calls `recipe_get_auto_load` AND a recipe auto-load is configured
+- **WHEN** an MCP client calls `auto_load` with `action: "get"`, `target: "recipe"` AND a recipe auto-load is configured
 - **THEN** the response includes `recipeId`, `name`, and `revertMinutes`
 
 #### Scenario: No auto-load configured
 
-- **WHEN** an MCP client calls `recipe_get_auto_load` AND `autoLoadRecipeId` is `-1`
+- **WHEN** an MCP client calls `auto_load` with `action: "get"`, `target: "recipe"` AND `autoLoadRecipeId` is `-1`
 - **THEN** the response includes `recipeId: null` AND `revertMinutes` (the current configured timeout)
 
 ### Requirement: MCP — set auto-load
 
-The MCP server SHALL expose a `recipe_set_auto_load` tool with a settings access level that pins a recipe as the auto-load and optionally updates the shared revert minutes, clearing any profile auto-load in the same call.
+The MCP server SHALL expose the `auto_load` tool's `action: "set"` with `target: "recipe"`, at a settings access level, that pins a recipe as the auto-load and optionally updates the shared revert minutes, clearing any profile auto-load in the same call.
 
 #### Scenario: Successful set
 
-- **WHEN** the client calls `recipe_set_auto_load` with a `recipeId` that exists and is not archived
+- **WHEN** the client calls `auto_load` with `action: "set"`, `target: "recipe"` with a `recipeId` that exists and is not archived
 - **THEN** the response is `{ success: true, recipeId, name, revertMinutes }` AND the setting is persisted on the GUI thread AND `Settings.app.autoLoadProfileFilename` is cleared to `""`
 
 #### Scenario: recipeId missing
 
-- **WHEN** the client calls `recipe_set_auto_load` with an absent `recipeId`
+- **WHEN** the client calls `auto_load` with `action: "set"`, `target: "recipe"` with an absent `recipeId`
 - **THEN** the response is `{ error: "recipeId is required" }` AND no state changes
 
 #### Scenario: recipeId not found
 
-- **WHEN** the client calls `recipe_set_auto_load` with a `recipeId` that does not exist
+- **WHEN** the client calls `auto_load` with `action: "set"`, `target: "recipe"` with a `recipeId` that does not exist
 - **THEN** the response is `{ error: "Recipe not found: <recipeId>" }` AND no state changes
 
 #### Scenario: recipeId is archived
 
-- **WHEN** the client calls `recipe_set_auto_load` with a `recipeId` that exists but is archived
+- **WHEN** the client calls `auto_load` with `action: "set"`, `target: "recipe"` with a `recipeId` that exists but is archived
 - **THEN** the response is `{ error: "Recipe is archived" }` AND no state changes
 
 #### Scenario: Optional revert minutes updates the shared setting
@@ -256,9 +256,9 @@ The MCP server SHALL expose a `recipe_set_auto_load` tool with a settings access
 
 ### Requirement: MCP — clear auto-load
 
-The MCP server SHALL expose a `recipe_clear_auto_load` tool with a settings access level that disables the recipe auto-load without affecting the shared revert timeout.
+The MCP server SHALL expose the `auto_load` tool's `action: "clear"` with `target: "recipe"`, at a settings access level, that disables the recipe auto-load without affecting the shared revert timeout.
 
 #### Scenario: Successful clear
 
-- **WHEN** the client calls `recipe_clear_auto_load`
+- **WHEN** the client calls `auto_load` with `action: "clear"`, `target: "recipe"`
 - **THEN** `autoLoadRecipeId` is set to `-1` AND `autoLoadRevertMinutes` is unchanged AND the response is `{ success: true }`

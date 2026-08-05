@@ -41,39 +41,17 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     // dialing_get_context
     registry->registerAsyncTool(
         "dialing_get_context",
-        "Get dial-in context: dial-in history grouped into sessions (runs of "
-        "shots on the same profile within ~60 minutes of each other, with within-session "
-        "changeFromPrev diffs), profile knowledge for the current shot's profile, bean/grinder "
-        "metadata, grinder context (observed settings range, step size, and burr-swappable flag), "
-        "a tastingFeedback block flagging whether the shot has enjoyment / notes / refractometer "
-        "data — when any is missing the block carries a recommendation to ask the user before "
-        "suggesting changes — and a bestRecentShot anchor (highest-rated past shot on the same "
-        "profile within the last 90 days, with a changeFromBest diff against the current shot) "
-        "so advice can reference what success has looked like, not just what changed since last "
-        "pull. The 90-day window keeps the anchor on the user's current setup era; the block "
-        "is omitted when no rated shot in that window exists. A sawPrediction block surfaces "
-        "the predicted post-cut drip in grams from the stop-at-weight learner (espresso only; "
-        "with sourceTier reporting which model is active so the AI can weight its confidence; "
-        "omitted when no scale is configured or the shot lacks usable flow data). "
-        "Primary read tool for dial-in conversations — a single call gives everything needed to analyze "
-        "a shot and suggest changes. Default profileKnowledge contains only the current profile's "
-        "curated KB entry (~1 KB); pass includeFullKnowledge: true to also receive the dial-in system "
-        "prompt, reference tables, and the cross-profile catalog (~18 KB total — useful at session start "
-        "but redundant on later turns). "
-        "Grinder settings are shown as the user entered them — may be numbers, letters, click counts, or "
-        "grinder-specific notation like Eureka multi-turn (1+4 = 1 rotation + position 4). The "
-        "grinderContext block shows the range observed in the user's own shot history and a stepSize — "
-        "the typical dial increment, noise-filtered so a single mistyped setting does not skew it. "
-        "For cross-profile grind translation — the recommended grinder setting for a profile OTHER than "
-        "the current shot's, e.g. when the user is considering a profile switch — call "
-        "dialing_get_grinder_calibration. That table is intentionally not included here: it is a stable "
-        "property of the grinder, so fetching it once on demand keeps multi-turn dial-in lean.",
+        "Primary read for a dial-in conversation: one call returns the dial-in session history with "
+        "per-shot diffs, the profile's knowledge entry, bean and grinder metadata, the grind range "
+        "seen in this user's own history, whether the shot has tasting feedback, a best-recent-shot "
+        "anchor, and the stop-at-weight drip prediction. Every block: get_agent_file topic "
+        "\"dialing_get_context\".",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
                 {"shot_id", QJsonObject{{"type", "integer"}, {"description", "Specific shot ID to analyze. If omitted, uses most recent shot."}}},
                 {"history_limit", QJsonObject{{"type", "integer"}, {"description", "Number of prior shots with same profile to include (default 5, max 20)"}}},
-                {"includeFullKnowledge", QJsonObject{{"type", "boolean"}, {"description", "Include the full dial-in system prompt, reference tables, and profile catalog in profileKnowledge. Default false — return only the current profile's KB entry. Useful at session start; redundant per call."}}}
+                {"includeFullKnowledge", QJsonObject{{"type", "boolean"}, {"description", "Add the dial-in prompt, reference tables and profile catalog (~18 KB). Default false"}}}
             }}
         },
         [mainController, profileManager, shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
@@ -389,7 +367,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "read");
+        "read", McpTierCore);
 
     // dialing_get_grinder_calibration
     //
@@ -406,28 +384,12 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     // stable per-conversation constant — re-fetch when the coffee changes.
     registry->registerAsyncTool(
         "dialing_get_grinder_calibration",
-        "Cross-profile grinder grind guidance for the user's grinder + burrs. "
-        "The model `grind(profile, coffeeBatch) ≈ batchBaseline + UGS·conversionKey` "
-        "is derived from within-roast-batch paired history. Returns: "
-        "`confidence` (\"approximate\" = a gated numeric conversion is "
-        "available; \"directional\" = not enough same-batch data, relative "
-        "guidance only); `usageConstraint` (a directive to follow verbatim); "
-        "`currentProfileUgsPlaced` (false → the current profile is not on the "
-        "UGS chart and finer/coarser cannot be ordered). When approximate it "
-        "also returns `conversionKey`, `calibratedUgsRange`, and `coffeeAnchor` "
-        "(the recent dialed-in shot of the CURRENT coffee the numbers are "
-        "anchored on). `profiles[]` entries each carry `profileName`, `ugs`, "
-        "`source` and conditionally `rgs`/`direction`: source `history` = "
-        "median from the user's own current-batch shots (has `rgs`), `derived` "
-        "= interpolated within the calibrated range + cap (has `rgs`), "
-        "`directional` = outside the cap OR no numeric calibration (NO `rgs`; "
-        "carries `direction` \"finer\"/\"coarser\" relative to the current "
-        "profile — when no `direction`, the two cannot be ordered). NEVER quote "
-        "or compute a number for a `directional` profile; give finer/coarser "
-        "and tell the user to pull a reference shot. The block is anchored on "
-        "the current roast batch, so re-fetch when the coffee changes. Call "
-        "this ONLY when the user asks about switching profiles or wants a grind "
-        "setting for a profile other than the current shot's. Espresso only.",
+        "Cross-profile grind guidance for this grinder and burrs, anchored on the current roast batch "
+        "(re-fetch when the coffee changes). Espresso only. Call it ONLY when the user asks about "
+        "switching profiles or wants a setting for a profile other than the current shot's. Each "
+        "profile comes back as a number or as finer/coarser only — never quote a number for a "
+        "`directional` entry. Sources, confidence and the usage constraint: get_agent_file topic "
+        "\"dialing_get_grinder_calibration\".",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -530,5 +492,5 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "read");
+        "read", McpTierCore);
 }

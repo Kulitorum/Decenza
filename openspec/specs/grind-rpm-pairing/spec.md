@@ -22,12 +22,12 @@ For variable-RPM grinders the dial-in is two values — the burr grind setting a
 
 #### Scenario: MCP shot/bag/settings inputs accept RPM
 
-- **WHEN** `shots_update`, `bag_create`, `bag_update`, or `settings_set` accepts a grind field
+- **WHEN** `shots_update`, `bag` (`action: "create"` or `action: "update"`), or `settings_set` accepts a grind field
 - **THEN** it SHALL also accept the sibling RPM field, persisted through the existing storage path
 
 #### Scenario: Start-a-shot accepts an independent RPM override
 
-- **WHEN** `machine_start_espresso` (and `ProfileManager::activateBrewWithOverrides`) accepts a grind override
+- **WHEN** `machine_start` with `action: "espresso"` (and `ProfileManager::activateBrewWithOverrides`) accepts a grind override
 - **THEN** it SHALL also accept an optional RPM override, applied independently of grind and left untouched when absent
 
 #### Scenario: ShotServer edit forms accept RPM
@@ -52,4 +52,3 @@ For variable-RPM grinders the dial-in is two values — the burr grind setting a
 - **GIVEN** a shot with no recorded RPM
 - **WHEN** any of the above surfaces render or serialize it
 - **THEN** no RPM value SHALL be added
-

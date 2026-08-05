@@ -47,6 +47,16 @@ name: Text invariants
 #     simulator session — and every one was found by a person reading a running app's log
 #     rather than by the tree. A grep finds them in milliseconds; guidance did not.
 #
+#   check_mcp_tool_budget.py — the MCP tool surface stays inside a declared budget: tool count,
+#     per-tool and per-property description length, no inline `data:` payloads, and an estimate
+#     of the whole tools/list response. Blocking, because the failure is invisible from inside
+#     the app: `tools/list` is sent in full on every connection and real clients TRUNCATE it
+#     silently. ChatGPT exposed 87 of 97 tools, so `get_flow_calibration` and
+#     `set_flow_calibration` simply did not exist for that user while `clear_flow_calibration`
+#     from the same trio did. The dominant cost was not the descriptions: per-tool base64 SVG
+#     icons were 216 KB of a ~248 KB payload — 87% — and 41 of 97 tools shipped the SAME 2292-byte
+#     fallback icon, all of it produced by one call to a helper and therefore invisible in review.
+#
 #   check_test_source_duplication.py — no production source is compiled into more than one test
 #     target. Each test is its own executable, so a .cpp in two source lists is compiled twice
 #     and nothing notices. Measured on a clean rebuild in July 2026: 17 sources, 46 redundant
@@ -135,6 +145,11 @@ jobs:
       # nothing in a log reveals that a line is missing from it.
       - name: Subsystem log lines carry a registered marker
         run: python3 scripts/check_log_markers.py
+
+      # Blocking: a truncated tool list is invisible from inside the app, and the payload that
+      # causes it is invisible in review.
+      - name: MCP tool surface stays inside its budget
+        run: python3 scripts/check_mcp_tool_budget.py --verbose
 
       # Blocking: a duplicate compile is invisible in review — one line added to a source list —
       # and costs on every build forever. This reads tests/CMakeLists.txt as text, so it fits the

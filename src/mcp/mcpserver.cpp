@@ -28,7 +28,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                           ProfileManager* profileManager);
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory);
 class ProfileManager;
-void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager, Settings* settings);
+void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager);
 void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController,
                           MachineState* machineState);
 class RecipeStorage;
@@ -162,7 +162,7 @@ void McpServer::registerAllTools()
 {
     registerMachineTools(m_toolRegistry, m_device, m_machineState, m_mainController, m_profileManager);
     registerShotTools(m_toolRegistry, m_shotHistory);
-    registerProfileTools(m_toolRegistry, m_profileManager, m_settings);
+    registerProfileTools(m_toolRegistry, m_profileManager);
     registerPresetsTools(m_toolRegistry, m_settings, m_mainController, m_machineState);
     registerRecipeTools(m_toolRegistry, m_shotHistory,
                         m_mainController ? m_mainController->recipeStorage() : nullptr,
@@ -789,7 +789,8 @@ bool McpServer::willDeferResponse(const QJsonObject& request) const
     const QJsonObject params = request["params"].toObject();
     if (method == QLatin1String("tools/call")) {
         const QString toolName = params["name"].toString();
-        return needsInAppConfirmation(toolName) || m_toolRegistry->isAsyncTool(toolName);
+        return needsInAppConfirmation(toolName, params["arguments"].toObject())
+               || m_toolRegistry->isAsyncTool(toolName);
     }
     if (method == QLatin1String("resources/read"))
         return m_resourceRegistry->isAsyncResource(params["uri"].toString());
@@ -1170,8 +1171,10 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     const QString protocolVersion = session ? session->protocolVersion()
                                             : QStringLiteral("2024-11-05");
 
-    // Rate limiting for control + settings tools
-    QString category = m_toolRegistry->toolCategory(toolName);
+    // Rate limiting for control + settings tools. Resolved from the ARGUMENTS, not
+    // the tool name: a merged tool's read verb must not spend the control budget its
+    // write verbs share, and an unresolvable verb is charged as the strictest one.
+    QString category = m_toolRegistry->categoryFor(toolName, arguments);
     if (category == "control" || category == "settings") {
         if (session->controlCallCount() >= RateLimitPerMinute) {
             // The assistant is told; the user is not. Without this line nothing
@@ -1189,11 +1192,11 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         session->incrementControlCalls();
 
     // Chat-based confirmation: tool returns needs_confirmation, AI re-calls with confirmed:true
-    if (needsChatConfirmation(toolName) && !arguments.contains("confirmed")) {
+    if (needsChatConfirmation(toolName, arguments) && !arguments.contains("confirmed")) {
         QJsonObject confirmPayload;
         confirmPayload["needs_confirmation"] = true;
-        confirmPayload["action"] = toolName;
-        confirmPayload["description"] = confirmationDescription(toolName);
+        confirmPayload["action"] = confirmationActionId(toolName, arguments);
+        confirmPayload["description"] = confirmationDescription(toolName, arguments);
         confirmPayload["parameters"] = arguments;
         return buildToolCallResponse(confirmPayload, protocolVersion);
     }
@@ -1203,7 +1206,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         arguments.remove("confirmed");
 
     // In-app confirmation: hold HTTP response, show QML dialog on machine screen
-    if (needsInAppConfirmation(toolName)) {
+    if (needsInAppConfirmation(toolName, arguments)) {
         // Deny any existing pending confirmation
         abandonPendingConfirmation(QStringLiteral("superseded by a newer request"));
 
@@ -1217,8 +1220,9 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         pending.protocolVersion = protocolVersion;
         m_pendingConfirmation = pending;
 
-        QString description = confirmationDescription(toolName);
-        emit confirmationRequested(toolName, description, session->id());
+        QString description = confirmationDescription(toolName, arguments);
+        emit confirmationRequested(confirmationActionId(toolName, arguments),
+                                   description, session->id());
 
         QJsonObject deferred;
         deferred["_deferred"] = true;
@@ -1686,16 +1690,18 @@ void McpServer::sendAsyncToolResponse(QPointer<QTcpSocket> socket, const QVarian
                         requestId, sessionId);
 }
 
-bool McpServer::needsInAppConfirmation(const QString& toolName) const
+bool McpServer::needsInAppConfirmation(const QString& toolName, const QJsonObject&) const
 {
     if (!m_settings) return false;
     int level = m_settings->mcp()->mcpConfirmationLevel();
     if (level == 0) return false;
-    // machine_start_* requires in-app confirmation at any non-zero confirmation level
-    return toolName.startsWith("machine_start_");
+    // Starting the machine requires in-app confirmation at any non-zero level, for
+    // every operation it can start — so the arguments do not enter into it, and a
+    // call with no `action` at all is confirmed like the rest.
+    return toolName == QLatin1String("machine_start");
 }
 
-bool McpServer::needsChatConfirmation(const QString& toolName) const
+bool McpServer::needsChatConfirmation(const QString& toolName, const QJsonObject& arguments) const
 {
     if (!m_settings) return false;
     int level = m_settings->mcp()->mcpConfirmationLevel();
@@ -1711,21 +1717,36 @@ bool McpServer::needsChatConfirmation(const QString& toolName) const
     // Confirmation is enforced HERE (server-side); handlers must NEVER check
     // `confirmed` themselves — McpServer strips it before the handler runs.
     // A handler-side check is unreachable-true and was the shipped #1219 bug.
+    //
+    // Tools that raise the on-machine dialog are not ALSO confirmed in chat. This
+    // used to be implicit — `machine_start_*` was simply absent from the list below
+    // — and stays explicit now that a merged tool declares its own confirmation
+    // wording, which the in-app path reads and the chat path would otherwise treat
+    // as a second prompt.
+    if (needsInAppConfirmation(toolName, arguments))
+        return false;
+
+    // A merged tool answers for itself, per verb: `bag` action=list must not prompt
+    // while `steam_pitcher` action=delete must. The registry also fails closed on an
+    // action it cannot resolve, so an omitted `action` is confirmed as if it were the
+    // tool's most destructive verb rather than waved through as a read.
+    if (m_toolRegistry->confirmationFor(toolName, arguments).required)
+        return true;
+    if (!m_toolRegistry->actionNames(toolName).isEmpty())
+        return false;  // merged tool, and this verb declared no confirmation
+
     if (toolName == "profiles_set_active" || toolName == "profiles_edit_params" ||
         toolName == "profiles_save" || toolName == "profiles_delete" ||
         toolName == "profiles_create" || toolName == "shots_delete" ||
         toolName == "settings_set" ||
         toolName == "devices_set_scale_priority_mode" ||
         toolName == "devices_reset_scale_priority" ||
-        // Irreversible learning/calibration wipes + forget-the-scale (the
-        // last also advertises a `confirmed` arg that was never enforced —
-        // same class as the #1219 bug above).
-        toolName == "reset_saw_learning" ||
-        toolName == "reset_saw_learning_for_profile" ||
-        toolName == "clear_flow_calibration" ||
-        // Overwrites the profile's learned calibration with a hand-picked number,
-        // and it reaches the machine immediately — the old value is not recoverable.
-        toolName == "set_flow_calibration" ||
+        // Forget-the-scale, which also advertises a `confirmed` arg that was never
+        // enforced — same class as the #1219 bug above. The irreversible learning and
+        // calibration wipes used to be named here too; they are now verbs of
+        // `reset_saw_learning` and `flow_calibration`, and each declares its own
+        // confirmation wording at its registration site. A name kept here after its
+        // tool is gone is dead text that reads like a live rule.
         toolName == "devices_disconnect_scale")
         return true;
 
@@ -1738,13 +1759,22 @@ bool McpServer::needsChatConfirmation(const QString& toolName) const
     return false;
 }
 
-QString McpServer::confirmationDescription(const QString& toolName) const
+QString McpServer::confirmationActionId(const QString& toolName,
+                                        const QJsonObject& arguments) const
 {
+    const McpConfirmationRequirement req = m_toolRegistry->confirmationFor(toolName, arguments);
+    return req.actionId.isEmpty() ? toolName : req.actionId;
+}
+
+QString McpServer::confirmationDescription(const QString& toolName,
+                                           const QJsonObject& arguments) const
+{
+    // A merged tool carries its wording per verb, at the registration site, so the
+    // dialog says "Delete a steam pitcher" rather than naming the whole family.
+    const McpConfirmationRequirement req = m_toolRegistry->confirmationFor(toolName, arguments);
+    if (!req.description.isEmpty()) return req.description;
+
     static const QHash<QString, QString> descriptions = {
-        {"machine_start_espresso", "Start pulling an espresso shot"},
-        {"machine_start_steam", "Start steaming milk"},
-        {"machine_start_hot_water", "Dispense hot water"},
-        {"machine_start_flush", "Flush the group head"},
         {"machine_wake", "Wake the machine from sleep"},
         {"machine_sleep", "Put the machine to sleep"},
         {"machine_stop", "Stop the current operation"},
@@ -1760,15 +1790,6 @@ QString McpServer::confirmationDescription(const QString& toolName) const
          "Change the scale connection-priority backoff policy (enforce/observe)"},
         {"devices_reset_scale_priority",
          "Clear the scale connection-priority backoff latch"},
-        {"reset_saw_learning",
-         "Erase ALL stop-at-weight learning (global pool, every profile/scale "
-         "history, bootstrap) — irreversible"},
-        {"reset_saw_learning_for_profile",
-         "Erase stop-at-weight learning for one profile/scale pair — irreversible"},
-        {"clear_flow_calibration",
-         "Clear the profile's flow calibration (re-learned over future shots)"},
-        {"set_flow_calibration",
-         "Overwrite the profile's flow calibration with a hand-set multiplier"},
         {"devices_disconnect_scale",
          "Disconnect and forget the saved scale (must be re-paired)"},
     };

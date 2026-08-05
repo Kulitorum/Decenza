@@ -85,7 +85,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Grinder setting"}}},
                 {"rpm", QJsonObject{{"type", "integer"}, {"description", "Grinder motor RPM (variable-RPM grinders); the second half of the dial-in alongside grinderSetting"}}},
                 {"barista", QJsonObject{{"type", "string"}, {"description", "Barista name"}}},
-                {"beverageType", QJsonObject{{"type", "string"}, {"description", "Beverage type (e.g. 'espresso', 'lungo'). Saved locally; the Visualizer shot schema carries beverage type via the profile, not the shot, so editing it here does not propagate to visualizer.coffee."}}},
+                {"beverageType", QJsonObject{{"type", "string"}, {"description", "Beverage type, e.g. 'espresso'. Saved locally only — it does not propagate to visualizer.coffee"}}},
                 {"drinkTds", QJsonObject{{"type", "number"}, {"description", "TDS measurement"}}},
                 {"drinkEy", QJsonObject{{"type", "number"}, {"description", "Extraction yield percentage"}}},
                 {"beanBase", QJsonObject{{"type", "object"}, {"description",
@@ -304,7 +304,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "control");
+        "control", McpTierCore);
 
     // shots_upload_to_visualizer — first-POST a historical shot. Companion to
     // shots_update's PATCH path: shots_update only fires the auto-update PATCH for
@@ -430,7 +430,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "control");
+        "control", McpTierNiche);
 
     // shots_delete
     registry->registerAsyncTool(
@@ -476,7 +476,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
 
             shotHistory->requestDeleteShot(shotId);
         },
-        "settings");
+        "settings", McpTierCore);
 
     // profiles_set_active
     registry->registerAsyncTool(
@@ -532,7 +532,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 respond(QJsonObject{{"success", true}, {"message", "Profile activated: " + filename}});
             }, Qt::QueuedConnection);
         },
-        "settings");
+        "settings", McpTierCore);
 
     // settings_set
     //
@@ -628,11 +628,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"extractionAnnouncementInterval", QJsonObject{{"type", "integer"}, {"description", "Announcement interval in seconds"}}},
                 // AI
                 {"aiProvider", QJsonObject{{"type", "string"}, {"description", "AI provider name"}}},
-                {"aiModel", QJsonObject{{"type", "string"}, {"description", "Model id for the active provider (or the provider set in this same call), e.g. 'gemini-2.5-flash'. Must be one of that provider's selectable models — read settings_get 'aiAvailableModels' for valid ids. For OpenRouter/Ollama use openrouterModel/ollamaModel instead."}}},
+                {"aiModel", QJsonObject{{"type", "string"}, {"description", "Model id for the active provider; valid ids in settings_get 'aiAvailableModels'"}}},
                 {"mcpEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable MCP server"}}},
                 {"mcpAccessLevel", QJsonObject{{"type", "integer"}, {"description", "MCP access level: 0=monitor, 1=control, 2=full"}}},
                 {"mcpConfirmationLevel", QJsonObject{{"type", "integer"}, {"description", "MCP confirmation: 0=none, 1=dangerous, 2=all"}}},
-                {"discussShotApp", QJsonObject{{"type", "integer"}, {"description", "Discuss Shot app: 0=Claude, 1=Claude Web, 2=ChatGPT, 3=Gemini, 4=Grok, 5=Custom, 6=None (hides Discuss button), 7=Claude Desktop (session URL required, see claudeRcSessionUrl)"}}},
+                {"discussShotApp", QJsonObject{{"type", "integer"}, {"description", "Discuss Shot app: 0 Claude, 1 Claude Web, 2 ChatGPT, 3 Gemini, 4 Grok, 5 Custom, 6 None, 7 Claude Desktop"}}},
                 {"discussShotCustomUrl", QJsonObject{{"type", "string"}, {"description", "Custom URL for Discuss Shot"}}},
                 {"ollamaEndpoint", QJsonObject{{"type", "string"}, {"description", "Ollama endpoint URL"}}},
                 {"ollamaModel", QJsonObject{{"type", "string"}, {"description", "Ollama model name"}}},
@@ -700,16 +700,12 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     }
     registry->registerAsyncTool(
         "settings_set",
-        "Update any app setting on the device. This is the tool to use when the user asks to change "
-        "grind size (dyeGrinderSetting), dose weight (dyeBeanWeight), drink/yield weight (targetWeight), "
-        "brew temperature (espressoTemperature), or any other setting. "
-        "Covers all QML settings tabs: machine, calibration, connections, screensaver, accessibility, AI, "
-        "espresso, steam, water, flush, DYE metadata, MQTT, themes, visualizer, update, data, "
-        "history, language, debug, battery, heater, auto-favorites. "
-        "API keys and passwords are excluded (sensitive). "
-        "For temperature and weight changes on the active profile, this tool handles the profile update automatically. "
-        "IMPORTANT: Only call this when the user explicitly asks to change settings on the machine. "
-        "For discussion and recommendations, respond in chat instead.",
+        "Update any app setting on the device — grind size (dyeGrinderSetting), dose (dyeBeanWeight), "
+        "yield (targetWeight), brew temperature (espressoTemperature) and every other setting "
+        "across all settings tabs. API keys and passwords are excluded. Temperature and weight "
+        "changes to the active profile are applied to the profile automatically. Only call this "
+        "when the user explicitly asks to change something; for advice, answer in chat. Coverage "
+        "list: get_agent_file topic \"settings_set\".",
         settingsSetSchema,
         [profileManager, settings, accessibility, screensaver, translation, battery, aiManager, validSettingsKeys](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!settings) {
@@ -1507,28 +1503,43 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 }, Qt::QueuedConnection);
             }
         },
-        "settings");
+        "settings", McpTierCore);
 
-    // profiles_set_auto_load — pin a profile as the auto-load target. Validated
+    // auto_load target=profile, action=set — pin a profile. Validated
     // synchronously (filename non-empty, profile exists, profile is in the
-    // Selected list); the actual settings write hops to the GUI thread.
-    registry->registerAsyncTool(
-        "profiles_set_auto_load",
-        "Pin a profile as the auto-load target. The pinned profile is reloaded "
-        "on app start, DE1 wake-from-sleep, and after `revertMinutes` of "
-        "inactivity on the Idle page. Replaces any prior auto-load AND clears "
-        "any recipe auto-load (see recipe_set_auto_load) — a profile and a "
-        "recipe auto-load are mutually exclusive. The "
-        "filename must exist and be in the Selected list.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"filename", QJsonObject{{"type", "string"}, {"description", "Profile filename (without .json extension)"}}},
-                {"revertMinutes", QJsonObject{{"type", "integer"}, {"description", "Optional. Minutes of idle inactivity on the Idle page before reverting to the auto-load profile. Range 0..60 (clamped); 0 disables the idle trigger but keeps the startup and wake-from-sleep triggers."}}}
-            }},
-            {"required", QJsonArray{"filename"}}
-        },
-        [profileManager, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+    // The recipe half of auto_load lives in THIS file rather than
+    // mcptools_recipes.cpp: that file's recipe_activate/recipe_archive call real
+    // MainController methods, so linking it at all — even for tools that do not need
+    // MainController — pulls in MainController's whole subsystem closure, which the
+    // auto-load tests do not want.
+
+    // auto_load — one tool over both auto-loads, because they are ONE setting with two
+    // faces: pinning a profile clears a pinned recipe and vice versa. Six tools each
+    // had to restate that exclusivity in prose; here `target` makes it structural.
+    //
+    // The profile `get` is the only synchronous member (it reads ProfileManager in
+    // memory); the rest touch the recipe DB or hop to the GUI thread to write, so the
+    // tool is async and the sync one responds inline.
+    const McpToolHandler profileGetAutoLoad =
+[profileManager, settings](const QJsonObject&) -> QJsonObject {
+            QJsonObject result;
+            if (!settings) {
+                result["error"] = "Settings not available";
+                return result;
+            }
+            const QString filename = settings->app()->autoLoadProfileFilename();
+            result["filename"] = filename;
+            result["revertMinutes"] = settings->app()->autoLoadRevertMinutes();
+            if (!filename.isEmpty() && profileManager) {
+                QVariantMap profile = profileManager->getProfileByFilename(filename);
+                if (!profile.isEmpty()) {
+                    result["title"] = profile["title"].toString();
+                }
+            }
+            return result;
+        };
+    const McpAsyncToolHandler profileSetAutoLoad =
+[profileManager, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!settings || !profileManager) {
                 respond(QJsonObject{{"error", "Settings or ProfileManager not available"}});
                 return;
@@ -1565,20 +1576,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 }
                 respond(result);
             }, Qt::QueuedConnection);
-        },
-        "settings");
-
-    // profiles_clear_auto_load — disable auto-load without modifying the
-    // revert-timeout setting (so enabling auto-load later preserves the
-    // configured value).
-    registry->registerAsyncTool(
-        "profiles_clear_auto_load",
-        "Disable auto-load by clearing the pinned filename. Does not modify "
-        "`revertMinutes` — the configured timeout is preserved across "
-        "enable/disable cycles. Only clears the profile side; a configured "
-        "recipe auto-load (see recipe_clear_auto_load) is unaffected.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [settings](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+        };
+    const McpAsyncToolHandler profileClearAutoLoad =
+[settings](const QJsonObject&, std::function<void(QJsonObject)> respond) {
             if (!settings) {
                 respond(QJsonObject{{"error", "Settings not available"}});
                 return;
@@ -1587,23 +1587,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 settings->app()->setAutoLoadProfileFilename("");
                 respond(QJsonObject{{"success", true}});
             }, Qt::QueuedConnection);
-        },
-        "settings");
-
-    // recipe_get_auto_load — mirrors profiles_get_auto_load (recipe-auto-load).
-    // Lives here rather than mcptools_recipes.cpp: that file's
-    // recipe_activate/recipe_archive call real MainController methods, so
-    // linking it at all (even for tools that don't need MainController) pulls
-    // in MainController's full subsystem closure — this file already tests
-    // cleanly without it.
-    registry->registerAsyncTool(
-        "recipe_get_auto_load",
-        "Get the configured auto-load recipe id and the shared revert timeout. Auto-load "
-        "reloads the pinned recipe on app start, DE1 wake-from-sleep, and after "
-        "`revertMinutes` of inactivity on the Idle page. A profile and a recipe auto-load "
-        "are mutually exclusive — pinning one clears the other (see profiles_get_auto_load).",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [shotHistory, settings](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+        };
+    const McpAsyncToolHandler recipeGetAutoLoad =
+[shotHistory, settings](const QJsonObject&, std::function<void(QJsonObject)> respond) {
             if (!settings) {
                 respond(QJsonObject{{"error", "Settings not available"}});
                 return;
@@ -1657,30 +1643,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             });
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
-        },
-        "read");
-
-    // recipe_set_auto_load — pin a recipe as the auto-load target. Mirrors
-    // profiles_set_auto_load; validates recipeId against the DB on a
-    // background thread (existence + not archived), then hops to the GUI
-    // thread for the settings write. Setting this clears any profile
-    // auto-load (SettingsApp::autoLoadProfileFilename), wired via Settings'
-    // cross-domain connections (see settings.cpp) — not duplicated here.
-    registry->registerAsyncTool(
-        "recipe_set_auto_load",
-        "Pin a recipe as the auto-load target. The pinned recipe is reactivated on app start, "
-        "DE1 wake-from-sleep, and after `revertMinutes` of inactivity on the Idle page. "
-        "Replaces any prior recipe auto-load AND clears any profile auto-load (the two are "
-        "mutually exclusive). The recipeId must exist and not be archived.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"recipeId", QJsonObject{{"type", "integer"}, {"description", "Recipe ID (from recipe_list)"}}},
-                {"revertMinutes", QJsonObject{{"type", "integer"}, {"description", "Optional. Minutes of idle inactivity on the Idle page before reverting to the auto-load recipe. Range 0..60 (clamped); 0 disables the idle trigger but keeps the startup and wake-from-sleep triggers. Shared with the profile auto-load timeout."}}}
-            }},
-            {"required", QJsonArray{"recipeId"}}
-        },
-        [shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        };
+    const McpAsyncToolHandler recipeSetAutoLoad =
+[shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!settings) {
                 respond(QJsonObject{{"error", "Settings not available"}});
                 return;
@@ -1743,18 +1708,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             });
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
-        },
-        "settings");
-
-    // recipe_clear_auto_load — disable auto-load without affecting the
-    // shared revert timeout. Mirrors profiles_clear_auto_load.
-    registry->registerAsyncTool(
-        "recipe_clear_auto_load",
-        "Disable auto-load by clearing the pinned recipe id. Does not modify `revertMinutes` "
-        "— the configured timeout (shared with the profile side) is preserved across "
-        "enable/disable cycles.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [settings](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+        };
+    const McpAsyncToolHandler recipeClearAutoLoad =
+[settings](const QJsonObject&, std::function<void(QJsonObject)> respond) {
             if (!settings) {
                 respond(QJsonObject{{"error", "Settings not available"}});
                 return;
@@ -1763,20 +1719,80 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 settings->dye()->setAutoLoadRecipeId(-1);
                 respond(QJsonObject{{"success", true}});
             }, Qt::QueuedConnection);
+        };
+
+    // `target` is required for the same reason `action` is: defaulting it would make
+    // "clear the auto-load" clear whichever one the default happened to name, and the
+    // other would stay pinned while the caller believed it had cleared everything.
+    auto autoLoadTarget = [](const QJsonObject& args, bool& ok) -> QString {
+        const QString target = args.value("target").toString();
+        ok = (target == QLatin1String("profile") || target == QLatin1String("recipe"));
+        return target;
+    };
+    auto autoLoadTargetError = [](const QString& target) {
+        return QJsonObject{{"error", target.isEmpty()
+            ? QStringLiteral("auto_load requires a `target`: \"profile\" or \"recipe\"")
+            : QStringLiteral("Unknown target \"%1\" — valid targets: profile, recipe").arg(target)}};
+    };
+
+    const QVector<McpToolAction> autoLoadActions{
+        McpRegistryHelpers::asyncAction("get", "read",
+        [profileGetAutoLoad, recipeGetAutoLoad, autoLoadTarget, autoLoadTargetError]
+        (const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            bool ok = false;
+            const QString target = autoLoadTarget(args, ok);
+            if (!ok) { respond(autoLoadTargetError(target)); return; }
+            if (target == QLatin1String("profile")) { respond(profileGetAutoLoad(args)); return; }
+            recipeGetAutoLoad(args, std::move(respond));
+        }),
+        McpRegistryHelpers::asyncAction("set", "settings",
+        [profileSetAutoLoad, recipeSetAutoLoad, autoLoadTarget, autoLoadTargetError]
+        (const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            bool ok = false;
+            const QString target = autoLoadTarget(args, ok);
+            if (!ok) { respond(autoLoadTargetError(target)); return; }
+            if (target == QLatin1String("profile")) { profileSetAutoLoad(args, std::move(respond)); return; }
+            recipeSetAutoLoad(args, std::move(respond));
+        }),
+        McpRegistryHelpers::asyncAction("clear", "settings",
+        [profileClearAutoLoad, recipeClearAutoLoad, autoLoadTarget, autoLoadTargetError]
+        (const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            bool ok = false;
+            const QString target = autoLoadTarget(args, ok);
+            if (!ok) { respond(autoLoadTargetError(target)); return; }
+            if (target == QLatin1String("profile")) { profileClearAutoLoad(args, std::move(respond)); return; }
+            recipeClearAutoLoad(args, std::move(respond));
+        }),
+    };
+
+    registry->registerActionTool(
+        "auto_load",
+        "The auto-load pin: what is reloaded on app start, DE1 wake-from-sleep, and after "
+        "revertMinutes idle on the Idle page. target=profile or recipe, action=get, set or clear. "
+        "A profile and a recipe auto-load are mutually exclusive — setting one clears the other. "
+        "clear leaves revertMinutes untouched. Validation rules and what a stale pin reports: "
+        "get_agent_file topic \"auto_load\".",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"target", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"profile", "recipe"}},
+                    {"description", "Which auto-load to act on. Required"}}},
+                {"filename", QJsonObject{{"type", "string"}, {"description", "set + target=profile: profile filename without .json, from the Selected list"}}},
+                {"recipeId", QJsonObject{{"type", "integer"}, {"description", "set + target=recipe: recipe id from recipe_list"}}},
+                {"revertMinutes", QJsonObject{{"type", "integer"}, {"description", "set: idle minutes before reverting, 0-60. Shared by both targets"}}},
+                {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
+            }}
         },
-        "settings");
+        autoLoadActions);
 
-    // --- Coffee bag tools (bean-bag-inventory) ---
 
-    // Shared bag -> MCP JSON shape: units in field names, ISO dates as-is,
-    // Bean Base snapshot parsed into an object (matching shots_get_detail).
     auto bagToJson = [settings](const CoffeeBag& bag) {
         QJsonObject obj;
         obj["bagId"] = bag.id;
         obj["roasterName"] = bag.roasterName;
         obj["coffeeName"] = bag.coffeeName;
         // kind is creation-time identity ("coffee" | "tea"; empty rows read
-        // as coffee), never editable via bag_update.
+        // as coffee), never editable via action=update.
         obj["kind"] = bag.isTea() ? QStringLiteral("tea") : QStringLiteral("coffee");
         if (bag.isTea()) {
             // Structured brewing data from the blob, per the data conventions
@@ -1817,20 +1833,17 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         return obj;
     };
 
-    // bag_list — read the coffee bag inventory.
-    registry->registerAsyncTool(
-        "bag_list",
-        "List the user's coffee bags. By default only bags in inventory (open bags currently in "
-        "use); pass includeEmpty=true to also list bags marked empty. The bag with isActive=true "
-        "is what the next shot will be pulled with.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"includeEmpty", QJsonObject{{"type", "boolean"},
-                    {"description", "Also include bags no longer in inventory (marked empty)"}}}
-            }}
-        },
-        [shotHistory, bagToJson](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+    // bag — the coffee bags CRUD family, one tool with four verbs. `extract_details`
+    // stays its own tool: it parses a photographed label, which is a different job
+    // that happens to share the noun.
+    //
+    // action=create stamps `kind` once and never lets it change afterwards (the same
+    // rule as the Add Coffee / Add Tea entry points in the UI), and does NOT make the
+    // new bag active: a remote client must not silently switch what the user's next
+    // shot is recorded against.
+    const QVector<McpToolAction> bagActions{
+        McpRegistryHelpers::asyncAction("list", "read",
+[shotHistory, bagToJson](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Storage not available"}});
                 return;
@@ -1862,87 +1875,104 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             });
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
-        },
-        "read");
+        }),
+        McpRegistryHelpers::asyncAction("create", "settings",
+[bagToJson, bagStorage](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!bagStorage) {
+                respond(QJsonObject{{"error", "Bag storage not available"}});
+                return;
+            }
+            const QString kind = args.value("kind").toString().isEmpty()
+                ? QStringLiteral("coffee") : args["kind"].toString();
+            if (kind != QLatin1String("coffee") && kind != QLatin1String("tea")) {
+                respond(QJsonObject{{"error", "kind must be 'coffee' or 'tea'"}});
+                return;
+            }
+            const QString roaster = args["roasterName"].toString().trimmed();
+            const QString coffee = args["coffeeName"].toString().trimmed();
+            if (roaster.isEmpty() && coffee.isEmpty()) {
+                respond(QJsonObject{{"error", "at least one of roasterName / coffeeName is required"}});
+                return;
+            }
 
-    // bag_update — edit a bag's metadata / lifecycle / bean details.
-    registry->registerAsyncTool(
-        "bag_update",
-        "Update fields on a coffee bag (metadata, freeze lifecycle, and bean details such as "
-        "origin/variety/process/tasting notes/product URL). Only provided fields change. Pass an "
-        "empty string to clear a text/date field. Setting inInventory=false marks the bag empty "
-        "(removes it from the inventory view; shots keep their snapshots). The freeze and storage "
-        "fields are INDEPENDENT — setting one never requires or clears another. frozenDate says the "
-        "bag is stored frozen; defrostDate records the latest portion leaving the freezer (beans are "
-        "frozen in portions and pulled out one at a time, so a bag stays frozen after a thaw and "
-        "thawing recurs). openedDate is when the current portion left airtight storage — the sibling "
-        "of defrostDate, not a never-frozen substitute; a bag may carry both. storageHint is the "
-        "out-of-freezer storage PLAN (counter/airtight/vacuum-sealed/fridge — never 'frozen'): it "
-        "describes how the beans are kept when NOT in the freezer, so it is valid on a frozen bag "
-        "too (recording where they go once thawed) and must NOT be cleared to set frozenDate. "
-        "Bean-detail edits "
-        "keep a canonical Bean Base link intact and sync to the user's Visualizer bag when linked.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"bagId", QJsonObject{{"type", "integer"}, {"description", "Bag ID (from bag_list)"}}},
-                {"roasterName", QJsonObject{{"type", "string"}}},
-                {"coffeeName", QJsonObject{{"type", "string"}}},
-                {"roastDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
-                {"roastLevel", QJsonObject{{"type", "string"}}},
-                {"frozenDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
-                {"defrostDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
-                {"storageHint", QJsonObject{{"type", "string"},
-                    {"description", "Out-of-freezer storage plan: counter/airtight/vacuum-sealed/fridge, '' to clear. Valid in any freeze state."}}},
-                {"openedDate", QJsonObject{{"type", "string"},
-                    {"description", "YYYY-MM-DD the current portion left airtight storage, '' to clear. Independent of frozenDate/defrostDate."}}},
-                {"notes", QJsonObject{{"type", "string"}}},
-                {"grinderBrand", QJsonObject{{"type", "string"}}},
-                {"grinderModel", QJsonObject{{"type", "string"}}},
-                {"grinderBurrs", QJsonObject{{"type", "string"}}},
-                {"grinderSetting", QJsonObject{{"type", "string"}}},
-                {"rpm", QJsonObject{{"type", "integer"}, {"description", "Coffee bags only: bean-scoped grinder motor RPM (variable-RPM grinders), paired with grinderSetting"}}},
-                {"doseWeightG", QJsonObject{{"type", "number"}}},
-                {"yieldG", QJsonObject{{"type", "number"},
-                    {"description", "The bag's own absolute yield target in grams. Mutually "
-                                    "exclusive with yieldRatio: the bag holds ONE yield "
-                                    "anchor, and writing yieldG replaces any stored ratio "
-                                    "(no separate clear needed). Sending both keys in one "
-                                    "call is rejected. 0 clears the yield entirely."}}},
-                {"yieldRatio", QJsonObject{{"type", "number"},
-                    {"description", "The bag's own yield as a multiplier of the dose (2.0 = "
-                                    "1:2; clamped to 0.5-6.0); the gram target then follows "
-                                    "the dose actually weighed. Mutually exclusive with "
-                                    "yieldG; writing yieldRatio replaces any stored absolute "
-                                    "yield. 0 clears the yield entirely."}}},
-                {"inInventory", QJsonObject{{"type", "boolean"}, {"description", "false = mark the bag empty"}}},
-                {"origin", QJsonObject{{"type", "string"}, {"description", "Origin country, '' to clear"}}},
-                {"region", QJsonObject{{"type", "string"}}},
-                {"farm", QJsonObject{{"type", "string"}}},
-                {"producer", QJsonObject{{"type", "string"}, {"description", "Producer / farmer"}}},
-                {"variety", QJsonObject{{"type", "string"}}},
-                {"elevation", QJsonObject{{"type", "string"}, {"description", "Display string, e.g. '1900-2100 m'"}}},
-                {"process", QJsonObject{{"type", "string"}, {"description", "Processing method, e.g. 'Washed'"}}},
-                {"harvest", QJsonObject{{"type", "string"}, {"description", "Harvest time, e.g. 'Late 2025'"}}},
-                {"qualityScore", QJsonObject{{"type", "string"}}},
-                {"placeOfPurchase", QJsonObject{{"type", "string"}}},
-                {"tastingNotes", QJsonObject{{"type", "string"}}},
-                {"link", QJsonObject{{"type", "string"}, {"description", "Roaster product-page URL, '' to clear"}}},
-                {"teaType", QJsonObject{{"type", "string"},
-                    {"description", "Tea bags only: black/green/oolong/white/herbal/pu-erh"}}},
-                {"garden", QJsonObject{{"type", "string"}, {"description", "Tea bags only: estate/garden"}}},
-                {"cultivar", QJsonObject{{"type", "string"}, {"description", "Tea bags only"}}},
-                {"flush", QJsonObject{{"type", "string"}, {"description", "Tea bags only: harvest/flush"}}},
-                {"brewTempC", QJsonObject{{"type", "number"},
-                    {"description", "Tea bags only: vendor brew temperature, Celsius"}}},
-                {"leafGramsPer100Ml", QJsonObject{{"type", "number"},
-                    {"description", "Tea bags only: leaf dose per 100 ml water"}}},
-                {"steepTime", QJsonObject{{"type", "string"},
-                    {"description", "Tea bags only: display string, e.g. '3-5 minutes'"}}}
-            }},
-            {"required", QJsonArray{"bagId"}}
-        },
-        [shotHistory, bagToJson, bagStorage, beanbase](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            // Kind-gate both directions, mirroring action=update's rule.
+            static const QStringList kTeaOnly = {
+                "teaType", "garden", "cultivar", "flush", "brewTempC",
+                "leafGramsPer100Ml", "steepTime"};
+            static const QStringList kCoffeeOnly = {"roastLevel", "grinderSetting"};
+            QStringList offending;
+            if (kind == QLatin1String("coffee")) {
+                for (const QString& key : kTeaOnly)
+                    if (args.contains(key)) offending << key;
+                if (!offending.isEmpty()) {
+                    respond(QJsonObject{{"error", offending.join(", ")
+                        + " only apply to tea bags (this create has kind coffee)"}});
+                    return;
+                }
+            } else {
+                for (const QString& key : kCoffeeOnly)
+                    if (args.contains(key)) offending << key;
+                if (!offending.isEmpty()) {
+                    respond(QJsonObject{{"error", offending.join(", ")
+                        + " do not apply to tea bags"}});
+                    return;
+                }
+            }
+
+            // Columns.
+            QVariantMap bag;
+            bag.insert("kind", kind);
+            if (!roaster.isEmpty()) bag.insert("roasterName", roaster);
+            if (!coffee.isEmpty()) bag.insert("coffeeName", coffee);
+            for (const QString& key : {QStringLiteral("roastDate"), QStringLiteral("roastLevel"),
+                                       QStringLiteral("grinderSetting"), QStringLiteral("notes")})
+                if (args.contains(key)) bag.insert(key, args[key].toString());
+            if (args.contains("rpm")) bag.insert("rpm", args["rpm"].toInt());  // RPM half of the dial-in
+            if (args.contains("doseWeightG")) bag.insert("doseWeightG", args["doseWeightG"].toDouble());
+            bag.insert("inInventory", true);
+
+            // Details land in the blob (same vocabulary as action=update).
+            static const QStringList kBlobKeys = {
+                "origin", "region", "producer", "variety", "process", "harvest",
+                "tastingNotes", "link",
+                "teaType", "garden", "cultivar", "flush", "brewTempC",
+                "leafGramsPer100Ml", "steepTime"};
+            QVariantMap blobEdits;
+            for (const QString& key : kBlobKeys)
+                if (args.contains(key)) blobEdits.insert(key, args[key].toVariant());
+            if (!blobEdits.isEmpty())
+                bag.insert("beanBaseData", BeanBaseBlob::mergeBeanDetails(QString(), blobEdits));
+
+            // bagCreated is a broadcast with no request token, so a concurrent
+            // create from another surface (in-app Add, web POST) would run this
+            // one-shot handler with the OTHER bag. Correlate on the submitted
+            // identity: skip an emission whose roaster+coffee+kind don't match
+            // ours (a failed create — bagId<=0 — is still ours to report). Two
+            // genuinely-identical concurrent creates can't be told apart, but
+            // then either bag is a correct answer.
+            const QString wantRoaster = roaster;
+            const QString wantCoffee = coffee;
+            const QString wantKind = kind;
+            auto conn = std::make_shared<QMetaObject::Connection>();
+            *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagCreated, qApp,
+                [conn, bagToJson, respond, wantRoaster, wantCoffee, wantKind](qint64 bagId, const QVariantMap& created) {
+                    if (bagId > 0
+                        && (created.value("roasterName").toString() != wantRoaster
+                            || created.value("coffeeName").toString() != wantCoffee
+                            || created.value("kind").toString() != wantKind))
+                        return;  // someone else's concurrent create
+                    QObject::disconnect(*conn);
+                    if (bagId <= 0) {
+                        respond(QJsonObject{{"error", "Could not create the bag"}});
+                        return;
+                    }
+                    respond(QJsonObject{{"success", true},
+                                        {"bag", bagToJson(CoffeeBag::fromVariantMap(created))}});
+                });
+            bagStorage->requestCreateBag(bag);
+        }),
+        McpRegistryHelpers::asyncAction("update", "settings",
+[shotHistory, bagToJson, bagStorage, beanbase](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Storage not available"}});
                 return;
@@ -1965,7 +1995,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     return;
                 }
             }
-            // yieldOverrideG was a real bag_update key until this change, so
+            // yieldOverrideG was a real bag-update key until this change, so
             // scripts and agent workflows still send it. The field loop below
             // works off a whitelist, which would drop it silently and answer
             // OK — the caller would believe it had set a yield it had not.
@@ -2201,7 +2231,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                             return;
                         }
                     } else {
-                        // Reverse gate (symmetry with bag_create): roast level and
+                        // Reverse gate (symmetry with action=create): roast level and
                         // grinder setting are meaningless on a tea bag — reject
                         // rather than store a value tea surfaces hide anyway.
                         static const QStringList kCoffeeOnly = {"roastLevel", "grinderSetting"};
@@ -2278,170 +2308,21 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             });
             QObject::connect(mergeThread, &QThread::finished, mergeThread, &QObject::deleteLater);
             mergeThread->start();
-        },
-        "settings");
-
-    // bag_create — new inventory bag (add-recipe-wizard-tea). The MCP
-    // counterpart of the Add Coffee / Add Tea entry points: kind is stamped
-    // at creation and immutable after (same rule as the UI). The created bag
-    // is NOT made active — a remote client must not silently switch what the
-    // next shot is pulled with; call bag_select to activate it.
-    registry->registerAsyncTool(
-        "bag_create",
-        "Create a new bag in the inventory. kind='coffee' (default) or 'tea' — set at creation "
-        "and immutable after, exactly like the in-app Add Coffee / Add Tea buttons. Tea bags "
-        "take the tea vocabulary (teaType/garden/cultivar/flush/brewTempC/leafGramsPer100Ml/"
-        "steepTime) and reject roastLevel/grinderSetting; coffee bags reject the tea vocabulary. "
-        "The new bag is NOT selected as active — call bag_select to start using it.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"kind", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"coffee", "tea"}},
-                    {"description", "Bag kind, set once at creation. Default coffee."}}},
-                {"roasterName", QJsonObject{{"type", "string"},
-                    {"description", "Roaster (coffee) / brand (tea)"}}},
-                {"coffeeName", QJsonObject{{"type", "string"},
-                    {"description", "Coffee name (coffee) / tea name (tea)"}}},
-                {"roastDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD"}}},
-                {"roastLevel", QJsonObject{{"type", "string"}, {"description", "Coffee bags only"}}},
-                {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Coffee bags only: bean-scoped dial"}}},
-                {"rpm", QJsonObject{{"type", "integer"}, {"description", "Coffee bags only: bean-scoped grinder motor RPM (variable-RPM grinders), paired with grinderSetting"}}},
-                {"doseWeightG", QJsonObject{{"type", "number"}}},
-                {"notes", QJsonObject{{"type", "string"}}},
-                {"origin", QJsonObject{{"type", "string"}}},
-                {"region", QJsonObject{{"type", "string"}}},
-                {"producer", QJsonObject{{"type", "string"}}},
-                {"variety", QJsonObject{{"type", "string"}, {"description", "Coffee variety / tea cultivar goes in cultivar for tea"}}},
-                {"process", QJsonObject{{"type", "string"}}},
-                {"harvest", QJsonObject{{"type", "string"}}},
-                {"tastingNotes", QJsonObject{{"type", "string"}}},
-                {"link", QJsonObject{{"type", "string"}, {"description", "Product-page URL"}}},
-                {"teaType", QJsonObject{{"type", "string"},
-                    {"description", "Tea bags only: black/green/oolong/white/herbal/pu-erh"}}},
-                {"garden", QJsonObject{{"type", "string"}, {"description", "Tea bags only: estate/garden"}}},
-                {"cultivar", QJsonObject{{"type", "string"}, {"description", "Tea bags only"}}},
-                {"flush", QJsonObject{{"type", "string"}, {"description", "Tea bags only: harvest/flush"}}},
-                {"brewTempC", QJsonObject{{"type", "number"},
-                    {"description", "Tea bags only: vendor brew temperature, Celsius"}}},
-                {"leafGramsPer100Ml", QJsonObject{{"type", "number"},
-                    {"description", "Tea bags only: leaf dose per 100 ml water"}}},
-                {"steepTime", QJsonObject{{"type", "string"},
-                    {"description", "Tea bags only: display string, e.g. '3-5 minutes'"}}}
-            }}
-        },
-        [bagToJson, bagStorage](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
-            if (!bagStorage) {
-                respond(QJsonObject{{"error", "Bag storage not available"}});
-                return;
-            }
-            const QString kind = args.value("kind").toString().isEmpty()
-                ? QStringLiteral("coffee") : args["kind"].toString();
-            if (kind != QLatin1String("coffee") && kind != QLatin1String("tea")) {
-                respond(QJsonObject{{"error", "kind must be 'coffee' or 'tea'"}});
-                return;
-            }
-            const QString roaster = args["roasterName"].toString().trimmed();
-            const QString coffee = args["coffeeName"].toString().trimmed();
-            if (roaster.isEmpty() && coffee.isEmpty()) {
-                respond(QJsonObject{{"error", "at least one of roasterName / coffeeName is required"}});
-                return;
-            }
-
-            // Kind-gate both directions, mirroring bag_update's rule.
-            static const QStringList kTeaOnly = {
-                "teaType", "garden", "cultivar", "flush", "brewTempC",
-                "leafGramsPer100Ml", "steepTime"};
-            static const QStringList kCoffeeOnly = {"roastLevel", "grinderSetting"};
-            QStringList offending;
-            if (kind == QLatin1String("coffee")) {
-                for (const QString& key : kTeaOnly)
-                    if (args.contains(key)) offending << key;
-                if (!offending.isEmpty()) {
-                    respond(QJsonObject{{"error", offending.join(", ")
-                        + " only apply to tea bags (this create has kind coffee)"}});
-                    return;
-                }
-            } else {
-                for (const QString& key : kCoffeeOnly)
-                    if (args.contains(key)) offending << key;
-                if (!offending.isEmpty()) {
-                    respond(QJsonObject{{"error", offending.join(", ")
-                        + " do not apply to tea bags"}});
-                    return;
-                }
-            }
-
-            // Columns.
-            QVariantMap bag;
-            bag.insert("kind", kind);
-            if (!roaster.isEmpty()) bag.insert("roasterName", roaster);
-            if (!coffee.isEmpty()) bag.insert("coffeeName", coffee);
-            for (const QString& key : {QStringLiteral("roastDate"), QStringLiteral("roastLevel"),
-                                       QStringLiteral("grinderSetting"), QStringLiteral("notes")})
-                if (args.contains(key)) bag.insert(key, args[key].toString());
-            if (args.contains("rpm")) bag.insert("rpm", args["rpm"].toInt());  // RPM half of the dial-in
-            if (args.contains("doseWeightG")) bag.insert("doseWeightG", args["doseWeightG"].toDouble());
-            bag.insert("inInventory", true);
-
-            // Details land in the blob (same vocabulary as bag_update).
-            static const QStringList kBlobKeys = {
-                "origin", "region", "producer", "variety", "process", "harvest",
-                "tastingNotes", "link",
-                "teaType", "garden", "cultivar", "flush", "brewTempC",
-                "leafGramsPer100Ml", "steepTime"};
-            QVariantMap blobEdits;
-            for (const QString& key : kBlobKeys)
-                if (args.contains(key)) blobEdits.insert(key, args[key].toVariant());
-            if (!blobEdits.isEmpty())
-                bag.insert("beanBaseData", BeanBaseBlob::mergeBeanDetails(QString(), blobEdits));
-
-            // bagCreated is a broadcast with no request token, so a concurrent
-            // create from another surface (in-app Add, web POST) would run this
-            // one-shot handler with the OTHER bag. Correlate on the submitted
-            // identity: skip an emission whose roaster+coffee+kind don't match
-            // ours (a failed create — bagId<=0 — is still ours to report). Two
-            // genuinely-identical concurrent creates can't be told apart, but
-            // then either bag is a correct answer.
-            const QString wantRoaster = roaster;
-            const QString wantCoffee = coffee;
-            const QString wantKind = kind;
-            auto conn = std::make_shared<QMetaObject::Connection>();
-            *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagCreated, qApp,
-                [conn, bagToJson, respond, wantRoaster, wantCoffee, wantKind](qint64 bagId, const QVariantMap& created) {
-                    if (bagId > 0
-                        && (created.value("roasterName").toString() != wantRoaster
-                            || created.value("coffeeName").toString() != wantCoffee
-                            || created.value("kind").toString() != wantKind))
-                        return;  // someone else's concurrent create
-                    QObject::disconnect(*conn);
-                    if (bagId <= 0) {
-                        respond(QJsonObject{{"error", "Could not create the bag"}});
-                        return;
-                    }
-                    respond(QJsonObject{{"success", true},
-                                        {"bag", bagToJson(CoffeeBag::fromVariantMap(created))}});
-                });
-            bagStorage->requestCreateBag(bag);
-        },
-        "settings");
-
-    // bag_select — set the active bag (what the next shot is pulled with).
-    registry->registerAsyncTool(
-        "bag_select",
-        "Select the active coffee bag — the bag the next shot will be pulled with. Applies the "
-        "bag's bean identity and last-used grinder/dose to the next-shot setup. Pass bagId 0 to "
-        "clear the selection (no beans selected).",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"bagId", QJsonObject{{"type", "integer"},
-                    {"description", "Bag ID from bag_list, or 0 to clear the selection"}}}
-            }},
-            {"required", QJsonArray{"bagId"}}
-        },
-        [shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        }),
+        McpRegistryHelpers::asyncAction("select", "control",
+[shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!settings) {
                 respond(QJsonObject{{"error", "Settings not available"}});
+                return;
+            }
+            // Absent is NOT zero. Zero means "clear the bean selection" and is
+            // documented as such; an omitted argument means the caller forgot, and
+            // treating the two the same wipes the bag new shots record against and
+            // answers "success". `bag_select` used to require bagId in its schema,
+            // and a merged tool's `required` can only name `action`.
+            if (!args.contains("bagId")) {
+                respond(QJsonObject{{"error", "bagId is required for action=select "
+                                              "(0 clears the selection)"}});
                 return;
             }
             const qint64 bagId = args["bagId"].toInteger();
@@ -2460,10 +2341,17 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             const QString dbPath = shotHistory->databasePath();
             QThread* thread = QThread::create([dbPath, bagId, settings, respond]() {
                 CoffeeBag bag;
-                withTempDb(dbPath, "mcp_bagsel", [&](QSqlDatabase& db) {
+                // The open result is checked: a database that cannot be opened
+                // otherwise reports as "Bag not found", which sends the caller
+                // looking for a bag that is right there.
+                const bool opened = withTempDb(dbPath, "mcp_bagsel", [&](QSqlDatabase& db) {
                     bag = CoffeeBagStorage::loadBagStatic(db, bagId);
                 });
-                QMetaObject::invokeMethod(qApp, [bag, bagId, settings, respond]() {
+                QMetaObject::invokeMethod(qApp, [bag, bagId, opened, settings, respond]() {
+                    if (!opened) {
+                        respond(QJsonObject{{"error", "Bag storage could not be opened"}});
+                        return;
+                    }
                     if (!bag.isValid()) {
                         respond(QJsonObject{{"error", "Bag not found: " + QString::number(bagId)}});
                         return;
@@ -2476,8 +2364,63 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             });
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
+        }),
+    };
+
+    registry->registerActionTool(
+        "bag",
+        "Coffee bags: list, create, update, select. A bag carries the beans, roast date, the "
+        "dose/grind the last shot used, and the equipment package it was dialled on; select makes "
+        "one active so new shots record against it. Ids come from action=list. Which fields exist, "
+        "what a frozen bag is, and how grind/rpm memory works: get_agent_file topic \"bag\".",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"bagId", QJsonObject{{"type", "integer"}, {"description", "Bag id from action=list. Required by update; select takes it or 0 to clear"}}},
+                {"includeEmpty", QJsonObject{{"type", "boolean"}, {"description", "list only: also include bags marked empty"}}},
+                {"kind", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"coffee", "tea"}},
+                    {"description", "create only: bag kind, set once. Default coffee"}}},
+                {"roasterName", QJsonObject{{"type", "string"}, {"description", "Roaster (coffee) / brand (tea)"}}},
+                {"coffeeName", QJsonObject{{"type", "string"}, {"description", "Coffee name (coffee) / tea name (tea)"}}},
+                {"roastDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
+                {"roastLevel", QJsonObject{{"type", "string"}, {"description", "Coffee bags only"}}},
+                {"frozenDate", QJsonObject{{"type", "string"}, {"description", "update only: YYYY-MM-DD, '' to clear"}}},
+                {"defrostDate", QJsonObject{{"type", "string"}, {"description", "update only: YYYY-MM-DD, '' to clear"}}},
+                {"storageHint", QJsonObject{{"type", "string"}, {"description", "counter/airtight/vacuum-sealed/fridge, '' to clear. Valid in any freeze state"}}},
+                {"openedDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD this portion left airtight storage, '' to clear"}}},
+                {"grinderBrand", QJsonObject{{"type", "string"}, {"description", "update only"}}},
+                {"grinderModel", QJsonObject{{"type", "string"}, {"description", "update only"}}},
+                {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "update only"}}},
+                {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Coffee bags only: bean-scoped dial"}}},
+                {"rpm", QJsonObject{{"type", "integer"}, {"description", "Coffee bags only: bean-scoped grinder RPM, paired with grinderSetting"}}},
+                {"doseWeightG", QJsonObject{{"type", "number"}, {"description", "Dose in grams"}}},
+                {"yieldG", QJsonObject{{"type", "number"}, {"description", "update only: absolute yield target in grams. Excludes yieldRatio; 0 clears"}}},
+                {"yieldRatio", QJsonObject{{"type", "number"}, {"description", "update only: yield as a multiple of dose (0.5-6.0). Excludes yieldG; 0 clears"}}},
+                {"inInventory", QJsonObject{{"type", "boolean"}, {"description", "update only: false marks the bag empty"}}},
+                {"notes", QJsonObject{{"type", "string"}, {"description", "Free-text notes"}}},
+                {"origin", QJsonObject{{"type", "string"}, {"description", "Origin country, '' to clear"}}},
+                {"region", QJsonObject{{"type", "string"}, {"description", "Growing region"}}},
+                {"farm", QJsonObject{{"type", "string"}, {"description", "update only: farm"}}},
+                {"producer", QJsonObject{{"type", "string"}, {"description", "Producer / farmer"}}},
+                {"variety", QJsonObject{{"type", "string"}, {"description", "Coffee variety; tea cultivar goes in cultivar"}}},
+                {"elevation", QJsonObject{{"type", "string"}, {"description", "update only: display string, e.g. '1900-2100 m'"}}},
+                {"process", QJsonObject{{"type", "string"}, {"description", "Processing method, e.g. 'Washed'"}}},
+                {"harvest", QJsonObject{{"type", "string"}, {"description", "Harvest time, e.g. 'Late 2025'"}}},
+                {"qualityScore", QJsonObject{{"type", "string"}, {"description", "update only: cupping score"}}},
+                {"placeOfPurchase", QJsonObject{{"type", "string"}, {"description", "update only: where it was bought"}}},
+                {"tastingNotes", QJsonObject{{"type", "string"}, {"description", "Roaster's tasting notes"}}},
+                {"link", QJsonObject{{"type", "string"}, {"description", "Product-page URL, '' to clear"}}},
+                {"teaType", QJsonObject{{"type", "string"}, {"description", "Tea bags only: black/green/oolong/white/herbal/pu-erh"}}},
+                {"garden", QJsonObject{{"type", "string"}, {"description", "Tea bags only: estate/garden"}}},
+                {"cultivar", QJsonObject{{"type", "string"}, {"description", "Tea bags only"}}},
+                {"flush", QJsonObject{{"type", "string"}, {"description", "Tea bags only: harvest/flush"}}},
+                {"brewTempC", QJsonObject{{"type", "number"}, {"description", "Tea bags only: vendor brew temperature, Celsius"}}},
+                {"leafGramsPer100Ml", QJsonObject{{"type", "number"}, {"description", "Tea bags only: leaf dose per 100 ml water"}}},
+                {"steepTime", QJsonObject{{"type", "string"}, {"description", "Tea bags only: display string, e.g. '3-5 minutes'"}}}
+            }}
         },
-        "control");
+        bagActions,
+        McpTierStandard);
 
     // ----- Equipment packages (add-equipment-packages) -----
 
@@ -2486,7 +2429,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     // shotCount is a per-query aggregate, not a package column, so a view built
     // from the load* helpers alone reports 0 however much history the package
     // holds — and an assistant reading that concludes the package is disposable.
-    // equipment_update learned this the hard way; equipment_merge, whose whole job
+    // action=update learned this the hard way; action=merge, whose whole job
     // is moving shots onto the survivor, would have been the second place to get
     // it wrong. One helper, both call sites.
     auto fillShotCount = [](QSqlDatabase& db, qint64 packageId, EquipmentPackageView& view) {
@@ -2541,14 +2484,12 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         return o;
     };
 
-    // equipment_list — read the equipment package inventory.
-    registry->registerAsyncTool(
-        "equipment_list",
-        "List the user's equipment packages (the grinder the next shot is ground on). The package "
-        "with isActive=true is the active bag's equipment. rpmAdjustable indicates whether the "
-        "grinder exposes an rpm dial-in.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [shotHistory, settings, packageToJson](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+    // equipment — the grinder+basket package family. `merge` is here rather than in
+    // its own tool because repairing a wrongly forked package is an edit to the same
+    // objects list/select/update work on.
+    const QVector<McpToolAction> equipmentActions{
+        McpRegistryHelpers::asyncAction("list", "read",
+[shotHistory, settings, packageToJson](const QJsonObject&, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Storage not available"}});
                 return;
@@ -2568,47 +2509,50 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             });
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
-        },
-        "read");
-
-    // equipment_update — edit a package's grinder identity (or create one).
-    registry->registerAsyncTool(
-        "equipment_update",
-        "Update an equipment package's grinder identity (brand/model/burrs), optional basket identity "
-        "(basketBrand/basketModel — pass both empty to remove the basket), optional puck-prep flags "
-        "(puckPrep: { wdt, shaker, puckScreen, paperFilter, rdt } — set all false to remove puck prep), "
-        "and optional name. Only provided fields change. rpmAdjustable is re-derived from the grinder "
-        "registry; basket specs from the basket registry; puck-prep distribution from the flags. "
-        "Identity (grinder AND basket AND puck prep) is copy-on-write: CHANGING a component on a package "
-        "that has shots forks a NEW package (the old one is retired and kept for its history) — so the "
-        "returned package.id may differ from the input packageId. Filling in a component that was EMPTY "
-        "(recording burrs or a basket the package always had) is enrichment, not a swap: it is applied in "
-        "place and keeps the package's history. An edit whose resulting identity matches another "
-        "package merges into that one instead — checked BEFORE everything above, so it applies to an "
-        "unused package too; otherwise an unused package is edited in place.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"packageId", QJsonObject{{"type", "integer"}, {"description", "Package ID (from equipment_list)"}}},
-                {"name", QJsonObject{{"type", "string"}}},
-                {"grinderBrand", QJsonObject{{"type", "string"}}},
-                {"grinderModel", QJsonObject{{"type", "string"}}},
-                {"grinderBurrs", QJsonObject{{"type", "string"}}},
-                {"basketBrand", QJsonObject{{"type", "string"}}},
-                {"basketModel", QJsonObject{{"type", "string"}}},
-                {"puckPrep", QJsonObject{{"type", "object"},
-                    {"description", "Puck-prep technique flags; provided flags override, others keep their value"},
-                    {"properties", QJsonObject{
-                        {"wdt", QJsonObject{{"type", "boolean"}}},
-                        {"shaker", QJsonObject{{"type", "boolean"}}},
-                        {"puckScreen", QJsonObject{{"type", "boolean"}}},
-                        {"paperFilter", QJsonObject{{"type", "boolean"}}},
-                        {"rdt", QJsonObject{{"type", "boolean"}}}
-                    }}}}
-            }},
-            {"required", QJsonArray{"packageId"}}
-        },
-        [shotHistory, settings, packageToJson, fillShotCount](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        }),
+        McpRegistryHelpers::asyncAction("select", "control",
+[shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!settings || !shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Storage not available"}});
+                return;
+            }
+            const qint64 packageId = args["packageId"].toInteger();
+            if (packageId <= 0) { respond(QJsonObject{{"error", "Valid packageId is required"}}); return; }
+            const QString dbPath = shotHistory->databasePath();
+            QThread* thread = QThread::create([dbPath, packageId, settings, respond]() {
+                EquipmentPackageView view;
+                // Checked, like the `list` action above it: an unopenable database
+                // otherwise answers "Package not found", which is a different problem
+                // with a different fix.
+                const bool opened = withTempDb(dbPath, "mcp_equip_sel", [&](QSqlDatabase& db) {
+                    view.package = EquipmentStorage::loadPackageStatic(db, packageId);
+                    view.grinder = EquipmentStorage::loadGrinderItemStatic(db, packageId);
+                    view.basket = EquipmentStorage::loadBasketItemStatic(db, packageId);
+                    view.puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, packageId);
+                });
+                const bool found = view.package.isValid();
+                const QVariantMap pkgMap = view.toVariantMap();
+                QMetaObject::invokeMethod(qApp, [found, opened, pkgMap, packageId, settings, respond]() {
+                    if (!opened) {
+                        respond(QJsonObject{{"error", "Could not open shot database"}});
+                        return;
+                    }
+                    if (!found) {
+                        respond(QJsonObject{{"error", "Package not found: " + QString::number(packageId)}});
+                        return;
+                    }
+                    settings->dye()->switchToEquipment(pkgMap);
+                    respond(QJsonObject{{"success", true},
+                        {"message", QString("Active equipment: %1 %2")
+                            .arg(pkgMap.value("grinderBrand").toString(),
+                                 pkgMap.value("grinderModel").toString()).trimmed()}});
+                }, Qt::QueuedConnection);
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        }),
+        McpRegistryHelpers::asyncAction("update", "settings",
+[shotHistory, settings, packageToJson, fillShotCount](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Storage not available"}});
                 return;
@@ -2723,82 +2667,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             });
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
-        },
-        "settings");
-
-    // equipment_select — set the active bag's equipment package.
-    registry->registerAsyncTool(
-        "equipment_select",
-        "Select the active equipment package — the grinder the next shot is ground on. Applies the "
-        "package's grinder identity and its last grind setting + rpm to the next-shot setup, and "
-        "points the active bag at it.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"packageId", QJsonObject{{"type", "integer"}, {"description", "Package ID from equipment_list"}}}
-            }},
-            {"required", QJsonArray{"packageId"}}
-        },
-        [shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
-            if (!settings || !shotHistory || !shotHistory->isReady()) {
-                respond(QJsonObject{{"error", "Storage not available"}});
-                return;
-            }
-            const qint64 packageId = args["packageId"].toInteger();
-            if (packageId <= 0) { respond(QJsonObject{{"error", "Valid packageId is required"}}); return; }
-            const QString dbPath = shotHistory->databasePath();
-            QThread* thread = QThread::create([dbPath, packageId, settings, respond]() {
-                EquipmentPackageView view;
-                withTempDb(dbPath, "mcp_equip_sel", [&](QSqlDatabase& db) {
-                    view.package = EquipmentStorage::loadPackageStatic(db, packageId);
-                    view.grinder = EquipmentStorage::loadGrinderItemStatic(db, packageId);
-                    view.basket = EquipmentStorage::loadBasketItemStatic(db, packageId);
-                    view.puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, packageId);
-                });
-                const bool found = view.package.isValid();
-                const QVariantMap pkgMap = view.toVariantMap();
-                QMetaObject::invokeMethod(qApp, [found, pkgMap, packageId, settings, respond]() {
-                    if (!found) {
-                        respond(QJsonObject{{"error", "Package not found: " + QString::number(packageId)}});
-                        return;
-                    }
-                    settings->dye()->switchToEquipment(pkgMap);
-                    respond(QJsonObject{{"success", true},
-                        {"message", QString("Active equipment: %1 %2")
-                            .arg(pkgMap.value("grinderBrand").toString(),
-                                 pkgMap.value("grinderModel").toString()).trimmed()}});
-                }, Qt::QueuedConnection);
-            });
-            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-            thread->start();
-        },
-        "control");
-
-    // equipment_merge — fold one package into another (repair a wrongly split grinder).
-    registry->registerAsyncTool(
-        "equipment_merge",
-        "Merge two equipment packages that are really the same gear: every shot, bag and recipe on "
-        "sourcePackageId moves to targetPackageId, and the source package is deleted. Use this when a "
-        "grinder got split in two — historically, editing a package that had shots always forked a new "
-        "one, so recording burrs on a long-used grinder left the history stranded on the retired "
-        "package. Either package may already be retired; the surviving target is returned to the "
-        "inventory UNLESS a third package has already replaced it, in which case it stays retired "
-        "(it holds the history either way — check equipment_list rather than assuming the merge "
-        "failed). DESTRUCTIVE and not undoable: the source's identity is gone afterwards and its "
-        "shots then report the target's grinder, basket and puck prep — so confirm with the user which "
-        "package survives (target) before calling, and only merge packages that describe the SAME "
-        "physical gear. Two genuinely different grinders must stay separate.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"sourcePackageId", QJsonObject{{"type", "integer"},
-                    {"description", "Package to fold in and delete (from equipment_list)"}}},
-                {"targetPackageId", QJsonObject{{"type", "integer"},
-                    {"description", "Package that survives and receives the history (from equipment_list)"}}}
-            }},
-            {"required", QJsonArray{"sourcePackageId", "targetPackageId"}}
-        },
-        [shotHistory, settings, packageToJson, fillShotCount](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        }),
+        McpRegistryHelpers::asyncAction("merge", "settings",
+[shotHistory, settings, packageToJson, fillShotCount](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Storage not available"}});
                 return;
@@ -2857,7 +2728,48 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             });
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
+        }, QStringLiteral("Fold one equipment package into another and delete it — irreversible")),
+    };
+
+    registry->registerActionTool(
+        "equipment",
+        "Equipment packages — a grinder identity plus an optional basket, shared by every bag and "
+        "shot that references it. list returns the inventory with each package's last grind/rpm; "
+        "select sets the active bag's package and applies that package's last dial; update edits one "
+        "(and forks a new identity when a component changes); merge folds a wrongly forked package "
+        "into another and deletes it. Edits "
+        "apply to every referencing bag and shot: get_agent_file topic \"equipment\".",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"packageId", QJsonObject{{"type", "integer"}, {"description", "Package id from action=list (select, update)"}}},
+                {"name", QJsonObject{{"type", "string"}, {"description", "update only: display name"}}},
+                {"grinderBrand", QJsonObject{{"type", "string"}, {"description", "update only"}}},
+                {"grinderModel", QJsonObject{{"type", "string"}, {"description", "update only; a change re-derives rpmAdjustable"}}},
+                {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "update only"}}},
+                {"basketBrand", QJsonObject{{"type", "string"}, {"description", "update only"}}},
+                {"basketModel", QJsonObject{{"type", "string"}, {"description", "update only"}}},
+                {"puckPrep", QJsonObject{{"type", "object"},
+                    {"description", "update only: puck-prep flags; provided flags override, others keep their value"},
+                    {"properties", QJsonObject{
+                        {"wdt", QJsonObject{{"type", "boolean"}}},
+                        {"shaker", QJsonObject{{"type", "boolean"}}},
+                        {"puckScreen", QJsonObject{{"type", "boolean"}}},
+                        {"paperFilter", QJsonObject{{"type", "boolean"}}},
+                        {"rdt", QJsonObject{{"type", "boolean"}}}
+                    }}}},
+                {"sourcePackageId", QJsonObject{{"type", "integer"}, {"description", "merge only: package to fold in and delete"}}},
+                {"targetPackageId", QJsonObject{{"type", "integer"}, {"description", "merge only: package that survives and receives the history"}}},
+                {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
+            }}
         },
-        "settings");
+        equipmentActions);
+
+
+
+
+
+
+
 
 }

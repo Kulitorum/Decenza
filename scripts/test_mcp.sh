@@ -371,7 +371,7 @@ print(json.dumps([t['name'] for t in tools]))
 assert_ok "tools/list returns array" "$TOOLS_RESP" \
     "isinstance(d.get('result',{}).get('tools'), list)"
 
-EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_get_debug_log shots_compare shots_update shots_delete profiles_list profiles_get_active profiles_get_detail profiles_get_params profiles_edit_params profiles_save profiles_delete profiles_create settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame profiles_set_active settings_set scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status debug_get_log"
+EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_get_debug_log shots_compare shots_update shots_delete profiles_list profiles_get_active profiles_get_detail profiles_get_params profiles_edit_params profiles_save profiles_delete profiles_create settings_get dialing_get_context machine_wake machine_sleep machine_start machine_stop machine_skip_frame profiles_set_active settings_set scale_tare scale_timer scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status debug_get_log"
 
 # Verify removed tools are NOT registered
 REMOVED_TOOLS="dialing_apply_change dialing_suggest_change shots_set_feedback"
@@ -637,7 +637,7 @@ tools = d.get('result',{}).get('tools',[])
 print(json.dumps([t['name'] for t in tools]))
 " 2>/dev/null)
 
-CONTROL_TOOLS="machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame backup_now mqtt_connect mqtt_disconnect mqtt_publish_discovery devices_connect_de1 devices_disconnect_scale reset_saw_learning clear_flow_calibration apply_theme"
+CONTROL_TOOLS="machine_wake machine_sleep machine_start machine_stop machine_skip_frame backup_now mqtt devices_connect_de1 devices_disconnect_scale reset_saw_learning flow_calibration apply_theme"
 for tool in $CONTROL_TOOLS; do
     assert_ok "control tool '$tool' registered" "$TOOLS_JSON2" \
         "'$tool' in d"
@@ -662,15 +662,15 @@ assert_ok "backup_now returns success or error" "$BACKUP_RESULT" \
     "'success' in d or 'error' in d"
 
 # Test reset_saw_learning
-SAW_RAW=$(rpc 74 "tools/call" '{"name":"reset_saw_learning","arguments":{"confirmed":true}}')
+SAW_RAW=$(rpc 74 "tools/call" '{"name":"reset_saw_learning","arguments":{"action":"all","confirmed":true}}')
 SAW_RESULT=$(echo "$SAW_RAW" | parse_tool_result)
 assert_ok "reset_saw_learning succeeds" "$SAW_RESULT" \
     "d.get('success') == True"
 
-# Test clear_flow_calibration (with no profile — should use current)
-FLOWCAL_RAW=$(rpc 75 "tools/call" '{"name":"clear_flow_calibration","arguments":{}}')
+# Test flow_calibration action=clear (with no profile — should use current)
+FLOWCAL_RAW=$(rpc 75 "tools/call" '{"name":"flow_calibration","arguments":{"action":"clear","confirmed":true}}')
 FLOWCAL_RESULT=$(echo "$FLOWCAL_RAW" | parse_tool_result)
-assert_ok "clear_flow_calibration returns success or error" "$FLOWCAL_RESULT" \
+assert_ok "flow_calibration action=clear returns success or error" "$FLOWCAL_RESULT" \
     "'success' in d or 'error' in d"
 
 # Test apply_theme
@@ -679,10 +679,10 @@ THEME_RESULT=$(echo "$THEME_RAW" | parse_tool_result)
 assert_ok "apply_theme succeeds" "$THEME_RESULT" \
     "d.get('success') == True"
 
-# Test mqtt_connect (may fail if no broker configured — just check it responds)
-MQTT_RAW=$(rpc 77 "tools/call" '{"name":"mqtt_connect","arguments":{}}')
+# Test mqtt action=connect (may fail if no broker configured — just check it responds)
+MQTT_RAW=$(rpc 77 "tools/call" '{"name":"mqtt","arguments":{"action":"connect"}}')
 MQTT_RESULT=$(echo "$MQTT_RAW" | parse_tool_result)
-assert_ok "mqtt_connect returns success or error" "$MQTT_RESULT" \
+assert_ok "mqtt action=connect returns success or error" "$MQTT_RESULT" \
     "'success' in d or 'error' in d or 'message' in d"
 
 # Test devices_connect_de1 with empty address
@@ -1110,7 +1110,7 @@ print(json.dumps(tools))
         if [ "$expected_level" -eq 0 ]; then
             # Monitor: control tools should NOT be visible
             assert_ok "$level_name: control tools hidden" "$ATOOLS" \
-                "'machine_wake' not in d and 'machine_start_espresso' not in d"
+                "'machine_wake' not in d and 'machine_start' not in d"
             assert_ok "$level_name: settings tools hidden" "$ATOOLS" \
                 "'settings_set' not in d and 'profiles_set_active' not in d"
 

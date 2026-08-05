@@ -3,5 +3,24 @@
         <file>ai/profile_knowledge.json</file>
         <file>ai/espresso_dial_in_reference.md</file>
         <file>ai/claude_agent.md</file>
+<!-- Long-form per-tool documentation, served on demand by get_agent_file(topic)
+     and as decenza://tools/<topic> resources. It lives here rather than in the
+     tools/list descriptions because that listing is a budget: see
+     scripts/check_mcp_tool_budget.py. -->
+        <file>ai/tools/ai_advisor_invoke.md</file>
+        <file>ai/tools/auto_load.md</file>
+        <file>ai/tools/bag.md</file>
+        <file>ai/tools/debug_get_log.md</file>
+        <file>ai/tools/devices_set_scale_priority_mode.md</file>
+        <file>ai/tools/devices_wifi.md</file>
+        <file>ai/tools/dialing_get_context.md</file>
+        <file>ai/tools/dialing_get_grinder_calibration.md</file>
+        <file>ai/tools/equipment.md</file>
+        <file>ai/tools/flow_calibration.md</file>
+        <file>ai/tools/recipe_create.md</file>
+        <file>ai/tools/settings_set.md</file>
+        <file>ai/tools/shots_get_debug_log.md</file>
+        <file>ai/tools/steam_pitcher.md</file>
+        <file>ai/tools/water_vessel.md</file>
     </qresource>
 </RCC>

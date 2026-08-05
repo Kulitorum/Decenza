@@ -47,10 +47,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 }},
                 {"category", QJsonObject{
                     {"type", "string"},
-                    {"description", "Return only settings from this category. "
-                     "One of: machine, calibration, connections, screensaver, accessibility, ai, "
-                     "espresso, steam, water, flush, dye, mqtt, themes, visualizer, "
-                     "update, data, history, language, debug, battery, heater, autofavorites"}
+                    {"description", "Return only this category's settings; omit to return all of them"}
                 }}
             }}
         },
@@ -364,5 +361,5 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
 
             return result;
         },
-        "read");
+        "read", McpTierCore);
 }
