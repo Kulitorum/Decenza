@@ -242,6 +242,10 @@ payload, or an estimated `tools/list` over 85 KB. Three rules follow from it:
   server-side from the ARGUMENTS and failing closed on an action it cannot resolve.
 - **Declare a tier** (`McpTierCore` / `McpTierStandard` / `McpTierNiche`). Listing order is
   `(tier, name)`, so a truncating client loses the niche tail rather than an arbitrary ten.
+- **Bump `McpSurfaceVersion`** (`src/mcp/mcpserver.h`) whenever the surface changes. It is
+  `serverInfo.version` — the SURFACE, not the build, since 2.0.2 shipped both a 97-tool and a
+  66-tool server. The budget check fingerprints the tools and fails the PR if one moved without
+  the other. It does not refresh any client's cached list; nothing we can send does.
 - **Long-form prose goes in `resources/ai/tools/<topic>.md`**, served by `get_agent_file(topic)`
   and `decenza://tools/<topic>`. The description keeps only what picks the tool and fills its
   arguments.

@@ -39,6 +39,30 @@ struct PendingConfirmation {
     QString protocolVersion = QStringLiteral("2024-11-05");  // captured at request time; default to legacy gating so a missed assignment never silently emits 2025-spec fields
 };
 
+// The MCP server's own version, reported as `serverInfo.version` at initialize.
+//
+// BUMP THIS WHENEVER THE TOOL SURFACE CHANGES — a tool added, removed or renamed, an
+// action added to a merged tool, an argument that changes meaning. It is not the app
+// version and does not follow it: 2.0.2 shipped a 97-tool server and then a 66-tool
+// one, and a client reporting the app version would have shown the same string for
+// both. `serverInfo.appVersion` carries the build alongside it.
+//
+// What this does and does not buy: a client caches the tool list it fetched at
+// initialize and only refreshes on RECONNECT — this server declares no
+// `tools.listChanged` and could not usefully send one, since tools are registered
+// once at startup and never change while the app runs. So the version does not
+// invalidate anything by itself. What it does is make a stale session VISIBLE: a
+// connector still showing 1.0.0 is talking to a session that predates the merge,
+// which otherwise can only be inferred by counting tools.
+//
+// scripts/check_mcp_tool_budget.py fingerprints the registered tools and their
+// actions and fails the PR if the surface moved without this string moving, so the
+// rule above is enforced rather than remembered.
+inline constexpr const char* McpSurfaceVersion = "1.0.1";
+// Fingerprint of the tool surface this version was recorded against. Update it in
+// the same edit as the version; the check prints the value to paste.
+inline constexpr const char* McpSurfaceFingerprint = "8ada4d203b66";
+
 class McpServer : public QObject {
     Q_OBJECT
     Q_PROPERTY(int activeSessionCount READ activeSessionCount NOTIFY activeSessionCountChanged)

@@ -31,6 +31,7 @@ Usage: python3 scripts/check_mcp_tool_budget.py [--verbose]
 Exit code 1 on any violation.
 """
 
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -79,6 +80,17 @@ PROPERTY_DESCRIPTION = re.compile(r'\{"description", ((?:"(?:[^"\\]|\\.)*"\s*)+)
 ACTION_BUILDER = re.compile(r'(?:sync|async)Action\(\s*"([a-z_0-9]+)",\s*"([a-z_]+)"')
 ACTION_TOOL_START = re.compile(r'const QVector<McpToolAction>\s+(\w+)\s*\{')
 VALID_CATEGORIES = {"read", "control", "settings"}
+# `serverInfo.version` and the surface it was recorded against, both in mcpserver.h.
+# A client caches the tool list it fetched at initialize and refreshes only on
+# reconnect, so a surface that moves without the version moving leaves no way to tell
+# a stale session from a live one — which is exactly how a connector came to report
+# 97 tools against a server that registers 66.
+SURFACE_VERSION = re.compile(r'McpSurfaceVersion\s*=\s*"([^"]+)"')
+SURFACE_FINGERPRINT = re.compile(r'McpSurfaceFingerprint\s*=\s*"([^"]+)"')
+# Which QVector<McpToolAction> belongs to which tool, so the fingerprint is keyed by
+# the tool NAME rather than by a local variable a rename would churn.
+ACTION_TOOL_BINDING = re.compile(
+    r'registerActionTool\(\s*\n?\s*"([a-z_0-9]+)",.*?\n\s*(\w+)\)?[,;]', re.S)
 # McpServer's name-keyed confirmation list, for the tools that are not merged. A name
 # left here after its tool became a verb of a merged tool is dead text that reads like
 # a live rule — and the next reader trusts it.
@@ -96,6 +108,12 @@ def literal_text(source: str) -> str:
     """Join C++ adjacent string literals into the text the compiler would produce."""
     parts = re.findall(r'"((?:[^"\\]|\\.)*)"', source)
     return "".join(parts).replace('\\"', '"').replace("\\n", "\n")
+
+
+def header_sources(repo_root: Path) -> str:
+    """All tool sources concatenated — for patterns that span a registration."""
+    return "\n".join(p.read_text(encoding="utf-8")
+                     for glob in TOOLS_GLOBS for p in sorted(repo_root.glob(glob)))
 
 
 def scan(repo_root: Path):
@@ -132,6 +150,22 @@ def scan(repo_root: Path):
             actions.append((family, match.group(1), match.group(2), rel, line))
 
     return tools, properties, data_uris, actions
+
+
+def surface_fingerprint(tools, actions, bindings) -> str:
+    """A stable digest of what a client would see in `tools/list`.
+
+    Tool names, plus each merged tool's action names keyed by the TOOL — not by the
+    C++ variable holding the vector, which a rename would churn for no reason. Not
+    the descriptions: prose is edited constantly and a client's cached LIST is what
+    goes stale, not its wording.
+    """
+    by_tool = {}
+    for family, action, _category, _path, _line in actions:
+        by_tool.setdefault(bindings.get(family, family), set()).add(action)
+    lines = sorted(name for name, _d, _p, _l, _c in tools)
+    lines += [f"{tool}:{','.join(sorted(verbs))}" for tool, verbs in sorted(by_tool.items())]
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()[:12]
 
 
 def estimate_payload_bytes(tools, properties) -> int:
@@ -251,6 +285,21 @@ def main() -> int:
                     f"not exist."
                 )
 
+    header = (repo_root / "src/mcp/mcpserver.h").read_text(encoding="utf-8")
+    bindings = {var: tool for tool, var in ACTION_TOOL_BINDING.findall(header_sources(repo_root))}
+    fingerprint = surface_fingerprint(tools, actions, bindings)
+    recorded = SURFACE_FINGERPRINT.search(header)
+    version = SURFACE_VERSION.search(header)
+    if not recorded or not version:
+        violations.append("src/mcp/mcpserver.h: McpSurfaceVersion / McpSurfaceFingerprint not found")
+    elif recorded.group(1) != fingerprint:
+        violations.append(
+            f"src/mcp/mcpserver.h: the tool surface changed but McpSurfaceVersion is still "
+            f"\"{version.group(1)}\". Bump it and set McpSurfaceFingerprint to \"{fingerprint}\". "
+            f"A client caches the tool list from initialize and refreshes only on reconnect, so "
+            f"without a version change there is nothing to tell a stale session from a live one."
+        )
+
     payload = estimate_payload_bytes(tools, properties)
     if payload > LIMITS["max_payload_bytes"]:
         violations.append(
@@ -262,7 +311,8 @@ def main() -> int:
         print(
             f"MCP tool budget: {len(tools)} tools, "
             f"{sum(len(d) for _, d, _, _, _ in tools)} description chars, "
-            f"~{payload / 1024:.1f} KB estimated tools/list payload"
+            f"~{payload / 1024:.1f} KB estimated tools/list payload, "
+            f"surface {fingerprint}"
         )
 
     if not violations:

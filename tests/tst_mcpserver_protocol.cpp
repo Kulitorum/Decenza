@@ -18,6 +18,7 @@
 #include <QPair>
 
 #include "mcp/mcpserver.h"
+#include "version.h"
 #include "mcp/mcpsession.h"
 #include "mcp/mcptoolregistry.h"
 #include "mcp/mcpresourceregistry.h"
@@ -205,6 +206,34 @@ private slots:
         QCOMPARE(resp.statusCode, 200);
         const QString got = resp.jsonBody["result"].toObject()["protocolVersion"].toString();
         QCOMPARE(got, expected);
+    }
+
+    // `serverInfo.version` identifies the tool SURFACE, not the build, and the two
+    // are genuinely different facts: 2.0.2 shipped both a 97-tool server and a
+    // 66-tool one, so a version that followed the app would have read identically
+    // across the change that halved the list. Clients cache the catalogue they
+    // fetched at initialize and refresh only on reconnect (some not even then), so
+    // this string is what makes a stale session diagnosable at a glance.
+    //
+    // Asserting it against the constant rather than a literal is the point: the
+    // literal is what it was for the server's whole life, and a hand-typed one here
+    // would let the two drift apart while both looked right.
+    void initializeReportsSurfaceVersionAndAppVersion()
+    {
+        McpServer server;
+        QJsonObject params{
+            {"protocolVersion", "2025-11-25"},
+            {"capabilities", QJsonObject{}},
+            {"clientInfo", QJsonObject{{"name", "tst"}, {"version", "1"}}}};
+        auto resp = sendHttp(server, "POST", rpcBody("initialize", params));
+
+        const QJsonObject info = resp.jsonBody["result"].toObject()["serverInfo"].toObject();
+        QCOMPARE(info["name"].toString(), QString("Decenza MCP Server"));
+        QCOMPARE(info["version"].toString(), QString::fromLatin1(McpSurfaceVersion));
+        QCOMPARE(info["appVersion"].toString(), QString(VERSION_STRING));
+        QVERIFY2(info["version"].toString() != info["appVersion"].toString()
+                     || QString::fromLatin1(McpSurfaceVersion) == QString(VERSION_STRING),
+                 "surface version and app version are separate facts");
     }
 
     // The server-level `instructions` field (#1162) was introduced in MCP
