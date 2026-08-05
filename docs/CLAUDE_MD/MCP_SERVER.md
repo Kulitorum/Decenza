@@ -94,9 +94,15 @@ fingerprints the registered tools and their actions and fails the PR when the su
 without the version moving, printing the fingerprint to paste into `McpSurfaceFingerprint`. So the
 rule is enforced rather than remembered.
 
-**What this does not do is refresh anybody's tool list.** Clients cache the catalogue they fetched
-at `initialize` and refresh only on reconnect — and some not even then. Reported, repeatedly, and
-not by us:
+**Why it must be right, separately from what clients do with it.** `initialize` is where the
+server states what it is. A server whose surface has changed while its version has not is putting
+a false statement on the wire, and a client that keys on the version — today, or under the
+2026-07-28 caching semantics — can only behave correctly if we tell the truth. Pinning `1.0.0`
+forever defeated exactly the clients that would have done the right thing.
+
+**What it does not do on its own is refresh an existing cache.** Clients cache the catalogue they
+fetched at `initialize` and refresh only on reconnect — and some not even then. Reported,
+repeatedly, and not by us:
 
 - Claude Code caches by SERVER NAME and never invalidates; a server that went 5 → 15 tools kept
   showing 5 until the entry was renamed in `.mcp.json`

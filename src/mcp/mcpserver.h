@@ -47,13 +47,20 @@ struct PendingConfirmation {
 // one, and a client reporting the app version would have shown the same string for
 // both. `serverInfo.appVersion` carries the build alongside it.
 //
-// What this does and does not buy: a client caches the tool list it fetched at
-// initialize and only refreshes on RECONNECT — this server declares no
-// `tools.listChanged` and could not usefully send one, since tools are registered
-// once at startup and never change while the app runs. So the version does not
-// invalidate anything by itself. What it does is make a stale session VISIBLE: a
-// connector still showing 1.0.0 is talking to a session that predates the merge,
-// which otherwise can only be inferred by counting tools.
+// This is a correctness obligation before it is anything else. The handshake is
+// where a server states what it is, and a server whose surface has changed while
+// its version has not is making a false statement on the wire — independently of
+// whether any particular client acts on it. A client that DOES key on the version
+// (today, or under the 2026-07-28 caching semantics) can only behave correctly if
+// we tell it the truth; pinning "1.0.0" forever defeated exactly those clients.
+//
+// It does not, on its own, invalidate an existing cache: a client caches the tool
+// list it fetched at initialize and refreshes only on RECONNECT, some not even
+// then. This server declares no `tools.listChanged` and could not usefully send
+// one, since tools are registered once at startup and never change while the app
+// runs. The useful side effect is that a stale session becomes VISIBLE — a
+// connector still reporting an old version is talking to a session that predates
+// the change, which otherwise can only be inferred by counting tools.
 //
 // scripts/check_mcp_tool_budget.py fingerprints the registered tools and their
 // actions and fails the PR if the surface moved without this string moving, so the
