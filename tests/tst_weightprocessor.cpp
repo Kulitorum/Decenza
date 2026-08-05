@@ -268,8 +268,22 @@ private slots:
     //
     //     2.25  2.92  2.92  2.25  0.04
     //
-    // The last sample of every burst is near zero, which is stop-at-weight going
-    // blind on a regular beat rather than occasionally.
+    // The last sample of every burst is near zero.
+    //
+    // WHAT THIS FIXTURE IS NOT: the Half Decent WiFi scale. Field measurement over
+    // four shots put that feed at 3-8% batched with a deepest burst of 6, i.e.
+    // almost entirely evenly paced, and blind samples at 0-3 per shot out of ~270.
+    // This fixture feeds 100% batched, five-frame bursts back to back — far more
+    // aggressive than any transport measured here. An earlier version of this
+    // comment claimed the oscillation meant stop-at-weight was going blind "on a
+    // regular beat" in the field; the diagnostics added alongside it say otherwise,
+    // and this note is the correction.
+    //
+    // So read the test as arithmetic, not as a report from the machine: it holds a
+    // genuine weakness in how a heavily-batched feed is fitted, against the day a
+    // transport delivers like that. What the real scale does instead is deliver
+    // irregularly — gaps followed by tight runs — which is a different problem the
+    // 65%-fill rule handles badly and which this fixture does not model.
     //
     // What it is NOT: a choice of averaging statistic. The estimate was switched
     // from minimum-of-three to median-of-three specifically to fix this. Measured
