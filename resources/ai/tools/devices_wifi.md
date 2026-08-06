@@ -40,6 +40,23 @@ When comparing, note the system resolver caches: on macOS a browse populates mDN
 resolver comparison on its own, not right after a browse, if the question is whether the device
 itself answers.
 
+`queryPort` is the third selector and the only one that changes what the **responder** is obliged
+to do. mjansson sets the QU (unicast-response) bit unless the socket is bound to 5353, so a query
+from an ephemeral port is a "legacy" query under RFC 6762 §6.7 that the responder must answer by
+unicast — and an openscale scale has been measured refusing exactly that for a peer it has no fresh
+path to, for hours, while answering another host on the same LAN in 272 ms.
+
+| Value | Meaning |
+|---|---|
+| `auto` | Bind 5353, fall back to an ephemeral port only if that bind fails |
+| `mdns` | Force 5353. Query is ordinary, answers come back multicast, nothing per-peer in the path |
+| `ephemeral` | Force the legacy query. What shipped before |
+
+Read the outcome from the log's `srcPort=`, not from the reply: `queryPortRequested` is the policy,
+and a 5353 bind can fail on one call and succeed on the next. Two measurements on record disagree
+about whether 5353 works on Android — an older on-device test saw `records=0` for every host there
+— so force each and compare rather than trusting either.
+
 `timeoutMs` defaults to 8000. Short windows return the resolver's cache including stale entries;
 longer ones let it prune them.
 

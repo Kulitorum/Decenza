@@ -97,6 +97,37 @@ private slots:
         MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
     }
 
+    // The query source port decides whether the responder answers by multicast or
+    // has to unicast back to this specific host, so the DEFAULT is the behaviour,
+    // not a preference. It ships as Auto (prefer 5353), and a flip to Ephemeral
+    // would be invisible on a desktop — where both work — and would restore the
+    // per-peer failure on a tablet.
+    void queryPortDefaultsToPreferring5353() {
+        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Auto);
+        QCOMPARE(MdnsResolver::queryPort(), MdnsResolver::QueryPort::Auto);
+        QCOMPARE(MdnsResolver::queryPortName(), QStringLiteral("auto"));
+    }
+
+    // The whole point of the explicit values is settling an A/B, so a forced
+    // policy has to be readable back — a comparison that silently ran the same
+    // policy twice is worse than not running it.
+    void queryPortReportsWhatWasRequested_data() {
+        QTest::addColumn<int>("port");
+        QTest::addColumn<QString>("name");
+        QTest::newRow("auto") << int(MdnsResolver::QueryPort::Auto) << QStringLiteral("auto");
+        QTest::newRow("mdns") << int(MdnsResolver::QueryPort::Mdns) << QStringLiteral("mdns");
+        QTest::newRow("ephemeral")
+            << int(MdnsResolver::QueryPort::Ephemeral) << QStringLiteral("ephemeral");
+    }
+
+    void queryPortReportsWhatWasRequested() {
+        QFETCH(int, port);
+        QFETCH(QString, name);
+        MdnsResolver::setQueryPort(static_cast<MdnsResolver::QueryPort>(port));
+        QCOMPARE(MdnsResolver::queryPortName(), name);
+        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Auto);
+    }
+
     // The NsdManager browse only ever runs on a tablet, so its parser is the one
     // piece of that path that can be held to account anywhere. What is being
     // guarded is field ALIGNMENT: `host` is legitimately empty below API 36, and a
@@ -135,11 +166,13 @@ private slots:
         QTest::newRow("truncated")
             << QStringLiteral("Half Decent Scale\ths.local\t192.168.10.145")
             << false << QString() << QString() << QString() << 0 << QString();
-        // No address means the instance never resolved, whatever else it carries.
+        // No address means the instance never resolved, whatever else it carries —
+        // the other fields still parse, they just do not add up to a reachable
+        // scale, which is what `valid` says and nothing else does.
         QTest::newRow("no address")
             << QStringLiteral("Half Decent Scale\ths.local\t\t80\tfw=3.1.13")
             << false << QStringLiteral("Half Decent Scale")
-            << QStringLiteral("hs.local") << QString() << 80 << QString();
+            << QStringLiteral("hs.local") << QString() << 80 << QStringLiteral("3.1.13");
     }
 
     void nsdLineParsesFieldsPositionally() {

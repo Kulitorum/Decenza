@@ -84,6 +84,14 @@ struct ResolveStats {
     int sendsOk = 0;        // of those, how many the socket accepted
     int recordsSeen = 0;    // any mDNS record reaching our socket
     int aRecordsSeen = 0;   // of those, A records
+    // Local port the query socket actually bound to. 5353 means the query was an
+    // ordinary mDNS query answered by multicast; anything else means a legacy
+    // (RFC 6762 section 6.7) query that the responder must answer by unicast, so
+    // the answer depends on the responder being able to reach us directly. This
+    // is the difference between "nobody is there" and "the responder will not
+    // answer this particular host", which look identical without it. See
+    // QueryPort.
+    int boundPort = 0;
     QString error;
 };
 
@@ -139,6 +147,9 @@ struct BrowseStats {
     // "not measured" and must not be rendered as "none".
     int withdrawals = -1;
     qint64 elapsedMs = 0;
+    // Same meaning as ResolveStats::boundPort. Zero on the Bonjour backend,
+    // which owns no socket of ours to report.
+    int boundPort = 0;
     QString error;
 };
 
@@ -225,6 +236,45 @@ enum class HostnameResolver {
 
 void setHostnameResolver(HostnameResolver resolver);
 HostnameResolver hostnameResolver();
+
+/**
+ * Which local port our own mDNS queries go out from — the third selector, and
+ * the one that decides whether a responder answers us at all.
+ *
+ * mjansson sets the QU (unicast-response) bit unless the socket is bound to 5353.
+ * A query from an ephemeral port is therefore a "legacy" query under RFC 6762
+ * section 6.7, which the responder must answer by UNICAST — so the answer depends
+ * on the responder being able to address this host directly. An openscale scale
+ * has been measured refusing exactly that: a tablet that had never opened a
+ * socket to it got zero records for hours while a Mac on the same LAN resolved it
+ * in 272 ms, and a second scale on that LAN behaved oppositely toward the two
+ * hosts in the same window. From 5353 the query is ordinary and the answer comes
+ * back multicast, with nothing per-peer in the path. Binding 5353 with
+ * SO_REUSEPORT is the openscale maintainers' recommended client-side workaround.
+ *
+ * Auto binds 5353 and falls back to an ephemeral port only if that bind fails.
+ * Mdns forces 5353 with no fallback; Ephemeral forces the legacy behaviour, which
+ * is what shipped before.
+ *
+ * The explicit values are not decoration. An older on-device test recorded a
+ * 5353 socket receiving records=0 for ALL hosts on Android, which is why the
+ * ephemeral bind shipped; that result has never been reproduced against the
+ * current build, and it predates ShotServer holding a process-wide
+ * WifiManager.MulticastLock, which a 5353 socket needs and an ephemeral one does
+ * not. Rather than pick a winner from two unrepeatable measurements, force each
+ * and read ResolveStats::boundPort back out of the log.
+ */
+enum class QueryPort {
+    Auto,
+    Mdns,
+    Ephemeral,
+};
+
+void setQueryPort(QueryPort port);
+QueryPort queryPort();
+
+/** Name of the requested policy, for logs and MCP replies. */
+QString queryPortName();
 
 /**
  * Name of the resolver a hostname lookup would ACTUALLY use right now — same

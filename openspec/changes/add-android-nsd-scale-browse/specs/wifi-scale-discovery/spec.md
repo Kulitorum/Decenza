@@ -36,6 +36,28 @@ The NsdManager browse SHALL be keyed per browse instance, SHALL deliver results 
 - **WHEN** a browse is cancelled or the app is torn down while an NsdManager browse is in flight
 - **THEN** that browse stops within one poll interval rather than running out its deadline
 
+### Requirement: mDNS queries are sent from port 5353 where the platform allows it
+
+The app's own mDNS queries SHALL be sent from a socket bound to port 5353 with `SO_REUSEADDR` and `SO_REUSEPORT`, falling back to an ephemeral source port only when that bind fails.
+
+This is not a preference about sockets; it changes what the responder is obliged to do. A query from an ephemeral source port is a "legacy" query under RFC 6762 §6.7, which a responder must answer by **unicast** — so the answer depends on the responder being able to address this host directly, and an openscale scale has been measured declining to answer a peer it has no fresh path to for hours while answering another host on the same LAN in 272 ms. From 5353 the query is ordinary, the answer returns multicast to the group, and nothing per-peer is in the path. This is the openscale maintainers' own recommended client-side workaround, and it is available now, without a firmware change.
+
+The port a socket actually bound to SHALL be reported with every lookup and every browse, in the log and in the discovery statistics. Without it, `records=0` cannot be interpreted: it is the difference between "nothing is there" and "the responder will not answer this particular host".
+
+The policy SHALL be forceable to either extreme from the diagnostic surface. An earlier on-device test recorded a 5353 socket receiving zero records for all hosts on Android, which is why the ephemeral bind shipped; that result has never been reproduced against the current build, and it predates the app holding a process-wide `WifiManager.MulticastLock`, which a 5353 socket depends on and an ephemeral one does not. Neither measurement SHALL be treated as settled, and the disagreement SHALL be resolvable by forcing each and reading the bound port back, rather than by argument.
+
+#### Scenario: The bound port is in the log either way
+- **WHEN** any hostname lookup or mjansson browse runs
+- **THEN** its log line reports the local port the socket bound to, so a zero-record result can be attributed to a legacy query or ruled out as one
+
+#### Scenario: 5353 is unavailable
+- **WHEN** the bind to 5353 fails because another process holds it without `SO_REUSEPORT`
+- **THEN** the query still goes out from an ephemeral port rather than the lookup failing, and the log reports that port
+
+#### Scenario: The A/B can be run without a rebuild
+- **WHEN** an operator forces the ephemeral policy and then the 5353 policy against the same LAN
+- **THEN** each run reports which port it used, so the two results can be compared as different treatments rather than assumed to be the same one
+
 ## MODIFIED Requirements
 
 ### Requirement: WiFi connect tries cached IP first with hostname fallback

@@ -15,6 +15,14 @@
 // useDirectHostnameResolver(), so a desktop build can be pointed at the exact
 // A-record path Android ships — which is why this file has to compile
 // everywhere. See HostnameResolver in the header.
+namespace {
+// Declared ahead of the iOS guard below because the accessors that read it are
+// compiled on every platform, while the socket code that acts on it is not.
+// Written by the MCP tool on the main thread, read by whichever worker thread
+// opens the next query socket — same race, and same treatment, as g_backend.
+std::atomic<MdnsResolver::QueryPort> g_queryPort{MdnsResolver::QueryPort::Auto};
+}  // namespace
+
 #ifndef Q_OS_IOS
 
 #include <QHostAddress>
@@ -274,6 +282,78 @@ int mdnsBrowseCallback(int sock, const struct sockaddr* from, size_t addrlen,
     return 0;
 }
 
+// Open a query socket, and report which local port it actually landed on.
+//
+// THE PORT DECIDES WHO ANSWERS US. mjansson sets the QU (unicast-response) bit
+// on every query unless getsockname() says the socket is on 5353
+// (mdns.h:1085-1092). A query from an ephemeral port is a "legacy" query under
+// RFC 6762 section 6.7, which a responder must answer by UNICAST — so the reply
+// depends on the responder being able to address this host directly, and an
+// openscale scale has been measured refusing to answer a peer it has no fresh
+// path to for hours at a time. From 5353 the query is ordinary, the answer comes
+// back multicast to the group, and nothing per-peer is involved. Preferring 5353
+// is the openscale maintainers' own recommendation for working around it from the
+// client side.
+//
+// It is preferred, not required, because the bind can legitimately fail — some
+// platform or some other process may hold 5353 without SO_REUSEPORT — and a
+// legacy query that sometimes works beats no socket at all.
+//
+// AGAINST THAT STANDS AN OLDER ON-DEVICE MEASUREMENT, which is why this is
+// switchable rather than simply changed. A previous Android test bound to 5353
+// and saw records=0 for ALL hosts, including names that resolved fine from an
+// ephemeral port, and the ephemeral bind has been what shipped ever since. That
+// result has never been reproduced against the current build, and there is a
+// plausible reason it would not be: multicast reception on Android requires a
+// held WifiManager.MulticastLock, ShotServer now holds one for the whole app
+// lifetime, and a 5353 socket depends on multicast where an ephemeral one does
+// not — so a test predating that lock would show exactly this, zero records on
+// 5353 and normal results on ephemeral. Plausible is not established. Force one
+// or the other from devices_wifi and read the bound port in the log rather than
+// believing either paragraph.
+int openQuerySocket(int* boundPortOut)
+{
+    if (boundPortOut) *boundPortOut = 0;
+
+    const MdnsResolver::QueryPort want = g_queryPort.load(std::memory_order_relaxed);
+    const bool try5353 = want != MdnsResolver::QueryPort::Ephemeral;
+    const bool allowFallback = want == MdnsResolver::QueryPort::Auto;
+
+    int sock = -1;
+    if (try5353) {
+        struct sockaddr_in bindAddr;
+        memset(&bindAddr, 0, sizeof(bindAddr));
+        bindAddr.sin_family = AF_INET;
+        bindAddr.sin_addr.s_addr = INADDR_ANY;
+        bindAddr.sin_port = htons(MDNS_PORT);
+        // SO_REUSEADDR and SO_REUSEPORT are set by the library itself
+        // (mdns.h:405-408), so sharing 5353 with a system daemon is expected
+        // rather than something to arrange here.
+        sock = mdns_socket_open_ipv4(&bindAddr);
+        if (sock < 0 && !allowFallback)
+            return -1;
+    }
+    if (sock < 0) {
+        struct sockaddr_in bindAddr;
+        memset(&bindAddr, 0, sizeof(bindAddr));
+        bindAddr.sin_family = AF_INET;
+        bindAddr.sin_addr.s_addr = INADDR_ANY;
+        sock = mdns_socket_open_ipv4(&bindAddr);
+    }
+    if (sock < 0)
+        return -1;
+
+    // Report the port the kernel gave us, not the one we asked for: those differ
+    // whenever the 5353 bind failed, and that difference is the whole diagnostic.
+    if (boundPortOut) {
+        struct sockaddr_in local;
+        socklen_t len = sizeof(local);
+        if (getsockname(sock, reinterpret_cast<struct sockaddr*>(&local), &len) == 0)
+            *boundPortOut = ntohs(local.sin_port);
+    }
+    return sock;
+}
+
 }  // namespace
 
 namespace MdnsResolver {
@@ -281,18 +361,8 @@ namespace MdnsResolver {
 QString resolveHostname(const QString& hostname, int timeoutMs,
                         ResolveStats* stats, const std::atomic<bool>* cancel)
 {
-    // Bind the query socket to an ephemeral port (NOT 5353). Binding to 5353
-    // on Android collides with the system mDNS daemon: even with SO_REUSEPORT,
-    // inbound multicast is delivered to the OS daemon's socket and our socket
-    // receives nothing (verified on-device: records=0 for ALL hosts when bound
-    // to 5353, including ones that resolve fine from an ephemeral port).
-    // An ephemeral source port is also what the esp-idf#7124 workaround
-    // recommends — it makes the ESP32 unicast its reply back to us.
-    struct sockaddr_in bindAddr;
-    memset(&bindAddr, 0, sizeof(bindAddr));
-    bindAddr.sin_family = AF_INET;
-    bindAddr.sin_addr.s_addr = INADDR_ANY;
-    int sock = mdns_socket_open_ipv4(&bindAddr);
+    int boundPort = 0;
+    int sock = openQuerySocket(&boundPort);
     if (sock < 0) {
         qWarning() << "[MdnsResolver] socket open FAILED for" << hostname
                    << "errno=" << errno;
@@ -300,7 +370,10 @@ QString resolveHostname(const QString& hostname, int timeoutMs,
             stats->error = QString("mDNS socket open failed (errno %1)").arg(errno);
         return {};
     }
-    if (stats) stats->socketOpened = true;
+    if (stats) {
+        stats->socketOpened = true;
+        stats->boundPort = boundPort;
+    }
 
     char buffer[2048];
     QByteArray hostBytes = hostname.toUtf8();
@@ -311,8 +384,12 @@ QString resolveHostname(const QString& hostname, int timeoutMs,
         ctx.hostname.chop(1);
     ctx.verbose = false;  // flip to true to log every record seen (verbose probe diagnostics)
 
+    // srcPort is not decoration: 5353 means an ordinary query answered by
+    // multicast, anything else a legacy query the responder must unicast back.
+    // Without it, "records=0" cannot be read.
     qDebug().noquote() << "[MdnsResolver] start host=" << hostname
-                       << "timeout=" << timeoutMs << "ms sock=" << sock;
+                       << "timeout=" << timeoutMs << "ms sock=" << sock
+                       << "srcPort=" << boundPort;
 
     int sendCount = 0;
     int sendOk = 0;  // successful sends — distinguishes "no responder" from "couldn't send"
@@ -388,6 +465,7 @@ QString resolveHostname(const QString& hostname, int timeoutMs,
                        << "queries=" << sendCount
                        << "records=" << ctx.recordsSeen
                        << "aRecords=" << ctx.aRecordsSeen
+                       << "srcPort=" << boundPort
                        << "elapsed=" << deadline.elapsed() << "ms";
 
     // Distinguish a transport failure (every query send failed — e.g. no
@@ -418,19 +496,17 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
                                               const std::atomic<bool>* cancel)
 {
     if (stats) stats->backend = QStringLiteral("mjansson");
-    // Same ephemeral-port rationale as resolveHostname() above — binding 5353
-    // loses every inbound packet to the system mDNS daemon.
-    struct sockaddr_in bindAddr;
-    memset(&bindAddr, 0, sizeof(bindAddr));
-    bindAddr.sin_family = AF_INET;
-    bindAddr.sin_addr.s_addr = INADDR_ANY;
-    int sock = mdns_socket_open_ipv4(&bindAddr);
+    // Same socket policy as resolveHostname() — see openQuerySocket() for why the
+    // source port decides whether the responder answers us at all.
+    int boundPort = 0;
+    int sock = openQuerySocket(&boundPort);
     if (sock < 0) {
         qWarning() << "[MdnsResolver] browse socket open FAILED for" << serviceType
                    << "errno=" << errno;
         if (stats) stats->error = QString("socket open failed (errno %1)").arg(errno);
         return {};
     }
+    if (stats) stats->boundPort = boundPort;
 
     char buffer[2048];
 
@@ -440,7 +516,8 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
         ctx.serviceType.chop(1);
 
     qDebug().noquote() << "[MdnsResolver] browse start service=" << serviceType
-                       << "timeout=" << timeoutMs << "ms sock=" << sock;
+                       << "timeout=" << timeoutMs << "ms sock=" << sock
+                       << "srcPort=" << boundPort;
 
     // Retransmit for the same reason resolveHostname does: the scale's ESP32
     // shares one radio between BLE and WiFi and routinely misses a single
@@ -568,6 +645,7 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
                        << "dropped=" << dropped
                        << "queries=" << sendCount
                        << "records=" << ctx.recordsSeen
+                       << "srcPort=" << boundPort
                        << "elapsed=" << deadline.elapsed() << "ms";
 
     if (stats) {
@@ -1076,6 +1154,28 @@ HostnameResolver resolveHostnameResolver(HostnameResolver requested)
 #endif
 }
 }  // namespace
+
+void setQueryPort(QueryPort port)
+{
+    g_queryPort.store(port, std::memory_order_relaxed);
+}
+
+QueryPort queryPort() { return g_queryPort.load(std::memory_order_relaxed); }
+
+QString queryPortName()
+{
+    // The REQUEST, unlike the two backend selectors, which report what ran. Here
+    // "what ran" is a number the socket knows and this function does not — every
+    // browse and lookup reports its own ResolveStats/BrowseStats::boundPort,
+    // which is the honest answer and can differ between two calls under one
+    // policy if a bind fails once.
+    switch (g_queryPort.load(std::memory_order_relaxed)) {
+        case QueryPort::Mdns:      return QStringLiteral("mdns");
+        case QueryPort::Ephemeral: return QStringLiteral("ephemeral");
+        case QueryPort::Auto:      break;
+    }
+    return QStringLiteral("auto");
+}
 
 void setHostnameResolver(HostnameResolver resolver)
 {

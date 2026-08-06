@@ -106,6 +106,20 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             else
                 MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
 
+            // The source port our own queries go out from. Not a variant of the
+            // two above: they choose an implementation, this changes what the
+            // RESPONDER is obliged to do — a query from 5353 is answered by
+            // multicast, one from an ephemeral port must be unicast back to us.
+            // See MdnsResolver::QueryPort for why both measurements on record
+            // disagree and why this is settled by forcing each, not by argument.
+            const QString queryPort = args.value("queryPort").toString(QStringLiteral("auto")).toLower();
+            if (queryPort == QStringLiteral("mdns"))
+                MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Mdns);
+            else if (queryPort == QStringLiteral("ephemeral"))
+                MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Ephemeral);
+            else
+                MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Auto);
+
             const int timeoutMs = args.value("timeoutMs").toInt(8000);
             QMetaObject::invokeMethod(bleManager, "browseWifiScales",
                 Qt::QueuedConnection, Q_ARG(int, timeoutMs));
@@ -115,6 +129,10 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             result["backendActive"] = MdnsResolver::activeBrowseBackendName();
             result["resolverRequested"] = resolver;
             result["resolverActive"] = MdnsResolver::activeHostnameResolverName();
+            // The policy, not the outcome: the port a socket actually bound to is
+            // per call and is reported in the log as srcPort=, because a 5353
+            // bind can fail on one call and succeed on the next.
+            result["queryPortRequested"] = MdnsResolver::queryPortName();
             result["timeoutMs"] = timeoutMs;
             result["message"] = QString("WiFi discovery started using the %1 browse backend and the "
                                         "%2 hostname resolver. Call action=results after about %3 seconds.")
@@ -152,6 +170,7 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             // looking at `foundBy: "fallback"` (or its absence) needs to know
             // which resolver produced it, and the two calls may be minutes apart.
             result["resolverActive"] = MdnsResolver::activeHostnameResolverName();
+            result["queryPortRequested"] = MdnsResolver::queryPortName();
             // A count of 0 is ambiguous on its own. False here means the
             // transport could not run — no backend, socket refused, Local
             // Network permission denied — which is a completely different
@@ -180,6 +199,10 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                     {"type", "string"},
                     {"enum", QJsonArray{"auto", "system", "mjansson"}},
                     {"description", "browse only: what resolves hds.local. 'auto' ships; 'mjansson' runs Android's path on desktop; 'system' errors there"}}},
+                {"queryPort", QJsonObject{
+                    {"type", "string"},
+                    {"enum", QJsonArray{"auto", "mdns", "ephemeral"}},
+                    {"description", "browse only: our query source port. 'mdns' (5353) gets multicast answers; 'ephemeral' forces unicast"}}},
                 {"timeoutMs", QJsonObject{
                     {"type", "integer"},
                     {"description", "browse only: how long to browse, in milliseconds (default 8000)"}}}
