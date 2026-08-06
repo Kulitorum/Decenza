@@ -341,20 +341,15 @@ void DecentScaleWifi::attemptHostname() {
             // A-query. It does: a later run on the same tablet and scale
             // resolved this host here in 357 ms, one query, one record.
             //
-            // That difference was originally attributed to a tablet reboot, and
-            // written here as "a host-side resolver state, not scale or protocol
-            // behaviour". A two-scale control on 2026-08-06 REFUTES that: in one
-            // window the tablet resolved the scale it had just opened a TCP
-            // connection to in 272 ms while a second scale on the same LAN, never
-            // contacted from that tablet, stayed silent to it and answered a Mac
-            // normally. One resolver stack, one moment, opposite outcomes per
-            // PEER — which no state of the tablet's resolver can produce. The
-            // reboot worked because it was followed by traffic to the scale, not
-            // because it cleared anything. See onRecognitionTimeout() for what is
-            // established and what is still only suspected.
-            //
-            // The 16 s counter-example above still stands against the suspected
-            // ARP mechanism, and is the reason it is written as suspected.
+            // Both outcomes are what an unreliable path looks like, and the path
+            // is unreliable for everything: measured 2026-08-06, a single mDNS
+            // query goes unanswered 25-60% of the time for most hosts on an
+            // ordinary LAN, the scales included and not as outliers. So neither
+            // the miss nor the 357 ms hit needs a scale-specific explanation.
+            // docs/WIFI_SCALE_MDNS.md has the numbers and the three mechanisms
+            // that were asserted here and then refuted — including a per-peer
+            // effect this comment used to state as established, which rested on
+            // samples far too small to distinguish from that loss rate.
             //
             // The constant stays because agreeing with the discovery path is
             // right on its own terms, and because a 5 s budget costs nothing on
@@ -838,30 +833,16 @@ void DecentScaleWifi::onRecognitionTimeout() {
     //    not evidence about the address at all — it is what a scale that is
     //    rebooting, asleep, or momentarily unreachable looks like.
     //
-    // Evicting on silence turns a transient miss into a long outage, because the
-    // cached IP is not merely an optimisation: dialling it is what appears to
-    // REPAIR mDNS. Measured on 2026-08-06 — a tablet in exactly this state got 0
-    // records from 7 A-record queries per attempt, 5 s per attempt, every attempt
-    // identical across a session of several hours, against a scale a Mac on the
-    // same LAN resolved in 272 ms. One TCP connection from the tablet flipped it
-    // to 1 query / 272 ms, and only for the scale it had contacted: a second scale
-    // on the same LAN stayed silent to that tablet while answering the Mac
-    // normally. (The outage that prompted the investigation had run five days.
-    // That is the user-visible span, not the instrumented one; do not merge the
-    // two numbers.)
+    // Evicting on silence turns a transient miss into a long outage, and mDNS
+    // silence is common: on an ordinary LAN a single query goes unanswered 25-60%
+    // of the time, for every host on the segment, not just the scale. See
+    // docs/WIFI_SCALE_MDNS.md for the measurements.
     //
-    // So the BEHAVIOUR is established: the scale answers mDNS per-peer, and having
-    // dialled it is what puts this device on the answering side. The MECHANISM is
-    // not. The fitting story is that an openscale responder answers a legacy
-    // (ephemeral-port) query by unicast, so it must ARP for the querier, and with
-    // ETHARP_TRUST_IP_MAC off it cannot learn our MAC from the query frame — only
-    // from an ARP request we send, which we only send when we have an address to
-    // dial. No ARP frames were captured and the scale's ARP table was never read,
-    // and the comment inside attemptHostname() records misses continuing against
-    // a scale that had served a WebSocket on its IP 16 s earlier, which a cold ARP
-    // entry does not explain. Keep the address either way: the reason to keep it
-    // is that silence says nothing about the address, and that holds whatever the
-    // responder is really doing.
+    // Keep the address. The reason is narrow and survives whatever the responder
+    // turns out to be doing: silence says nothing about whether the address is
+    // right. Do not re-derive a mechanism here — three have been asserted at this
+    // call site and all three were refuted; the doc records them so a fourth does
+    // not get written from memory.
     //
     // m_wsHandshakeDone is exactly this distinction, already tracked: cleared at
     // the top of every attempt, set in onConnected(). A completed handshake means
@@ -936,11 +917,14 @@ bool DecentScaleWifi::isTransientTransportError(QAbstractSocket::SocketError err
     // The only class that matters in practice. nativeConnect maps BOTH
     // EHOSTUNREACH and ENETUNREACH here, and also ETIMEDOUT (a connect that
     // never got a reply) — so "nothing answered" arrives as NetworkError in all
-    // three shapes. This is the class the reconnect defect turned on: an ESP32
-    // in WiFi power-save misses an ARP request, the OS caches a negative route,
-    // and connect() then fails in well under a millisecond without ever binding
-    // a local port. Nothing answered, so nothing was learned about whether the
-    // address is still the scale's.
+    // three shapes, including the sub-millisecond failure of a connect() that
+    // never bound a local port because the OS had a cached negative route.
+    //
+    // What matters here is only that nothing answered, so nothing was learned
+    // about whether the address is still the scale's. This comment used to name
+    // a cause (an ESP32 in WiFi power-save missing an ARP request); that account
+    // is refuted — see docs/WIFI_SCALE_MDNS.md — and the handling never depended
+    // on it.
     //
     // NOTE: EHOSTDOWN is NOT in that switch — it falls through to
     // UnknownSocketError and is therefore treated as non-transient here. That

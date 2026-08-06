@@ -21,39 +21,33 @@ import java.util.concurrent.TimeUnit;
  * Why a second path, when the app already browses the same service: the two fail
  * for different reasons, and the one that fails is the one we ship.
  *
- * WHAT WAS MEASURED (2026-08-06, one tablet, one LAN, two scales on firmware
- * 3.1.13). Over a single session of several hours, the tablet got 0 records from
- * every A-record query it sent — 7 queries per attempt, 5 s per attempt, every
- * attempt identical — while a Mac on the same LAN resolved the same name in
- * 272 ms with one query. Making the tablet open one TCP connection to the scale
- * flipped it to 1 query / 272 ms, and only for the scale it had contacted: the
- * second scale, never contacted from the tablet, stayed silent to it while
- * answering the Mac normally throughout. (The user-visible outage that led to the
- * investigation had run for five days; the instrumented session is the several
- * hours above. Those are two different numbers and neither substitutes for the
- * other.)
+ * WHY THIS EXISTS, AND WHAT IT DOES NOT FIX. An Android tablet got 0 records from
+ * every A-record query it sent — 7 queries per attempt, every attempt identical
+ * across hours — while a Mac on the same LAN resolved the same name in 272 ms.
  *
- * SUSPECTED MECHANISM, NOT PROVEN. The app's browse queries from an EPHEMERAL
- * source port, which RFC 6762 section 6.7 makes a "legacy" query that a responder
- * must answer by UNICAST — and to unicast, the scale's lwIP has to resolve the
- * querier's IP to a MAC. ESP-IDF ships ETHARP_TRUST_IP_MAC off, so the scale does
- * not learn the querier's MAC from the multicast query frame it just parsed; it
- * must ARP, and it queues only one packet while that ARP is outstanding. A
- * Wi-Fi power-saving Android tablet is exactly the client that answers that ARP
- * late or not at all. That story fits every measurement above, but no ARP frames
- * were captured and the scale's ARP table was never read, so it stays a
- * hypothesis. It also has a known counter-example on the record: DecentScaleWifi
- * (see the comment above onRecognitionTimeout) documents misses continuing
- * against a scale that had served a WebSocket on its IP 16 s earlier, which a
- * cold ARP entry does not explain. Treat the per-peer BEHAVIOUR as established
- * and the ARP CAUSE as unconfirmed.
+ * That is not a scale defect, and it is not per-peer. One TCP connection from the
+ * tablet to ONE scale took resolution from 0/10 to 10/10 for that scale AND from
+ * 0/10 to 9/10 for a second scale the tablet never contacted. What was dormant is
+ * the TABLET'S OWN RECEIVE PATH, and outbound traffic wakes it for every peer at
+ * once — WiFi power save on this device, measured. The same tablet was the worst
+ * of 21 mDNS responders on the LAN (1/12, 1253 ms median), so it under-receives in
+ * both directions. Three earlier mechanisms — scale-side power save, an
+ * ARP/ETHARP_TRUST_IP_MAC story, and the per-peer effect — are all refuted;
+ * docs/WIFI_SCALE_MDNS.md has the measurements and the retractions. Read it before
+ * adding a fourth.
  *
- * What is not in doubt is that NsdManager does not share the failure. The system
- * daemon owns port 5353, so its queries are not "legacy" and responses come back
- * MULTICAST to the group. It also sees the scale's unsolicited announcements,
- * which need no query at all. That makes it the path that can find a scale this
- * device has never talked to, which is precisely the case the app's own browse
- * cannot recover on its own.
+ * That finding cuts against this class. A sleeping receive path drops the system
+ * daemon's multicast answers and the unsolicited announcements alike, so NsdManager
+ * is subject to the same dormancy our own socket is, and cannot be the fix for it.
+ * The likelier fix is a WifiLock held across a browse, which nothing currently
+ * takes (dumpsys: "Locks acquired: 0 full high perf").
+ *
+ * IT HAS NOT BEEN SHOWN TO HELP. On-device, a never-contacted scale stayed
+ * invisible to NsdManager throughout, which is the exact case this class was added
+ * for. Every measurement so far was taken while the app's own socket was bound to
+ * 5353 and starving the daemon this depends on, so the value is UNPROVEN rather
+ * than disproven. Retained pending a fair test on a build that no longer binds
+ * 5353; if that test finds nothing, delete this class rather than re-justifying it.
  *
  * This class replaces an earlier NsdManager helper deleted in #1249 for browsing
  * "_http._tcp" — the wrong service type, because the scale published only a
@@ -69,7 +63,11 @@ import java.util.concurrent.TimeUnit;
  * a caller-supplied token, so concurrent WifiScaleDiscovery instances (the scan
  * and the reconnect ladder each own one) never cancel each other.
  *
- * The multicast lock ShotServer holds for the app lifetime covers reception.
+ * Multicast reception needs a held WifiManager.MulticastLock. The app takes its
+ * own, reference-counted, for the duration of each lookup and browse — see
+ * MulticastLock. Do NOT write that ShotServer holds one for the app lifetime:
+ * that claim was false in three other files before this one, its setting
+ * defaults to off, and it is what this branch spent a day disproving.
  */
 public final class WifiScaleNsdHelper {
     private static final String TAG = "DecenzaWifiNsd";

@@ -312,16 +312,17 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
     // mjansson browse returns cleanly and empty, which is indistinguishable from
     // an empty LAN and so cannot be used as a trigger.
     //
-    // The two fail for unrelated reasons. Ours queries from an ephemeral source
-    // port, which RFC 6762 section 6.7 makes a "legacy" query that responders
-    // answer by UNICAST, so the reply depends on the scale being able to address
-    // this device directly — and measurably, a tablet that has never opened a
-    // socket to a given scale gets nothing back from it for hours while a Mac on
-    // the same LAN resolves it in 272 ms. NsdManager queries from 5353, so its
-    // answers come back multicast to the group, and it also sees unsolicited
-    // announcements. WifiScaleNsdHelper.java carries the measurements and the
-    // suspected (NOT proven) ARP mechanism, including a counter-example it does
-    // not explain.
+    // The two fail for unrelated reasons, which is the whole value of running
+    // both. Ours queries from an ephemeral source port, so responders answer by
+    // UNICAST — measurably the more reliable shape, because a unicast reply is
+    // acked and retried by the AP while a multicast one is fire-and-forget.
+    // NsdManager queries from 5353 and takes multicast answers, but it also sees
+    // unsolicited announcements, which need no reply to us at all.
+    //
+    // The failure this exists for — a tablet getting nothing for hours while a
+    // Mac resolves the same name — is still unexplained, and is NOT a scale
+    // defect. See docs/WIFI_SCALE_MDNS.md for what is measured and for the three
+    // mechanisms asserted here and since refuted.
     //
     // Deduplication is the caller's, by HOSTNAME — see
     // WifiScaleResultUtil::upsertByHostname. The same scale answering both paths

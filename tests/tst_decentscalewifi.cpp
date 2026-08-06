@@ -875,9 +875,9 @@ private slots:
     // cached IP is retained and the retry is deferred rather than run
     // immediately. Only ConnectionRefusedError still belongs in this test.
     //
-    // The user-visible symptom this prevents
-    // is on macOS cold start: ARP/route stale at .242 → cached-IP connect
-    // fast-fails → without this fix we wait 5 s, during which BLE-fallback
+    // The user-visible symptom this prevents is on macOS cold start: a cached-IP
+    // connect fast-fails against a stale route, and without this fix we wait 5 s,
+    // during which BLE-fallback
     // also fails (CoreBluetooth radio not powered on yet), tripping a
     // FlowScale "no scale" dialog before the WiFi scale could just be retried.
     //
@@ -931,11 +931,11 @@ private slots:
     // peer answered and turned out not to be an HDS (evict — the address really is
     // wrong), or nothing answered at all (keep — silence says nothing about the
     // address). Evicting on silence is what turns a scale that was merely
-    // rebooting into a permanently unfindable one, because dialling the cached IP
-    // is also what makes the scale answer mDNS: it only learns this device's MAC
-    // from an ARP request, which only goes out when there is an address to dial.
-    // Measured 2026-08-06 — a tablet stuck exactly this way for five days against
-    // a scale a Mac resolved in 272 ms.
+    // rebooting into a permanently unfindable one, and mDNS silence is ordinary:
+    // a single query goes unanswered 25-60% of the time on a normal LAN, for
+    // every host on the segment. See docs/WIFI_SCALE_MDNS.md. (This comment used
+    // to justify the rule with an ARP mechanism; that account is refuted, and the
+    // rule never depended on it.)
     //
     // Driven through onRecognitionTimeout directly rather than by waiting out a
     // real 5 s recognition window: the branch under test is chosen by
