@@ -925,6 +925,62 @@ private slots:
         QVERIFY(!cacheWrites[1].second.isEmpty());   // re-cache with new IP
     }
 
+    // A cached IP that NOBODY ANSWERED must be kept, not evicted.
+    //
+    // onRecognitionTimeout fires for two states that need opposite responses: a
+    // peer answered and turned out not to be an HDS (evict — the address really is
+    // wrong), or nothing answered at all (keep — silence says nothing about the
+    // address). Evicting on silence is what turns a scale that was merely
+    // rebooting into a permanently unfindable one, because dialling the cached IP
+    // is also what makes the scale answer mDNS: it only learns this device's MAC
+    // from an ARP request, which only goes out when there is an address to dial.
+    // Measured 2026-08-06 — a tablet stuck exactly this way for five days against
+    // a scale a Mac resolved in 272 ms.
+    //
+    // Driven through onRecognitionTimeout directly rather than by waiting out a
+    // real 5 s recognition window: the branch under test is chosen by
+    // m_wsHandshakeDone alone, and a behavioural version would add five seconds to
+    // the suite to reach the same line.
+    void silentCachedIpIsKeptAndAnsweringOneIsEvicted_data() {
+        QTest::addColumn<bool>("handshakeDone");
+        QTest::addColumn<int>("expectedCacheWrites");
+        QTest::newRow("nothing answered — keep") << false << 0;
+        QTest::newRow("peer answered, not an HDS — evict") << true << 1;
+    }
+
+    void silentCachedIpIsKeptAndAnsweringOneIsEvicted() {
+        QFETCH(bool, handshakeDone);
+        QFETCH(int, expectedCacheWrites);
+
+        DecentScaleWifi driver;
+        QList<QPair<QString, QString>> cacheWrites;
+        driver.setIpCacheUpdate([&](const QString& host, const QString& ip) {
+            cacheWrites.append({host, ip});
+        });
+
+        // The state a cached-IP attempt is in when its recognition window expires.
+        driver.m_hostname = QStringLiteral("hds.local");
+        driver.m_currentTarget = QStringLiteral("192.168.10.145");
+        driver.m_currentTargetIsHostname = false;
+        driver.m_triedHostnameFallback = false;
+        driver.m_wsHandshakeDone = handshakeDone;
+        driver.recreateSocket();  // onRecognitionTimeout aborts the socket
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("No recognizable HDS frame.*")));
+        driver.onRecognitionTimeout();
+
+        QCOMPARE(cacheWrites.size(), expectedCacheWrites);
+        if (expectedCacheWrites > 0) {
+            QCOMPARE(cacheWrites[0].first, QStringLiteral("hds.local"));
+            QCOMPARE(cacheWrites[0].second, QString());  // eviction writes an empty IP
+        }
+
+        // Either way the hostname fallback still runs — keeping the address must
+        // not also stop the attempt from progressing.
+        QVERIFY(driver.m_pendingHostnameFallback);
+    }
+
     // recognizedAsHds is the single source of truth for "this WS endpoint is
     // really an HDS scale". main.cpp's manual-entry deferred-persistence flow
     // commits addKnownScale/setPrimaryScale/setSavedScaleAddress ONLY when

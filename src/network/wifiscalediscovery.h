@@ -166,6 +166,12 @@ signals:
     void logMessage(const QString& message);
 
 private:
+    // Android's NsdManager browse, started alongside the mjansson one in browse().
+    // A no-op everywhere else: on those platforms the system resolver already owns
+    // port 5353, so there is no second, independent path to add. Full reasoning —
+    // and the measurements that motivate it — are at the definition.
+    void startNsdBrowse(int timeoutMs, int generation);
+
     void cancelInFlight();
     void finishOneLookup();
 

@@ -813,12 +813,51 @@ void DecentScaleWifi::onRecognitionTimeout() {
     WIFI_WARN(QString("No recognizable HDS frame within %1 ms from %2")
               .arg(kRecognitionTimeoutMs).arg(m_currentTarget));
 
-    // Cached-IP attempt failed validation → evict the bad IP and fall back to
-    // the hostname. (If we were already on the hostname, we've exhausted options.)
+    // Cached-IP attempt failed validation → fall back to the hostname. (If we
+    // were already on the hostname, we've exhausted options.)
+    //
+    // Whether to EVICT the cached IP turns on whether anything answered. The
+    // recognition timeout fires for two states that need opposite responses:
+    //
+    //  - A peer answered and is not an HDS — DHCP handed the address to a
+    //    router/printer, or it was typed wrong. The WebSocket handshake completed
+    //    (or onError classified a peer-answered failure), and the IP is genuinely
+    //    wrong. Evict it, or every future connect dials a dead address.
+    //  - NOTHING answered. No handshake, no error from a listening peer. That is
+    //    not evidence about the address at all — it is what a scale that is
+    //    rebooting, asleep, or momentarily unreachable looks like.
+    //
+    // Evicting on silence turns a transient miss into a permanent outage, because
+    // the cached IP is not merely an optimisation: dialling it is what REPAIRS
+    // mDNS. An openscale responder answers a legacy (ephemeral-port) query by
+    // unicast, so it must ARP for the querier, and with ETHARP_TRUST_IP_MAC off it
+    // cannot learn our MAC from the query frame — it only learns from an ARP
+    // request we send, which we only send when we have an address to dial. Discard
+    // the address and both remaining paths (hostname resolve AND service browse)
+    // ask a scale that has no way to answer us.
+    //
+    // Measured 2026-08-06: a tablet in exactly this state got 0 records from 7
+    // A-record queries over 5 s, repeatedly for five days, against a scale a Mac
+    // resolved in 272 ms. One TCP connection from the tablet flipped it to 1 query
+    // / 272 ms — and only for the scale it had contacted, while a second scale on
+    // the same LAN stayed silent to that tablet and answered the Mac normally.
+    // m_wsHandshakeDone is exactly this distinction, already tracked: cleared at
+    // the top of every attempt, set in onConnected(). A completed handshake means
+    // something at that address spoke HTTP/WebSocket to us and then failed to be
+    // an HDS; no handshake means nothing was there to judge.
+    const bool peerAnswered = m_wsHandshakeDone;
     if (!m_currentTargetIsHostname && !m_triedHostnameFallback) {
-        WIFI_LOG(QString("Cached IP %1 didn't validate as HDS — evicting cache and falling back to hostname %2")
-                 .arg(m_currentTarget, m_hostname));
-        if (m_ipCacheUpdate) m_ipCacheUpdate(m_hostname, QString());
+        if (peerAnswered) {
+            WIFI_LOG(QString("Cached IP %1 answered but did not validate as HDS — evicting cache "
+                             "and falling back to hostname %2")
+                     .arg(m_currentTarget, m_hostname));
+            if (m_ipCacheUpdate) m_ipCacheUpdate(m_hostname, QString());
+        } else {
+            WIFI_LOG(QString("Cached IP %1 did not answer at all — KEEPING it and falling back to "
+                             "hostname %2. Silence is not evidence the address is wrong, and "
+                             "dialling it again is what lets the scale answer mDNS at all.")
+                     .arg(m_currentTarget, m_hostname));
+        }
         // Hand the fallback off to onDisconnected via an event-driven flag:
         // when the socket-close completes, onDisconnected sees the flag and
         // runs attemptTarget(hostname) inline. No timer-as-guard.
