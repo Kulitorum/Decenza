@@ -97,6 +97,47 @@ private slots:
         MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
     }
 
+    // macOS deliberately defaults to the backend it does NOT prefer, so this is
+    // pinned: Bonjour is faster there and is what an Apple platform would
+    // normally pick, and the default is mjansson anyway because macOS is the
+    // development platform and the shipped populations are Android and iOS. A
+    // well-meaning "fix" restoring Bonjour would silently remove daily coverage
+    // of the browse three platforms ship, and nothing else would notice.
+    //
+    // Also pinned: both backends stay reachable on macOS. The default moved, the
+    // compile guards did not.
+    void browseBackendAutoIsTheDevelopmentChoiceOnMac() {
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
+#if defined(Q_OS_IOS)
+        QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("bonjour"));
+#else
+        QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("mjansson"));
+#endif
+
+#if defined(Q_OS_MACOS)
+        // Still selectable — this is a default, not a compile-out.
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Bonjour);
+        QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("bonjour"));
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Mjansson);
+        QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("mjansson"));
+#endif
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
+    }
+
+    // The two selectors are NOT symmetrical, and the asymmetry is load-bearing.
+    // The mjansson BROWSE is what three shipped platforms use; the mjansson
+    // RESOLVER is Android-only, and QHostInfo is what iOS ships. Flipping the
+    // resolver default on macOS too would leave both iOS paths with no dev
+    // coverage at once.
+    void hostnameResolverDefaultDoesNotFollowTheBrowseBackend() {
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
+#if defined(Q_OS_MACOS)
+        QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("mjansson"));
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("system"));
+#endif
+    }
+
     // The query source port decides whether the responder answers by multicast or
     // has to unicast back to this specific host, so the DEFAULT is the behaviour,
     // not a preference. It ships as Auto (prefer 5353), and a flip to Ephemeral

@@ -1116,11 +1116,36 @@ std::atomic<BrowseBackend> g_backend{BrowseBackend::Auto};
 BrowseBackend resolveBackend(BrowseBackend requested)
 {
 #ifdef Q_OS_DARWIN
-    if (requested == BrowseBackend::Auto)
-        return BrowseBackend::Bonjour;   // ships this way on macOS and iOS
   #ifdef Q_OS_IOS
+    Q_UNUSED(requested);
     return BrowseBackend::Bonjour;       // mjansson is not compiled on iOS
   #else
+    // macOS defaults to MJANSSON, not Bonjour, and that is a deliberate
+    // inversion of "ship what the platform prefers".
+    //
+    // macOS is not a production platform here — it is the development one. The
+    // shipped populations are Android (hundreds of users) and iOS; the macOS
+    // installs number about two, both of them developers. Bonjour is measurably
+    // the better citizen on macOS (mDNSResponder's cache is always warm, so it
+    // reaches a first row in 66-113 ms against mjansson's 160-270 ms on the
+    // reference LAN) — but that ~100 ms is paid by two people, and what it buys
+    // is that the browse path THREE platforms ship goes unexercised in daily use
+    // by the only machine anyone develops on. That asymmetry is what let a
+    // multi-hour Android discovery outage survive review, and BrowseBackend was
+    // added to work around it by hand.
+    //
+    // Bonjour is NOT thereby untested: iOS ships it, and iOS is production. What
+    // this does cost is early warning — an iOS release build is only compiled by
+    // CI, so the Mac was the one place a Bonjour regression would be noticed
+    // before users saw it. Run a browse with backend=bonjour before an iOS
+    // release; that is the check this default gives up.
+    //
+    // Only the BROWSE moves. The hostname resolver stays on QHostInfo here
+    // (see resolveHostnameResolver) precisely so the other iOS path keeps its
+    // dev coverage — its mjansson variant is Android-only, and pointing the Mac
+    // at it on demand is enough.
+    if (requested == BrowseBackend::Auto)
+        return BrowseBackend::Mjansson;
     return requested;                    // macOS has both
   #endif
 #else

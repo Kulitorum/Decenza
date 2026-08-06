@@ -27,6 +27,13 @@
 - [x] 4.0b Report the bound port in `ResolveStats`/`BrowseStats` and in every start/done log line.
 - [x] 4.0c `queryPort` argument on `devices_wifi` so the A/B against the older on-device 5353 measurement can be run without a rebuild.
 
+## 4b. macOS default
+
+- [x] 4b.1 macOS `auto` browse backend is now mjansson, not Bonjour. macOS is the development platform (about two installs) while the shipped populations are Android (hundreds) and iOS, so the default is chosen to exercise what most users run rather than what the platform prefers.
+- [x] 4b.2 Both backends stay compiled into the macOS binary — only the default moved; `backend=bonjour` still switches at runtime. The `#ifndef Q_OS_IOS` / `if(NOT IOS)` guards are untouched.
+- [x] 4b.3 The hostname resolver default deliberately does NOT follow: the mjansson resolver is Android-only and QHostInfo is what iOS ships, so flipping both would strip dev coverage from both iOS paths at once.
+- [x] 4b.4 Record what the default gives up: an iOS release build is only compiled by CI, so macOS was the one place a Bonjour regression surfaced early. Run `backend=bonjour` before an iOS release.
+
 ## 5. Diagnostics
 
 - [x] 5.1 `MdnsResolver::HostnameResolver` selector so a desktop build can run Android's exact A-record path.
@@ -47,6 +54,7 @@
 - [x] 7.3 `tst_decentscalewifi`: a silent cached IP is kept, an answering one is evicted.
 
 - [x] 7.4 `tst_wifiscalediscovery`: query-port default and readback.
+- [x] 7.5 `tst_wifiscalediscovery`: the macOS browse-backend default, that both backends stay selectable there, and that the resolver default does not follow it.
 
 ## 8. Docs
 

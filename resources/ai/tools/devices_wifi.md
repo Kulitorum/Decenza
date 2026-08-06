@@ -11,9 +11,17 @@ Runs DNS-SD for `_decentscale._tcp` plus the `hds` / `hds-2` / `hds-3` A-record 
 
 | Value | Meaning |
 |---|---|
-| `auto` | What ships — bonjour on macOS/iOS, mjansson elsewhere |
-| `mjansson` | On macOS, exercises the backend Android and Windows/Linux actually use |
-| `bonjour` | Apple-only; unavailable elsewhere |
+| `auto` | bonjour on iOS, mjansson everywhere else — **including macOS** |
+| `mjansson` | What Android, Windows and Linux ship, and the macOS default |
+| `bonjour` | Apple-only; unavailable elsewhere. The iOS default, and still selectable on macOS |
+
+macOS defaults to **mjansson**, not Bonjour, even though Bonjour is faster there (66-113 ms to a
+first row against 160-270 ms, since mDNSResponder is always listening). macOS is the development
+platform, not a shipped one — roughly two installs against hundreds on Android — so its default is
+chosen to exercise the path most users actually run. Both backends stay compiled into the macOS
+binary; only the default moved, and `backend=bonjour` switches back at runtime. Bonjour keeps its
+field coverage from iOS; what the default gives up is early warning, so run a browse with
+`backend=bonjour` before an iOS release.
 
 `resolver` selects the OTHER half — what resolves `hds.local` to an address. It is separate from
 `backend` because a browse and an A-record lookup are different queries: a scale can answer the

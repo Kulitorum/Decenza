@@ -23,16 +23,17 @@
  *    platform, because QHostInfo cannot browse at all — it resolves a name you
  *    already know and has no way to ask "what services are out there".
  *
- * Apple platforms DEFAULT to the system Bonjour APIs (DNSServiceBrowse),
- * because a raw multicast socket to 224.0.0.251 on iOS requires the
+ * iOS uses the system Bonjour APIs (DNSServiceBrowse), because a raw multicast
+ * socket to 224.0.0.251 there requires the
  * com.apple.developer.networking.multicast entitlement, which Apple grants only
- * by per-app application.
+ * by per-app application. macOS builds both and DEFAULTS TO MJANSSON — it is the
+ * development platform rather than a shipped one, so its default is chosen to
+ * exercise what Android ships. See BrowseBackend.
  *
  * Only iOS is compiled out — `#ifndef Q_OS_IOS` below, `if(NOT IOS)` in
- * CMakeLists.txt. macOS deliberately builds BOTH backends so the mjansson path
- * (what Android and Windows/Linux actually ship) can be exercised on the machine
- * it is developed on; see BrowseBackend. Do not narrow these guards to
- * `NOT APPLE` — that was the original shape and it removed that capability.
+ * CMakeLists.txt. macOS builds BOTH backends, which is what lets it default to
+ * the one Android ships. Do not narrow these guards to `NOT APPLE` — that was
+ * the original shape and it removed that capability.
  *
  * Multicast reception on Android requires a held WifiManager.MulticastLock, and
  * resolveHostname()/browseService() each take one for their duration via
@@ -194,14 +195,22 @@ bool browseInstanceResolved(const QByteArray& srvTarget, quint16 port, bool have
 /**
  * Which implementation browseService() uses.
  *
- * Auto is what ships: Bonjour on Apple, mjansson everywhere else. The explicit
- * values exist so a macOS build can drive the mjansson path on demand.
+ * Auto means Bonjour on iOS and mjansson everywhere else — INCLUDING macOS,
+ * which has both compiled and could run either.
  *
- * That matters because of an awkward asymmetry: mjansson is the backend Android
- * and Windows/Linux actually use, but the machine it is developed on is a Mac,
- * which by default never compiles or runs it. Being able to switch at runtime
- * means the two backends can be pointed at the same LAN and their results
- * compared — if they disagree, one is wrong and the difference says which.
+ * That last part is deliberate and is not "what the platform prefers". macOS is
+ * the development platform, not a shipped one: the user populations are Android
+ * (hundreds) and iOS, against about two macOS installs, both developers. Bonjour
+ * is genuinely faster on macOS — 66-113 ms to a first row against mjansson's
+ * 160-270 ms, because mDNSResponder is always listening — but defaulting to it
+ * meant the browse path three platforms ship was never run by the only machine
+ * anyone develops on. That is the asymmetry this enum was originally added to
+ * work around by hand, and the default now does it instead.
+ *
+ * Bonjour keeps its coverage from iOS, which ships it. What the default gives up
+ * is EARLY warning: an iOS release build is compiled only by CI, so macOS was the
+ * one place a Bonjour regression would surface before users saw it. Run a browse
+ * with Bonjour before an iOS release.
  *
  * Selecting Mjansson on iOS does nothing (it is not compiled there).
  */
@@ -222,6 +231,14 @@ BrowseBackend browseBackend();
  * for ".local"), the system resolver everywhere else. Selecting Mjansson makes
  * a desktop build run the exact A-record path Android ships, which is otherwise
  * only observable by deploying to a device.
+ *
+ * Unlike BrowseBackend, macOS does NOT default to mjansson here. The two look
+ * symmetrical and are not: the mjansson BROWSE is what three shipped platforms
+ * use, while the mjansson RESOLVER is Android-only, and QHostInfo is what iOS
+ * ships. Flipping this default too would leave both iOS paths without dev
+ * coverage at once; pointing the Mac at Android's resolver on demand is enough,
+ * and is how the Android A-record failure was reproduced here in the first
+ * place.
  *
  * That gap is not hypothetical. A Half Decent Scale on firmware 3.1.13 answered
  * a DNS-SD browse from both backends while Android's resolveHostname() got zero
