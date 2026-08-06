@@ -313,16 +313,18 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
     // an empty LAN and so cannot be used as a trigger.
     //
     // The two fail for unrelated reasons, which is the whole value of running
-    // both. Ours queries from an ephemeral source port, so responders answer by
-    // UNICAST — measurably the more reliable shape, because a unicast reply is
-    // acked and retried by the AP while a multicast one is fire-and-forget.
-    // NsdManager queries from 5353 and takes multicast answers, but it also sees
-    // unsolicited announcements, which need no reply to us at all.
+    // both, and the reasons are opposite. A unicast reply is acked and retried by
+    // the AP, so it survives a lossy WLAN better — but the scale can only send it
+    // once it holds this device's MAC, which measurably it does not until we have
+    // sent it IP traffic. A multicast reply needs no MAC and so reaches a scale
+    // this device has never addressed, but is fire-and-forget and, on Android,
+    // needs a held MulticastLock.
     //
-    // The failure this exists for — a tablet getting nothing for hours while a
-    // Mac resolves the same name — is still unexplained, and is NOT a scale
-    // defect. See docs/WIFI_SCALE_MDNS.md for what is measured and for the three
-    // mechanisms asserted here and since refuted.
+    // So the deterministic failure (a tablet getting nothing for hours while a Mac
+    // resolves the same name) is a per-peer, unicast-path failure, and NsdManager's
+    // multicast path is the one that can recover from it. See
+    // docs/WIFI_SCALE_MDNS.md for the controls that established this and for the
+    // two accounts refuted along the way.
     //
     // Deduplication is the caller's, by HOSTNAME — see
     // WifiScaleResultUtil::upsertByHostname. The same scale answering both paths

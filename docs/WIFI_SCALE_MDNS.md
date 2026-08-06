@@ -5,8 +5,9 @@ needs this story points here instead of restating it — the story was hand-copi
 eight places and had already drifted (two copies said "hours", two said "five days", for
 one observation) before this file existed.
 
-**Three mechanisms have been asserted here and all three were wrong.** Read the
-retractions before proposing a fourth.
+**Four accounts have been asserted in this file. Two were wrong, one was retracted
+twice and then restored by controlled measurement.** Read the retractions, and the two
+controls under "Established", before proposing a fifth.
 
 ## Established by measurement
 
@@ -61,71 +62,84 @@ BSD such a socket is not guaranteed to receive datagrams addressed to `224.0.0.2
 Unicast replies arrived fine, so the socket looked healthy while dropping every
 multicast reply. Re-run with `INADDR_ANY` and `IP_RECVDSTADDR`, the replies were there.
 
-**The ARP mechanism** — that a legacy query must be answered by unicast, so the scale
-must ARP for the querier, and with `ETHARP_TRUST_IP_MAC` off it cannot learn our MAC
-from the query frame.
+**"Tablet-side WiFi power save; outbound traffic wakes the receive path for all peers."**
+Asserted here briefly on the strength of one run in which a TCP connect to `hds` lifted
+an untouched `hdstest` from 0/10 to 9/10. Refuted by the control that run lacked — see
+below. That `hdstest` reading is best explained by a still-valid ARP entry on that scale
+from earlier in the session, which later aged out.
 
-Note the retraction that does NOT work, because it was published here first and is
-wrong: "the scale answers multicast queries multicast, needing no ARP." True, and
-irrelevant — the ARP account was only ever about the legacy/unicast path, so refuting it
-with a QM-from-5353 measurement tests the wrong query shape.
+## Established: resolution is per-peer, and outbound IP traffic to THAT scale enables it
 
-What actually refutes it is below: one TCP connection to **one** scale restored
-resolution for **both** scales. No mechanism keyed to a per-peer MAC cache can do that.
+Android tablet `192.168.10.163`, cold, with a gateway control and a scale control:
 
-**"Resolution is per-peer: a scale answers a device that has dialled it and stays silent
-to one that has not."** Refuted by the same experiment, for the same reason.
-
-## The tablet is dormant, and outbound traffic wakes it
-
-Android tablet at `192.168.10.163`, `hds` contacted, `hdstest` deliberately untouched as
-a control:
-
-| | before TCP | after one TCP connect to hds only |
+| step | `hds.local` | `hdstest.local` |
 |---|---|---|
-| `hds.local` | 0/10 | 10/10 |
-| `hdstest.local` (never contacted) | 0/10 | 9/10 |
+| cold | 0/6 | 0/6 |
+| after TCP to the **gateway** (`192.168.10.1`, connect succeeded) | 0/6 | 0/6 |
+| after TCP to **hds** (connect *failed*, rc=1) | 4/6 | 0/6 |
+| after TCP to **hdstest** (connect *failed*, rc=1) | 6/6 unchanged | 5/6 |
 
-The control flipped too, so whatever changed is on the tablet and applies to every peer
-at once. Independently, the tablet was the worst mDNS responder of the 21 hosts measured
-above — 1/12 at a 1253 ms median, against 41-100% for everything else — so its receive
-path is degraded in both directions, which is what a station sleeping between DTIM
-beacons looks like while the AP buffers for it. `dumpsys wifi` on that tablet reports
-`Locks acquired: 0 full high perf, 0 full low latency`.
+Read the two controls, because each excludes a different explanation:
 
-This is a WiFi power-save effect on the **tablet**, not on the scale. The scale-side
-power-save theory in the retractions above is a different claim about a different device
-and remains refuted.
+- **The gateway step excludes anything device-wide.** Successful outbound unicast, and
+  resolution did not move. Whatever changes is not "the tablet's radio woke up".
+- **The other scale, in both directions, excludes anything network-wide or temporal.**
+  Touching `hds` left `hdstest` at 0/6; touching `hdstest` left `hds` at 6/6.
+- **A FAILED connect is sufficient** (`rc=1` both times). Nothing at the TCP layer
+  completed, so the payload cannot be what matters — only the packets sent trying.
 
-It also subsumes what the per-peer story was invented to explain: a tablet that has just
-dialled a scale resolves it, a tablet that has not resolves nothing at all, and a reboot
-"fixes" it because a reboot is followed by traffic.
+## Mechanism: strongly supported, still an inference
+
+An outbound IP packet to the scale makes the *tablet* ARP for it; the scale answers that
+request and caches the tablet's MAC. Until then the scale cannot address the tablet, and
+a legacy (ephemeral source port) query — which is what Android's resolver sends, verified
+on the wire at source ports 57320, 42193, 12244 with QU clear — obliges it to answer by
+**unicast**. So the reply is undeliverable, deterministically, rather than lost at the
+rates in the table above.
+
+This is the `ETHARP_TRUST_IP_MAC` account, and it was retracted twice in this file before
+the controls above were run. Both retractions were wrong, for instructive reasons: the
+first refuted it with a QM-from-5353 measurement, which tests the multicast path the
+account never described; the second used an experiment with no gateway control, so a
+per-peer effect and a device-wide one were indistinguishable.
+
+It remains an inference. No ARP frame was captured and the scale's ARP table was never
+read. What is measured is the table above; the ARP story is the mechanism that fits it
+and survives both controls.
+
+Corollary worth knowing: lwIP ages entries out (`ARP_MAXAGE`, 300 s by default), which is
+why a scale that resolved reliably a few minutes ago goes silent again with nothing
+having changed, and why results differ between two runs of the same script.
 
 ## Open
 
-**How long the wake lasts.** Sets the shape of the fix: a wake lasting minutes means a
-`WifiLock` held for the duration of a browse is enough, while one decaying in seconds
-means resolution has to carry its own traffic.
+**Whether the multicast path avoids this entirely.** It should: a query from source port
+5353 with QU clear is answered multicast, which needs no ARP at all, and the scale does
+answer that shape (75% / 41% above). On Android that also requires a held
+`MulticastLock`, which the app now takes. The two branch commits that do this — query
+from 5353, hold our own lock — are therefore aimed correctly, but the combination has not
+been measured end-to-end on the tablet.
 
-**Whether a `WIFI_MODE_FULL_HIGH_PERF` lock is sufficient.** Untested. It is the obvious
-candidate given that none is currently acquired, but "obvious candidate" is exactly the
-status the three retracted mechanisms each had.
-
-**Whether dialling the cached IP "repairs" mDNS.** Yes, but not for the reason long
-believed — it is not per-peer repair, it is the tablet waking. Keep the cached IP
-regardless: silence says nothing about whether the address is right.
+**Whether dialling the cached IP "repairs" mDNS.** Yes, per-peer, and that is why. Keep
+the cached IP regardless: silence says nothing about whether the address is right.
 
 ## What this means for the code
 
-- Query from an ephemeral source port. It is the only shape whose reply is acked and
-  retried by the AP. This is measured, not defensive.
+- The two query shapes trade off, and the trade differs by platform. An ephemeral
+  source port gets a UNICAST reply, which the AP acks and retries (~11/12 on a Mac) but
+  which the scale can only send once it holds this device's MAC — the Android failure
+  above. Source port 5353 gets a MULTICAST reply, which needs no ARP and reaches a cold
+  peer, but is fire-and-forget (12/20) and on Android needs a held `MulticastLock`.
+  Neither dominates; the branch sends from 5353 and holds the lock, which is the pairing
+  that addresses the deterministic failure rather than the lossy one.
 - Retry. A single query with a short timeout fails 25-60% of the time on an ordinary
   network, and no amount of correctness elsewhere changes that.
 - Never evict a cached IP on silence.
 - Do not blame the scale firmware. Two mechanisms were nearly filed as firmware bugs.
-- On Android, assume the device's own receive path is asleep until it has sent
-  something. A discovery pass that only listens can return empty on a LAN full of
-  scales, and will do so *deterministically*, not occasionally.
+- On Android, a scale the device has never sent IP traffic to may be unresolvable
+  outright, not merely slow, and will stay so until something addresses it. A
+  discovery pass can therefore return empty on a LAN full of scales, and do so
+  *deterministically*. The multicast path should sidestep this; see Open.
 
 Improving the AP (multicast-to-unicast conversion) lifts every host in that table, but
 users' networks are not ours to fix — the code has to work at 41%.

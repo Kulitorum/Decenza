@@ -25,22 +25,25 @@ import java.util.concurrent.TimeUnit;
  * every A-record query it sent — 7 queries per attempt, every attempt identical
  * across hours — while a Mac on the same LAN resolved the same name in 272 ms.
  *
- * That is not a scale defect, and it is not per-peer. One TCP connection from the
- * tablet to ONE scale took resolution from 0/10 to 10/10 for that scale AND from
- * 0/10 to 9/10 for a second scale the tablet never contacted. What was dormant is
- * the TABLET'S OWN RECEIVE PATH, and outbound traffic wakes it for every peer at
- * once — WiFi power save on this device, measured. The same tablet was the worst
- * of 21 mDNS responders on the LAN (1/12, 1253 ms median), so it under-receives in
- * both directions. Three earlier mechanisms — scale-side power save, an
- * ARP/ETHARP_TRUST_IP_MAC story, and the per-peer effect — are all refuted;
- * docs/WIFI_SCALE_MDNS.md has the measurements and the retractions. Read it before
- * adding a fourth.
+ * Resolution is PER PEER, and outbound IP traffic to a given scale is what enables
+ * it. From a cold tablet: TCP to the gateway changed nothing (0/6, 0/6), so it is
+ * not a device-wide wake; a FAILED TCP connect to one scale moved that scale to
+ * 4/6 while the other stayed 0/6; a failed connect to the other then moved it to
+ * 5/6 while the first held 6/6. Each scale is the other's control, both directions.
  *
- * That finding cuts against this class. A sleeping receive path drops the system
- * daemon's multicast answers and the unsolicited announcements alike, so NsdManager
- * is subject to the same dormancy our own socket is, and cannot be the fix for it.
- * The likelier fix is a WifiLock held across a browse, which nothing currently
- * takes (dumpsys: "Locks acquired: 0 full high perf").
+ * The mechanism is inferred, not captured: the outbound packet makes the TABLET ARP
+ * for the scale, the scale answers and caches our MAC, and only then can it answer
+ * a legacy (ephemeral source port) query by the unicast RFC 6762 6.7 requires —
+ * which is exactly what Android's resolver sends, verified on the wire. Entries age
+ * out (ARP_MAXAGE, 300 s), which is why a scale that worked minutes ago goes quiet.
+ * Two other accounts (scale-side power save, tablet-side power save) were asserted
+ * and refuted first; docs/WIFI_SCALE_MDNS.md has the measurements and both
+ * retractions. Read it before adding a third.
+ *
+ * That is the case FOR this path rather than against it: a query from port 5353 is
+ * answered MULTICAST, which needs no ARP and so reaches a scale this device has
+ * never addressed. It needs a held MulticastLock to be received at all, which is
+ * why the app now takes its own.
  *
  * IT HAS NOT BEEN SHOWN TO HELP. On-device, a never-contacted scale stayed
  * invisible to NsdManager throughout, which is the exact case this class was added
