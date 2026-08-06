@@ -272,19 +272,24 @@ HostnameResolver hostnameResolver();
  * back multicast, with nothing per-peer in the path. Binding 5353 with
  * SO_REUSEPORT is the openscale maintainers' recommended client-side workaround.
  *
- * Auto binds 5353 and falls back to an ephemeral port only if that bind fails.
- * Mdns forces 5353 with no fallback; Ephemeral forces the legacy behaviour, which
- * is what shipped before.
+ * Auto binds 5353 everywhere EXCEPT ANDROID, falling back to an ephemeral port
+ * if that bind fails. Mdns forces 5353 with no fallback; Ephemeral forces the
+ * legacy behaviour.
  *
- * The explicit values are not decoration. An older on-device test recorded a
- * 5353 socket receiving records=0 for ALL hosts on Android, which is why the
- * ephemeral bind shipped; that result has never been reproduced against the
- * current build, and it predates ShotServer holding a process-wide
- * WifiManager.MulticastLock, which a 5353 socket needs and an ephemeral one does
- * not — and the app was not holding one, because that lock belonged to a feature
- * that is off by default. Both are fixed together and neither works alone. The
- * selector stays anyway: force each and read ResolveStats::boundPort back out of
- * the log rather than trusting the explanation.
+ * ANDROID IS EXCLUDED BECAUSE THE SYSTEM DAEMON WINS THE PORT. It already owns
+ * 5353; SO_REUSEPORT lets our bind succeed and then every inbound packet goes to
+ * the daemon rather than to us. Measured on-device: records=0 for EVERY host,
+ * including "homeassistant-chv.local", which the MQTT client needs and which
+ * resolves normally from an ephemeral port. A MulticastLock was held throughout,
+ * so this is not a multicast-permission problem — and in the same browse,
+ * NsdManager (the daemon, on 5353) resolved a scale in 41 ms while our 5353
+ * socket saw 2 records and failed.
+ *
+ * An earlier version of this comment called that measurement unreproducible and
+ * blamed the missing MulticastLock. It reproduced exactly, the lock was not the
+ * cause, and acting on that reading broke every ".local" lookup on Android —
+ * scales and MQTT broker alike. Before re-enabling 5353 there, force it with
+ * QueryPort::Mdns and read boundPort and recordsSeen back out of the log.
  */
 enum class QueryPort {
     Auto,
@@ -294,6 +299,16 @@ enum class QueryPort {
 
 void setQueryPort(QueryPort port);
 QueryPort queryPort();
+
+/**
+ * True when the next query socket will bind 5353 rather than an ephemeral port.
+ *
+ * Exposed for the same reason as useDirectHostnameResolver(): the decision is
+ * platform-dependent, it is the difference between working and blind on Android,
+ * and a test cannot see a file-static. openQuerySocket() branches on this, so the
+ * assertion and the behaviour cannot drift apart.
+ */
+bool queryPortUsesMdnsPort();
 
 /** Name of the requested policy, for logs and MCP replies. */
 QString queryPortName();

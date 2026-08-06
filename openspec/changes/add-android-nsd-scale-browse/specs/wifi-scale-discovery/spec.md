@@ -4,7 +4,9 @@
 
 On Android the app SHALL run a second DNS-SD browse for `_decentscale._tcp` through `NsdManager`, started at the same time as the app's own browse and reporting into the same discovered-scales stream. It SHALL NOT be chained after the app's browse as a fallback: the case it exists for is one where the app's browse returns cleanly and finds nothing, which is indistinguishable from an empty LAN and therefore cannot be used as a trigger.
 
-The two paths fail independently, which is the point. The app's browse queries from an ephemeral source port, so under RFC 6762 §6.7 the responder answers by unicast, and an openscale responder has been measured answering **per peer**: a tablet that has never opened a socket to a given scale received nothing from it for hours while a Mac on the same LAN resolved it in 272 ms, and a second scale on that LAN — never contacted from the tablet — stayed silent to the tablet while answering the Mac normally in the same window. `NsdManager` queries from port 5353, so its answers return multicast to the group, and it additionally observes unsolicited announcements that need no query at all. It is therefore the only path that can find a scale this device has never talked to.
+The two paths fail independently, which is the point. The app's browse queries from an ephemeral source port, so under RFC 6762 §6.7 the responder answers by unicast, and an openscale responder has been measured answering **per peer**: a tablet that has never opened a socket to a given scale received nothing from it for hours while a Mac on the same LAN resolved it in 272 ms, and a second scale on that LAN — never contacted from the tablet — stayed silent to the tablet while answering the Mac normally in the same window. `NsdManager` queries from port 5353 as the system daemon, so its answers return multicast to the group and it additionally observes unsolicited announcements that need no query at all.
+
+It has NOT been shown to find a scale this device has never contacted. An earlier version of this requirement claimed exactly that as its justification; on-device, a never-contacted scale stayed invisible to NsdManager throughout. Every measurement of it so far was taken while the app's own socket was bound to 5353 and starving the daemon it depends on, so its value remains unproven rather than disproven. It is retained as an independent second path pending a fair test, and this requirement SHALL be revisited — including removal — once one exists.
 
 Results from both paths SHALL be deduplicated by hostname, as they already are: the same scale answering both is the expected case, not an error.
 
@@ -42,7 +44,7 @@ On Android the app SHALL hold a `WifiManager.MulticastLock` for the duration of 
 
 Android's Wi-Fi driver discards multicast frames not addressed to this device unless such a lock is held, and the failure is completely silent: the socket opens, the group join succeeds, queries go out, and nothing arrives. Until now the only lock in the app belonged to the shot server, taken in its `start()` and released in its `stop()` — and that server is **disabled by default**, so on a default install no lock was ever held while three separate comments in the source described one as held for the whole app lifetime.
 
-This requirement and the 5353 source port are two halves of one change and neither works alone. A query from an ephemeral port is answered by unicast and needs no lock; a query from 5353 is answered by multicast and is worthless without one. Shipping the port change alone would reproduce, rather than fix, the earlier Android measurement of zero records for every host.
+This requirement stands on its own and is NOT contingent on the query source port. An earlier version of this text claimed the two were halves of one change; they are not. The lock is required for any multicast reception the app relies on, and it was demonstrably absent on a default install. Binding 5353 on Android was a separate idea, and a wrong one — see the query-port requirement below.
 
 The lock SHALL be scoped to the operations that need it rather than taken once at startup, because it disables a hardware filter and therefore wakes the CPU for multicast traffic addressed to the whole LAN.
 
@@ -64,15 +66,23 @@ Failure to take the lock SHALL NOT prevent discovery from running. It SHALL be l
 - **WHEN** no Android context or WifiManager is available
 - **THEN** the lookup or browse still runs, and the inability to take the lock is logged once rather than on every attempt
 
-### Requirement: mDNS queries are sent from port 5353 where the platform allows it
+### Requirement: mDNS queries are sent from port 5353 except on Android
 
-The app's own mDNS queries SHALL be sent from a socket bound to port 5353 with `SO_REUSEADDR` and `SO_REUSEPORT`, falling back to an ephemeral source port only when that bind fails.
+The app's own mDNS queries SHALL be sent from a socket bound to port 5353, falling back to an ephemeral source port when that bind fails — **except on Android, where an ephemeral port SHALL be used unconditionally.**
+
+The Android exclusion is measured, not assumed. Android's system mDNS daemon already owns 5353; `SO_REUSEPORT` lets the app's bind succeed and then inbound packets are delivered to the daemon rather than to the app. On-device, with a multicast lock held, this produced `records=0` for **every** host — including the MQTT broker's `.local` name, which resolves normally from an ephemeral port and which an unrelated feature depends on. In the same browse, NsdManager (the daemon, on 5353) resolved a scale in 41 ms while the app's own 5353 socket saw 2 records and failed.
+
+A prior version of this codebase recorded that measurement in a comment. It was deleted on the theory that the result was an artifact of the app not holding a `WifiManager.MulticastLock`; that theory was wrong — the lock was subsequently held and 5353 remained blind — and acting on it broke every `.local` lookup on Android. The platform split SHALL be asserted by a test rather than left to a comment.
 
 This is not a preference about sockets; it changes what the responder is obliged to do. A query from an ephemeral source port is a "legacy" query under RFC 6762 §6.7, which a responder must answer by **unicast** — so the answer depends on the responder being able to address this host directly, and an openscale scale has been measured declining to answer a peer it has no fresh path to for hours while answering another host on the same LAN in 272 ms. From 5353 the query is ordinary, the answer returns multicast to the group, and nothing per-peer is in the path. This is the openscale maintainers' own recommended client-side workaround, and it is available now, without a firmware change.
 
 The port a socket actually bound to SHALL be reported with every lookup and every browse, in the log and in the discovery statistics. Without it, `records=0` cannot be interpreted: it is the difference between "nothing is there" and "the responder will not answer this particular host".
 
 The policy SHALL be forceable to either extreme from the diagnostic surface. An earlier on-device test recorded a 5353 socket receiving zero records for all hosts on Android, which is why the ephemeral bind shipped; that result has never been reproduced against the current build, and it predates the app holding a process-wide `WifiManager.MulticastLock`, which a 5353 socket depends on and an ephemeral one does not. Neither measurement SHALL be treated as settled, and the disagreement SHALL be resolvable by forcing each and reading the bound port back, rather than by argument.
+
+#### Scenario: Android never binds 5353 by default
+- **WHEN** a lookup or browse runs on Android with no query port explicitly selected
+- **THEN** the socket binds an ephemeral port, so the system daemon keeps receiving its own traffic
 
 #### Scenario: The bound port is in the log either way
 - **WHEN** any hostname lookup or mjansson browse runs

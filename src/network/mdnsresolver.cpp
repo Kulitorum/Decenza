@@ -301,29 +301,34 @@ int mdnsBrowseCallback(int sock, const struct sockaddr* from, size_t addrlen,
 // platform or some other process may hold 5353 without SO_REUSEPORT — and a
 // legacy query that sometimes works beats no socket at all.
 //
-// AN OLDER ON-DEVICE MEASUREMENT SEEMED TO STAND AGAINST THIS, and explaining
-// it away is what turned up the actual defect. A previous Android test bound to
-// 5353 and saw records=0 for ALL hosts, including names that resolved fine from
-// an ephemeral port, and the ephemeral bind shipped because of it. The reason is
-// now known: multicast reception on Android requires a held
-// WifiManager.MulticastLock, and the app did not hold one. The lock belonged to
-// ShotServer, whose `shotServer/enabled` setting defaults to FALSE — so on a
-// default install no lock was ever taken, three comments in this tree
-// nonetheless described it as held "for the whole app lifetime", and a 5353
-// socket (multicast answers) received nothing while an ephemeral one (unicast
-// answers, no lock needed) worked. Exactly the recorded result.
+// SO THIS PREFERS 5353 EVERYWHERE EXCEPT ANDROID, where it is measurably worse
+// — see the switch below for that measurement, which is the important one.
 //
-// Both halves are fixed together, and neither works without the other: this
-// function prefers 5353, and resolveHostname()/browseServiceMjansson() each hold
-// a MulticastLock::Holder for the duration. The selector stays because the
-// explanation above, however well it fits, is still an explanation — force each
-// and read the bound port in the log rather than believing this paragraph.
+// A separate defect was found while chasing this and is worth keeping here
+// because it is real on its own: multicast reception on Android requires a held
+// WifiManager.MulticastLock, and the app was not holding one. The lock belonged
+// to ShotServer, whose `shotServer/enabled` setting defaults to FALSE, so on a
+// default install no lock was ever taken while three comments in this tree
+// described it as held "for the whole app lifetime".
+//
+// That fix stands, but note what it did NOT do: it was offered as the
+// explanation for the older "5353 sees nothing on Android" measurement, and it
+// is not. With the lock demonstrably held, 5353 on Android still receives
+// records=0 for every host. Two independent problems, not one.
 int openQuerySocket(int* boundPortOut)
 {
     if (boundPortOut) *boundPortOut = 0;
 
     const MdnsResolver::QueryPort want = g_queryPort.load(std::memory_order_relaxed);
-    const bool try5353 = want != MdnsResolver::QueryPort::Ephemeral;
+
+    // ONE decision, in one place, and readable by the test suite —
+    // queryPortUsesMdnsPort() carries the platform branch and the reasoning.
+    // Duplicating that branch here is exactly how it would drift from what is
+    // asserted, and this is the invariant that shipped broken once already:
+    // binding 5353 on Android loses every inbound packet to the system mDNS
+    // daemon that already owns the port, so records=0 for EVERY host including
+    // the MQTT broker's ".local" name.
+    const bool try5353 = MdnsResolver::queryPortUsesMdnsPort();
     const bool allowFallback = want == MdnsResolver::QueryPort::Auto;
 
     int sock = -1;
@@ -1203,6 +1208,21 @@ void setQueryPort(QueryPort port)
 }
 
 QueryPort queryPort() { return g_queryPort.load(std::memory_order_relaxed); }
+
+bool queryPortUsesMdnsPort()
+{
+    switch (g_queryPort.load(std::memory_order_relaxed)) {
+        case QueryPort::Mdns:      return true;
+        case QueryPort::Ephemeral: return false;
+        case QueryPort::Auto:      break;
+    }
+    // See openQuerySocket() for the measurement behind the Android exclusion.
+#ifdef Q_OS_ANDROID
+    return false;
+#else
+    return true;
+#endif
+}
 
 QString queryPortName()
 {

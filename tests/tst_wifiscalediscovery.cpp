@@ -139,14 +139,39 @@ private slots:
     }
 
     // The query source port decides whether the responder answers by multicast or
-    // has to unicast back to this specific host, so the DEFAULT is the behaviour,
-    // not a preference. It ships as Auto (prefer 5353), and a flip to Ephemeral
-    // would be invisible on a desktop — where both work — and would restore the
-    // per-peer failure on a tablet.
-    void queryPortDefaultsToPreferring5353() {
+    // has to unicast back to this specific host, so the DEFAULT is behaviour, not
+    // preference — and on ANDROID the default must be EPHEMERAL.
+    //
+    // This is the invariant that shipped broken. Binding 5353 on Android loses
+    // every inbound packet to the system mDNS daemon that already owns the port:
+    // measured on-device, records=0 for EVERY host, including the MQTT broker's
+    // ".local" name, while an ephemeral socket resolved normally. A prior comment
+    // recording exactly that was deleted on the theory it was an artifact of a
+    // missing MulticastLock; the lock was later held and 5353 was still blind.
+    //
+    // So this asserts the platform split directly. A future "simplification" that
+    // makes Auto mean 5353 everywhere would break every .local lookup on the
+    // platform with the most users, and nothing else in the suite would notice.
+    void queryPortAutoAvoids5353OnAndroid() {
         MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Auto);
         QCOMPARE(MdnsResolver::queryPort(), MdnsResolver::QueryPort::Auto);
         QCOMPARE(MdnsResolver::queryPortName(), QStringLiteral("auto"));
+
+        // The platform split itself. openQuerySocket() branches on this exact
+        // predicate, so the assertion cannot drift from the behaviour.
+#if defined(Q_OS_ANDROID)
+        QVERIFY(!MdnsResolver::queryPortUsesMdnsPort());
+#else
+        QVERIFY(MdnsResolver::queryPortUsesMdnsPort());
+#endif
+
+        // The explicit overrides still reach the socket decision on every
+        // platform — they are how the A/B that found this gets run at all.
+        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Mdns);
+        QVERIFY(MdnsResolver::queryPortUsesMdnsPort());
+        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Ephemeral);
+        QVERIFY(!MdnsResolver::queryPortUsesMdnsPort());
+        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Auto);
     }
 
     // The whole point of the explicit values is settling an A/B, so a forced

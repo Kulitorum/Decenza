@@ -56,14 +56,19 @@ path to, for hours, while answering another host on the same LAN in 272 ms.
 
 | Value | Meaning |
 |---|---|
-| `auto` | Bind 5353, fall back to an ephemeral port only if that bind fails |
+| `auto` | Bind 5353 — except on **Android**, where it binds an ephemeral port (see below) |
 | `mdns` | Force 5353. Query is ordinary, answers come back multicast, nothing per-peer in the path |
 | `ephemeral` | Force the legacy query. What shipped before |
 
+**On Android, 5353 does not work and `auto` avoids it.** The system mDNS daemon already owns the
+port; `SO_REUSEPORT` lets the bind succeed and then every inbound packet is delivered to the daemon
+instead of to the app. Measured on-device with a multicast lock held: `records=0` for every host,
+including the MQTT broker's `.local` name, which resolves normally from an ephemeral port. In the
+same browse, NsdManager — the daemon, on 5353 — resolved a scale in 41 ms while the app's own 5353
+socket saw 2 records.
+
 Read the outcome from the log's `srcPort=`, not from the reply: `queryPortRequested` is the policy,
-and a 5353 bind can fail on one call and succeed on the next. Two measurements on record disagree
-about whether 5353 works on Android — an older on-device test saw `records=0` for every host there
-— so force each and compare rather than trusting either.
+and a 5353 bind can fail on one call and succeed on the next.
 
 `timeoutMs` defaults to 8000. Short windows return the resolver's cache including stale entries;
 longer ones let it prune them.
