@@ -1047,6 +1047,56 @@ QString activeBrowseBackendName()
         ? QStringLiteral("bonjour") : QStringLiteral("mjansson");
 }
 
+namespace {
+// Same race as g_backend: written by the MCP tool on the main thread, read by
+// the lookup that WifiScaleDiscovery starts.
+std::atomic<HostnameResolver> g_hostnameResolver{HostnameResolver::Auto};
+
+// Same rule as resolveBackend(): report what CAN run here, never what was asked
+// for. On iOS mjansson is not compiled at all, so a request for it is the system
+// resolver — and saying otherwise would attribute a Bonjour result to a backend
+// that does not exist in the binary.
+HostnameResolver resolveHostnameResolver(HostnameResolver requested)
+{
+#ifdef Q_OS_IOS
+    Q_UNUSED(requested);
+    return HostnameResolver::System;
+#else
+    if (requested != HostnameResolver::Auto)
+        return requested;
+  #ifdef Q_OS_ANDROID
+    // Android's getaddrinfo returns NXDOMAIN for ".local", so the direct query
+    // is not a diagnostic option there — it is the only thing that works.
+    return HostnameResolver::Mjansson;
+  #else
+    return HostnameResolver::System;
+  #endif
+#endif
+}
+}  // namespace
+
+void setHostnameResolver(HostnameResolver resolver)
+{
+    g_hostnameResolver.store(resolver, std::memory_order_relaxed);
+}
+
+HostnameResolver hostnameResolver()
+{
+    return g_hostnameResolver.load(std::memory_order_relaxed);
+}
+
+QString activeHostnameResolverName()
+{
+    return useDirectHostnameResolver() ? QStringLiteral("mjansson")
+                                       : QStringLiteral("system");
+}
+
+bool useDirectHostnameResolver()
+{
+    return resolveHostnameResolver(g_hostnameResolver.load(std::memory_order_relaxed))
+        == HostnameResolver::Mjansson;
+}
+
 QVector<ServiceInstance> browseService(const QString& serviceType, int timeoutMs,
                                        const std::function<void(const ServiceInstance&)>& onResolved,
                                        BrowseStats* stats,

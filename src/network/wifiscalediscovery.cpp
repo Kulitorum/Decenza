@@ -82,93 +82,100 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
             .arg(hostnames.join(QStringLiteral(", ")))
             .arg(timeoutMs));
 
+    // Which of the two lookup paths runs. This used to be `#ifdef Q_OS_ANDROID`,
+    // and the default is unchanged — mjansson on Android, the system resolver
+    // everywhere else. What the runtime check buys is that a desktop build can be
+    // pointed at Android's exact A-record path (devices_wifi resolver=mjansson),
+    // which is the only way to tell a backend fault from a device fault without
+    // deploying to a device. The browse half already worked this way; this is the
+    // resolve half catching up. See MdnsResolver::HostnameResolver.
+    const bool direct = MdnsResolver::useDirectHostnameResolver();
+
     for (const QString& hostname : hostnames) {
-#ifdef Q_OS_ANDROID
-        // Android's stock resolver does not resolve ".local" names, so go
-        // direct. resolveHostname() blocks, hence the worker thread. Multicast
-        // reception relies on the process-wide WifiManager.MulticastLock that
-        // ShotServer holds for the app lifetime.
-        QPointer<WifiScaleDiscovery> self(this);
-        auto cancel = m_probeCancel;
-        auto runnable = QRunnable::create([self, hostname, timeoutMs, generation, cancel]() {
-            MdnsResolver::ResolveStats rs;
-            const QString ip = MdnsResolver::resolveHostname(hostname, timeoutMs,
-                                                             &rs, cancel.get());
-            // STDERR_TAGGED, not the emitting SCALE_INFO_TAGGED used elsewhere in this
-            // file: these lambdas run detached from any `this`, reaching the object
-            // only through the QPointer `self` the null-check above guards. The macro's
-            // `emit logMessage(...)` needs `this` in scope, which none of these six
-            // sites has. (There is also no longer anything to emit to — the last
-            // connection to this class's logMessage signal was removed elsewhere in
-            // this change, which is why the signal itself was deleted rather than kept
-            // for a listener that no longer exists.)
-            QMetaObject::invokeMethod(qApp, [self, hostname, ip, generation, rs]() {
-                if (!self) return;
-                if (generation != self->m_probeGeneration) return;  // cancelled/timed out
-                if (self->m_outstanding <= 0) return;
+        if (direct) {
+            // Android's stock resolver does not resolve ".local" names, so go
+            // direct. resolveHostname() blocks, hence the worker thread. Multicast
+            // reception relies on the process-wide WifiManager.MulticastLock that
+            // ShotServer holds for the app lifetime.
+            QPointer<WifiScaleDiscovery> self(this);
+            auto cancel = m_probeCancel;
+            auto runnable = QRunnable::create([self, hostname, timeoutMs, generation, cancel]() {
+                MdnsResolver::ResolveStats rs;
+                const QString ip = MdnsResolver::resolveHostname(hostname, timeoutMs,
+                                                                 &rs, cancel.get());
+                // STDERR_TAGGED, not the emitting SCALE_INFO_TAGGED used elsewhere in this
+                // file: these lambdas run detached from any `this`, reaching the object
+                // only through the QPointer `self` the null-check above guards. The macro's
+                // `emit logMessage(...)` needs `this` in scope, which none of these six
+                // sites has. (There is also no longer anything to emit to — the last
+                // connection to this class's logMessage signal was removed elsewhere in
+                // this change, which is why the signal itself was deleted rather than kept
+                // for a listener that no longer exists.)
+                QMetaObject::invokeMethod(qApp, [self, hostname, ip, generation, rs]() {
+                    if (!self) return;
+                    if (generation != self->m_probeGeneration) return;  // cancelled/timed out
+                    if (self->m_outstanding <= 0) return;
 
-                if (ip.isEmpty()) {
-                    // "Nobody answered" and "we never managed to ask" have
-                    // different fixes — multicast lock / permissions versus a
-                    // sleeping scale or the wrong SSID — so say which happened
-                    // instead of logging one guess for both.
-                    if (!rs.error.isEmpty()) {
-                        SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
-                            QString("mDNS lookup of %1 could not run: %2").arg(hostname, rs.error));
+                    if (ip.isEmpty()) {
+                        // "Nobody answered" and "we never managed to ask" have
+                        // different fixes — multicast lock / permissions versus a
+                        // sleeping scale or the wrong SSID — so say which happened
+                        // instead of logging one guess for both.
+                        if (!rs.error.isEmpty()) {
+                            SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
+                                QString("mDNS lookup of %1 could not run: %2").arg(hostname, rs.error));
+                        } else {
+                            SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
+                                QString("mDNS no responder for %1 (%2 queries sent, %3 records seen)")
+                                    .arg(hostname).arg(rs.queries).arg(rs.recordsSeen));
+                        }
                     } else {
+                        WifiScaleResult r;
+                        r.foundBy = WifiScaleResult::Source::Fallback;
+                        r.hostname = hostname;
+                        r.address = ip;
                         SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
-                            QString("mDNS no responder for %1 (%2 queries sent, %3 records seen)")
-                                .arg(hostname).arg(rs.queries).arg(rs.recordsSeen));
+                            QString("mDNS resolved %1 to %2").arg(hostname, ip));
+                        emit self->resultFound(r);
                     }
-                } else {
-                    WifiScaleResult r;
-                    r.foundBy = WifiScaleResult::Source::Fallback;
-                    r.hostname = hostname;
-                    r.address = ip;
-                    SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
-                        QString("mDNS resolved %1 to %2").arg(hostname, ip));
-                    emit self->resultFound(r);
-                }
-                self->finishOneLookup();
-            }, Qt::QueuedConnection);
-        });
-        runnable->setAutoDelete(true);
-        QThreadPool::globalInstance()->start(runnable);
-#else
-        const int id = QHostInfo::lookupHost(hostname, this,
-            [this, hostname, generation](const QHostInfo& info) {
-                if (generation != m_probeGeneration) return;  // cancelled/timed out
-                if (m_outstanding <= 0) return;
-
-                if (info.error() != QHostInfo::NoError || info.addresses().isEmpty()) {
-                    // INFO, not WARN: hds-2/hds-3 are absent on most networks,
-                    // so a per-name failure is the normal case. The spec needs it
-                    // recorded per name so a partial result is diagnosable.
-                    SCALE_INFO_TAGGED("WifiScaleDiscovery",
-                        QString("mDNS lookup failed for %1: %2")
-                            .arg(hostname, info.errorString()));
-                } else {
-                    WifiScaleResult r;
-                    r.foundBy = WifiScaleResult::Source::Fallback;
-                    r.hostname = hostname;
-                    r.address = info.addresses().first().toString();
-                    SCALE_INFO_TAGGED("WifiScaleDiscovery",
-                        QString("mDNS resolved %1 to %2").arg(hostname, r.address));
-                    emit resultFound(r);
-                }
-                finishOneLookup();
+                    self->finishOneLookup();
+                }, Qt::QueuedConnection);
             });
-        m_lookupIds.append(id);
-#endif
+            runnable->setAutoDelete(true);
+            QThreadPool::globalInstance()->start(runnable);
+        } else {
+            const int id = QHostInfo::lookupHost(hostname, this,
+                [this, hostname, generation](const QHostInfo& info) {
+                    if (generation != m_probeGeneration) return;  // cancelled/timed out
+                    if (m_outstanding <= 0) return;
+
+                    if (info.error() != QHostInfo::NoError || info.addresses().isEmpty()) {
+                        // INFO, not WARN: hds-2/hds-3 are absent on most networks,
+                        // so a per-name failure is the normal case. The spec needs it
+                        // recorded per name so a partial result is diagnosable.
+                        SCALE_INFO_TAGGED("WifiScaleDiscovery",
+                            QString("mDNS lookup failed for %1: %2")
+                                .arg(hostname, info.errorString()));
+        } else {
+                        WifiScaleResult r;
+                        r.foundBy = WifiScaleResult::Source::Fallback;
+                        r.hostname = hostname;
+                        r.address = info.addresses().first().toString();
+                        SCALE_INFO_TAGGED("WifiScaleDiscovery",
+                            QString("mDNS resolved %1 to %2").arg(hostname, r.address));
+                        emit resultFound(r);
+        }
+                    finishOneLookup();
+                });
+            m_lookupIds.append(id);
+        }
     }
 
-#ifdef Q_OS_ANDROID
-    // Watchdog with margin over the workers' own deadline: they normally report
-    // first, so this only fires if the thread pool is starved.
-    m_timeoutTimer->start(timeoutMs + 1000);
-#else
-    m_timeoutTimer->start(timeoutMs);
-#endif
+    // Watchdog with margin over the workers' own deadline when they own the
+    // deadline: the direct path's workers normally report first, so the extra
+    // second only matters if the thread pool is starved. QHostInfo has no
+    // deadline of its own, so its branch gets the bare timeout.
+    m_timeoutTimer->start(direct ? timeoutMs + 1000 : timeoutMs);
 }
 
 void WifiScaleDiscovery::finishOneLookup() {

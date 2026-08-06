@@ -29,6 +29,74 @@ private slots:
     void initTestCase() { qRegisterMetaType<WifiScaleResult>("WifiScaleResult"); }
     void init() { QTest::failOnWarning(); }
 
+    // The default has to stay what each platform SHIPS. Making the resolver
+    // runtime-selectable is only safe if `auto` still means mjansson on Android
+    // (its getaddrinfo returns NXDOMAIN for ".local", so the direct query is not
+    // a preference there, it is the only thing that works) and the system
+    // resolver everywhere else. A default flipped by accident would be invisible
+    // on a desktop and fatal on a device.
+    void hostnameResolverAutoIsWhatThisPlatformShips() {
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
+#if defined(Q_OS_ANDROID)
+        QVERIFY(MdnsResolver::useDirectHostnameResolver());
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("mjansson"));
+#else
+        QVERIFY(!MdnsResolver::useDirectHostnameResolver());
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("system"));
+#endif
+    }
+
+    // Same contract as activeBrowseBackendName(): report what RAN, not what was
+    // asked for. Requesting a resolver that is not compiled here yields the
+    // substitute, and reporting the request instead would let a comparison of one
+    // implementation against itself read as agreement between two.
+    void hostnameResolverReportsWhatActuallyRan() {
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::System);
+        QVERIFY(!MdnsResolver::useDirectHostnameResolver());
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("system"));
+
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Mjansson);
+#ifdef Q_OS_IOS
+        // Not compiled on iOS — the request must degrade, and say so.
+        QVERIFY(!MdnsResolver::useDirectHostnameResolver());
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("system"));
+#else
+        QVERIFY(MdnsResolver::useDirectHostnameResolver());
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("mjansson"));
+#endif
+
+        // The stored request survives independently of what it resolves to, so a
+        // caller can read back what it set.
+        QCOMPARE(MdnsResolver::hostnameResolver(), MdnsResolver::HostnameResolver::Mjansson);
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
+    }
+
+    // The selector has to reach the LOOKUP, not just the accessor. Pinning System
+    // and resolving a name only a unicast resolver can answer proves probe()
+    // routes on it: on Android, where `auto` is mjansson, a probe that ignored the
+    // selector would send an mDNS query for "localhost" and find nothing.
+    //
+    // The mirror case — pinning Mjansson and asserting localhost does NOT resolve —
+    // is deliberately absent. The direct path needs a multicast socket, a CI
+    // sandbox may refuse one, and that refusal is logged with qWarning, which
+    // init()'s failOnWarning() turns into a failure indistinguishable from the
+    // defect. Same reason the browse itself is not covered here.
+    void probeHonoursAPinnedSystemResolver() {
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::System);
+
+        WifiScaleDiscovery disc;
+        QSignalSpy foundSpy(&disc, &WifiScaleDiscovery::resultFound);
+        QSignalSpy doneSpy(&disc, &WifiScaleDiscovery::probeFinished);
+
+        disc.probe(QStringLiteral("localhost"), 3000);
+        QVERIFY(doneSpy.wait(5000));
+        QCOMPARE(foundSpy.count(), 1);
+        QCOMPARE(foundSpy.last().at(0).value<WifiScaleResult>().hostname,
+                 QStringLiteral("localhost"));
+
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
+    }
+
     // localhost resolves on every platform — exercises the success edge.
     void resolvedHostnameEmitsResultFound() {
         WifiScaleDiscovery disc;

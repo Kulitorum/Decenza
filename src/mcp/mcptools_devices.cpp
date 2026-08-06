@@ -75,6 +75,18 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             else
                 MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
 
+            // The hostname half, selected separately. A browse and an A-record
+            // lookup are different queries with different failure modes — a
+            // firmware that answers a DNS-SD browse can still ignore a bare A
+            // query — so pinning one says nothing about the other.
+            const QString resolver = args.value("resolver").toString(QStringLiteral("auto")).toLower();
+            if (resolver == QStringLiteral("system"))
+                MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::System);
+            else if (resolver == QStringLiteral("mjansson"))
+                MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Mjansson);
+            else
+                MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
+
             const int timeoutMs = args.value("timeoutMs").toInt(8000);
             QMetaObject::invokeMethod(bleManager, "browseWifiScales",
                 Qt::QueuedConnection, Q_ARG(int, timeoutMs));
@@ -82,10 +94,13 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             result["success"] = true;
             result["backendRequested"] = backend;
             result["backendActive"] = MdnsResolver::activeBrowseBackendName();
+            result["resolverRequested"] = resolver;
+            result["resolverActive"] = MdnsResolver::activeHostnameResolverName();
             result["timeoutMs"] = timeoutMs;
-            result["message"] = QString("WiFi discovery started using the %1 backend. "
-                                        "Call action=results after about %2 seconds.")
-                                    .arg(MdnsResolver::activeBrowseBackendName())
+            result["message"] = QString("WiFi discovery started using the %1 browse backend and the "
+                                        "%2 hostname resolver. Call action=results after about %3 seconds.")
+                                    .arg(MdnsResolver::activeBrowseBackendName(),
+                                         MdnsResolver::activeHostnameResolverName())
                                     .arg((timeoutMs / 1000) + 1);
             return result;
         }),
@@ -114,6 +129,10 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             result["results"] = arr;
             result["count"] = arr.size();
             result["backendActive"] = MdnsResolver::activeBrowseBackendName();
+            // Reported beside the results, not only at browse time: a reader
+            // looking at `foundBy: "fallback"` (or its absence) needs to know
+            // which resolver produced it, and the two calls may be minutes apart.
+            result["resolverActive"] = MdnsResolver::activeHostnameResolverName();
             // A count of 0 is ambiguous on its own. False here means the
             // transport could not run — no backend, socket refused, Local
             // Network permission denied — which is a completely different
@@ -138,6 +157,10 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                     {"type", "string"},
                     {"enum", QJsonArray{"auto", "bonjour", "mjansson"}},
                     {"description", "browse only: which mDNS implementation to use. 'auto' is what ships; 'bonjour' is Apple-only"}}},
+                {"resolver", QJsonObject{
+                    {"type", "string"},
+                    {"enum", QJsonArray{"auto", "system", "mjansson"}},
+                    {"description", "browse only: which implementation resolves hds.local. 'auto' is what ships; 'mjansson' runs Android's path on a desktop"}}},
                 {"timeoutMs", QJsonObject{
                     {"type", "integer"},
                     {"description", "browse only: how long to browse, in milliseconds (default 8000)"}}}

@@ -201,6 +201,48 @@ void setBrowseBackend(BrowseBackend backend);
 BrowseBackend browseBackend();
 
 /**
+ * Which implementation resolves a ".local" HOSTNAME — the other half of the
+ * asymmetry BrowseBackend describes, and the half that was left unswitchable.
+ *
+ * Auto is what ships: mjansson on Android (its stock resolver returns NXDOMAIN
+ * for ".local"), the system resolver everywhere else. Selecting Mjansson makes
+ * a desktop build run the exact A-record path Android ships, which is otherwise
+ * only observable by deploying to a device.
+ *
+ * That gap is not hypothetical. A Half Decent Scale on firmware 3.1.13 answered
+ * a DNS-SD browse from both backends while Android's resolveHostname() got zero
+ * records from seven A-record queries for the same name, seconds apart — and the
+ * Mac could not be pointed at the failing call to say whether the fault was the
+ * backend or the scale, because the call site was a compile-time #ifdef.
+ *
+ * Selecting Mjansson on iOS does nothing (it is not compiled there).
+ */
+enum class HostnameResolver {
+    Auto,
+    System,
+    Mjansson,
+};
+
+void setHostnameResolver(HostnameResolver resolver);
+HostnameResolver hostnameResolver();
+
+/**
+ * Name of the resolver a hostname lookup would ACTUALLY use right now — same
+ * reasoning as activeBrowseBackendName(): requesting a resolver that is not
+ * compiled here has to report what ran, or two runs get compared under one
+ * label.
+ */
+QString activeHostnameResolverName();
+
+/**
+ * True when resolveHostname() should be driven directly instead of the system
+ * resolver. WifiScaleDiscovery branches on this per lookup; everything else
+ * about the two paths (threading, cancellation, stats) differs enough that the
+ * decision belongs at the call site rather than inside resolveHostname().
+ */
+bool useDirectHostnameResolver();
+
+/**
  * Name of the backend a browse would ACTUALLY use right now — not merely the one
  * requested. Requesting Bonjour off Apple silently runs mjansson, so reporting
  * the request would make the diagnostic tools compare a backend against itself

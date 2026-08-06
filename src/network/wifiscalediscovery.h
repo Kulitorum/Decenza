@@ -37,9 +37,12 @@ class QTimer;
  * than in one batch at the end — a live scale typically answers in well under a
  * second while the browse keeps running to its deadline.
  *
- * On non-Android the A-record path uses QHostInfo (the OS resolver speaks
- * mDNS); on Android it uses MdnsResolver on a worker thread, since Android's
- * getaddrinfo does not resolve ".local".
+ * By default the A-record path uses QHostInfo (the OS resolver speaks mDNS);
+ * on Android it uses MdnsResolver on a worker thread, since Android's
+ * getaddrinfo does not resolve ".local". That default is now a runtime choice
+ * rather than an #ifdef — MdnsResolver::setHostnameResolver() can put a desktop
+ * build on Android's exact path, which is how a failing lookup gets attributed
+ * to the backend or to the device without deploying to one.
  *
  * The browse always goes through MdnsResolver::browseService() on every
  * platform; which backend that picks (system Bonjour vs the mjansson raw-socket
@@ -168,10 +171,10 @@ private:
 
     int m_outstanding = 0;      // A-record lookups still pending
     bool m_anyProbeRan = false; // whether the current probe actually started
-    QList<int> m_lookupIds;     // QHostInfo lookup ids (non-Android)
+    QList<int> m_lookupIds;     // QHostInfo lookup ids (system-resolver path)
     QTimer* m_timeoutTimer = nullptr;
 
-    // Same role as m_browseCancel below, for the Android A-record workers.
+    // Same role as m_browseCancel below, for the direct A-record workers.
     // Without it, cancelInFlight() bumped the generation so the RESULT was
     // discarded, but three pool threads still blocked for the full timeout —
     // and app quit waits on the pool.
