@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <memory>
+#include <QMap>
 #include <QStringList>
 #include <QString>
 
@@ -48,6 +49,12 @@ class QTimer;
  * platform; which backend that picks (system Bonjour vs the mjansson raw-socket
  * implementation) is decided inside. QHostInfo cannot browse on ANY platform —
  * it resolves a name you already know. See mdnsresolver.h.
+ *
+ * On Android a SECOND browse runs beside it through NsdManager, feeding the same
+ * resultFound stream. Not a fallback: both start together, because the case it
+ * exists for is one where the mjansson browse returns cleanly and empty, which is
+ * indistinguishable from an empty LAN and so cannot be used as a trigger. See
+ * startNsdBrowse() and WifiScaleNsdHelper.java.
  */
 class WifiScaleDiscovery : public QObject {
     Q_OBJECT
@@ -125,6 +132,30 @@ public:
     /** Stop an in-flight browse. Safe to call when none is running. */
     Q_INVOKABLE void stopBrowse();
 
+    /**
+     * One line of WifiScaleNsdHelper's output, parsed.
+     *
+     * The helper's wire format is `instanceName\thost\tipv4\tport\tk=v|k=v`, plus
+     * a `!fail\t<code>` sentinel when discovery could not start. Tabs because a
+     * DNS-SD instance label may contain spaces and parentheses ("Half Decent
+     * Scale (hdstest)") but not a tab.
+     *
+     * Split out of the browse loop, and compiled on every platform, so the parser
+     * can be tested off-device: the loop that uses it is inside `#ifdef
+     * Q_OS_ANDROID` and would otherwise only ever be exercised on a tablet.
+     */
+    struct NsdLine {
+        bool startFailure = false;  // the "!fail" sentinel
+        QString failureCode;        // NsdManager error code, as text
+        bool valid = false;         // enough fields to be an instance
+        QString instanceName;
+        QString hostname;           // may be empty — see WifiScaleNsdHelper.srvHostname
+        QString address;
+        quint16 port = 0;
+        QMap<QString, QString> txt;
+    };
+    static NsdLine parseNsdLine(const QString& line);
+
     /** True iff an A-record probe is currently in flight. */
     bool isProbing() const { return m_outstanding > 0; }
 
@@ -170,6 +201,11 @@ private:
     // A no-op everywhere else: on those platforms the system resolver already owns
     // port 5353, so there is no second, independent path to add. Full reasoning —
     // and the measurements that motivate it — are at the definition.
+    //
+    // Shares m_browseCancel with the mjansson worker, so stopBrowse() ends both.
+    // The Java side is told to stop by the worker rather than by stopBrowse()
+    // directly, which keeps JNI off the main thread; the cost is up to one poll
+    // slice of extra discovery, not an unbounded wait.
     void startNsdBrowse(int timeoutMs, int generation);
 
     void cancelInFlight();

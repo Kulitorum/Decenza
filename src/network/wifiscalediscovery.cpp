@@ -12,6 +12,7 @@
 #include <QThreadPool>
 
 #ifdef Q_OS_ANDROID
+#include <QElapsedTimer>
 #include <QJniObject>
 #include <QMap>
 #include <QtCore/private/qandroidextras_p.h>
@@ -162,7 +163,7 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
                         SCALE_INFO_TAGGED("WifiScaleDiscovery",
                             QString("mDNS lookup failed for %1: %2")
                                 .arg(hostname, info.errorString()));
-        } else {
+                    } else {
                         WifiScaleResult r;
                         r.foundBy = WifiScaleResult::Source::Fallback;
                         r.hostname = hostname;
@@ -170,7 +171,7 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
                         SCALE_INFO_TAGGED("WifiScaleDiscovery",
                             QString("mDNS resolved %1 to %2").arg(hostname, r.address));
                         emit resultFound(r);
-        }
+                    }
                     finishOneLookup();
                 });
             m_lookupIds.append(id);
@@ -273,6 +274,35 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
     startNsdBrowse(timeoutMs, generation);
 }
 
+WifiScaleDiscovery::NsdLine WifiScaleDiscovery::parseNsdLine(const QString& line) {
+    NsdLine out;
+    // KeepEmptyParts: `host` is legitimately empty below API 36, and dropping
+    // empty fields would slide `ipv4` into its place — the scale's address then
+    // read as its hostname, which fails silently rather than loudly.
+    const QStringList f = line.split(QLatin1Char('\t'));
+    if (f.value(0) == QLatin1String("!fail")) {
+        out.startFailure = true;
+        out.failureCode = f.value(1);
+        return out;
+    }
+    if (f.size() < 5)
+        return out;  // truncated — not an instance, and not a failure either
+
+    out.instanceName = f[0];
+    out.hostname = f[1];
+    out.address = f[2];
+    out.port = static_cast<quint16>(f[3].toUShort());
+
+    const QStringList pairs = f[4].split(QLatin1Char('|'), Qt::SkipEmptyParts);
+    for (const QString& kv : pairs) {
+        const qsizetype eq = kv.indexOf(QLatin1Char('='));
+        if (eq > 0) out.txt.insert(kv.left(eq).toLower(), kv.mid(eq + 1));
+    }
+    // An address is the one field that cannot be recovered from anywhere else.
+    out.valid = !out.address.isEmpty();
+    return out;
+}
+
 #ifdef Q_OS_ANDROID
 void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
     // Android's own DNS-SD daemon, running BESIDE the mjansson browse above and
@@ -283,66 +313,115 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
     //
     // The two fail for unrelated reasons. Ours queries from an ephemeral source
     // port, which RFC 6762 section 6.7 makes a "legacy" query that responders
-    // answer by UNICAST — so the scale must ARP for us, and an ESP32 with
-    // ETHARP_TRUST_IP_MAC off cannot learn our MAC from the query frame it just
-    // parsed. Against a power-saving Android client that ARP goes unanswered and
-    // the reply is dropped, which is why a tablet can query a scale for hours and
-    // receive literally nothing while a Mac resolves it in 272 ms. NsdManager
-    // queries from 5353, so its answers come back multicast to the group with no
-    // ARP involved, and it also sees unsolicited announcements. See
-    // WifiScaleNsdHelper.java for the measurements.
+    // answer by UNICAST, so the reply depends on the scale being able to address
+    // this device directly — and measurably, a tablet that has never opened a
+    // socket to a given scale gets nothing back from it for hours while a Mac on
+    // the same LAN resolves it in 272 ms. NsdManager queries from 5353, so its
+    // answers come back multicast to the group, and it also sees unsolicited
+    // announcements. WifiScaleNsdHelper.java carries the measurements and the
+    // suspected (NOT proven) ARP mechanism, including a counter-example it does
+    // not explain.
     //
-    // Deduplication is the caller's, by address — the same scale answering both
-    // paths is the expected case, not an error.
+    // Deduplication is the caller's, by HOSTNAME — see
+    // WifiScaleResultUtil::upsertByHostname. The same scale answering both paths
+    // is the expected case, not an error, which is why the Java side goes to some
+    // trouble to report the SRV target rather than any other name for the host.
+    auto cancel = m_browseCancel;
+    if (!cancel) return;  // browse() always sets it; nothing to run without one
+
+    // Per-browse handle. The Java side keys everything by this, so the scan's
+    // instance and the reconnect ladder's instance never stop each other — an
+    // invariant this class's header states and an earlier draft of the helper
+    // broke by holding one static listener.
+    static std::atomic<qint64> s_nextNsdToken{1};
+    const qint64 token = s_nextNsdToken.fetch_add(1, std::memory_order_relaxed);
+
     QPointer<WifiScaleDiscovery> self(this);
-    auto runnable = QRunnable::create([self, timeoutMs, generation]() {
+    auto runnable = QRunnable::create([self, timeoutMs, generation, cancel, token]() {
+        // STDERR_TAGGED throughout, never the emitting SCALE_INFO_TAGGED: this
+        // lambda and the ones it posts are detached from any `this` and reach the
+        // object only through the QPointer. The emitting macro needs `this` in
+        // scope and does not compile here — see the longer note in probe().
+        const char* const kHelper = "io/github/kulitorum/decenza_de1/WifiScaleNsdHelper";
+
         QJniObject ctx = QNativeInterface::QAndroidApplication::context();
         if (!ctx.isValid()) {
             SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
                 QStringLiteral("NSD browse: no Android context"));
             return;
         }
-        const QJniObject out = QJniObject::callStaticObjectMethod(
-            "io/github/kulitorum/decenza_de1/WifiScaleNsdHelper",
-            "browseBlocking",
-            "(Landroid/content/Context;I)Ljava/lang/String;",
-            ctx.object(), static_cast<jint>(timeoutMs));
 
-        // null means NSD could not be started at all; an empty string means it ran
-        // and nothing answered. Collapsing the two would hide a broken transport
-        // behind "no scales here", which is the failure this whole subsystem keeps
-        // being bitten by.
-        if (!out.isValid()) {
-            QMetaObject::invokeMethod(qApp, [self, generation]() {
-                if (!self || generation != self->m_browseGeneration) return;
-                SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
-                    QStringLiteral("NSD browse could not run (NsdManager unavailable "
-                                   "or discovery failed to start)"));
-            }, Qt::QueuedConnection);
+        const bool started = QJniObject::callStaticMethod<jboolean>(
+            kHelper, "startBrowse", "(Landroid/content/Context;J)Z",
+            ctx.object(), static_cast<jlong>(token));
+        if (!started) {
+            // "Could not start" and "started and nobody answered" have completely
+            // different fixes, and both show a user an empty list. Say which.
+            SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
+                QStringLiteral("NSD browse could not run (NsdManager unavailable "
+                               "or discoverServices rejected)"));
             return;
         }
 
-        const QString payload = out.toString();
-        const QStringList lines = payload.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-        for (const QString& line : lines) {
-            const QStringList f = line.split(QLatin1Char('\t'));
-            if (f.size() < 5) continue;
-            QMap<QString, QString> txt;
-            const QStringList pairs = f[4].split(QLatin1Char('|'), Qt::SkipEmptyParts);
-            for (const QString& kv : pairs) {
-                const qsizetype eq = kv.indexOf(QLatin1Char('='));
-                if (eq > 0) txt.insert(kv.left(eq).toLower(), kv.mid(eq + 1));
+        // Poll in slices rather than blocking for the whole window. Two reasons:
+        // results reach the device list as each scale answers instead of all at
+        // once at the deadline, and the cancel token is honoured within one slice.
+        // A worker that ran the full window would pin a QThreadPool thread, and
+        // ~QCoreApplication calls waitForDone() unconditionally — that is a
+        // multi-second hang on quit with the UI already gone.
+        constexpr int kPollSliceMs = 400;
+        const int sdk = QNativeInterface::QAndroidApplication::sdkVersion();
+        QElapsedTimer clock;
+        clock.start();
+        int resolved = 0;
+        int unnamed = 0;
+
+        while (!cancel->load(std::memory_order_relaxed) && clock.elapsed() < timeoutMs) {
+            const int remaining = static_cast<int>(timeoutMs - clock.elapsed());
+            const QJniObject lineObj = QJniObject::callStaticObjectMethod(
+                kHelper, "pollBrowse", "(JI)Ljava/lang/String;",
+                static_cast<jlong>(token), static_cast<jint>(qMin(kPollSliceMs, remaining)));
+            if (!lineObj.isValid())
+                continue;  // nothing this slice
+
+            const NsdLine parsed = WifiScaleDiscovery::parseNsdLine(lineObj.toString());
+            if (parsed.startFailure) {
+                SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
+                    QString("NSD browse failed to start (NsdManager error %1)")
+                        .arg(parsed.failureCode));
+                break;
             }
-            const QString instanceName = f[0];
-            const QString host = f[1];
-            const QString ip = f[2];
-            const quint16 port = static_cast<quint16>(f[3].toUShort());
+            if (!parsed.valid) continue;
+
+            const QString instanceName = parsed.instanceName;
+            const QString host = parsed.hostname;
+            const QString ip = parsed.address;
+            const quint16 port = parsed.port;
+
+            if (host.isEmpty()) {
+                // NsdServiceInfo.getHostname() is API 36; below that Android
+                // exposes no SRV target at all, and the identity key every result
+                // is stored under IS the hostname. Reporting a guessed name would
+                // poison the saved "wifi:<hostname>" primary, so the row is
+                // dropped — loudly, with the one thing a reader needs to know.
+                ++unnamed;
+                SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
+                    QString("NSD resolved '%1' at %2 but this Android (API %3) does not "
+                            "expose the mDNS hostname — needs API 36+; add the scale by "
+                            "IP if it does not appear otherwise")
+                        .arg(instanceName, ip).arg(sdk));
+                continue;
+            }
+
+            const QMap<QString, QString> txt = parsed.txt;
+            ++resolved;
+
             QMetaObject::invokeMethod(qApp, [self, instanceName, host, ip, port, txt, generation]() {
                 if (!self) return;
                 if (generation != self->m_browseGeneration) return;
                 const WifiScaleResult r = WifiScaleResultUtil::fromBrowseTxt(
                     instanceName, host, ip, port, txt);
-                SCALE_INFO_TAGGED("WifiScaleDiscovery",
+                SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
                     QString("NSD found %1 at %2 (%3) fw=%4")
                         .arg(r.instanceName.isEmpty() ? r.hostname : r.instanceName,
                              r.address, r.hostname,
@@ -352,11 +431,12 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
             }, Qt::QueuedConnection);
         }
 
-        QMetaObject::invokeMethod(qApp, [self, generation, count = lines.size()]() {
-            if (!self || generation != self->m_browseGeneration) return;
-            SCALE_INFO_TAGGED("WifiScaleDiscovery",
-                QString("NSD browse finished — %1 resolved").arg(count));
-        }, Qt::QueuedConnection);
+        QJniObject::callStaticMethod<void>(kHelper, "stopBrowse", "(J)V",
+                                           static_cast<jlong>(token));
+
+        SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
+            QString("NSD browse finished in %1 ms — %2 resolved, %3 dropped for want "
+                    "of a hostname").arg(clock.elapsed()).arg(resolved).arg(unnamed));
     });
     runnable->setAutoDelete(true);
     QThreadPool::globalInstance()->start(runnable);

@@ -97,6 +97,82 @@ private slots:
         MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
     }
 
+    // The NsdManager browse only ever runs on a tablet, so its parser is the one
+    // piece of that path that can be held to account anywhere. What is being
+    // guarded is field ALIGNMENT: `host` is legitimately empty below API 36, and a
+    // split that dropped empty parts would slide the IPv4 address into the
+    // hostname slot. That failure is silent — the row is stored under an identity
+    // key of "192.168.10.145", never matches the saved "wifi:hds.local" primary,
+    // and looks like a second scale rather than like a bug.
+    void nsdLineParsesFieldsPositionally_data() {
+        QTest::addColumn<QString>("line");
+        QTest::addColumn<bool>("valid");
+        QTest::addColumn<QString>("instanceName");
+        QTest::addColumn<QString>("hostname");
+        QTest::addColumn<QString>("address");
+        QTest::addColumn<int>("port");
+        QTest::addColumn<QString>("firmware");
+
+        QTest::newRow("resolved")
+            << QStringLiteral("Half Decent Scale (hdstest)\thdstest.local\t192.168.10.242\t80\tfw=3.1.13|name=hdstest")
+            << true << QStringLiteral("Half Decent Scale (hdstest)")
+            << QStringLiteral("hdstest.local") << QStringLiteral("192.168.10.242")
+            << 80 << QStringLiteral("3.1.13");
+        // Below API 36 Android exposes no SRV target. The address must stay in the
+        // address field regardless.
+        QTest::newRow("no hostname")
+            << QStringLiteral("Half Decent Scale\t\t192.168.10.145\t80\tfw=3.1.13")
+            << true << QStringLiteral("Half Decent Scale")
+            << QString() << QStringLiteral("192.168.10.145")
+            << 80 << QStringLiteral("3.1.13");
+        // A scale that publishes no TXT at all (firmware 3.1.12 does this) still
+        // has a trailing empty field, so the line is complete and usable.
+        QTest::newRow("no txt")
+            << QStringLiteral("Half Decent Scale\ths.local\t192.168.10.145\t80\t")
+            << true << QStringLiteral("Half Decent Scale")
+            << QStringLiteral("hs.local") << QStringLiteral("192.168.10.145")
+            << 80 << QString();
+        QTest::newRow("truncated")
+            << QStringLiteral("Half Decent Scale\ths.local\t192.168.10.145")
+            << false << QString() << QString() << QString() << 0 << QString();
+        // No address means the instance never resolved, whatever else it carries.
+        QTest::newRow("no address")
+            << QStringLiteral("Half Decent Scale\ths.local\t\t80\tfw=3.1.13")
+            << false << QStringLiteral("Half Decent Scale")
+            << QStringLiteral("hs.local") << QString() << 80 << QString();
+    }
+
+    void nsdLineParsesFieldsPositionally() {
+        QFETCH(QString, line);
+        QFETCH(bool, valid);
+        QFETCH(QString, instanceName);
+        QFETCH(QString, hostname);
+        QFETCH(QString, address);
+        QFETCH(int, port);
+        QFETCH(QString, firmware);
+
+        const WifiScaleDiscovery::NsdLine p = WifiScaleDiscovery::parseNsdLine(line);
+        QVERIFY(!p.startFailure);
+        QCOMPARE(p.valid, valid);
+        QCOMPARE(p.instanceName, instanceName);
+        QCOMPARE(p.hostname, hostname);
+        QCOMPARE(p.address, address);
+        QCOMPARE(static_cast<int>(p.port), port);
+        QCOMPARE(p.txt.value(QStringLiteral("fw")), firmware);
+    }
+
+    // "Discovery never started" and "discovery ran and nothing answered" show a
+    // user the same empty list and have completely different fixes, so the
+    // sentinel must never be mistaken for a truncated instance line.
+    void nsdStartFailureIsNotAnInstance() {
+        const WifiScaleDiscovery::NsdLine p =
+            WifiScaleDiscovery::parseNsdLine(QStringLiteral("!fail\t3"));
+        QVERIFY(p.startFailure);
+        QVERIFY(!p.valid);
+        QCOMPARE(p.failureCode, QStringLiteral("3"));
+        QVERIFY(p.address.isEmpty());
+    }
+
     // localhost resolves on every platform — exercises the success edge.
     void resolvedHostnameEmitsResultFound() {
         WifiScaleDiscovery disc;

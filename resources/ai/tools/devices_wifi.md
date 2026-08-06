@@ -23,10 +23,17 @@ DNS-SD browse and ignore a bare A query, and only the pair tells you which happe
 |---|---|
 | `auto` | What ships — mjansson on Android, the system resolver elsewhere |
 | `mjansson` | On a desktop, runs the exact A-record path Android ships |
-| `system` | QHostInfo / the OS resolver; on Android it returns NXDOMAIN for `.local` |
+| `system` | QHostInfo / the OS resolver. **Refused on Android** — see below |
 
 Both are reported back as `backendActive` / `resolverActive`, which are what ACTUALLY ran — asking
 for one that is not compiled on this platform gives you the substitute, not an error.
+
+`resolver=system` on Android returns an error instead of taking effect, and the asymmetry with
+`backend` is deliberate. Pinning the browse backend on Android is harmless because only one is
+compiled there, so the request quietly resolves to what already runs. Pinning the resolver really
+does take effect, Android's `getaddrinfo` returns NXDOMAIN for every `.local` name, and the setting
+is process-wide and sticky — so a single call would leave hostname discovery dead until the app
+restarts. Run that comparison on a desktop build.
 
 When comparing, note the system resolver caches: on macOS a browse populates mDNSResponder, so a
 `system` lookup seconds later can be answered from that cache rather than by the device. Run the

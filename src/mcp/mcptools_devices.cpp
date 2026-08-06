@@ -80,6 +80,25 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             // firmware that answers a DNS-SD browse can still ignore a bare A
             // query — so pinning one says nothing about the other.
             const QString resolver = args.value("resolver").toString(QStringLiteral("auto")).toLower();
+#ifdef Q_OS_ANDROID
+            if (resolver == QStringLiteral("system")) {
+                // NOT symmetric with `backend`, and that asymmetry is the whole
+                // reason this is refused rather than substituted. Pinning the
+                // browse backend on Android is harmless because there is only one
+                // compiled there, so the request quietly resolves to what already
+                // runs. Pinning the RESOLVER to "system" really does take effect,
+                // and Android's getaddrinfo returns NXDOMAIN for every ".local"
+                // name — so the setting is process-wide and sticky, and one call
+                // would leave hostname discovery dead until the app restarts.
+                result["error"] = "resolver=system is refused on Android: its getaddrinfo "
+                                  "returns NXDOMAIN for .local, so this would disable "
+                                  "hostname discovery for the rest of the session. Use "
+                                  "resolver=mjansson (the default here), or run the "
+                                  "comparison on a desktop build.";
+                result["resolverActive"] = MdnsResolver::activeHostnameResolverName();
+                return result;
+            }
+#endif
             if (resolver == QStringLiteral("system"))
                 MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::System);
             else if (resolver == QStringLiteral("mjansson"))
@@ -160,7 +179,7 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                 {"resolver", QJsonObject{
                     {"type", "string"},
                     {"enum", QJsonArray{"auto", "system", "mjansson"}},
-                    {"description", "browse only: which implementation resolves hds.local. 'auto' is what ships; 'mjansson' runs Android's path on a desktop"}}},
+                    {"description", "browse only: what resolves hds.local. 'auto' ships; 'mjansson' runs Android's path on desktop; 'system' errors there"}}},
                 {"timeoutMs", QJsonObject{
                     {"type", "integer"},
                     {"description", "browse only: how long to browse, in milliseconds (default 8000)"}}}

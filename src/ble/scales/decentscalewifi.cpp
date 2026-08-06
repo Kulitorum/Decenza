@@ -339,11 +339,22 @@ void DecentScaleWifi::attemptHostname() {
             //
             // It is TEMPTING to conclude the responder never answers a bare
             // A-query. It does: a later run on the same tablet and scale
-            // resolved this host here in 357 ms, one query, one record. What
-            // differed was a tablet reboot in between — the failure is a
-            // host-side resolver state the app can neither see nor clear, not
-            // scale or protocol behaviour. Expect this call to work normally
-            // and to go silent for hours when the tablet is in that state.
+            // resolved this host here in 357 ms, one query, one record.
+            //
+            // That difference was originally attributed to a tablet reboot, and
+            // written here as "a host-side resolver state, not scale or protocol
+            // behaviour". A two-scale control on 2026-08-06 REFUTES that: in one
+            // window the tablet resolved the scale it had just opened a TCP
+            // connection to in 272 ms while a second scale on the same LAN, never
+            // contacted from that tablet, stayed silent to it and answered a Mac
+            // normally. One resolver stack, one moment, opposite outcomes per
+            // PEER — which no state of the tablet's resolver can produce. The
+            // reboot worked because it was followed by traffic to the scale, not
+            // because it cleared anything. See onRecognitionTimeout() for what is
+            // established and what is still only suspected.
+            //
+            // The 16 s counter-example above still stands against the suspected
+            // ARP mechanism, and is the reason it is written as suspected.
             //
             // The constant stays because agreeing with the discovery path is
             // right on its own terms, and because a 5 s budget costs nothing on
@@ -827,20 +838,31 @@ void DecentScaleWifi::onRecognitionTimeout() {
     //    not evidence about the address at all — it is what a scale that is
     //    rebooting, asleep, or momentarily unreachable looks like.
     //
-    // Evicting on silence turns a transient miss into a permanent outage, because
-    // the cached IP is not merely an optimisation: dialling it is what REPAIRS
-    // mDNS. An openscale responder answers a legacy (ephemeral-port) query by
-    // unicast, so it must ARP for the querier, and with ETHARP_TRUST_IP_MAC off it
-    // cannot learn our MAC from the query frame — it only learns from an ARP
-    // request we send, which we only send when we have an address to dial. Discard
-    // the address and both remaining paths (hostname resolve AND service browse)
-    // ask a scale that has no way to answer us.
+    // Evicting on silence turns a transient miss into a long outage, because the
+    // cached IP is not merely an optimisation: dialling it is what appears to
+    // REPAIR mDNS. Measured on 2026-08-06 — a tablet in exactly this state got 0
+    // records from 7 A-record queries per attempt, 5 s per attempt, every attempt
+    // identical across a session of several hours, against a scale a Mac on the
+    // same LAN resolved in 272 ms. One TCP connection from the tablet flipped it
+    // to 1 query / 272 ms, and only for the scale it had contacted: a second scale
+    // on the same LAN stayed silent to that tablet while answering the Mac
+    // normally. (The outage that prompted the investigation had run five days.
+    // That is the user-visible span, not the instrumented one; do not merge the
+    // two numbers.)
     //
-    // Measured 2026-08-06: a tablet in exactly this state got 0 records from 7
-    // A-record queries over 5 s, repeatedly for five days, against a scale a Mac
-    // resolved in 272 ms. One TCP connection from the tablet flipped it to 1 query
-    // / 272 ms — and only for the scale it had contacted, while a second scale on
-    // the same LAN stayed silent to that tablet and answered the Mac normally.
+    // So the BEHAVIOUR is established: the scale answers mDNS per-peer, and having
+    // dialled it is what puts this device on the answering side. The MECHANISM is
+    // not. The fitting story is that an openscale responder answers a legacy
+    // (ephemeral-port) query by unicast, so it must ARP for the querier, and with
+    // ETHARP_TRUST_IP_MAC off it cannot learn our MAC from the query frame — only
+    // from an ARP request we send, which we only send when we have an address to
+    // dial. No ARP frames were captured and the scale's ARP table was never read,
+    // and the comment inside attemptHostname() records misses continuing against
+    // a scale that had served a WebSocket on its IP 16 s earlier, which a cold ARP
+    // entry does not explain. Keep the address either way: the reason to keep it
+    // is that silence says nothing about the address, and that holds whatever the
+    // responder is really doing.
+    //
     // m_wsHandshakeDone is exactly this distinction, already tracked: cleared at
     // the top of every attempt, set in onConnected(). A completed handshake means
     // something at that address spoke HTTP/WebSocket to us and then failed to be

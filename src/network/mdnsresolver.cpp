@@ -9,10 +9,12 @@
 // only way to exercise the backend Android and Windows/Linux ship without
 // deploying to a device. Do NOT narrow this to Q_OS_DARWIN / `NOT APPLE`.
 //
-// Wider than the original guard (Q_OS_ANDROID). resolveHostname() is still only
-// *called* on Android — WifiScaleDiscovery guards its call site — so compiling
-// it elsewhere changes no behaviour; it is browseService() that desktop
-// platforms need, because QHostInfo cannot enumerate services.
+// Wider than the original guard (Q_OS_ANDROID). It used to be true that
+// resolveHostname() was only *called* on Android; it no longer is. The call site
+// in WifiScaleDiscovery::probe() is now a runtime branch on
+// useDirectHostnameResolver(), so a desktop build can be pointed at the exact
+// A-record path Android ships — which is why this file has to compile
+// everywhere. See HostnameResolver in the header.
 #ifndef Q_OS_IOS
 
 #include <QHostAddress>
