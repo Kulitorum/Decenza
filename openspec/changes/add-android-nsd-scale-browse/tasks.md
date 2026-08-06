@@ -13,35 +13,42 @@
 
 - [x] 2.1 Gate eviction in `onRecognitionTimeout()` on `m_wsHandshakeDone` — evict when a peer answered and was not an HDS, keep when nothing answered.
 
-## 3. Query source port
+## 3. Multicast lock
 
-- [x] 3.0 Bind the query socket to 5353 with `SO_REUSEPORT` (the library already sets it), falling back to ephemeral only if the bind fails. mjansson then drops the QU bit on its own, so the query stops being "legacy" and the answer comes back multicast.
-- [x] 3.0a Centralize both socket-open sites (`resolveHostname` and `browseServiceMjansson`) into one `openQuerySocket()` — they were already duplicated.
-- [x] 3.0b Report the bound port in `ResolveStats`/`BrowseStats` and in every start/done log line.
-- [x] 3.0c `queryPort` argument on `devices_wifi` so the A/B against the older on-device 5353 measurement can be run without a rebuild.
+- [x] 3.a `MulticastLock` — reference-counted, thread-safe RAII holder, taken by `resolveHostname()` and `browseServiceMjansson()` for their duration. MqttClient's `.local` resolve inherits it through the same call.
+- [x] 3.b Move ShotServer onto it and delete its hand-rolled JNI, so there is one definition rather than two.
+- [x] 3.c Keep the ShotServer member OUT of `#ifdef Q_OS_ANDROID` — `MulticastLock` is a no-op type elsewhere, so the two lines that manage it get type-checked on the development platform instead of only in CI.
+- [x] 3.d Correct the three comments (`mdnsresolver.h`, `wifiscalediscovery.cpp`, `shotserver.h`) that described the lock as held for the whole app lifetime. It was held only while a default-off feature ran.
 
-## 4. Diagnostics
+## 4. Query source port
 
-- [x] 4.1 `MdnsResolver::HostnameResolver` selector so a desktop build can run Android's exact A-record path.
-- [x] 4.2 Refuse `resolver=system` on Android in `devices_wifi` — it is sticky and would disable `.local` resolution for the session.
-- [x] 4.3 Bump `McpSurfaceVersion`.
+- [x] 4.0 Bind the query socket to 5353 with `SO_REUSEPORT` (the library already sets it), falling back to ephemeral only if the bind fails. mjansson then drops the QU bit on its own, so the query stops being "legacy" and the answer comes back multicast.
+- [x] 4.0a Centralize both socket-open sites (`resolveHostname` and `browseServiceMjansson`) into one `openQuerySocket()` — they were already duplicated.
+- [x] 4.0b Report the bound port in `ResolveStats`/`BrowseStats` and in every start/done log line.
+- [x] 4.0c `queryPort` argument on `devices_wifi` so the A/B against the older on-device 5353 measurement can be run without a rebuild.
 
-## 5. Corrections to the record
+## 5. Diagnostics
 
-- [x] 5.1 Replace the "host-side resolver state" rationale in `attemptHostname()` and in the spec with what the two-scale control established.
-- [x] 5.2 State the ARP mechanism as suspected, not settled, at every site that asserts it, and name the counter-example it does not explain.
-- [x] 5.3 Keep the measured window (several hours) and the user-visible outage (five days) as separate numbers wherever either is cited.
-- [x] 5.4 Fix the stale `resolveHostname() is only called on Android` comment in `mdnsresolver.cpp`.
+- [x] 5.1 `MdnsResolver::HostnameResolver` selector so a desktop build can run Android's exact A-record path.
+- [x] 5.2 Refuse `resolver=system` on Android in `devices_wifi` — it is sticky and would disable `.local` resolution for the session.
+- [x] 5.3 Bump `McpSurfaceVersion`.
 
-## 6. Tests
+## 6. Corrections to the record
 
-- [x] 6.1 `tst_wifiscalediscovery`: resolver selector default, reports-what-ran, probe honours a pinned resolver.
-- [x] 6.2 `tst_wifiscalediscovery`: `parseNsdLine()` field alignment, including the empty-hostname and start-failure cases.
-- [x] 6.3 `tst_decentscalewifi`: a silent cached IP is kept, an answering one is evicted.
+- [x] 6.1 Replace the "host-side resolver state" rationale in `attemptHostname()` and in the spec with what the two-scale control established.
+- [x] 6.2 State the ARP mechanism as suspected, not settled, at every site that asserts it, and name the counter-example it does not explain.
+- [x] 6.3 Keep the measured window (several hours) and the user-visible outage (five days) as separate numbers wherever either is cited.
+- [x] 6.4 Fix the stale `resolveHostname() is only called on Android` comment in `mdnsresolver.cpp`.
 
-- [x] 6.4 `tst_wifiscalediscovery`: query-port default and readback.
+## 7. Tests
 
-## 7. Docs
+- [x] 7.1 `tst_wifiscalediscovery`: resolver selector default, reports-what-ran, probe honours a pinned resolver.
+- [x] 7.2 `tst_wifiscalediscovery`: `parseNsdLine()` field alignment, including the empty-hostname and start-failure cases.
+- [x] 7.3 `tst_decentscalewifi`: a silent cached IP is kept, an answering one is evicted.
 
-- [x] 7.1 `resources/ai/tools/devices_wifi.md` — the `resolver` and `queryPort` arguments, and why `resolver=system` is refused on Android.
-- [ ] 7.2 No wiki manual entry: nothing here is user-visible. Discovery either finds the scale or does not, and the user-facing wording for that is unchanged.
+- [x] 7.4 `tst_wifiscalediscovery`: query-port default and readback.
+
+## 8. Docs
+
+- [x] 8.1 `resources/ai/tools/devices_wifi.md` — the `resolver` and `queryPort` arguments, and why `resolver=system` is refused on Android.
+- [ ] 8.2 No wiki manual entry: nothing here is user-visible. Discovery either finds the scale or does not, and the user-facing wording for that is unchanged.

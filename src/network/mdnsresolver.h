@@ -34,9 +34,12 @@
  * it is developed on; see BrowseBackend. Do not narrow these guards to
  * `NOT APPLE` — that was the original shape and it removed that capability.
  *
- * Multicast reception on Android requires a held WifiManager.MulticastLock.
- * ShotServer acquires one for the whole app lifetime (start()→stop()), so the
- * process-wide lock is in effect; MqttClient relies on the same arrangement.
+ * Multicast reception on Android requires a held WifiManager.MulticastLock, and
+ * resolveHostname()/browseService() each take one for their duration via
+ * MulticastLock::Holder. Do NOT reintroduce the previous claim that ShotServer
+ * holds one app-wide: that setting defaults to OFF, so on a default install
+ * there was no lock at all, and every multicast answer was being dropped by the
+ * Wi-Fi driver with nothing in any log to say so.
  */
 namespace MdnsResolver {
 
@@ -261,8 +264,10 @@ HostnameResolver hostnameResolver();
  * ephemeral bind shipped; that result has never been reproduced against the
  * current build, and it predates ShotServer holding a process-wide
  * WifiManager.MulticastLock, which a 5353 socket needs and an ephemeral one does
- * not. Rather than pick a winner from two unrepeatable measurements, force each
- * and read ResolveStats::boundPort back out of the log.
+ * not — and the app was not holding one, because that lock belonged to a feature
+ * that is off by default. Both are fixed together and neither works alone. The
+ * selector stays anyway: force each and read ResolveStats::boundPort back out of
+ * the log rather than trusting the explanation.
  */
 enum class QueryPort {
     Auto,

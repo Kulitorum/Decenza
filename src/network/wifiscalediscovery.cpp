@@ -101,9 +101,10 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
     for (const QString& hostname : hostnames) {
         if (direct) {
             // Android's stock resolver does not resolve ".local" names, so go
-            // direct. resolveHostname() blocks, hence the worker thread. Multicast
-            // reception relies on the process-wide WifiManager.MulticastLock that
-            // ShotServer holds for the app lifetime.
+            // direct. resolveHostname() blocks, hence the worker thread. It takes
+            // its own MulticastLock for the duration; it used to rely on
+            // ShotServer holding one app-wide, which was never true — that
+            // setting defaults to off.
             QPointer<WifiScaleDiscovery> self(this);
             auto cancel = m_probeCancel;
             auto runnable = QRunnable::create([self, hostname, timeoutMs, generation, cancel]() {

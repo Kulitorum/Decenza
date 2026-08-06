@@ -22,10 +22,8 @@
 #include <memory>
 
 #include "../history/shotprojection.h"
+#include "multicastlock.h"
 #include <QtQml/qqmlregistration.h>
-#ifdef Q_OS_ANDROID
-#include <QJniObject>
-#endif
 
 class ShotHistoryStorage;
 struct ShotRecord;
@@ -155,12 +153,6 @@ private:
     // used by the periodic samplers: a request is user-driven, so a path that has been quiet
     // should log the moment it comes back.
     LogCollapse m_requestLog{60 * 1000};
-
-    // On Android, Wi-Fi filters incoming UDP broadcast/multicast frames unless
-    // the app holds a WifiManager.MulticastLock. Without this, discovery
-    // requests silently never reach us. No-op on other platforms.
-    void acquireDiscoveryMulticastLock();
-    void releaseDiscoveryMulticastLock();
 
     void handleRequest(QTcpSocket* socket, const QByteArray& request);
     void sendResponse(QTcpSocket* socket, int statusCode, const QString& contentType,
@@ -301,9 +293,21 @@ private:
     // "no health check yet observed" from a valid `-1` socket descriptor.
     qintptr m_lastHealthFd = -2;
     bool m_lastHealthListening = false;
-#ifdef Q_OS_ANDROID
-    QJniObject m_multicastLock;
-#endif
+    // On Android, Wi-Fi filters incoming UDP broadcast/multicast frames unless the
+    // app holds a WifiManager.MulticastLock; without one, discovery requests
+    // silently never reach us. Held for as long as the discovery socket is bound.
+    //
+    // NOT inside an #ifdef, unlike the QJniObject it replaces. MulticastLock is a
+    // no-op type off Android, and keeping the member unconditional means the two
+    // lines that manage it in start()/stop() are compiled — and therefore
+    // type-checked — on the platform this is developed on, instead of only in a
+    // CI job nobody reads until it goes red.
+    //
+    // The lock itself is shared with mDNS rather than hand-rolled here. This
+    // class used to own the only copy of that JNI, which is how three comments
+    // elsewhere came to describe the lock as held app-wide: it is held only while
+    // this server runs, and `shotServer/enabled` defaults to false.
+    std::unique_ptr<MulticastLock::Holder> m_multicastLock;
     ShotHistoryStorage* m_storage = nullptr;
     DE1Device* m_device = nullptr;
     ScreensaverVideoManager* m_screensaverManager = nullptr;

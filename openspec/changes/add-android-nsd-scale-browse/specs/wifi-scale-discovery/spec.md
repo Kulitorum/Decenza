@@ -36,6 +36,34 @@ The NsdManager browse SHALL be keyed per browse instance, SHALL deliver results 
 - **WHEN** a browse is cancelled or the app is torn down while an NsdManager browse is in flight
 - **THEN** that browse stops within one poll interval rather than running out its deadline
 
+### Requirement: Multicast reception is licensed by the app, not by an unrelated feature
+
+On Android the app SHALL hold a `WifiManager.MulticastLock` for the duration of every mDNS lookup and every mDNS browse it performs. The lock SHALL be reference-counted across all concurrent users and released when the last one finishes, and it SHALL NOT depend on any user-facing feature being enabled.
+
+Android's Wi-Fi driver discards multicast frames not addressed to this device unless such a lock is held, and the failure is completely silent: the socket opens, the group join succeeds, queries go out, and nothing arrives. Until now the only lock in the app belonged to the shot server, taken in its `start()` and released in its `stop()` — and that server is **disabled by default**, so on a default install no lock was ever held while three separate comments in the source described one as held for the whole app lifetime.
+
+This requirement and the 5353 source port are two halves of one change and neither works alone. A query from an ephemeral port is answered by unicast and needs no lock; a query from 5353 is answered by multicast and is worthless without one. Shipping the port change alone would reproduce, rather than fix, the earlier Android measurement of zero records for every host.
+
+The lock SHALL be scoped to the operations that need it rather than taken once at startup, because it disables a hardware filter and therefore wakes the CPU for multicast traffic addressed to the whole LAN.
+
+Failure to take the lock SHALL NOT prevent discovery from running. It SHALL be logged, once rather than per attempt, since discovery repeats on a reconnect ladder.
+
+#### Scenario: Discovery works with every optional feature off
+- **WHEN** an Android device runs a scan with the shot server, MQTT and every other network feature disabled
+- **THEN** the multicast lock is held for the duration of the lookups and browses, and multicast answers are received
+
+#### Scenario: The lock is not held when nothing is discovering
+- **WHEN** no lookup or browse is in flight
+- **THEN** no multicast lock is held, so the Wi-Fi hardware filter is back on
+
+#### Scenario: Concurrent discovery does not release the lock early
+- **WHEN** a user scan and a reconnect browse overlap and one of them finishes
+- **THEN** the lock remains held until the last one finishes
+
+#### Scenario: A device that cannot take the lock still discovers
+- **WHEN** no Android context or WifiManager is available
+- **THEN** the lookup or browse still runs, and the inability to take the lock is logged once rather than on every attempt
+
 ### Requirement: mDNS queries are sent from port 5353 where the platform allows it
 
 The app's own mDNS queries SHALL be sent from a socket bound to port 5353 with `SO_REUSEADDR` and `SO_REUSEPORT`, falling back to an ephemeral source port only when that bind fails.

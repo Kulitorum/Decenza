@@ -25,6 +25,8 @@ std::atomic<MdnsResolver::QueryPort> g_queryPort{MdnsResolver::QueryPort::Auto};
 
 #ifndef Q_OS_IOS
 
+#include "multicastlock.h"
+
 #include <QHostAddress>
 #include <QElapsedTimer>
 #include <QByteArray>
@@ -299,18 +301,23 @@ int mdnsBrowseCallback(int sock, const struct sockaddr* from, size_t addrlen,
 // platform or some other process may hold 5353 without SO_REUSEPORT — and a
 // legacy query that sometimes works beats no socket at all.
 //
-// AGAINST THAT STANDS AN OLDER ON-DEVICE MEASUREMENT, which is why this is
-// switchable rather than simply changed. A previous Android test bound to 5353
-// and saw records=0 for ALL hosts, including names that resolved fine from an
-// ephemeral port, and the ephemeral bind has been what shipped ever since. That
-// result has never been reproduced against the current build, and there is a
-// plausible reason it would not be: multicast reception on Android requires a
-// held WifiManager.MulticastLock, ShotServer now holds one for the whole app
-// lifetime, and a 5353 socket depends on multicast where an ephemeral one does
-// not — so a test predating that lock would show exactly this, zero records on
-// 5353 and normal results on ephemeral. Plausible is not established. Force one
-// or the other from devices_wifi and read the bound port in the log rather than
-// believing either paragraph.
+// AN OLDER ON-DEVICE MEASUREMENT SEEMED TO STAND AGAINST THIS, and explaining
+// it away is what turned up the actual defect. A previous Android test bound to
+// 5353 and saw records=0 for ALL hosts, including names that resolved fine from
+// an ephemeral port, and the ephemeral bind shipped because of it. The reason is
+// now known: multicast reception on Android requires a held
+// WifiManager.MulticastLock, and the app did not hold one. The lock belonged to
+// ShotServer, whose `shotServer/enabled` setting defaults to FALSE — so on a
+// default install no lock was ever taken, three comments in this tree
+// nonetheless described it as held "for the whole app lifetime", and a 5353
+// socket (multicast answers) received nothing while an ephemeral one (unicast
+// answers, no lock needed) worked. Exactly the recorded result.
+//
+// Both halves are fixed together, and neither works without the other: this
+// function prefers 5353, and resolveHostname()/browseServiceMjansson() each hold
+// a MulticastLock::Holder for the duration. The selector stays because the
+// explanation above, however well it fits, is still an explanation — force each
+// and read the bound port in the log rather than believing this paragraph.
 int openQuerySocket(int* boundPortOut)
 {
     if (boundPortOut) *boundPortOut = 0;
@@ -361,6 +368,12 @@ namespace MdnsResolver {
 QString resolveHostname(const QString& hostname, int timeoutMs,
                         ResolveStats* stats, const std::atomic<bool>* cancel)
 {
+    // Held for the whole lookup. Without it Android's Wi-Fi driver silently drops
+    // every multicast frame addressed to the group, so a 5353 socket — whose
+    // answers come back multicast — receives nothing at all while the sends and
+    // the group join both report success. See MulticastLock.
+    MulticastLock::Holder multicastLock;
+
     int boundPort = 0;
     int sock = openQuerySocket(&boundPort);
     if (sock < 0) {
@@ -496,6 +509,10 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
                                               const std::atomic<bool>* cancel)
 {
     if (stats) stats->backend = QStringLiteral("mjansson");
+    // Same reason as resolveHostname() — a browse's answers are multicast when
+    // the query goes out from 5353, and Android filters those without this.
+    MulticastLock::Holder multicastLock;
+
     // Same socket policy as resolveHostname() — see openQuerySocket() for why the
     // source port decides whether the responder answers us at all.
     int boundPort = 0;
