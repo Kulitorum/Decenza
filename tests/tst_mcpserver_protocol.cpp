@@ -964,6 +964,38 @@ private slots:
         QVERIFY(sizes.toArray()[0].isString());
     }
 
+    // A resource family with no icon of its own — iconQrcForResource() answers
+    // that with an empty path — must not be discovered by TRYING TO OPEN it.
+    // QFile("").open() takes the filesystem engine and Qt prints
+    // "QFSFileEngine::open: No file name specified"
+    // (qtbase/src/corelib/io/qfsfileengine.cpp:204), once per iconless resource
+    // per resources/list. On the shipped tablet build that is the 15
+    // decenza://tools/<topic> docs resources: 15 warning lines every time an MCP
+    // client connects, in the ring buffer field diagnosis reads. init()'s
+    // failOnWarning() is what asserts the absence — dropping the empty-path guard
+    // in iconDataUri() turns this test red.
+    void iconlessResourceFamilyEmitsNoIconsAndOpensNoFile()
+    {
+        QVERIFY2(McpRegistryHelpers::iconQrcForResource("decenza://tools/debug_get_log").isEmpty(),
+                 "the tool-docs family is expected to map to no icon; if it gained one, "
+                 "this test needs a different iconless URI, not deleting");
+
+        McpServer server;
+        server.resourceRegistry()->registerResource(
+            "decenza://tools/debug_get_log", "debug_get_log documentation",
+            "Long-form documentation for the debug_get_log MCP tool",
+            "application/json", []() -> QJsonObject { return QJsonObject{}; });
+
+        const QString sid = openSession(server, "2025-11-25");
+        auto resp = sendHttp(server, "POST", rpcBody("resources/list", {}, 2), sid);
+        QCOMPARE(resp.statusCode, 200);
+
+        const QJsonArray resources = resp.jsonBody["result"].toObject()["resources"].toArray();
+        QCOMPARE(resources.size(), 1);
+        QVERIFY2(!resources[0].toObject().contains("icons"),
+                 "an iconless family must omit `icons` entirely, not ship an empty array");
+    }
+
     // `structuredContent` is not a field of `ResourceContents` in ANY MCP
     // revision — it exists on `CallToolResult` alone. This used to assert the
     // omission at 2024-11-05 only, which encoded the mistaken premise that it

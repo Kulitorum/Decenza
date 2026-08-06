@@ -114,6 +114,14 @@ namespace McpRegistryHelpers {
     // now returns empty rather than defaulting, so a new resource family cannot
     // silently re-buy the fallback.
     inline QString iconDataUri(const QString& qrcPath) {
+        // An empty path is "this family has no icon" — the documented answer from
+        // iconQrcForResource() below, not a miss to be discovered by opening it.
+        // QFile("").open() takes the filesystem engine and emits
+        // "QFSFileEngine::open: No file name specified" (qtbase/src/corelib/io/
+        // qfsfileengine.cpp:204), once per iconless resource per resources/list —
+        // 15 warning lines per MCP client connect on a shipped build, crowding the
+        // ring buffer that field diagnosis reads.
+        if (qrcPath.isEmpty()) return QString();
         QFile f(qrcPath);
         if (!f.open(QIODevice::ReadOnly)) return QString();
         const QByteArray svg = f.readAll();
