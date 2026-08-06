@@ -228,9 +228,41 @@ private slots:
         });
         const QHash<QString, QString> labels = labelsByHostname(set);
         QCOMPARE(labels.value(QStringLiteral("hds.local")),
-                 QStringLiteral("Half Decent Scale (192.168.10.145)"));
+                 QStringLiteral("Half Decent Scale (hds) (192.168.10.145)"));
         QCOMPARE(labels.value(QStringLiteral("other.local")),
-                 QStringLiteral("Half Decent Scale-2 (192.168.10.241)"));
+                 QStringLiteral("Half Decent Scale-2 (other) (192.168.10.241)"));
+    }
+
+    // The reported bug: a default-named scale and a renamed one side by side,
+    // where only the renamed one showed a hostname. openscale embeds the scale's
+    // name in its DNS-SD instance label ONLY when it has been renamed, so the
+    // default scale advertised a bare "Half Decent Scale" and its row was
+    // unidentifiable — while the same scale, once connected, was named
+    // "Half Decent Scale (hds) (WiFi)" by wifiScaleDisplayName(). One scale, two
+    // names, and the one in the picker was the useless one.
+    void everyWifiScaleShowsItsHostname() {
+        const QVector<WifiScaleResult> set = setWith({
+            fromBrowseTxt(QStringLiteral("Half Decent Scale"), QStringLiteral("hds.local"),
+                          QStringLiteral("192.168.10.145"), 80, txtUnrenamed()),
+            fromBrowseTxt(QStringLiteral("Half Decent Scale (hdstest)"), QStringLiteral("hdstest.local"),
+                          QStringLiteral("192.168.10.242"), 80, {}),
+        });
+        const QHash<QString, QString> labels = labelsByHostname(set);
+        QCOMPARE(labels.value(QStringLiteral("hds.local")),
+                 QStringLiteral("Half Decent Scale (hds)"));
+        // Not doubled: the instance label already carries it.
+        QCOMPARE(labels.value(QStringLiteral("hdstest.local")),
+                 QStringLiteral("Half Decent Scale (hdstest)"));
+    }
+
+    // The discovered row and the connected scale must spell the same scale the
+    // same way — they did not, which is half of what the bug above was.
+    void discoveredAndConnectedLabelsAgree() {
+        const WifiScaleResult r = fromBrowseTxt(
+            QStringLiteral("Half Decent Scale"), QStringLiteral("hds.local"),
+            QStringLiteral("192.168.10.145"), 80, txtUnrenamed());
+        QCOMPARE(QStringLiteral("%1 (WiFi)").arg(displayName(r, false)),
+                 wifiScaleDisplayName(QStringLiteral("hds.local")));
     }
 
     void distinctlyNamedScalesKeepPlainLabels() {
@@ -255,8 +287,14 @@ private slots:
             fallbackAt(QStringLiteral("hds-2.local"), QStringLiteral("10.0.0.2")),
         });
         const QHash<QString, QString> labels = labelsByHostname(set);
-        QCOMPARE(labels.value(QStringLiteral("hds.local")), QStringLiteral("hds"));
-        QCOMPARE(labels.value(QStringLiteral("hds-2.local")), QStringLiteral("hds-2"));
+        // What is being asserted is the ABSENCE of an address suffix — these two
+        // are distinct scales, not one scale DNS-SD had to rename. The labels
+        // themselves are now composed through wifiScaleLabel() so a fallback-only
+        // hit reads the same as a browsed one and as the connected scale.
+        QCOMPARE(labels.value(QStringLiteral("hds.local")),
+                 QStringLiteral("Half Decent Scale (hds)"));
+        QCOMPARE(labels.value(QStringLiteral("hds-2.local")),
+                 QStringLiteral("Half Decent Scale (hds-2)"));
     }
 
     // ===== Display names (task 8.3) =====
@@ -265,13 +303,14 @@ private slots:
         const WifiScaleResult r = fromBrowseTxt(
             QStringLiteral("Half Decent Scale (hdstest)"), QStringLiteral("hdstest.local"),
             QStringLiteral("192.168.10.241"), 80, txtRenamed());
+        // Already names the host — not doubled to "... (hdstest) (hdstest)".
         QCOMPARE(displayName(r, false), QStringLiteral("Half Decent Scale (hdstest)"));
     }
 
     void displayNameForFallbackOnlyHitDerivesFromHostname() {
         const WifiScaleResult r =
             fallbackAt(QStringLiteral("hds-2.local"), QStringLiteral("10.0.0.9"));
-        QCOMPARE(displayName(r, false), QStringLiteral("hds-2"));
+        QCOMPARE(displayName(r, false), QStringLiteral("Half Decent Scale (hds-2)"));
     }
 
     void displayNameAppendsAddressWhenAmbiguous() {
@@ -279,7 +318,7 @@ private slots:
             QStringLiteral("Half Decent Scale"), QStringLiteral("hds.local"),
             QStringLiteral("192.168.10.145"), 80, txtUnrenamed());
         QCOMPARE(displayName(r, true),
-                 QStringLiteral("Half Decent Scale (192.168.10.145)"));
+                 QStringLiteral("Half Decent Scale (hds) (192.168.10.145)"));
     }
 
     void dnsSdCollisionSuffixCountsAsAmbiguous() {
@@ -316,8 +355,8 @@ private slots:
             QStringLiteral("192.168.10.241"), 80, txtUnrenamed());
 
         QVERIFY(labelsCollide(a, b));
-        QCOMPARE(displayName(a, true), QStringLiteral("Half Decent Scale (192.168.10.145)"));
-        QCOMPARE(displayName(b, true), QStringLiteral("Half Decent Scale-2 (192.168.10.241)"));
+        QCOMPARE(displayName(a, true), QStringLiteral("Half Decent Scale (hds) (192.168.10.145)"));
+        QCOMPARE(displayName(b, true), QStringLiteral("Half Decent Scale-2 (other) (192.168.10.241)"));
     }
 
     void userChosenTrailingDigitsSurviveCollisionStripping() {
