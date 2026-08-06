@@ -32,6 +32,8 @@ Chasing the last of them turned up a defect that had nothing to do with the scal
 
 - `wifi-scale-discovery`:
   - **Adds** an Android-only second browse path via NsdManager, running beside the app's own.
+  - **Adds** a requirement that the app hold its own reference-counted multicast lock for every lookup and browse, rather than inheriting one from a feature that is disabled by default.
+  - **Adds** a requirement that queries be sent from port 5353 where the bind succeeds, with the bound port reported so a zero-record result can be interpreted.
   - **Modifies** "WiFi connect tries cached IP first with hostname fallback" so a recognition timeout with no peer answer preserves the cache instead of evicting it.
   - **Modifies** "Saved WiFi scale reconnect resolves by service browse" to replace the refuted host-side-state rationale with what the two-scale control established, and to mark the ARP mechanism as suspected rather than settled.
 
@@ -42,5 +44,5 @@ Chasing the last of them turned up a defect that had nothing to do with the scal
 - `src/network/wifiscalediscovery.{h,cpp}` — `startNsdBrowse()`, `parseNsdLine()`, runtime resolver branch in `probe()`
 - `src/network/mdnsresolver.{h,cpp}` — `HostnameResolver` selector
 - `src/ble/scales/decentscalewifi.cpp` — `onRecognitionTimeout()` eviction gate
-- `src/mcp/mcptools_devices.cpp`, `resources/ai/tools/devices_wifi.md` — `resolver` argument
+- `src/mcp/mcptools_devices.cpp`, `resources/ai/tools/devices_wifi.md` — `resolver` and `queryPort` arguments
 - No database, settings-schema or QML changes.
