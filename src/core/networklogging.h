@@ -73,3 +73,15 @@
     DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_NETWORK, tag, msg, qInfo)
 #define NETWORK_WARN_STDERR(tag, msg) \
     DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_NETWORK, tag, msg, qWarning)
+
+// Stream variants. Same marker and shape as the forms above — the difference is
+// only how the message is composed, so a reader's [Network] search returns all
+// of them together. Use these where a site interleaves several values and a
+// QString would obscure rather than help; prefer the statement forms otherwise.
+// Being in a helper header is also what lets the .cpp using them sit in
+// check_log_markers.py's COVERED_GLOBS: the bare qDebug/qWarning lives here,
+// where the gate expects it, instead of in the file it serves.
+#define NETWORK_DBG_STREAM(tag) \
+    DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_NETWORK, tag, qDebug)
+#define NETWORK_WARN_STREAM(tag) \
+    DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_NETWORK, tag, qWarning)

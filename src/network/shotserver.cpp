@@ -374,20 +374,61 @@ void ShotServer::setSettings(Settings* settings)
     }
 }
 
-// Precondition: no socket in `clients` has an entry in m_keepAliveTimers.
-// This is enforced at each SSE registration site by either calling take() on
-// the map, or by routing the request such that sendResponse/resetKeepAliveTimer
-// is never called. Current sites:
-//   /api/theme/subscribe  — see handleRequest(), "m_sseThemeClients.insert" (calls take())
-//   /api/layout/events    — see handleRequest(), "m_sseLayoutClients.insert" (calls take())
-//   /mcp (SSE GET)        — bypasses sendResponse entirely; McpServer manages its own
-//                           m_sseClients list and ShotServer never inserts a timer
-// If a new SSE endpoint is added that goes through sendResponse without calling
-// take(), this function will call deleteLater() on the socket while its timer
-// lambda still holds a raw pointer to it — causing use-after-free when the timer
-// fires. This static function has no access to m_keepAliveTimers, so callers
-// must maintain the invariant.
-static void broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& event)
+// Retire one socket: clear it out of every container that can hold it, then
+// close and delete it. See the header for why this cannot be left to
+// onDisconnected() firing — close() does not always emit disconnected(), and the
+// states where it does not are precisely the ones the dead-client checks look
+// for.
+//
+// Idempotent: every removal is a no-op on an absent key, close() on a closed
+// socket does nothing, and Qt collapses repeated deleteLater() into one event.
+// So a call that DOES synchronously re-enter through onDisconnected() is safe.
+void ShotServer::retireSocket(QTcpSocket* socket)
+{
+    if (!socket)
+        return;
+
+    m_clients.remove(socket);
+    m_sseLayoutClients.remove(socket);
+    m_sseThemeClients.remove(socket);
+    m_uploadProgressLog.remove(socket);
+
+    // The timer is a child of `socket` and dies with it; stopping it here keeps
+    // its lambda from firing in the window before deleteLater() runs. Taking it
+    // out of the map is what stops stop() from dereferencing a freed pointer.
+    if (QTimer* t = m_keepAliveTimers.take(socket))
+        t->stop();
+
+    cleanupPendingRequest(socket);
+    m_pendingRequests.remove(socket);
+
+    QList<int> staleLibraryRequests;
+    for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
+        if (it.value().socket == socket || it.value().socket.isNull()) {
+            qDebug() << "ShotServer: Cleaning up pending library request" << it.key() << "- socket disconnected";
+            invalidateLibraryRequest(it.value());
+            staleLibraryRequests.append(it.key());
+        }
+    }
+    for (int id : staleLibraryRequests)
+        m_pendingLibraryRequests.remove(id);
+
+    socket->close();
+    socket->deleteLater();
+
+    // Report the recovery, once, with what the silence cost. A limit that was
+    // hit and cleared is a different story from one still being hit, and without
+    // this the log shows only the "limit reached" line — indistinguishable from
+    // a server still refusing everyone.
+    if (m_atConnectionLimit && m_clients.size() < MAX_CONNECTIONS) {
+        m_atConnectionLimit = false;
+        qWarning() << "ShotServer: below connection limit again after refusing"
+                   << m_refusedConnections << "connection(s)";
+        m_refusedConnections = 0;
+    }
+}
+
+void ShotServer::broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& event)
 {
     QList<QTcpSocket*> dead;
     for (QTcpSocket* client : clients) {
@@ -397,11 +438,14 @@ static void broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& even
         }
         client->flush();
     }
-    for (QTcpSocket* s : dead) {
-        clients.remove(s);
-        s->close();
-        s->deleteLater();
-    }
+    // A member, not the static free function this used to be. That version could
+    // not reach m_keepAliveTimers, so it carried a precondition its callers had
+    // to uphold by hand ("no socket in `clients` has a keep-alive timer") — and
+    // any new SSE endpoint that went through sendResponse would have broken it
+    // silently, deleting a socket whose timer lambda still held a raw pointer.
+    // retireSocket() enforces it instead of documenting it.
+    for (QTcpSocket* s : dead)
+        retireSocket(s);
 }
 
 void ShotServer::onLayoutChanged()
@@ -545,25 +589,27 @@ void ShotServer::stop()
         // which could destroy timers; clearing the map first avoids dangling pointers.
         for (QTimer* t : std::as_const(m_keepAliveTimers))
             t->stop();
+        // m_clients holds every accepted socket, so it is the superset of the SSE
+        // sets and m_pendingRequests — one pass retires the lot. Iterate a COPY:
+        // retireSocket() mutates m_clients, and close() inside it can re-enter
+        // through onDisconnected().
+        //
+        // This is what closes in-flight upload sockets, which matters beyond
+        // tidiness: an APK or media upload socket that survives stop() still has
+        // its QSocketNotifier around when Android takes over for the
+        // PackageInstaller handover (#865).
+        const auto clients = m_clients;
+        for (QTcpSocket* s : clients)
+            retireSocket(s);
+        // Defensive: retireSocket has emptied all of these for every socket it
+        // saw. Anything left is a pointer that was never in m_clients, which
+        // would be a bug elsewhere — drop it rather than carry it into the next
+        // start().
         m_keepAliveTimers.clear();
-        // Copy sets before closing — s->close() can synchronously trigger
-        // onDisconnected() which calls m_sseLayoutClients.remove() during iteration.
-        auto layoutCopy = m_sseLayoutClients;
         m_sseLayoutClients.clear();
-        for (QTcpSocket* s : layoutCopy) s->close();
-        auto themeCopy = m_sseThemeClients;
         m_sseThemeClients.clear();
-        for (QTcpSocket* s : themeCopy) s->close();
-        // Close in-flight HTTP request sockets too. Without this an APK or
-        // media upload socket survives stop() and its QSocketNotifier
-        // is still around when Android takes over for the PackageInstaller
-        // handover (#865). cleanupPendingRequest must run before the hash
-        // is cleared because it early-returns on missing entries; matches
-        // the destructor pattern.
-        const auto pendingSockets = m_pendingRequests.keys();
-        for (QTcpSocket* s : pendingSockets) cleanupPendingRequest(s);
         m_pendingRequests.clear();
-        for (QTcpSocket* s : pendingSockets) s->close();
+        m_clients.clear();
         m_server->close();
         delete m_server;
         m_server = nullptr;
@@ -577,8 +623,71 @@ void ShotServer::onNewConnection()
 {
     while (m_server->hasPendingConnections()) {
         QTcpSocket* socket = m_server->nextPendingConnection();
+
+        // Fail closed above the ceiling. Dropping the newest arrival keeps the
+        // clients already being served, which is the opposite of what running
+        // out of descriptors does — that takes down BLE, the database and
+        // everything else in the process along with the web server.
+        if (m_clients.size() >= MAX_CONNECTIONS) {
+            // Answer, don't just hang up. A bare close reaches the browser as
+            // ERR_EMPTY_RESPONSE, which is byte-identical to the app being dead,
+            // the wrong port, or a bad certificate — and whoever hits this is far
+            // more likely to be the owner on their phone than anything hostile.
+            //
+            // Written straight to the socket rather than through sendResponse():
+            // that arms a keep-alive timer keyed on the socket, and this socket
+            // is deliberately never wired to onDisconnected, so the entry would
+            // outlive it. flush() normally pushes a body this small straight into
+            // the kernel buffer, leaving close() nothing to drain — a peer that
+            // never reads and has a full receive window instead gets a truncated
+            // 503, which is an acceptable answer to give a client that is not
+            // listening.
+            const QByteArray body =
+                "Decenza is already serving its maximum number of connections. "
+                "Close other tabs or devices and try again in a moment.\n";
+            socket->write("HTTP/1.1 503 Service Unavailable\r\n"
+                          "Content-Type: text/plain\r\n"
+                          "Retry-After: 5\r\n"
+                          "Connection: close\r\n"
+                          "Content-Length: " + QByteArray::number(body.size()) + "\r\n"
+                          "\r\n" + body);
+            socket->flush();
+            socket->close();
+            socket->deleteLater();
+
+            // Log the TRANSITION, not the event. One warning per refusal is one
+            // warning per SYN on a path an attacker controls, and the debug log
+            // is a bounded ring buffer that crash reports carry — flooding it
+            // would evict the fd-pressure evidence this same change adds, which
+            // is the diagnostic losing to the denial of service in the one
+            // buffer they share.
+            ++m_refusedConnections;
+            if (!m_atConnectionLimit) {
+                m_atConnectionLimit = true;
+                qWarning() << "ShotServer: connection limit reached ("
+                           << MAX_CONNECTIONS << ") — refusing new clients, most recent from"
+                           << socket->peerAddress().toString();
+            }
+            continue;
+        }
+        m_clients.insert(socket);
+
         connect(socket, &QTcpSocket::readyRead, this, &ShotServer::onReadyRead);
         connect(socket, &QTcpSocket::disconnected, this, &ShotServer::onDisconnected);
+        // Start the idle clock HERE, not at the first readyRead. A peer that
+        // connects and then sends nothing was previously tracked nowhere: no
+        // m_pendingRequests entry (created on first read), no keep-alive timer
+        // (created when a response is sent), not in either SSE set — so
+        // onCleanupTimerTick's stale sweep could not see it and the descriptor
+        // was held until the peer closed, which a vanished peer never does. On a
+        // LAN where this server advertises itself over mDNS that is a steady
+        // trickle (scanners, browser pre-connects, discovery agents), and the fd
+        // count only goes up. Registering at accept puts such a socket under
+        // SILENT_TIMEOUT_MS — 30 s, not the 5-minute CONNECTION_TIMEOUT_MS, which
+        // is reserved for sockets with a request actually in flight (see the
+        // two-deadline check in onCleanupTimerTick). onReadyRead reuses this
+        // same entry.
+        m_pendingRequests[socket].lastActivity.start();
         emit clientConnected(socket->peerAddress().toString());
     }
 }
@@ -847,34 +956,7 @@ void ShotServer::onReadyRead()
 
 void ShotServer::onDisconnected()
 {
-    QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
-    if (socket) {
-        m_sseLayoutClients.remove(socket);
-        m_sseThemeClients.remove(socket);
-        // Stop the keep-alive timer if one is active. The timer is a child of
-        // `socket` and will be destroyed with it when deleteLater() processes —
-        // no explicit delete needed. Stopping it here prevents the timeout lambda
-        // from firing in the window between now and socket destruction.
-        if (QTimer* t = m_keepAliveTimers.take(socket))
-            t->stop();
-        cleanupPendingRequest(socket);
-        m_pendingRequests.remove(socket);
-
-        // Clean up any pending library requests for this socket (or already-destroyed sockets)
-        QList<int> toRemove;
-        for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
-            if (it.value().socket == socket || it.value().socket.isNull()) {
-                qDebug() << "ShotServer: Cleaning up pending library request" << it.key() << "- socket disconnected";
-                invalidateLibraryRequest(it.value());
-                toRemove.append(it.key());
-            }
-        }
-        for (int id : toRemove) {
-            m_pendingLibraryRequests.remove(id);
-        }
-
-        socket->deleteLater();
-    }
+    retireSocket(qobject_cast<QTcpSocket*>(sender()));
 }
 
 void ShotServer::invalidateLibraryRequest(PendingLibraryRequest& req)
@@ -964,49 +1046,38 @@ void ShotServer::onCleanupTimerTick()
 
     QList<QTcpSocket*> staleConnections;
     for (auto it = m_pendingRequests.begin(); it != m_pendingRequests.end(); ++it) {
-        if (it.value().lastActivity.isValid() &&
-            it.value().lastActivity.elapsed() > CONNECTION_TIMEOUT_MS) {
+        if (!it.value().lastActivity.isValid())
+            continue;
+        // Two deadlines, because "connected and said nothing" and "halfway
+        // through a 400 MB upload" are not the same client. Giving a socket that
+        // has never sent a byte the full five minutes means 64 of them wedge the
+        // server for five minutes, and the wedge is what every real user then
+        // meets as a 503. A client with a request in flight keeps the long
+        // deadline it needs.
+        const bool sentNothing = it.value().headerData.isEmpty() && it.value().headerEnd < 0;
+        const int deadline = sentNothing ? SILENT_TIMEOUT_MS : CONNECTION_TIMEOUT_MS;
+        if (it.value().lastActivity.elapsed() > deadline)
             staleConnections.append(it.key());
-        }
     }
 
     for (QTcpSocket* socket : staleConnections) {
         QString addr = (socket->state() != QAbstractSocket::UnconnectedState)
             ? socket->peerAddress().toString() : "unknown";
         qWarning() << "ShotServer: Cleaning up stale connection from" << addr;
-        // Remove the keep-alive timer from the map before scheduling deletion.
-        // If disconnected() doesn't fire synchronously from close(), the socket
-        // and its child timer will be destroyed by deleteLater() while the pointer
-        // still sits in m_keepAliveTimers — causing a dangling-pointer crash in stop().
-        if (QTimer* t = m_keepAliveTimers.take(socket))
-            t->stop();
-        cleanupPendingRequest(socket);
-        m_pendingRequests.remove(socket);
-        socket->close();
-        socket->deleteLater();
+        retireSocket(socket);
     }
 
-    // SSE clients are long-lived and never appear in m_pendingRequests, so the
-    // stale-connection loop above won't catch them. Probe each client with an SSE
-    // keepalive comment every 30 s to detect silently-dropped connections.
-    // Inlined rather than delegating to broadcastSseEvent() so we can defensively
-    // call m_keepAliveTimers.take() before deleteLater() — the static helper has
-    // no access to the map and cannot enforce the no-timer-in-map invariant itself.
-    for (QSet<QTcpSocket*>* clientSet : {&m_sseLayoutClients, &m_sseThemeClients}) {
-        QList<QTcpSocket*> dead;
-        for (QTcpSocket* c : *clientSet) {
-            if (c->state() != QAbstractSocket::ConnectedState || c->write(": keepalive\n\n") == -1)
-                dead.append(c);
-            else
-                c->flush();
-        }
-        for (QTcpSocket* c : dead) {
-            clientSet->remove(c);
-            if (QTimer* t = m_keepAliveTimers.take(c)) t->stop();
-            c->close();
-            c->deleteLater();
-        }
-    }
+    // Once subscribed, SSE clients no longer appear in m_pendingRequests — their
+    // entry is removed before handleRequest() runs — so the stale-connection loop
+    // above won't catch them. Probe each client with an SSE
+    // keepalive comment every 30 s to detect silently-dropped connections — which
+    // is exactly what broadcastSseEvent does, so send the probe through it rather
+    // than keeping a second copy of the write-flush-retire loop here. (This used
+    // to be inlined because the old static helper could not reach
+    // m_keepAliveTimers; now that both go through retireSocket, the reason is
+    // gone and the copies can only drift.)
+    broadcastSseEvent(m_sseLayoutClients, ": keepalive\n\n");
+    broadcastSseEvent(m_sseThemeClients, ": keepalive\n\n");
 
     // MCP SSE clients live in McpServer's set; have it run its own probe so
     // silently-dropped MCP connections are detected on the same 30 s cadence.

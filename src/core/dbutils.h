@@ -200,6 +200,34 @@ static bool withTempDb(const QString& dbPath, const QString& connPrefix, Work&& 
     const QString connName = connPrefix + QString("_%1")
         .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
     bool opened = false;
+    // The removal has to survive `work` throwing. Without this it sat as a plain
+    // statement after the block, so an exception escaping `work` would skip it
+    // and strand the connection — and with it the SQLite file descriptor — for
+    // the life of the process. No caller throws today (there is not one `throw`
+    // in src/), so this is defence against std::bad_alloc and against the first
+    // caller that does, not a fix for a live bug.
+    //
+    // Declared BEFORE the scope that holds `db` so it destructs AFTER it. If a
+    // QSqlDatabase copy is still alive, QSqlDatabasePrivate::invalidateDb warns
+    // "connection is still in use, all queries will cease to work" and calls
+    // disable(), which DELETES the driver (qsqldatabase.cpp:139-147 and 217-223,
+    // Qt 6.11.1). So the descriptor is released either way — what the surviving
+    // copy loses is the ability to run a query, silently. Getting the order right
+    // is about not breaking a live copy, not about leaking the fd.
+    //
+    // What this does NOT cover, so nobody reads it as a descriptor guarantee:
+    //   - Shutdown. removeDatabase() begins with CHECK_QCOREAPPLICATION
+    //     (qsqldatabase.cpp:26-30) and returns after a warning if the
+    //     QCoreApplication is already gone — a storage worker finishing after
+    //     that point removes nothing. This is exception safety, not shutdown
+    //     safety.
+    //   - A copy outliving the call. If `work` stashes the QSqlDatabase or a
+    //     live QSqlQuery, removal drops the dictionary entry while the surviving
+    //     copy keeps the driver and its SQLite handle open.
+    struct ConnectionRemover {
+        QString name;
+        ~ConnectionRemover() { QSqlDatabase::removeDatabase(name); }
+    } remover{connName};
     {
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
         db.setDatabaseName(dbPath);
@@ -212,7 +240,6 @@ static bool withTempDb(const QString& dbPath, const QString& connPrefix, Work&& 
             work(db);
         }
     }
-    QSqlDatabase::removeDatabase(connName);
     return opened;
 }
 

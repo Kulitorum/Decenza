@@ -28,7 +28,6 @@ namespace {
 std::atomic<MdnsResolver::QueryPort> g_queryPort{MdnsResolver::QueryPort::Auto};
 }  // namespace
 
-#include "core/logtags.h"
 
 // ---- This file's log prefix, defined ONCE -------------------------------
 //
@@ -38,14 +37,202 @@ std::atomic<MdnsResolver::QueryPort> g_queryPort{MdnsResolver::QueryPort::Auto};
 // registered marker got ZERO hits for the resolver — while this subsystem is
 // diagnosed almost entirely from submitted logs.
 //
-// These emit the registered [Network] marker plus a tag naming this file, which
-// is what networklogging.h's helpers do. The streaming form is kept rather than
-// the (tag, QString) helpers because these sites interleave 2-8 values apiece and
-// several are per-packet traces; composing a QString at each would reflow the
-// file for no gain in what a reader sees. The property that matters — one
-// definition, and a marker the registry declares — holds either way.
-#define MDNS_DBG  qDebug().noquote()   << "[" DECENZA_LOG_MARKER_NETWORK "][MdnsResolver]"
-#define MDNS_WARN qWarning().noquote() << "[" DECENZA_LOG_MARKER_NETWORK "][MdnsResolver]"
+// These emit the registered [Network] marker plus a tag naming this file. The
+// streaming form is kept rather than the (tag, QString) helpers because these
+// sites interleave 2-8 values apiece and several are per-packet traces;
+// composing a QString at each would reflow the file for no gain in what a reader
+// sees.
+//
+// They ALIAS networklogging.h's stream helpers rather than spelling the
+// "[marker][tag] " shape out again — that shape has one definition, in
+// logtags.h, and copying a body to specialize it is the drift the whole
+// convention exists to stop. Aliasing also puts the bare qDebug/qWarning in a
+// helper header rather than in this file, which is what lets this file sit in
+// check_log_markers.py's COVERED_GLOBS: a future bare qDebug here now fails the
+// gate instead of quietly leaving the [Network] story a line short.
+#define MDNS_DBG  NETWORK_DBG_STREAM("MdnsResolver")
+#define MDNS_WARN NETWORK_WARN_STREAM("MdnsResolver")
+
+#include "core/networklogging.h"
+
+#include <QDir>
+#include <QFileInfo>
+#include <QMap>
+#include <QStringList>
+
+#include <cerrno>
+#ifdef Q_OS_WIN
+#include <winsock2.h>
+#else
+#include <poll.h>
+#endif
+
+namespace {
+
+// Wait until `fd` is readable, or `timeoutMs` elapses.
+// Returns >0 readable, 0 timed out, <0 error with errno set.
+//
+// poll(), never select(). select()'s fd_set is a fixed FD_SETSIZE-bit (1024)
+// bitmap indexed by descriptor NUMBER, so FD_SET() on a descriptor >= 1024
+// writes past the end of it. Android's bionic catches that and abort()s the
+// process — issue #1773: the app had 1024 descriptors open after ~96 h uptime,
+// discovery's four mDNS sockets therefore came back as fds 1024-1027, and the
+// first FD_SET killed it. bionic's check is UNCONDITIONAL, not gated on
+// _FORTIFY_SOURCE (the NDK sysroot's sys/select.h defines FD_SET as
+// __FD_SET_chk and says "Use <poll.h> instead"), so every Android build aborts.
+// Elsewhere it is worse rather than better: glibc only checks under
+// _FORTIFY_SOURCE and Apple's libc not at all, so an unfortified build corrupts
+// the stack silently. poll() takes the descriptor as a plain int, no ceiling.
+//
+// A high descriptor number is a symptom worth chasing separately; this only
+// makes it survivable.
+//
+// The two families also report descriptor FAULTS differently, which is why this
+// normalises rather than forwarding poll()'s return. POLLERR/POLLHUP/POLLNVAL
+// are output-only: the kernel raises them in `revents` whether or not they were
+// requested, and poll() counts that descriptor as ready. So an INVALID fd comes
+// back as ret == 1 with POLLNVAL where select() returned -1/EBADF — forwarded
+// raw, every caller's `ret < 0` arm goes unreachable, the browse reports an
+// empty network instead of an aborted one, and the resolve loop spins at 100%
+// for its whole deadline calling recvfrom() on a dead socket. Mapping POLLNVAL
+// back to -1 restores what select() did.
+//
+// POLLERR and POLLHUP are mapped the same way, which is deliberately STRICTER
+// than select() was — it reported both as readable. On unconnected UDP
+// multicast sockets neither is expected, and a socket in either state has
+// nothing left to give these loops.
+int waitReadable(int fd, int timeoutMs)
+{
+#ifdef Q_OS_WIN
+    WSAPOLLFD pfd;
+    pfd.fd = static_cast<SOCKET>(fd);
+    pfd.events = POLLRDNORM;
+#else
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+#endif
+    pfd.revents = 0;
+
+#ifdef Q_OS_WIN
+    const int ret = WSAPoll(&pfd, 1, timeoutMs);
+    if (ret < 0) {
+        // WSAPoll reports through WSAGetLastError(), not errno, so a caller
+        // reading errno would otherwise see a stale value. WSAEINTR is a
+        // different NUMBER from EINTR (10004 vs 4), so translate it rather than
+        // leaving the callers' `errno == EINTR` retry permanently false.
+        const int wsaErr = WSAGetLastError();
+        errno = (wsaErr == WSAEINTR) ? EINTR : wsaErr;
+        return -1;
+    }
+#else
+    const int ret = poll(&pfd, 1, timeoutMs);
+    if (ret < 0)
+        return -1;   // errno already set
+#endif
+
+    // Only a fault with NO readable data is an error: POLLHUP can arrive
+    // alongside pending data, and that data is still worth reading.
+#ifdef Q_OS_WIN
+    const bool readable = (pfd.revents & (POLLRDNORM | POLLRDBAND)) != 0;
+#else
+    const bool readable = (pfd.revents & POLLIN) != 0;
+#endif
+    if (ret > 0 && !readable && (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) {
+        errno = (pfd.revents & POLLNVAL) ? EBADF : EIO;
+        return -1;
+    }
+    return ret;
+}
+
+// Report what the process is holding descriptors on, but ONLY when a freshly
+// opened socket comes back with an alarmingly high number.
+//
+// POSIX hands out the lowest-numbered UNUSED descriptor, so a socket coming back
+// as fd N proves 0..N-1 are all in use — a lower bound on the count, not a
+// high-water mark. (With holes, from a partly reclaimed leak, a fresh socket can
+// come back low while the process still holds many high ones, so this can
+// under-report; it cannot over-report.) A lower bound is what diagnosed #1773:
+// the log read `sock= 1024` moments before the abort. What the number could not
+// say is WHAT held the other thousand, and on a user's device there is no second
+// chance to ask — the only channel back is the debug log attached to the crash
+// report.
+//
+// This matters more now than it did before, not less. The poll() change above
+// removes the abort, which also removes the alarm — a descriptor leak that used
+// to announce itself with a crash will otherwise go quiet and resurface as
+// sockets and files failing to open, much further from its cause.
+//
+// Costs nothing in the normal case: below the threshold this reads no directory
+// and formats no string.
+//
+// Linux/Android only, and the guard is around the WHOLE function rather than
+// just the /proc walk. The lowest-free-descriptor premise is POSIX; Windows does
+// not make it — mdns.h hands back `(int)socket(...)`, a kernel HANDLE allocated
+// in multiples of four and unrelated to how many descriptors are held, so a Qt
+// app with a few hundred open would clear the threshold immediately and warn on
+// every resolve about a condition that does not exist. macOS/iOS do return low
+// fds but cannot produce the breakdown, so a warning there would have no reader.
+#if defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
+void reportFdPressureIfHigh(int fd, const char* what)
+{
+    // Half of FD_SETSIZE. Well clear of anything normal (the app sits in the low
+    // tens) and still a wide margin before the 1024 that used to be fatal, so
+    // the report lands in the log BEFORE the situation is critical.
+    constexpr int kFdWarnThreshold = 512;
+    if (fd < kFdWarnThreshold)
+        return;
+
+    // Group by kind, not by individual entry: 900 lines of "socket:[12345]" is
+    // unreadable in a submitted log, while "socket=890, anon_inode=12" names the
+    // culprit's shape in one line. Sockets then point at the servers and
+    // clients; anon_inode at event loops and timers; a /data path at files.
+    QMap<QString, int> byKind;
+    QDir fdDir(QStringLiteral("/proc/self/fd"));
+    // Every entry is a symlink to a socket/pipe/anon_inode/file, so ask for all
+    // entry types and System — a QDir::Files filter matches almost none of them.
+    const QStringList entries = fdDir.entryList(QDir::AllEntries | QDir::System | QDir::NoDotAndDotDot);
+    if (entries.isEmpty()) {
+        // Empty is never a true answer — we hold at least the socket that
+        // triggered this. entryList() returns {} on failure and reports nothing,
+        // and the failure it hits here is EMFILE on the opendir: reading
+        // /proc/self/fd costs a descriptor, and the condition being reported is
+        // the process running out of them. "0 descriptors" next to "opened fd
+        // 1020" would read as a broken report on the one shot we get.
+        MDNS_WARN << "HIGH FD PRESSURE:" << what << "opened fd" << fd
+                  << "— /proc/self/fd unreadable, no breakdown available";
+        return;
+    }
+    for (const QString& entry : entries) {
+        QString kind = QFileInfo(fdDir.filePath(entry)).symLinkTarget();
+        const qsizetype colon = kind.indexOf(':');
+        if (colon > 0)
+            kind = kind.left(colon);          // socket:[123] -> socket
+        else if (kind.startsWith('/'))
+            kind = QFileInfo(kind).path();    // /data/user/0/... -> its directory
+        if (kind.isEmpty())
+            kind = QStringLiteral("(unknown)");
+        byKind[kind] += 1;
+    }
+
+    QStringList parts;
+    for (auto it = byKind.cbegin(); it != byKind.cend(); ++it)
+        parts << QStringLiteral("%1=%2").arg(it.key()).arg(it.value());
+
+    // entries.size() includes the descriptor entryList() itself held while
+    // scanning, so it reads one high. Not worth correcting for — it is an
+    // order-of-magnitude signal, and saying so beats a silently-off-by-one number.
+    MDNS_WARN << "HIGH FD PRESSURE:" << what << "opened fd" << fd
+              << "— process holds ~" << entries.size()
+              << "descriptors:" << parts.join(QStringLiteral(", "));
+}
+#else
+// Everywhere else the descriptor number carries no information about pressure,
+// so there is nothing honest to report. Inline and empty — the calls compile away.
+inline void reportFdPressureIfHigh(int, const char*) {}
+#endif
+
+}  // namespace
 
 #ifndef Q_OS_IOS
 
@@ -380,6 +567,10 @@ int openQuerySocket(int* boundPortOut)
     if (sock < 0)
         return -1;
 
+    // One report point for both backends' query sockets, since #1772 gave them a
+    // shared opener.
+    reportFdPressureIfHigh(sock, "mDNS query socket");
+
     // Report the port the kernel gave us, not the one we asked for: those differ
     // whenever the 5353 bind failed, and that difference is the whole diagnostic.
     if (boundPortOut) {
@@ -474,16 +665,18 @@ QString resolveHostname(const QString& hostname, int timeoutMs,
         if (remaining <= 0) break;
         const int slice = qMin(remaining, kRetransmitMs);
 
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(sock, &readfds);
-        struct timeval tv;
-        tv.tv_sec = slice / 1000;
-        tv.tv_usec = (slice % 1000) * 1000;
-
-        int ret = select(sock + 1, &readfds, nullptr, nullptr, &tv);
+        int ret = waitReadable(sock, slice);
         if (ret < 0) {
             if (errno == EINTR) continue;
+            // Say which kind of failure this was. Falling through silently lands
+            // in the summary block below as "records=0", whose documented meaning
+            // is "no multicast responses reached our socket at all
+            // (interface/multicast-lock/routing problem)" — filing a descriptor
+            // fault as a network fault, in the one place written to stop exactly
+            // that misattribution. The browse loop already logs its copy.
+            MDNS_WARN << "resolve wait failed for" << hostname << "errno=" << errno;
+            if (stats && stats->error.isEmpty())
+                stats->error = QString("wait on socket failed (errno %1) — resolve aborted early").arg(errno);
             break;
         }
         if (ret == 0) continue;  // slice elapsed with no data — retransmit
@@ -628,22 +821,15 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
         if (remaining <= 0) break;
         const int slice = qMin(remaining, kRetransmitMs);
 
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(sock, &readfds);
-        struct timeval tv;
-        tv.tv_sec = slice / 1000;
-        tv.tv_usec = (slice % 1000) * 1000;
-
-        int ret = select(sock + 1, &readfds, nullptr, nullptr, &tv);
+        int ret = waitReadable(sock, slice);
         if (ret < 0) {
             if (errno == EINTR) continue;
             // Anything else (EBADF, EINVAL, ENOMEM) aborts the browse. Without
             // recording it the summary is indistinguishable from an empty
             // network, which is the exact confusion BrowseStats exists to stop.
-            MDNS_WARN << "browse select() failed errno=" << errno;
+            MDNS_WARN << "browse wait failed errno=" << errno;
             if (stats && stats->error.isEmpty())
-                stats->error = QString("select() failed (errno %1) — browse aborted early").arg(errno);
+                stats->error = QString("wait on socket failed (errno %1) — browse aborted early").arg(errno);
             break;
         }
         if (ret == 0) continue;
@@ -735,7 +921,6 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
 
 #include <dns_sd.h>
 #include <arpa/inet.h>
-#include <sys/select.h>
 
 #include <cerrno>
 
@@ -1012,6 +1197,10 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
         if (stats)
             stats->error = QStringLiteral("DNSServiceRefSockFD returned no usable socket");
     }
+    // A no-op here: this block only compiles on Apple platforms, where
+    // reportFdPressureIfHigh is the empty stub. Kept so the site does not read as
+    // an oversight if a non-Apple Bonjour backend ever exists.
+    reportFdPressureIfHigh(fd, "Bonjour browse connection");
     QDeadlineTimer deadline(timeoutMs);
 
     // Stay subscribed for the whole window rather than taking an early snapshot.
@@ -1026,27 +1215,21 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
         const qint64 remaining = deadline.remainingTime();
         if (remaining <= 0) break;
 
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(fd, &readfds);
         // Wait in slices, not for the whole remaining deadline. `cancel` is only
-        // read at the top of this loop, and on a quiet LAN nothing wakes
-        // select() — so a full-deadline timeout meant a cancelled browse stayed
+        // read at the top of this loop, and on a quiet LAN nothing wakes the
+        // wait — so a full-deadline timeout meant a cancelled browse stayed
         // parked for up to 15 s, holding the QThreadPool thread that
         // ~QCoreApplication's unconditional waitForDone() then blocks on. That
         // is exactly the hang the cancel flag exists to prevent. The mjansson
         // loop already slices (kRetransmitMs) for the same reason.
         const qint64 slice = qMin<qint64>(remaining, kCancelPollMs);
-        struct timeval tv;
-        tv.tv_sec = static_cast<time_t>(slice / 1000);
-        tv.tv_usec = static_cast<suseconds_t>((slice % 1000) * 1000);
 
-        const int ret = select(fd + 1, &readfds, nullptr, nullptr, &tv);
+        const int ret = waitReadable(fd, static_cast<int>(slice));
         if (ret < 0) {
             if (errno == EINTR) continue;
-            MDNS_WARN << "browse select() failed errno=" << errno;
+            MDNS_WARN << "browse wait failed errno=" << errno;
             if (stats && stats->error.isEmpty())
-                stats->error = QString("select() failed (errno %1) — browse aborted early").arg(errno);
+                stats->error = QString("wait on socket failed (errno %1) — browse aborted early").arg(errno);
             break;
         }
         if (ret == 0) continue;
