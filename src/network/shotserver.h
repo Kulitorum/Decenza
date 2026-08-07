@@ -347,6 +347,25 @@ private:
     void invalidateLibraryRequest(PendingLibraryRequest& req);
     void completeLibraryRequest(int reqId, const QJsonObject& resp);
     void cancelAllLibraryRequests();
+    // The ONE way a socket leaves this class. Every container that can hold a
+    // socket pointer is cleared here, then the socket is closed and deleted.
+    //
+    // It has to be one function because close() is NOT guaranteed to emit
+    // disconnected(). Three paths in qabstractsocket.cpp (Qt 6.11.1) skip it:
+    // close() on an UnconnectedState socket skips the disconnectFromHost() call
+    // entirely (:2650-2659); disconnectFromHost() returns early whenever write
+    // data is still pending (:2718-2725); and in ConnectingState/HostLookupState
+    // it sets pendingClose and returns (:2683-2689). The dead-client checks
+    // select for sockets in exactly those states — so a site that close()s,
+    // deleteLater()s and trusts onDisconnected() to do the bookkeeping leaves
+    // dangling pointers behind. Each call site used to maintain that bookkeeping
+    // by hand and they had already drifted apart.
+    //
+    // "Every container" means every one in THIS class. McpServer keeps its own
+    // SSE client list over the same sockets (McpServer::m_sseClients); that is
+    // safe without help here only because it holds QPointers.
+    void retireSocket(QTcpSocket* socket);
+    void broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& event);
     QTimer* m_cleanupTimer = nullptr;
     int m_port = 8888;
     int m_activeMediaUploads = 0;
@@ -356,6 +375,16 @@ private:
     QSet<QTcpSocket*> m_sseLayoutClients;  // SSE connections for layout change notifications
     QSet<QTcpSocket*> m_sseThemeClients;   // SSE connections for theme change notifications
     QHash<QTcpSocket*, QTimer*> m_keepAliveTimers;  // Idle timers for keep-alive connections
+    // Every accepted socket, for the whole time it is alive. The other
+    // containers above each hold a SUBSET once the connection has taken a shape
+    // (mid-request, subscribed to SSE, idle between keep-alive requests), so
+    // none of them can answer "how many clients are connected right now" — which
+    // is what MAX_CONNECTIONS is enforced against. (m_pendingRequests now also
+    // gets an entry at accept, before any of those shapes is known; it is
+    // removed again the moment a request completes.)
+    QSet<QTcpSocket*> m_clients;
+    bool m_atConnectionLimit = false;   // true between hitting MAX_CONNECTIONS and dropping below it
+    int m_refusedConnections = 0;       // refusals since the limit was last hit, reported on recovery
 
     // TLS state
     QSslCertificate m_sslCert;
@@ -367,7 +396,28 @@ private:
     static constexpr qint64 MAX_UPLOAD_SIZE = 500 * 1024 * 1024;   // 500 MB max per file
     static constexpr int MAX_CONCURRENT_UPLOADS = 2;               // Limit concurrent media uploads
     static constexpr int CONNECTION_TIMEOUT_MS = 300000;           // 5 minute timeout
+    // Ceiling on simultaneously accepted clients. Not a throughput limit — it is
+    // the backstop for an unauthenticated listener bound to QHostAddress::Any and
+    // advertised over mDNS, which anything on the LAN can open a socket to
+    // without sending a byte.
+    //
+    // NOT the Tailscale Funnel path, which an earlier draft of this comment
+    // claimed: the only Funnel config in the tree points at McpRemoteAccess's
+    // loopback listener on remoteMcpPort (mcptunnel_tsnet.cpp, started from
+    // McpRemoteAccess::startTunnel), never at this server's port. No
+    // Funnel-originated socket reaches m_clients.
+    //
+    // 64 is well above real use (a browser opens ~6 per host, plus the
+    // layout/theme/MCP SSE streams, times a few devices) and far below any
+    // descriptor limit.
+    static constexpr int MAX_CONNECTIONS = 64;
     static constexpr int KEEPALIVE_TIMEOUT_S = 30;                 // Close idle keep-alive connections after 30s
+    // Deadline for a socket that has sent nothing at all since being accepted.
+    // Deliberately the same as KEEPALIVE_TIMEOUT_S: a browser that pre-connects
+    // and then idles is treated the same before its first request as after its
+    // last one, and it simply reconnects. CONNECTION_TIMEOUT_MS above stays for
+    // anything with a request actually in flight.
+    static constexpr int SILENT_TIMEOUT_MS = KEEPALIVE_TIMEOUT_S * 1000;
     static constexpr int DISCOVERY_PORT = 8889;                    // UDP port for device discovery
     static constexpr int SESSION_LIFETIME_DAYS = 90;               // Auth session cookie lifetime
 };

@@ -181,6 +181,17 @@
 #define DECENZA_SUBSYS_LOG_STDERR(marker, tag, msg, qFn) \
     qFn().noquote() << (QString("[" marker "][" tag "] ") + (msg))
 
+// Stream form, for files whose sites interleave several values apiece and would
+// only be made harder to read by composing a QString at each one (mdnsresolver's
+// per-packet traces are the case). Same "[marker][tag] " shape, defined here so
+// it is not re-typed per file — the reason this block exists.
+//
+// It writes stderr only, like DECENZA_SUBSYS_LOG_STDERR: a streamed line has no
+// single QString to hand to logMessage, so a site needing the in-app view wants
+// the statement forms above instead.
+#define DECENZA_SUBSYS_STREAM(marker, tag, qFn) \
+    qFn().noquote() << "[" marker "][" tag "]"
+
 // As above, but `tag` is a runtime QString instead of a literal. Only for a
 // helper that logs on behalf of SEVERAL sources — one whose own class name would
 // be the wrong answer. BLEManager's refractometer tiers are the case: main.cpp
