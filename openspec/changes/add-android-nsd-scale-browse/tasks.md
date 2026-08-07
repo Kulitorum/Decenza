@@ -23,6 +23,7 @@
 ## 4. Query source port
 
 - [x] 4.0 Bind the query socket to 5353 with `SO_REUSEPORT` (the library already sets it), falling back to ephemeral only if the bind fails. mjansson then drops the QU bit on its own, so the query stops being "legacy" and the answer comes back multicast.
+- [x] 4.0-android **EXCEPT on Android, which uses an ephemeral port unconditionally.** Not a fallback — the bind there SUCCEEDS and the socket is then starved by the system daemon that already owns 5353. Reproduced on the current build with the multicast lock held: `srcPort= 5353`, zero records from any host, while the same build resolves an unrelated `.local` name from an ephemeral port in 12 ms. This item read as universal until the exclusion shipped in `dd84974c`; the earlier wording is what let the exclusion look like a regression.
 - [x] 4.0a Centralize both socket-open sites (`resolveHostname` and `browseServiceMjansson`) into one `openQuerySocket()` — they were already duplicated.
 - [x] 4.0b Report the bound port in `ResolveStats`/`BrowseStats` and in every start/done log line.
 - [x] 4.0c `queryPort` argument on `devices_wifi` so the A/B against the older on-device 5353 measurement can be run without a rebuild.

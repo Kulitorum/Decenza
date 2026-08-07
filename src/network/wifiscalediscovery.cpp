@@ -20,6 +20,7 @@
 #endif
 
 #include "mdnsresolver.h"
+#include "multicastlock.h"
 
 QStringList WifiScaleDiscovery::defaultFallbackHostnames()
 {
@@ -116,10 +117,13 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
                 // file: these lambdas run detached from any `this`, reaching the object
                 // only through the QPointer `self` the null-check above guards. The macro's
                 // `emit logMessage(...)` needs `this` in scope, which none of these six
-                // sites has. (There is also no longer anything to emit to — the last
-                // connection to this class's logMessage signal was removed elsewhere in
-                // this change, which is why the signal itself was deleted rather than kept
-                // for a listener that no longer exists.)
+                // sites has. (The CONNECTION to logMessage was removed elsewhere in
+                // this change, but the SIGNAL is still declared and must stay —
+                // wifiscalediscovery.h says so at its declaration, the _TAGGED macros
+                // used by this class need it in scope, and
+                // discoveryExposesNoResultRetraction asserts the exact signal list.
+                // An earlier version of this comment said the signal itself had been
+                // deleted; acting on that breaks six call sites and a test.)
                 QMetaObject::invokeMethod(qApp, [self, hostname, ip, generation, rs]() {
                     if (!self) return;
                     if (generation != self->m_probeGeneration) return;  // cancelled/timed out
@@ -360,10 +364,22 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
     ++m_browsePathsOutstanding;
 
     // Deadline starts HERE, on the object's thread, not when the worker happens
-    // to be scheduled. One scan queues five blocking tasks on the global pool, so
-    // a late start would otherwise push browseFinished() out by the queue delay —
-    // and BLEManager::isScanning() folds isBrowsing(), so the "Scanning…"
-    // indicator would stay lit past the deadline the user was promised.
+    // to be scheduled — so this browse ends timeoutMs after browse() was called
+    // whatever the pool does with it. One scan queues five blocking tasks, so the
+    // delay is real.
+    //
+    // Be precise about what this does NOT buy, because an earlier version of this
+    // comment claimed it: it does not make the "Scanning…" indicator clear any
+    // sooner. browseFinished() waits for BOTH paths (finishOneBrowsePath), and the
+    // mjansson path still measures its own deadline from inside its worker, so the
+    // indicator is gated by that one regardless.
+    //
+    // What it does buy is a bounded total, and what it costs is NSD discovery time
+    // when the pool is busy — this window shrinks by the scheduling delay. That
+    // trade is deliberate: an unbounded window on the path that reports last is
+    // worse than a slightly shorter one. If the pool delay ever grows past
+    // timeoutMs the loop below simply never runs, which the cancel check above
+    // already handles.
     QElapsedTimer queuedAt;
     queuedAt.start();
 
@@ -397,6 +413,20 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
         // already gone.
         if (cancel->load(std::memory_order_relaxed))
             return;
+
+        // This path needs the lock MORE than the mjansson one does, and until now
+        // it took none — it silently rode whichever Holder the mjansson worker
+        // happened to be holding. On Android that is backwards: mjansson queries
+        // from an ephemeral port and is answered by UNICAST, which needs no lock,
+        // while NsdManager's answers come back MULTICAST to the group, which the
+        // Wi-Fi driver filters without one.
+        //
+        // So the failure was: mjansson's socket open fails, its Holder is
+        // destroyed, the count hits zero, the filter comes back on, and this
+        // browse spends its remaining window deaf — in exactly the case where it
+        // is the only path that could still find a scale. Reference counted, so
+        // overlapping with mjansson's Holder is free.
+        MulticastLock::Holder multicastLock;
 
         QJniObject ctx = QNativeInterface::QAndroidApplication::context();
         if (!ctx.isValid()) {
@@ -442,12 +472,17 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
             const NsdLine parsed = WifiScaleDiscovery::parseNsdLine(lineObj.toString());
             if (parsed.startFailure) {
                 // discoverServices() only ACCEPTED the request; the real start
-                // failure arrives here, asynchronously. Retract nsdRan, or this
-                // path retires as "ran" and browseFinished(true) is reported for
-                // a browse that never started — which is exactly the conflation
-                // between "could not run" and "ran and found nothing" that the
-                // flag exists to prevent, and which BLEManager latches and
-                // devices_wifi then reports to the user.
+                // failure arrives here, asynchronously. Retract nsdRan so this
+                // path retires as "did not run".
+                //
+                // Note what that does and does not achieve, since an earlier
+                // version of this comment overstated it. finishOneBrowsePath ORs
+                // the two paths into m_browseAnyRan, and the mjansson path reports
+                // ran=true whenever it opened a socket — so browseFinished(true)
+                // still goes out unless BOTH failed. This retraction only changes
+                // the signal in that both-failed case. Reporting a per-path `ran`
+                // to devices_wifi, rather than the OR, is what would make an NSD
+                // start failure visible on its own; that is not done here.
                 nsdRan = false;
                 SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
                     QString("NSD browse failed to start (NsdManager error %1)")
