@@ -2237,6 +2237,47 @@ QString MainController::currentHotWaterSpecJson() const {
     return compactJson(o);
 }
 
+ShotMetadata MainController::buildShotMetadataFromSettings() const {
+    // Every field here is sticky DYE state that describes the SETUP — the bean,
+    // the grinder, the bag, the recipe — and is identical for a real shot and a
+    // simulated one. Per-shot measurements (beanWeight, drinkWeight) and
+    // per-shot provenance (yieldMode, yieldAnchorValue) are deliberately absent:
+    // each caller supplies them, so the reasoning about where a weight comes
+    // from stays next to the assignment. A third copy of this block lived in
+    // uploadPendingShot() until that dead method was deleted; centralizing is
+    // what stops the next copy drifting (CLAUDE.md, "Centralize anything
+    // produced at more than one site").
+    ShotMetadata metadata;
+    metadata.beanBrand = m_settings->dye()->dyeBeanBrand();
+    metadata.beanType = m_settings->dye()->dyeBeanType();
+    metadata.roastDate = m_settings->dye()->dyeRoastDate();
+    metadata.roastLevel = m_settings->dye()->dyeRoastLevel();
+    metadata.grinderBrand = m_settings->dye()->dyeGrinderBrand();
+    metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
+    metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
+    metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
+    metadata.equipmentId = m_settings->dye()->activeEquipmentId();
+    metadata.rpm = m_settings->dye()->dyeGrinderRpm();
+    metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
+    metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
+    metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
+    metadata.barista = m_settings->dye()->dyeBarista();
+    metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
+    // Coffee bag snapshot: which bag this shot was pulled with, and the
+    // beans' freeze lifecycle at shot time (bean-bag-inventory).
+    metadata.bagId = m_settings->dye()->activeBagId();
+    metadata.frozenDate = m_settings->dye()->activeBagFrozenDate();
+    metadata.defrostDate = m_settings->dye()->activeBagDefrostDate();
+    metadata.storageHint = m_settings->dye()->activeBagStorageHint();
+    metadata.openedDate = m_settings->dye()->activeBagOpenedDate();
+    // Recipe provenance (add-recipes): the recipe active at shot time and
+    // the steam spec in effect, so promote-from-shot round-trips the drink.
+    metadata.recipeId = m_settings->dye()->activeRecipeId();
+    metadata.steamJson = currentSteamSpecJson();
+    metadata.hotWaterJson = currentHotWaterSpecJson();
+    return metadata;
+}
+
 void MainController::copyToClipboard(const QString& text) {
     auto* cb = QGuiApplication::clipboard();
     if (cb) {
@@ -3710,10 +3751,11 @@ void MainController::onShotEnded() {
     // Must run before stopCapture() so its debug output is included in the shot log.
     computeAutoFlowCalibration();
 
-    // Capture shot-end epoch now so uploads (including deferred pending uploads) use consistent time.
-    // Held in a local until after the discard branch so a dropped shot doesn't corrupt
-    // m_pendingShotEpoch / m_pendingDebugLog that may still belong to a prior unflushed shot
-    // (uploadPendingShot is gated on m_hasPendingShot, which the discard path doesn't touch).
+    // Shot-end epoch for the visualizer upload. A local captured by value into
+    // the save callback below, alongside duration/finalWeight/metadata/debugLog
+    // — so it describes THIS shot even if another shot ends while the save is
+    // still in flight. It was a member until the dead uploadPendingShot() that
+    // needed it across calls was removed.
     const qint64 pendingShotEpoch = QDateTime::currentSecsSinceEpoch();
 
     // Stop debug logging and get the captured log
@@ -3723,47 +3765,17 @@ void MainController::onShotEnded() {
         debugLog = m_shotDebugLogger->getCapturedLog();
     }
 
-    // Build metadata for history
-    ShotMetadata metadata;
-    metadata.beanBrand = m_settings->dye()->dyeBeanBrand();
-    metadata.beanType = m_settings->dye()->dyeBeanType();
-    metadata.roastDate = m_settings->dye()->dyeRoastDate();
-    metadata.roastLevel = m_settings->dye()->dyeRoastLevel();
-    metadata.grinderBrand = m_settings->dye()->dyeGrinderBrand();
-    metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
-    metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
-    metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
-    metadata.equipmentId = m_settings->dye()->activeEquipmentId();
-    metadata.rpm = m_settings->dye()->dyeGrinderRpm();
+    // Build metadata for history. The sticky DYE fields come from the shared
+    // helper; what follows is what only THIS shot can supply.
+    ShotMetadata metadata = buildShotMetadataFromSettings();
     metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
-    // This shot's measured weight, NOT dyeDrinkWeight(): that setting still
-    // holds the PREVIOUS shot's yield, because it is only updated once this
-    // shot's save callback runs (setDyeDrinkWeight below). The auto-upload is
-    // issued from inside that same callback with this metadata copy, and
-    // VisualizerUploader prefers metadata.drinkWeight over the finalWeight
-    // argument, so the stale value won and every Visualizer upload reported
-    // the previous shot's yield. Fall back to the setting only when no scale
-    // gave us a weight, where the user-entered DYE value is the authority.
-    metadata.drinkWeight = finalWeight > 0 ? finalWeight : m_settings->dye()->dyeDrinkWeight();
-    metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
-    metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
+    // The yield is NOT set here. It reaches the uploader as the finalWeight
+    // argument below — see ShotMetadata in visualizeruploader.h for why the
+    // struct deliberately has no drink-weight field.
+    //
     // No enjoyment: a just-pulled shot has not been tasted, so it saves
     // unrated (ShotMetadata defaults to 0). See settings_dye.h.
-    metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
-    metadata.barista = m_settings->dye()->dyeBarista();
-    metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
-    // Coffee bag snapshot: which bag this shot was pulled with, and the
-    // beans' freeze lifecycle at shot time (bean-bag-inventory).
-    metadata.bagId = m_settings->dye()->activeBagId();
-    metadata.frozenDate = m_settings->dye()->activeBagFrozenDate();
-    metadata.defrostDate = m_settings->dye()->activeBagDefrostDate();
-    metadata.storageHint = m_settings->dye()->activeBagStorageHint();
-    metadata.openedDate = m_settings->dye()->activeBagOpenedDate();
-    // Recipe provenance (add-recipes): the recipe active at shot time and
-    // the steam spec in effect, so promote-from-shot round-trips the drink.
-    metadata.recipeId = m_settings->dye()->activeRecipeId();
-    metadata.steamJson = currentSteamSpecJson();
-    metadata.hotWaterJson = currentHotWaterSpecJson();
+    //
     // Yield anchor provenance (add-yield-ratio-anchor): what was MEANT,
     // alongside the resolved grams in shotTargetWeight (what ran).
     metadata.yieldMode = shotYieldMode;
@@ -3805,11 +3817,6 @@ void MainController::onShotEnded() {
         }
     }
 
-    // Past the discard gate — commit the pending-shot snapshot used by uploadPendingShot()
-    // and the synchronous visualizer auto-upload below.
-    m_pendingShotEpoch = pendingShotEpoch;
-    m_pendingDebugLog = debugLog;
-
     // Always save shot to local history (async — DB work runs on background thread)
     qDebug() << "[metadata] Saving shot - shotHistory:" << (m_shotHistory ? "exists" : "null")
              << "isReady:" << (m_shotHistory ? m_shotHistory->isReady() : false);
@@ -3824,8 +3831,8 @@ void MainController::onShotEnded() {
 
             // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
             connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this,
-                    [this, finalWeight, shotDateTime, showPostShot,
-                     duration, doseWeight, metadata, debugLog](qint64 shotId) {
+                    [this, finalWeight, shotDateTime, showPostShot, duration,
+                     doseWeight, metadata, debugLog, pendingShotEpoch](qint64 shotId) {
                 m_savingShot = false;
 
                 if (shotId > 0) {
@@ -3854,7 +3861,7 @@ void MainController::onShotEnded() {
                         m_visualizer->uploadShot(
                             m_shotDataModel, m_profileManager->currentProfilePtr(),
                             duration, finalWeight, doseWeight, metadata, debugLog,
-                            m_pendingShotEpoch, shotId);
+                            pendingShotEpoch, shotId);
                     }
 
                     // Set shot date/time for display on metadata page
@@ -3987,91 +3994,14 @@ void MainController::onShotEnded() {
     // persisted to the right row from C++. Do NOT auto-upload here —
     // before save the id is unknown and the upload would orphan.
 
-    // Store pending shot data for later upload (user can re-upload with updated metadata)
     // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
     // after m_lastSavedShotId is set, so PostShotReviewPage gets a valid shot ID.
-    if (showPostShot) {
-        m_hasPendingShot = true;
-        m_pendingShotDuration = duration;
-        m_pendingShotFinalWeight = finalWeight;
-        m_pendingShotDoseWeight = doseWeight;
+    if (showPostShot)
         qDebug() << "  -> Will show metadata page after shot is saved";
-    }
 
     // Reset extraction flag so that subsequent Steam/HotWater/Flush operations
     // don't incorrectly trigger shot metadata page or upload
     m_extractionStarted = false;
-}
-
-void MainController::uploadPendingShot() {
-    if (!m_hasPendingShot || !m_settings || !m_shotDataModel || !m_visualizer) {
-        qDebug() << "MainController: No pending shot to upload";
-        return;
-    }
-
-    // Build metadata from current settings
-    ShotMetadata metadata;
-    metadata.beanBrand = m_settings->dye()->dyeBeanBrand();
-    metadata.beanType = m_settings->dye()->dyeBeanType();
-    metadata.roastDate = m_settings->dye()->dyeRoastDate();
-    metadata.roastLevel = m_settings->dye()->dyeRoastLevel();
-    metadata.grinderBrand = m_settings->dye()->dyeGrinderBrand();
-    metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
-    metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
-    metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
-    metadata.equipmentId = m_settings->dye()->activeEquipmentId();
-    metadata.rpm = m_settings->dye()->dyeGrinderRpm();
-    metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
-    metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
-    metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
-    metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
-    // Unrated on save — see the espresso path above.
-    metadata.barista = m_settings->dye()->dyeBarista();
-    metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
-    metadata.bagId = m_settings->dye()->activeBagId();
-    metadata.frozenDate = m_settings->dye()->activeBagFrozenDate();
-    metadata.defrostDate = m_settings->dye()->activeBagDefrostDate();
-    metadata.storageHint = m_settings->dye()->activeBagStorageHint();
-    metadata.openedDate = m_settings->dye()->activeBagOpenedDate();
-    // Recipe provenance (add-recipes): the recipe active at shot time and
-    // the steam spec in effect, so promote-from-shot round-trips the drink.
-    metadata.recipeId = m_settings->dye()->activeRecipeId();
-    metadata.steamJson = currentSteamSpecJson();
-    metadata.hotWaterJson = currentHotWaterSpecJson();
-
-    // Build notes: user notes + AI recommendation (if any)
-    QString notes = m_settings->dye()->dyeShotNotes();
-    if (m_aiManager && !m_aiManager->lastRecommendation().isEmpty()) {
-        QString aiRec = m_aiManager->lastRecommendation();
-        QString provider = m_aiManager->selectedProvider();
-        QString providerName = provider;
-        if (provider == "openai") providerName = "OpenAI GPT-4o";
-        else if (provider == "anthropic") providerName = "Anthropic Claude";
-        else if (provider == "gemini") providerName = "Google Gemini";
-        else if (provider == "ollama") providerName = "Ollama";
-
-        if (!notes.isEmpty()) {
-            notes += "\n\n---\n\n";
-        }
-        notes += aiRec + "\n\n---\nAdvice by " + providerName;
-    }
-    metadata.espressoNotes = notes;
-
-    qDebug() << "MainController: Uploading pending shot with metadata -"
-             << "Profile:" << m_profileManager->currentProfile().title()
-             << "Duration:" << m_pendingShotDuration << "s"
-             << "Bean:" << metadata.beanBrand << metadata.beanType;
-
-    // Manual re-upload of the just-finished shot: by now the shot is
-    // saved and m_lastSavedShotId holds its row id, so the link is
-    // persisted from C++ via uploadSucceededForShot.
-    m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(),
-                             m_pendingShotDuration, m_pendingShotFinalWeight,
-                             m_pendingShotDoseWeight, metadata, m_pendingDebugLog,
-                             m_pendingShotEpoch, m_lastSavedShotId);
-
-    m_hasPendingShot = false;
-    m_pendingDebugLog.clear();
 }
 
 void MainController::generateFakeShotData() {
@@ -4158,11 +4088,10 @@ void MainController::generateFakeShotData() {
     m_shotDataModel->addPhaseMarker(preinfusionEnd, "Extraction", 1, false);
     m_shotDataModel->addPhaseMarker(steadyEnd, "Ending", 3, false);
 
-    // Set up pending shot state
-    m_hasPendingShot = true;
-    m_pendingShotDuration = totalDuration;
-    m_pendingShotFinalWeight = 40.0;
-    m_pendingShotDoseWeight = 18.0;
+    // The simulated shot's weights, read by the save block below. Locals, not
+    // members: nothing outside this call needs them.
+    const double simulatedFinalWeight = 40.0;
+    const double simulatedDoseWeight = 18.0;
 
     qDebug() << "DEV: Generated" << numSamples << "fake samples";
 
@@ -4173,42 +4102,16 @@ void MainController::generateFakeShotData() {
         } else {
             m_savingShot = true;
 
-            ShotMetadata metadata;
-            metadata.beanBrand = m_settings->dye()->dyeBeanBrand();
-            metadata.beanType = m_settings->dye()->dyeBeanType();
-            metadata.roastDate = m_settings->dye()->dyeRoastDate();
-            metadata.roastLevel = m_settings->dye()->dyeRoastLevel();
-            metadata.grinderBrand = m_settings->dye()->dyeGrinderBrand();
-            metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
-            metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
-            metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
-            metadata.equipmentId = m_settings->dye()->activeEquipmentId();
-            metadata.rpm = m_settings->dye()->dyeGrinderRpm();
-            metadata.beanWeight = m_pendingShotDoseWeight;
-            // This shot's weight, not the previous shot's — same reason as the
-            // real espresso path above.
-            metadata.drinkWeight = m_pendingShotFinalWeight;
-            metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
-            metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
-            // Unrated on save — see the espresso path above.
-            metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
-            metadata.barista = m_settings->dye()->dyeBarista();
-            metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
-            metadata.bagId = m_settings->dye()->activeBagId();
-            metadata.frozenDate = m_settings->dye()->activeBagFrozenDate();
-            metadata.defrostDate = m_settings->dye()->activeBagDefrostDate();
-            metadata.storageHint = m_settings->dye()->activeBagStorageHint();
-            metadata.openedDate = m_settings->dye()->activeBagOpenedDate();
-            metadata.recipeId = m_settings->dye()->activeRecipeId();
-            metadata.steamJson = currentSteamSpecJson();
-            metadata.hotWaterJson = currentHotWaterSpecJson();
+            // Same sticky DYE metadata a real shot records; only the dose is
+            // per-shot here. The yield goes to saveShot() as an argument.
+            ShotMetadata metadata = buildShotMetadataFromSettings();
+            metadata.beanWeight = simulatedDoseWeight;
 
             // Use current profile's temperature and target weight as overrides
             double temperatureOverride = m_profileManager->currentProfile().espressoTemperature();
             double targetWeight = m_profileManager->currentProfile().targetWeight();
 
-            double pendingFinalWeight = m_pendingShotFinalWeight;
-            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, pendingFinalWeight](qint64 shotId) {
+            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this](qint64 shotId) {
                 m_savingShot = false;
 
                 if (shotId > 0) {
@@ -4216,8 +4119,12 @@ void MainController::generateFakeShotData() {
                     m_lastSavedShotId = shotId;
                     emit lastSavedShotIdChanged();
 
-                    // Update drink weight
-                    m_settings->dye()->setDyeDrinkWeight(pendingFinalWeight);
+                    // Deliberately NOT setDyeDrinkWeight() here, unlike the real
+                    // espresso path: this shot's weight is invented, and that
+                    // setting is real persisted user data — written from the
+                    // review page (PostShotReviewPage.qml:844), carried in the
+                    // settings transfer, and readable over MCP. A dev gesture
+                    // should not plant a made-up yield in it.
 
                     // Reset shot-specific metadata for next shot
                     m_settings->dye()->setDyeShotNotes("");
@@ -4231,7 +4138,7 @@ void MainController::generateFakeShotData() {
 
             m_shotHistory->saveShot(
                 m_shotDataModel, m_profileManager->currentProfilePtr(),
-                totalDuration, m_pendingShotFinalWeight, m_pendingShotDoseWeight,
+                totalDuration, simulatedFinalWeight, simulatedDoseWeight,
                 metadata, "[Simulated shot]",
                 temperatureOverride, targetWeight);
         }

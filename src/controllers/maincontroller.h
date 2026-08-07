@@ -342,6 +342,10 @@ public:
     // every saved shot and used by the composer to prefill promote-from-shot.
     QString currentHotWaterSpecJson() const;
 
+    // Sticky DYE metadata shared by the real and simulated shot-save paths.
+    // Callers add the per-shot fields (weights, yield provenance) themselves.
+    ShotMetadata buildShotMetadataFromSettings() const;
+
     // Clipboard
     Q_INVOKABLE void copyToClipboard(const QString& text);
     Q_INVOKABLE QString pasteFromClipboard() const;
@@ -440,9 +444,6 @@ public slots:
     void onEspressoCycleStarted();
     void onShotEnded();
     void onScaleWeightChanged(double weight);  // Called by scale weight updates
-
-    // DYE: upload pending shot with current metadata from Settings
-    Q_INVOKABLE void uploadPendingShot();
 
     // Developer mode: generate fake shot data for testing UI
     Q_INVOKABLE void generateFakeShotData();
@@ -672,13 +673,6 @@ private:
 
     QTimer m_heaterTweaksTimer;  // Debounce slider changes before sending MMR writes
 
-    // DYE: pending shot data for delayed upload
-    bool m_hasPendingShot = false;
-    double m_pendingShotDuration = 0;
-    double m_pendingShotFinalWeight = 0;
-    double m_pendingShotDoseWeight = 0;
-    qint64 m_pendingShotEpoch = 0;
-    QString m_pendingDebugLog;
     qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
     bool m_savingShot = false;     // Guard against overlapping async saves
 
