@@ -3,6 +3,7 @@ package io.github.kulitorum.decenza_de1;
 import android.content.Context;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
+import android.os.Build;
 import android.util.Log;
 
 import java.lang.reflect.Method;
@@ -108,6 +109,11 @@ public final class WifiScaleNsdHelper {
         // resolved one at a time.
         final ArrayDeque<NsdServiceInfo> pending = new ArrayDeque<>();
         boolean resolveInFlight = false;
+        // The ResolveListener currently registered with the framework, if any.
+        // Held ONLY so stopBrowse() can retract it: a resolution registered when
+        // the DiscoveryListener goes away outlives its client, and the framework
+        // logs "NsdService: id <n> for <n> has no client mapping" on teardown.
+        NsdManager.ResolveListener resolveListener;
         NsdManager.DiscoveryListener listener;
         volatile boolean stopped = false;
 
@@ -209,10 +215,34 @@ public final class WifiScaleNsdHelper {
     public static void stopBrowse(final long token) {
         final Browse b = sBrowses.remove(token);
         if (b == null) return;
+        final NsdManager.ResolveListener pendingResolve;
         synchronized (b) {
             b.stopped = true;
             b.pending.clear();
+            pendingResolve = b.resolveInFlight ? b.resolveListener : null;
+            b.resolveListener = null;
+            b.resolveInFlight = false;
         }
+
+        // Retract the resolution BEFORE the discovery it belongs to. A resolve
+        // still registered when its DiscoveryListener is unregistered is left
+        // parented to a client that no longer exists, and the framework logs
+        // "NsdService: id <n> for <n> has no client mapping" — observed on every
+        // teardown that stopped mid-resolve. Reversing these two calls is the bug.
+        //
+        // stopServiceResolution() is API 34+; below that the framework offers no
+        // way to cancel one, so a resolve started there still runs to its own
+        // timeout. Nothing leaks either way — b.stopped makes the callback a
+        // no-op — but the framework log line is unavoidable on older devices.
+        if (pendingResolve != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                b.nsd.stopServiceResolution(pendingResolve);
+            } catch (IllegalArgumentException e) {
+                // Already completed between our check and this call — benign.
+                Log.d(TAG, "stopBrowse: resolve already finished");
+            }
+        }
+
         try {
             b.nsd.stopServiceDiscovery(b.listener);
         } catch (IllegalArgumentException e) {
@@ -234,25 +264,37 @@ public final class WifiScaleNsdHelper {
         // The two-arg resolveService() is deprecated in API 34 for the Executor
         // variant, which does not exist before API 34. We support API 28+, so the
         // deprecated call is the only one available across the range.
-        try {
-            b.nsd.resolveService(next, new NsdManager.ResolveListener() {
-                @Override
-                public void onResolveFailed(NsdServiceInfo failed, int errorCode) {
-                    // Routine: a stale registration from a scale that rebooted without
-                    // sending a goodbye answers the PTR and nothing else.
-                    Log.d(TAG, "resolve failed (" + errorCode + ") for "
-                               + (failed != null ? failed.getServiceName() : "?"));
-                    release(b);
-                }
+        final NsdManager.ResolveListener rl = new NsdManager.ResolveListener() {
+            @Override
+            public void onResolveFailed(NsdServiceInfo failed, int errorCode) {
+                // Routine: a stale registration from a scale that rebooted without
+                // sending a goodbye answers the PTR and nothing else.
+                Log.d(TAG, "resolve failed (" + errorCode + ") for "
+                           + (failed != null ? failed.getServiceName() : "?"));
+                release(b);
+            }
 
-                @Override
-                public void onServiceResolved(NsdServiceInfo si) {
-                    final String line = format(si);
-                    if (line != null && b.reported.add(si.getServiceName()))
-                        b.out.offer(line);
-                    release(b);
-                }
-            });
+            @Override
+            public void onServiceResolved(NsdServiceInfo si) {
+                final String line = format(si);
+                if (line != null && b.reported.add(si.getServiceName()))
+                    b.out.offer(line);
+                release(b);
+            }
+        };
+        // stopBrowse() can land between reserving the slot above and registering
+        // here. It would see resolveInFlight with a null listener, have nothing to
+        // retract, and we would then register a resolution against a browse that is
+        // already torn down -- reintroducing the orphan this method exists to avoid.
+        synchronized (b) {
+            if (b.stopped) {
+                b.resolveInFlight = false;
+                return;
+            }
+            b.resolveListener = rl;
+        }
+        try {
+            b.nsd.resolveService(next, rl);
         } catch (Exception e) {
             // A throw here means no callback will ever arrive, so the slot has to
             // be freed on this path too — otherwise one bad instance wedges the
@@ -264,7 +306,10 @@ public final class WifiScaleNsdHelper {
 
     /** Free the resolve slot and start the next queued instance. */
     private static void release(final Browse b) {
-        synchronized (b) { b.resolveInFlight = false; }
+        synchronized (b) {
+            b.resolveInFlight = false;
+            b.resolveListener = null;  // retired by the framework; nothing to retract
+        }
         pump(b);
     }
 
