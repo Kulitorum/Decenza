@@ -23,20 +23,24 @@
  *    platform, because QHostInfo cannot browse at all — it resolves a name you
  *    already know and has no way to ask "what services are out there".
  *
- * Apple platforms DEFAULT to the system Bonjour APIs (DNSServiceBrowse),
- * because a raw multicast socket to 224.0.0.251 on iOS requires the
+ * iOS uses the system Bonjour APIs (DNSServiceBrowse), because a raw multicast
+ * socket to 224.0.0.251 there requires the
  * com.apple.developer.networking.multicast entitlement, which Apple grants only
- * by per-app application.
+ * by per-app application. macOS builds both and DEFAULTS TO MJANSSON — it is the
+ * development platform rather than a shipped one, so its default is chosen to
+ * exercise what Android ships. See BrowseBackend.
  *
  * Only iOS is compiled out — `#ifndef Q_OS_IOS` below, `if(NOT IOS)` in
- * CMakeLists.txt. macOS deliberately builds BOTH backends so the mjansson path
- * (what Android and Windows/Linux actually ship) can be exercised on the machine
- * it is developed on; see BrowseBackend. Do not narrow these guards to
- * `NOT APPLE` — that was the original shape and it removed that capability.
+ * CMakeLists.txt. macOS builds BOTH backends, which is what lets it default to
+ * the one Android ships. Do not narrow these guards to `NOT APPLE` — that was
+ * the original shape and it removed that capability.
  *
- * Multicast reception on Android requires a held WifiManager.MulticastLock.
- * ShotServer acquires one for the whole app lifetime (start()→stop()), so the
- * process-wide lock is in effect; MqttClient relies on the same arrangement.
+ * Multicast reception on Android requires a held WifiManager.MulticastLock, and
+ * resolveHostname()/browseService() each take one for their duration via
+ * MulticastLock::Holder. Do NOT reintroduce the previous claim that ShotServer
+ * holds one app-wide: that setting defaults to OFF, so on a default install
+ * there was no lock at all, and every multicast answer was being dropped by the
+ * Wi-Fi driver with nothing in any log to say so.
  */
 namespace MdnsResolver {
 
@@ -84,6 +88,14 @@ struct ResolveStats {
     int sendsOk = 0;        // of those, how many the socket accepted
     int recordsSeen = 0;    // any mDNS record reaching our socket
     int aRecordsSeen = 0;   // of those, A records
+    // Local port the query socket actually bound to. 5353 means the query was an
+    // ordinary mDNS query answered by multicast; anything else means a legacy
+    // (RFC 6762 section 6.7) query that the responder must answer by unicast, so
+    // the answer depends on the responder being able to reach us directly. This
+    // is the difference between "nobody is there" and "the responder will not
+    // answer this particular host", which look identical without it. See
+    // QueryPort.
+    int boundPort = 0;
     QString error;
 };
 
@@ -139,6 +151,9 @@ struct BrowseStats {
     // "not measured" and must not be rendered as "none".
     int withdrawals = -1;
     qint64 elapsedMs = 0;
+    // Same meaning as ResolveStats::boundPort. Zero on the Bonjour backend,
+    // which owns no socket of ours to report.
+    int boundPort = 0;
     QString error;
 };
 
@@ -180,14 +195,22 @@ bool browseInstanceResolved(const QByteArray& srvTarget, quint16 port, bool have
 /**
  * Which implementation browseService() uses.
  *
- * Auto is what ships: Bonjour on Apple, mjansson everywhere else. The explicit
- * values exist so a macOS build can drive the mjansson path on demand.
+ * Auto means Bonjour on iOS and mjansson everywhere else — INCLUDING macOS,
+ * which has both compiled and could run either.
  *
- * That matters because of an awkward asymmetry: mjansson is the backend Android
- * and Windows/Linux actually use, but the machine it is developed on is a Mac,
- * which by default never compiles or runs it. Being able to switch at runtime
- * means the two backends can be pointed at the same LAN and their results
- * compared — if they disagree, one is wrong and the difference says which.
+ * That last part is deliberate and is not "what the platform prefers". macOS is
+ * the development platform, not a shipped one: the user populations are Android
+ * (hundreds) and iOS, against about two macOS installs, both developers. Bonjour
+ * is genuinely faster on macOS — 66-113 ms to a first row against mjansson's
+ * 160-270 ms, because mDNSResponder is always listening — but defaulting to it
+ * meant the browse path three platforms ship was never run by the only machine
+ * anyone develops on. That is the asymmetry this enum was originally added to
+ * work around by hand, and the default now does it instead.
+ *
+ * Bonjour keeps its coverage from iOS, which ships it. What the default gives up
+ * is EARLY warning: an iOS release build is compiled only by CI, so macOS was the
+ * one place a Bonjour regression would surface before users saw it. Run a browse
+ * with Bonjour before an iOS release.
  *
  * Selecting Mjansson on iOS does nothing (it is not compiled there).
  */
@@ -199,6 +222,112 @@ enum class BrowseBackend {
 
 void setBrowseBackend(BrowseBackend backend);
 BrowseBackend browseBackend();
+
+/**
+ * Which implementation resolves a ".local" HOSTNAME — the other half of the
+ * asymmetry BrowseBackend describes, and the half that was left unswitchable.
+ *
+ * Auto is what ships: mjansson on Android (its stock resolver returns NXDOMAIN
+ * for ".local"), the system resolver everywhere else. Selecting Mjansson makes
+ * a desktop build run the exact A-record path Android ships, which is otherwise
+ * only observable by deploying to a device.
+ *
+ * Unlike BrowseBackend, macOS does NOT default to mjansson here. The two look
+ * symmetrical and are not: the mjansson BROWSE is what three shipped platforms
+ * use, while the mjansson RESOLVER is Android-only, and QHostInfo is what iOS
+ * ships. Flipping this default too would leave both iOS paths without dev
+ * coverage at once; pointing the Mac at Android's resolver on demand is enough,
+ * and is how the Android A-record failure was reproduced here in the first
+ * place.
+ *
+ * That gap is not hypothetical. A Half Decent Scale on firmware 3.1.13 answered
+ * a DNS-SD browse from both backends while Android's resolveHostname() got zero
+ * records from seven A-record queries for the same name, seconds apart — and the
+ * Mac could not be pointed at the failing call to say whether the fault was the
+ * backend or the scale, because the call site was a compile-time #ifdef.
+ *
+ * Selecting Mjansson on iOS does nothing (it is not compiled there).
+ */
+enum class HostnameResolver {
+    Auto,
+    System,
+    Mjansson,
+};
+
+void setHostnameResolver(HostnameResolver resolver);
+HostnameResolver hostnameResolver();
+
+/**
+ * Which local port our own mDNS queries go out from — the third selector, and
+ * the one that decides whether a responder answers us at all.
+ *
+ * mjansson sets the QU (unicast-response) bit unless the socket is bound to 5353.
+ * A query from an ephemeral port is therefore a "legacy" query under RFC 6762
+ * section 6.7, which the responder must answer by UNICAST — so the answer depends
+ * on the responder being able to address this host directly. An openscale scale
+ * has been measured refusing exactly that: a tablet that had never opened a
+ * socket to it got zero records for hours while a Mac on the same LAN resolved it
+ * in 272 ms, and a second scale on that LAN behaved oppositely toward the two
+ * hosts in the same window. From 5353 the query is ordinary and the answer comes
+ * back multicast, with nothing per-peer in the path. Binding 5353 with
+ * SO_REUSEPORT is the openscale maintainers' recommended client-side workaround.
+ *
+ * Auto binds 5353 everywhere EXCEPT ANDROID, falling back to an ephemeral port
+ * if that bind fails. Mdns forces 5353 with no fallback; Ephemeral forces the
+ * legacy behaviour.
+ *
+ * ANDROID IS EXCLUDED BECAUSE THE SYSTEM DAEMON WINS THE PORT. It already owns
+ * 5353; SO_REUSEPORT lets our bind succeed and then every inbound packet goes to
+ * the daemon rather than to us. Measured on-device: records=0 for EVERY host,
+ * including "homeassistant-chv.local", which the MQTT client needs and which
+ * resolves normally from an ephemeral port. A MulticastLock was held throughout,
+ * so this is not a multicast-permission problem — and in the same browse,
+ * NsdManager (the daemon, on 5353) resolved a scale in 41 ms while our 5353
+ * socket saw 2 records and failed.
+ *
+ * An earlier version of this comment called that measurement unreproducible and
+ * blamed the missing MulticastLock. It reproduced exactly, the lock was not the
+ * cause, and acting on that reading broke every ".local" lookup on Android —
+ * scales and MQTT broker alike. Before re-enabling 5353 there, force it with
+ * QueryPort::Mdns and read boundPort and recordsSeen back out of the log.
+ */
+enum class QueryPort {
+    Auto,
+    Mdns,
+    Ephemeral,
+};
+
+void setQueryPort(QueryPort port);
+QueryPort queryPort();
+
+/**
+ * True when the next query socket will bind 5353 rather than an ephemeral port.
+ *
+ * Exposed for the same reason as useDirectHostnameResolver(): the decision is
+ * platform-dependent, it is the difference between working and blind on Android,
+ * and a test cannot see a file-static. openQuerySocket() branches on this, so the
+ * assertion and the behaviour cannot drift apart.
+ */
+bool queryPortUsesMdnsPort();
+
+/** Name of the requested policy, for logs and MCP replies. */
+QString queryPortName();
+
+/**
+ * Name of the resolver a hostname lookup would ACTUALLY use right now — same
+ * reasoning as activeBrowseBackendName(): requesting a resolver that is not
+ * compiled here has to report what ran, or two runs get compared under one
+ * label.
+ */
+QString activeHostnameResolverName();
+
+/**
+ * True when resolveHostname() should be driven directly instead of the system
+ * resolver. WifiScaleDiscovery branches on this per lookup; everything else
+ * about the two paths (threading, cancellation, stats) differs enough that the
+ * decision belongs at the call site rather than inside resolveHostname().
+ */
+bool useDirectHostnameResolver();
 
 /**
  * Name of the backend a browse would ACTUALLY use right now — not merely the one

@@ -97,8 +97,23 @@ QString normalizeHostname(const QString& hostname);
  * One function because this string is shown in several places — Known Devices,
  * the connected-scale line in Connections, the scale's own name() — and a label
  * a user matches across screens must be spelled identically in all of them.
+ *
+ * displayName() below composes the DISCOVERED-row label through the same
+ * wifiScaleLabel() helper, for exactly that reason: the two disagreed, and a
+ * default-named scale read "Half Decent Scale (WiFi)" in the device list and
+ * "Half Decent Scale (hds) (WiFi)" once connected.
  */
 QString wifiScaleDisplayName(const QString& hostname);
+
+/** "hds.local" -> "hds". Empty in, empty out. */
+QString shortHostname(const QString& hostname);
+
+/**
+ * "Half Decent Scale (hds)", or bare "Half Decent Scale" with no hostname.
+ * The transport suffix is NOT included — callers that show one add it, because
+ * the discovered-row path appends " (WiFi)" itself.
+ */
+QString wifiScaleLabel(const QString& hostname);
 
 /**
  * The display label for every result in `set`, keyed by normalized hostname.

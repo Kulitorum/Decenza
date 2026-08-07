@@ -1,0 +1,166 @@
+#include "multicastlock.h"
+
+#include "core/networklogging.h"
+
+#include <QDebug>
+#include <QMutex>
+#include <QMutexLocker>
+
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#include <QCoreApplication>
+#endif
+
+namespace MulticastLock {
+namespace {
+
+QMutex g_mutex;
+int g_holders = 0;
+
+#ifdef Q_OS_ANDROID
+QJniObject g_lock;
+
+// Whether the "could not take it" warning has already been logged. Discovery
+// runs repeatedly on a reconnect ladder, and a device with no WifiManager would
+// otherwise fill the ring buffer that field diagnosis reads with one line per
+// attempt.
+bool g_warned = false;
+
+// Caller holds g_mutex.
+void acquireLocked()
+{
+    if (g_lock.isValid())
+        return;
+
+    // This is the ACTIVITY, not the application context, whenever one exists:
+    // QtAndroidPrivate::context() returns g_jActivity first and only falls back
+    // to g_jService (qtbase/src/corelib/kernel/qjnihelpers.cpp:390-399), as the
+    // native-interface docs state outright
+    // (qtbase/src/corelib/platform/android/qandroidnativeinterface.cpp:52-54).
+    //
+    // That is fine here and needs no workaround: since API 24, getSystemService
+    // resolves WIFI_SERVICE through the application context internally, so the
+    // old WifiManager-leaks-the-Activity hazard does not apply on our minSdk 28.
+    //
+    // An earlier version of this comment asserted the opposite — "the APPLICATION
+    // context, not the activity", and that the activity is null in the background
+    // (g_jActivity is not cleared on pause). Both were wrong and neither was
+    // sourced. Left recorded because the next reader would otherwise build on it.
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    if (!context.isValid()) {
+        if (!g_warned) {
+            NETWORK_WARN_STDERR("MulticastLock",
+                QStringLiteral("no Android context — multicast reception will be "
+                               "filtered by the Wi-Fi driver"));
+            g_warned = true;
+        }
+        return;
+    }
+
+    QJniObject service = QJniObject::fromString(QStringLiteral("wifi"));
+    QJniObject wifiManager = context.callObjectMethod(
+        "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;",
+        service.object<jstring>());
+    if (!wifiManager.isValid()) {
+        if (!g_warned) {
+            NETWORK_WARN_STDERR("MulticastLock",
+                QStringLiteral("WifiManager unavailable — multicast reception will "
+                               "be filtered by the Wi-Fi driver"));
+            g_warned = true;
+        }
+        return;
+    }
+
+    QJniObject tag = QJniObject::fromString(QStringLiteral("Decenza"));
+    QJniObject lock = wifiManager.callObjectMethod(
+        "createMulticastLock",
+        "(Ljava/lang/String;)Landroid/net/wifi/WifiManager$MulticastLock;",
+        tag.object<jstring>());
+    if (!lock.isValid()) {
+        if (!g_warned) {
+            NETWORK_WARN_STDERR("MulticastLock",
+                QStringLiteral("createMulticastLock failed — multicast reception "
+                               "will be filtered by the Wi-Fi driver"));
+            g_warned = true;
+        }
+        return;
+    }
+
+    // Reference counting is OURS, not Android's. Android's own counter would
+    // work, but then acquire/release have to be perfectly paired across every
+    // caller forever, and a single missed release leaves the radio filter off
+    // for the rest of the session with nothing to show for it. Counting Holders
+    // here means the invariant is enforced by a destructor.
+    lock.callMethod<void>("setReferenceCounted", "(Z)V", jboolean(false));
+    lock.callMethod<void>("acquire");
+    g_lock = lock;
+    g_warned = false;  // a later failure is news again
+    // INFO, not DEBUG. Whether this lock was actually held is the first question
+    // a "browse ran and found nothing" report has to answer, and the connections
+    // views default to minLevel INFO — at DEBUG this line is absent from exactly
+    // the place someone diagnosing that report would look.
+    NETWORK_INFO_STDERR("MulticastLock", QStringLiteral("acquired"));
+}
+
+// Caller holds g_mutex.
+void releaseLocked()
+{
+    if (!g_lock.isValid())
+        return;
+    if (g_lock.callMethod<jboolean>("isHeld"))
+        g_lock.callMethod<void>("release");
+    g_lock = QJniObject();
+    NETWORK_INFO_STDERR("MulticastLock", QStringLiteral("released"));
+}
+#else
+void acquireLocked() {}
+void releaseLocked() {}
+#endif
+
+}  // namespace
+
+Holder::Holder()
+{
+    QMutexLocker lock(&g_mutex);
+    ++g_holders;
+    // Retry on EVERY Holder while the lock is not held, not just the 0->1 edge.
+    // acquireLocked() has three failure returns, and each leaves g_holders
+    // already non-zero — so an edge-only attempt meant one transient failure
+    // (no context yet at startup, say) left every overlapping Holder running
+    // with the Wi-Fi multicast filter ON until the count drained to zero.
+    //
+    // Overlap is the normal case, not a corner: one scan takes a Holder for the
+    // 15 s browse and one per concurrent A-record probe, and the reconnect
+    // ladder's own WifiScaleDiscovery can add another. So a single early failure
+    // silently disabled multicast for the whole scan — which is the invisible
+    // failure this class exists to close, reappearing one level up.
+    //
+    // acquireLocked() returns immediately when the lock is already valid, so the
+    // repeat call costs a branch in the common case.
+    acquireLocked();
+}
+
+Holder::~Holder()
+{
+    QMutexLocker lock(&g_mutex);
+    if (--g_holders == 0)
+        releaseLocked();
+}
+
+bool isHeld()
+{
+    QMutexLocker lock(&g_mutex);
+#ifdef Q_OS_ANDROID
+    return g_lock.isValid();
+#else
+    return false;
+#endif
+}
+
+int holderCount()
+{
+    QMutexLocker lock(&g_mutex);
+    return g_holders;
+}
+
+}  // namespace MulticastLock

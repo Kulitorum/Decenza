@@ -1,10 +1,12 @@
 #include <QtTest>
 #include <QMetaMethod>
+#include <QRegularExpression>
 #include <QSignalSpy>
 
 #include <algorithm>
 
 #include "network/mdnsresolver.h"
+#include "network/multicastlock.h"
 #include "network/wifiscalediscovery.h"
 // For the reconnect-browse gating predicates. Header-inline statics only — no
 // BLEManager is constructed and blemanager.cpp is not linked.
@@ -28,6 +30,295 @@ class tst_WifiScaleDiscovery : public QObject {
 private slots:
     void initTestCase() { qRegisterMetaType<WifiScaleResult>("WifiScaleResult"); }
     void init() { QTest::failOnWarning(); }
+
+    // Both selectors are PROCESS-WIDE, so a test that pins one and then fails an
+    // assertion never reaches its own restore — QVERIFY returns from the function —
+    // and every later test in this binary inherits the pin. That turns one red
+    // assertion into a cascade of unrelated failures pointing at the wrong code.
+    // cleanup() runs after each test whatever its outcome, which is the only
+    // placement an early return cannot skip.
+    void cleanup() {
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
+        // The THIRD selector, and the one with teeth: an explicit Mdns/Ephemeral
+        // request also disables the port fallback that Auto gets, so a pin left
+        // behind can make every later socket open fail outright -- and the tests
+        // that pin it run before six that do real socket I/O in this binary.
+        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Auto);
+    }
+
+    // The default has to stay what each platform SHIPS. Making the resolver
+    // runtime-selectable is only safe if `auto` still means mjansson on Android
+    // (its getaddrinfo returns NXDOMAIN for ".local", so the direct query is not
+    // a preference there, it is the only thing that works) and the system
+    // resolver everywhere else. A default flipped by accident would be invisible
+    // on a desktop and fatal on a device.
+    void hostnameResolverAutoIsWhatThisPlatformShips() {
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
+#if defined(Q_OS_ANDROID)
+        QVERIFY(MdnsResolver::useDirectHostnameResolver());
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("mjansson"));
+#else
+        QVERIFY(!MdnsResolver::useDirectHostnameResolver());
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("system"));
+#endif
+    }
+
+    // Same contract as activeBrowseBackendName(): report what RAN, not what was
+    // asked for. Requesting a resolver that is not compiled here yields the
+    // substitute, and reporting the request instead would let a comparison of one
+    // implementation against itself read as agreement between two.
+    void hostnameResolverReportsWhatActuallyRan() {
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::System);
+        QVERIFY(!MdnsResolver::useDirectHostnameResolver());
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("system"));
+
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Mjansson);
+#ifdef Q_OS_IOS
+        // Not compiled on iOS — the request must degrade, and say so.
+        QVERIFY(!MdnsResolver::useDirectHostnameResolver());
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("system"));
+#else
+        QVERIFY(MdnsResolver::useDirectHostnameResolver());
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("mjansson"));
+#endif
+
+        // The stored request survives independently of what it resolves to, so a
+        // caller can read back what it set.
+        QCOMPARE(MdnsResolver::hostnameResolver(), MdnsResolver::HostnameResolver::Mjansson);
+    }
+
+    // The selector has to reach the LOOKUP, not just the accessor. Pinning System
+    // and resolving a name only a unicast resolver can answer proves probe()
+    // routes on it: on Android, where `auto` is mjansson, a probe that ignored the
+    // selector would send an mDNS query for "localhost" and find nothing.
+    //
+    // The mirror case — pinning Mjansson and asserting localhost does NOT resolve —
+    // is deliberately absent. The direct path needs a multicast socket, a CI
+    // sandbox may refuse one, and that refusal is logged with qWarning, which
+    // init()'s failOnWarning() turns into a failure indistinguishable from the
+    // defect. Same reason the browse itself is not covered here.
+    void probeHonoursAPinnedSystemResolver() {
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::System);
+
+        WifiScaleDiscovery disc;
+        QSignalSpy foundSpy(&disc, &WifiScaleDiscovery::resultFound);
+        QSignalSpy doneSpy(&disc, &WifiScaleDiscovery::probeFinished);
+
+        disc.probe(QStringLiteral("localhost"), 3000);
+        QVERIFY(doneSpy.wait(5000));
+        QCOMPARE(foundSpy.count(), 1);
+        QCOMPARE(foundSpy.last().at(0).value<WifiScaleResult>().hostname,
+                 QStringLiteral("localhost"));
+    }
+
+    // macOS deliberately defaults to the backend it does NOT prefer, so this is
+    // pinned: Bonjour is faster there and is what an Apple platform would
+    // normally pick, and the default is mjansson anyway because macOS is the
+    // development platform and the shipped populations are Android and iOS. A
+    // well-meaning "fix" restoring Bonjour would silently remove daily coverage
+    // of the browse three platforms ship, and nothing else would notice.
+    //
+    // Also pinned: both backends stay reachable on macOS. The default moved, the
+    // compile guards did not.
+    void browseBackendAutoIsTheDevelopmentChoiceOnMac() {
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
+#if defined(Q_OS_IOS)
+        QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("bonjour"));
+#else
+        QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("mjansson"));
+#endif
+
+#if defined(Q_OS_MACOS)
+        // Still selectable — this is a default, not a compile-out.
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Bonjour);
+        QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("bonjour"));
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Mjansson);
+        QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("mjansson"));
+#endif
+    }
+
+    // The two selectors are NOT symmetrical, and the asymmetry is load-bearing.
+    // The mjansson BROWSE is what three shipped platforms use; the mjansson
+    // RESOLVER is Android-only, and QHostInfo is what iOS ships. Flipping the
+    // resolver default on macOS too would leave both iOS paths with no dev
+    // coverage at once.
+    void hostnameResolverDefaultDoesNotFollowTheBrowseBackend() {
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
+#if defined(Q_OS_MACOS)
+        QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("mjansson"));
+        QCOMPARE(MdnsResolver::activeHostnameResolverName(), QStringLiteral("system"));
+#endif
+    }
+
+    // The query source port decides whether the responder answers by multicast or
+    // has to unicast back to this specific host, so the DEFAULT is behaviour, not
+    // preference — and on ANDROID the default must be EPHEMERAL.
+    //
+    // This is the invariant that shipped broken. Binding 5353 on Android loses
+    // every inbound packet to the system mDNS daemon that already owns the port:
+    // measured on-device, records=0 for EVERY host, including the MQTT broker's
+    // ".local" name, while an ephemeral socket resolved normally. A prior comment
+    // recording exactly that was deleted on the theory it was an artifact of a
+    // missing MulticastLock; the lock was later held and 5353 was still blind.
+    //
+    // So this asserts the platform split directly. A future "simplification" that
+    // makes Auto mean 5353 everywhere would break every .local lookup on the
+    // platform with the most users, and nothing else in the suite would notice.
+    void queryPortAutoAvoids5353OnAndroid() {
+        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Auto);
+        QCOMPARE(MdnsResolver::queryPort(), MdnsResolver::QueryPort::Auto);
+        QCOMPARE(MdnsResolver::queryPortName(), QStringLiteral("auto"));
+
+        // The platform split itself. openQuerySocket() branches on this exact
+        // predicate, so the assertion cannot drift from the behaviour.
+#if defined(Q_OS_ANDROID)
+        QVERIFY(!MdnsResolver::queryPortUsesMdnsPort());
+#else
+        QVERIFY(MdnsResolver::queryPortUsesMdnsPort());
+#endif
+
+        // The explicit overrides still reach the socket decision on every
+        // platform — they are how the A/B that found this gets run at all.
+        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Mdns);
+        QVERIFY(MdnsResolver::queryPortUsesMdnsPort());
+        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Ephemeral);
+        QVERIFY(!MdnsResolver::queryPortUsesMdnsPort());
+    }
+
+    // The whole point of the explicit values is settling an A/B, so a forced
+    // policy has to be readable back — a comparison that silently ran the same
+    // policy twice is worse than not running it.
+    void queryPortReportsWhatWasRequested_data() {
+        QTest::addColumn<int>("port");
+        QTest::addColumn<QString>("name");
+        QTest::newRow("auto") << int(MdnsResolver::QueryPort::Auto) << QStringLiteral("auto");
+        QTest::newRow("mdns") << int(MdnsResolver::QueryPort::Mdns) << QStringLiteral("mdns");
+        QTest::newRow("ephemeral")
+            << int(MdnsResolver::QueryPort::Ephemeral) << QStringLiteral("ephemeral");
+    }
+
+    void queryPortReportsWhatWasRequested() {
+        QFETCH(int, port);
+        QFETCH(QString, name);
+        MdnsResolver::setQueryPort(static_cast<MdnsResolver::QueryPort>(port));
+        QCOMPARE(MdnsResolver::queryPortName(), name);
+    }
+
+    // The lock is REFERENCE COUNTED across overlapping holders, and one scan
+    // really does overlap several: the browse takes one for its whole window
+    // while each concurrent A-record probe takes another. If a nested Holder
+    // released the lock on ITS destruction, the browse would silently lose
+    // multicast reception part-way through — the exact invisible failure this
+    // class was added to close.
+    //
+    // Platform-independent: the count is plain C++ and only the acquire/release
+    // bodies are Android-only, so this asserts the arithmetic everywhere.
+    void multicastLockCountsHoldersRatherThanToggling() {
+        QCOMPARE(MulticastLock::holderCount(), 0);
+        {
+            MulticastLock::Holder outer;
+            QCOMPARE(MulticastLock::holderCount(), 1);
+            {
+                MulticastLock::Holder inner;
+                QCOMPARE(MulticastLock::holderCount(), 2);
+                MulticastLock::Holder third;
+                QCOMPARE(MulticastLock::holderCount(), 3);
+            }
+            // Inner holders gone, outer still live: this is the case that must
+            // NOT have released.
+            QCOMPARE(MulticastLock::holderCount(), 1);
+        }
+        QCOMPARE(MulticastLock::holderCount(), 0);
+    }
+
+    // The NsdManager browse only ever runs on a tablet, so its parser is the one
+    // piece of that path that can be held to account anywhere. What is being
+    // guarded is field ALIGNMENT: `host` is legitimately empty below API 36, and a
+    // split that dropped empty parts would slide the IPv4 address into the
+    // hostname slot. That failure is silent — the row is stored under an identity
+    // key of "192.168.10.145", never matches the saved "wifi:hds.local" primary,
+    // and looks like a second scale rather than like a bug.
+    void nsdLineParsesFieldsPositionally_data() {
+        QTest::addColumn<QString>("line");
+        QTest::addColumn<bool>("valid");
+        QTest::addColumn<QString>("instanceName");
+        QTest::addColumn<QString>("hostname");
+        QTest::addColumn<QString>("address");
+        QTest::addColumn<int>("port");
+        QTest::addColumn<QString>("firmware");
+
+        QTest::newRow("resolved")
+            << QStringLiteral("Half Decent Scale (hdstest)\thdstest.local\t192.168.10.242\t80\tfw=3.1.13|name=hdstest")
+            << true << QStringLiteral("Half Decent Scale (hdstest)")
+            << QStringLiteral("hdstest.local") << QStringLiteral("192.168.10.242")
+            << 80 << QStringLiteral("3.1.13");
+        // Below API 36 Android exposes no SRV target. The address must stay in the
+        // address field regardless.
+        QTest::newRow("no hostname")
+            << QStringLiteral("Half Decent Scale\t\t192.168.10.145\t80\tfw=3.1.13")
+            << true << QStringLiteral("Half Decent Scale")
+            << QString() << QStringLiteral("192.168.10.145")
+            << 80 << QStringLiteral("3.1.13");
+        // A scale that publishes no TXT at all (firmware 3.1.12 does this) still
+        // has a trailing empty field, so the line is complete and usable.
+        QTest::newRow("no txt")
+            << QStringLiteral("Half Decent Scale\ths.local\t192.168.10.145\t80\t")
+            << true << QStringLiteral("Half Decent Scale")
+            << QStringLiteral("hs.local") << QStringLiteral("192.168.10.145")
+            << 80 << QString();
+        QTest::newRow("truncated")
+            << QStringLiteral("Half Decent Scale\ths.local\t192.168.10.145")
+            << false << QString() << QString() << QString() << 0 << QString();
+        // No address means the instance never resolved, whatever else it carries —
+        // the other fields still parse, they just do not add up to a reachable
+        // scale, which is what `valid` says and nothing else does.
+        QTest::newRow("no address")
+            << QStringLiteral("Half Decent Scale\ths.local\t\t80\tfw=3.1.13")
+            << false << QStringLiteral("Half Decent Scale")
+            << QStringLiteral("hs.local") << QString() << 80 << QStringLiteral("3.1.13");
+    }
+
+    void nsdLineParsesFieldsPositionally() {
+        QFETCH(QString, line);
+        QFETCH(bool, valid);
+        QFETCH(QString, instanceName);
+        QFETCH(QString, hostname);
+        QFETCH(QString, address);
+        QFETCH(int, port);
+        QFETCH(QString, firmware);
+
+        // A short line is a wire-format bug between the Java and C++ halves, so
+        // the parser now warns rather than dropping it silently. Consume that
+        // warning here — init()'s failOnWarning() would otherwise turn correct
+        // behaviour into a red test, and asserting it is also the only proof the
+        // line is actually emitted.
+        if (line.count(QLatin1Char('\t')) < 4)
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression(QStringLiteral("NSD line malformed")));
+
+        const WifiScaleDiscovery::NsdLine p = WifiScaleDiscovery::parseNsdLine(line);
+        QVERIFY(!p.startFailure);
+        QCOMPARE(p.valid, valid);
+        QCOMPARE(p.instanceName, instanceName);
+        QCOMPARE(p.hostname, hostname);
+        QCOMPARE(p.address, address);
+        QCOMPARE(static_cast<int>(p.port), port);
+        QCOMPARE(p.txt.value(QStringLiteral("fw")), firmware);
+    }
+
+    // "Discovery never started" and "discovery ran and nothing answered" show a
+    // user the same empty list and have completely different fixes, so the
+    // sentinel must never be mistaken for a truncated instance line.
+    void nsdStartFailureIsNotAnInstance() {
+        const WifiScaleDiscovery::NsdLine p =
+            WifiScaleDiscovery::parseNsdLine(QStringLiteral("!fail\t3"));
+        QVERIFY(p.startFailure);
+        QVERIFY(!p.valid);
+        QCOMPARE(p.failureCode, QStringLiteral("3"));
+        QVERIFY(p.address.isEmpty());
+    }
 
     // localhost resolves on every platform — exercises the success edge.
     void resolvedHostnameEmitsResultFound() {
@@ -164,6 +455,44 @@ private slots:
                                            QStringLiteral("probeFinished"),
                                            QStringLiteral("browseFinished"),
                                            QStringLiteral("logMessage")}));
+    }
+
+    // browseFinished() is TERMINAL: callers stop waiting when it arrives, so it
+    // must be emitted exactly once per browse. A browse can have two independent
+    // workers in flight (mjansson, plus NsdManager on Android) finishing in either
+    // order, and stopBrowse() can end the browse while both are still running —
+    // three chances to emit twice, or to emit and then keep reporting results.
+    //
+    // Only one path is compiled here, so this covers the stopBrowse() race rather
+    // than the two-path ordering; the counter it exercises is the same one. It
+    // fails if stopBrowse() stops clearing m_browsePathsOutstanding, or if a
+    // worker's completion stops checking the generation.
+    void stopBrowseEmitsExactlyOneBrowseFinished() {
+        WifiScaleDiscovery disc;
+        QSignalSpy doneSpy(&disc, &WifiScaleDiscovery::browseFinished);
+
+        // Short deadline on purpose: browse() does REAL multicast I/O, and this
+        // test stops it immediately anyway. An earlier 3000 ms version added ~25 s
+        // to the suite and put network-sensitive tests elsewhere under contention.
+        disc.browse(600);
+        QVERIFY(disc.isBrowsing());
+
+        disc.stopBrowse();
+        QCOMPARE(doneSpy.count(), 1);
+        QCOMPARE(doneSpy.takeFirst().at(0).toBool(), false);  // did not run to completion
+        QVERIFY(!disc.isBrowsing());
+
+        // The worker is still winding down and will post its own completion. It
+        // must be swallowed by the generation check rather than emitting a second
+        // terminal signal — the defect this guards is silent, because a caller
+        // that already moved on simply gets a stray signal later.
+        QTest::qWait(900);
+        QCOMPARE(doneSpy.count(), 0);
+        QVERIFY(!disc.isBrowsing());
+
+        // And a second stopBrowse() on an already-stopped browse stays silent.
+        disc.stopBrowse();
+        QCOMPARE(doneSpy.count(), 0);
     }
 
     // The row set itself is add-only within a scan: re-seeing a scale updates

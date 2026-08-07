@@ -339,11 +339,20 @@ void DecentScaleWifi::attemptHostname() {
             //
             // It is TEMPTING to conclude the responder never answers a bare
             // A-query. It does: a later run on the same tablet and scale
-            // resolved this host here in 357 ms, one query, one record. What
-            // differed was a tablet reboot in between — the failure is a
-            // host-side resolver state the app can neither see nor clear, not
-            // scale or protocol behaviour. Expect this call to work normally
-            // and to go silent for hours when the tablet is in that state.
+            // resolved this host here in 357 ms, one query, one record.
+            //
+            // What separates the two is whether this device had sent the scale
+            // IP traffic. Resolution is PER PEER: measured 2026-08-06 with two
+            // controls, a failed TCP connect to one scale moved that scale from
+            // 0/6 to 4/6 while a second scale stayed at 0/6, and a connect to
+            // the gateway moved neither. So the miss and the 357 ms hit are the
+            // same responder in two states, not an unreliable path.
+            //
+            // docs/WIFI_SCALE_MDNS.md carries the measurements, the mechanism
+            // (inferred, not captured: the scale must ARP for us before it can
+            // unicast a reply to a legacy query), and the two accounts refuted
+            // along the way. Do not restate any of it here — an earlier version
+            // of this comment asserted one of the refuted ones as settled.
             //
             // The constant stays because agreeing with the discovery path is
             // right on its own terms, and because a 5 s budget costs nothing on
@@ -813,12 +822,48 @@ void DecentScaleWifi::onRecognitionTimeout() {
     WIFI_WARN(QString("No recognizable HDS frame within %1 ms from %2")
               .arg(kRecognitionTimeoutMs).arg(m_currentTarget));
 
-    // Cached-IP attempt failed validation → evict the bad IP and fall back to
-    // the hostname. (If we were already on the hostname, we've exhausted options.)
+    // Cached-IP attempt failed validation → fall back to the hostname. (If we
+    // were already on the hostname, we've exhausted options.)
+    //
+    // Whether to EVICT the cached IP turns on whether anything answered. The
+    // recognition timeout fires for two states that need opposite responses:
+    //
+    //  - A peer answered and is not an HDS — DHCP handed the address to a
+    //    router/printer, or it was typed wrong. The WebSocket handshake completed
+    //    (or onError classified a peer-answered failure), and the IP is genuinely
+    //    wrong. Evict it, or every future connect dials a dead address.
+    //  - NOTHING answered. No handshake, no error from a listening peer. That is
+    //    not evidence about the address at all — it is what a scale that is
+    //    rebooting, asleep, or momentarily unreachable looks like.
+    //
+    // Evicting on silence turns a transient miss into a long outage, and mDNS
+    // silence is common: on an ordinary LAN a single query goes unanswered 25-60%
+    // of the time, for every host on the segment, not just the scale. See
+    // docs/WIFI_SCALE_MDNS.md for the measurements.
+    //
+    // Keep the address. The reason is narrow and survives whatever the responder
+    // turns out to be doing: silence says nothing about whether the address is
+    // right. Do not re-derive a mechanism here — three have been asserted at this
+    // call site and all three were refuted; the doc records them so a fourth does
+    // not get written from memory.
+    //
+    // m_wsHandshakeDone is exactly this distinction, already tracked: cleared at
+    // the top of every attempt, set in onConnected(). A completed handshake means
+    // something at that address spoke HTTP/WebSocket to us and then failed to be
+    // an HDS; no handshake means nothing was there to judge.
+    const bool peerAnswered = m_wsHandshakeDone;
     if (!m_currentTargetIsHostname && !m_triedHostnameFallback) {
-        WIFI_LOG(QString("Cached IP %1 didn't validate as HDS — evicting cache and falling back to hostname %2")
-                 .arg(m_currentTarget, m_hostname));
-        if (m_ipCacheUpdate) m_ipCacheUpdate(m_hostname, QString());
+        if (peerAnswered) {
+            WIFI_LOG(QString("Cached IP %1 answered but did not validate as HDS — evicting cache "
+                             "and falling back to hostname %2")
+                     .arg(m_currentTarget, m_hostname));
+            if (m_ipCacheUpdate) m_ipCacheUpdate(m_hostname, QString());
+        } else {
+            WIFI_LOG(QString("Cached IP %1 did not answer at all — KEEPING it and falling back to "
+                             "hostname %2. Silence is not evidence the address is wrong, and "
+                             "dialling it again is what lets the scale answer mDNS at all.")
+                     .arg(m_currentTarget, m_hostname));
+        }
         // Hand the fallback off to onDisconnected via an event-driven flag:
         // when the socket-close completes, onDisconnected sees the flag and
         // runs attemptTarget(hostname) inline. No timer-as-guard.
@@ -875,11 +920,14 @@ bool DecentScaleWifi::isTransientTransportError(QAbstractSocket::SocketError err
     // The only class that matters in practice. nativeConnect maps BOTH
     // EHOSTUNREACH and ENETUNREACH here, and also ETIMEDOUT (a connect that
     // never got a reply) — so "nothing answered" arrives as NetworkError in all
-    // three shapes. This is the class the reconnect defect turned on: an ESP32
-    // in WiFi power-save misses an ARP request, the OS caches a negative route,
-    // and connect() then fails in well under a millisecond without ever binding
-    // a local port. Nothing answered, so nothing was learned about whether the
-    // address is still the scale's.
+    // three shapes, including the sub-millisecond failure of a connect() that
+    // never bound a local port because the OS had a cached negative route.
+    //
+    // What matters here is only that nothing answered, so nothing was learned
+    // about whether the address is still the scale's. This comment used to name
+    // a cause (an ESP32 in WiFi power-save missing an ARP request); that account
+    // is refuted — see docs/WIFI_SCALE_MDNS.md — and the handling never depended
+    // on it.
     //
     // NOTE: EHOSTDOWN is NOT in that switch — it falls through to
     // UnknownSocketError and is therefore treated as non-transient here. That

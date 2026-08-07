@@ -813,6 +813,7 @@ set(SOURCES
     src/mcp/mcptools_ai_conversations.cpp
     src/network/mqttclient.cpp
     src/network/mdnsresolver.cpp
+    src/network/multicastlock.cpp
     src/network/wifiscaleresult.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp

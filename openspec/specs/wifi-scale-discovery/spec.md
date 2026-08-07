@@ -326,8 +326,10 @@ To make WiFi reconnect robust against unreliable mDNS resolution, the WiFi drive
 
 A failed attempt SHALL be classified by what the failure proves about the cached IP:
 
-- A **wrong-host failure** is one where a peer answered but is not an HDS — a refused connection (TCP RST, proving a host is up at that address), a completed TCP connection that fails the WebSocket handshake (HTTP 403/404, protocol error), or one that upgrades but delivers no recognizable HDS frame within the recognition window. This is evidence the cached IP now belongs to a different device, so the driver SHALL evict the cached IP and fall back to the hostname.
+- A **wrong-host failure** is one where a peer answered but is not an HDS — a refused connection (TCP RST, proving a host is up at that address), a completed TCP connection that fails the WebSocket handshake (HTTP 403/404, protocol error), or one that **completes the WebSocket upgrade** but delivers no recognizable HDS frame within the recognition window. This is evidence the cached IP now belongs to a different device, so the driver SHALL evict the cached IP and fall back to the hostname.
 - A **transient transport failure** is one where nothing answered at all — host unreachable, network unreachable, or connect timeout before the WebSocket upgrade. This is NOT evidence about which device owns the IP, so the driver SHALL preserve the cached IP, SHALL NOT consume the hostname fallback, and SHALL end the attempt so the app-level reconnect loop owns the retry.
+
+A recognition timeout where the WebSocket upgrade never completed SHALL be treated as the second case, not the first. Silence says nothing about which device owns the address; it is what a scale that is rebooting, asleep or momentarily unreachable looks like. Evicting on silence is also actively harmful, because the cached IP is not merely an optimisation: dialling it is what has been measured to put this device back on the responder's answering side, so discarding it leaves both remaining paths — hostname resolve and service browse — asking a scale that has no fresh reason to answer this peer. The driver SHALL still fall back to the hostname within that connect cycle; only the eviction is withheld.
 
 #### Scenario: First connect by hostname caches the peer IP
 - **WHEN** the driver opens a WebSocket using the hostname (no cached IP available) and receives the first snapshot or status frame within the recognition window
@@ -342,8 +344,18 @@ A failed attempt SHALL be classified by what the failure proves about the cached
 - **THEN** the driver treats the connection as established and does not attempt to resolve the hostname
 
 #### Scenario: Cached IP fails recognition — fall back to hostname
-- **WHEN** the cached IP attempt opens the WebSocket but no recognizable HDS frame arrives within 5 s (e.g., DHCP reassigned the IP to a different host running a WebSocket server)
-- **THEN** the driver closes the cached-IP socket and retries via `ws://<hostname>/snapshot`; on success, the cache is overwritten with the new peer IP
+- **WHEN** the cached IP attempt completes the WebSocket upgrade but no recognizable HDS frame arrives within 5 s (e.g., DHCP reassigned the IP to a different host running a WebSocket server)
+- **THEN** the driver evicts the cached IP, closes the socket and retries via `ws://<hostname>/snapshot`; on success, the cache is overwritten with the new peer IP
+
+  (Kept under its original name because this change SPLITS it rather than replacing
+  it: the upgrade-completed half stays here and keeps the eviction, while the new
+  "Cached IP goes silent" scenario below takes the half where nothing answered and
+  withholds the eviction. Renaming it would have read to the archiver as a dropped
+  scenario.)
+
+#### Scenario: Cached IP goes silent — keep the cache, still fall back
+- **WHEN** the cached IP attempt reaches the recognition timeout without ever completing the WebSocket upgrade
+- **THEN** the driver retains the cached IP and retries via the hostname within the same connect cycle, because silence is not evidence the address is wrong and re-dialling that address is what lets the scale answer this device at all
 
 #### Scenario: Cached IP answers but rejects the WebSocket handshake — evict and fall back
 - **WHEN** the cached IP completes a TCP connection but the WebSocket upgrade fails at the handshake or protocol layer (for example a router answering `ws://<ip>/snapshot` with HTTP 403)
@@ -561,9 +573,11 @@ When a WiFi scale is the saved primary and a reconnect attempt fails to establis
 
 This exists because the direct A-record query for the saved hostname has been observed to enter a state where it returns nothing at all, for hours, while the scale is plainly reachable. On Android: 82 consecutive reconnect attempts over 7.5 h each received **zero** mDNS records, while the scale was awake, mains-powered and serving WebSocket traffic on its IP; a DNS-SD browse resolved the same hostname in 362 ms, and raising the A-query deadline from 2 s to 5 s did not change the outcome.
 
-That state is NOT a property of the responder, and this requirement must not be read as saying so. A later run on the same tablet and the same scale resolved `hds.local` by direct A-query in **357 ms — one query, one record** — and connected without any browse. The distinguishing factor was a tablet reboot between the two sessions, matching an earlier finding that mDNS discovery is reliable after a reboot and that pre-reboot failures were tablet-side stale state. Treat the failure as a host-side condition the app cannot detect or clear, not as scale or protocol behaviour.
+That state was previously recorded here as "NOT a property of the responder" and as a host-side condition cleared by a tablet reboot. **A controlled test on 2026-08-06 refutes that reading: resolution is per peer, and outbound IP traffic to a given scale is what enables it.** From a cold tablet, a TCP connection to the gateway changed nothing (`hds.local` 0/6, `hdstest.local` 0/6); a *failed* TCP connection to `hds` moved `hds.local` to 4/6 while `hdstest.local` stayed at 0/6; a *failed* TCP connection to `hdstest` then moved `hdstest.local` to 5/6 while `hds.local` held at 6/6. The gateway step excludes any device-wide wake, and each scale acting as the other's control excludes anything network-wide. The earlier reboot appeared to fix it because it was followed by traffic to the scale.
 
-The browse is justified by that being unrecoverable from inside the app: when the direct query returns nothing there is no signal to distinguish "stale resolver state" from "scale genuinely absent", and the browse succeeds in both readings of the first case.
+The mechanism is **strongly supported but still an inference**: an outbound packet makes the tablet ARP for the scale, the scale answers and caches the tablet's MAC, and only then can it answer a legacy (ephemeral source port) query — which is what Android's resolver sends, verified on the wire — by the unicast that RFC 6762 §6.7 requires. No ARP frame was captured and the scale's ARP table was never read. `ARP_MAXAGE` (300 s) explains why a scale that resolved minutes ago goes silent again. `docs/WIFI_SCALE_MDNS.md` carries the measurements, and the two retracted accounts (scale-side power save, tablet-side power save) that this one displaced. Nothing in this specification SHALL depend on the mechanism being correct.
+
+The browse is justified independently of the mechanism: when the direct query returns nothing there is no signal from inside the app to distinguish "the responder will not answer us" from "the scale is genuinely absent", and the browse succeeds in the first case.
 
 The browse SHALL run on every platform. The same SYMPTOM has been seen off Android — macOS once logged `QHostInfo resolution failed for hdstest.local: Host not found` on the reconnect path while a browse resolved that host in 1.32 s — but one occurrence through a different resolver is not evidence of a shared root cause, and that macOS state did not recur. Running everywhere is a cheap hedge against a failure whose cause is not established, not a claim that every platform has the same defect. `MdnsResolver::browseService()` selects the system Bonjour backend on Apple platforms and the mjansson backend elsewhere.
 
@@ -586,6 +600,10 @@ An address obtained from a browse SHALL NOT outlive the request it was obtained 
 #### Scenario: Stale cached IP is recovered without user action
 - **WHEN** a WiFi scale is the saved primary, its cached IP no longer reaches it, and a direct hostname lookup returns no records
 - **THEN** the reconnect ladder runs a service browse, the scale's current address is resolved from the browse, and the app connects to it without the user opening the Connections page
+
+#### Scenario: Two scales on one LAN answer one device differently
+- **WHEN** a device has recently exchanged traffic with one scale and never with a second scale on the same LAN
+- **THEN** a per-peer difference in mDNS answers between the two is an expected observation, not evidence of a fault in the device's resolver
 
 #### Scenario: Reconnect browse does not disturb a user scan
 - **WHEN** the user has a scan in progress and a reconnect tick fires
@@ -618,4 +636,128 @@ An address obtained from a browse SHALL NOT outlive the request it was obtained 
 #### Scenario: A declined switch-back leaves no stale address behind
 - **WHEN** a browse-driven switch-back request is declined, and later a reachability check verifies the primary at its cached address
 - **THEN** the switch-back that follows dials the address that check verified, not the earlier browsed one
+
+### Requirement: Android browses with the system DNS-SD daemon alongside the app's own
+
+On Android the app SHALL run a second DNS-SD browse for `_decentscale._tcp` through `NsdManager`, started at the same time as the app's own browse and reporting into the same discovered-scales stream. It SHALL NOT be chained after the app's browse as a fallback: the case it exists for is one where the app's browse returns cleanly and finds nothing, which is indistinguishable from an empty LAN and therefore cannot be used as a trigger.
+
+The two paths fail independently, which is the point. The app's browse queries from an ephemeral source port, so under RFC 6762 §6.7 the responder answers by unicast, and an openscale responder has been measured answering **per peer**: a tablet that has never opened a socket to a given scale received nothing from it for hours while a Mac on the same LAN resolved it in 272 ms, and a second scale on that LAN — never contacted from the tablet — stayed silent to the tablet while answering the Mac normally in the same window. `NsdManager` queries from port 5353 as the system daemon, so its answers return multicast to the group and it additionally observes unsolicited announcements that need no query at all.
+
+It has NOT been shown to find a scale this device has never contacted. An earlier version of this requirement claimed exactly that as its justification; on-device, a never-contacted scale stayed invisible to NsdManager throughout. Every measurement of it so far was taken while the app's own socket was bound to 5353 and starving the daemon it depends on, so its value remains unproven rather than disproven. It is retained as an independent second path pending a fair test, and this requirement SHALL be revisited — including removal — once one exists.
+
+Results from both paths SHALL be deduplicated by hostname, as they already are: the same scale answering both is the expected case, not an error.
+
+A resolved instance whose SRV target this Android version does not expose SHALL be dropped, with a log line naming the device's API level, and SHALL NOT be reported under a synthesized name. `NsdServiceInfo.getHostname()` is API 36; the hostname is the identity key results are stored under and the key the saved `"wifi:<hostname>"` primary uses, so a guessed name would be persisted as a scale the app can never match again.
+
+The NsdManager browse SHALL be keyed per browse instance, SHALL deliver results incrementally rather than in one batch at its deadline, and SHALL stop within one poll interval of the browse being cancelled. Concurrent `WifiScaleDiscovery` instances — the user scan and the reconnect ladder each own one — SHALL NOT cancel each other's NsdManager browse.
+
+#### Scenario: A scale this device has never contacted is found
+- **WHEN** a user-initiated scan runs on Android against a scale the device has never opened a socket to, and the app's own browse and A-record lookups receive no records at all
+- **THEN** the NsdManager browse resolves the scale and its row appears in the discovered-scales list
+
+#### Scenario: Both browses find the same scale
+- **WHEN** both browse paths resolve the same scale within one scan
+- **THEN** one row appears, keyed by hostname, not two
+
+#### Scenario: A resolved instance with no exposable hostname is dropped, loudly
+- **WHEN** the NsdManager browse resolves an instance on a device below API 36, where the SRV target cannot be read
+- **THEN** no row is added, and the log records the instance name, its address, the device's API level, and that API 36 is required
+
+#### Scenario: Discovery could not start
+- **WHEN** `NsdManager` is unavailable or rejects `discoverServices`
+- **THEN** the log distinguishes that from a browse that ran and found nothing
+
+#### Scenario: The reconnect ladder's browse does not stop the user's
+- **WHEN** a reconnect browse and a user-initiated scan are both running on Android
+- **THEN** each has its own NsdManager browse and neither cancels the other
+
+#### Scenario: Cancelling a scan stops the system browse promptly
+- **WHEN** a browse is cancelled or the app is torn down while an NsdManager browse is in flight
+- **THEN** that browse stops within one poll interval rather than running out its deadline
+
+### Requirement: Multicast reception is licensed by the app, not by an unrelated feature
+
+On Android the app SHALL hold a `WifiManager.MulticastLock` for the duration of every mDNS lookup and every mDNS browse it performs. The lock SHALL be reference-counted across all concurrent users and released when the last one finishes, and it SHALL NOT depend on any user-facing feature being enabled.
+
+Android's Wi-Fi driver discards multicast frames not addressed to this device unless such a lock is held, and the failure is completely silent: the socket opens, the group join succeeds, queries go out, and nothing arrives. Until now the only lock in the app belonged to the shot server, taken in its `start()` and released in its `stop()` — and that server is **disabled by default**, so on a default install no lock was ever held while three separate comments in the source described one as held for the whole app lifetime.
+
+This requirement stands on its own and is NOT contingent on the query source port. An earlier version of this text claimed the two were halves of one change; they are not. The lock is required for any multicast reception the app relies on, and it was demonstrably absent on a default install. Binding 5353 on Android was a separate idea, and a wrong one — see the query-port requirement below.
+
+The lock SHALL be scoped to the operations that need it rather than taken once at startup, because it disables a hardware filter and therefore wakes the CPU for multicast traffic addressed to the whole LAN.
+
+Failure to take the lock SHALL NOT prevent discovery from running. It SHALL be logged, once rather than per attempt, since discovery repeats on a reconnect ladder.
+
+#### Scenario: Discovery works with every optional feature off
+- **WHEN** an Android device runs a scan with the shot server, MQTT and every other network feature disabled
+- **THEN** the multicast lock is held for the duration of the lookups and browses, and multicast answers are received
+
+#### Scenario: The lock is not held when nothing is discovering
+- **WHEN** no lookup or browse is in flight
+- **THEN** no multicast lock is held, so the Wi-Fi hardware filter is back on
+
+#### Scenario: Concurrent discovery does not release the lock early
+- **WHEN** a user scan and a reconnect browse overlap and one of them finishes
+- **THEN** the lock remains held until the last one finishes
+
+#### Scenario: A device that cannot take the lock still discovers
+- **WHEN** no Android context or WifiManager is available
+- **THEN** the lookup or browse still runs, and the inability to take the lock is logged once rather than on every attempt
+
+### Requirement: mDNS queries are sent from port 5353 except on Android
+
+The app's own mDNS queries SHALL be sent from a socket bound to port 5353, falling back to an ephemeral source port when that bind fails — **except on Android, where an ephemeral port SHALL be used unconditionally.**
+
+The Android exclusion is measured, not assumed. Android's system mDNS daemon already owns 5353; `SO_REUSEPORT` lets the app's bind succeed and then inbound packets are delivered to the daemon rather than to the app. On-device, with a multicast lock held, this produced `records=0` for **every** host — including the MQTT broker's `.local` name, which resolves normally from an ephemeral port and which an unrelated feature depends on. In the same browse, NsdManager (the daemon, on 5353) resolved a scale in 41 ms while the app's own 5353 socket saw 2 records and failed.
+
+A prior version of this codebase recorded that measurement in a comment. It was deleted on the theory that the result was an artifact of the app not holding a `WifiManager.MulticastLock`; that theory was wrong — the lock was subsequently held and 5353 remained blind — and acting on it broke every `.local` lookup on Android. The platform split SHALL be asserted by a test rather than left to a comment.
+
+This is not a preference about sockets; it changes what the responder is obliged to do. A query from an ephemeral source port is a "legacy" query under RFC 6762 §6.7, which a responder must answer by **unicast** — so the answer depends on the responder being able to address this host directly, and an openscale scale has been measured declining to answer a peer it has no fresh path to for hours while answering another host on the same LAN in 272 ms. From 5353 the query is ordinary, the answer returns multicast to the group, and nothing per-peer is in the path. This is the openscale maintainers' own recommended client-side workaround, and it is available now, without a firmware change.
+
+The port a socket actually bound to SHALL be reported with every lookup and every browse, in the log and in the discovery statistics. Without it, `records=0` cannot be interpreted: it is the difference between "nothing is there" and "the responder will not answer this particular host".
+
+The policy SHALL be forceable to either extreme from the diagnostic surface. That surface is what settled this: forcing `queryPort=mdns` on the current build, on an Android 16 tablet with the multicast lock held, reproduced the original result exactly — the bind SUCCEEDS (`srcPort= 5353`) and the socket then receives zero records, from any host, while the same build on an ephemeral port resolves an unrelated `.local` name in 12 ms. So the Android exclusion stands on a reproduction, not on a single historical measurement, and the "it predates the MulticastLock" hypothesis is closed. The forcing capability SHALL be kept regardless, because it is how the question was settled and how a future platform change would be re-checked.
+
+#### Scenario: Android never binds 5353 by default
+- **WHEN** a lookup or browse runs on Android with no query port explicitly selected
+- **THEN** the socket binds an ephemeral port, so the system daemon keeps receiving its own traffic
+
+#### Scenario: The bound port is in the log either way
+- **WHEN** any hostname lookup or mjansson browse runs
+- **THEN** its log line reports the local port the socket bound to, so a zero-record result can be attributed to a legacy query or ruled out as one
+
+#### Scenario: 5353 is unavailable
+- **WHEN** the bind to 5353 fails because another process holds it without `SO_REUSEPORT`
+- **THEN** the query still goes out from an ephemeral port rather than the lookup failing, and the log reports that port
+
+#### Scenario: The A/B can be run without a rebuild
+- **WHEN** an operator forces the ephemeral policy and then the 5353 policy against the same LAN
+- **THEN** each run reports which port it used, so the two results can be compared as different treatments rather than assumed to be the same one
+
+### Requirement: The development platform runs the shipped platforms' discovery path
+
+On macOS the default browse backend SHALL be the mjansson implementation, not Bonjour, while BOTH backends remain compiled into the binary and selectable at runtime.
+
+This inverts "ship what the platform prefers", deliberately. Bonjour is measurably better on macOS — 66-113 ms to a first row against mjansson's 160-270 ms, because the system daemon is always listening and its cache is warm. But macOS is the development platform rather than a shipped one: about two installs, both developers, against hundreds of Android users. Defaulting to Bonjour meant the browse path three shipped platforms use was never exercised by the only machine anyone develops on, which is how a multi-hour Android discovery outage reached users and survived review.
+
+Bonjour SHALL remain selectable on macOS, and its compile guards SHALL NOT be narrowed to exclude either backend. The default is the only thing that moves.
+
+Bonjour keeps its field coverage from iOS, which ships it. What this default gives up is EARLY warning: an iOS release build is compiled only by CI, so macOS was the one place a Bonjour regression would surface before users saw it. A Bonjour browse SHALL be run on macOS before an iOS release.
+
+The hostname-resolver default SHALL NOT follow the browse backend. The two are not symmetrical: the mjansson browse is what three shipped platforms use, while the mjansson resolver is Android-only and QHostInfo is what iOS ships. Flipping both would leave neither iOS path with development coverage.
+
+#### Scenario: A developer's ordinary scan exercises the Android browse
+- **WHEN** a scan runs on macOS with no backend explicitly selected
+- **THEN** the mjansson browse runs, and the log names it as the backend that ran
+
+#### Scenario: Bonjour is still reachable on macOS
+- **WHEN** a browse explicitly selects the Bonjour backend on macOS
+- **THEN** Bonjour runs and is reported as the backend that ran
+
+#### Scenario: iOS is unaffected
+- **WHEN** a browse runs on iOS with no backend selected
+- **THEN** Bonjour runs, because mjansson is not compiled there at all
+
+#### Scenario: The resolver default is independent
+- **WHEN** a hostname lookup runs on macOS with no resolver selected
+- **THEN** the system resolver runs, not mjansson, even though the browse defaults to mjansson
 

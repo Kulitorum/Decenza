@@ -57,7 +57,7 @@ QString normalizeHostname(const QString& hostname)
     return h;
 }
 
-QString wifiScaleDisplayName(const QString& hostname)
+QString shortHostname(const QString& hostname)
 {
     // Strip the ".local" suffix: the user named the scale "hdstest", and the
     // domain part is the same for every scale so it carries no information.
@@ -65,9 +65,20 @@ QString wifiScaleDisplayName(const QString& hostname)
     const qsizetype dot = host.indexOf(QLatin1Char('.'));
     if (dot > 0)
         host = host.left(dot);
+    return host;
+}
+
+QString wifiScaleLabel(const QString& hostname)
+{
+    const QString host = shortHostname(hostname);
     if (host.isEmpty())
-        return QStringLiteral("Half Decent Scale (WiFi)");
-    return QStringLiteral("Half Decent Scale (%1) (WiFi)").arg(host);
+        return QStringLiteral("Half Decent Scale");
+    return QStringLiteral("Half Decent Scale (%1)").arg(host);
+}
+
+QString wifiScaleDisplayName(const QString& hostname)
+{
+    return QStringLiteral("%1 (WiFi)").arg(wifiScaleLabel(hostname));
 }
 
 namespace {
@@ -165,12 +176,10 @@ QString rawLabel(const WifiScaleResult& result)
         return result.instanceName;
     if (!result.mdnsName.isEmpty())
         return result.mdnsName;
-    // Fallback-only hit: all we have is the hostname. "hds.local" -> "hds".
-    QString host = result.hostname;
-    const qsizetype dot = host.indexOf(QLatin1Char('.'));
-    if (dot > 0)
-        host = host.left(dot);
-    return host;
+    // Fallback-only hit: all we have is the hostname. Composed through the same
+    // helper the CONNECTED scale's name uses, so one scale does not read
+    // "hds" while discovered and "Half Decent Scale (hds)" once connected.
+    return wifiScaleLabel(result.hostname);
 }
 
 }  // namespace
@@ -180,6 +189,27 @@ QString displayName(const WifiScaleResult& result, bool ambiguous)
     QString label = rawLabel(result);
     if (label.isEmpty())
         label = result.address;
+
+    // The hostname goes in unconditionally, whatever the firmware chose to
+    // publish. openscale only embeds the scale's name in its DNS-SD instance
+    // label when the user has RENAMED it: a default scale advertises the bare
+    // "Half Decent Scale", so its row read "Half Decent Scale (WiFi)" with no
+    // hostname anywhere, while a renamed one beside it read "Half Decent Scale
+    // (hdstest) (WiFi)". Two scales, one of them unidentifiable, and the
+    // difference was a firmware detail rather than anything about the device.
+    //
+    // It was also inconsistent with itself: the same scale, once CONNECTED,
+    // is named by wifiScaleDisplayName(), which has always put the hostname in.
+    // The hostname is the identity everything else keys on — it is what
+    // "wifi:<hostname>" persists and what upsertByHostname dedupes by — so it
+    // is the one part of the label that has to be there.
+    //
+    // Skipped when the label already carries it, so a renamed scale does not
+    // become "Half Decent Scale (hdstest) (hdstest)".
+    const QString host = shortHostname(result.hostname);
+    if (!host.isEmpty() && !label.contains(host, Qt::CaseInsensitive))
+        label += QStringLiteral(" (%1)").arg(host);
+
     if (ambiguous && !result.address.isEmpty())
         label += QStringLiteral(" (%1)").arg(result.address);
     return label;

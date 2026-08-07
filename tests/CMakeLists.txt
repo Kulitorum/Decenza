@@ -1173,6 +1173,10 @@ add_decenza_test(tst_wifiscalediscovery
     tst_wifiscalediscovery.cpp
     ${CMAKE_SOURCE_DIR}/src/network/wifiscalediscovery.cpp
     ${CMAKE_SOURCE_DIR}/src/network/mdnsresolver.cpp
+    # Two files, one TU each, both tiny — not worth a library. multicastlock.cpp
+    # is a no-op off Android and exists here only because mdnsresolver.cpp calls
+    # into it; see the duplication rules in TESTING.md before widening this.
+    ${CMAKE_SOURCE_DIR}/src/network/multicastlock.cpp
 )
 target_link_libraries(tst_wifiscalediscovery PRIVATE decenza_wifiscaleresultlib)
 

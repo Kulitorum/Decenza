@@ -875,9 +875,9 @@ private slots:
     // cached IP is retained and the retry is deferred rather than run
     // immediately. Only ConnectionRefusedError still belongs in this test.
     //
-    // The user-visible symptom this prevents
-    // is on macOS cold start: ARP/route stale at .242 → cached-IP connect
-    // fast-fails → without this fix we wait 5 s, during which BLE-fallback
+    // The user-visible symptom this prevents is on macOS cold start: a cached-IP
+    // connect fast-fails against a stale route, and without this fix we wait 5 s,
+    // during which BLE-fallback
     // also fails (CoreBluetooth radio not powered on yet), tripping a
     // FlowScale "no scale" dialog before the WiFi scale could just be retried.
     //
@@ -923,6 +923,62 @@ private slots:
         QCOMPARE(cacheWrites[0].second, QString());  // eviction
         QCOMPARE(cacheWrites[1].first, hostnameServer.host());
         QVERIFY(!cacheWrites[1].second.isEmpty());   // re-cache with new IP
+    }
+
+    // A cached IP that NOBODY ANSWERED must be kept, not evicted.
+    //
+    // onRecognitionTimeout fires for two states that need opposite responses: a
+    // peer answered and turned out not to be an HDS (evict — the address really is
+    // wrong), or nothing answered at all (keep — silence says nothing about the
+    // address). Evicting on silence is what turns a scale that was merely
+    // rebooting into a permanently unfindable one, and mDNS silence is ordinary:
+    // a single query goes unanswered 25-60% of the time on a normal LAN, for
+    // every host on the segment. See docs/WIFI_SCALE_MDNS.md. (This comment used
+    // to justify the rule with an ARP mechanism; that account is refuted, and the
+    // rule never depended on it.)
+    //
+    // Driven through onRecognitionTimeout directly rather than by waiting out a
+    // real 5 s recognition window: the branch under test is chosen by
+    // m_wsHandshakeDone alone, and a behavioural version would add five seconds to
+    // the suite to reach the same line.
+    void silentCachedIpIsKeptAndAnsweringOneIsEvicted_data() {
+        QTest::addColumn<bool>("handshakeDone");
+        QTest::addColumn<int>("expectedCacheWrites");
+        QTest::newRow("nothing answered — keep") << false << 0;
+        QTest::newRow("peer answered, not an HDS — evict") << true << 1;
+    }
+
+    void silentCachedIpIsKeptAndAnsweringOneIsEvicted() {
+        QFETCH(bool, handshakeDone);
+        QFETCH(int, expectedCacheWrites);
+
+        DecentScaleWifi driver;
+        QList<QPair<QString, QString>> cacheWrites;
+        driver.setIpCacheUpdate([&](const QString& host, const QString& ip) {
+            cacheWrites.append({host, ip});
+        });
+
+        // The state a cached-IP attempt is in when its recognition window expires.
+        driver.m_hostname = QStringLiteral("hds.local");
+        driver.m_currentTarget = QStringLiteral("192.168.10.145");
+        driver.m_currentTargetIsHostname = false;
+        driver.m_triedHostnameFallback = false;
+        driver.m_wsHandshakeDone = handshakeDone;
+        driver.recreateSocket();  // onRecognitionTimeout aborts the socket
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("No recognizable HDS frame.*")));
+        driver.onRecognitionTimeout();
+
+        QCOMPARE(cacheWrites.size(), expectedCacheWrites);
+        if (expectedCacheWrites > 0) {
+            QCOMPARE(cacheWrites[0].first, QStringLiteral("hds.local"));
+            QCOMPARE(cacheWrites[0].second, QString());  // eviction writes an empty IP
+        }
+
+        // Either way the hostname fallback still runs — keeping the address must
+        // not also stop the attempt from progressing.
+        QVERIFY(driver.m_pendingHostnameFallback);
     }
 
     // recognizedAsHds is the single source of truth for "this WS endpoint is
