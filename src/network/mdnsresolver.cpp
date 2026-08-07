@@ -5,9 +5,14 @@
 // iOS is the only exclusion because a raw multicast socket there needs an
 // entitlement Apple grants by application (see the header).
 //
-// macOS builds this deliberately even though it defaults to Bonjour: it is the
-// only way to exercise the backend Android and Windows/Linux ship without
-// deploying to a device. Do NOT narrow this to Q_OS_DARWIN / `NOT APPLE`.
+// macOS builds this AND defaults to it. Bonjour is the faster, more native
+// choice on an Apple platform and stays selectable, but the default is mjansson
+// because macOS is the development platform: it is the only way the backend
+// Android, Windows and Linux ship gets exercised daily without deploying to a
+// device. Do NOT narrow this to Q_OS_DARWIN / `NOT APPLE`.
+//
+// (This banner said "even though it defaults to Bonjour" until the default moved
+// in this same change. Re-read it if resolveBackend() changes again.)
 //
 // Wider than the original guard (Q_OS_ANDROID). It used to be true that
 // resolveHostname() was only *called* on Android; it no longer is. The call site
@@ -26,6 +31,24 @@ std::atomic<MdnsResolver::QueryPort> g_queryPort{MdnsResolver::QueryPort::Auto};
 #ifndef Q_OS_IOS
 
 #include "multicastlock.h"
+#include "core/logtags.h"
+
+// ---- This file's log prefix, defined ONCE -------------------------------
+//
+// Every line here used to hand-type "[MdnsResolver]", 22 times, with no entry in
+// the registry (core/logtags.h) behind it. Two consequences, both real: the
+// copies were free to drift, and a reader filtering a submitted log by a
+// registered marker got ZERO hits for the resolver — while this subsystem is
+// diagnosed almost entirely from submitted logs.
+//
+// These emit the registered [Network] marker plus a tag naming this file, which
+// is what networklogging.h's helpers do. The streaming form is kept rather than
+// the (tag, QString) helpers because these sites interleave 2-8 values apiece and
+// several are per-packet traces; composing a QString at each would reflow the
+// file for no gain in what a reader sees. The property that matters — one
+// definition, and a marker the registry declares — holds either way.
+#define MDNS_DBG  qDebug().noquote()   << "[" DECENZA_LOG_MARKER_NETWORK "][MdnsResolver]"
+#define MDNS_WARN qWarning().noquote() << "[" DECENZA_LOG_MARKER_NETWORK "][MdnsResolver]"
 
 #include <QHostAddress>
 #include <QElapsedTimer>
@@ -104,7 +127,7 @@ int mdnsResolveCallback(int sock, const struct sockaddr* from, size_t addrlen,
         const char* entryStr = entry == MDNS_ENTRYTYPE_ANSWER ? "ANSWER"
                              : entry == MDNS_ENTRYTYPE_AUTHORITY ? "AUTH"
                              : entry == MDNS_ENTRYTYPE_ADDITIONAL ? "ADD'L" : "?";
-        qDebug().noquote() << "[MdnsResolver]   rx" << entryStr
+        MDNS_DBG << "  rx" << entryStr
                            << rtypeName(rtype) << "name=" << recordName;
     }
 
@@ -382,7 +405,7 @@ QString resolveHostname(const QString& hostname, int timeoutMs,
     int boundPort = 0;
     int sock = openQuerySocket(&boundPort);
     if (sock < 0) {
-        qWarning() << "[MdnsResolver] socket open FAILED for" << hostname
+        MDNS_WARN << "socket open FAILED for" << hostname
                    << "errno=" << errno;
         if (stats)
             stats->error = QString("mDNS socket open failed (errno %1)").arg(errno);
@@ -405,7 +428,7 @@ QString resolveHostname(const QString& hostname, int timeoutMs,
     // srcPort is not decoration: 5353 means an ordinary query answered by
     // multicast, anything else a legacy query the responder must unicast back.
     // Without it, "records=0" cannot be read.
-    qDebug().noquote() << "[MdnsResolver] start host=" << hostname
+    MDNS_DBG << "start host=" << hostname
                        << "timeout=" << timeoutMs << "ms sock=" << sock
                        << "srcPort=" << boundPort;
 
@@ -437,7 +460,7 @@ QString resolveHostname(const QString& hostname, int timeoutMs,
                                           buffer, sizeof(buffer), 0);
             ++sendCount;
             if (sendRet >= 0) ++sendOk;
-            qDebug().noquote() << "[MdnsResolver]   query #" << sendCount
+            MDNS_DBG << "  query #" << sendCount
                                << "sent ret=" << sendRet
                                << (sendRet < 0 ? QString(" errno=%1").arg(errno) : QString());
             nextSendAt = deadline.elapsed() + kRetransmitMs;
@@ -478,7 +501,7 @@ QString resolveHostname(const QString& hostname, int timeoutMs,
     //                          query (responder/name issue), even though other
     //                          hosts on the LAN are.
     //  - result set          → success.
-    qDebug().noquote() << "[MdnsResolver] done host=" << hostname
+    MDNS_DBG << "done host=" << hostname
                        << "result=" << (ctx.resolvedIp.isEmpty() ? QString("(none)") : ctx.resolvedIp)
                        << "queries=" << sendCount
                        << "records=" << ctx.recordsSeen
@@ -490,7 +513,7 @@ QString resolveHostname(const QString& hostname, int timeoutMs,
     // multicast route / persistent ENOBUFS) from a silent responder, so triage
     // doesn't conflate "couldn't ask" with "asked but got no answer".
     if (sendCount > 0 && sendOk == 0) {
-        qWarning().noquote() << "[MdnsResolver] all" << sendCount
+        MDNS_WARN << "all" << sendCount
                              << "query sends FAILED for" << hostname
                              << "— transport problem, not necessarily an absent responder";
         if (stats)
@@ -523,7 +546,7 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
     int boundPort = 0;
     int sock = openQuerySocket(&boundPort);
     if (sock < 0) {
-        qWarning() << "[MdnsResolver] browse socket open FAILED for" << serviceType
+        MDNS_WARN << "browse socket open FAILED for" << serviceType
                    << "errno=" << errno;
         if (stats) stats->error = QString("socket open failed (errno %1)").arg(errno);
         return {};
@@ -537,7 +560,7 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
     if (ctx.serviceType.endsWith('.'))
         ctx.serviceType.chop(1);
 
-    qDebug().noquote() << "[MdnsResolver] browse start service=" << serviceType
+    MDNS_DBG << "browse start service=" << serviceType
                        << "timeout=" << timeoutMs << "ms sock=" << sock
                        << "srcPort=" << boundPort;
 
@@ -616,7 +639,7 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
             // Anything else (EBADF, EINVAL, ENOMEM) aborts the browse. Without
             // recording it the summary is indistinguishable from an empty
             // network, which is the exact confusion BrowseStats exists to stop.
-            qWarning() << "[MdnsResolver] browse select() failed errno=" << errno;
+            MDNS_WARN << "browse select() failed errno=" << errno;
             if (stats && stats->error.isEmpty())
                 stats->error = QString("select() failed (errno %1) — browse aborted early").arg(errno);
             break;
@@ -653,7 +676,7 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
         if (!browseInstanceResolved(it->target, it->port,
                                     ctx.addresses.contains(it->target))) {
             ++dropped;
-            qDebug().noquote() << "[MdnsResolver] browse dropped unresolved instance="
+            MDNS_DBG << "browse dropped unresolved instance="
                                << instanceLabel
                                << "(srv=" << (it->target.isEmpty() ? "no" : "yes")
                                << " addr=" << (ctx.addresses.contains(it->target) ? "yes" : "no") << ")";
@@ -662,7 +685,7 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
         results.append(makeInstance(it.key(), *it, ctx));
     }
 
-    qDebug().noquote() << "[MdnsResolver] browse done service=" << serviceType
+    MDNS_DBG << "browse done service=" << serviceType
                        << "resolved=" << results.size()
                        << "dropped=" << dropped
                        << "queries=" << sendCount
@@ -680,7 +703,7 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
     }
 
     if (sendCount > 0 && sendOk == 0)
-        qWarning().noquote() << "[MdnsResolver] all" << sendCount
+        MDNS_WARN << "all" << sendCount
                              << "browse query sends FAILED for" << serviceType
                              << "— transport problem, not necessarily an absent responder";
 
@@ -904,7 +927,7 @@ void DNSSD_API appleBrowseReply(DNSServiceRef, DNSServiceFlags flags,
         // add-only, so a row the user has already seen is not retracted under
         // their finger. The next scan rebuilds from scratch.
         ctx->removesSeen++;
-        qDebug().noquote() << "[MdnsResolver] browse withdrawal (not applied mid-scan) instance="
+        MDNS_DBG << "browse withdrawal (not applied mid-scan) instance="
                            << key;
         return;
     }
@@ -952,7 +975,7 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
 
     DNSServiceErrorType err = DNSServiceCreateConnection(&ctx.connection);
     if (err != kDNSServiceErr_NoError) {
-        qWarning() << "[MdnsResolver] DNSServiceCreateConnection failed err=" << err;
+        MDNS_WARN << "DNSServiceCreateConnection failed err=" << err;
         if (stats) stats->error = QString("DNSServiceCreateConnection failed (err %1)").arg(err);
         return {};
     }
@@ -963,14 +986,14 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
                            regtype.toUtf8().constData(), domain.toUtf8().constData(),
                            appleBrowseReply, &ctx);
     if (err != kDNSServiceErr_NoError) {
-        qWarning() << "[MdnsResolver] DNSServiceBrowse failed err=" << err;
+        MDNS_WARN << "DNSServiceBrowse failed err=" << err;
         if (stats) stats->error = describeBrowseError(err);
         DNSServiceRefDeallocate(ctx.connection);
         return {};
     }
     ctx.children.append(browseRef);
 
-    qDebug().noquote() << "[MdnsResolver] browse start (Bonjour) service=" << serviceType
+    MDNS_DBG << "browse start (Bonjour) service=" << serviceType
                        << "timeout=" << timeoutMs << "ms";
 
     // How often the loop below re-reads `cancel`. Unlike the mjansson path this
@@ -983,7 +1006,7 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
         // Warn as well as record: every other failure path here does both, and
         // with a null `stats` this would otherwise produce an empty result set
         // with no diagnostic anywhere — the loop below simply never runs.
-        qWarning() << "[MdnsResolver] DNSServiceRefSockFD returned no usable socket";
+        MDNS_WARN << "DNSServiceRefSockFD returned no usable socket";
         if (stats)
             stats->error = QStringLiteral("DNSServiceRefSockFD returned no usable socket");
     }
@@ -1019,7 +1042,7 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
         const int ret = select(fd + 1, &readfds, nullptr, nullptr, &tv);
         if (ret < 0) {
             if (errno == EINTR) continue;
-            qWarning() << "[MdnsResolver] browse select() failed errno=" << errno;
+            MDNS_WARN << "browse select() failed errno=" << errno;
             if (stats && stats->error.isEmpty())
                 stats->error = QString("select() failed (errno %1) — browse aborted early").arg(errno);
             break;
@@ -1031,7 +1054,7 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
             // kDNSServiceErr_ServiceNotRunning). Anything collected so far is
             // still returned, but the caller must know the browse was cut short
             // rather than simply finding nothing more.
-            qWarning() << "[MdnsResolver] DNSServiceProcessResult failed err=" << procErr;
+            MDNS_WARN << "DNSServiceProcessResult failed err=" << procErr;
             if (stats && stats->error.isEmpty())
                 stats->error = QString("mDNSResponder connection failed mid-browse (err %1)").arg(procErr);
             break;
@@ -1046,7 +1069,7 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
     ctx.callbackContexts.clear();
 
     const qsizetype dropped = ctx.pending.size() - ctx.results.size();
-    qDebug().noquote() << "[MdnsResolver] browse done (Bonjour) service=" << serviceType
+    MDNS_DBG << "browse done (Bonjour) service=" << serviceType
                        << "resolved=" << ctx.results.size()
                        << "dropped=" << dropped
                        << "adds=" << ctx.addsSeen
@@ -1067,8 +1090,8 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
     }
 
     if (ctx.permissionDenied) {
-        qWarning().noquote()
-            << "[MdnsResolver] Local Network permission DENIED — the browse could not run."
+        MDNS_WARN
+            << "Local Network permission DENIED — the browse could not run."
             << "This is not an empty network; the user must grant Local Network access.";
     }
 
@@ -1282,7 +1305,7 @@ QVector<ServiceInstance> browseService(const QString& serviceType, int timeoutMs
     return browseServiceMjansson(serviceType, timeoutMs, onResolved, stats, cancel);
 #else
     // Unreachable: iOS always resolves to Bonjour above.
-    qWarning() << "[MdnsResolver] no browse backend available";
+    MDNS_WARN << "no browse backend available";
     return {};
 #endif
 }

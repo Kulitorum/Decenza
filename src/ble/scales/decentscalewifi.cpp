@@ -341,15 +341,18 @@ void DecentScaleWifi::attemptHostname() {
             // A-query. It does: a later run on the same tablet and scale
             // resolved this host here in 357 ms, one query, one record.
             //
-            // Both outcomes are what an unreliable path looks like, and the path
-            // is unreliable for everything: measured 2026-08-06, a single mDNS
-            // query goes unanswered 25-60% of the time for most hosts on an
-            // ordinary LAN, the scales included and not as outliers. So neither
-            // the miss nor the 357 ms hit needs a scale-specific explanation.
-            // docs/WIFI_SCALE_MDNS.md has the numbers and the three mechanisms
-            // that were asserted here and then refuted — including a per-peer
-            // effect this comment used to state as established, which rested on
-            // samples far too small to distinguish from that loss rate.
+            // What separates the two is whether this device had sent the scale
+            // IP traffic. Resolution is PER PEER: measured 2026-08-06 with two
+            // controls, a failed TCP connect to one scale moved that scale from
+            // 0/6 to 4/6 while a second scale stayed at 0/6, and a connect to
+            // the gateway moved neither. So the miss and the 357 ms hit are the
+            // same responder in two states, not an unreliable path.
+            //
+            // docs/WIFI_SCALE_MDNS.md carries the measurements, the mechanism
+            // (inferred, not captured: the scale must ARP for us before it can
+            // unicast a reply to a legacy query), and the two accounts refuted
+            // along the way. Do not restate any of it here — an earlier version
+            // of this comment asserted one of the refuted ones as settled.
             //
             // The constant stays because agreeing with the discovery path is
             // right on its own terms, and because a 5 s budget costs nothing on

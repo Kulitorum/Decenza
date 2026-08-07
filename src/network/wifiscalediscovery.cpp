@@ -293,8 +293,16 @@ WifiScaleDiscovery::NsdLine WifiScaleDiscovery::parseNsdLine(const QString& line
         out.failureCode = f.value(1);
         return out;
     }
-    if (f.size() < 5)
-        return out;  // truncated — not an instance, and not a failure either
+    if (f.size() < 5) {
+        // Every well-formed line has 5 fields, including below API 36 where `host`
+        // is legitimately EMPTY but still present. So this is a wire-format bug
+        // between the two halves of this feature, not an expected state — and
+        // returning silently makes it indistinguishable from "nothing arrived this
+        // slice", which is the one thing the caller must never confuse it with.
+        SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
+            QString("NSD line malformed (%1 field(s), expected 5) — dropped").arg(f.size()));
+        return out;
+    }
 
     out.instanceName = f[0];
     out.hostname = f[1];
@@ -351,8 +359,16 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
     // worker's completion decrements this, and browseFinished() waits for zero.
     ++m_browsePathsOutstanding;
 
+    // Deadline starts HERE, on the object's thread, not when the worker happens
+    // to be scheduled. One scan queues five blocking tasks on the global pool, so
+    // a late start would otherwise push browseFinished() out by the queue delay —
+    // and BLEManager::isScanning() folds isBrowsing(), so the "Scanning…"
+    // indicator would stay lit past the deadline the user was promised.
+    QElapsedTimer queuedAt;
+    queuedAt.start();
+
     QPointer<WifiScaleDiscovery> self(this);
-    auto runnable = QRunnable::create([self, timeoutMs, generation, cancel, token]() {
+    auto runnable = QRunnable::create([self, timeoutMs, generation, cancel, token, queuedAt]() {
         // STDERR_TAGGED throughout, never the emitting SCALE_INFO_TAGGED: this
         // lambda and the ones it posts are detached from any `this` and reach the
         // object only through the QPointer. The emitting macro needs `this` in
@@ -370,6 +386,17 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
                 if (self) self->finishOneBrowsePath(generation, ran);
             }, Qt::QueuedConnection);
         });
+
+        // Honour the cancel token BEFORE registering anything with NsdManager.
+        // One Android scan queues five blocking tasks on the global pool (this
+        // browse, the mjansson browse, and one per fallback hostname), so on a
+        // 4-core tablet at least one starts late — and without this check a
+        // runnable still queued when stopBrowse() or ~WifiScaleDiscovery fired
+        // would register a DiscoveryListener, fall straight out of the loop
+        // below, and tear it down again, doing JNI work for an object that is
+        // already gone.
+        if (cancel->load(std::memory_order_relaxed))
+            return;
 
         QJniObject ctx = QNativeInterface::QAndroidApplication::context();
         if (!ctx.isValid()) {
@@ -395,12 +422,12 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
         // results reach the device list as each scale answers instead of all at
         // once at the deadline, and the cancel token is honoured within one slice.
         // A worker that ran the full window would pin a QThreadPool thread, and
-        // ~QCoreApplication calls waitForDone() unconditionally — that is a
+        // ~QCoreApplication calls waitForDone() unconditionally
+        // (qtbase/src/corelib/kernel/qcoreapplication.cpp:927) — that is a
         // multi-second hang on quit with the UI already gone.
         constexpr int kPollSliceMs = 400;
         const int sdk = QNativeInterface::QAndroidApplication::sdkVersion();
-        QElapsedTimer clock;
-        clock.start();
+        const QElapsedTimer& clock = queuedAt;  // see queuedAt: measured from browse(), not from here
         int resolved = 0;
         int unnamed = 0;
 
@@ -414,6 +441,14 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
 
             const NsdLine parsed = WifiScaleDiscovery::parseNsdLine(lineObj.toString());
             if (parsed.startFailure) {
+                // discoverServices() only ACCEPTED the request; the real start
+                // failure arrives here, asynchronously. Retract nsdRan, or this
+                // path retires as "ran" and browseFinished(true) is reported for
+                // a browse that never started — which is exactly the conflation
+                // between "could not run" and "ran and found nothing" that the
+                // flag exists to prevent, and which BLEManager latches and
+                // devices_wifi then reports to the user.
+                nsdRan = false;
                 SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
                     QString("NSD browse failed to start (NsdManager error %1)")
                         .arg(parsed.failureCode));
@@ -460,12 +495,35 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
             }, Qt::QueuedConnection);
         }
 
+        // Read the Java-side counters BEFORE stopping: everything NsdManager saw
+        // that never reached pollBrowse() is invisible to `resolved`/`unnamed`, so
+        // without these an empty LAN and a browse that found scales and discarded
+        // every one produce the same line. The mjansson path reports the same
+        // distinction as instancesSeen; the spec requires it of both.
+        int nsdSeen = -1, nsdResolveFailed = -1, nsdNoAddress = -1;
+        const QJniObject countersObj = QJniObject::callStaticObjectMethod(
+            kHelper, "browseCounters", "(J)Ljava/lang/String;",
+            static_cast<jlong>(token));
+        if (countersObj.isValid()) {
+            const QStringList parts = countersObj.toString().split(QLatin1Char('\t'));
+            if (parts.size() == 3) {
+                nsdSeen = parts[0].toInt();
+                nsdResolveFailed = parts[1].toInt();
+                nsdNoAddress = parts[2].toInt();
+            }
+        }
+
         QJniObject::callStaticMethod<void>(kHelper, "stopBrowse", "(J)V",
                                            static_cast<jlong>(token));
 
         SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
             QString("NSD browse finished in %1 ms — %2 resolved, %3 dropped for want "
-                    "of a hostname").arg(clock.elapsed()).arg(resolved).arg(unnamed));
+                    "of a hostname; NsdManager saw %4 instance(s), %5 failed to "
+                    "resolve, %6 had no usable IPv4")
+                .arg(clock.elapsed()).arg(resolved).arg(unnamed)
+                .arg(nsdSeen < 0 ? QStringLiteral("?") : QString::number(nsdSeen),
+                     nsdResolveFailed < 0 ? QStringLiteral("?") : QString::number(nsdResolveFailed),
+                     nsdNoAddress < 0 ? QStringLiteral("?") : QString::number(nsdNoAddress)));
     });
     runnable->setAutoDelete(true);
     QThreadPool::globalInstance()->start(runnable);

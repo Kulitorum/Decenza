@@ -1,10 +1,12 @@
 #include <QtTest>
 #include <QMetaMethod>
+#include <QRegularExpression>
 #include <QSignalSpy>
 
 #include <algorithm>
 
 #include "network/mdnsresolver.h"
+#include "network/multicastlock.h"
 #include "network/wifiscalediscovery.h"
 // For the reconnect-browse gating predicates. Header-inline statics only — no
 // BLEManager is constructed and blemanager.cpp is not linked.
@@ -38,6 +40,11 @@ private slots:
     void cleanup() {
         MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
         MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
+        // The THIRD selector, and the one with teeth: an explicit Mdns/Ephemeral
+        // request also disables the port fallback that Auto gets, so a pin left
+        // behind can make every later socket open fail outright -- and the tests
+        // that pin it run before six that do real socket I/O in this binary.
+        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Auto);
     }
 
     // The default has to stay what each platform SHIPS. Making the resolver
@@ -178,7 +185,6 @@ private slots:
         QVERIFY(MdnsResolver::queryPortUsesMdnsPort());
         MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Ephemeral);
         QVERIFY(!MdnsResolver::queryPortUsesMdnsPort());
-        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Auto);
     }
 
     // The whole point of the explicit values is settling an A/B, so a forced
@@ -198,7 +204,33 @@ private slots:
         QFETCH(QString, name);
         MdnsResolver::setQueryPort(static_cast<MdnsResolver::QueryPort>(port));
         QCOMPARE(MdnsResolver::queryPortName(), name);
-        MdnsResolver::setQueryPort(MdnsResolver::QueryPort::Auto);
+    }
+
+    // The lock is REFERENCE COUNTED across overlapping holders, and one scan
+    // really does overlap several: the browse takes one for its whole window
+    // while each concurrent A-record probe takes another. If a nested Holder
+    // released the lock on ITS destruction, the browse would silently lose
+    // multicast reception part-way through — the exact invisible failure this
+    // class was added to close.
+    //
+    // Platform-independent: the count is plain C++ and only the acquire/release
+    // bodies are Android-only, so this asserts the arithmetic everywhere.
+    void multicastLockCountsHoldersRatherThanToggling() {
+        QCOMPARE(MulticastLock::holderCount(), 0);
+        {
+            MulticastLock::Holder outer;
+            QCOMPARE(MulticastLock::holderCount(), 1);
+            {
+                MulticastLock::Holder inner;
+                QCOMPARE(MulticastLock::holderCount(), 2);
+                MulticastLock::Holder third;
+                QCOMPARE(MulticastLock::holderCount(), 3);
+            }
+            // Inner holders gone, outer still live: this is the case that must
+            // NOT have released.
+            QCOMPARE(MulticastLock::holderCount(), 1);
+        }
+        QCOMPARE(MulticastLock::holderCount(), 0);
     }
 
     // The NsdManager browse only ever runs on a tablet, so its parser is the one
@@ -256,6 +288,15 @@ private slots:
         QFETCH(QString, address);
         QFETCH(int, port);
         QFETCH(QString, firmware);
+
+        // A short line is a wire-format bug between the Java and C++ halves, so
+        // the parser now warns rather than dropping it silently. Consume that
+        // warning here — init()'s failOnWarning() would otherwise turn correct
+        // behaviour into a red test, and asserting it is also the only proof the
+        // line is actually emitted.
+        if (line.count(QLatin1Char('\t')) < 4)
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression(QStringLiteral("NSD line malformed")));
 
         const WifiScaleDiscovery::NsdLine p = WifiScaleDiscovery::parseNsdLine(line);
         QVERIFY(!p.startFailure);

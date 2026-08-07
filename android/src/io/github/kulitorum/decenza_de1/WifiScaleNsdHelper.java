@@ -109,6 +109,14 @@ public final class WifiScaleNsdHelper {
         // resolved one at a time.
         final ArrayDeque<NsdServiceInfo> pending = new ArrayDeque<>();
         boolean resolveInFlight = false;
+        // Everything NsdManager told us, whether or not it survived to pollBrowse().
+        // Without these the C++ summary counts only lines that crossed JNI, so
+        // "the LAN is empty" and "we found scales and discarded every one" are the
+        // same log line -- the distinction the mjansson path reports as
+        // instancesSeen and the spec requires of both paths.
+        int seen = 0;             // onServiceFound calls
+        int resolveFailed = 0;    // onResolveFailed + resolveService throws
+        int noAddress = 0;        // resolved but no usable IPv4
         // The ResolveListener currently registered with the framework, if any.
         // Held ONLY so stopBrowse() can retract it: a resolution registered when
         // the DiscoveryListener goes away outlives its client, and the framework
@@ -151,6 +159,7 @@ public final class WifiScaleNsdHelper {
                 if (info == null || info.getServiceType() == null) return;
                 synchronized (b) {
                     if (b.stopped) return;
+                    b.seen++;
                     b.pending.add(info);
                 }
                 pump(b);
@@ -208,6 +217,22 @@ public final class WifiScaleNsdHelper {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return null;
+        }
+    }
+
+    /**
+     * Tab-separated "seen\tresolveFailed\tnoAddress" for `token`, or "" if the
+     * browse is unknown. Read by the C++ side BEFORE stopBrowse(), so its summary
+     * line can distinguish an empty LAN from a browse that found scales and
+     * discarded every one of them. Java-side Log.* never reaches a submitted log
+     * -- AsyncLogger forwards Qt messages OUT to logcat and never reads logcat
+     * back in -- so anything a field diagnosis needs has to cross JNI like this.
+     */
+    public static String browseCounters(final long token) {
+        final Browse b = sBrowses.get(token);
+        if (b == null) return "";
+        synchronized (b) {
+            return b.seen + "\t" + b.resolveFailed + "\t" + b.noAddress;
         }
     }
 
@@ -271,14 +296,27 @@ public final class WifiScaleNsdHelper {
                 // sending a goodbye answers the PTR and nothing else.
                 Log.d(TAG, "resolve failed (" + errorCode + ") for "
                            + (failed != null ? failed.getServiceName() : "?"));
+                synchronized (b) { b.resolveFailed++; }
                 release(b);
             }
 
             @Override
             public void onServiceResolved(NsdServiceInfo si) {
                 final String line = format(si);
-                if (line != null && b.reported.add(si.getServiceName()))
-                    b.out.offer(line);
+                if (line == null) {
+                    // Resolved, but unusable: no address, or IPv6 only. Counted so
+                    // the C++ summary can say so -- returning null here is otherwise
+                    // indistinguishable from "nothing arrived this slice".
+                    synchronized (b) { b.noAddress++; }
+                    Log.d(TAG, "resolved but no usable IPv4: "
+                               + (si != null ? si.getServiceName() : "?"));
+                } else {
+                    // getServiceName() is the dedupe key and reported is a
+                    // ConcurrentHashMap keySet, which rejects null.
+                    final String name = si.getServiceName();
+                    if (name != null && b.reported.add(name))
+                        b.out.offer(line);
+                }
                 release(b);
             }
         };
@@ -286,22 +324,37 @@ public final class WifiScaleNsdHelper {
         // here. It would see resolveInFlight with a null listener, have nothing to
         // retract, and we would then register a resolution against a browse that is
         // already torn down -- reintroducing the orphan this method exists to avoid.
+        // Registering INSIDE the lock is what makes stopBrowse() correct. Storing
+        // the listener under the lock and then calling out to the framework
+        // unlocked still leaves a window: stopBrowse() could run in between, call
+        // stopServiceResolution() on a listener the framework has never seen (which
+        // throws, and is swallowed), unregister the DiscoveryListener, and drop the
+        // token -- and then we would register rl against a torn-down browse. That
+        // recreates the orphaned resolution, and on API < 34 nothing can cancel it.
+        // Java monitors are reentrant, so a callback delivered on this thread is
+        // safe; NsdManager delivers on its own handler thread anyway.
+        boolean threw = false;
         synchronized (b) {
             if (b.stopped) {
                 b.resolveInFlight = false;
                 return;
             }
             b.resolveListener = rl;
+            try {
+                b.nsd.resolveService(next, rl);
+            } catch (Exception e) {
+                // A throw here means no callback will ever arrive, so the slot has
+                // to be freed on this path too — otherwise one bad instance wedges
+                // the queue and every later scale on the LAN goes unresolved.
+                Log.w(TAG, "resolveService threw: " + e.getMessage());
+                b.resolveFailed++;
+                b.resolveInFlight = false;
+                b.resolveListener = null;
+                threw = true;
+            }
         }
-        try {
-            b.nsd.resolveService(next, rl);
-        } catch (Exception e) {
-            // A throw here means no callback will ever arrive, so the slot has to
-            // be freed on this path too — otherwise one bad instance wedges the
-            // queue and every later scale on the LAN goes unresolved.
-            Log.w(TAG, "resolveService threw: " + e.getMessage());
-            release(b);
-        }
+        if (threw)
+            pump(b);
     }
 
     /** Free the resolve slot and start the next queued instance. */
@@ -386,6 +439,13 @@ public final class WifiScaleNsdHelper {
             if (!h.toLowerCase().endsWith(".local")) h = h + ".local";
             return h;
         } catch (Throwable t) {
+            // NOT the same as "this Android is too old" -- hostnameMethod()'s null
+            // check already covers that, and the C++ side reports an empty return
+            // as "needs API 36+". A throw HERE is a real reflection failure on this
+            // device, and reporting it as a platform-version limit would send the
+            // reader looking at the wrong thing entirely.
+            Log.w(TAG, "srvHostname reflection failed on API "
+                       + android.os.Build.VERSION.SDK_INT + ": " + t);
             return "";
         }
     }

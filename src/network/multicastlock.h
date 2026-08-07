@@ -18,13 +18,18 @@
  * was ever taken, and every other multicast reader inherited a guarantee that
  * did not exist. mDNS is the reader that pays for it — see MdnsResolver.
  *
- * That also explains an otherwise contradictory pair of measurements. A query
- * from an ephemeral source port is answered by UNICAST (RFC 6762 §6.7), which
- * needs no lock, while a query from 5353 is answered by MULTICAST, which does.
- * So an Android test of a 5353 socket, run with the shot server off, would see
- * zero records for every host while an ephemeral socket worked — which is
- * exactly what was recorded, and was read at the time as "5353 does not work on
- * Android".
+ * It was OFFERED as the explanation for an otherwise contradictory pair of
+ * measurements, and it is NOT the explanation. The reasoning was that a query
+ * from an ephemeral source port is answered by UNICAST (RFC 6762 §6.7), needing
+ * no lock, while a query from 5353 is answered by MULTICAST, which needs one —
+ * so a 5353 socket on Android with no lock held would see zero records while an
+ * ephemeral socket worked, which is what had been recorded.
+ *
+ * That was retested with the lock demonstrably held and 5353 on Android STILL
+ * receives zero records, from any host — see mdnsresolver.cpp, which carries the
+ * same retraction next to the code that acts on it. Acting on this reading is
+ * what briefly broke every ".local" lookup on Android. The lock is still
+ * necessary; it is simply not sufficient, and it is not why 5353 fails there.
  *
  * COST. The lock disables a hardware filter, so the CPU wakes for multicast
  * traffic addressed to the whole LAN. That is why this is scoped to the

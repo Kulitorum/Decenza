@@ -91,6 +91,12 @@ COVERED_GLOBS = [
     # original sin, and leaving it uncovered means a future bare qDebug there is
     # the one place nobody would think to check.
     "src/network/wifiscalediscovery.cpp",
+    # Wholly about the Android multicast lock: every line in it is that lock's
+    # lifecycle or its failure to be taken. Worth covering because whether the
+    # lock was held is the FIRST question a "browse ran and found nothing" report
+    # has to answer, and it shipped with five hand-typed "[MulticastLock]"
+    # prefixes that no registered marker would ever match.
+    "src/network/multicastlock.cpp",
     "src/core/settings_hardware.cpp",
     # Wholly about the screensaver: every log line in it is a screensaver line.
     "src/screensaver/screensavervideomanager.cpp",

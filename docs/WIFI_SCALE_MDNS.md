@@ -113,12 +113,15 @@ having changed, and why results differ between two runs of the same script.
 
 ## Open
 
-**Whether the multicast path avoids this entirely.** It should: a query from source port
-5353 with QU clear is answered multicast, which needs no ARP at all, and the scale does
-answer that shape (75% / 41% above). On Android that also requires a held
-`MulticastLock`, which the app now takes. The two branch commits that do this — query
-from 5353, hold our own lock — are therefore aimed correctly, but the combination has not
-been measured end-to-end on the tablet.
+**Whether the multicast path avoids this entirely — and note the app does NOT take it on
+Android.** In principle it should: a query from source port 5353 with QU clear is
+answered multicast, which needs no ARP, and the scale answers that shape (75% / 41%
+above). But `queryPortUsesMdnsPort()` returns false on Android under the default `Auto`
+policy, because a 5353 socket there is starved by the system daemon that already owns the
+port — measured on device: the bind succeeds, `srcPort= 5353`, and the socket then
+receives *zero* records from any host. So on Android the app queries from an ephemeral
+port and lives with the per-peer failure above; only `NsdManager`, which is the daemon,
+can use the multicast path there.
 
 **Whether dialling the cached IP "repairs" mDNS.** Yes, per-peer, and that is why. Keep
 the cached IP regardless: silence says nothing about whether the address is right.
@@ -130,8 +133,10 @@ the cached IP regardless: silence says nothing about whether the address is righ
   which the scale can only send once it holds this device's MAC — the Android failure
   above. Source port 5353 gets a MULTICAST reply, which needs no ARP and reaches a cold
   peer, but is fire-and-forget (12/20) and on Android needs a held `MulticastLock`.
-  Neither dominates; the branch sends from 5353 and holds the lock, which is the pairing
-  that addresses the deterministic failure rather than the lossy one.
+  Neither dominates, and the branch splits by platform: 5353 everywhere it works, plus
+  our own `MulticastLock`, but an ephemeral port on Android, where a 5353 socket receives
+  nothing at all. That leaves Android on the shape with the deterministic failure, which
+  is why `NsdManager` is run beside it.
 - Retry. A single query with a short timeout fails 25-60% of the time on an ordinary
   network, and no amount of correctness elsewhere changes that.
 - Never evict a cached IP on silence.
