@@ -3736,7 +3736,15 @@ void MainController::onShotEnded() {
     metadata.equipmentId = m_settings->dye()->activeEquipmentId();
     metadata.rpm = m_settings->dye()->dyeGrinderRpm();
     metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
-    metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
+    // This shot's measured weight, NOT dyeDrinkWeight(): that setting still
+    // holds the PREVIOUS shot's yield, because it is only updated once this
+    // shot's save callback runs (setDyeDrinkWeight below). The auto-upload is
+    // issued from inside that same callback with this metadata copy, and
+    // VisualizerUploader prefers metadata.drinkWeight over the finalWeight
+    // argument, so the stale value won and every Visualizer upload reported
+    // the previous shot's yield. Fall back to the setting only when no scale
+    // gave us a weight, where the user-entered DYE value is the authority.
+    metadata.drinkWeight = finalWeight > 0 ? finalWeight : m_settings->dye()->dyeDrinkWeight();
     metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
     metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
     // No enjoyment: a just-pulled shot has not been tasted, so it saves
@@ -4177,7 +4185,9 @@ void MainController::generateFakeShotData() {
             metadata.equipmentId = m_settings->dye()->activeEquipmentId();
             metadata.rpm = m_settings->dye()->dyeGrinderRpm();
             metadata.beanWeight = m_pendingShotDoseWeight;
-            metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
+            // This shot's weight, not the previous shot's — same reason as the
+            // real espresso path above.
+            metadata.drinkWeight = m_pendingShotFinalWeight;
             metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
             metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
             // Unrated on save — see the espresso path above.
