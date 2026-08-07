@@ -28,9 +28,6 @@ namespace {
 std::atomic<MdnsResolver::QueryPort> g_queryPort{MdnsResolver::QueryPort::Auto};
 }  // namespace
 
-#ifndef Q_OS_IOS
-
-#include "multicastlock.h"
 #include "core/logtags.h"
 
 // ---- This file's log prefix, defined ONCE -------------------------------
@@ -49,6 +46,11 @@ std::atomic<MdnsResolver::QueryPort> g_queryPort{MdnsResolver::QueryPort::Auto};
 // definition, and a marker the registry declares — holds either way.
 #define MDNS_DBG  qDebug().noquote()   << "[" DECENZA_LOG_MARKER_NETWORK "][MdnsResolver]"
 #define MDNS_WARN qWarning().noquote() << "[" DECENZA_LOG_MARKER_NETWORK "][MdnsResolver]"
+
+#ifndef Q_OS_IOS
+
+#include "multicastlock.h"
+
 
 #include <QHostAddress>
 #include <QElapsedTimer>
