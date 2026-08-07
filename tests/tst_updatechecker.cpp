@@ -52,6 +52,7 @@ private slots:
     void releaseInfoRequestDropsConnectionImmediately();
     void releaseInfoRequestCarriesGithubHeaders();
     void theCheckPathIssuesTheSharedRequest();
+    void notesWithoutABuildNumberYieldNoBuildNumber();
 
 private:
     // UpdateChecker's constructor dereferences Settings::app() to read
@@ -115,6 +116,63 @@ void tst_UpdateChecker::theCheckPathIssuesTheSharedRequest()
     // QTEST_MAIN as well as guiless, both tried. Re-inlining THAT site would slip
     // past this suite; it is one line calling the same helper, and the attribute
     // assertions above still pin what the helper produces.
+}
+
+void tst_UpdateChecker::notesWithoutABuildNumberYieldNoBuildNumber()
+{
+    // The build number is what identifies a release: the display version rolls,
+    // so many builds ship under one vX.Y.Z and only the build number separates
+    // them. CI publishes the release before it writes "Build: NNNN" into the
+    // notes, so this no-build-number shape is served to every polling device for
+    // that window. The old code read the tag's patch component and reported it as
+    // the build number — `latestBuild= 3` for v2.0.3 in the field log quoted in
+    // UpdateChecker::parseReleaseInfo. Devices on the rolling version compare
+    // that against their own version code (3 > 3535 is false) and are told they
+    // are up to date, which is the one answer that cannot self-correct into a
+    // download.
+    //
+    // The tag deliberately carries a nonzero patch (.7): the defect is invisible
+    // against a .0 tag, and the app's own version — whatever it is when this runs
+    // — may well be one.
+    Settings settings;
+    QNetworkAccessManager nam;
+    UpdateChecker checker(&nam, &settings);
+
+    // Assets are present and platform-appropriate on purpose: an assetless
+    // release is a different branch that qWarns, and init()'s failOnWarning()
+    // would fail this test for the wrong reason on Android and macOS builds.
+    const QByteArray releases = R"([{
+        "tag_name": "v9.9.7",
+        "draft": false,
+        "prerelease": false,
+        "body": "Notes that do not state a build number.",
+        "assets": [
+            {"name": "Decenza_9.9.7.apk", "browser_download_url": "https://example.invalid/a.apk"},
+            {"name": "Decenza_9.9.7.dmg", "browser_download_url": "https://example.invalid/a.dmg"}
+        ]
+    }])";
+
+    checker.parseReleaseInfo(releases);
+
+    QCOMPARE(checker.latestVersion(), QStringLiteral("9.9.7"));
+    QCOMPARE(checker.latestVersionCode(), 0);
+
+    // And the number IS read when the notes carry one, so the assertion above
+    // cannot be satisfied by never parsing at all.
+    const QByteArray withBuild = R"([{
+        "tag_name": "v9.9.7",
+        "draft": false,
+        "prerelease": false,
+        "body": "Changes here.\nBuild: 4242\n",
+        "assets": [
+            {"name": "Decenza_9.9.7.apk", "browser_download_url": "https://example.invalid/a.apk"},
+            {"name": "Decenza_9.9.7.dmg", "browser_download_url": "https://example.invalid/a.dmg"}
+        ]
+    }])";
+
+    checker.parseReleaseInfo(withBuild);
+
+    QCOMPARE(checker.latestVersionCode(), 4242);
 }
 
 QTEST_GUILESS_MAIN(tst_UpdateChecker)

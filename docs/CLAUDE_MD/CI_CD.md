@@ -212,8 +212,8 @@ EOF
 
 ### Auto-Update System
 - **Check interval**: Every 60 minutes (configurable in Settings → Updates)
-- **Version detection**: Compares display version (`X.Y.Z`), then falls back to build number if versions are equal
-- **Build number source**: Parsed from release notes using pattern `Build: XXXX` (or `Build XXXX`)
+- **Version detection**: Compares display version (`X.Y.Z`) first, then build number when the versions are equal. **Equal is the normal case, not the edge case** — the display version rolls, so a dozen builds can ship under one `vX.Y.Z` and each gets its own build number. `v2.0.3` covered builds 3533, 3534 and 3535 in three days. For those, the build number is the only thing that distinguishes a new release from the running one.
+- **Build number source**: Parsed from release notes using pattern `Build: XXXX` (or `Build XXXX`). Notes carrying no such line mean **no build number**, and the check goes blind until the next poll rather than guessing one — there is nowhere else to read it from. The tag and the asset filename both carry the display version (`v2.0.3`, `Decenza_2.0.3.apk`), which has no relation to `versioncode.txt`. Only `android-release.yml` writes the line, so the blind window spans the tag push to that job finishing — once per build, and a release gets many beta builds.
 - **Beta channel**: Users opt-in via Settings → Updates → "Beta updates". Prereleases are only shown to opted-in users.
 - **Platforms**: Android auto-downloads APK; iOS directs to App Store; desktop shows release page
 

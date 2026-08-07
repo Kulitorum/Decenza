@@ -157,7 +157,6 @@ private:
     void parseReleaseInfo(const QByteArray& data);
     void startDownload();
     bool installApk(const QString& apkPath);
-    int extractBuildNumber(const QString& version) const;
     bool isNewerVersion(const QString& latest, const QString& current) const;
 
     // Translate a user-visible string via the injected TranslationManager,

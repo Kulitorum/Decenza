@@ -339,15 +339,34 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     bool wasBeta = m_latestIsBeta;
     m_latestIsBeta = release["prerelease"].toBool();
 
-    // Extract build number from release notes (look for "Build: XXXX" or "Build XXXX")
+    // Extract build number from release notes (look for "Build: XXXX" or "Build XXXX").
+    //
+    // This number, not the display version, is what identifies a release in
+    // practice. The display version rolls: v2.0.3 stayed put across builds 3533,
+    // 3534 and 3535 in three days, so isNewerVersion() below reports "not newer"
+    // for every one of them and the build-number comparison is the ONLY thing
+    // that can see a new build. Treat it as the primary signal that it is.
+    //
+    // Which is why 0 has to mean "this release states no build number" and not a
+    // guess. There is nowhere else to read one from: the tag and the asset
+    // filename both carry the display version (v2.0.3, Decenza_2.0.3.apk), which
+    // has no relation to versioncode.txt. A previous fallback took the tag's
+    // patch component and returned it as a build number, so a field log shows
+    // `latestBuild= 3` for v2.0.3 — and 3 > 3535 is false, so a device on the
+    // rolling version was told it was up to date for the whole window. A wrong
+    // number is worse than none here, because none is filtered by the `> 0` guard
+    // at the comparison and simply leaves the check blind until the next poll.
+    //
+    // The window is bounded — only android-release.yml writes the line, so it
+    // spans the tag push to that job finishing — but it is not rare. A release
+    // gets many beta builds, each a force-pushed tag with its own build number,
+    // so an opted-in beta device passes through this window once per build. See
+    // CI_CD.md.
     int newBuildNumber = 0;
     QRegularExpression buildRe(R"(Build[:\s]+(\d+))", QRegularExpression::CaseInsensitiveOption);
     QRegularExpressionMatch buildMatch = buildRe.match(body);
     if (buildMatch.hasMatch()) {
         newBuildNumber = buildMatch.captured(1).toInt();
-    } else {
-        // Fallback: extract from APK filename pattern (Decenza_X.Y.Z.apk where Z might be build)
-        newBuildNumber = extractBuildNumber(tagName);
     }
 
     // Reset prompt flag when a new release OR a new build of the same tag is
@@ -405,11 +424,13 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     }
 #endif
 
-    // Check if update is available using display version comparison,
-    // falling back to build number if versions are equal
+    // Compare the display version first, then the build number when the display
+    // versions are equal — which is the ordinary case, not a fallback: many beta
+    // builds ship under one vX.Y.Z and only the build number separates them.
+    // A build number of 0 means the release states none (see above), so the
+    // comparison is skipped rather than run against a guess.
     bool newer = isNewerVersion(m_latestVersion, currentVersion());
     if (!newer && !isNewerVersion(currentVersion(), m_latestVersion) && m_latestBuildNumber > 0) {
-        // Same display version — compare build numbers (strictly greater)
         newer = m_latestBuildNumber > currentVersionCode();
     }
 
@@ -466,17 +487,6 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
             }
         }
     }
-}
-
-int UpdateChecker::extractBuildNumber(const QString& version) const
-{
-    // Match patterns like "v1.0.123" or "1.0.123"
-    QRegularExpression re(R"((\d+)\.(\d+)\.(\d+))");
-    QRegularExpressionMatch match = re.match(version);
-    if (match.hasMatch()) {
-        return match.captured(3).toInt();
-    }
-    return 0;
 }
 
 bool UpdateChecker::isNewerVersion(const QString& latest, const QString& current) const
