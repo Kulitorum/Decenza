@@ -475,9 +475,13 @@ Item {
                                 text: {
                                     if (MainController.updateChecker.updateAvailable) {
                                         var betaTag = MainController.updateChecker.latestIsBeta ? " (Beta)" : ""
+                                        // 0 means the release notes state no build number, so there is
+                                        // none to show — printing "(Build 0)" would read as a real one.
+                                        var buildTag = MainController.updateChecker.latestVersionCode > 0
+                                                     ? " (Build " + MainController.updateChecker.latestVersionCode + ")"
+                                                     : ""
                                         var msg = TranslationManager.translate("settings.update.updateavailable", "Update available:") +
-                                               " v" + MainController.updateChecker.latestVersion + betaTag +
-                                               " (Build " + MainController.updateChecker.latestVersionCode + ")"
+                                               " v" + MainController.updateChecker.latestVersion + betaTag + buildTag
                                         // Add platform-specific note for iOS
                                         if (Qt.platform.os === "ios") {
                                             msg += "\n" + TranslationManager.translate("settings.update.appstoreupdate", "Update via App Store")
