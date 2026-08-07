@@ -96,6 +96,35 @@ The policy SHALL be forceable to either extreme from the diagnostic surface. Tha
 - **WHEN** an operator forces the ephemeral policy and then the 5353 policy against the same LAN
 - **THEN** each run reports which port it used, so the two results can be compared as different treatments rather than assumed to be the same one
 
+### Requirement: The development platform runs the shipped platforms' discovery path
+
+On macOS the default browse backend SHALL be the mjansson implementation, not Bonjour, while BOTH backends remain compiled into the binary and selectable at runtime.
+
+This inverts "ship what the platform prefers", deliberately. Bonjour is measurably better on macOS — 66-113 ms to a first row against mjansson's 160-270 ms, because the system daemon is always listening and its cache is warm. But macOS is the development platform rather than a shipped one: about two installs, both developers, against hundreds of Android users. Defaulting to Bonjour meant the browse path three shipped platforms use was never exercised by the only machine anyone develops on, which is how a multi-hour Android discovery outage reached users and survived review.
+
+Bonjour SHALL remain selectable on macOS, and its compile guards SHALL NOT be narrowed to exclude either backend. The default is the only thing that moves.
+
+Bonjour keeps its field coverage from iOS, which ships it. What this default gives up is EARLY warning: an iOS release build is compiled only by CI, so macOS was the one place a Bonjour regression would surface before users saw it. A Bonjour browse SHALL be run on macOS before an iOS release.
+
+The hostname-resolver default SHALL NOT follow the browse backend. The two are not symmetrical: the mjansson browse is what three shipped platforms use, while the mjansson resolver is Android-only and QHostInfo is what iOS ships. Flipping both would leave neither iOS path with development coverage.
+
+#### Scenario: A developer's ordinary scan exercises the Android browse
+- **WHEN** a scan runs on macOS with no backend explicitly selected
+- **THEN** the mjansson browse runs, and the log names it as the backend that ran
+
+#### Scenario: Bonjour is still reachable on macOS
+- **WHEN** a browse explicitly selects the Bonjour backend on macOS
+- **THEN** Bonjour runs and is reported as the backend that ran
+
+#### Scenario: iOS is unaffected
+- **WHEN** a browse runs on iOS with no backend selected
+- **THEN** Bonjour runs, because mjansson is not compiled there at all
+
+#### Scenario: The resolver default is independent
+- **WHEN** a hostname lookup runs on macOS with no resolver selected
+- **THEN** the system resolver runs, not mjansson, even though the browse defaults to mjansson
+
+
 ## MODIFIED Requirements
 
 ### Requirement: WiFi connect tries cached IP first with hostname fallback
@@ -121,9 +150,15 @@ A recognition timeout where the WebSocket upgrade never completed SHALL be treat
 - **WHEN** the cached IP responds with a recognizable HDS frame (snapshot or `type:"status"`) within the 5 s recognition window
 - **THEN** the driver treats the connection as established and does not attempt to resolve the hostname
 
-#### Scenario: Cached IP answers but is not an HDS — evict and fall back
+#### Scenario: Cached IP fails recognition — fall back to hostname
 - **WHEN** the cached IP attempt completes the WebSocket upgrade but no recognizable HDS frame arrives within 5 s (e.g., DHCP reassigned the IP to a different host running a WebSocket server)
 - **THEN** the driver evicts the cached IP, closes the socket and retries via `ws://<hostname>/snapshot`; on success, the cache is overwritten with the new peer IP
+
+  (Kept under its original name because this change SPLITS it rather than replacing
+  it: the upgrade-completed half stays here and keeps the eviction, while the new
+  "Cached IP goes silent" scenario below takes the half where nothing answered and
+  withholds the eviction. Renaming it would have read to the archiver as a dropped
+  scenario.)
 
 #### Scenario: Cached IP goes silent — keep the cache, still fall back
 - **WHEN** the cached IP attempt reaches the recognition timeout without ever completing the WebSocket upgrade
@@ -218,31 +253,3 @@ An address obtained from a browse SHALL NOT outlive the request it was obtained 
 #### Scenario: A declined switch-back leaves no stale address behind
 - **WHEN** a browse-driven switch-back request is declined, and later a reachability check verifies the primary at its cached address
 - **THEN** the switch-back that follows dials the address that check verified, not the earlier browsed one
-
-### Requirement: The development platform runs the shipped platforms' discovery path
-
-On macOS the default browse backend SHALL be the mjansson implementation, not Bonjour, while BOTH backends remain compiled into the binary and selectable at runtime.
-
-This inverts "ship what the platform prefers", deliberately. Bonjour is measurably better on macOS — 66-113 ms to a first row against mjansson's 160-270 ms, because the system daemon is always listening and its cache is warm. But macOS is the development platform rather than a shipped one: about two installs, both developers, against hundreds of Android users. Defaulting to Bonjour meant the browse path three shipped platforms use was never exercised by the only machine anyone develops on, which is how a multi-hour Android discovery outage reached users and survived review.
-
-Bonjour SHALL remain selectable on macOS, and its compile guards SHALL NOT be narrowed to exclude either backend. The default is the only thing that moves.
-
-Bonjour keeps its field coverage from iOS, which ships it. What this default gives up is EARLY warning: an iOS release build is compiled only by CI, so macOS was the one place a Bonjour regression would surface before users saw it. A Bonjour browse SHALL be run on macOS before an iOS release.
-
-The hostname-resolver default SHALL NOT follow the browse backend. The two are not symmetrical: the mjansson browse is what three shipped platforms use, while the mjansson resolver is Android-only and QHostInfo is what iOS ships. Flipping both would leave neither iOS path with development coverage.
-
-#### Scenario: A developer's ordinary scan exercises the Android browse
-- **WHEN** a scan runs on macOS with no backend explicitly selected
-- **THEN** the mjansson browse runs, and the log names it as the backend that ran
-
-#### Scenario: Bonjour is still reachable on macOS
-- **WHEN** a browse explicitly selects the Bonjour backend on macOS
-- **THEN** Bonjour runs and is reported as the backend that ran
-
-#### Scenario: iOS is unaffected
-- **WHEN** a browse runs on iOS with no backend selected
-- **THEN** Bonjour runs, because mjansson is not compiled there at all
-
-#### Scenario: The resolver default is independent
-- **WHEN** a hostname lookup runs on macOS with no resolver selected
-- **THEN** the system resolver runs, not mjansson, even though the browse defaults to mjansson

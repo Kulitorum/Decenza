@@ -60,4 +60,4 @@
 ## 8. Docs
 
 - [x] 8.1 `resources/ai/tools/devices_wifi.md` — the `resolver` and `queryPort` arguments, and why `resolver=system` is refused on Android.
-- [ ] 8.2 No wiki manual entry: nothing here is user-visible. Discovery either finds the scale or does not, and the user-facing wording for that is unchanged.
+- [x] 8.2 No wiki manual entry: nothing here is user-visible. Discovery either finds the scale or does not, and the user-facing wording for that is unchanged.
