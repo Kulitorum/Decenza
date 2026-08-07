@@ -962,10 +962,17 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     }
     meta["grinder"] = grinder;
 
-    // Weights
+    // Weights. beanWeight keeps its metadata-first resolution: the dose is
+    // user-entered (dyeBeanWeight) and the doseWeight argument is a fallback
+    // the caller derives from the profile when that setting is unset, so the
+    // two genuinely differ.
     double beanWeight = metadata.beanWeight > 0 ? metadata.beanWeight : doseWeight;
-    // Use user-entered weight first, then scale weight, then app's flow-integrated volume (ml ≈ g for espresso)
-    double drinkWeight = metadata.drinkWeight > 0 ? metadata.drinkWeight : finalWeight;
+    // The yield takes the measured argument directly. ShotMetadata carries no
+    // drink weight: it used to, and preferring that field over this argument
+    // is what let a sticky setting holding the PREVIOUS shot's yield reach
+    // Visualizer while the app showed the right number. A per-shot measurement
+    // has one source, and it is this parameter.
+    double drinkWeight = finalWeight;
     if (drinkWeight <= 0) {
         const auto& wdData = shotData->waterDispensedData();
         if (!wdData.isEmpty())

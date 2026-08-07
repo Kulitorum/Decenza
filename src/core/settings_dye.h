@@ -33,6 +33,18 @@ class EquipmentStorage;
 // which is exactly what stopped being true for enjoyment once a *setting* fed
 // it. If anything ever feeds those fields automatically, they become this bug.
 //
+// dyeDrinkWeight is the field that already failed that test, and it is worth
+// naming here rather than leaving the list looking complete. It is written
+// automatically after every shot (setDyeDrinkWeight in MainController's save
+// callback), so it always holds a yield belonging to some earlier shot. It was
+// read at metadata-build time and shipped to Visualizer, which reported the
+// PREVIOUS shot's yield while the app displayed the correct one. The fix was
+// not to reset it more carefully but to stop a per-shot measurement travelling
+// through sticky state at all: ShotMetadata no longer carries a drink weight,
+// and the yield reaches the uploader only as an explicit argument. The setting
+// survives because the review page and MCP still legitimately read and write
+// it — but nothing on a save path may read it again.
+//
 // Bean model (bean-bag-inventory): the active coffee bag IS the bean state.
 // The dye/* QSettings keys act as a synchronous write-through cache of the
 // active bag — selecting a bag copies its fields in (applyActiveBag), and

@@ -38,7 +38,11 @@ struct ShotMetadata {
     qint64 equipmentId = 0; // Equipment package (add-equipment-packages); 0 = none
     qint64 rpm = 0;         // Grinder rpm dial-in; 0 = unset
     double beanWeight = 0;  // Dose weight in grams
-    double drinkWeight = 0; // Output weight in grams
+    // No drinkWeight here on purpose. The yield is a per-shot MEASUREMENT, and
+    // it already travels as an explicit argument to uploadShot()/buildShotJson().
+    // Carrying a second copy in this struct — which is otherwise sticky setup
+    // state that outlives a shot — is what let the previous shot's yield reach
+    // Visualizer. One source only.
     double drinkTds = 0;
     double drinkEy = 0;
     int espressoEnjoyment = 0;  // 0-100
@@ -348,7 +352,7 @@ private:
     QString m_lastShotUrl;
     // The local shots.id the in-flight upload is for; emitted with
     // uploadSucceededForShot. A single member suffices because callers
-    // (MainController shot-end, manual re-upload, history re-upload) are
+    // (MainController shot-end, history re-upload) are
     // mutually exclusive in practice and never issue overlapping
     // uploads. NOTE: m_uploading is a UI state flag, NOT a concurrency
     // guard — nothing rejects a second uploadShot() while one is in
