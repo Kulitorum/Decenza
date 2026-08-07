@@ -9,6 +9,7 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <QRunnable>
+#include <QScopeGuard>
 #include <QThreadPool>
 
 #ifdef Q_OS_ANDROID
@@ -200,6 +201,11 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
     stopBrowse();
 
     m_browseInFlight = true;
+    // The mjansson worker below is path one; startNsdBrowse() adds itself if it
+    // actually starts a second. Counted here rather than after, so a worker that
+    // completes before browse() returns cannot drive the count to zero early.
+    m_browsePathsOutstanding = 1;
+    m_browseAnyRan = false;
     const int generation = ++m_browseGeneration;
     const QString serviceType = QString::fromLatin1(kServiceType);
     // Shared with the worker so stopBrowse() can end it early. shared_ptr, not a
@@ -243,7 +249,6 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
             if (!self) return;
             if (generation != self->m_browseGeneration) return;
             if (!self->m_browseInFlight) return;
-            self->m_browseInFlight = false;
 
             // Always report what the browse did. "Ran and found nothing",
             // "could not run at all" and "found things but dropped them all as
@@ -266,7 +271,9 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
             // `ran` is false when the browse could not actually run. Reporting
             // true here regardless — as an earlier version did — made the flag
             // structurally incapable of being false and defeated its purpose.
-            emit self->browseFinished(stats.error.isEmpty());
+            // Emitted by finishOneBrowsePath() once the NSD path has also
+            // finished, so browseFinished() stays terminal.
+            self->finishOneBrowsePath(generation, stats.error.isEmpty());
         }, Qt::QueuedConnection);
     });
     runnable->setAutoDelete(true);
@@ -340,6 +347,10 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
     static std::atomic<qint64> s_nextNsdToken{1};
     const qint64 token = s_nextNsdToken.fetch_add(1, std::memory_order_relaxed);
 
+    // Register as the browse's second path BEFORE the worker can report. The
+    // worker's completion decrements this, and browseFinished() waits for zero.
+    ++m_browsePathsOutstanding;
+
     QPointer<WifiScaleDiscovery> self(this);
     auto runnable = QRunnable::create([self, timeoutMs, generation, cancel, token]() {
         // STDERR_TAGGED throughout, never the emitting SCALE_INFO_TAGGED: this
@@ -347,6 +358,18 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
         // object only through the QPointer. The emitting macro needs `this` in
         // scope and does not compile here — see the longer note in probe().
         const char* const kHelper = "io/github/kulitorum/decenza_de1/WifiScaleNsdHelper";
+
+        // Every exit from here must retire this path, or browseFinished() never
+        // arrives and callers waiting on it hang. The guard makes that structural
+        // rather than something each early return has to remember. nsdRan stays
+        // false unless discoverServices() actually started.
+        bool nsdRan = false;
+        const auto retirePath = qScopeGuard([self, generation, &nsdRan]() {
+            const bool ran = nsdRan;
+            QMetaObject::invokeMethod(qApp, [self, generation, ran]() {
+                if (self) self->finishOneBrowsePath(generation, ran);
+            }, Qt::QueuedConnection);
+        });
 
         QJniObject ctx = QNativeInterface::QAndroidApplication::context();
         if (!ctx.isValid()) {
@@ -366,6 +389,7 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
                                "or discoverServices rejected)"));
             return;
         }
+        nsdRan = true;
 
         // Poll in slices rather than blocking for the whole window. Two reasons:
         // results reach the device list as each scale answers instead of all at
@@ -423,6 +447,7 @@ void WifiScaleDiscovery::startNsdBrowse(int timeoutMs, int generation) {
             QMetaObject::invokeMethod(qApp, [self, instanceName, host, ip, port, txt, generation]() {
                 if (!self) return;
                 if (generation != self->m_browseGeneration) return;
+                if (!self->m_browseInFlight) return;
                 const WifiScaleResult r = WifiScaleResultUtil::fromBrowseTxt(
                     instanceName, host, ip, port, txt);
                 SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
@@ -453,6 +478,20 @@ void WifiScaleDiscovery::startNsdBrowse(int, int) {
 }
 #endif
 
+void WifiScaleDiscovery::finishOneBrowsePath(int generation, bool ran) {
+    // A path from a superseded browse, or one that stopBrowse() already ended:
+    // both already emitted their terminal signal, so this must not emit a second.
+    if (generation != m_browseGeneration) return;
+    if (!m_browseInFlight) return;
+
+    m_browseAnyRan = m_browseAnyRan || ran;
+    if (--m_browsePathsOutstanding > 0)
+        return;  // the other path is still running; browseFinished() is terminal
+
+    m_browseInFlight = false;
+    emit browseFinished(m_browseAnyRan);
+}
+
 void WifiScaleDiscovery::stopBrowse() {
     if (!m_browseInFlight)
         return;
@@ -461,8 +500,11 @@ void WifiScaleDiscovery::stopBrowse() {
     if (m_browseCancel)
         m_browseCancel->store(true, std::memory_order_relaxed);
     m_browseCancel.reset();
-    // Bump the generation so any callbacks still in flight are dropped.
+    // Bump the generation so any callbacks still in flight are dropped —
+    // including each path's finishOneBrowsePath(), which is why the count is
+    // cleared here rather than left to drain.
     ++m_browseGeneration;
+    m_browsePathsOutstanding = 0;
     m_browseInFlight = false;
     // The worker's own completion is now discarded by the generation check, so
     // emit the terminal signal here or callers waiting on it would hang.

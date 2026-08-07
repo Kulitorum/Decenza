@@ -29,6 +29,17 @@ private slots:
     void initTestCase() { qRegisterMetaType<WifiScaleResult>("WifiScaleResult"); }
     void init() { QTest::failOnWarning(); }
 
+    // Both selectors are PROCESS-WIDE, so a test that pins one and then fails an
+    // assertion never reaches its own restore — QVERIFY returns from the function —
+    // and every later test in this binary inherits the pin. That turns one red
+    // assertion into a cascade of unrelated failures pointing at the wrong code.
+    // cleanup() runs after each test whatever its outcome, which is the only
+    // placement an early return cannot skip.
+    void cleanup() {
+        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
+        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
+    }
+
     // The default has to stay what each platform SHIPS. Making the resolver
     // runtime-selectable is only safe if `auto` still means mjansson on Android
     // (its getaddrinfo returns NXDOMAIN for ".local", so the direct query is not
@@ -68,7 +79,6 @@ private slots:
         // The stored request survives independently of what it resolves to, so a
         // caller can read back what it set.
         QCOMPARE(MdnsResolver::hostnameResolver(), MdnsResolver::HostnameResolver::Mjansson);
-        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
     }
 
     // The selector has to reach the LOOKUP, not just the accessor. Pinning System
@@ -93,8 +103,6 @@ private slots:
         QCOMPARE(foundSpy.count(), 1);
         QCOMPARE(foundSpy.last().at(0).value<WifiScaleResult>().hostname,
                  QStringLiteral("localhost"));
-
-        MdnsResolver::setHostnameResolver(MdnsResolver::HostnameResolver::Auto);
     }
 
     // macOS deliberately defaults to the backend it does NOT prefer, so this is
@@ -121,7 +129,6 @@ private slots:
         MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Mjansson);
         QCOMPARE(MdnsResolver::activeBrowseBackendName(), QStringLiteral("mjansson"));
 #endif
-        MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
     }
 
     // The two selectors are NOT symmetrical, and the asymmetry is load-bearing.
@@ -407,6 +414,44 @@ private slots:
                                            QStringLiteral("probeFinished"),
                                            QStringLiteral("browseFinished"),
                                            QStringLiteral("logMessage")}));
+    }
+
+    // browseFinished() is TERMINAL: callers stop waiting when it arrives, so it
+    // must be emitted exactly once per browse. A browse can have two independent
+    // workers in flight (mjansson, plus NsdManager on Android) finishing in either
+    // order, and stopBrowse() can end the browse while both are still running —
+    // three chances to emit twice, or to emit and then keep reporting results.
+    //
+    // Only one path is compiled here, so this covers the stopBrowse() race rather
+    // than the two-path ordering; the counter it exercises is the same one. It
+    // fails if stopBrowse() stops clearing m_browsePathsOutstanding, or if a
+    // worker's completion stops checking the generation.
+    void stopBrowseEmitsExactlyOneBrowseFinished() {
+        WifiScaleDiscovery disc;
+        QSignalSpy doneSpy(&disc, &WifiScaleDiscovery::browseFinished);
+
+        // Short deadline on purpose: browse() does REAL multicast I/O, and this
+        // test stops it immediately anyway. An earlier 3000 ms version added ~25 s
+        // to the suite and put network-sensitive tests elsewhere under contention.
+        disc.browse(600);
+        QVERIFY(disc.isBrowsing());
+
+        disc.stopBrowse();
+        QCOMPARE(doneSpy.count(), 1);
+        QCOMPARE(doneSpy.takeFirst().at(0).toBool(), false);  // did not run to completion
+        QVERIFY(!disc.isBrowsing());
+
+        // The worker is still winding down and will post its own completion. It
+        // must be swallowed by the generation check rather than emitting a second
+        // terminal signal — the defect this guards is silent, because a caller
+        // that already moved on simply gets a stray signal later.
+        QTest::qWait(900);
+        QCOMPARE(doneSpy.count(), 0);
+        QVERIFY(!disc.isBrowsing());
+
+        // And a second stopBrowse() on an already-stopped browse stays silent.
+        disc.stopBrowse();
+        QCOMPARE(doneSpy.count(), 0);
     }
 
     // The row set itself is add-only within a scan: re-seeing a scale updates

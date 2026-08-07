@@ -211,6 +211,15 @@ private:
     void cancelInFlight();
     void finishOneLookup();
 
+    // A browse can have TWO independent workers in flight (mjansson, and on
+    // Android NsdManager beside it), finishing in either order. browseFinished()
+    // is terminal for callers, so it may only be emitted once both are done —
+    // otherwise the slower path emits resultFound() after the browse was declared
+    // over. Ending the browse on the FIRST completion instead would be worse than
+    // the ordering bug it looks like: the late results would be dropped, and the
+    // NSD path exists precisely because it finds scales the other one cannot.
+    void finishOneBrowsePath(int generation, bool ran);
+
     int m_outstanding = 0;      // A-record lookups still pending
     bool m_anyProbeRan = false; // whether the current probe actually started
     QList<int> m_lookupIds;     // QHostInfo lookup ids (system-resolver path)
@@ -224,6 +233,11 @@ private:
 
     bool m_browseInFlight = false;
     int m_browseGeneration = 0;
+    // Browse workers still running for the current generation; see
+    // finishOneBrowsePath(). 1 everywhere, 2 on Android when NsdManager started.
+    int m_browsePathsOutstanding = 0;
+    // OR of what each path reported, so "ran" stays true when either path ran.
+    bool m_browseAnyRan = false;
     // Polled by the blocking worker so stopBrowse() can actually stop it.
     // Without this the worker holds a QThreadPool thread for its full deadline,
     // and ~QCoreApplication's unconditional waitForDone() turns that into a
