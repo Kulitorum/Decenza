@@ -302,8 +302,14 @@ private:
     void fetchShotListPage(int page, qint64 windowStartEpoch, QVariantList accumulated);
 
     // Send the next queued bean repair, or emit beanRepairFinished when the
-    // queue is empty. Serial by construction — one PATCH in flight at a time.
+    // queue is empty. Serial by construction — one PATCH in flight at a time,
+    // spaced by kBeanRepairIntervalMs.
     void sendNextBeanRepair();
+    // Dry run: log the per-shot diff and a census of the shapes, write nothing.
+    static void reportBeanRepairPlan(const QVariantList& repairs);
+    // ~1 write/second. visualizer.coffee rate-limits, and the first live pass
+    // hit HTTP 429 on all 349 of its requests at ~6/s.
+    static constexpr int kBeanRepairIntervalMs = 1000;
     QVariantList m_beanRepairQueue;
     int m_beanRepairDone = 0;
     bool m_beanRepairFailed = false;

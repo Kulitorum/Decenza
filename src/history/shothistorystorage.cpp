@@ -2766,18 +2766,19 @@ void ShotHistoryStorage::requestBeanMismatchScan(const QVariantList& cloudShots)
             // One read of every uploaded shot, then a hash join in memory — the
             // cloud list is the user's whole library, so a query per shot would
             // be hundreds of round trips for a pass that runs once.
-            struct Local { QString brand, type, blob; };
+            struct Local { qint64 id; qint64 timestamp; QString brand, type, blob; };
             QHash<QString, Local> byVisualizerId;
             QSqlQuery query(db);
-            if (!query.exec("SELECT visualizer_id, bean_brand, bean_type, beanbase_json FROM shots "
-                            "WHERE COALESCE(visualizer_id,'') <> ''")) {
+            if (!query.exec("SELECT visualizer_id, bean_brand, bean_type, beanbase_json, id, timestamp "
+                            "FROM shots WHERE COALESCE(visualizer_id,'') <> ''")) {
                 qWarning() << "ShotHistoryStorage: bean-repair scan query failed:"
                            << query.lastError().text();
                 return;
             }
             while (query.next())
                 byVisualizerId.insert(query.value(0).toString(),
-                                      {query.value(1).toString(), query.value(2).toString(),
+                                      {query.value(4).toLongLong(), query.value(5).toLongLong(),
+                                       query.value(1).toString(), query.value(2).toString(),
                                        query.value(3).toString()});
 
             for (const QVariant& v : cloudShots) {
@@ -2807,6 +2808,13 @@ void ShotHistoryStorage::requestBeanMismatchScan(const QVariantList& cloudShots)
                 repair["beanBrand"] = local->brand;
                 repair["beanType"] = local->type;
                 repair["canonicalId"] = canonicalId;
+                // Carried for the dry run's report only: what the server holds
+                // today, and which local shot this is, so the planned change can
+                // be read as a diff without a second query per shot.
+                repair["remoteBeanBrand"] = cloud.value("beanBrand");
+                repair["remoteBeanType"] = cloud.value("beanType");
+                repair["shotId"] = local->id;
+                repair["timestamp"] = local->timestamp;
                 repairs.append(repair);
             }
         });

@@ -52,6 +52,8 @@
 #include <limits>
 #include <algorithm>
 #include <QDateTime>
+#include <QTimer>
+#include "core/appsettings.h"
 #include <QDebug>
 #include <QUuid>
 #include <QStandardPaths>
@@ -759,6 +761,54 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
     });
 }
 
+void VisualizerUploader::reportBeanRepairPlan(const QVariantList& repairs)
+{
+    // Dry run: print the diff we WOULD send, per shot, plus a census of the
+    // shapes. This exists because the first live pass flagged 349 shots on a
+    // real account — far more than the borrowed-canonical cohort it was written
+    // for — and rewriting a user's cloud library on an unexamined predicate is
+    // not a thing to do twice. Read the census first; the per-shot lines are the
+    // evidence behind it.
+    int remoteBlank = 0, brandOnly = 0, typeOnly = 0, both = 0, clearsCanonical = 0;
+    for (const QVariant& v : repairs) {
+        const QVariantMap r = v.toMap();
+        const QString localBrand = r.value(QStringLiteral("beanBrand")).toString();
+        const QString localType = r.value(QStringLiteral("beanType")).toString();
+        const QString remoteBrand = r.value(QStringLiteral("remoteBeanBrand")).toString();
+        const QString remoteType = r.value(QStringLiteral("remoteBeanType")).toString();
+        const bool brandDiffers = localBrand.trimmed().compare(remoteBrand.trimmed(),
+                                                              Qt::CaseInsensitive) != 0;
+        const bool typeDiffers = localType.trimmed().compare(remoteType.trimmed(),
+                                                             Qt::CaseInsensitive) != 0;
+        if (remoteBrand.trimmed().isEmpty() && remoteType.trimmed().isEmpty())
+            remoteBlank++;
+        else if (brandDiffers && typeDiffers)
+            both++;
+        else if (brandDiffers)
+            brandOnly++;
+        else
+            typeOnly++;
+        if (r.value(QStringLiteral("canonicalId")).toString().isEmpty())
+            clearsCanonical++;
+
+        const QDateTime when = QDateTime::fromSecsSinceEpoch(
+            r.value(QStringLiteral("timestamp")).toLongLong());
+        qDebug().noquote()
+            << "Visualizer bean repair (DRY RUN)" << when.toString(Qt::ISODate)
+            << "server:" << (remoteBrand + QLatin1String(" / ") + remoteType)
+            << "-> app:" << (localBrand + QLatin1String(" / ") + localType)
+            << "| canonical:"
+            << (r.value(QStringLiteral("canonicalId")).toString().isEmpty()
+                    ? QStringLiteral("clear") : QStringLiteral("keep"));
+    }
+    qDebug() << "Visualizer bean repair (DRY RUN): would change" << repairs.size()
+             << "shot(s) — server blank:" << remoteBlank
+             << ", roaster only:" << brandOnly
+             << ", coffee only:" << typeOnly
+             << ", both:" << both
+             << "; canonical link cleared on" << clearsCanonical;
+}
+
 void VisualizerUploader::repairShotBeans(const QVariantList& repairs)
 {
     if (repairs.isEmpty()) {
@@ -767,6 +817,15 @@ void VisualizerUploader::repairShotBeans(const QVariantList& repairs)
     }
     if (m_beanRepairRunning) {
         qDebug() << "Visualizer: bean repair already running - ignoring re-entry";
+        return;
+    }
+    // Dry run is the DEFAULT and the only mode that has run against a real
+    // account so far. It writes nothing, and it deliberately reports the pass as
+    // incomplete so the run-once flag stays unset and the next launch reports
+    // again. Set visualizerBeanRepair/live to true to arm the PATCHes.
+    if (!AppSettings().value(QStringLiteral("visualizerBeanRepair/live"), false).toBool()) {
+        reportBeanRepairPlan(repairs);
+        emit beanRepairFinished(0, false);
         return;
     }
     m_beanRepairQueue = repairs;
@@ -813,6 +872,15 @@ void VisualizerUploader::sendNextBeanRepair()
             // Deleted on visualizer.coffee since the list was fetched. Nothing
             // to repair and nothing to retry — not a failure of the pass.
             qDebug() << "Visualizer: bean repair skipped - shot" << visualizerId << "is gone";
+        } else if (status == 429) {
+            // Rate limited. ABANDON the whole pass rather than walking the
+            // queue collecting 429s — the first live run did exactly that and
+            // burned 349 requests for nothing. The remainder is retried on a
+            // later boot; the pass is incomplete either way.
+            m_beanRepairFailed = true;
+            m_beanRepairQueue.clear();
+            qWarning() << "Visualizer: bean repair rate limited (HTTP 429) after"
+                       << m_beanRepairDone << "shot(s) - stopping, resumes next boot";
         } else {
             // Anything else leaves the pass incomplete so it runs again rather
             // than marking a half-repaired library done.
@@ -820,7 +888,11 @@ void VisualizerUploader::sendNextBeanRepair()
             qWarning() << "Visualizer: bean repair failed for shot" << visualizerId
                        << "(HTTP" << status << ")";
         }
-        sendNextBeanRepair();
+        // Pace the queue. This is a THROTTLE, not a guard: visualizer.coffee
+        // rate-limits, and a library-wide pass is the one place we issue
+        // hundreds of writes in a row. ~1/s keeps a 349-shot library inside the
+        // limit at the cost of a few background minutes.
+        QTimer::singleShot(kBeanRepairIntervalMs, this, [this]() { sendNextBeanRepair(); });
     });
 }
 
