@@ -394,9 +394,9 @@ struct ShotSaveData {
     QList<HistoryPhaseMarker> phaseMarkers;
 };
 
-// One entry of the Visualizer bean-repair queue (fix-visualizer-canonical-
-// roaster-rename): a shot whose bag was unlinked from a borrowed canonical
-// record, and which visualizer.coffee may therefore have renamed.
+// One entry of the Visualizer bean-repair queue: a shot whose bag was unlinked
+// from a borrowed canonical record, and which visualizer.coffee may therefore
+// have renamed.
 //
 // A struct rather than the QVariantMap this started as. The consumer performs
 // destructive writes to the user's cloud account, and a mistyped key in a map

@@ -761,8 +761,8 @@ private slots:
         // An IDENTITY edit is different in kind: the canonical record names a
         // roaster's product, and visualizer.coffee rewrites a shot's bean fields
         // from it, so a bag that no longer calls itself what the record calls it
-        // must stop claiming that record (fix-visualizer-canonical-roaster-
-        // rename). The descriptive fields the user linked FOR are kept.
+        // must stop claiming that record. The descriptive fields the user
+        // linked FOR are kept.
         QJsonObject renamed;
         renamed["bagId"] = bagId;
         renamed["coffeeName"] = "Second Batch";

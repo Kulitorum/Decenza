@@ -111,9 +111,8 @@ public:
     Q_INVOKABLE void requestReconcileVisualizerLinks(const QVariantList& cloudShots,
                                                      qint64 windowStartEpoch);
 
-    // Read the Visualizer bean-repair queue (fix-visualizer-canonical-roaster-
-    // rename): the uploaded shots whose bag was unlinked from a borrowed
-    // canonical record, flagged at that moment by
+    // Read the Visualizer bean-repair queue: the uploaded shots whose bag was
+    // unlinked from a borrowed canonical record, flagged at that moment by
     // CoffeeBagStorage::markShotsForBeanRepairStatic. Emits
     // pendingBeanRepairsReady() with one BeanRepair per shot — the app's values
     // to push, and the canonical id to send back (empty = clear it, which is

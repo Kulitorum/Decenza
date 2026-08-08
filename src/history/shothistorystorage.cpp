@@ -2005,9 +2005,9 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
-    // Migration 37: unlink bags that point at another roaster's canonical record
-    // (fix-visualizer-canonical-roaster-rename). A canonical_coffee_bags row is a
-    // ROASTER'S PRODUCT, and visualizer.coffee rewrites a shot's bean_brand and
+    // Migration 38: unlink bags that point at another roaster's canonical
+    // record. A canonical_coffee_bags row is a ROASTER'S PRODUCT, and
+    // visualizer.coffee rewrites a shot's bean_brand and
     // bean_type from it whenever the link changes — so a bag that borrowed the
     // near-match record for a coffee its own roaster does not sell republished
     // every shot under that other roaster, and kept doing it for each new shot.

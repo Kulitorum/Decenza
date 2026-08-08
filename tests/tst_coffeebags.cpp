@@ -2559,7 +2559,7 @@ private slots:
             {QStringLiteral("Stavanger Kaffebrenneri"), QStringLiteral("Las Capucas")}));
     }
 
-    // Migration 37's data pass: the same rule applied to bags already stored,
+    // Migration 38's data pass: the same rule applied to bags already stored,
     // and it must reach the shots — the uploader reads the SHOT's snapshot, so
     // a bag-only fix would leave every upload re-asserting the borrowed id.
     void migrationCleanUnlinksStoredBorrowedRecordsAndTheirShots() {

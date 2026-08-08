@@ -188,8 +188,8 @@ public:
     void fetchShotListSince(qint64 windowStartEpoch);
 
     // Repair the shots visualizer.coffee renamed from a borrowed canonical
-    // record (fix-visualizer-canonical-roaster-rename). `repairs` is the queue
-    // from ShotHistoryStorage::pendingBeanRepairsReady — the shots whose bag we
+    // record. `repairs` is the queue from
+    // ShotHistoryStorage::pendingBeanRepairsReady — the shots whose bag we
     // unlinked, recorded at that moment, NOT a library-wide comparison.
     //
     // Each shot is READ first and only written when the server actually

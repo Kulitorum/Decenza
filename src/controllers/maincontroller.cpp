@@ -4661,7 +4661,7 @@ void MainController::processVisualizerBeanRepair()
     }
 
     // No run-once flag and no library walk: the queue IS the state. Shots are
-    // flagged where their bag's borrowed canonical link is dropped (migration 37
+    // flagged where their bag's borrowed canonical link is dropped (migration 38
     // and the storage rule), and each flag is cleared once the server confirms
     // that shot needs nothing. An empty queue costs one scan on the DB worker.
     //
