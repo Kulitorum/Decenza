@@ -48,5 +48,5 @@
 
 - [x] 7.1 Update `docs/CLAUDE_MD/BEAN_BASE.md` with the invariant, the queue, the endpoints of record and the rule about reading the deployed server rather than a working tree
 - [x] 7.2 Record that no wiki manual entry is needed — this is a bug fix with no new user-facing surface
-- [ ] 7.3 Merge [#1781](https://github.com/Kulitorum/Decenza/pull/1781)
-- [ ] 7.4 Archive this change with `openspec archive fix-visualizer-canonical-roaster-rename` as the last commit on the branch
+- [x] 7.3 Merge [#1781](https://github.com/Kulitorum/Decenza/pull/1781)
+- [x] 7.4 Archive this change with `openspec archive fix-visualizer-canonical-roaster-rename` as the last commit on the branch
