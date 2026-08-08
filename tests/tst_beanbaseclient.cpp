@@ -1034,29 +1034,29 @@ private slots:
         const QString borrowed = "{\"id\":\"uuid-1\",\"visualizerCanonicalId\":\"uuid-1\","
                                  "\"roasterName\":\"Coava Coffee Roasters\","
                                  "\"roastName\":\"Las Capucas\"}";
-        QVERIFY(BeanBaseBlob::canonicalIdentityConflicts(borrowed, "Stavanger Kaffebrenneri",
-                                                         "Las Capucas"));
+        QVERIFY(BeanBaseBlob::canonicalIdentityConflicts(borrowed, {"Stavanger Kaffebrenneri",
+                                                          "Las Capucas"}));
         // Genuinely the same coffee: link exports, case and padding ignored.
-        QVERIFY(!BeanBaseBlob::canonicalIdentityConflicts(borrowed, " coava coffee roasters ",
-                                                          "Las Capucas"));
+        QVERIFY(!BeanBaseBlob::canonicalIdentityConflicts(borrowed, {" coava coffee roasters ",
+                                                           "Las Capucas"}));
         // A different coffee from the right roaster conflicts too — bean_type is
         // rewritten by the same server callback.
-        QVERIFY(BeanBaseBlob::canonicalIdentityConflicts(borrowed, "Coava Coffee Roasters",
-                                                         "Kirinyaga"));
+        QVERIFY(BeanBaseBlob::canonicalIdentityConflicts(borrowed, {"Coava Coffee Roasters",
+                                                          "Kirinyaga"}));
 
         // The user's edits live in the working keys, so the pristine `canonical`
         // snapshot decides: renaming the roaster locally is what creates the
         // conflict, and it must be detected from the snapshot, not the edit.
         const QString edited = BeanBaseBlob::mergeBeanDetails(
             borrowed, {{"roasterName", "Stavanger Kaffebrenneri"}});
-        QVERIFY(BeanBaseBlob::canonicalIdentityConflicts(edited, "Stavanger Kaffebrenneri",
-                                                         "Las Capucas"));
+        QVERIFY(BeanBaseBlob::canonicalIdentityConflicts(edited, {"Stavanger Kaffebrenneri",
+                                                        "Las Capucas"}));
 
         // Unknown proves nothing: legacy blobs stored no names, and an unnamed
         // local bag must keep the link it has today.
-        QVERIFY(!BeanBaseBlob::canonicalIdentityConflicts("{\"id\":\"uuid-1\"}", "Stavanger", "X"));
-        QVERIFY(!BeanBaseBlob::canonicalIdentityConflicts(borrowed, "", ""));
-        QVERIFY(!BeanBaseBlob::canonicalIdentityConflicts(QString(), "Stavanger", "Las Capucas"));
+        QVERIFY(!BeanBaseBlob::canonicalIdentityConflicts("{\"id\":\"uuid-1\"}", {"Stavanger", "X"}));
+        QVERIFY(!BeanBaseBlob::canonicalIdentityConflicts(borrowed, {"", ""}));
+        QVERIFY(!BeanBaseBlob::canonicalIdentityConflicts(QString(), {"Stavanger", "Las Capucas"}));
     }
 };
 

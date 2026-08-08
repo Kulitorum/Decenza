@@ -2821,7 +2821,7 @@ void ShotHistoryStorage::requestPendingBeanRepairs()
                 // otherwise it is cleared, which is what stops the server
                 // rewriting the names we are about to send.
                 repair.canonicalId = BeanBaseBlob::canonicalId(blob);
-                if (BeanBaseBlob::canonicalIdentityConflicts(blob, repair.beanBrand, repair.beanType))
+                if (BeanBaseBlob::canonicalIdentityConflicts(blob, {repair.beanBrand, repair.beanType}))
                     repair.canonicalId.clear();
                 repairs.append(repair);
             }

@@ -17,6 +17,14 @@ class QJsonArray;
 class QJsonObject;
 class SerialDbWorker;
 
+// Forward-declared rather than including beanbase_blob.h: this header reaches
+// maincontroller.h and from there most of the tree, and the two types are only
+// used here by reference/pointer.
+namespace BeanBaseBlob {
+struct BagIdentity;
+struct CanonicalLink;
+}
+
 // A coffee bag: the single bean concept that replaced bean presets
 // (openspec change bean-bag-inventory). A bag IS the active bean state —
 // shots snapshot its fields at save time, edits write through to it, and
@@ -231,8 +239,8 @@ public:
     // Applied at the STORAGE write so the bag editor, MCP bag_update and the web
     // /beans editor all inherit it; each of the three can otherwise produce the
     // mismatch in a single save.
-    static bool dropConflictedCanonicalLink(const QString& roasterName, const QString& coffeeName,
-                                            QString* beanBaseId, QString* beanBaseData);
+    static bool dropConflictedCanonicalLink(const BeanBaseBlob::BagIdentity& identity,
+                                            BeanBaseBlob::CanonicalLink* link);
 
     // Queue this bag's UPLOADED shots for the Visualizer bean repair
     // (shots.bean_repair_pending). Called wherever a borrowed canonical link is

@@ -427,7 +427,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
         // user keep linked while correcting the roaster — would rename the shot
         // on visualizer.coffee. The link stays local; only the export stops.
         if (BeanBaseBlob::canonicalIdentityConflicts(shotData.beanBaseJson,
-                                                     shotData.beanBrand, shotData.beanType)) {
+                                                     {shotData.beanBrand, shotData.beanType})) {
             qDebug() << "Visualizer: canonical link withheld -" << shotData.beanBrand
                      << "/" << shotData.beanType
                      << "is not what the linked canonical record is named";
@@ -1991,8 +1991,8 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
             // that names a different coffee would rename the shot server-side.
             const QString canonicalId = bag.value("beanBaseId").toString();
             const bool conflicts = BeanBaseBlob::canonicalIdentityConflicts(
-                bag.value("beanBaseData").toString(), bag.value("roasterName").toString(),
-                bag.value("coffeeName").toString());
+                bag.value("beanBaseData").toString(),
+                {bag.value("roasterName").toString(), bag.value("coffeeName").toString()});
             if (!canonicalId.isEmpty() && !conflicts)
                 linkShotCanonical(visualizerShotId, canonicalId);
             qDebug() << "Visualizer CM: shot has no server bag -"

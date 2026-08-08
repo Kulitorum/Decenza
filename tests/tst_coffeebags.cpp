@@ -2556,7 +2556,7 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("corrupt blob"));
         QVERIFY(BeanBaseBlob::canonicalIdentityConflicts(
             QStringLiteral("{\"id\":\"canon-coava\",\"roasterName\":"),  // truncated
-            QStringLiteral("Stavanger Kaffebrenneri"), QStringLiteral("Las Capucas")));
+            {QStringLiteral("Stavanger Kaffebrenneri"), QStringLiteral("Las Capucas")}));
     }
 
     // Migration 37's data pass: the same rule applied to bags already stored,

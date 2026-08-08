@@ -120,8 +120,19 @@ inline bool isCorruptBlob(const QString& blob)
 // empty name on either side proves nothing (legacy blobs stored no names), so
 // only a populated disagreement conflicts: unknown must not block a link that
 // works today.
-inline bool canonicalIdentityConflicts(const QString& blob, const QString& roaster,
-                                       const QString& coffee)
+// The bag's own identity: what the USER says this coffee is. Bundled rather
+// than passed as two loose QStrings because every consumer of this header takes
+// both together, and an argument list of interchangeable strings is a silent
+// transposition waiting to happen. Brace-init order is the residual hazard —
+// `{coffee, roaster}` still compiles — but that swap makes the predicate
+// disagree for essentially every real bag, so it over-unlinks rather than
+// under-unlinks and the "a consistent bag keeps its link" tests catch it.
+struct BagIdentity {
+    QString roaster;
+    QString coffee;
+};
+
+inline bool canonicalIdentityConflicts(const QString& blob, const BagIdentity& identity)
 {
     // A blob we cannot read is not a blob we can vouch for. Returning "no
     // conflict" here is the PERMISSIVE answer — it exports the canonical id and
@@ -145,9 +156,22 @@ inline bool canonicalIdentityConflicts(const QString& blob, const QString& roast
         return !canonicalName.isEmpty() && !localName.isEmpty()
                && canonicalName.compare(localName, Qt::CaseInsensitive) != 0;
     };
-    return disagrees(pristine("roasterName"), roaster.trimmed())
-           || disagrees(pristine("roastName"), coffee.trimmed());
+    return disagrees(pristine("roasterName"), identity.roaster.trimmed())
+           || disagrees(pristine("roastName"), identity.coffee.trimmed());
 }
+
+// A bag's canonical link: the stored id and the blob that carries its keys.
+// They are only ever read together and only ever mutated together — dropping
+// the link clears the id AND strips the blob, and doing one without the other
+// leaves a half-linked bag. That co-mutation used to be a comment; as a struct
+// it is the shape of the code. It also removes the transposition that mattered:
+// two adjacent `QString*` out-params could be swapped silently, which sent the
+// UUID through isCorruptBlob, returned "conflicted" for every bag, and turned
+// the whole guard into a no-op at a call site that discards the return value.
+struct CanonicalLink {
+    QString id;
+    QString blob;
+};
 
 // Drop the canonical LINK from a blob, keeping every descriptive value as the
 // user's own data. Used when a bag's identity no longer matches the record it

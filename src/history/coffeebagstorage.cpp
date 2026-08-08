@@ -570,7 +570,11 @@ qint64 CoffeeBagStorage::insertBagStatic(QSqlDatabase& db, const CoffeeBag& inBa
     // screen: pick a near-match in the Bean Base search (which fills the
     // roaster from the record), type your own roaster over it, save.
     CoffeeBag bag = inBag;
-    dropConflictedCanonicalLink(bag.roasterName, bag.coffeeName, &bag.beanBaseId, &bag.beanBaseData);
+    BeanBaseBlob::CanonicalLink link{bag.beanBaseId, bag.beanBaseData};
+    if (dropConflictedCanonicalLink({bag.roasterName, bag.coffeeName}, &link)) {
+        bag.beanBaseId = link.id;
+        bag.beanBaseData = link.blob;
+    }
 
     // Column list, placeholders, and binds all derived from the writable
     // columns of kCols (every column but the autoincrement id), in table order
@@ -671,14 +675,16 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
             qWarning() << "CoffeeBagStorage: could not load bag" << bagId
                        << "- canonical-link check skipped for this update";
         } else {
-            QString roaster = fields.value(QStringLiteral("roasterName"), stored.roasterName).toString();
-            QString coffee  = fields.value(QStringLiteral("coffeeName"),  stored.coffeeName).toString();
-            QString id      = fields.value(QStringLiteral("beanBaseId"),  stored.beanBaseId).toString();
-            QString blob    = fields.value(QStringLiteral("beanBaseData"), stored.beanBaseData).toString();
-            droppedLink = dropConflictedCanonicalLink(roaster, coffee, &id, &blob);
+            const BeanBaseBlob::BagIdentity identity{
+                fields.value(QStringLiteral("roasterName"), stored.roasterName).toString(),
+                fields.value(QStringLiteral("coffeeName"),  stored.coffeeName).toString()};
+            BeanBaseBlob::CanonicalLink link{
+                fields.value(QStringLiteral("beanBaseId"),   stored.beanBaseId).toString(),
+                fields.value(QStringLiteral("beanBaseData"), stored.beanBaseData).toString()};
+            droppedLink = dropConflictedCanonicalLink(identity, &link);
             if (droppedLink) {
-                fields.insert(QStringLiteral("beanBaseId"), id);
-                fields.insert(QStringLiteral("beanBaseData"), blob);
+                fields.insert(QStringLiteral("beanBaseId"), link.id);
+                fields.insert(QStringLiteral("beanBaseData"), link.blob);
             }
         }
     }
@@ -751,26 +757,26 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
 }
 
 // static
-bool CoffeeBagStorage::dropConflictedCanonicalLink(const QString& roasterName,
-                                                   const QString& coffeeName,
-                                                   QString* beanBaseId, QString* beanBaseData)
+bool CoffeeBagStorage::dropConflictedCanonicalLink(const BeanBaseBlob::BagIdentity& identity,
+                                                   BeanBaseBlob::CanonicalLink* link)
 {
-    if (!beanBaseId || !beanBaseData)
+    if (!link)
         return false;
     // A corrupt blob is refused outright rather than half-stripped: the id would
     // be cleared while stripCanonicalLink (which also refuses) returned the link
     // keys unchanged. The export guard withholds such a blob anyway.
-    if (BeanBaseBlob::isCorruptBlob(*beanBaseData))
+    if (BeanBaseBlob::isCorruptBlob(link->blob))
         return false;
-    if (beanBaseId->isEmpty() && !BeanBaseBlob::isLinked(*beanBaseData))
+    if (link->id.isEmpty() && !BeanBaseBlob::isLinked(link->blob))
         return false;
-    if (!BeanBaseBlob::canonicalIdentityConflicts(*beanBaseData, roasterName, coffeeName))
+    if (!BeanBaseBlob::canonicalIdentityConflicts(link->blob, identity))
         return false;
 
-    qDebug() << "CoffeeBagStorage: dropping canonical link" << *beanBaseId
-             << "- the record names another coffee than" << roasterName << "/" << coffeeName;
-    beanBaseId->clear();
-    *beanBaseData = BeanBaseBlob::stripCanonicalLink(*beanBaseData);
+    qDebug() << "CoffeeBagStorage: dropping canonical link" << link->id
+             << "- the record names another coffee than" << identity.roaster
+             << "/" << identity.coffee;
+    link->id.clear();
+    link->blob = BeanBaseBlob::stripCanonicalLink(link->blob);
     return true;
 }
 
@@ -811,11 +817,9 @@ int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db, bool
     struct Fix { qint64 id; QString blob; };
     QVector<Fix> fixes;
     while (read.next()) {
-        QString id = read.value(3).toString();
-        QString blob = read.value(4).toString();
-        if (dropConflictedCanonicalLink(read.value(1).toString(), read.value(2).toString(),
-                                        &id, &blob))
-            fixes.append({read.value(0).toLongLong(), blob});
+        BeanBaseBlob::CanonicalLink link{read.value(3).toString(), read.value(4).toString()};
+        if (dropConflictedCanonicalLink({read.value(1).toString(), read.value(2).toString()}, &link))
+            fixes.append({read.value(0).toLongLong(), link.blob});
     }
     for (const Fix& fix : fixes) {
         QSqlQuery write(db);
