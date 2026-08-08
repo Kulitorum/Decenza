@@ -606,6 +606,14 @@ private:
     // appending to the same serial drain queue used above. Skips
     // without setting the flag when credentials are absent.
     void processVisualizerReconciliation();
+
+    // One-time bean-identity repair (fix-visualizer-canonical-roaster-rename).
+    // Run-once via QSettings visualizerBeanRepair/doneV1. Lists the whole
+    // library, has ShotHistoryStorage find the shots whose server-side roaster
+    // or coffee disagrees with the app's, and PATCHes the app's values back —
+    // clearing the borrowed canonical link that caused the disagreement. Skips
+    // without setting the flag when credentials are absent or anything fails.
+    void processVisualizerBeanRepair();
     // Tracks the visualizerId of the migration16 PATCH currently in
     // flight. Empty string when no migration16 sync is active. Compared
     // against the visualizerId argument on updateSuccess / updateFailed

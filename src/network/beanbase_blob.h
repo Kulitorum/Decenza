@@ -135,6 +135,27 @@ inline bool isCorruptBlob(const QString& blob)
     return parseError.error != QJsonParseError::NoError || !doc.isObject();
 }
 
+// Drop the canonical LINK from a blob, keeping every descriptive value as the
+// user's own data. Used when a bag's identity no longer matches the record it
+// points at: the record described another roaster's product, so the id, the
+// roaster id and the pristine snapshot are claims we can no longer make — but
+// origin/process/variety/tasting notes/link are what the user is looking at,
+// and deleting those would be a second wrong. Returns "" when nothing is left.
+inline QString stripCanonicalLink(const QString& blob)
+{
+    if (isCorruptBlob(blob)) {
+        qWarning() << "BeanBaseBlob: refusing to strip a corrupt blob (kept unchanged)";
+        return blob;
+    }
+    QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    for (const char* key : {"id", "visualizerCanonicalId", "canonicalRoasterId",
+                            "canonical", "source"})
+        obj.remove(QLatin1String(key));
+    if (obj.isEmpty())
+        return QString();
+    return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+}
+
 // Merge user edits into the blob's working keys. Only editableKeys() entries
 // in `edits` apply; an empty value REMOVES the key (absent-not-empty keeps the
 // details popup's zero-footprint-per-field rule working). Returns the compact

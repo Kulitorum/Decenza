@@ -111,6 +111,16 @@ public:
     Q_INVOKABLE void requestReconcileVisualizerLinks(const QVariantList& cloudShots,
                                                      qint64 windowStartEpoch);
 
+    // Bean-identity repair scan (fix-visualizer-canonical-roaster-rename).
+    // `cloudShots` is the user's Visualizer shot list, each map carrying the
+    // bean identity the SERVER holds ({visualizerId, beanBrand, beanType, …}).
+    // Compares it against the local rows and emits beanMismatchesFound() with
+    // one entry per disagreement: {visualizerId, beanBrand, beanType,
+    // canonicalId} — the local values to push, plus the canonical id to send
+    // back (empty = clear it, which is what stops the server rewriting the
+    // names again). Read-only; the local database is already right.
+    Q_INVOKABLE void requestBeanMismatchScan(const QVariantList& cloudShots);
+
     // Async: runs SQL on a background thread and emits shotsFilteredReady()
     Q_INVOKABLE void requestShotsFiltered(const QVariantMap& filter, int offset = 0, int limit = 50);
 
@@ -463,6 +473,10 @@ signals:
     // {shotId:qint64, visualizerId:QString} maps for rows just linked
     // (empty if ok and none matched).
     void visualizerLinksReconciled(bool ok, const QVariantList& linked);
+    // Result of requestBeanMismatchScan. Same fail-safe contract as above: `ok`
+    // false means the scan did not run, so the caller must not mark the repair
+    // done. `repairs` is empty when every uploaded shot already agrees.
+    void beanMismatchesFound(bool ok, const QVariantList& repairs);
     void mostRecentShotIdReady(qint64 shotId);
     void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool grindIssueDetected, bool skipFirstFrameDetected, bool pourTruncatedDetected);
 

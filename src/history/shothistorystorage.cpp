@@ -2005,6 +2005,44 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 37: unlink bags that point at another roaster's canonical record
+    // (fix-visualizer-canonical-roaster-rename). A canonical_coffee_bags row is a
+    // ROASTER'S PRODUCT, and visualizer.coffee rewrites a shot's bean_brand and
+    // bean_type from it whenever the link changes — so a bag that borrowed the
+    // near-match record for a coffee its own roaster does not sell republished
+    // every shot under that other roaster, and kept doing it for each new shot.
+    // The descriptive fields the user was actually after are kept; only the id,
+    // the roaster id and the pristine snapshot go, and the unlink propagates to
+    // the shots' own snapshots (the uploader reads those, not the bag).
+    //
+    // Data-only, so it commits with the version bump. Detection is offline and
+    // deliberately conservative — it can only prove a conflict when the blob
+    // still carries the record's own names. The bags it cannot judge are caught
+    // by the Visualizer repair sweep, which compares against the server.
+    if (currentVersion >= 36 && currentVersion < 37) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 37 (unlink borrowed canonical records)";
+        query.finish();
+        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 37 canonical unlink", 1);
+        if (!txn.ok()) {
+            qWarning() << "ShotHistoryStorage: migration 37 could not start a transaction - "
+                          "will retry next launch";
+        } else {
+            const int unlinked = CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(m_db);
+            bool ok = unlinked >= 0;
+            if (ok) {
+                query.exec("DELETE FROM schema_version");
+                ok = query.exec("INSERT INTO schema_version (version) VALUES (37)");
+            }
+            if (ok && txn.commit()) {
+                currentVersion = 37;
+                qDebug() << "ShotHistoryStorage: migration 37 complete - unlinked"
+                         << unlinked << "bag(s) from a record naming another coffee";
+            } else {
+                qWarning() << "ShotHistoryStorage: migration 37 incomplete - will retry next launch";
+            }
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -2709,6 +2747,78 @@ void ShotHistoryStorage::requestReconcileVisualizerLinks(const QVariantList& clo
             qDebug() << "ShotHistoryStorage: reconcile" << (ok ? "completed" : "FAILED")
                      << "— linked" << linked.size() << "shot(s)";
             emit visualizerLinksReconciled(ok, linked);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ShotHistoryStorage::requestBeanMismatchScan(const QVariantList& cloudShots)
+{
+    if (!m_ready) {
+        emit beanMismatchesFound(false, QVariantList());
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runOnDbThread([this, dbPath, cloudShots, destroyed]() {
+        QVariantList repairs;
+        const bool opened = withTempDb(dbPath, "shs_beanrepair", [&](QSqlDatabase& db) {
+            // One read of every uploaded shot, then a hash join in memory — the
+            // cloud list is the user's whole library, so a query per shot would
+            // be hundreds of round trips for a pass that runs once.
+            struct Local { QString brand, type, blob; };
+            QHash<QString, Local> byVisualizerId;
+            QSqlQuery query(db);
+            if (!query.exec("SELECT visualizer_id, bean_brand, bean_type, beanbase_json FROM shots "
+                            "WHERE COALESCE(visualizer_id,'') <> ''")) {
+                qWarning() << "ShotHistoryStorage: bean-repair scan query failed:"
+                           << query.lastError().text();
+                return;
+            }
+            while (query.next())
+                byVisualizerId.insert(query.value(0).toString(),
+                                      {query.value(1).toString(), query.value(2).toString(),
+                                       query.value(3).toString()});
+
+            for (const QVariant& v : cloudShots) {
+                const QVariantMap cloud = v.toMap();
+                const auto local = byVisualizerId.constFind(cloud.value("visualizerId").toString());
+                if (local == byVisualizerId.constEnd())
+                    continue;  // not ours to correct — no local row behind it
+                const QString localBrand = local->brand.trimmed();
+                const QString localType = local->type.trimmed();
+                if (localBrand.isEmpty() && localType.isEmpty())
+                    continue;  // nothing authoritative to push
+                if (localBrand.compare(cloud.value("beanBrand").toString().trimmed(),
+                                       Qt::CaseInsensitive) == 0
+                    && localType.compare(cloud.value("beanType").toString().trimmed(),
+                                         Qt::CaseInsensitive) == 0)
+                    continue;  // agrees already
+
+                // The canonical id goes back up only when it names THIS coffee;
+                // otherwise it is cleared, which is what stops the server
+                // rewriting the names we are about to send.
+                QString canonicalId = BeanBaseBlob::canonicalId(local->blob);
+                if (BeanBaseBlob::canonicalIdentityConflicts(local->blob, localBrand, localType))
+                    canonicalId.clear();
+
+                QVariantMap repair;
+                repair["visualizerId"] = cloud.value("visualizerId");
+                repair["beanBrand"] = local->brand;
+                repair["beanType"] = local->type;
+                repair["canonicalId"] = canonicalId;
+                repairs.append(repair);
+            }
+        });
+        if (!opened)
+            qWarning() << "ShotHistoryStorage: bean-repair scan could not open DB — will retry next boot";
+
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, opened, repairs, destroyed]() {
+            if (*destroyed) return;
+            qDebug() << "ShotHistoryStorage: bean-repair scan" << (opened ? "completed" : "FAILED")
+                     << "—" << repairs.size() << "shot(s) disagree with visualizer.coffee";
+            emit beanMismatchesFound(opened, repairs);
         }, Qt::QueuedConnection);
     });
 }

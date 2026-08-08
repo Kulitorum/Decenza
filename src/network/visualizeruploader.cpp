@@ -744,6 +744,10 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
             m["visualizerId"] = e.visualizerId;
             m["url"] = QString(VISUALIZER_SHOT_URL) + e.visualizerId;
             m["clockEpoch"] = e.clockEpoch;
+            // The bean identity the SERVER holds — what the repair sweep
+            // compares against; ignored by the id-only reconcilers.
+            m["beanBrand"] = e.beanBrand;
+            m["beanType"] = e.beanType;
             accumulated.append(m);
         }
 
@@ -752,6 +756,71 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
             return;
         }
         fetchShotListPage(page + 1, windowStartEpoch, accumulated);
+    });
+}
+
+void VisualizerUploader::repairShotBeans(const QVariantList& repairs)
+{
+    if (repairs.isEmpty()) {
+        emit beanRepairFinished(0, true);
+        return;
+    }
+    if (m_beanRepairRunning) {
+        qDebug() << "Visualizer: bean repair already running - ignoring re-entry";
+        return;
+    }
+    m_beanRepairQueue = repairs;
+    m_beanRepairDone = 0;
+    m_beanRepairFailed = false;
+    m_beanRepairRunning = true;
+    qDebug() << "Visualizer: repairing bean identity on" << repairs.size() << "shot(s)";
+    sendNextBeanRepair();
+}
+
+void VisualizerUploader::sendNextBeanRepair()
+{
+    if (m_beanRepairQueue.isEmpty()) {
+        m_beanRepairRunning = false;
+        qDebug() << "Visualizer: bean repair finished -" << m_beanRepairDone << "shot(s) corrected"
+                 << (m_beanRepairFailed ? "(incomplete, will retry next boot)" : "");
+        emit beanRepairFinished(m_beanRepairDone, !m_beanRepairFailed);
+        return;
+    }
+    const QVariantMap repair = m_beanRepairQueue.takeFirst().toMap();
+    const QString visualizerId = repair.value(QStringLiteral("visualizerId")).toString();
+    const QString canonicalId = repair.value(QStringLiteral("canonicalId")).toString();
+
+    QJsonObject shot{
+        {QStringLiteral("bean_brand"), repair.value(QStringLiteral("beanBrand")).toString()},
+        {QStringLiteral("bean_type"), repair.value(QStringLiteral("beanType")).toString()},
+        // Explicit null clears the borrowed link. The names above survive
+        // BECAUSE this changes: refresh_coffee_bag_fields fires on the id
+        // change, finds neither a coffee_bag nor a canonical bag, and leaves
+        // the fields alone (verified live against the API).
+        {QStringLiteral("canonical_coffee_bag_id"),
+         canonicalId.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(canonicalId)},
+    };
+    QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerId);
+    QNetworkReply* reply = m_networkManager->sendCustomRequest(
+        request, "PATCH", QJsonDocument(QJsonObject{{QStringLiteral("shot"), shot}})
+                              .toJson(QJsonDocument::Compact));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerId]() {
+        reply->deleteLater();
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (status == 200) {
+            m_beanRepairDone++;
+        } else if (status == 404) {
+            // Deleted on visualizer.coffee since the list was fetched. Nothing
+            // to repair and nothing to retry — not a failure of the pass.
+            qDebug() << "Visualizer: bean repair skipped - shot" << visualizerId << "is gone";
+        } else {
+            // Anything else leaves the pass incomplete so it runs again rather
+            // than marking a half-repaired library done.
+            m_beanRepairFailed = true;
+            qWarning() << "Visualizer: bean repair failed for shot" << visualizerId
+                       << "(HTTP" << status << ")";
+        }
+        sendNextBeanRepair();
     });
 }
 

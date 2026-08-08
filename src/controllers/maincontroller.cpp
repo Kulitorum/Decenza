@@ -442,6 +442,17 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // persist-visualizer-id-in-controller.
     processVisualizerReconciliation();
 
+    // One-time repair of the shots visualizer.coffee renamed from a borrowed
+    // canonical bean record. Both passes page the SAME shot-list endpoint
+    // through the one shared shotListFetched signal, so they must never be in
+    // flight together — their single-shot handlers would cross-wire onto
+    // whichever list arrived first, and the repair would read the
+    // reconciliation's 60-day window as the whole library. The repair starts
+    // here only when reconciliation is already done; otherwise reconciliation
+    // starts it when it finishes.
+    if (AppSettings().value(QStringLiteral("visualizerBackfill/doneV1"), false).toBool())
+        processVisualizerBeanRepair();
+
     connect(m_visualizer, &VisualizerUploader::updateSuccess, this,
             [this](const QString& visualizerId) {
         // Only react when this matches the migration16 PATCH we issued;
@@ -4603,6 +4614,64 @@ void MainController::dispatchNextPendingVisualizerSync()
     m_shotHistory->requestShot(shotId);
 }
 
+void MainController::processVisualizerBeanRepair()
+{
+    if (!m_visualizer || !m_shotHistory) return;
+
+    AppSettings s;
+    if (s.value(QStringLiteral("visualizerBeanRepair/doneV1"), false).toBool())
+        return;
+
+    const QString user = s.value(QStringLiteral("visualizer/username")).toString();
+    const QString pass = s.value(QStringLiteral("visualizer/password")).toString();
+    if (user.isEmpty() || pass.isEmpty()) {
+        // Same rule as the reconciliation above: no credentials means the pass
+        // never ran, so the flag stays unset and a later boot retries.
+        qDebug() << "MainController: Visualizer bean repair skipped (no credentials)";
+        return;
+    }
+
+    connect(m_visualizer, &VisualizerUploader::shotListFailed, this, [](const QString& err) {
+        qWarning() << "MainController: Visualizer bean repair list fetch failed:"
+                   << err << "(will retry next boot)";
+    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+
+    connect(m_visualizer, &VisualizerUploader::shotListFetched, this,
+            [this](const QVariantList& cloudShots) {
+        if (m_shotHistory && m_shotHistory->isReady())
+            m_shotHistory->requestBeanMismatchScan(cloudShots);
+    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+
+    connect(m_shotHistory, &ShotHistoryStorage::beanMismatchesFound, this,
+            [this](bool ok, const QVariantList& repairs) {
+        if (!ok) {
+            qWarning() << "MainController: Visualizer bean repair scan did not complete "
+                          "(DB error) — will retry next boot";
+            return;
+        }
+        m_visualizer->repairShotBeans(repairs);
+    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+
+    connect(m_visualizer, &VisualizerUploader::beanRepairFinished, this,
+            [](int repaired, bool complete) {
+        if (!complete) {
+            qWarning() << "MainController: Visualizer bean repair incomplete after correcting"
+                       << repaired << "shot(s) — will retry next boot";
+            return;
+        }
+        AppSettings ss;
+        ss.setValue(QStringLiteral("visualizerBeanRepair/doneV1"), true);
+        ss.sync();
+        qDebug() << "MainController: Visualizer bean repair complete —" << repaired
+                 << "shot(s) restored to the app's bean identity";
+    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+
+    // Whole library, not the 60-day reconciliation window: a bag linked once
+    // renamed every shot it ever pulled, however old.
+    qDebug() << "MainController: starting one-time Visualizer bean repair";
+    m_visualizer->fetchShotListSince(0);
+}
+
 void MainController::processVisualizerReconciliation()
 {
     if (!m_visualizer || !m_shotHistory) return;
@@ -4655,6 +4724,10 @@ void MainController::processVisualizerReconciliation()
         AppSettings ss;
         ss.setValue(QStringLiteral("visualizerBackfill/doneV1"), true);
         ss.sync();
+
+        // The list endpoint is free again: start the bean repair, which was
+        // held back at boot precisely so the two passes could not overlap.
+        processVisualizerBeanRepair();
 
         if (linked.isEmpty()) {
             qDebug() << "MainController: Visualizer reconciliation — nothing to relink";

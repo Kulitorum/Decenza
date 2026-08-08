@@ -217,6 +217,26 @@ public:
     // Update only the columns named in `fields` (camelCase CoffeeBag keys).
     static bool updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields);
 
+    // Enforce the canonical-link invariant on a bag about to be written: a bag
+    // may carry a canonical id only while its own roaster/coffee still name the
+    // record that id points at. A canonical_coffee_bags row IS a roaster's
+    // product, and visualizer.coffee treats the id as authoritative for identity
+    // (Shot#refresh_coffee_bag_fields), so a bag that borrowed another roaster's
+    // record republished every one of its shots under that roaster. Editing the
+    // identity is the supported way to fix a near-match pick, so the link — not
+    // the user's name — is what gives way: the id and the blob's link keys are
+    // dropped, every descriptive field kept. Returns true when it dropped one.
+    //
+    // Applied at the STORAGE write so the bag editor, MCP bag_update and the web
+    // /beans editor all inherit it; each of the three can otherwise produce the
+    // mismatch in a single save.
+    static bool dropConflictedCanonicalLink(const QString& roasterName, const QString& coffeeName,
+                                            QString* beanBaseId, QString* beanBaseData);
+
+    // Clean every stored bag that already carries a conflicted link (migration
+    // 35's data pass). Returns the number of bags unlinked, -1 on failure.
+    static int cleanConflictedCanonicalLinksStatic(QSqlDatabase& db);
+
     // True when `fields` (camelCase CoffeeBag keys) contains at least one field
     // that Visualizer stores on its coffee bag — the identity/lifecycle/canonical
     // fields, NOT the local-only grinder/dose/yield/lifecycle-id columns. Drives

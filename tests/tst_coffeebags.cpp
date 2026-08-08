@@ -21,6 +21,7 @@
 #include "core/settings_dye.h"
 #include "shotrowfixtures.h"
 #include "network/visualizeruploader.h"
+#include "network/beanbase_blob.h"
 
 using Tier = UnifiedBeanSearchModel::Tier;
 
@@ -889,7 +890,7 @@ private slots:
             QCOMPARE(q.value(0).toInt(), 0);  // existing rows default to 0
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 36);  // chain runs on to the latest (widened enrichment-fork heal)
+            QCOMPARE(q.value(0).toInt(), 37);  // chain runs on to the latest (canonical-link unlink)
         });
     }
 
@@ -1287,7 +1288,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 36);  // chain runs on to the latest (widened enrichment-fork heal)
+            QCOMPARE(q.value(0).toInt(), 37);  // chain runs on to the latest (canonical-link unlink)
         });
     }
 
@@ -1320,7 +1321,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 36);  // chain runs on to the latest (widened enrichment-fork heal)
+            QCOMPARE(q.value(0).toInt(), 37);  // chain runs on to the latest (canonical-link unlink)
             // The repaired table is writable — insertRecipeStatic binds
             // rpm_pinned unconditionally, so it would fail wholesale if the
             // ALTER hadn't landed.
@@ -2398,6 +2399,119 @@ private slots:
         VisualizerUploader::addBagDescriptiveFields(sparseBody, sparse);
         QCOMPARE(sparseBody.value("name").toString(), QStringLiteral("Bare"));
         QCOMPARE(sparseBody.size(), 1);
+    }
+
+    // A bag may carry a canonical id only while its own roaster/coffee still
+    // name the record. Reproduced from the shipped defect: a bag linked to
+    // another roaster's record for the same coffee republished every one of its
+    // shots under that roaster on visualizer.coffee.
+    void renamingALinkedBagDropsTheBorrowedCanonicalRecord() {
+        const QString path = freshDb();
+        QVERIFY(!path.isEmpty());
+        const QString linkedBlob = QStringLiteral(
+            "{\"id\":\"canon-coava\",\"visualizerCanonicalId\":\"canon-coava\","
+            "\"canonicalRoasterId\":\"roaster-coava\",\"roasterName\":\"Coava Coffee Roasters\","
+            "\"roastName\":\"Las Capucas\",\"origin\":\"Honduras\",\"process\":\"Washed\"}");
+
+        qint64 bagId = -1;
+        withRawDb(path, "canon_seed", [&](QSqlDatabase& db) {
+            CoffeeBag b;
+            b.roasterName = "Coava Coffee Roasters";
+            b.coffeeName = "Las Capucas";
+            b.beanBaseId = "canon-coava";
+            b.beanBaseData = linkedBlob;
+            bagId = CoffeeBagStorage::insertBagStatic(db, b);
+            // Consistent identity: the link is kept on insert.
+            const CoffeeBag stored = CoffeeBagStorage::loadBagStatic(db, bagId);
+            QCOMPARE(stored.beanBaseId, QStringLiteral("canon-coava"));
+
+            // The user corrects the roaster to the one they actually bought from.
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(
+                db, bagId, {{"roasterName", "Stavanger Kaffebrenneri"}}));
+            const CoffeeBag renamed = CoffeeBagStorage::loadBagStatic(db, bagId);
+            QVERIFY(renamed.beanBaseId.isEmpty());
+            QVERIFY(!BeanBaseBlob::isLinked(renamed.beanBaseData));
+            // The details the user wanted from that record are NOT collateral.
+            const QJsonObject blob =
+                QJsonDocument::fromJson(renamed.beanBaseData.toUtf8()).object();
+            QCOMPARE(blob.value("origin").toString(), QStringLiteral("Honduras"));
+            QCOMPARE(blob.value("process").toString(), QStringLiteral("Washed"));
+            QVERIFY(!blob.contains("canonicalRoasterId"));
+        });
+        QVERIFY(bagId > 0);
+    }
+
+    // Migration 37's data pass: the same rule applied to bags already stored,
+    // and it must reach the shots — the uploader reads the SHOT's snapshot, so
+    // a bag-only fix would leave every upload re-asserting the borrowed id.
+    void migrationCleanUnlinksStoredBorrowedRecordsAndTheirShots() {
+        const QString path = freshDb();
+        QVERIFY(!path.isEmpty());
+        withRawDb(path, "canon_clean", [&](QSqlDatabase& db) {
+            CoffeeBag borrowed;
+            borrowed.roasterName = "Stavanger Kaffebrenneri";
+            borrowed.coffeeName = "Las Capucas";
+            borrowed.beanBaseId = "canon-coava";
+            borrowed.beanBaseData = QStringLiteral(
+                "{\"id\":\"canon-coava\",\"visualizerCanonicalId\":\"canon-coava\","
+                "\"roasterName\":\"Coava Coffee Roasters\",\"roastName\":\"Las Capucas\","
+                "\"origin\":\"Honduras\"}");
+            // Written past the invariant deliberately — these rows predate it.
+            const qint64 badId = CoffeeBagStorage::insertBagStatic(db, CoffeeBag{});
+            QSqlQuery seed(db);
+            seed.prepare("UPDATE coffee_bags SET roaster_name = :r, coffee_name = :c, "
+                         "beanbase_id = :id, beanbase_json = :blob WHERE id = :bag");
+            seed.bindValue(":r", borrowed.roasterName);
+            seed.bindValue(":c", borrowed.coffeeName);
+            seed.bindValue(":id", borrowed.beanBaseId);
+            seed.bindValue(":blob", borrowed.beanBaseData);
+            seed.bindValue(":bag", badId);
+            QVERIFY(seed.exec());
+
+            CoffeeBag good;
+            good.roasterName = "Prodigal Coffee";
+            good.coffeeName = "Milk Blend Espresso";
+            good.beanBaseId = "canon-prodigal";
+            good.beanBaseData = QStringLiteral(
+                "{\"id\":\"canon-prodigal\",\"visualizerCanonicalId\":\"canon-prodigal\","
+                "\"roasterName\":\"Prodigal Coffee\",\"roastName\":\"Milk Blend Espresso\"}");
+            const qint64 goodId = CoffeeBagStorage::insertBagStatic(db, good);
+            QVERIFY(goodId > 0);
+
+            ShotRowFixtures::ShotRow row;
+            row.uuid = "canon-clean-shot";
+            row.timestamp = QDateTime::currentSecsSinceEpoch();
+            row.profileName = "Test";
+            row.beanBrand = borrowed.roasterName;
+            row.beanType = borrowed.coffeeName;
+            const qint64 shotId = ShotRowFixtures::insertShot(db, row);
+            QVERIFY(shotId > 0);
+            QSqlQuery shot(db);
+            shot.prepare("UPDATE shots SET bag_id = :bag, beanbase_id = :id, beanbase_json = :blob "
+                         "WHERE id = :shot");
+            shot.bindValue(":bag", badId);
+            shot.bindValue(":id", borrowed.beanBaseId);
+            shot.bindValue(":blob", borrowed.beanBaseData);
+            shot.bindValue(":shot", shotId);
+            QVERIFY(shot.exec());
+
+            QCOMPARE(CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(db), 1);
+
+            const CoffeeBag fixed = CoffeeBagStorage::loadBagStatic(db, badId);
+            QVERIFY(fixed.beanBaseId.isEmpty());
+            QCOMPARE(QJsonDocument::fromJson(fixed.beanBaseData.toUtf8())
+                         .object().value("origin").toString(), QStringLiteral("Honduras"));
+            // The correctly-linked bag is untouched.
+            QCOMPARE(CoffeeBagStorage::loadBagStatic(db, goodId).beanBaseId,
+                     QStringLiteral("canon-prodigal"));
+
+            QSqlQuery check(db);
+            QVERIFY(check.exec("SELECT COALESCE(beanbase_id,''), COALESCE(beanbase_json,'') "
+                               "FROM shots ORDER BY id DESC LIMIT 1"));
+            QVERIFY(check.next());
+            QVERIFY(check.value(0).toString().isEmpty());
+            QVERIFY(!BeanBaseBlob::isLinked(check.value(1).toString()));
+        });
     }
 };
 

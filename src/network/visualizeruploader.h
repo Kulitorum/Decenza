@@ -185,6 +185,19 @@ public:
     // not advance its run-once flag on failure).
     void fetchShotListSince(qint64 windowStartEpoch);
 
+    // Repair shots visualizer.coffee renamed from a borrowed canonical record
+    // (fix-visualizer-canonical-roaster-rename). `repairs` comes from
+    // ShotHistoryStorage::beanMismatchesFound: one {visualizerId, beanBrand,
+    // beanType, canonicalId} map per shot whose server-side bean identity
+    // disagrees with the app's. PATCHes them one at a time (a library-wide pass
+    // must not open hundreds of parallel connections) and emits
+    // beanRepairFinished when the queue drains. `canonicalId` empty sends JSON
+    // null, which CLEARS the link — the one place we null it, because a link
+    // that renamed the user's shot is the thing being undone. Sending the names
+    // and the id together is what makes the names stick: the server only
+    // rewrites them when that id CHANGES, and it changes to null here.
+    void repairShotBeans(const QVariantList& repairs);
+
     // Build a visualizer-compatible JSON payload from a ShotProjection.
     // Thread-safe; does not touch instance state. Reused by ShotHistoryExporter.
     static QByteArray buildHistoryShotJson(const ShotProjection& shotData);
@@ -252,6 +265,10 @@ signals:
     // Reconciliation list fetch results.
     void shotListFetched(const QVariantList& shots);
     void shotListFailed(const QString& error);
+    // The bean-repair pass drained. `repaired` counts the shots the server
+    // accepted; `complete` is false when any PATCH failed, so the caller leaves
+    // its run-once flag unset and the remainder is retried next boot.
+    void beanRepairFinished(int repaired, bool complete);
 
 private slots:
     void onUploadFinished(QNetworkReply* reply);
@@ -283,6 +300,14 @@ private:
     // recurses until older than m_reconcileWindowStartEpoch or paging
     // exhausted, then emits shotListFetched once.
     void fetchShotListPage(int page, qint64 windowStartEpoch, QVariantList accumulated);
+
+    // Send the next queued bean repair, or emit beanRepairFinished when the
+    // queue is empty. Serial by construction — one PATCH in flight at a time.
+    void sendNextBeanRepair();
+    QVariantList m_beanRepairQueue;
+    int m_beanRepairDone = 0;
+    bool m_beanRepairFailed = false;
+    bool m_beanRepairRunning = false;
 
     // --- Coffee Management sync (bean-bag-inventory) ---
     // Entry point, called after a successful upload POST. Loads the shot's bag

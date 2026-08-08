@@ -734,14 +734,14 @@ private slots:
         QJsonObject args;
         args["bagId"] = bagId;
         args["tastingNotes"] = "plum";
-        args["coffeeName"] = "First Batch 2026";
         QJsonObject result = f.callAsyncTool("bag", withAction("update", args));
         QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
         const QJsonObject beanBase = result["bag"].toObject()["beanBase"].toObject();
-        // Link intact, identity mirror applied, snapshot = pre-edit values.
+        // A DETAIL edit leaves the link intact: identity mirror applied, snapshot
+        // = pre-edit values.
         QCOMPARE(beanBase["id"].toString(), QString("uuid-1"));
         QCOMPARE(beanBase["canonicalRoasterId"].toString(), QString("roaster-uuid"));
-        QCOMPARE(beanBase["roastName"].toString(), QString("First Batch 2026"));
+        QCOMPARE(beanBase["roastName"].toString(), QString("First Batch"));
         QCOMPARE(beanBase["tastingNotes"].toString(), QString("plum"));
         const QJsonObject canonical = beanBase["canonical"].toObject();
         QCOMPARE(canonical["roastName"].toString(), QString("First Batch"));
@@ -757,6 +757,24 @@ private slots:
         // And the snapshot is untouched by the second edit.
         QCOMPARE(result2["bag"].toObject()["beanBase"].toObject()
                      ["canonical"].toObject()["origin"].toString(), QString("Colombia"));
+
+        // An IDENTITY edit is different in kind: the canonical record names a
+        // roaster's product, and visualizer.coffee rewrites a shot's bean fields
+        // from it, so a bag that no longer calls itself what the record calls it
+        // must stop claiming that record (fix-visualizer-canonical-roaster-
+        // rename). The descriptive fields the user linked FOR are kept.
+        QJsonObject renamed;
+        renamed["bagId"] = bagId;
+        renamed["coffeeName"] = "Second Batch";
+        QJsonObject result3 = f.callAsyncTool("bag", withAction("update", renamed));
+        QVERIFY2(result3["success"].toBool(), qPrintable(QJsonDocument(result3).toJson()));
+        const QJsonObject unlinked = result3["bag"].toObject()["beanBase"].toObject();
+        QVERIFY(!unlinked.contains("id"));
+        QVERIFY(!unlinked.contains("visualizerCanonicalId"));
+        QVERIFY(!unlinked.contains("canonicalRoasterId"));
+        QVERIFY(!unlinked.contains("canonical"));
+        QCOMPARE(unlinked["origin"].toString(), QString("Colombia"));
+        QCOMPARE(unlinked["tastingNotes"].toString(), QString("plum"));
 
         // Drain BEFORE close(). close() calls QSqlDatabase::removeDatabase(), which
         // qWarns "connection is still in use" if background work still holds one —
