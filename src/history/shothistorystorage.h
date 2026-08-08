@@ -115,15 +115,19 @@ public:
     // rename): the uploaded shots whose bag was unlinked from a borrowed
     // canonical record, flagged at that moment by
     // CoffeeBagStorage::markShotsForBeanRepairStatic. Emits
-    // pendingBeanRepairsReady() with {shotId, visualizerId, beanBrand,
-    // beanType, canonicalId, timestamp} per shot — the app's values to push and
-    // the canonical id to send back (empty = clear it, which is what stops the
-    // server rewriting the names again). Queued rows that were never uploaded
-    // have their flag dropped here. Read-only apart from that housekeeping.
+    // pendingBeanRepairsReady() with one BeanRepair per shot — the app's values
+    // to push, and the canonical id to send back (empty = clear it, which is
+    // what stops the server rewriting the names again).
+    //
+    // Strictly read-only. Never-uploaded rows stay flagged and are skipped, not
+    // cleared: such a row may be mid-upload, and dropping its flag would lose it
+    // from the queue moments before its id lands (see the note at the query).
     Q_INVOKABLE void requestPendingBeanRepairs();
 
     // Drop one shot's repair flag, after the server confirmed the repair (or
-    // reported it was never needed). Fire-and-forget on the DB thread.
+    // reported it was never needed). Fire-and-forget on the DB thread; every
+    // failure path warns, because a flag that fails to clear means repairing
+    // that shot again on the next boot.
     Q_INVOKABLE void clearBeanRepairPending(qint64 shotId);
 
     // Async: runs SQL on a background thread and emits shotsFilteredReady()
@@ -479,8 +483,10 @@ signals:
     // (empty if ok and none matched).
     void visualizerLinksReconciled(bool ok, const QVariantList& linked);
     // Result of requestPendingBeanRepairs. `ok` false means the read did not
-    // run; `repairs` is empty when the queue is (the normal case).
-    void pendingBeanRepairsReady(bool ok, const QVariantList& repairs);
+    // run — the DB would not open, or the query failed — and must NOT be read
+    // as an empty queue. `repairs` is empty when the queue genuinely is, which
+    // is the normal case.
+    void pendingBeanRepairsReady(bool ok, const QVector<BeanRepair>& repairs);
     void mostRecentShotIdReady(qint64 shotId);
     void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool grindIssueDetected, bool skipFirstFrameDetected, bool pourTruncatedDetected);
 

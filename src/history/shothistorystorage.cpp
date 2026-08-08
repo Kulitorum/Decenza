@@ -2015,13 +2015,17 @@ bool ShotHistoryStorage::runMigrations()
     // the roaster id and the pristine snapshot go, and the unlink propagates to
     // the shots' own snapshots (the uploader reads those, not the bag).
     //
-    // 38 runs the SAME pass. It exists only for databases an early build of 37
-    // stamped before the repair queue's column was part of it (development
-    // machines); on a database 37 already cleaned it finds nothing. One
-    // implementation, called twice — the alternative was two near-identical
+    // 38 runs the SAME pass, and it runs on EVERY database: runCanonicalUnlink
+    // updates currentVersion, so a database that just took 37 falls straight
+    // through into it on the same launch and finds nothing. It exists for
+    // databases an early build of 37 stamped before the queue column was part
+    // of the pass — there, the second run is the one that adds the column. One
+    // implementation, called twice; the alternative was two near-identical
     // blocks free to drift.
     //
-    // Data-only, so it commits with the version bump. Detection is offline and
+    // Adds one column and does a data pass. The column is best-effort (see the
+    // note inside); the unlink is the correctness fact, so the version stamps
+    // either way. Detection is offline and
     // deliberately conservative: it can only prove a conflict while the blob
     // still carries the record's own names.
     auto runCanonicalUnlink = [&](int version) {
@@ -2049,9 +2053,12 @@ bool ShotHistoryStorage::runMigrations()
         const int unlinked = CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(m_db);
         bool ok = unlinked >= 0;
         if (ok) {
-            query.exec("DELETE FROM schema_version");
-            ok = query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (%1)")
-                                .arg(version));
+            // Both halves checked, like every other migration in this file: a
+            // DELETE that commits without its INSERT leaves the table empty,
+            // which is not recoverable.
+            ok = query.exec("DELETE FROM schema_version")
+                 && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (%1)")
+                                   .arg(version));
         }
         if (ok && txn.commit()) {
             currentVersion = version;
@@ -2779,14 +2786,21 @@ void ShotHistoryStorage::requestReconcileVisualizerLinks(const QVariantList& clo
 void ShotHistoryStorage::requestPendingBeanRepairs()
 {
     if (!m_ready) {
-        emit pendingBeanRepairsReady(false, QVariantList());
+        emit pendingBeanRepairsReady(false, {});
         return;
     }
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
     runOnDbThread([this, dbPath, destroyed]() {
-        QVariantList repairs;
+        QVector<BeanRepair> repairs;
+        // withTempDb reports whether the DATABASE OPENED, not whether the work
+        // inside succeeded — so the query's own verdict has to come out
+        // separately. Without this, a failed SELECT (the column missing on a
+        // database whose ALTER failed) emitted `ok=true, repairs={}`, which is
+        // bit-for-bit "the queue is empty, all good": the user's shots stay
+        // renamed forever and every boot reports success.
+        bool queryOk = false;
         const bool opened = withTempDb(dbPath, "shs_beanrepair", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             if (!query.exec("SELECT id, visualizer_id, bean_brand, bean_type, beanbase_json, timestamp "
@@ -2798,50 +2812,55 @@ void ShotHistoryStorage::requestPendingBeanRepairs()
             }
             while (query.next()) {
                 const QString blob = query.value(4).toString();
-                const QString brand = query.value(2).toString();
-                const QString type = query.value(3).toString();
+                BeanRepair repair;
+                repair.shotId = query.value(0).toLongLong();
+                repair.visualizerId = query.value(1).toString();
+                repair.beanBrand = query.value(2).toString();
+                repair.beanType = query.value(3).toString();
+                repair.timestamp = query.value(5).toLongLong();
                 // The canonical id goes back up only when it names THIS coffee;
                 // otherwise it is cleared, which is what stops the server
                 // rewriting the names we are about to send.
-                QString canonicalId = BeanBaseBlob::canonicalId(blob);
-                if (BeanBaseBlob::canonicalIdentityConflicts(blob, brand, type))
-                    canonicalId.clear();
-
-                QVariantMap repair;
-                repair["shotId"] = query.value(0).toLongLong();
-                repair["visualizerId"] = query.value(1).toString();
-                repair["beanBrand"] = brand;
-                repair["beanType"] = type;
-                repair["canonicalId"] = canonicalId;
-                repair["timestamp"] = query.value(5).toLongLong();
+                repair.canonicalId = BeanBaseBlob::canonicalId(blob);
+                if (BeanBaseBlob::canonicalIdentityConflicts(blob, repair.beanBrand, repair.beanType))
+                    repair.canonicalId.clear();
                 repairs.append(repair);
             }
+            queryOk = true;
             // A flagged row with no visualizer_id is not junk, it is not READY:
             // it may be mid-upload, and clearing the flag here would drop it from
             // the queue moments before its id lands. The query above skips it,
             // and an unuploaded shot costs one unread row.
         });
-        if (!opened)
-            qWarning() << "ShotHistoryStorage: pending bean-repair read could not open DB";
+        const bool ok = opened && queryOk;
+        if (!ok)
+            qWarning() << "ShotHistoryStorage: pending bean-repair read FAILED -"
+                       << (opened ? "query error" : "could not open DB")
+                       << "- no repair will run this session";
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, opened, repairs, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, ok, repairs, destroyed]() {
             if (*destroyed) return;
-            if (opened && !repairs.isEmpty())
+            if (ok && !repairs.isEmpty())
                 qDebug() << "ShotHistoryStorage:" << repairs.size()
                          << "shot(s) queued for Visualizer bean repair";
-            emit pendingBeanRepairsReady(opened, repairs);
+            emit pendingBeanRepairsReady(ok, repairs);
         }, Qt::QueuedConnection);
     });
 }
 
 void ShotHistoryStorage::clearBeanRepairPending(qint64 shotId)
 {
-    if (!m_ready || shotId <= 0)
+    if (!m_ready || shotId <= 0) {
+        // The server confirmed this shot needs nothing; failing to record that
+        // means repairing it again on the next boot, so it is not silent.
+        qWarning() << "ShotHistoryStorage: cannot clear the repair flag on shot" << shotId
+                   << "- storage not ready; it will be re-checked next boot";
         return;
+    }
     const QString dbPath = m_dbPath;
     runOnDbThread([dbPath, shotId]() {
-        withTempDb(dbPath, "shs_beanrepairdone", [&](QSqlDatabase& db) {
+        const bool opened = withTempDb(dbPath, "shs_beanrepairdone", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             query.prepare("UPDATE shots SET bean_repair_pending = 0 WHERE id = :id");
             query.bindValue(":id", shotId);
@@ -2849,6 +2868,9 @@ void ShotHistoryStorage::clearBeanRepairPending(qint64 shotId)
                 qWarning() << "ShotHistoryStorage: could not clear repair flag on shot" << shotId
                            << ":" << query.lastError().text();
         });
+        if (!opened)
+            qWarning() << "ShotHistoryStorage: repair flag on shot" << shotId
+                       << "not cleared - DB open failed; it will be re-checked next boot";
     });
 }
 

@@ -2450,6 +2450,33 @@ private slots:
             const CoffeeBag stored = CoffeeBagStorage::loadBagStatic(db, bagId);
             QCOMPARE(stored.beanBaseId, QStringLiteral("canon-coava"));
 
+            // An uploaded shot of that bag, and a local-only one: the rename must
+            // reach the first (its snapshot re-asserts the id on every upload)
+            // and queue only the first (the server can only have renamed what it
+            // has).
+            ShotRowFixtures::ShotRow uploaded;
+            uploaded.uuid = "rename-uploaded";
+            uploaded.timestamp = QDateTime::currentSecsSinceEpoch();
+            uploaded.profileName = "Test";
+            uploaded.beanBrand = "Coava Coffee Roasters";
+            uploaded.beanType = "Las Capucas";
+            const qint64 uploadedId = ShotRowFixtures::insertShot(db, uploaded);
+            ShotRowFixtures::ShotRow localOnly = uploaded;
+            localOnly.uuid = "rename-local";
+            localOnly.timestamp = uploaded.timestamp - 60;
+            const qint64 localOnlyId = ShotRowFixtures::insertShot(db, localOnly);
+            QVERIFY(uploadedId > 0 && localOnlyId > 0);
+            QSqlQuery bind(db);
+            bind.prepare("UPDATE shots SET bag_id = :bag, beanbase_id = :id, beanbase_json = :blob, "
+                         "visualizer_id = CASE WHEN id = :uploaded THEN 'viz-rename' ELSE '' END "
+                         "WHERE id IN (:uploaded, :local)");
+            bind.bindValue(":bag", bagId);
+            bind.bindValue(":id", QStringLiteral("canon-coava"));
+            bind.bindValue(":blob", linkedBlob);
+            bind.bindValue(":uploaded", uploadedId);
+            bind.bindValue(":local", localOnlyId);
+            QVERIFY(bind.exec());
+
             // The user corrects the roaster to the one they actually bought from.
             QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(
                 db, bagId, {{"roasterName", "Stavanger Kaffebrenneri"}}));
@@ -2462,8 +2489,66 @@ private slots:
             QCOMPARE(blob.value("origin").toString(), QStringLiteral("Honduras"));
             QCOMPARE(blob.value("process").toString(), QStringLiteral("Washed"));
             QVERIFY(!blob.contains("canonicalRoasterId"));
+
+            // The unlink reached the shots' own snapshots — without this the
+            // uploader keeps re-asserting the borrowed id from the shot — and
+            // queued the uploaded one alone.
+            QSqlQuery shots(db);
+            shots.prepare("SELECT COALESCE(beanbase_id,''), bean_repair_pending FROM shots "
+                          "WHERE id = :id");
+            shots.bindValue(":id", uploadedId);
+            QVERIFY(shots.exec() && shots.next());
+            QVERIFY(shots.value(0).toString().isEmpty());
+            QCOMPARE(shots.value(1).toInt(), 1);
+            shots.bindValue(":id", localOnlyId);
+            QVERIFY(shots.exec() && shots.next());
+            QVERIFY(shots.value(0).toString().isEmpty());
+            QCOMPARE(shots.value(1).toInt(), 0);
         });
         QVERIFY(bagId > 0);
+    }
+
+    // The create path is the one the bug shipped through: pick a near-match in
+    // the Bean Base search (which fills the roaster from the record), type your
+    // own roaster over it, save. A bag must never ENTER the table holding a
+    // record that names another coffee.
+    void creatingABagWithABorrowedRecordStoresItUnlinked() {
+        const QString path = freshDb();
+        QVERIFY(!path.isEmpty());
+        withRawDb(path, "canon_insert", [&](QSqlDatabase& db) {
+            CoffeeBag borrowed;
+            borrowed.roasterName = "Stavanger Kaffebrenneri";   // typed over the prefill
+            borrowed.coffeeName = "Las Capucas";
+            borrowed.beanBaseId = "canon-coava";
+            borrowed.beanBaseData = QStringLiteral(
+                "{\"id\":\"canon-coava\",\"visualizerCanonicalId\":\"canon-coava\","
+                "\"roasterName\":\"Coava Coffee Roasters\",\"roastName\":\"Las Capucas\","
+                "\"origin\":\"Honduras\"}");
+            const qint64 id = CoffeeBagStorage::insertBagStatic(db, borrowed);
+            QVERIFY(id > 0);
+            const CoffeeBag stored = CoffeeBagStorage::loadBagStatic(db, id);
+            QVERIFY(stored.beanBaseId.isEmpty());
+            QVERIFY(!BeanBaseBlob::isLinked(stored.beanBaseData));
+            QCOMPARE(QJsonDocument::fromJson(stored.beanBaseData.toUtf8())
+                         .object().value("origin").toString(), QStringLiteral("Honduras"));
+
+            // A bag whose identity MATCHES its record keeps the link.
+            CoffeeBag consistent = borrowed;
+            consistent.roasterName = "Coava Coffee Roasters";
+            const qint64 keptId = CoffeeBagStorage::insertBagStatic(db, consistent);
+            QCOMPARE(CoffeeBagStorage::loadBagStatic(db, keptId).beanBaseId,
+                     QStringLiteral("canon-coava"));
+        });
+    }
+
+    // A corrupt blob must not open the guard. Returning "no conflict" there is
+    // the permissive answer — it exports the borrowed id and lets the server
+    // rename the shot, which is the whole defect.
+    void aCorruptBlobIsTreatedAsConflicted() {
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("corrupt blob"));
+        QVERIFY(BeanBaseBlob::canonicalIdentityConflicts(
+            QStringLiteral("{\"id\":\"canon-coava\",\"roasterName\":"),  // truncated
+            QStringLiteral("Stavanger Kaffebrenneri"), QStringLiteral("Las Capucas")));
     }
 
     // Migration 37's data pass: the same rule applied to bags already stored,

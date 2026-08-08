@@ -393,3 +393,25 @@ struct ShotSaveData {
     // Phase markers (pre-extracted from QVariantList)
     QList<HistoryPhaseMarker> phaseMarkers;
 };
+
+// One entry of the Visualizer bean-repair queue (fix-visualizer-canonical-
+// roaster-rename): a shot whose bag was unlinked from a borrowed canonical
+// record, and which visualizer.coffee may therefore have renamed.
+//
+// A struct rather than the QVariantMap this started as. The consumer performs
+// destructive writes to the user's cloud account, and a mistyped key in a map
+// reads back as an empty QString — which the repair's own comparison treats as
+// a disagreement, so a typo would have PATCHed EMPTY bean names onto the shot
+// and then settled it as done. Every such mistake is now a compile error.
+struct BeanRepair {
+    qint64 shotId = 0;          // local shots.id — clears bean_repair_pending
+    QString visualizerId;       // never empty: the producer filters on it
+    QString beanBrand;          // the app's values, which are authoritative
+    QString beanType;
+    // Empty means CLEAR the link server-side (the borrowed record is what
+    // renamed the shot); non-empty means keep it. Emptiness is a decision here,
+    // not "unset" — resolved on the storage side so the network layer never
+    // re-parses a blob.
+    QString canonicalId;
+    qint64 timestamp = 0;       // shot time, for the log line only
+};

@@ -221,8 +221,9 @@ public:
     // may carry a canonical id only while its own roaster/coffee still name the
     // record that id points at. A canonical_coffee_bags row IS a roaster's
     // product, and visualizer.coffee treats the id as authoritative for identity
-    // (Shot#refresh_coffee_bag_fields), so a bag that borrowed another roaster's
-    // record republished every one of its shots under that roaster. Editing the
+    // (Shot#refresh_coffee_bag_fields — its `elsif canonical_coffee_bag` branch,
+    // reached when the shot has no server-side coffee_bag), so a bag that
+    // borrowed another roaster's record republished its shots under that roaster. Editing the
     // identity is the supported way to fix a near-match pick, so the link — not
     // the user's name — is what gives way: the id and the blob's link keys are
     // dropped, every descriptive field kept. Returns true when it dropped one.

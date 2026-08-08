@@ -664,7 +664,13 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
     if (fields.contains(QStringLiteral("roasterName")) || fields.contains(QStringLiteral("coffeeName"))
         || fields.contains(QStringLiteral("beanBaseId")) || fields.contains(QStringLiteral("beanBaseData"))) {
         const CoffeeBag stored = loadBagStatic(db, bagId);
-        if (stored.isValid()) {
+        if (!stored.isValid()) {
+            // The guard cannot run without the stored half of the identity, and
+            // failing silently here lets a borrowed link survive the very edit
+            // that invalidates it.
+            qWarning() << "CoffeeBagStorage: could not load bag" << bagId
+                       << "- canonical-link check skipped for this update";
+        } else {
             QString roaster = fields.value(QStringLiteral("roasterName"), stored.roasterName).toString();
             QString coffee  = fields.value(QStringLiteral("coffeeName"),  stored.coffeeName).toString();
             QString id      = fields.value(QStringLiteral("beanBaseId"),  stored.beanBaseId).toString();
@@ -726,8 +732,17 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
     // SENDS a non-empty canonical id, which is exactly not this case. Without
     // this, every upload would keep re-asserting the dropped id from the shot.
     if (droppedLink) {
-        propagateBeanBaseStatic(db, bagId);
-        markShotsForBeanRepairStatic(db, bagId);
+        // Both report -1 on failure, and both failures matter: an unpropagated
+        // unlink leaves shot snapshots re-asserting the borrowed id on every
+        // upload, and an unqueued shot is one visualizer.coffee never repairs.
+        const int propagated = propagateBeanBaseStatic(db, bagId);
+        const int queued = markShotsForBeanRepairStatic(db, bagId);
+        if (propagated < 0 || queued < 0) {
+            qWarning() << "CoffeeBagStorage: bag" << bagId
+                       << "was unlinked but its shots were not fully updated (propagate"
+                       << propagated << ", queue" << queued << ")";
+            return false;
+        }
     }
     return affected > 0;
 }
@@ -738,6 +753,11 @@ bool CoffeeBagStorage::dropConflictedCanonicalLink(const QString& roasterName,
                                                    QString* beanBaseId, QString* beanBaseData)
 {
     if (!beanBaseId || !beanBaseData)
+        return false;
+    // A corrupt blob is refused outright rather than half-stripped: the id would
+    // be cleared while stripCanonicalLink (which also refuses) returned the link
+    // keys unchanged. The export guard withholds such a blob anyway.
+    if (BeanBaseBlob::isCorruptBlob(*beanBaseData))
         return false;
     if (beanBaseId->isEmpty() && !BeanBaseBlob::isLinked(*beanBaseData))
         return false;
@@ -808,8 +828,12 @@ int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db)
         // The shots carry their own copy of the blob, so the unlink has to
         // reach them too — otherwise every upload keeps re-asserting the id
         // from the shot snapshot and the bag fix changes nothing.
-        propagateBeanBaseStatic(db, fix.id);
-        markShotsForBeanRepairStatic(db, fix.id);
+        if (propagateBeanBaseStatic(db, fix.id) < 0
+            || markShotsForBeanRepairStatic(db, fix.id) < 0) {
+            qWarning() << "CoffeeBagStorage: bag" << fix.id
+                       << "unlinked but its shots were not updated - failing the pass";
+            return -1;
+        }
     }
     return static_cast<int>(fixes.size());
 }

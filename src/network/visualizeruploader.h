@@ -7,6 +7,7 @@
 #include <QPointF>
 
 #include "../history/shotprojection.h"
+#include "../history/shothistory_types.h"
 
 #include <QtQml/qqmlregistration.h>
 // Profile and ShotDataModel are INCLUDED, not forward-declared, because they appear as pointer
@@ -195,7 +196,7 @@ public:
     // unless visualizerBeanRepair/live is set, in which case it reports the
     // diffs and leaves the queue intact. One request per second, and the first
     // HTTP 429 abandons the pass (the flags keep the remainder for next boot).
-    void repairShotBeans(const QVariantList& repairs);
+    void repairShotBeans(const QVector<BeanRepair>& repairs);
 
     // Build a visualizer-compatible JSON payload from a ShotProjection.
     // Thread-safe; does not touch instance state. Reused by ShotHistoryExporter.
@@ -269,7 +270,8 @@ signals:
     void beanRepairSettled(qint64 shotId);
     // The bean-repair pass ended. `repaired` counts shots corrected (or, in
     // read-only mode, shots that WOULD change); `complete` is false when
-    // anything was left queued.
+    // anything was left queued. Read-only mode therefore always reports
+    // incomplete when it found anything at all.
     void beanRepairFinished(int repaired, bool complete);
 
 private slots:
@@ -308,10 +310,14 @@ private:
     // beanRepairFinished when the queue drains. Serial by construction — one
     // request in flight at a time, spaced by kBeanRepairIntervalMs.
     void sendNextBeanRepair();
-    void sendBeanRepairPatch(qint64 shotId, const QString& visualizerId,
-                             const QString& beanBrand, const QString& beanType,
-                             const QString& canonicalId);
-    void abandonBeanRepairOnRateLimit();
+    void sendBeanRepairPatch(const BeanRepair& repair);
+    // Statuses that cannot differ per shot (429, 401, 403) — retrying the queue
+    // against them is guaranteed waste, so the pass stops.
+    static bool isBeanRepairFatalStatus(int status);
+    void abandonBeanRepairPass(int status);
+    // Clear this shot's flag when live; in read-only mode hold it and mark the
+    // pass incomplete, so nothing is settled by a pass that writes nothing.
+    void settleOrHold(qint64 shotId);
     void scheduleNextBeanRepair();
     // Decide what a queued shot needs, given what the server holds. Pure, so the
     // rule that governs every write this pass makes is unit-testable without a
@@ -324,7 +330,7 @@ private:
     // ~1 request/second. visualizer.coffee rate-limits, and the first version of
     // this pass hit HTTP 429 on all 349 of its requests at ~6/s.
     static constexpr int kBeanRepairIntervalMs = 1000;
-    QVariantList m_beanRepairQueue;
+    QVector<BeanRepair> m_beanRepairQueue;
     int m_beanRepairDone = 0;
     bool m_beanRepairFailed = false;
     bool m_beanRepairRunning = false;

@@ -39,43 +39,6 @@ inline QString canonicalId(const QString& blob)
         .object().value(QStringLiteral("visualizerCanonicalId")).toString();
 }
 
-// True when the canonical record behind this blob names a DIFFERENT coffee than
-// the one stored locally (`roaster`/`coffee` = the bag's or shot's own names).
-//
-// This is a guard on EXPORT, not on the link. visualizer.coffee treats a shot's
-// canonical_coffee_bag_id as authoritative for identity — Shot#refresh_coffee_
-// bag_fields (miharekar/visualizer, app/models/shot.rb:64-75) sets bean_brand =
-// canonical_roaster.name and bean_type = canonical_coffee_bag.name whenever that
-// id changes — so uploading the link for a borrowed record silently RENAMES the
-// user's shot on the server. Borrowing is legitimate and expected: the bag
-// editor keeps identity editable while linked (the canonical link is a badge,
-// not a lock), which is exactly how a Stavanger Kaffebrenneri bag ends up
-// carrying Coava Coffee Roasters' canonical record for the same coffee.
-//
-// Compares the PRISTINE canonical names — roasterName/roastName are user-
-// editable working keys, so the `canonical` snapshot wins where it exists. An
-// empty name on either side proves nothing (legacy blobs stored no names), so
-// only a populated disagreement conflicts: unknown must not block a link that
-// works today.
-inline bool canonicalIdentityConflicts(const QString& blob, const QString& roaster,
-                                       const QString& coffee)
-{
-    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
-    if (obj.isEmpty())
-        return false;
-    const QJsonObject snapshot = obj.value(QStringLiteral("canonical")).toObject();
-    auto pristine = [&](const char* key) {
-        const QString snap = snapshot.value(QLatin1String(key)).toString().trimmed();
-        return snap.isEmpty() ? obj.value(QLatin1String(key)).toString().trimmed() : snap;
-    };
-    auto disagrees = [](const QString& canonicalName, const QString& localName) {
-        return !canonicalName.isEmpty() && !localName.isEmpty()
-               && canonicalName.compare(localName, Qt::CaseInsensitive) != 0;
-    };
-    return disagrees(pristine("roasterName"), roaster.trimmed())
-           || disagrees(pristine("roastName"), coffee.trimmed());
-}
-
 // The user-editable working keys (add-bag-detail-editing): identity display
 // names, roast degree, and the descriptive detail fields. Everything else in
 // the blob (link ids, `canonical` snapshot, description, legacy image) is
@@ -133,6 +96,57 @@ inline bool isCorruptBlob(const QString& blob)
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(blob.toUtf8(), &parseError);
     return parseError.error != QJsonParseError::NoError || !doc.isObject();
+}
+
+// True when the canonical record behind this blob names a DIFFERENT coffee than
+// the one stored locally (`roaster`/`coffee` = the bag's or shot's own names).
+//
+// This is a guard on EXPORT, not on the link. visualizer.coffee treats a shot's
+// canonical_coffee_bag_id as authoritative for identity — Shot#refresh_coffee_
+// bag_fields (miharekar/visualizer, app/models/shot.rb:64-75) is a
+// before_validation on `coffee_bag_id_changed? || canonical_coffee_bag_id_changed?`,
+// and its `elsif canonical_coffee_bag` branch sets bean_brand =
+// canonical_roaster.name and bean_type = canonical_coffee_bag.name — so uploading
+// the link for a borrowed record silently RENAMES the user's shot on the server.
+// That branch is reached only when the shot has no server-side coffee_bag; a
+// Coffee Management shot takes the first branch and keeps the user's own bag
+// roaster, which is why CM users saw this less than everyone else. Borrowing is legitimate and expected: the bag
+// editor keeps identity editable while linked (the canonical link is a badge,
+// not a lock), which is exactly how a Stavanger Kaffebrenneri bag ends up
+// carrying Coava Coffee Roasters' canonical record for the same coffee.
+//
+// Compares the PRISTINE canonical names — roasterName/roastName are user-
+// editable working keys, so the `canonical` snapshot wins where it exists. An
+// empty name on either side proves nothing (legacy blobs stored no names), so
+// only a populated disagreement conflicts: unknown must not block a link that
+// works today.
+inline bool canonicalIdentityConflicts(const QString& blob, const QString& roaster,
+                                       const QString& coffee)
+{
+    // A blob we cannot read is not a blob we can vouch for. Returning "no
+    // conflict" here is the PERMISSIVE answer — it exports the canonical id and
+    // lets the server rename the shot, which is the defect this function exists
+    // to prevent. Every other mutator in this header refuses a corrupt blob;
+    // this one, whose wrong answer reaches the user's cloud account, fails
+    // closed instead: withhold the claim we cannot verify.
+    if (isCorruptBlob(blob)) {
+        qWarning() << "BeanBaseBlob: corrupt blob - treating the canonical link as conflicted";
+        return true;
+    }
+    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    if (obj.isEmpty())
+        return false;
+    const QJsonObject snapshot = obj.value(QStringLiteral("canonical")).toObject();
+    auto pristine = [&](const char* key) {
+        const QString snap = snapshot.value(QLatin1String(key)).toString().trimmed();
+        return snap.isEmpty() ? obj.value(QLatin1String(key)).toString().trimmed() : snap;
+    };
+    auto disagrees = [](const QString& canonicalName, const QString& localName) {
+        return !canonicalName.isEmpty() && !localName.isEmpty()
+               && canonicalName.compare(localName, Qt::CaseInsensitive) != 0;
+    };
+    return disagrees(pristine("roasterName"), roaster.trimmed())
+           || disagrees(pristine("roastName"), coffee.trimmed());
 }
 
 // Drop the canonical LINK from a blob, keeping every descriptive value as the

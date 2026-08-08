@@ -446,8 +446,15 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // processVisualizerBeanRepair can run many times a session (startup, and
     // every bag inventory change).
     connect(m_shotHistory, &ShotHistoryStorage::pendingBeanRepairsReady, this,
-            [this](bool ok, const QVariantList& repairs) {
-        if (ok && !repairs.isEmpty() && m_visualizer)
+            [this](bool ok, const QVector<BeanRepair>& repairs) {
+        if (!ok) {
+            // NOT the same as an empty queue: the read failed, so shots that
+            // need repairing may be sitting there unseen.
+            qWarning() << "MainController: Visualizer bean-repair queue could not be read "
+                          "- no repair this session";
+            return;
+        }
+        if (!repairs.isEmpty() && m_visualizer)
             m_visualizer->repairShotBeans(repairs);
     });
 
@@ -459,8 +466,9 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     });
 
     // Drain the Visualizer bean-repair queue: the shots whose bag was unlinked
-    // from a borrowed canonical record. Reads one indexed column; does nothing
-    // at all when the queue is empty, which is the normal case.
+    // from a borrowed canonical record. There is no index on the flag, so this
+    // is a full scan of `shots` — it runs on the serial DB worker, never the
+    // main thread, and the empty-queue case (the normal one) ends there.
     processVisualizerBeanRepair();
 
     // A bag edited into (or out of) a borrowed link queues its shots, so drain
@@ -4636,13 +4644,17 @@ void MainController::processVisualizerBeanRepair()
 
     AppSettings s;
     if (s.value(QStringLiteral("visualizer/username")).toString().isEmpty()
-        || s.value(QStringLiteral("visualizer/password")).toString().isEmpty())
-        return;  // no account to repair against
+        || s.value(QStringLiteral("visualizer/password")).toString().isEmpty()) {
+        // Logged, like processVisualizerReconciliation's identical case: a
+        // reader of the log must be able to tell "no account" from "never ran".
+        qDebug() << "MainController: Visualizer bean repair skipped (no credentials)";
+        return;
+    }
 
     // No run-once flag and no library walk: the queue IS the state. Shots are
     // flagged where their bag's borrowed canonical link is dropped (migration 37
     // and the storage rule), and each flag is cleared once the server confirms
-    // that shot needs nothing. An empty queue costs one indexed read.
+    // that shot needs nothing. An empty queue costs one scan on the DB worker.
     //
     // The result handler is connected once, at setup — see the note there. A
     // single-shot connection per call would stack handlers that one emission

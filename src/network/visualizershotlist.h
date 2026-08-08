@@ -39,12 +39,14 @@ namespace VisualizerShotList {
 
 // One shot from the list: its Visualizer id and start time (Unix seconds).
 //
-// Deliberately NOT the bean fields. `bean_brand`/`bean_type` appear in the
-// model's LIST_ATTRIBUTES, but this endpoint returns them EMPTY — measured
-// against a live account, where all 349 shots came back blank while
-// GET /api/shots/<id> returned the real values. A bean-repair pass built on the
-// list therefore read "blank" as "disagrees" and queued the entire library.
-// Anything that needs a shot's bean identity must fetch the shot itself.
+// Deliberately NOT the bean fields, and they cannot be added: this endpoint is
+// a sync cursor. Api::ShotsController#index selects only id/start_time/user_id/
+// updated_at and renders `{clock, id, updated_at}`, so bean_brand/bean_type are
+// ABSENT, not blank. (Shot::LIST_ATTRIBUTES does carry them and is easy to
+// mistake for this endpoint's field set — it is used only by Shot.for_list, for
+// the HTML views.) A bean-repair pass built on this list read the missing keys
+// back as empty QStrings, took that for "disagrees", and queued all 349 shots
+// on a live account. Anything needing a shot's bean identity must GET the shot.
 struct Entry {
     QString visualizerId;
     qint64 clockEpoch = 0;
