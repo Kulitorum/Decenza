@@ -758,19 +758,26 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
 
 void VisualizerUploader::repairShotBeans(const QVector<BeanRepair>& repairs)
 {
-    if (repairs.isEmpty()) {
-        emit beanRepairFinished(0, true);
-        return;
-    }
+    // Re-entry is checked FIRST: an empty snapshot arriving mid-pass must not
+    // announce a finished pass, or a listener re-drains against a queue that is
+    // still being written.
     if (m_beanRepairRunning) {
         // The DB flags are the durable state, so nothing is lost — this snapshot
-        // is simply older than the one already draining.
+        // is simply older than the one already draining. Recording that one was
+        // dropped is what lets the caller re-drain when the pass ends, so a bag
+        // unlinked mid-pass is not stranded until the next launch.
+        m_beanRepairMissedWork = true;
         qDebug() << "Visualizer: bean repair already running - ignoring re-entry";
+        return;
+    }
+    if (repairs.isEmpty()) {
+        emit beanRepairFinished(0, true);
         return;
     }
     m_beanRepairQueue = repairs;
     m_beanRepairDone = 0;
     m_beanRepairFailed = false;
+    m_beanRepairMissedWork = false;
     m_beanRepairRunning = true;
     qDebug() << "Visualizer: bean repair over" << repairs.size() << "queued shot(s)";
     sendNextBeanRepair();
@@ -797,11 +804,28 @@ void VisualizerUploader::sendNextBeanRepair()
         scheduleNextBeanRepair();
         return;
     }
+    if (repair.beanBrand.trimmed().isEmpty() && repair.beanType.trimmed().isEmpty()) {
+        // Nothing to assert. Sending these would blank the server's bean fields,
+        // which is the destructive direction of the very rule the storage-side
+        // predicate states — "an empty name on either side proves nothing"
+        // (BeanBaseBlob::canonicalIdentityConflicts). The flag is cleared because
+        // no future pass can do better with the same row.
+        qWarning() << "Visualizer: bean repair skipped - shot" << repair.visualizerId
+                   << "has no local bean names to restore";
+        emit beanRepairSettled(repair.shotId);
+        scheduleNextBeanRepair();
+        return;
+    }
 
     // Read the shot BEFORE deciding anything. The paged list cannot answer this
     // (it carries no bean fields at all), and a repair that writes without
-    // reading has nothing to compare against.
-    QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + repair.visualizerId);
+    // reading has nothing to compare against. `essentials` drops the shot's
+    // chart data from the response (shots_controller.rb:24 —
+    // `include_information: !params[:essentials].presence`); this pass only ever
+    // reads two string fields.
+    QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/")
+                                                 + repair.visualizerId
+                                                 + QStringLiteral("?essentials=1"));
     QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, repair]() {
         reply->deleteLater();
@@ -814,10 +838,15 @@ void VisualizerUploader::sendNextBeanRepair()
             abandonBeanRepairPass(status);
             return;
         }
-        if (status == 404) {
-            // Deleted on visualizer.coffee. Nothing to repair — and the flag has
-            // to go, or it is retried on every boot forever.
-            qDebug() << "Visualizer: bean repair skipped - shot" << repair.visualizerId << "is gone";
+        if (status == 404 || status == 403) {
+            // Both are verdicts on THIS shot, not on the pass, and neither can
+            // change on a retry: 404 is `Shot.find_by` missing (deleted on
+            // visualizer.coffee), 403 is `authorize! @shot` refusing a shot this
+            // account does not own (shots_controller.rb:96-101, ShotPolicy#update?
+            // is owner?). Clearing the flag is the only termination — leaving it
+            // set re-reads the same refusal on every boot forever.
+            qDebug() << "Visualizer: bean repair skipped - shot" << repair.visualizerId
+                     << (status == 404 ? "is gone" : "is not ours (HTTP 403)");
             emit beanRepairSettled(repair.shotId);
             scheduleNextBeanRepair();
             return;
@@ -868,7 +897,7 @@ void VisualizerUploader::sendNextBeanRepair()
                            << "| canonical:"
                            << (repair.canonicalId.isEmpty() ? QStringLiteral("clear")
                                                             : QStringLiteral("keep"));
-        sendBeanRepairPatch(repair);
+        scheduleBeanRepairRequest([this, repair]() { sendBeanRepairPatch(repair); });
     });
 }
 
@@ -889,11 +918,16 @@ VisualizerUploader::BeanRepairAction VisualizerUploader::decideBeanRepair(
 bool VisualizerUploader::isBeanRepairFatalStatus(int status)
 {
     // Statuses that cannot differ per shot: retrying the rest of the queue
-    // against them is guaranteed waste. 429 is the measured one — the first
-    // live version walked 349 shots collecting them — and a revoked or rotated
-    // password (401/403) behaves identically, one failure per shot per boot,
-    // forever.
-    return status == 429 || status == 401 || status == 403;
+    // against them is guaranteed waste. 429 is the measured one — the first live
+    // version walked 349 shots collecting them — and a revoked or rotated
+    // password (401) behaves identically, one failure per shot per boot, forever.
+    //
+    // 403 is NOT one of these, though it reads like it. It comes from
+    // `authorize! @shot` (shots_controller.rb:96-101), so it is an ownership
+    // verdict on one shot; treating it as fatal let a single mis-recorded
+    // visualizer_id abandon the pass at the same position on every boot and
+    // strand every shot behind it. It is handled per shot instead.
+    return status == 429 || status == 401;
 }
 
 void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
@@ -904,7 +938,7 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
         // Explicit null clears the borrowed link, and the names survive BECAUSE
         // it changes: refresh_coffee_bag_fields fires on the id change and, with
         // neither a coffee_bag nor a canonical bag, leaves the fields alone
-        // (shot.rb:64-75 — the canonical assignment is the `elsif` branch).
+        // (shot.rb:52-63 — the canonical assignment is the `elsif` branch).
         //
         // A shot that DOES have a server-side coffee_bag (Coffee Management)
         // takes the FIRST branch and re-derives both fields from that bag,
@@ -915,7 +949,9 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
         // names have always come from coffee_bag.roaster.name / coffee_bag.name
         // and this pass finds it AlreadyCorrect and never PATCHes at all. The
         // read-back below is what keeps that claim honest — it fires only when
-        // the server bag and the local bag have drifted apart.
+        // the server bag and the local bag have drifted apart. (Note the callback
+        // is CONDITIONAL: if the shot's canonical id is already null and we send
+        // null, nothing changed, it never fires, and our names are saved.)
         {QStringLiteral("canonical_coffee_bag_id"),
          repair.canonicalId.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(repair.canonicalId)},
     };
@@ -928,30 +964,48 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QByteArray body = reply->readAll();
         if (status >= 200 && status < 300) {
-            // Any 2xx, not a literal 200: a 204 from this Rails endpoint is a
-            // successful write, and treating it as a failure would re-read and
-            // re-PATCH the same shot on every boot forever.
+            // 200 does NOT mean the values took. `update` discards the result of
+            // @shot.update and renders the in-memory object either way
+            // (shots_controller.rb:64-74), and refresh_coffee_bag_fields may have
+            // overwritten both fields from a server-side coffee_bag between our
+            // params and the save — measured, not hypothesised. So read the body
+            // back rather than reporting a write the server discarded. (This
+            // catches an overwrite, not a validation failure: a rejected save
+            // renders OUR values, so the body agrees and the shot settles. That
+            // gap needs a status the endpoint does not give us.)
             //
-            // 200 does NOT mean the values took. Rails answers with the saved
-            // shot, and refresh_coffee_bag_fields may have overwritten both
-            // fields from a server-side coffee_bag between our params and the
-            // save — measured, not hypothesised. Read the body back rather than
-            // reporting a write the server discarded. The shot still settles:
-            // the precedence rule is server-side and identical on every retry,
-            // so re-queueing would only repeat the same no-op every boot. The
-            // bag re-push is what fixes this shape.
-            const QJsonObject saved = QJsonDocument::fromJson(body).object();
-            if (saved.contains(QStringLiteral("bean_brand"))
-                && decideBeanRepair(saved.value(QStringLiteral("bean_brand")).toString(),
-                                    saved.value(QStringLiteral("bean_type")).toString(),
-                                    repair.beanBrand, repair.beanType)
-                       != BeanRepairAction::AlreadyCorrect) {
+            // Any 2xx is accepted rather than a literal 200 purely as slack —
+            // this endpoint always renders JSON and cannot 204 today. An
+            // unreadable body is refused below, so the slack costs nothing.
+            QJsonParseError patchParse{};
+            const QJsonObject saved = QJsonDocument::fromJson(body, &patchParse).object();
+            if (patchParse.error != QJsonParseError::NoError
+                || !saved.contains(QStringLiteral("bean_brand"))) {
+                // Same rule as the GET: a body we cannot read is not evidence of
+                // anything. Counting it as a repair and clearing the flag would
+                // lose the shot permanently on a captive portal, a proxy error
+                // page served as 200, or a truncated response.
+                m_beanRepairFailed = true;
+                qWarning() << "Visualizer: bean repair PATCH result unreadable for shot"
+                           << repair.visualizerId << "-" << patchParse.errorString()
+                           << "- stays queued";
+                scheduleNextBeanRepair();
+                return;
+            }
+            if (decideBeanRepair(saved.value(QStringLiteral("bean_brand")).toString(),
+                                 saved.value(QStringLiteral("bean_type")).toString(),
+                                 repair.beanBrand, repair.beanType)
+                != BeanRepairAction::AlreadyCorrect) {
                 qWarning().noquote()
                     << "Visualizer: bean repair PATCH accepted but not applied for shot"
                     << repair.visualizerId << "- server kept"
                     << (saved.value(QStringLiteral("bean_brand")).toString()
                         + QLatin1String(" / ") + saved.value(QStringLiteral("bean_type")).toString())
                     << "(its coffee_bag outranks the shot; the bag re-push is what corrects it)";
+                // Settled but NOT repaired, so the pass must not report itself
+                // complete: the shot is still wrong on visualizer.coffee and the
+                // flag is gone, which is exactly the state a reader needs told.
+                m_beanRepairFailed = true;
             } else {
                 m_beanRepairDone++;
             }
@@ -987,7 +1041,16 @@ void VisualizerUploader::scheduleNextBeanRepair()
     // limits, and this is the one path that paces itself — fetchShotListPage
     // above walks its pages back to back, which is why a library-wide pass had
     // to stop being built on it.
-    QTimer::singleShot(kBeanRepairIntervalMs, this, [this]() { sendNextBeanRepair(); });
+    scheduleBeanRepairRequest([this]() { sendNextBeanRepair(); });
+}
+
+void VisualizerUploader::scheduleBeanRepairRequest(std::function<void()> send)
+{
+    // Every REQUEST goes through here, not every shot. That distinction is the
+    // whole point: the interval used to gate only the next shot, while a shot
+    // that needed repairing fired its GET and then its PATCH back to back, so
+    // the real rate was double the documented one.
+    QTimer::singleShot(kBeanRepairIntervalMs, this, std::move(send));
 }
 
 QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,

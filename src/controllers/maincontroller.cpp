@@ -465,6 +465,15 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             m_shotHistory->clearBeanRepairPending(shotId);
     });
 
+    // A pass ignores re-entry while it runs, so a bag unlinked mid-pass leaves
+    // its shots flagged but unseen by the snapshot already draining. Re-draining
+    // on completion picks them up now instead of at the next bag change or
+    // launch. Terminates: the re-drain finds an empty queue and stops there.
+    connect(m_visualizer, &VisualizerUploader::beanRepairFinished, this, [this](int, bool) {
+        if (m_visualizer && m_visualizer->beanRepairMissedWork())
+            processVisualizerBeanRepair();
+    });
+
     // Drain the Visualizer bean-repair queue: the shots whose bag was unlinked
     // from a borrowed canonical record. There is no index on the flag, so this
     // is a full scan of `shots` — it runs on the serial DB worker, never the

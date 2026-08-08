@@ -103,7 +103,7 @@ inline bool isCorruptBlob(const QString& blob)
 //
 // This is a guard on EXPORT, not on the link. visualizer.coffee treats a shot's
 // canonical_coffee_bag_id as authoritative for identity — Shot#refresh_coffee_
-// bag_fields (miharekar/visualizer, app/models/shot.rb:64-75) is a
+// bag_fields (miharekar/visualizer, app/models/shot.rb:52-63) is a
 // before_validation on `coffee_bag_id_changed? || canonical_coffee_bag_id_changed?`,
 // and its `elsif canonical_coffee_bag` branch sets bean_brand =
 // canonical_roaster.name and bean_type = canonical_coffee_bag.name — so uploading

@@ -2015,65 +2015,64 @@ bool ShotHistoryStorage::runMigrations()
     // the roaster id and the pristine snapshot go, and the unlink propagates to
     // the shots' own snapshots (the uploader reads those, not the bag).
     //
-    // 38 runs the SAME pass, and it runs on EVERY database: runCanonicalUnlink
-    // updates currentVersion, so a database that just took 37 falls straight
-    // through into it on the same launch and finds nothing. It exists for
-    // databases an early build of 37 stamped before the queue column was part
-    // of the pass — there, the second run is the one that adds the column. One
-    // implementation, called twice; the alternative was two near-identical
-    // blocks free to drift.
-    //
-    // Adds one column and does a data pass. The column is best-effort (see the
-    // note inside); the unlink is the correctness fact, so the version stamps
-    // either way. Detection is offline and
+    // Adds one column and does a data pass. Detection is offline and
     // deliberately conservative: it can only prove a conflict while the blob
     // still carries the record's own names.
-    auto runCanonicalUnlink = [&](int version) {
-        qDebug() << "ShotHistoryStorage: Running migration to version" << version
-                 << "(unlink borrowed canonical records)";
+    //
+    // ONE migration, entered from either 36 or 37. It used to be two, 38
+    // re-running the same pass for "databases an early build of 37 stamped
+    // before the queue column was part of the pass" — but 37 was added on this
+    // same branch and no released build ever stamped it, so that cohort is
+    // empty and every user's database was paying for a second full coffee_bags
+    // scan, JSON-parsed per row, inside a write transaction. The `>= 36` lower
+    // bound still catches a development database left at 37.
+    if (currentVersion >= 36 && currentVersion < 38) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 38 "
+                    "(unlink borrowed canonical records)";
         query.finish();
         DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration canonical unlink", 1);
         if (!txn.ok()) {
-            qWarning() << "ShotHistoryStorage: migration" << version
-                       << "could not start a transaction - will retry next launch";
-            return;
-        }
+            qWarning() << "ShotHistoryStorage: migration 38 could not start a transaction"
+                          " - will retry next launch";
+        } else {
         // The repair queue's column. A failure to add it does NOT abort the
         // migration: the unlink is the correctness fix and still has to happen;
-        // only the Visualizer repair would go unqueued. Rolling back instead
-        // would leave the version unstamped and re-run this pass on every launch
+        // only the Visualizer repair goes unqueued. Rolling back instead would
+        // leave the version unstamped and re-run this pass on every launch
         // forever, which is the worse failure.
+        //
+        // Honouring that needs the `queueShots` argument below, and it is not
+        // optional. Without it the pass DID roll back, defeating its own stated
+        // policy: the unlink calls markShotsForBeanRepairStatic, whose UPDATE
+        // fails on the missing column, which returns -1, which fails the whole
+        // pass — for exactly the users who have a conflicted bag, i.e. the ones
+        // this migration exists for.
         if (!hasColumn("shots", "bean_repair_pending")
             && !query.exec("ALTER TABLE shots ADD COLUMN bean_repair_pending "
                            "INTEGER NOT NULL DEFAULT 0"))
-            qWarning() << "ShotHistoryStorage: migration" << version
-                       << "could not add shots.bean_repair_pending -" << query.lastError().text()
+            qWarning() << "ShotHistoryStorage: migration 38 could not add "
+                          "shots.bean_repair_pending -" << query.lastError().text()
                        << "- bags will still be unlinked, but no shot repair will be queued";
+        const bool queueShots = hasColumn("shots", "bean_repair_pending");
 
-        const int unlinked = CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(m_db);
+        const int unlinked = CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(m_db, queueShots);
         bool ok = unlinked >= 0;
         if (ok) {
             // Both halves checked, like every other migration in this file: a
             // DELETE that commits without its INSERT leaves the table empty,
             // which is not recoverable.
             ok = query.exec("DELETE FROM schema_version")
-                 && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (%1)")
-                                   .arg(version));
+                 && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (38)"));
         }
         if (ok && txn.commit()) {
-            currentVersion = version;
-            qDebug() << "ShotHistoryStorage: migration" << version << "complete - unlinked"
+            currentVersion = 38;
+            qDebug() << "ShotHistoryStorage: migration 38 complete - unlinked"
                      << unlinked << "bag(s) from a record naming another coffee";
         } else {
-            qWarning() << "ShotHistoryStorage: migration" << version
-                       << "incomplete - will retry next launch";
+            qWarning() << "ShotHistoryStorage: migration 38 incomplete - will retry next launch";
         }
-    };
-
-    if (currentVersion >= 36 && currentVersion < 37)
-        runCanonicalUnlink(37);
-    if (currentVersion >= 37 && currentVersion < 38)
-        runCanonicalUnlink(38);
+        }
+    }
 
     m_schemaVersion = currentVersion;
     return true;
@@ -2827,10 +2826,12 @@ void ShotHistoryStorage::requestPendingBeanRepairs()
                 repairs.append(repair);
             }
             queryOk = true;
-            // A flagged row with no visualizer_id is not junk, it is not READY:
-            // it may be mid-upload, and clearing the flag here would drop it from
-            // the queue moments before its id lands. The query above skips it,
-            // and an unuploaded shot costs one unread row.
+            // The query's visualizer_id filter mirrors the producer's
+            // (markShotsForBeanRepairStatic flags uploaded shots only), so a
+            // flagged row without an id cannot exist today. It is kept rather
+            // than dropped because the two predicates must agree, and a future
+            // producer that forgets the filter should skip such a row here, not
+            // send it: an empty id addresses the COLLECTION endpoint.
         });
         const bool ok = opened && queryOk;
         if (!ok)
@@ -2867,6 +2868,13 @@ void ShotHistoryStorage::clearBeanRepairPending(qint64 shotId)
             if (!query.exec())
                 qWarning() << "ShotHistoryStorage: could not clear repair flag on shot" << shotId
                            << ":" << query.lastError().text();
+            else if (query.numRowsAffected() == 0)
+                // A successful UPDATE matching nothing is not a clear: the shot
+                // was deleted locally, or the id never existed. Without this the
+                // two are indistinguishable, and the second is a producer bug
+                // that would otherwise leave a flag set with no trace of why.
+                qWarning() << "ShotHistoryStorage: repair flag clear matched no shot" << shotId
+                           << "- deleted locally, or the id was never valid";
         });
         if (!opened)
             qWarning() << "ShotHistoryStorage: repair flag on shot" << shotId

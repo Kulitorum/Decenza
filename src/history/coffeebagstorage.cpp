@@ -722,9 +722,12 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
     // Read the row count BEFORE running anything else on this connection.
     // QSQLiteResult::numRowsAffected() is not cached — it calls sqlite3_changes()
     // on the CONNECTION at call time (qtbase/src/plugins/sqldrivers/sqlite/
-    // qsql_sqlite.cpp:592-596) — so the propagation below, which normally
-    // updates zero shots, would otherwise overwrite this update's count with 0
-    // and report a successful save as a failure.
+    // qsql_sqlite.cpp:591-595) — so the propagation below would otherwise
+    // overwrite this update's count with its own and report a successful save as
+    // a failure. It runs only on the unlink path, i.e. for a bag whose whole
+    // shot history is being rewritten, so a bag with no shots is the case that
+    // actually bites: the propagation's 0 lands on `affected` and the save
+    // reports failure. That is the shape tst_coffeebags pins.
     const int affected = query.numRowsAffected();
 
     // An unlink has to reach the shots' own snapshots, and it cannot rely on the
@@ -796,7 +799,7 @@ int CoffeeBagStorage::markShotsForBeanRepairStatic(QSqlDatabase& db, qint64 bagI
 }
 
 // static
-int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db)
+int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db, bool queueShots)
 {
     QSqlQuery read(db);
     if (!read.exec("SELECT id, roaster_name, coffee_name, beanbase_id, beanbase_json "
@@ -828,8 +831,12 @@ int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db)
         // The shots carry their own copy of the blob, so the unlink has to
         // reach them too — otherwise every upload keeps re-asserting the id
         // from the shot snapshot and the bag fix changes nothing.
+        // queueShots false means the caller could not add bean_repair_pending,
+        // so the UPDATE would fail on a missing column and take the whole
+        // unlink down with it. The unlink is the correctness fix and must land
+        // regardless; only the Visualizer repair is lost.
         if (propagateBeanBaseStatic(db, fix.id) < 0
-            || markShotsForBeanRepairStatic(db, fix.id) < 0) {
+            || (queueShots && markShotsForBeanRepairStatic(db, fix.id) < 0)) {
             qWarning() << "CoffeeBagStorage: bag" << fix.id
                        << "unlinked but its shots were not updated - failing the pass";
             return -1;

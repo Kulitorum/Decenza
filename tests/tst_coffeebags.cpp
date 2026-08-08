@@ -2423,10 +2423,18 @@ private slots:
         QCOMPARE(VisualizerUploader::decideBeanRepair("Prodigal Coffee", "Milk Blend",
                                                       "Prodigal Coffee", "Buenos Aires"),
                  Action::NeedsPatch);
-        // A blank server value is a difference, not a match: the paged list
-        // returns blanks, and treating those as "agrees" is what queued a whole
-        // library once.
+        // A blank server value is a difference, not a match. (The endpoint that
+        // caused this OMITS the keys rather than blanking them — the app read
+        // the missing keys back as empty QStrings — but the predicate sees the
+        // same empty string either way, and treating it as "agrees" would leave
+        // a renamed shot unrepaired.)
         QCOMPARE(VisualizerUploader::decideBeanRepair("", "", "Prodigal Coffee", "Milk Blend"),
+                 Action::NeedsPatch);
+        // Blank on the LOCAL side is also a difference — which is why this
+        // predicate must not be the last word before a write. Sending it would
+        // blank the server's names. sendNextBeanRepair drops such a shot before
+        // it ever gets here; this pins WHY that guard has to exist.
+        QCOMPARE(VisualizerUploader::decideBeanRepair("Prodigal Coffee", "Milk Blend", "", ""),
                  Action::NeedsPatch);
     }
 
@@ -2648,6 +2656,71 @@ private slots:
             checkLocal.bindValue(":id", localShotId);
             QVERIFY(checkLocal.exec() && checkLocal.next());
             QCOMPARE(checkLocal.value(0).toInt(), 0);  // never uploaded, nothing to repair
+        });
+    }
+
+    // The migration's own promise: when the queue column could not be added, the
+    // UNLINK still lands. It used to do the opposite — markShotsForBeanRepair's
+    // UPDATE failed on the missing column, returned -1, and failed the whole
+    // pass, so the bags stayed linked and the migration re-ran every launch, for
+    // exactly the users who had a conflicted bag.
+    void theUnlinkSurvivesAMissingRepairColumn() {
+        const QString path = freshDb();
+        QVERIFY(!path.isEmpty());
+        withRawDb(path, "canon_nocol", [&](QSqlDatabase& db) {
+            CoffeeBag borrowed;
+            borrowed.roasterName = "Stavanger Kaffebrenneri";
+            borrowed.coffeeName = "Las Capucas";
+            borrowed.beanBaseId = "canon-coava";
+            borrowed.beanBaseData = QStringLiteral(
+                "{\"id\":\"canon-coava\",\"visualizerCanonicalId\":\"canon-coava\","
+                "\"roasterName\":\"Coava Coffee Roasters\",\"roastName\":\"Las Capucas\"}");
+            QSqlQuery raw(db);
+            QVERIFY(raw.exec("UPDATE coffee_bags SET beanbase_id = NULL"));
+            const qint64 bagId = CoffeeBagStorage::insertBagStatic(db, borrowed);
+            QVERIFY(bagId > 0);
+            // insertBagStatic already refuses the link, so re-plant it directly:
+            // this is the stored-row state the migration exists to clean.
+            QSqlQuery plant(db);
+            plant.prepare("UPDATE coffee_bags SET beanbase_id = :id, beanbase_json = :blob "
+                          "WHERE id = :bag");
+            plant.bindValue(":id", borrowed.beanBaseId);
+            plant.bindValue(":blob", borrowed.beanBaseData);
+            plant.bindValue(":bag", bagId);
+            QVERIFY(plant.exec());
+
+            QSqlQuery drop(db);
+            const bool dropped = drop.exec("ALTER TABLE shots DROP COLUMN bean_repair_pending");
+            if (!dropped)
+                QSKIP("SQLite build cannot DROP COLUMN");
+
+            // queueShots=false is what the migration passes when its ALTER failed.
+            QCOMPARE(CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(db, false), 1);
+            QVERIFY(CoffeeBagStorage::loadBagStatic(db, bagId).beanBaseId.isEmpty());
+        });
+    }
+
+    // Guards the numRowsAffected() ordering in updateBagFieldsStatic. It has to
+    // be a bag with NO shots: the propagation that follows the update runs on the
+    // same connection, and sqlite3_changes() is read live, so a post-propagation
+    // read returns 0 here and the save reports failure. A fixture with shots
+    // returns a non-zero count either way and stays green on the bug.
+    void renamingABagWithNoShotsStillReportsSuccess() {
+        const QString path = freshDb();
+        QVERIFY(!path.isEmpty());
+        withRawDb(path, "canon_noshots", [&](QSqlDatabase& db) {
+            CoffeeBag bag;
+            bag.roasterName = "Coava Coffee Roasters";
+            bag.coffeeName = "Las Capucas";
+            bag.beanBaseId = "canon-coava";
+            bag.beanBaseData = QStringLiteral(
+                "{\"id\":\"canon-coava\",\"visualizerCanonicalId\":\"canon-coava\","
+                "\"roasterName\":\"Coava Coffee Roasters\",\"roastName\":\"Las Capucas\"}");
+            const qint64 bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+            QVERIFY(bagId > 0);
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(
+                db, bagId, {{"roasterName", "Stavanger Kaffebrenneri"}}));
+            QVERIFY(CoffeeBagStorage::loadBagStatic(db, bagId).beanBaseId.isEmpty());
         });
     }
 };
