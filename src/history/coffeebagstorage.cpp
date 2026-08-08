@@ -725,8 +725,10 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
     // caller's propagate flag: the web editor only asks for propagation when it
     // SENDS a non-empty canonical id, which is exactly not this case. Without
     // this, every upload would keep re-asserting the dropped id from the shot.
-    if (droppedLink)
+    if (droppedLink) {
         propagateBeanBaseStatic(db, bagId);
+        markShotsForBeanRepairStatic(db, bagId);
+    }
     return affected > 0;
 }
 
@@ -747,6 +749,30 @@ bool CoffeeBagStorage::dropConflictedCanonicalLink(const QString& roasterName,
     beanBaseId->clear();
     *beanBaseData = BeanBaseBlob::stripCanonicalLink(*beanBaseData);
     return true;
+}
+
+// static
+int CoffeeBagStorage::markShotsForBeanRepairStatic(QSqlDatabase& db, qint64 bagId)
+{
+    // The repair cohort is RECORDED here, at the unlink, not discovered later by
+    // comparing the library against visualizer.coffee. That is deliberate: the
+    // list endpoint returns empty bean fields, so a discovery pass read every
+    // uploaded shot as a disagreement and queued 349 of them on a real account.
+    // Only shots that were actually uploaded can need repairing.
+    QSqlQuery query(db);
+    query.prepare("UPDATE shots SET bean_repair_pending = 1 "
+                  "WHERE bag_id = :bag AND COALESCE(visualizer_id,'') <> ''");
+    query.bindValue(":bag", bagId);
+    if (!query.exec()) {
+        qWarning() << "CoffeeBagStorage: could not queue bean repair for bag" << bagId
+                   << ":" << query.lastError().text();
+        return -1;
+    }
+    const int marked = query.numRowsAffected();
+    if (marked > 0)
+        qDebug() << "CoffeeBagStorage: queued" << marked
+                 << "uploaded shot(s) of bag" << bagId << "for Visualizer bean repair";
+    return marked;
 }
 
 // static
@@ -783,6 +809,7 @@ int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db)
         // reach them too — otherwise every upload keeps re-asserting the id
         // from the shot snapshot and the bag fix changes nothing.
         propagateBeanBaseStatic(db, fix.id);
+        markShotsForBeanRepairStatic(db, fix.id);
     }
     return static_cast<int>(fixes.size());
 }

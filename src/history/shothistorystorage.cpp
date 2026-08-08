@@ -2027,7 +2027,16 @@ bool ShotHistoryStorage::runMigrations()
             qWarning() << "ShotHistoryStorage: migration 37 could not start a transaction - "
                           "will retry next launch";
         } else {
-            const int unlinked = CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(m_db);
+            // The repair queue itself. A column, not a discovery pass: the shots
+            // that need repairing are the ones whose bag we unlink, and we know
+            // them at that moment.
+            if (!hasColumn("shots", "bean_repair_pending")
+                && !query.exec("ALTER TABLE shots ADD COLUMN bean_repair_pending "
+                               "INTEGER NOT NULL DEFAULT 0"))
+                qWarning() << "ShotHistoryStorage: migration 37 add shots.bean_repair_pending failed -"
+                           << query.lastError().text();
+            const int unlinked = hasColumn("shots", "bean_repair_pending")
+                ? CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(m_db) : -1;
             bool ok = unlinked >= 0;
             if (ok) {
                 query.exec("DELETE FROM schema_version");
@@ -2751,83 +2760,82 @@ void ShotHistoryStorage::requestReconcileVisualizerLinks(const QVariantList& clo
     });
 }
 
-void ShotHistoryStorage::requestBeanMismatchScan(const QVariantList& cloudShots)
+void ShotHistoryStorage::requestPendingBeanRepairs()
 {
     if (!m_ready) {
-        emit beanMismatchesFound(false, QVariantList());
+        emit pendingBeanRepairsReady(false, QVariantList());
         return;
     }
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, cloudShots, destroyed]() {
+    runOnDbThread([this, dbPath, destroyed]() {
         QVariantList repairs;
         const bool opened = withTempDb(dbPath, "shs_beanrepair", [&](QSqlDatabase& db) {
-            // One read of every uploaded shot, then a hash join in memory — the
-            // cloud list is the user's whole library, so a query per shot would
-            // be hundreds of round trips for a pass that runs once.
-            struct Local { qint64 id; qint64 timestamp; QString brand, type, blob; };
-            QHash<QString, Local> byVisualizerId;
             QSqlQuery query(db);
-            if (!query.exec("SELECT visualizer_id, bean_brand, bean_type, beanbase_json, id, timestamp "
-                            "FROM shots WHERE COALESCE(visualizer_id,'') <> ''")) {
-                qWarning() << "ShotHistoryStorage: bean-repair scan query failed:"
+            if (!query.exec("SELECT id, visualizer_id, bean_brand, bean_type, beanbase_json, timestamp "
+                            "FROM shots WHERE bean_repair_pending = 1 "
+                            "AND COALESCE(visualizer_id,'') <> '' ORDER BY timestamp DESC")) {
+                qWarning() << "ShotHistoryStorage: pending bean-repair query failed:"
                            << query.lastError().text();
                 return;
             }
-            while (query.next())
-                byVisualizerId.insert(query.value(0).toString(),
-                                      {query.value(4).toLongLong(), query.value(5).toLongLong(),
-                                       query.value(1).toString(), query.value(2).toString(),
-                                       query.value(3).toString()});
-
-            for (const QVariant& v : cloudShots) {
-                const QVariantMap cloud = v.toMap();
-                const auto local = byVisualizerId.constFind(cloud.value("visualizerId").toString());
-                if (local == byVisualizerId.constEnd())
-                    continue;  // not ours to correct — no local row behind it
-                const QString localBrand = local->brand.trimmed();
-                const QString localType = local->type.trimmed();
-                if (localBrand.isEmpty() && localType.isEmpty())
-                    continue;  // nothing authoritative to push
-                if (localBrand.compare(cloud.value("beanBrand").toString().trimmed(),
-                                       Qt::CaseInsensitive) == 0
-                    && localType.compare(cloud.value("beanType").toString().trimmed(),
-                                         Qt::CaseInsensitive) == 0)
-                    continue;  // agrees already
-
+            while (query.next()) {
+                const QString blob = query.value(4).toString();
+                const QString brand = query.value(2).toString();
+                const QString type = query.value(3).toString();
                 // The canonical id goes back up only when it names THIS coffee;
                 // otherwise it is cleared, which is what stops the server
                 // rewriting the names we are about to send.
-                QString canonicalId = BeanBaseBlob::canonicalId(local->blob);
-                if (BeanBaseBlob::canonicalIdentityConflicts(local->blob, localBrand, localType))
+                QString canonicalId = BeanBaseBlob::canonicalId(blob);
+                if (BeanBaseBlob::canonicalIdentityConflicts(blob, brand, type))
                     canonicalId.clear();
 
                 QVariantMap repair;
-                repair["visualizerId"] = cloud.value("visualizerId");
-                repair["beanBrand"] = local->brand;
-                repair["beanType"] = local->type;
+                repair["shotId"] = query.value(0).toLongLong();
+                repair["visualizerId"] = query.value(1).toString();
+                repair["beanBrand"] = brand;
+                repair["beanType"] = type;
                 repair["canonicalId"] = canonicalId;
-                // Carried for the dry run's report only: what the server holds
-                // today, and which local shot this is, so the planned change can
-                // be read as a diff without a second query per shot.
-                repair["remoteBeanBrand"] = cloud.value("beanBrand");
-                repair["remoteBeanType"] = cloud.value("beanType");
-                repair["shotId"] = local->id;
-                repair["timestamp"] = local->timestamp;
+                repair["timestamp"] = query.value(5).toLongLong();
                 repairs.append(repair);
             }
+            // A queued row that was never uploaded has nothing to repair; drop
+            // its flag here rather than carrying it forever.
+            QSqlQuery clear(db);
+            if (!clear.exec("UPDATE shots SET bean_repair_pending = 0 "
+                            "WHERE bean_repair_pending = 1 AND COALESCE(visualizer_id,'') = ''"))
+                qWarning() << "ShotHistoryStorage: could not clear un-uploaded repair flags:"
+                           << clear.lastError().text();
         });
         if (!opened)
-            qWarning() << "ShotHistoryStorage: bean-repair scan could not open DB — will retry next boot";
+            qWarning() << "ShotHistoryStorage: pending bean-repair read could not open DB";
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, opened, repairs, destroyed]() {
             if (*destroyed) return;
-            qDebug() << "ShotHistoryStorage: bean-repair scan" << (opened ? "completed" : "FAILED")
-                     << "—" << repairs.size() << "shot(s) disagree with visualizer.coffee";
-            emit beanMismatchesFound(opened, repairs);
+            if (opened && !repairs.isEmpty())
+                qDebug() << "ShotHistoryStorage:" << repairs.size()
+                         << "shot(s) queued for Visualizer bean repair";
+            emit pendingBeanRepairsReady(opened, repairs);
         }, Qt::QueuedConnection);
+    });
+}
+
+void ShotHistoryStorage::clearBeanRepairPending(qint64 shotId)
+{
+    if (!m_ready || shotId <= 0)
+        return;
+    const QString dbPath = m_dbPath;
+    runOnDbThread([dbPath, shotId]() {
+        withTempDb(dbPath, "shs_beanrepairdone", [&](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            query.prepare("UPDATE shots SET bean_repair_pending = 0 WHERE id = :id");
+            query.bindValue(":id", shotId);
+            if (!query.exec())
+                qWarning() << "ShotHistoryStorage: could not clear repair flag on shot" << shotId
+                           << ":" << query.lastError().text();
+        });
     });
 }
 

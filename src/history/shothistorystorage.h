@@ -111,15 +111,20 @@ public:
     Q_INVOKABLE void requestReconcileVisualizerLinks(const QVariantList& cloudShots,
                                                      qint64 windowStartEpoch);
 
-    // Bean-identity repair scan (fix-visualizer-canonical-roaster-rename).
-    // `cloudShots` is the user's Visualizer shot list, each map carrying the
-    // bean identity the SERVER holds ({visualizerId, beanBrand, beanType, …}).
-    // Compares it against the local rows and emits beanMismatchesFound() with
-    // one entry per disagreement: {visualizerId, beanBrand, beanType,
-    // canonicalId} — the local values to push, plus the canonical id to send
-    // back (empty = clear it, which is what stops the server rewriting the
-    // names again). Read-only; the local database is already right.
-    Q_INVOKABLE void requestBeanMismatchScan(const QVariantList& cloudShots);
+    // Read the Visualizer bean-repair queue (fix-visualizer-canonical-roaster-
+    // rename): the uploaded shots whose bag was unlinked from a borrowed
+    // canonical record, flagged at that moment by
+    // CoffeeBagStorage::markShotsForBeanRepairStatic. Emits
+    // pendingBeanRepairsReady() with {shotId, visualizerId, beanBrand,
+    // beanType, canonicalId, timestamp} per shot — the app's values to push and
+    // the canonical id to send back (empty = clear it, which is what stops the
+    // server rewriting the names again). Queued rows that were never uploaded
+    // have their flag dropped here. Read-only apart from that housekeeping.
+    Q_INVOKABLE void requestPendingBeanRepairs();
+
+    // Drop one shot's repair flag, after the server confirmed the repair (or
+    // reported it was never needed). Fire-and-forget on the DB thread.
+    Q_INVOKABLE void clearBeanRepairPending(qint64 shotId);
 
     // Async: runs SQL on a background thread and emits shotsFilteredReady()
     Q_INVOKABLE void requestShotsFiltered(const QVariantMap& filter, int offset = 0, int limit = 50);
@@ -473,10 +478,9 @@ signals:
     // {shotId:qint64, visualizerId:QString} maps for rows just linked
     // (empty if ok and none matched).
     void visualizerLinksReconciled(bool ok, const QVariantList& linked);
-    // Result of requestBeanMismatchScan. Same fail-safe contract as above: `ok`
-    // false means the scan did not run, so the caller must not mark the repair
-    // done. `repairs` is empty when every uploaded shot already agrees.
-    void beanMismatchesFound(bool ok, const QVariantList& repairs);
+    // Result of requestPendingBeanRepairs. `ok` false means the read did not
+    // run; `repairs` is empty when the queue is (the normal case).
+    void pendingBeanRepairsReady(bool ok, const QVariantList& repairs);
     void mostRecentShotIdReady(qint64 shotId);
     void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool grindIssueDetected, bool skipFirstFrameDetected, bool pourTruncatedDetected);
 

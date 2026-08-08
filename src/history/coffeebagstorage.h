@@ -233,8 +233,15 @@ public:
     static bool dropConflictedCanonicalLink(const QString& roasterName, const QString& coffeeName,
                                             QString* beanBaseId, QString* beanBaseData);
 
+    // Queue this bag's UPLOADED shots for the Visualizer bean repair
+    // (shots.bean_repair_pending). Called wherever a borrowed canonical link is
+    // dropped, because those are exactly the shots visualizer.coffee may have
+    // renamed. Returns the number of shots queued, -1 on failure.
+    static int markShotsForBeanRepairStatic(QSqlDatabase& db, qint64 bagId);
+
     // Clean every stored bag that already carries a conflicted link (migration
-    // 35's data pass). Returns the number of bags unlinked, -1 on failure.
+    // 37's data pass), queueing their shots for repair. Returns the number of
+    // bags unlinked, -1 on failure.
     static int cleanConflictedCanonicalLinksStatic(QSqlDatabase& db);
 
     // True when `fields` (camelCase CoffeeBag keys) contains at least one field

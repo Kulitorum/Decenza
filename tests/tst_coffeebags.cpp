@@ -2487,13 +2487,30 @@ private slots:
             const qint64 shotId = ShotRowFixtures::insertShot(db, row);
             QVERIFY(shotId > 0);
             QSqlQuery shot(db);
-            shot.prepare("UPDATE shots SET bag_id = :bag, beanbase_id = :id, beanbase_json = :blob "
-                         "WHERE id = :shot");
+            shot.prepare("UPDATE shots SET bag_id = :bag, beanbase_id = :id, beanbase_json = :blob, "
+                         "visualizer_id = 'viz-uploaded' WHERE id = :shot");
             shot.bindValue(":bag", badId);
             shot.bindValue(":id", borrowed.beanBaseId);
             shot.bindValue(":blob", borrowed.beanBaseData);
             shot.bindValue(":shot", shotId);
             QVERIFY(shot.exec());
+
+            // A second shot of the same bag that was never uploaded: the repair
+            // queue is about what visualizer.coffee may have renamed, so this
+            // one must not be flagged.
+            ShotRowFixtures::ShotRow local;
+            local.uuid = "canon-clean-shot-local";
+            local.timestamp = QDateTime::currentSecsSinceEpoch() - 60;
+            local.profileName = "Test";
+            local.beanBrand = borrowed.roasterName;
+            local.beanType = borrowed.coffeeName;
+            const qint64 localShotId = ShotRowFixtures::insertShot(db, local);
+            QVERIFY(localShotId > 0);
+            QSqlQuery bindLocal(db);
+            bindLocal.prepare("UPDATE shots SET bag_id = :bag WHERE id = :shot");
+            bindLocal.bindValue(":bag", badId);
+            bindLocal.bindValue(":shot", localShotId);
+            QVERIFY(bindLocal.exec());
 
             QCOMPARE(CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(db), 1);
 
@@ -2506,11 +2523,21 @@ private slots:
                      QStringLiteral("canon-prodigal"));
 
             QSqlQuery check(db);
-            QVERIFY(check.exec("SELECT COALESCE(beanbase_id,''), COALESCE(beanbase_json,'') "
-                               "FROM shots ORDER BY id DESC LIMIT 1"));
-            QVERIFY(check.next());
+            check.prepare("SELECT COALESCE(beanbase_id,''), COALESCE(beanbase_json,''), "
+                          "bean_repair_pending FROM shots WHERE id = :id");
+            check.bindValue(":id", shotId);
+            QVERIFY(check.exec() && check.next());
             QVERIFY(check.value(0).toString().isEmpty());
             QVERIFY(!BeanBaseBlob::isLinked(check.value(1).toString()));
+            // Uploaded → queued for the Visualizer repair, because the server
+            // may have renamed it from the borrowed record.
+            QCOMPARE(check.value(2).toInt(), 1);
+
+            QSqlQuery checkLocal(db);
+            checkLocal.prepare("SELECT bean_repair_pending FROM shots WHERE id = :id");
+            checkLocal.bindValue(":id", localShotId);
+            QVERIFY(checkLocal.exec() && checkLocal.next());
+            QCOMPARE(checkLocal.value(0).toInt(), 0);  // never uploaded, nothing to repair
         });
     }
 };

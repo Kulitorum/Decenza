@@ -37,16 +37,17 @@
 // rather than a silent partial result.
 namespace VisualizerShotList {
 
-// One shot from the list: its Visualizer id, start time (Unix seconds), and the
-// bean identity the SERVER currently holds. The bean fields are part of the
-// list endpoint's LIST_ATTRIBUTES (app/models/shot.rb), so the bean-repair sweep
-// can compare a whole library against the local rows in one page per hundred
-// shots instead of a GET per shot. Callers that only reconcile ids ignore them.
+// One shot from the list: its Visualizer id and start time (Unix seconds).
+//
+// Deliberately NOT the bean fields. `bean_brand`/`bean_type` appear in the
+// model's LIST_ATTRIBUTES, but this endpoint returns them EMPTY — measured
+// against a live account, where all 349 shots came back blank while
+// GET /api/shots/<id> returned the real values. A bean-repair pass built on the
+// list therefore read "blank" as "disagrees" and queued the entire library.
+// Anything that needs a shot's bean identity must fetch the shot itself.
 struct Entry {
     QString visualizerId;
     qint64 clockEpoch = 0;
-    QString beanBrand;
-    QString beanType;
 };
 
 // What the caller should do after this page.
@@ -115,9 +116,7 @@ inline PageResult processPage(const QByteArray& body, int page, int maxPages,
         minClockThisPage = qMin(minClockThisPage, clock);
         if (clock < fromEpoch || clock > toEpoch)
             continue;  // outside the requested window
-        result.inWindow.append({id, clock,
-                                s.value("bean_brand").toString(),
-                                s.value("bean_type").toString()});
+        result.inWindow.append({id, clock});
     }
 
     // Newest-first sort: once a whole page predates the window start, every later

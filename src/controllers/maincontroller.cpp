@@ -442,16 +442,22 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // persist-visualizer-id-in-controller.
     processVisualizerReconciliation();
 
-    // One-time repair of the shots visualizer.coffee renamed from a borrowed
-    // canonical bean record. Both passes page the SAME shot-list endpoint
-    // through the one shared shotListFetched signal, so they must never be in
-    // flight together — their single-shot handlers would cross-wire onto
-    // whichever list arrived first, and the repair would read the
-    // reconciliation's 60-day window as the whole library. The repair starts
-    // here only when reconciliation is already done; otherwise reconciliation
-    // starts it when it finishes.
-    if (AppSettings().value(QStringLiteral("visualizerBackfill/doneV1"), false).toBool())
-        processVisualizerBeanRepair();
+    // A shot the server confirmed needs nothing (repaired, already right, or
+    // deleted there) leaves the queue for good.
+    connect(m_visualizer, &VisualizerUploader::beanRepairSettled, this, [this](qint64 shotId) {
+        if (m_shotHistory)
+            m_shotHistory->clearBeanRepairPending(shotId);
+    });
+
+    // Drain the Visualizer bean-repair queue: the shots whose bag was unlinked
+    // from a borrowed canonical record. Reads one indexed column; does nothing
+    // at all when the queue is empty, which is the normal case.
+    processVisualizerBeanRepair();
+
+    // A bag edited into (or out of) a borrowed link queues its shots, so drain
+    // again when the inventory changes rather than waiting for the next launch.
+    connect(m_bagStorage, &CoffeeBagStorage::bagsChanged, this,
+            [this]() { processVisualizerBeanRepair(); });
 
     connect(m_visualizer, &VisualizerUploader::updateSuccess, this,
             [this](const QString& visualizerId) {
@@ -4616,60 +4622,26 @@ void MainController::dispatchNextPendingVisualizerSync()
 
 void MainController::processVisualizerBeanRepair()
 {
-    if (!m_visualizer || !m_shotHistory) return;
+    if (!m_visualizer || !m_shotHistory || !m_shotHistory->isReady())
+        return;
 
     AppSettings s;
-    if (s.value(QStringLiteral("visualizerBeanRepair/doneV1"), false).toBool())
-        return;
+    if (s.value(QStringLiteral("visualizer/username")).toString().isEmpty()
+        || s.value(QStringLiteral("visualizer/password")).toString().isEmpty())
+        return;  // no account to repair against
 
-    const QString user = s.value(QStringLiteral("visualizer/username")).toString();
-    const QString pass = s.value(QStringLiteral("visualizer/password")).toString();
-    if (user.isEmpty() || pass.isEmpty()) {
-        // Same rule as the reconciliation above: no credentials means the pass
-        // never ran, so the flag stays unset and a later boot retries.
-        qDebug() << "MainController: Visualizer bean repair skipped (no credentials)";
-        return;
-    }
-
-    connect(m_visualizer, &VisualizerUploader::shotListFailed, this, [](const QString& err) {
-        qWarning() << "MainController: Visualizer bean repair list fetch failed:"
-                   << err << "(will retry next boot)";
-    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
-
-    connect(m_visualizer, &VisualizerUploader::shotListFetched, this,
-            [this](const QVariantList& cloudShots) {
-        if (m_shotHistory && m_shotHistory->isReady())
-            m_shotHistory->requestBeanMismatchScan(cloudShots);
-    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
-
-    connect(m_shotHistory, &ShotHistoryStorage::beanMismatchesFound, this,
+    // No run-once flag and no library walk: the queue IS the state. Shots are
+    // flagged where their bag's borrowed canonical link is dropped (migration 37
+    // and the storage rule), and each flag is cleared once the server confirms
+    // that shot needs nothing. An empty queue costs one indexed read.
+    connect(m_shotHistory, &ShotHistoryStorage::pendingBeanRepairsReady, this,
             [this](bool ok, const QVariantList& repairs) {
-        if (!ok) {
-            qWarning() << "MainController: Visualizer bean repair scan did not complete "
-                          "(DB error) — will retry next boot";
+        if (!ok || repairs.isEmpty())
             return;
-        }
         m_visualizer->repairShotBeans(repairs);
     }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
-    connect(m_visualizer, &VisualizerUploader::beanRepairFinished, this,
-            [](int repaired, bool complete) {
-        if (!complete) {
-            qWarning() << "MainController: Visualizer bean repair incomplete after correcting"
-                       << repaired << "shot(s) — will retry next boot";
-            return;
-        }
-        AppSettings ss;
-        ss.setValue(QStringLiteral("visualizerBeanRepair/doneV1"), true);
-        ss.sync();
-        qDebug() << "MainController: Visualizer bean repair complete —" << repaired
-                 << "shot(s) restored to the app's bean identity";
-    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
-
-    // Whole library, not the 60-day reconciliation window: a bag linked once
-    // renamed every shot it ever pulled, however old.
-    qDebug() << "MainController: starting one-time Visualizer bean repair";
-    m_visualizer->fetchShotListSince(0);
+    m_shotHistory->requestPendingBeanRepairs();
 }
 
 void MainController::processVisualizerReconciliation()
@@ -4724,10 +4696,6 @@ void MainController::processVisualizerReconciliation()
         AppSettings ss;
         ss.setValue(QStringLiteral("visualizerBackfill/doneV1"), true);
         ss.sync();
-
-        // The list endpoint is free again: start the bean repair, which was
-        // held back at boot precisely so the two passes could not overlap.
-        processVisualizerBeanRepair();
 
         if (linked.isEmpty()) {
             qDebug() << "MainController: Visualizer reconciliation — nothing to relink";

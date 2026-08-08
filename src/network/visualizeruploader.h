@@ -185,17 +185,16 @@ public:
     // not advance its run-once flag on failure).
     void fetchShotListSince(qint64 windowStartEpoch);
 
-    // Repair shots visualizer.coffee renamed from a borrowed canonical record
-    // (fix-visualizer-canonical-roaster-rename). `repairs` comes from
-    // ShotHistoryStorage::beanMismatchesFound: one {visualizerId, beanBrand,
-    // beanType, canonicalId} map per shot whose server-side bean identity
-    // disagrees with the app's. PATCHes them one at a time (a library-wide pass
-    // must not open hundreds of parallel connections) and emits
-    // beanRepairFinished when the queue drains. `canonicalId` empty sends JSON
-    // null, which CLEARS the link — the one place we null it, because a link
-    // that renamed the user's shot is the thing being undone. Sending the names
-    // and the id together is what makes the names stick: the server only
-    // rewrites them when that id CHANGES, and it changes to null here.
+    // Repair the shots visualizer.coffee renamed from a borrowed canonical
+    // record (fix-visualizer-canonical-roaster-rename). `repairs` is the queue
+    // from ShotHistoryStorage::pendingBeanRepairsReady — the shots whose bag we
+    // unlinked, recorded at that moment, NOT a library-wide comparison.
+    //
+    // Each shot is READ first and only written when the server actually
+    // disagrees; `beanRepairSettled(shotId)` then clears its flag. Read-only
+    // unless visualizerBeanRepair/live is set, in which case it reports the
+    // diffs and leaves the queue intact. One request per second, and the first
+    // HTTP 429 abandons the pass (the flags keep the remainder for next boot).
     void repairShotBeans(const QVariantList& repairs);
 
     // Build a visualizer-compatible JSON payload from a ShotProjection.
@@ -265,9 +264,12 @@ signals:
     // Reconciliation list fetch results.
     void shotListFetched(const QVariantList& shots);
     void shotListFailed(const QString& error);
-    // The bean-repair pass drained. `repaired` counts the shots the server
-    // accepted; `complete` is false when any PATCH failed, so the caller leaves
-    // its run-once flag unset and the remainder is retried next boot.
+    // One queued shot needs nothing further — repaired, already correct, or gone
+    // from visualizer.coffee. The caller clears its bean_repair_pending flag.
+    void beanRepairSettled(qint64 shotId);
+    // The bean-repair pass ended. `repaired` counts shots corrected (or, in
+    // read-only mode, shots that WOULD change); `complete` is false when
+    // anything was left queued.
     void beanRepairFinished(int repaired, bool complete);
 
 private slots:
@@ -301,19 +303,26 @@ private:
     // exhausted, then emits shotListFetched once.
     void fetchShotListPage(int page, qint64 windowStartEpoch, QVariantList accumulated);
 
-    // Send the next queued bean repair, or emit beanRepairFinished when the
-    // queue is empty. Serial by construction — one PATCH in flight at a time,
-    // spaced by kBeanRepairIntervalMs.
+    // Take the next queued shot: GET it, compare against the app's values, and
+    // PATCH only on a real difference (and only when live). Emits
+    // beanRepairFinished when the queue drains. Serial by construction — one
+    // request in flight at a time, spaced by kBeanRepairIntervalMs.
     void sendNextBeanRepair();
-    // Dry run: log the per-shot diff and a census of the shapes, write nothing.
-    static void reportBeanRepairPlan(const QVariantList& repairs);
-    // ~1 write/second. visualizer.coffee rate-limits, and the first live pass
-    // hit HTTP 429 on all 349 of its requests at ~6/s.
+    void sendBeanRepairPatch(qint64 shotId, const QString& visualizerId,
+                             const QString& beanBrand, const QString& beanType,
+                             const QString& canonicalId);
+    void abandonBeanRepairOnRateLimit();
+    void scheduleNextBeanRepair();
+    // ~1 request/second. visualizer.coffee rate-limits, and the first version of
+    // this pass hit HTTP 429 on all 349 of its requests at ~6/s.
     static constexpr int kBeanRepairIntervalMs = 1000;
     QVariantList m_beanRepairQueue;
     int m_beanRepairDone = 0;
     bool m_beanRepairFailed = false;
     bool m_beanRepairRunning = false;
+    // Read-only unless visualizerBeanRepair/live is set. Read once per pass so
+    // the mode cannot change under a running queue.
+    bool m_beanRepairLive = false;
 
     // --- Coffee Management sync (bean-bag-inventory) ---
     // Entry point, called after a successful upload POST. Loads the shot's bag
