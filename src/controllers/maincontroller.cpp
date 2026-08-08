@@ -454,7 +454,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                           "- no repair this session";
             return;
         }
-        if (!repairs.isEmpty() && m_visualizer)
+        // Handed over even when empty: repairShotBeans clears its
+        // dropped-snapshot flag for any snapshot it accepts, and stays silent on
+        // an empty one, so this is what stops a re-drain answering itself.
+        if (m_visualizer)
             m_visualizer->repairShotBeans(repairs);
     });
 
@@ -468,7 +471,9 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // A pass ignores re-entry while it runs, so a bag unlinked mid-pass leaves
     // its shots flagged but unseen by the snapshot already draining. Re-draining
     // on completion picks them up now instead of at the next bag change or
-    // launch. Terminates: the re-drain finds an empty queue and stops there.
+    // launch. Terminates because repairShotBeans emits nothing for an empty
+    // snapshot AND clears the flag it is gated on — both halves are needed, and
+    // both live there, not here.
     connect(m_visualizer, &VisualizerUploader::beanRepairFinished, this, [this](int, bool) {
         if (m_visualizer && m_visualizer->beanRepairMissedWork())
             processVisualizerBeanRepair();

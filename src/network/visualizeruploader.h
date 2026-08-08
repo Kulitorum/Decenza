@@ -101,6 +101,10 @@ public:
     explicit VisualizerUploader(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
 
     bool isUploading() const { return m_uploading; }
+    // True when a queue snapshot was dropped because a pass was already
+    // draining. The caller re-reads the queue on beanRepairFinished when set;
+    // accepting any later snapshot clears it.
+    bool beanRepairMissedWork() const { return m_beanRepairMissedWork; }
     QString lastUploadStatus() const { return m_lastUploadStatus; }
     QString lastShotUrl() const { return m_lastShotUrl; }
 
@@ -194,8 +198,9 @@ public:
     //
     // Each shot is READ first and only written when the server actually
     // disagrees; `beanRepairSettled(shotId)` then clears its flag. One request
-    // per second, and the first HTTP 429 abandons the pass (the flags keep the
-    // remainder for next boot).
+    // per kBeanRepairIntervalMs (see there — it is derived from the server's
+    // published limits, not chosen); the first 429 or 401 abandons the pass and
+    // the flags keep the remainder for next boot.
     void repairShotBeans(const QVector<BeanRepair>& repairs);
 
     // Build a visualizer-compatible JSON payload from a ShotProjection.
@@ -273,13 +278,6 @@ signals:
     // failure — the shots stay flagged and a later boot retries them.
     void beanRepairFinished(int repaired, bool complete);
 
-public:
-    // True when a queue snapshot was dropped because a pass was already
-    // draining. The caller re-reads the queue on beanRepairFinished when set.
-    bool beanRepairMissedWork() const { return m_beanRepairMissedWork; }
-
-signals:
-
 private slots:
     void onUploadFinished(QNetworkReply* reply);
     void onUpdateFinished(QNetworkReply* reply, const QString& visualizerId);
@@ -317,8 +315,13 @@ private:
     // by kBeanRepairIntervalMs.
     void sendNextBeanRepair();
     void sendBeanRepairPatch(const BeanRepair& repair);
-    // Statuses that cannot differ per shot (429, 401, 403) — retrying the queue
-    // against them is guaranteed waste, so the pass stops.
+    // The names-free half of the repair, for a shot whose local bean fields are
+    // incomplete: clears the borrowed canonical link and asserts nothing else.
+    void sendCanonicalClearOnly(const BeanRepair& repair);
+    // Statuses that cannot differ per shot (429, 401) — retrying the queue
+    // against them is guaranteed waste, so the pass stops. 403 is NOT one of
+    // them on the PATCH (it is an ownership verdict there) but IS treated as
+    // one on the GET, which authorizes nothing; see both call sites.
     static bool isBeanRepairFatalStatus(int status);
     void abandonBeanRepairPass(int status);
     void scheduleNextBeanRepair();

@@ -728,7 +728,7 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
     // Read the row count BEFORE running anything else on this connection.
     // QSQLiteResult::numRowsAffected() is not cached — it calls sqlite3_changes()
     // on the CONNECTION at call time (qtbase/src/plugins/sqldrivers/sqlite/
-    // qsql_sqlite.cpp:591-595) — so the propagation below would otherwise
+    // qsql_sqlite.cpp:592-596) — so the propagation below would otherwise
     // overwrite this update's count with its own and report a successful save as
     // a failure. It runs only on the unlink path, i.e. for a bag whose whole
     // shot history is being rewritten, so a bag with no shots is the case that
@@ -744,14 +744,23 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
         // Both report -1 on failure, and both failures matter: an unpropagated
         // unlink leaves shot snapshots re-asserting the borrowed id on every
         // upload, and an unqueued shot is one visualizer.coffee never repairs.
-        const int propagated = propagateBeanBaseStatic(db, bagId);
-        const int queued = markShotsForBeanRepairStatic(db, bagId);
-        if (propagated < 0 || queued < 0) {
+        // Propagation is part of the correctness fix — a shot snapshot still
+        // holding the borrowed id re-asserts it on every upload — so its failure
+        // fails the save. Queueing is not: it only schedules a cloud repair, and
+        // the row has ALREADY been written by the UPDATE above, so returning
+        // false for it tells the user "couldn't save your bean changes" about a
+        // save that landed, and leaves the card showing the old value because
+        // the caller then skips bagsChanged(). Same asymmetry the migration
+        // makes explicit with its queueShots argument.
+        if (propagateBeanBaseStatic(db, bagId) < 0) {
             qWarning() << "CoffeeBagStorage: bag" << bagId
-                       << "was unlinked but its shots were not fully updated (propagate"
-                       << propagated << ", queue" << queued << ")";
+                       << "was unlinked but the shot snapshots were not updated";
             return false;
         }
+        if (markShotsForBeanRepairStatic(db, bagId) < 0)
+            qWarning() << "CoffeeBagStorage: bag" << bagId
+                       << "was unlinked and saved, but its shots were not queued for"
+                          " Visualizer repair - they stay wrong on the server";
     }
     return affected > 0;
 }
@@ -785,8 +794,10 @@ int CoffeeBagStorage::markShotsForBeanRepairStatic(QSqlDatabase& db, qint64 bagI
 {
     // The repair cohort is RECORDED here, at the unlink, not discovered later by
     // comparing the library against visualizer.coffee. That is deliberate: the
-    // list endpoint returns empty bean fields, so a discovery pass read every
-    // uploaded shot as a disagreement and queued 349 of them on a real account.
+    // list endpoint OMITS the bean fields (Api::ShotsController#index renders
+    // only {clock, id, updated_at}), so a discovery pass read the missing keys
+    // back as empty strings, took that for a disagreement, and queued all 349
+    // uploaded shots on a real account.
     // Only shots that were actually uploaded can need repairing.
     QSqlQuery query(db);
     query.prepare("UPDATE shots SET bean_repair_pending = 1 "

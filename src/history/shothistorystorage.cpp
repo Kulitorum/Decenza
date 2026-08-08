@@ -1,3 +1,4 @@
+#include <optional>
 #include "shothistorystorage.h"
 #include "core/appsettings.h"
 #include "shothistorystorage_internal.h"
@@ -450,14 +451,25 @@ bool ShotHistoryStorage::runMigrations()
     m_schemaVersionAtStartKnown = versionReadOk;
 
     // Helper: check if a column exists in a table
-    auto hasColumn = [&](const QString& table, const QString& column) -> bool {
+    // Returns nullopt when the PRAGMA itself failed — "I could not find out" is
+    // not "the column is absent". Collapsing the two let a busy/locked database
+    // report a present column as missing, which then decided a migration's
+    // behaviour with no way to tell that it had guessed.
+    auto columnPresent = [&](const QString& table, const QString& column) -> std::optional<bool> {
         QSqlQuery q(m_db);
-        q.exec(QString("PRAGMA table_info(%1)").arg(table));
+        if (!q.exec(QString("PRAGMA table_info(%1)").arg(table))) {
+            qWarning() << "ShotHistoryStorage: PRAGMA table_info(" << table
+                       << ") failed -" << q.lastError().text();
+            return std::nullopt;
+        }
         while (q.next()) {
             if (q.value(1).toString() == column)
                 return true;
         }
         return false;
+    };
+    auto hasColumn = [&](const QString& table, const QString& column) -> bool {
+        return columnPresent(table, column).value_or(false);
     };
 
     // Migration 3: Replace brew_overrides_json with dedicated columns
@@ -2023,7 +2035,7 @@ bool ShotHistoryStorage::runMigrations()
     // re-running the same pass for "databases an early build of 37 stamped
     // before the queue column was part of the pass" — but 37 was added on this
     // same branch and no released build ever stamped it, so that cohort is
-    // empty and every user's database was paying for a second full coffee_bags
+    // empty and every user's database would have paid for a second full coffee_bags
     // scan, JSON-parsed per row, inside a write transaction. The `>= 36` lower
     // bound still catches a development database left at 37.
     if (currentVersion >= 36 && currentVersion < 38) {
@@ -2047,13 +2059,24 @@ bool ShotHistoryStorage::runMigrations()
         // fails on the missing column, which returns -1, which fails the whole
         // pass — for exactly the users who have a conflicted bag, i.e. the ones
         // this migration exists for.
-        if (!hasColumn("shots", "bean_repair_pending")
+        const std::optional<bool> before = columnPresent("shots", "bean_repair_pending");
+        if (before.has_value() && !*before
             && !query.exec("ALTER TABLE shots ADD COLUMN bean_repair_pending "
                            "INTEGER NOT NULL DEFAULT 0"))
             qWarning() << "ShotHistoryStorage: migration 38 could not add "
                           "shots.bean_repair_pending -" << query.lastError().text()
                        << "- bags will still be unlinked, but no shot repair will be queued";
-        const bool queueShots = hasColumn("shots", "bean_repair_pending");
+        const std::optional<bool> after = columnPresent("shots", "bean_repair_pending");
+        if (!after.has_value()) {
+            // Unknown column state. Unlinking without queueing would be
+            // PERMANENT — the version stamps, this block never runs again, and
+            // no shot is ever repaired — so stop and retry on the next launch,
+            // when the database is likely no longer busy.
+            qWarning() << "ShotHistoryStorage: migration 38 could not determine whether "
+                          "shots.bean_repair_pending exists - deferring to next launch";
+            return true;
+        }
+        const bool queueShots = *after;
 
         const int unlinked = CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(m_db, queueShots);
         bool ok = unlinked >= 0;

@@ -99,7 +99,7 @@ inline bool isCorruptBlob(const QString& blob)
 }
 
 // True when the canonical record behind this blob names a DIFFERENT coffee than
-// the one stored locally (`roaster`/`coffee` = the bag's or shot's own names).
+// the one stored locally (`identity` = the bag's or shot's own names).
 //
 // This is a guard on EXPORT, not on the link. visualizer.coffee treats a shot's
 // canonical_coffee_bag_id as authoritative for identity — Shot#refresh_coffee_
@@ -166,8 +166,9 @@ inline bool canonicalIdentityConflicts(const QString& blob, const BagIdentity& i
 // leaves a half-linked bag. That co-mutation used to be a comment; as a struct
 // it is the shape of the code. It also removes the transposition that mattered:
 // two adjacent `QString*` out-params could be swapped silently, which sent the
-// UUID through isCorruptBlob, returned "conflicted" for every bag, and turned
-// the whole guard into a no-op at a call site that discards the return value.
+// UUID through isCorruptBlob — non-empty and not JSON, so "corrupt" — and the
+// function then returned false, i.e. NO conflict, for every bag. The guard
+// became a no-op at a call site that discards the return value.
 struct CanonicalLink {
     QString id;
     QString blob;
