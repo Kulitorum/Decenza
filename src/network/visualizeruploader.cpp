@@ -807,7 +807,8 @@ void VisualizerUploader::sendNextBeanRepair()
             // Deleted on visualizer.coffee. Nothing to repair, and the flag must
             // go or it is retried on every boot forever.
             qDebug() << "Visualizer: bean repair skipped - shot" << visualizerId << "is gone";
-            emit beanRepairSettled(repair.value(QStringLiteral("shotId")).toLongLong());
+            if (m_beanRepairLive)
+                emit beanRepairSettled(repair.value(QStringLiteral("shotId")).toLongLong());
             scheduleNextBeanRepair();
             return;
         }
@@ -825,11 +826,19 @@ void VisualizerUploader::sendNextBeanRepair()
         const QString localType = repair.value(QStringLiteral("beanType")).toString();
         const qint64 shotId = repair.value(QStringLiteral("shotId")).toLongLong();
 
-        if (remoteBrand.compare(localBrand.trimmed(), Qt::CaseInsensitive) == 0
-            && remoteType.compare(localType.trimmed(), Qt::CaseInsensitive) == 0) {
+        if (decideBeanRepair(remoteBrand, remoteType, localBrand, localType)
+            == BeanRepairAction::AlreadyCorrect) {
             // The server already agrees — the common case, and it must not
             // produce a write. Done with this shot.
-            emit beanRepairSettled(shotId);
+            //
+            // Read-only mode settles NOTHING, local flags included: a pass that
+            // advertises itself as writing nothing must leave the queue exactly
+            // as it found it, so the same shots can be re-reported until someone
+            // arms the repair.
+            if (m_beanRepairLive)
+                emit beanRepairSettled(shotId);
+            else
+                m_beanRepairFailed = true;
             scheduleNextBeanRepair();
             return;
         }
@@ -856,6 +865,19 @@ void VisualizerUploader::sendNextBeanRepair()
     });
 }
 
+// static
+VisualizerUploader::BeanRepairAction VisualizerUploader::decideBeanRepair(
+    const QString& remoteBrand, const QString& remoteType,
+    const QString& localBrand, const QString& localType)
+{
+    // Trim-and-case-insensitive, matching the storage-side predicate: the server
+    // squishes what it stores, and a whitespace or capitalisation difference is
+    // not worth a write to a user's cloud account.
+    return (remoteBrand.trimmed().compare(localBrand.trimmed(), Qt::CaseInsensitive) == 0
+            && remoteType.trimmed().compare(localType.trimmed(), Qt::CaseInsensitive) == 0)
+        ? BeanRepairAction::AlreadyCorrect : BeanRepairAction::NeedsPatch;
+}
+
 void VisualizerUploader::sendBeanRepairPatch(qint64 shotId, const QString& visualizerId,
                                              const QString& beanBrand, const QString& beanType,
                                              const QString& canonicalId)
@@ -866,9 +888,16 @@ void VisualizerUploader::sendBeanRepairPatch(qint64 shotId, const QString& visua
         // Explicit null clears the borrowed link. The names above survive
         // BECAUSE this changes: refresh_coffee_bag_fields fires on the id
         // change and, with no coffee_bag and no canonical bag, leaves the
-        // fields alone. With Coffee Management ON the shot DOES have a
-        // coffee_bag, and that branch re-derives the fields from the user's own
-        // bag — which is the same answer by a different route.
+        // fields alone. Verified live against the API.
+        //
+        // With Coffee Management ON this PATCH usually never runs at all, and
+        // that is not an accident of ordering: unlinking the bag pushes the
+        // rename to the server's coffee_bag, whose own after_save_commit
+        // (refresh_shot_values_later) re-derives every shot on it. By the time
+        // the repair reads the shot it already agrees, and the pass settles it
+        // without writing. Measured end to end on a CM account: the queued shot
+        // never reached this function and the server showed the app's roaster.
+        // So do NOT read this PATCH as the thing that fixes CM users.
         {QStringLiteral("canonical_coffee_bag_id"),
          canonicalId.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(canonicalId)},
     };

@@ -442,6 +442,15 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // persist-visualizer-id-in-controller.
     processVisualizerReconciliation();
 
+    // The bean-repair queue's result handler: connected ONCE here, because
+    // processVisualizerBeanRepair can run many times a session (startup, and
+    // every bag inventory change).
+    connect(m_shotHistory, &ShotHistoryStorage::pendingBeanRepairsReady, this,
+            [this](bool ok, const QVariantList& repairs) {
+        if (ok && !repairs.isEmpty() && m_visualizer)
+            m_visualizer->repairShotBeans(repairs);
+    });
+
     // A shot the server confirmed needs nothing (repaired, already right, or
     // deleted there) leaves the queue for good.
     connect(m_visualizer, &VisualizerUploader::beanRepairSettled, this, [this](qint64 shotId) {
@@ -4634,13 +4643,10 @@ void MainController::processVisualizerBeanRepair()
     // flagged where their bag's borrowed canonical link is dropped (migration 37
     // and the storage rule), and each flag is cleared once the server confirms
     // that shot needs nothing. An empty queue costs one indexed read.
-    connect(m_shotHistory, &ShotHistoryStorage::pendingBeanRepairsReady, this,
-            [this](bool ok, const QVariantList& repairs) {
-        if (!ok || repairs.isEmpty())
-            return;
-        m_visualizer->repairShotBeans(repairs);
-    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
-
+    //
+    // The result handler is connected once, at setup — see the note there. A
+    // single-shot connection per call would stack handlers that one emission
+    // consumes together, leaving later requests with nobody listening.
     m_shotHistory->requestPendingBeanRepairs();
 }
 

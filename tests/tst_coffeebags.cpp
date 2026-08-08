@@ -2405,6 +2405,31 @@ private slots:
     // name the record. Reproduced from the shipped defect: a bag linked to
     // another roaster's record for the same coffee republished every one of its
     // shots under that roaster on visualizer.coffee.
+    // The rule that governs every write the repair pass makes: only a real
+    // disagreement earns a PATCH to the user's cloud account. Trim and case are
+    // not disagreements — the server squishes what it stores.
+    void beanRepairOnlyWritesOnARealDisagreement() {
+        using Action = VisualizerUploader::BeanRepairAction;
+        QCOMPARE(VisualizerUploader::decideBeanRepair("Coava Coffee Roasters", "Las Capucas",
+                                                      "Stavanger Kaffebrenneri", "Las Capucas"),
+                 Action::NeedsPatch);
+        QCOMPARE(VisualizerUploader::decideBeanRepair("Prodigal Coffee", "Milk Blend",
+                                                      "Prodigal Coffee", "Milk Blend"),
+                 Action::AlreadyCorrect);
+        QCOMPARE(VisualizerUploader::decideBeanRepair(" prodigal coffee ", "MILK BLEND",
+                                                      "Prodigal Coffee", "Milk Blend"),
+                 Action::AlreadyCorrect);
+        // The coffee half counts too — the server rewrites both fields.
+        QCOMPARE(VisualizerUploader::decideBeanRepair("Prodigal Coffee", "Milk Blend",
+                                                      "Prodigal Coffee", "Buenos Aires"),
+                 Action::NeedsPatch);
+        // A blank server value is a difference, not a match: the paged list
+        // returns blanks, and treating those as "agrees" is what queued a whole
+        // library once.
+        QCOMPARE(VisualizerUploader::decideBeanRepair("", "", "Prodigal Coffee", "Milk Blend"),
+                 Action::NeedsPatch);
+    }
+
     void renamingALinkedBagDropsTheBorrowedCanonicalRecord() {
         const QString path = freshDb();
         QVERIFY(!path.isEmpty());

@@ -313,6 +313,14 @@ private:
                              const QString& canonicalId);
     void abandonBeanRepairOnRateLimit();
     void scheduleNextBeanRepair();
+    // Decide what a queued shot needs, given what the server holds. Pure, so the
+    // rule that governs every write this pass makes is unit-testable without a
+    // network (tst_coffeebags).
+public:
+    enum class BeanRepairAction { AlreadyCorrect, NeedsPatch };
+    static BeanRepairAction decideBeanRepair(const QString& remoteBrand, const QString& remoteType,
+                                             const QString& localBrand, const QString& localType);
+private:
     // ~1 request/second. visualizer.coffee rate-limits, and the first version of
     // this pass hit HTTP 429 on all 349 of its requests at ~6/s.
     static constexpr int kBeanRepairIntervalMs = 1000;

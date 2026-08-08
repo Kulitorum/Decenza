@@ -148,8 +148,10 @@ inline QString stripCanonicalLink(const QString& blob)
         return blob;
     }
     QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    // NOT `source`: that records where the descriptive values came from, and
+    // they are being kept. Only the identity claims go.
     for (const char* key : {"id", "visualizerCanonicalId", "canonicalRoasterId",
-                            "canonical", "source"})
+                            "canonical"})
         obj.remove(QLatin1String(key));
     if (obj.isEmpty())
         return QString();
