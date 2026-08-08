@@ -336,6 +336,18 @@ public:
     enum class BeanRepairAction { AlreadyCorrect, NeedsPatch };
     static BeanRepairAction decideBeanRepair(const QString& remoteBrand, const QString& remoteType,
                                              const QString& localBrand, const QString& localType);
+
+    // What a queued shot can actually have done to it, decided from the read
+    // rather than from the local row alone — `remoteHasCoffeeBag` is only
+    // knowable after the GET. Pure, so the rule that decides whether this pass
+    // writes to a user's account at all is unit-testable without a network.
+    enum class BeanRepairPlan {
+        RestoreNames,         // complete local names: compare, and PATCH on a real difference
+        ClearCanonicalOnly,   // no complete names, no server bag: drop the borrowed link
+        NothingToDo,          // no complete names, but a server bag re-derives the link anyway
+    };
+    static BeanRepairPlan planBeanRepair(bool remoteHasCoffeeBag,
+                                         const QString& localBrand, const QString& localType);
 private:
     // One request per 4 s, derived from the server's published limits rather
     // than guessed at: Api::BaseController declares 50/minute per IP, 200/10

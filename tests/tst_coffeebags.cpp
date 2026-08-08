@@ -2438,6 +2438,36 @@ private slots:
                  Action::NeedsPatch);
     }
 
+    // What the pass is ALLOWED to do to a shot, which decideBeanRepair above is
+    // deliberately not trusted to decide alone: it scores a blank local name as
+    // a difference, and acting on that blanks the user's cloud value.
+    void planBeanRepairNeverWritesAnEmptyNameOrAPointlessClear() {
+        using Plan = VisualizerUploader::BeanRepairPlan;
+        // Complete names: the only case that may assert an identity.
+        QCOMPARE(VisualizerUploader::planBeanRepair(false, "Stavanger", "Las Capucas"),
+                 Plan::RestoreNames);
+        QCOMPARE(VisualizerUploader::planBeanRepair(true, "Stavanger", "Las Capucas"),
+                 Plan::RestoreNames);
+        // Per FIELD, not both-empty. A brand with no type must never reach the
+        // name PATCH — sending bean_type:"" wipes a real value on the server.
+        QCOMPARE(VisualizerUploader::planBeanRepair(false, "Stavanger", ""),
+                 Plan::ClearCanonicalOnly);
+        QCOMPARE(VisualizerUploader::planBeanRepair(false, "", "Las Capucas"),
+                 Plan::ClearCanonicalOnly);
+        QCOMPARE(VisualizerUploader::planBeanRepair(false, "   ", "Las Capucas"),
+                 Plan::ClearCanonicalOnly);
+        // ...and with a server-side coffee_bag the clear is a no-op, because
+        // refresh_coffee_bag_fields re-sets canonical_coffee_bag_id from the bag
+        // (shot.rb:70). Measured on a live account: the write changed nothing and
+        // re-rendered roast_date into the user's date format.
+        QCOMPARE(VisualizerUploader::planBeanRepair(true, "Stavanger", ""),
+                 Plan::NothingToDo);
+        QCOMPARE(VisualizerUploader::planBeanRepair(true, "", ""),
+                 Plan::NothingToDo);
+        QCOMPARE(VisualizerUploader::planBeanRepair(false, "", ""),
+                 Plan::ClearCanonicalOnly);
+    }
+
     void renamingALinkedBagDropsTheBorrowedCanonicalRecord() {
         const QString path = freshDb();
         QVERIFY(!path.isEmpty());

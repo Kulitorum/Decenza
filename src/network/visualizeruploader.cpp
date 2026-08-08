@@ -808,25 +808,6 @@ void VisualizerUploader::sendNextBeanRepair()
         scheduleNextBeanRepair();
         return;
     }
-    if (repair.beanBrand.trimmed().isEmpty() || repair.beanType.trimmed().isEmpty()) {
-        // PER FIELD, not both-empty: sending an empty name BLANKS the server's
-        // value, so one missing local field is enough to do damage. That is the
-        // destructive direction of the rule the storage-side predicate already
-        // states — "an empty name on either side proves nothing"
-        // (BeanBaseBlob::canonicalIdentityConflicts) — and `&&` here would let a
-        // shot with a brand and no type wipe the type on visualizer.coffee.
-        //
-        // The shot is NOT skipped, though. Clearing the borrowed
-        // canonical_coffee_bag_id is the repair that needs no local names at
-        // all, and it is what stops the server re-deriving this shot's identity
-        // from another roaster's record on every future touch. So send that
-        // alone and assert nothing about the names.
-        qDebug() << "Visualizer: bean repair - shot" << repair.visualizerId
-                 << "has no complete local bean names; clearing the canonical link only";
-        scheduleBeanRepairRequest([this, repair]() { sendCanonicalClearOnly(repair); });
-        return;
-    }
-
     // Read the shot BEFORE deciding anything. The paged list cannot answer this
     // (it carries no bean fields at all), and a repair that writes without
     // reading has nothing to compare against. `essentials` drops the shot's
@@ -895,6 +876,29 @@ void VisualizerUploader::sendNextBeanRepair()
             return;
         }
 
+        // `coffee_bag_id` is merged into every shot response unconditionally
+        // (shot/jsonable.rb:45,71 — `coffee_bag_id: coffee_bag&.id`), so it is
+        // present even under ?essentials=1.
+        const bool remoteHasCoffeeBag =
+            !remote.value(QStringLiteral("coffee_bag_id")).isNull()
+            && !remote.value(QStringLiteral("coffee_bag_id")).toString().isEmpty();
+        switch (planBeanRepair(remoteHasCoffeeBag, repair.beanBrand, repair.beanType)) {
+        case BeanRepairPlan::NothingToDo:
+            qDebug() << "Visualizer: bean repair - shot" << repair.visualizerId
+                     << "has incomplete local bean names and a server coffee_bag;"
+                        " nothing to write";
+            emit beanRepairSettled(repair.shotId);
+            scheduleNextBeanRepair();
+            return;
+        case BeanRepairPlan::ClearCanonicalOnly:
+            qDebug() << "Visualizer: bean repair - shot" << repair.visualizerId
+                     << "has no complete local bean names; clearing the canonical link only";
+            scheduleBeanRepairRequest([this, repair]() { sendCanonicalClearOnly(repair); });
+            return;
+        case BeanRepairPlan::RestoreNames:
+            break;
+        }
+
         const QString remoteBrand = remote.value(QStringLiteral("bean_brand")).toString().trimmed();
         const QString remoteType = remote.value(QStringLiteral("bean_type")).toString().trimmed();
         if (decideBeanRepair(remoteBrand, remoteType, repair.beanBrand, repair.beanType)
@@ -919,6 +923,28 @@ void VisualizerUploader::sendNextBeanRepair()
                                                             : QStringLiteral("keep"));
         scheduleBeanRepairRequest([this, repair]() { sendBeanRepairPatch(repair); });
     });
+}
+
+// static
+VisualizerUploader::BeanRepairPlan VisualizerUploader::planBeanRepair(
+    bool remoteHasCoffeeBag, const QString& localBrand, const QString& localType)
+{
+    // Complete local names are the only case that may assert an identity —
+    // sending an empty one BLANKS the server's value, which is the destructive
+    // direction of the rule the storage predicate states ("an empty name on
+    // either side proves nothing"). Per FIELD: a brand with no type is enough to
+    // wipe the type.
+    if (!localBrand.trimmed().isEmpty() && !localType.trimmed().isEmpty())
+        return BeanRepairPlan::RestoreNames;
+
+    // Without names, the only repair left is dropping the borrowed canonical id
+    // so the server stops re-deriving this shot's identity from another
+    // roaster's record — but that is pointless when the shot has a server-side
+    // coffee_bag, because refresh_coffee_bag_fields immediately re-sets
+    // canonical_coffee_bag_id FROM that bag (shot.rb:70). Measured: the write
+    // clears nothing and re-renders roast_date into the user's date format as a
+    // side effect. So do not send it.
+    return remoteHasCoffeeBag ? BeanRepairPlan::NothingToDo : BeanRepairPlan::ClearCanonicalOnly;
 }
 
 // static
