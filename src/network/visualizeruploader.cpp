@@ -53,7 +53,6 @@
 #include <algorithm>
 #include <QDateTime>
 #include <QTimer>
-#include "core/appsettings.h"
 #include <QDebug>
 #include <QUuid>
 #include <QStandardPaths>
@@ -773,9 +772,7 @@ void VisualizerUploader::repairShotBeans(const QVector<BeanRepair>& repairs)
     m_beanRepairDone = 0;
     m_beanRepairFailed = false;
     m_beanRepairRunning = true;
-    m_beanRepairLive = AppSettings().value(QStringLiteral("visualizerBeanRepair/live"), false).toBool();
-    qDebug() << "Visualizer: bean repair" << (m_beanRepairLive ? "(LIVE)" : "(read-only)")
-             << "over" << repairs.size() << "queued shot(s)";
+    qDebug() << "Visualizer: bean repair over" << repairs.size() << "queued shot(s)";
     sendNextBeanRepair();
 }
 
@@ -784,7 +781,7 @@ void VisualizerUploader::sendNextBeanRepair()
     if (m_beanRepairQueue.isEmpty()) {
         m_beanRepairRunning = false;
         qDebug() << "Visualizer: bean repair pass ended -" << m_beanRepairDone
-                 << (m_beanRepairLive ? "shot(s) corrected" : "shot(s) would change")
+                 << "shot(s) corrected"
                  << (m_beanRepairFailed ? "(incomplete, resumes next boot)" : "");
         emit beanRepairFinished(m_beanRepairDone, !m_beanRepairFailed);
         return;
@@ -818,10 +815,10 @@ void VisualizerUploader::sendNextBeanRepair()
             return;
         }
         if (status == 404) {
-            // Deleted on visualizer.coffee. Nothing to repair — and in live mode
-            // the flag must go, or it is retried on every boot forever.
+            // Deleted on visualizer.coffee. Nothing to repair — and the flag has
+            // to go, or it is retried on every boot forever.
             qDebug() << "Visualizer: bean repair skipped - shot" << repair.visualizerId << "is gone";
-            settleOrHold(repair.shotId);
+            emit beanRepairSettled(repair.shotId);
             scheduleNextBeanRepair();
             return;
         }
@@ -855,29 +852,22 @@ void VisualizerUploader::sendNextBeanRepair()
             == BeanRepairAction::AlreadyCorrect) {
             // The server already agrees — the common case, and it must not
             // produce a write.
-            settleOrHold(repair.shotId);
+            emit beanRepairSettled(repair.shotId);
             scheduleNextBeanRepair();
             return;
         }
 
+        // Logged BEFORE the write, and carrying both sides: this line is the
+        // only record of what a user's cloud history looked like before the
+        // repair touched it.
         const QDateTime when = QDateTime::fromSecsSinceEpoch(repair.timestamp);
         qDebug().noquote() << "Visualizer bean repair"
-                           << (m_beanRepairLive ? "(LIVE)" : "(READ-ONLY)")
                            << when.toString(Qt::ISODate)
                            << "server:" << (remoteBrand + QLatin1String(" / ") + remoteType)
                            << "-> app:" << (repair.beanBrand + QLatin1String(" / ") + repair.beanType)
                            << "| canonical:"
                            << (repair.canonicalId.isEmpty() ? QStringLiteral("clear")
                                                             : QStringLiteral("keep"));
-        if (!m_beanRepairLive) {
-            // Report only: nothing on the account moves, and nothing is settled
-            // — the queue is left exactly as it was found so the same shots are
-            // reported again until someone arms the repair.
-            m_beanRepairDone++;
-            m_beanRepairFailed = true;
-            scheduleNextBeanRepair();
-            return;
-        }
         sendBeanRepairPatch(repair);
     });
 }
@@ -906,16 +896,6 @@ bool VisualizerUploader::isBeanRepairFatalStatus(int status)
     return status == 429 || status == 401 || status == 403;
 }
 
-void VisualizerUploader::settleOrHold(qint64 shotId)
-{
-    // Read-only settles NOTHING, local flags included: a pass that advertises
-    // itself as writing nothing must leave the queue exactly as it found it.
-    if (m_beanRepairLive)
-        emit beanRepairSettled(shotId);
-    else
-        m_beanRepairFailed = true;
-}
-
 void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
 {
     QJsonObject shot{
@@ -926,14 +906,16 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
         // neither a coffee_bag nor a canonical bag, leaves the fields alone
         // (shot.rb:64-75 — the canonical assignment is the `elsif` branch).
         //
-        // A shot that DOES have a server-side coffee_bag takes the first branch
-        // instead: it re-derives the fields from the user's own bag and re-sets
-        // canonical_coffee_bag_id from it, so this null is undone. That is not a
-        // problem in practice and it is not what fixes Coffee Management users —
-        // unlinking the bag pushes the rename to the server bag, whose own
-        // (column-conditional) after_save_commit re-derives every shot on it, so
-        // the repair finds the shot already correct and never reaches here.
-        // Measured end to end on a CM account.
+        // A shot that DOES have a server-side coffee_bag (Coffee Management)
+        // takes the FIRST branch and re-derives both fields from that bag,
+        // discarding what we send — verified live: the PATCH returns 200 and its
+        // own body comes back holding the bag's names, not ours. That costs
+        // nothing, because such a shot was never renamed in the first place: the
+        // canonical assignment is the `elsif`, so with a coffee_bag present the
+        // names have always come from coffee_bag.roaster.name / coffee_bag.name
+        // and this pass finds it AlreadyCorrect and never PATCHes at all. The
+        // read-back below is what keeps that claim honest — it fires only when
+        // the server bag and the local bag have drifted apart.
         {QStringLiteral("canonical_coffee_bag_id"),
          repair.canonicalId.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(repair.canonicalId)},
     };
@@ -944,11 +926,35 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
     connect(reply, &QNetworkReply::finished, this, [this, reply, repair]() {
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray body = reply->readAll();
         if (status >= 200 && status < 300) {
             // Any 2xx, not a literal 200: a 204 from this Rails endpoint is a
             // successful write, and treating it as a failure would re-read and
             // re-PATCH the same shot on every boot forever.
-            m_beanRepairDone++;
+            //
+            // 200 does NOT mean the values took. Rails answers with the saved
+            // shot, and refresh_coffee_bag_fields may have overwritten both
+            // fields from a server-side coffee_bag between our params and the
+            // save — measured, not hypothesised. Read the body back rather than
+            // reporting a write the server discarded. The shot still settles:
+            // the precedence rule is server-side and identical on every retry,
+            // so re-queueing would only repeat the same no-op every boot. The
+            // bag re-push is what fixes this shape.
+            const QJsonObject saved = QJsonDocument::fromJson(body).object();
+            if (saved.contains(QStringLiteral("bean_brand"))
+                && decideBeanRepair(saved.value(QStringLiteral("bean_brand")).toString(),
+                                    saved.value(QStringLiteral("bean_type")).toString(),
+                                    repair.beanBrand, repair.beanType)
+                       != BeanRepairAction::AlreadyCorrect) {
+                qWarning().noquote()
+                    << "Visualizer: bean repair PATCH accepted but not applied for shot"
+                    << repair.visualizerId << "- server kept"
+                    << (saved.value(QStringLiteral("bean_brand")).toString()
+                        + QLatin1String(" / ") + saved.value(QStringLiteral("bean_type")).toString())
+                    << "(its coffee_bag outranks the shot; the bag re-push is what corrects it)";
+            } else {
+                m_beanRepairDone++;
+            }
             emit beanRepairSettled(repair.shotId);
         } else if (isBeanRepairFatalStatus(status)) {
             abandonBeanRepairPass(status);
