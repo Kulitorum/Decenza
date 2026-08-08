@@ -98,6 +98,105 @@ inline bool isCorruptBlob(const QString& blob)
     return parseError.error != QJsonParseError::NoError || !doc.isObject();
 }
 
+// True when the canonical record behind this blob names a DIFFERENT coffee than
+// the one stored locally (`identity` = the bag's or shot's own names).
+//
+// This is a guard on EXPORT, not on the link. visualizer.coffee treats a shot's
+// canonical_coffee_bag_id as authoritative for identity — Shot#refresh_coffee_
+// bag_fields (miharekar/visualizer, app/models/shot.rb:64-75, upstream/main) is a
+// before_validation on `coffee_bag_id_changed? || canonical_coffee_bag_id_changed?`,
+// and its `elsif canonical_coffee_bag` branch sets bean_brand =
+// canonical_roaster.name and bean_type = canonical_coffee_bag.name — so uploading
+// the link for a borrowed record silently RENAMES the user's shot on the server.
+// That branch is reached only when the shot has no server-side coffee_bag; a
+// Coffee Management shot takes the first branch and keeps the user's own bag
+// roaster, which is why CM users saw this less than everyone else. Borrowing is legitimate and expected: the bag
+// editor keeps identity editable while linked (the canonical link is a badge,
+// not a lock), which is exactly how a Stavanger Kaffebrenneri bag ends up
+// carrying Coava Coffee Roasters' canonical record for the same coffee.
+//
+// Compares the PRISTINE canonical names — roasterName/roastName are user-
+// editable working keys, so the `canonical` snapshot wins where it exists. An
+// empty name on either side proves nothing (legacy blobs stored no names), so
+// only a populated disagreement conflicts: unknown must not block a link that
+// works today.
+// The bag's own identity: what the USER says this coffee is. Bundled rather
+// than passed as two loose QStrings because every consumer of this header takes
+// both together, and an argument list of interchangeable strings is a silent
+// transposition waiting to happen. Brace-init order is the residual hazard —
+// `{coffee, roaster}` still compiles — but that swap makes the predicate
+// disagree for essentially every real bag, so it over-unlinks rather than
+// under-unlinks and the "a consistent bag keeps its link" tests catch it.
+struct BagIdentity {
+    QString roaster;
+    QString coffee;
+};
+
+inline bool canonicalIdentityConflicts(const QString& blob, const BagIdentity& identity)
+{
+    // A blob we cannot read is not a blob we can vouch for. Returning "no
+    // conflict" here is the PERMISSIVE answer — it exports the canonical id and
+    // lets the server rename the shot, which is the defect this function exists
+    // to prevent. Every other mutator in this header refuses a corrupt blob;
+    // this one, whose wrong answer reaches the user's cloud account, fails
+    // closed instead: withhold the claim we cannot verify.
+    if (isCorruptBlob(blob)) {
+        qWarning() << "BeanBaseBlob: corrupt blob - treating the canonical link as conflicted";
+        return true;
+    }
+    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    if (obj.isEmpty())
+        return false;
+    const QJsonObject snapshot = obj.value(QStringLiteral("canonical")).toObject();
+    auto pristine = [&](const char* key) {
+        const QString snap = snapshot.value(QLatin1String(key)).toString().trimmed();
+        return snap.isEmpty() ? obj.value(QLatin1String(key)).toString().trimmed() : snap;
+    };
+    auto disagrees = [](const QString& canonicalName, const QString& localName) {
+        return !canonicalName.isEmpty() && !localName.isEmpty()
+               && canonicalName.compare(localName, Qt::CaseInsensitive) != 0;
+    };
+    return disagrees(pristine("roasterName"), identity.roaster.trimmed())
+           || disagrees(pristine("roastName"), identity.coffee.trimmed());
+}
+
+// A bag's canonical link: the stored id and the blob that carries its keys.
+// They are only ever read together and only ever mutated together — dropping
+// the link clears the id AND strips the blob, and doing one without the other
+// leaves a half-linked bag. That co-mutation used to be a comment; as a struct
+// it is the shape of the code. It also removes the transposition that mattered:
+// two adjacent `QString*` out-params could be swapped silently, which sent the
+// UUID through isCorruptBlob — non-empty and not JSON, so "corrupt" — and the
+// function then returned false, i.e. NO conflict, for every bag. The guard
+// became a no-op at a call site that discards the return value.
+struct CanonicalLink {
+    QString id;
+    QString blob;
+};
+
+// Drop the canonical LINK from a blob, keeping every descriptive value as the
+// user's own data. Used when a bag's identity no longer matches the record it
+// points at: the record described another roaster's product, so the id, the
+// roaster id and the pristine snapshot are claims we can no longer make — but
+// origin/process/variety/tasting notes/link are what the user is looking at,
+// and deleting those would be a second wrong. Returns "" when nothing is left.
+inline QString stripCanonicalLink(const QString& blob)
+{
+    if (isCorruptBlob(blob)) {
+        qWarning() << "BeanBaseBlob: refusing to strip a corrupt blob (kept unchanged)";
+        return blob;
+    }
+    QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    // NOT `source`: that records where the descriptive values came from, and
+    // they are being kept. Only the identity claims go.
+    for (const char* key : {"id", "visualizerCanonicalId", "canonicalRoasterId",
+                            "canonical"})
+        obj.remove(QLatin1String(key));
+    if (obj.isEmpty())
+        return QString();
+    return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+}
+
 // Merge user edits into the blob's working keys. Only editableKeys() entries
 // in `edits` apply; an empty value REMOVES the key (absent-not-empty keeps the
 // details popup's zero-footprint-per-field rule working). Returns the compact

@@ -3,6 +3,7 @@
 #include "core/settings.h"   // Settings::testQSettingsPath() under DECENZA_TESTING
 #include "core/dbutils.h"
 #include "core/yieldspec.h"
+#include "network/beanbase_blob.h"
 
 #include <QSqlQuery>
 #include <QSqlError>
@@ -562,8 +563,19 @@ CoffeeBag CoffeeBagStorage::bagFromQueryRow(const QSqlQuery& query)
     return bag;
 }
 
-qint64 CoffeeBagStorage::insertBagStatic(QSqlDatabase& db, const CoffeeBag& bag)
+qint64 CoffeeBagStorage::insertBagStatic(QSqlDatabase& db, const CoffeeBag& inBag)
 {
+    // A bag never enters the table claiming a record that names another coffee
+    // — see dropConflictedCanonicalLink. Creation reaches this state in one
+    // screen: pick a near-match in the Bean Base search (which fills the
+    // roaster from the record), type your own roaster over it, save.
+    CoffeeBag bag = inBag;
+    BeanBaseBlob::CanonicalLink link{bag.beanBaseId, bag.beanBaseData};
+    if (dropConflictedCanonicalLink({bag.roasterName, bag.coffeeName}, &link)) {
+        bag.beanBaseId = link.id;
+        bag.beanBaseData = link.blob;
+    }
+
     // Column list, placeholders, and binds all derived from the writable
     // columns of kCols (every column but the autoincrement id), in table order
     // — so adding a column needs no edit in this function, just a kCols row.
@@ -644,8 +656,39 @@ QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
     return bags;
 }
 
-bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields)
+bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
+                                             const QVariantMap& inFields)
 {
+    QVariantMap fields = inFields;
+    // Renaming a linked bag's identity invalidates the link (see
+    // dropConflictedCanonicalLink). The map is partial — a rename arrives as
+    // roasterName alone — so the other half of the comparison comes from the
+    // stored row.
+    bool droppedLink = false;
+    if (fields.contains(QStringLiteral("roasterName")) || fields.contains(QStringLiteral("coffeeName"))
+        || fields.contains(QStringLiteral("beanBaseId")) || fields.contains(QStringLiteral("beanBaseData"))) {
+        const CoffeeBag stored = loadBagStatic(db, bagId);
+        if (!stored.isValid()) {
+            // The guard cannot run without the stored half of the identity, and
+            // failing silently here lets a borrowed link survive the very edit
+            // that invalidates it.
+            qWarning() << "CoffeeBagStorage: could not load bag" << bagId
+                       << "- canonical-link check skipped for this update";
+        } else {
+            const BeanBaseBlob::BagIdentity identity{
+                fields.value(QStringLiteral("roasterName"), stored.roasterName).toString(),
+                fields.value(QStringLiteral("coffeeName"),  stored.coffeeName).toString()};
+            BeanBaseBlob::CanonicalLink link{
+                fields.value(QStringLiteral("beanBaseId"),   stored.beanBaseId).toString(),
+                fields.value(QStringLiteral("beanBaseData"), stored.beanBaseData).toString()};
+            droppedLink = dropConflictedCanonicalLink(identity, &link);
+            if (droppedLink) {
+                fields.insert(QStringLiteral("beanBaseId"), link.id);
+                fields.insert(QStringLiteral("beanBaseData"), link.blob);
+            }
+        }
+    }
+
     // camelCase CoffeeBag key -> column descriptor (writable columns only),
     // derived from kCols. Only listed keys are updatable.
     const QHash<QString, const BagCol*>& kColumnFor = bagColumnForKey();
@@ -682,7 +725,139 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, con
         qWarning() << "CoffeeBagStorage: update failed for bag" << bagId << ":" << query.lastError().text();
         return false;
     }
-    return query.numRowsAffected() > 0;
+    // Read the row count BEFORE running anything else on this connection.
+    // QSQLiteResult::numRowsAffected() is not cached — it calls sqlite3_changes()
+    // on the CONNECTION at call time (qtbase/src/plugins/sqldrivers/sqlite/
+    // qsql_sqlite.cpp:592-596) — so the propagation below would otherwise
+    // overwrite this update's count with its own and report a successful save as
+    // a failure. It runs only on the unlink path, i.e. for a bag whose whole
+    // shot history is being rewritten, so a bag with no shots is the case that
+    // actually bites: the propagation's 0 lands on `affected` and the save
+    // reports failure. That is the shape tst_coffeebags pins.
+    const int affected = query.numRowsAffected();
+
+    // An unlink has to reach the shots' own snapshots, and it cannot rely on the
+    // caller's propagate flag: the web editor only asks for propagation when it
+    // SENDS a non-empty canonical id, which is exactly not this case. Without
+    // this, every upload would keep re-asserting the dropped id from the shot.
+    if (droppedLink) {
+        // Both report -1 on failure, and both failures matter: an unpropagated
+        // unlink leaves shot snapshots re-asserting the borrowed id on every
+        // upload, and an unqueued shot is one visualizer.coffee never repairs.
+        // Propagation is part of the correctness fix — a shot snapshot still
+        // holding the borrowed id re-asserts it on every upload — so its failure
+        // fails the save. Queueing is not: it only schedules a cloud repair, and
+        // the row has ALREADY been written by the UPDATE above, so returning
+        // false for it tells the user "couldn't save your bean changes" about a
+        // save that landed, and leaves the card showing the old value because
+        // the caller then skips bagsChanged(). Same asymmetry the migration
+        // makes explicit with its queueShots argument.
+        if (propagateBeanBaseStatic(db, bagId) < 0) {
+            qWarning() << "CoffeeBagStorage: bag" << bagId
+                       << "was unlinked but the shot snapshots were not updated";
+            return false;
+        }
+        if (markShotsForBeanRepairStatic(db, bagId) < 0)
+            qWarning() << "CoffeeBagStorage: bag" << bagId
+                       << "was unlinked and saved, but its shots were not queued for"
+                          " Visualizer repair - they stay wrong on the server";
+    }
+    return affected > 0;
+}
+
+// static
+bool CoffeeBagStorage::dropConflictedCanonicalLink(const BeanBaseBlob::BagIdentity& identity,
+                                                   BeanBaseBlob::CanonicalLink* link)
+{
+    if (!link)
+        return false;
+    // A corrupt blob is refused outright rather than half-stripped: the id would
+    // be cleared while stripCanonicalLink (which also refuses) returned the link
+    // keys unchanged. The export guard withholds such a blob anyway.
+    if (BeanBaseBlob::isCorruptBlob(link->blob))
+        return false;
+    if (link->id.isEmpty() && !BeanBaseBlob::isLinked(link->blob))
+        return false;
+    if (!BeanBaseBlob::canonicalIdentityConflicts(link->blob, identity))
+        return false;
+
+    qDebug() << "CoffeeBagStorage: dropping canonical link" << link->id
+             << "- the record names another coffee than" << identity.roaster
+             << "/" << identity.coffee;
+    link->id.clear();
+    link->blob = BeanBaseBlob::stripCanonicalLink(link->blob);
+    return true;
+}
+
+// static
+int CoffeeBagStorage::markShotsForBeanRepairStatic(QSqlDatabase& db, qint64 bagId)
+{
+    // The repair cohort is RECORDED here, at the unlink, not discovered later by
+    // comparing the library against visualizer.coffee. That is deliberate: the
+    // list endpoint OMITS the bean fields (Api::ShotsController#index renders
+    // only {clock, id, updated_at}), so a discovery pass read the missing keys
+    // back as empty strings, took that for a disagreement, and queued all 349
+    // uploaded shots on a real account.
+    // Only shots that were actually uploaded can need repairing.
+    QSqlQuery query(db);
+    query.prepare("UPDATE shots SET bean_repair_pending = 1 "
+                  "WHERE bag_id = :bag AND COALESCE(visualizer_id,'') <> ''");
+    query.bindValue(":bag", bagId);
+    if (!query.exec()) {
+        qWarning() << "CoffeeBagStorage: could not queue bean repair for bag" << bagId
+                   << ":" << query.lastError().text();
+        return -1;
+    }
+    const int marked = query.numRowsAffected();
+    if (marked > 0)
+        qDebug() << "CoffeeBagStorage: queued" << marked
+                 << "uploaded shot(s) of bag" << bagId << "for Visualizer bean repair";
+    return marked;
+}
+
+// static
+int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db, bool queueShots)
+{
+    QSqlQuery read(db);
+    if (!read.exec("SELECT id, roaster_name, coffee_name, beanbase_id, beanbase_json "
+                   "FROM coffee_bags "
+                   "WHERE COALESCE(beanbase_id,'') <> '' OR COALESCE(beanbase_json,'') <> ''")) {
+        qWarning() << "CoffeeBagStorage: conflicted-link scan failed:" << read.lastError().text();
+        return -1;
+    }
+    struct Fix { qint64 id; QString blob; };
+    QVector<Fix> fixes;
+    while (read.next()) {
+        BeanBaseBlob::CanonicalLink link{read.value(3).toString(), read.value(4).toString()};
+        if (dropConflictedCanonicalLink({read.value(1).toString(), read.value(2).toString()}, &link))
+            fixes.append({read.value(0).toLongLong(), link.blob});
+    }
+    for (const Fix& fix : fixes) {
+        QSqlQuery write(db);
+        write.prepare("UPDATE coffee_bags SET beanbase_id = NULL, beanbase_json = :blob, "
+                      "updated_at = strftime('%s', 'now') WHERE id = :id");
+        write.bindValue(":blob", fix.blob.isEmpty() ? QVariant() : fix.blob);
+        write.bindValue(":id", fix.id);
+        if (!write.exec()) {
+            qWarning() << "CoffeeBagStorage: unlink of bag" << fix.id
+                       << "failed:" << write.lastError().text();
+            return -1;
+        }
+        // The shots carry their own copy of the blob, so the unlink has to
+        // reach them too — otherwise every upload keeps re-asserting the id
+        // from the shot snapshot and the bag fix changes nothing.
+        // queueShots false means the caller could not add bean_repair_pending,
+        // so the UPDATE would fail on a missing column and take the whole
+        // unlink down with it. The unlink is the correctness fix and must land
+        // regardless; only the Visualizer repair is lost.
+        if (propagateBeanBaseStatic(db, fix.id) < 0
+            || (queueShots && markShotsForBeanRepairStatic(db, fix.id) < 0)) {
+            qWarning() << "CoffeeBagStorage: bag" << fix.id
+                       << "unlinked but its shots were not updated - failing the pass";
+            return -1;
+        }
+    }
+    return static_cast<int>(fixes.size());
 }
 
 bool CoffeeBagStorage::touchesVisualizerFields(const QVariantMap& fields)

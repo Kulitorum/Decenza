@@ -442,6 +442,54 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // persist-visualizer-id-in-controller.
     processVisualizerReconciliation();
 
+    // The bean-repair queue's result handler: connected ONCE here, because
+    // processVisualizerBeanRepair can run many times a session (startup, and
+    // every bag inventory change).
+    connect(m_shotHistory, &ShotHistoryStorage::pendingBeanRepairsReady, this,
+            [this](bool ok, const QVector<BeanRepair>& repairs) {
+        if (!ok) {
+            // NOT the same as an empty queue: the read failed, so shots that
+            // need repairing may be sitting there unseen.
+            qWarning() << "MainController: Visualizer bean-repair queue could not be read "
+                          "- no repair this session";
+            return;
+        }
+        // Handed over even when empty: repairShotBeans clears its
+        // dropped-snapshot flag for any snapshot it accepts, and stays silent on
+        // an empty one, so this is what stops a re-drain answering itself.
+        if (m_visualizer)
+            m_visualizer->repairShotBeans(repairs);
+    });
+
+    // A shot the server confirmed needs nothing (repaired, already right, or
+    // deleted there) leaves the queue for good.
+    connect(m_visualizer, &VisualizerUploader::beanRepairSettled, this, [this](qint64 shotId) {
+        if (m_shotHistory)
+            m_shotHistory->clearBeanRepairPending(shotId);
+    });
+
+    // A pass ignores re-entry while it runs, so a bag unlinked mid-pass leaves
+    // its shots flagged but unseen by the snapshot already draining. Re-draining
+    // on completion picks them up now instead of at the next bag change or
+    // launch. Terminates because repairShotBeans emits nothing for an empty
+    // snapshot AND clears the flag it is gated on — both halves are needed, and
+    // both live there, not here.
+    connect(m_visualizer, &VisualizerUploader::beanRepairFinished, this, [this](int, bool) {
+        if (m_visualizer && m_visualizer->beanRepairMissedWork())
+            processVisualizerBeanRepair();
+    });
+
+    // Drain the Visualizer bean-repair queue: the shots whose bag was unlinked
+    // from a borrowed canonical record. There is no index on the flag, so this
+    // is a full scan of `shots` — it runs on the serial DB worker, never the
+    // main thread, and the empty-queue case (the normal one) ends there.
+    processVisualizerBeanRepair();
+
+    // A bag edited into (or out of) a borrowed link queues its shots, so drain
+    // again when the inventory changes rather than waiting for the next launch.
+    connect(m_bagStorage, &CoffeeBagStorage::bagsChanged, this,
+            [this]() { processVisualizerBeanRepair(); });
+
     connect(m_visualizer, &VisualizerUploader::updateSuccess, this,
             [this](const QString& visualizerId) {
         // Only react when this matches the migration16 PATCH we issued;
@@ -4601,6 +4649,31 @@ void MainController::dispatchNextPendingVisualizerSync()
         self->m_visualizer->updateShotOnVisualizer(visualizerId, shot);
     });
     m_shotHistory->requestShot(shotId);
+}
+
+void MainController::processVisualizerBeanRepair()
+{
+    if (!m_visualizer || !m_shotHistory || !m_shotHistory->isReady())
+        return;
+
+    AppSettings s;
+    if (s.value(QStringLiteral("visualizer/username")).toString().isEmpty()
+        || s.value(QStringLiteral("visualizer/password")).toString().isEmpty()) {
+        // Logged, like processVisualizerReconciliation's identical case: a
+        // reader of the log must be able to tell "no account" from "never ran".
+        qDebug() << "MainController: Visualizer bean repair skipped (no credentials)";
+        return;
+    }
+
+    // No run-once flag and no library walk: the queue IS the state. Shots are
+    // flagged where their bag's borrowed canonical link is dropped (migration 38
+    // and the storage rule), and each flag is cleared once the server confirms
+    // that shot needs nothing. An empty queue costs one scan on the DB worker.
+    //
+    // The result handler is connected once, at setup — see the note there. A
+    // single-shot connection per call would stack handlers that one emission
+    // consumes together, leaving later requests with nobody listening.
+    m_shotHistory->requestPendingBeanRepairs();
 }
 
 void MainController::processVisualizerReconciliation()

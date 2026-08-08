@@ -606,6 +606,13 @@ private:
     // appending to the same serial drain queue used above. Skips
     // without setting the flag when credentials are absent.
     void processVisualizerReconciliation();
+
+    // Drain the Visualizer bean-repair queue: the uploaded shots whose bag was
+    // unlinked from a borrowed canonical record, flagged at the unlink. No run-once flag and no library
+    // scan — the flags are the state, and each is cleared once the server says
+    // that shot needs nothing. Called at startup and whenever the bag inventory
+    // changes; a no-op without Visualizer credentials.
+    void processVisualizerBeanRepair();
     // Tracks the visualizerId of the migration16 PATCH currently in
     // flight. Empty string when no migration16 sync is active. Compared
     // against the visualizerId argument on updateSuccess / updateFailed

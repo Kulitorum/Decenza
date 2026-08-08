@@ -5,8 +5,10 @@
 #include <QNetworkReply>
 #include <QVector>
 #include <QPointF>
+#include <functional>
 
 #include "../history/shotprojection.h"
+#include "../history/shothistory_types.h"
 
 #include <QtQml/qqmlregistration.h>
 // Profile and ShotDataModel are INCLUDED, not forward-declared, because they appear as pointer
@@ -99,6 +101,10 @@ public:
     explicit VisualizerUploader(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
 
     bool isUploading() const { return m_uploading; }
+    // True when a queue snapshot was dropped because a pass was already
+    // draining. The caller re-reads the queue on beanRepairFinished when set;
+    // accepting any later snapshot clears it.
+    bool beanRepairMissedWork() const { return m_beanRepairMissedWork; }
     QString lastUploadStatus() const { return m_lastUploadStatus; }
     QString lastShotUrl() const { return m_lastShotUrl; }
 
@@ -185,6 +191,18 @@ public:
     // not advance its run-once flag on failure).
     void fetchShotListSince(qint64 windowStartEpoch);
 
+    // Repair the shots visualizer.coffee renamed from a borrowed canonical
+    // record. `repairs` is the queue from
+    // ShotHistoryStorage::pendingBeanRepairsReady — the shots whose bag we
+    // unlinked, recorded at that moment, NOT a library-wide comparison.
+    //
+    // Each shot is READ first and only written when the server actually
+    // disagrees; `beanRepairSettled(shotId)` then clears its flag. One request
+    // per kBeanRepairIntervalMs (see there — it is derived from the server's
+    // published limits, not chosen); the first 429 or 401 abandons the pass and
+    // the flags keep the remainder for next boot.
+    void repairShotBeans(const QVector<BeanRepair>& repairs);
+
     // Build a visualizer-compatible JSON payload from a ShotProjection.
     // Thread-safe; does not touch instance state. Reused by ShotHistoryExporter.
     static QByteArray buildHistoryShotJson(const ShotProjection& shotData);
@@ -252,6 +270,13 @@ signals:
     // Reconciliation list fetch results.
     void shotListFetched(const QVariantList& shots);
     void shotListFailed(const QString& error);
+    // One queued shot needs nothing further — repaired, already correct, or gone
+    // from visualizer.coffee. The caller clears its bean_repair_pending flag.
+    void beanRepairSettled(qint64 shotId);
+    // The bean-repair pass ended. `repaired` counts shots corrected; `complete`
+    // is false when anything was left queued, which only happens on a real
+    // failure — the shots stay flagged and a later boot retries them.
+    void beanRepairFinished(int repaired, bool complete);
 
 private slots:
     void onUploadFinished(QNetworkReply* reply);
@@ -283,6 +308,70 @@ private:
     // recurses until older than m_reconcileWindowStartEpoch or paging
     // exhausted, then emits shotListFetched once.
     void fetchShotListPage(int page, qint64 windowStartEpoch, QVariantList accumulated);
+
+    // Take the next queued shot: GET it, compare against the app's values, and
+    // PATCH only on a real difference. Emits beanRepairFinished when the queue
+    // drains. Serial by construction — one request in flight at a time, spaced
+    // by kBeanRepairIntervalMs.
+    void sendNextBeanRepair();
+    void sendBeanRepairPatch(const BeanRepair& repair);
+    // The names-free half of the repair, for a shot whose local bean fields are
+    // incomplete: clears the borrowed canonical link and asserts nothing else.
+    void sendCanonicalClearOnly(const BeanRepair& repair);
+    // Statuses that cannot differ per shot (429, 401) — retrying the queue
+    // against them is guaranteed waste, so the pass stops. 403 is NOT one of
+    // them on the PATCH (it is an ownership verdict there) but IS treated as
+    // one on the GET, which authorizes nothing; see both call sites.
+    static bool isBeanRepairFatalStatus(int status);
+    void abandonBeanRepairPass(int status);
+    void scheduleNextBeanRepair();
+    // Every bean-repair REQUEST is spaced through here — the GET and the PATCH
+    // alike. Pacing only the shot loop let a repaired shot fire two requests
+    // back to back at double the intended rate.
+    void scheduleBeanRepairRequest(std::function<void()> send);
+    // Decide what a queued shot needs, given what the server holds. Pure, so the
+    // rule that governs every write this pass makes is unit-testable without a
+    // network (tst_coffeebags).
+public:
+    enum class BeanRepairAction { AlreadyCorrect, NeedsPatch };
+    static BeanRepairAction decideBeanRepair(const QString& remoteBrand, const QString& remoteType,
+                                             const QString& localBrand, const QString& localType);
+
+    // What a queued shot can actually have done to it, decided from the read
+    // rather than from the local row alone — `remoteHasCoffeeBag` is only
+    // knowable after the GET. Pure, so the rule that decides whether this pass
+    // writes to a user's account at all is unit-testable without a network.
+    enum class BeanRepairPlan {
+        RestoreNames,         // complete local names: compare, and PATCH on a real difference
+        ClearCanonicalOnly,   // no complete names, no server bag: drop the borrowed link
+        NothingToDo,          // no complete names, but a server bag re-derives the link anyway
+    };
+    static BeanRepairPlan planBeanRepair(bool remoteHasCoffeeBag,
+                                         const QString& localBrand, const QString& localType);
+private:
+    // One request per 4 s, derived from the server's published limits rather
+    // than guessed at: Api::BaseController declares 50/minute per IP, 200/10
+    // minutes per IP and 200/10 minutes per user, so the sustained budget is
+    // 0.33 req/s and the burst budget 0.83. The previous 1 s was over the
+    // per-minute limit on its own — and paced SHOTS, so a repaired shot sent
+    // two requests back to back at ~2/s. 4 s is 15/min and 150 per 10 minutes,
+    // which leaves the 10-minute budget with room for ordinary shot uploads:
+    // those share the same controller, so an unthrottled repair pass at boot
+    // can 429 a user's actual espresso uploads for the rest of the window.
+    static constexpr int kBeanRepairIntervalMs = 4000;
+    QVector<BeanRepair> m_beanRepairQueue;
+    int m_beanRepairDone = 0;
+    // Something went wrong and the affected shots stay queued: an unreadable
+    // response, a malformed entry, a failed PATCH. The only reason a pass ends
+    // with work left, so `beanRepairFinished`'s `complete` flag is its negation.
+    bool m_beanRepairFailed = false;
+    // A queue snapshot arrived while a pass was draining and was dropped. The
+    // shots are still flagged, so nothing is lost — but only a re-drain sees
+    // them before the next launch. Deliberately NOT "re-drain whenever a pass
+    // ends": that loops forever if a flag clear fails, since the same shots come
+    // straight back. This is set only by a real dropped snapshot.
+    bool m_beanRepairMissedWork = false;
+    bool m_beanRepairRunning = false;
 
     // --- Coffee Management sync (bean-bag-inventory) ---
     // Entry point, called after a successful upload POST. Loads the shot's bag
