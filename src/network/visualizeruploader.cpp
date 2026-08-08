@@ -419,8 +419,20 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
         if (!QJsonDocument::fromJson(shotData.beanBaseJson.toUtf8()).isObject())
             qWarning() << "VisualizerUploader: corrupt beanBaseJson on shot" << shotData.id;
         const QString canonicalId = BeanBaseBlob::canonicalId(shotData.beanBaseJson);
-        if (!canonicalId.isEmpty())
+        // ...but never when that record names a different coffee than the shot
+        // does. The server rewrites bean_brand/bean_type from the canonical
+        // record on link (see canonicalIdentityConflicts), so a borrowed record
+        // — the same bean from another roaster, which the bag editor lets the
+        // user keep linked while correcting the roaster — would rename the shot
+        // on visualizer.coffee. The link stays local; only the export stops.
+        if (BeanBaseBlob::canonicalIdentityConflicts(shotData.beanBaseJson,
+                                                     shotData.beanBrand, shotData.beanType)) {
+            qDebug() << "Visualizer: canonical link withheld -" << shotData.beanBrand
+                     << "/" << shotData.beanType
+                     << "is not what the linked canonical record is named";
+        } else if (!canonicalId.isEmpty()) {
             shotObj["canonical_coffee_bag_id"] = canonicalId;
+        }
     }
 
     QJsonObject root;
@@ -1676,11 +1688,19 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
             // when our bag carries one. With no coffee_bag on the shot the server
             // keeps it (its refresh_coffee_bag_fields only overrides canonical when
             // a bag is linked). Idempotent, so re-PATCHing each upload is harmless.
+            //
+            // Same identity guard as the metadata PATCH: a canonical record
+            // that names a different coffee would rename the shot server-side.
             const QString canonicalId = bag.value("beanBaseId").toString();
-            if (!canonicalId.isEmpty())
+            const bool conflicts = BeanBaseBlob::canonicalIdentityConflicts(
+                bag.value("beanBaseData").toString(), bag.value("roasterName").toString(),
+                bag.value("coffeeName").toString());
+            if (!canonicalId.isEmpty() && !conflicts)
                 linkShotCanonical(visualizerShotId, canonicalId);
             qDebug() << "Visualizer CM: shot has no server bag -"
-                     << (canonicalId.isEmpty() ? "nothing to link" : "linking canonical coffee");
+                     << (canonicalId.isEmpty() ? "nothing to link"
+                         : conflicts ? "canonical link withheld (record names another coffee)"
+                                     : "linking canonical coffee");
             return;
         }
 
