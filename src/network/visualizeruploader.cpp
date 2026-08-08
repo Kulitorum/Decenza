@@ -842,7 +842,7 @@ void VisualizerUploader::sendNextBeanRepair()
             // Both are verdicts on THIS shot, not on the pass, and neither can
             // change on a retry: 404 is `Shot.find_by` missing (deleted on
             // visualizer.coffee), 403 is `authorize! @shot` refusing a shot this
-            // account does not own (shots_controller.rb:96-101, ShotPolicy#update?
+            // account does not own (shots_controller.rb:98-102, ShotPolicy#update?
             // is owner?). Clearing the flag is the only termination — leaving it
             // set re-reads the same refusal on every boot forever.
             qDebug() << "Visualizer: bean repair skipped - shot" << repair.visualizerId
@@ -923,7 +923,7 @@ bool VisualizerUploader::isBeanRepairFatalStatus(int status)
     // password (401) behaves identically, one failure per shot per boot, forever.
     //
     // 403 is NOT one of these, though it reads like it. It comes from
-    // `authorize! @shot` (shots_controller.rb:96-101), so it is an ownership
+    // `authorize! @shot` (shots_controller.rb:98-102), so it is an ownership
     // verdict on one shot; treating it as fatal let a single mis-recorded
     // visualizer_id abandon the pass at the same position on every boot and
     // strand every shot behind it. It is handled per shot instead.
@@ -938,7 +938,7 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
         // Explicit null clears the borrowed link, and the names survive BECAUSE
         // it changes: refresh_coffee_bag_fields fires on the id change and, with
         // neither a coffee_bag nor a canonical bag, leaves the fields alone
-        // (shot.rb:52-63 — the canonical assignment is the `elsif` branch).
+        // (shot.rb:64-75 — the canonical assignment is the `elsif` branch).
         //
         // A shot that DOES have a server-side coffee_bag (Coffee Management)
         // takes the FIRST branch and re-derives both fields from that bag,
@@ -966,7 +966,7 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
         if (status >= 200 && status < 300) {
             // 200 does NOT mean the values took. `update` discards the result of
             // @shot.update and renders the in-memory object either way
-            // (shots_controller.rb:64-74), and refresh_coffee_bag_fields may have
+            // (shots_controller.rb:65-70), and refresh_coffee_bag_fields may have
             // overwritten both fields from a server-side coffee_bag between our
             // params and the save — measured, not hypothesised. So read the body
             // back rather than reporting a write the server discarded. (This
