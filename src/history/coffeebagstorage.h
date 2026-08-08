@@ -17,6 +17,14 @@ class QJsonArray;
 class QJsonObject;
 class SerialDbWorker;
 
+// Forward-declared rather than including beanbase_blob.h: this header reaches
+// maincontroller.h and from there most of the tree, and the two types are only
+// used here by reference/pointer.
+namespace BeanBaseBlob {
+struct BagIdentity;
+struct CanonicalLink;
+}
+
 // A coffee bag: the single bean concept that replaced bean presets
 // (openspec change bean-bag-inventory). A bag IS the active bean state —
 // shots snapshot its fields at save time, edits write through to it, and
@@ -216,6 +224,40 @@ public:
     static QVector<InventoryBag> loadInventoryStatic(QSqlDatabase& db);
     // Update only the columns named in `fields` (camelCase CoffeeBag keys).
     static bool updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields);
+
+    // Enforce the canonical-link invariant on a bag about to be written: a bag
+    // may carry a canonical id only while its own roaster/coffee still name the
+    // record that id points at. A canonical_coffee_bags row IS a roaster's
+    // product, and visualizer.coffee treats the id as authoritative for identity
+    // (Shot#refresh_coffee_bag_fields — its `elsif canonical_coffee_bag` branch,
+    // reached when the shot has no server-side coffee_bag), so a bag that
+    // borrowed another roaster's record republished its shots under that roaster. Editing the
+    // identity is the supported way to fix a near-match pick, so the link — not
+    // the user's name — is what gives way: the id and the blob's link keys are
+    // dropped, every descriptive field kept. Returns true when it dropped one.
+    //
+    // Applied at the STORAGE write so the bag editor, MCP bag_update and the web
+    // /beans editor all inherit it; each of the three can otherwise produce the
+    // mismatch in a single save.
+    static bool dropConflictedCanonicalLink(const BeanBaseBlob::BagIdentity& identity,
+                                            BeanBaseBlob::CanonicalLink* link);
+
+    // Queue this bag's UPLOADED shots for the Visualizer bean repair
+    // (shots.bean_repair_pending). Called wherever a borrowed canonical link is
+    // dropped, because those are exactly the shots visualizer.coffee may have
+    // renamed. Returns the number of shots queued, -1 on failure.
+    static int markShotsForBeanRepairStatic(QSqlDatabase& db, qint64 bagId);
+
+    // Clean every stored bag that already carries a conflicted link (migration
+    // 38's data pass), queueing their shots for repair. Returns the number of
+    // bags unlinked, -1 on failure.
+    //
+    // `queueShots` false skips only the queueing, and exists for one caller: the
+    // migration whose ALTER for shots.bean_repair_pending failed. There the
+    // UPDATE would fail on the missing column and fail the whole unlink with it,
+    // which is the opposite of the migration's stated policy that the unlink
+    // lands regardless.
+    static int cleanConflictedCanonicalLinksStatic(QSqlDatabase& db, bool queueShots = true);
 
     // True when `fields` (camelCase CoffeeBag keys) contains at least one field
     // that Visualizer stores on its coffee bag — the identity/lifecycle/canonical
