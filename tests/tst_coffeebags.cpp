@@ -2443,10 +2443,10 @@ private slots:
     // a difference, and acting on that blanks the user's cloud value.
     void planBeanRepairNeverWritesAnEmptyNameOrAPointlessClear() {
         using Plan = VisualizerUploader::BeanRepairPlan;
-        // Complete names: the only case that may assert an identity.
+        // Complete names AND no server bag: the only case that may assert an
+        // identity. (The `true` variant used to assert RestoreNames here — that
+        // line locked in the futile write this pass now declines.)
         QCOMPARE(VisualizerUploader::planBeanRepair(false, "Stavanger", "Las Capucas"),
-                 Plan::RestoreNames);
-        QCOMPARE(VisualizerUploader::planBeanRepair(true, "Stavanger", "Las Capucas"),
                  Plan::RestoreNames);
         // Per FIELD, not both-empty. A brand with no type must never reach the
         // name PATCH — sending bean_type:"" wipes a real value on the server.
@@ -2456,16 +2456,48 @@ private slots:
                  Plan::ClearCanonicalOnly);
         QCOMPARE(VisualizerUploader::planBeanRepair(false, "   ", "Las Capucas"),
                  Plan::ClearCanonicalOnly);
-        // ...and with a server-side coffee_bag the clear is a no-op, because
-        // refresh_coffee_bag_fields re-sets canonical_coffee_bag_id from the bag
-        // (shot.rb:70). Measured on a live account: the write changed nothing and
-        // re-rendered roast_date into the user's date format.
+        QCOMPARE(VisualizerUploader::planBeanRepair(false, "Las Capucas", "   "),
+                 Plan::ClearCanonicalOnly);
+        QCOMPARE(VisualizerUploader::planBeanRepair(false, "", ""),
+                 Plan::ClearCanonicalOnly);
+        // A server-side coffee_bag decides FIRST, complete names or not: the
+        // shot takes refresh_coffee_bag_fields' first branch, so nothing sent to
+        // it survives, and the attempt re-renders roast_date into the user's
+        // date format. Measured on a live account.
         QCOMPARE(VisualizerUploader::planBeanRepair(true, "Stavanger", ""),
                  Plan::NothingToDo);
         QCOMPARE(VisualizerUploader::planBeanRepair(true, "", ""),
                  Plan::NothingToDo);
-        QCOMPARE(VisualizerUploader::planBeanRepair(false, "", ""),
-                 Plan::ClearCanonicalOnly);
+        QCOMPARE(VisualizerUploader::planBeanRepair(true, "Stavanger", "Las Capucas"),
+                 Plan::NothingToDo);
+    }
+
+    // The input that actually decides whether this pass writes. The predicate
+    // above is four lines and obviously right; THIS is where the wrong premise
+    // lived — a comment claimed coffee_bag_id was always present, so the read
+    // tested !isNull(), which is true for an absent key too.
+    void remoteCoffeeBagStateNeverGuessesFromAnUnreadableField() {
+        using State = VisualizerUploader::RemoteBagState;
+        auto parse = [](const char* json) {
+            return VisualizerUploader::remoteCoffeeBagState(
+                QJsonDocument::fromJson(QByteArray(json)).object());
+        };
+        // The two shapes the server actually emits. `visualizer_attributes` ends
+        // in `attributes.compact` (shot/jsonable.rb:80), so a bag-less shot omits
+        // the key entirely rather than sending null.
+        QCOMPARE(parse("{\"coffee_bag_id\":\"2e1c0de9-1b96-46d6-b4c0-db59e2f78363\"}"),
+                 State::Present);
+        QCOMPARE(parse("{\"bean_brand\":\"Prodigal\"}"), State::Absent);
+        // Tolerated, though the server does not produce them.
+        QCOMPARE(parse("{\"coffee_bag_id\":null}"), State::Absent);
+        QCOMPARE(parse("{\"coffee_bag_id\":\"\"}"), State::Absent);
+        // The ones that must NOT read as "no bag": QJsonValue::toString() returns
+        // an empty QString for every non-string type, so treating them as absent
+        // would turn an unparseable field into a licence to write.
+        QCOMPARE(parse("{\"coffee_bag_id\":12345}"), State::Unreadable);
+        QCOMPARE(parse("{\"coffee_bag_id\":true}"), State::Unreadable);
+        QCOMPARE(parse("{\"coffee_bag_id\":{\"id\":\"x\"}}"), State::Unreadable);
+        QCOMPARE(parse("{\"coffee_bag_id\":[\"x\"]}"), State::Unreadable);
     }
 
     void renamingALinkedBagDropsTheBorrowedCanonicalRecord() {

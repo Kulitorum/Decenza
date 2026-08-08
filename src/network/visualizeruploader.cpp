@@ -781,6 +781,8 @@ void VisualizerUploader::repairShotBeans(const QVector<BeanRepair>& repairs)
     }
     m_beanRepairQueue = repairs;
     m_beanRepairDone = 0;
+    m_beanRepairCleared = 0;
+    m_beanRepairDeclined = 0;
     m_beanRepairFailed = false;
     m_beanRepairRunning = true;
     qDebug() << "Visualizer: bean repair over" << repairs.size() << "queued shot(s)";
@@ -792,8 +794,9 @@ void VisualizerUploader::sendNextBeanRepair()
     if (m_beanRepairQueue.isEmpty()) {
         m_beanRepairRunning = false;
         qDebug() << "Visualizer: bean repair pass ended -" << m_beanRepairDone
-                 << "shot(s) corrected"
-                 << (m_beanRepairFailed ? "(incomplete, resumes next boot)" : "");
+                 << "name(s) restored," << m_beanRepairCleared << "link(s) cleared,"
+                 << m_beanRepairDeclined << "declined (server bag decides those)"
+                 << (m_beanRepairFailed ? "- incomplete, resumes next boot" : "");
         emit beanRepairFinished(m_beanRepairDone, !m_beanRepairFailed);
         return;
     }
@@ -876,17 +879,27 @@ void VisualizerUploader::sendNextBeanRepair()
             return;
         }
 
-        // `coffee_bag_id` is merged into every shot response unconditionally
-        // (shot/jsonable.rb:45,71 — `coffee_bag_id: coffee_bag&.id`), so it is
-        // present even under ?essentials=1.
-        const bool remoteHasCoffeeBag =
-            !remote.value(QStringLiteral("coffee_bag_id")).isNull()
-            && !remote.value(QStringLiteral("coffee_bag_id")).toString().isEmpty();
-        switch (planBeanRepair(remoteHasCoffeeBag, repair.beanBrand, repair.beanType)) {
+        const RemoteBagState bagState = remoteCoffeeBagState(remote);
+        if (bagState == RemoteBagState::Unreadable) {
+            // Same rule as the bean_brand guard above: a field we cannot read is
+            // not evidence. This one decides whether the pass WRITES, so a wrong
+            // answer here is a PATCH the account did not need.
+            m_beanRepairFailed = true;
+            qWarning() << "Visualizer: bean repair - shot" << repair.visualizerId
+                       << "returned an unreadable coffee_bag_id - stays queued";
+            scheduleNextBeanRepair();
+            return;
+        }
+        switch (planBeanRepair(bagState == RemoteBagState::Present,
+                               repair.beanBrand, repair.beanType)) {
         case BeanRepairPlan::NothingToDo:
-            qDebug() << "Visualizer: bean repair - shot" << repair.visualizerId
-                     << "has incomplete local bean names and a server coffee_bag;"
-                        " nothing to write";
+            // A shot with a server coffee_bag takes shot.rb's first branch on
+            // every touch, so its identity comes from that bag and no write to
+            // the SHOT can change it. The residual work, if any, is on the bag.
+            m_beanRepairDeclined++;
+            qDebug() << "Visualizer: bean repair declined - shot" << repair.visualizerId
+                     << "takes its identity from a server coffee_bag; nothing written."
+                     << "If it still reads wrong, the bag is what to correct.";
             emit beanRepairSettled(repair.shotId);
             scheduleNextBeanRepair();
             return;
@@ -926,9 +939,44 @@ void VisualizerUploader::sendNextBeanRepair()
 }
 
 // static
+VisualizerUploader::RemoteBagState
+VisualizerUploader::remoteCoffeeBagState(const QJsonObject& remote)
+{
+    // `coffee_bag_id` is emitted ONLY when the shot has a bag: it is built as
+    // `coffee_bag_id: coffee_bag&.id` (shot/jsonable.rb:71) inside a hash that
+    // ends in `attributes.compact` (:80), so a nil is stripped and the key is
+    // ABSENT rather than null. An earlier version of this code claimed the key
+    // was always present and tested `!isNull()`, which is true for an absent key
+    // too (QJsonValue::Undefined is not Null) — the answer was right only
+    // because a second clause happened to carry it.
+    const QJsonValue value = remote.value(QStringLiteral("coffee_bag_id"));
+    if (value.isUndefined() || value.isNull())
+        return RemoteBagState::Absent;
+    // Anything that is not a string is a shape we do not understand. NOT "no
+    // bag": QJsonValue::toString() returns an empty QString for every non-string
+    // type (qjsonvalue.cpp:791-794 -> qcborvalue.cpp:2202-2205), so reading it
+    // that way would silently turn an unparseable field into a licence to write.
+    if (!value.isString())
+        return RemoteBagState::Unreadable;
+    return value.toString().isEmpty() ? RemoteBagState::Absent : RemoteBagState::Present;
+}
+
+// static
 VisualizerUploader::BeanRepairPlan VisualizerUploader::planBeanRepair(
     bool remoteHasCoffeeBag, const QString& localBrand, const QString& localType)
 {
+    // The server bag decides FIRST, whatever the names say. A shot with a
+    // coffee_bag takes refresh_coffee_bag_fields' first branch, which re-derives
+    // bean_brand, bean_type AND canonical_coffee_bag_id from that bag
+    // (shot.rb:64-75) — so nothing this pass sends to the shot can survive, and
+    // the attempt is not free: the callback fires on any id change and
+    // re-renders roast_date into the user's date format. Measured on a live
+    // account. This used to gate only the canonical clear, which left the same
+    // futile write reachable through the names arm whenever local and server had
+    // drifted — and drift is the cohort this pass exists for, not the exception.
+    if (remoteHasCoffeeBag)
+        return BeanRepairPlan::NothingToDo;
+
     // Complete local names are the only case that may assert an identity —
     // sending an empty one BLANKS the server's value, which is the destructive
     // direction of the rule the storage predicate states ("an empty name on
@@ -937,14 +985,10 @@ VisualizerUploader::BeanRepairPlan VisualizerUploader::planBeanRepair(
     if (!localBrand.trimmed().isEmpty() && !localType.trimmed().isEmpty())
         return BeanRepairPlan::RestoreNames;
 
-    // Without names, the only repair left is dropping the borrowed canonical id
-    // so the server stops re-deriving this shot's identity from another
-    // roaster's record — but that is pointless when the shot has a server-side
-    // coffee_bag, because refresh_coffee_bag_fields immediately re-sets
-    // canonical_coffee_bag_id FROM that bag (shot.rb:70). Measured: the write
-    // clears nothing and re-renders roast_date into the user's date format as a
-    // side effect. So do not send it.
-    return remoteHasCoffeeBag ? BeanRepairPlan::NothingToDo : BeanRepairPlan::ClearCanonicalOnly;
+    // No names to assert and no bag to override us: drop the borrowed canonical
+    // id so the server stops re-deriving this shot's identity from another
+    // roaster's record.
+    return BeanRepairPlan::ClearCanonicalOnly;
 }
 
 // static
@@ -1057,10 +1101,12 @@ void VisualizerUploader::sendBeanRepairPatch(const BeanRepair& repair)
                     << (saved.value(QStringLiteral("bean_brand")).toString()
                         + QLatin1String(" / ") + saved.value(QStringLiteral("bean_type")).toString())
                     << "(its coffee_bag outranks the shot; the bag re-push is what corrects it)";
-                // Settled but NOT repaired, so the pass must not report itself
-                // complete: the shot is still wrong on visualizer.coffee and the
-                // flag is gone, which is exactly the state a reader needs told.
-                m_beanRepairFailed = true;
+                // Settled but NOT repaired. Deliberately does NOT set
+                // m_beanRepairFailed: that flag drives "resumes next boot", and
+                // this shot's flag is gone, so it will not. The warning above is
+                // the record; claiming a retry that cannot happen is worse than
+                // saying nothing.
+                m_beanRepairDeclined++;
             } else {
                 m_beanRepairDone++;
             }
@@ -1114,6 +1160,7 @@ void VisualizerUploader::sendCanonicalClearOnly(const BeanRepair& repair)
             // No read-back: this request asserts nothing about the names, and
             // the API never reports canonical_coffee_bag_id (it is not in
             // Jsonable::ALLOWED_ATTRIBUTES), so there is nothing to verify.
+            m_beanRepairCleared++;
             emit beanRepairSettled(repair.shotId);
         } else if (isBeanRepairFatalStatus(status)) {
             abandonBeanRepairPass(status);

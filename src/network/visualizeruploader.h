@@ -348,6 +348,12 @@ public:
     };
     static BeanRepairPlan planBeanRepair(bool remoteHasCoffeeBag,
                                          const QString& localBrand, const QString& localType);
+
+    // Whether the shot the server returned has a coffee_bag. Three states, not a
+    // bool: "we could not read the field" must not collapse into "no bag",
+    // because that is the answer that licenses a write.
+    enum class RemoteBagState { Absent, Present, Unreadable };
+    static RemoteBagState remoteCoffeeBagState(const QJsonObject& remote);
 private:
     // One request per 4 s, derived from the server's published limits rather
     // than guessed at: Api::BaseController declares 50/minute per IP, 200/10
@@ -360,7 +366,12 @@ private:
     // can 429 a user's actual espresso uploads for the rest of the window.
     static constexpr int kBeanRepairIntervalMs = 4000;
     QVector<BeanRepair> m_beanRepairQueue;
-    int m_beanRepairDone = 0;
+    // Split because one number labelled "corrected" was three different account
+    // states: names actually restored, a borrowed link cleared, and shots the
+    // pass declined to touch. A pass reporting 0 told a reader nothing.
+    int m_beanRepairDone = 0;      // names restored and verified
+    int m_beanRepairCleared = 0;   // borrowed canonical link dropped
+    int m_beanRepairDeclined = 0;  // nothing written, by design
     // Something went wrong and the affected shots stay queued: an unreadable
     // response, a malformed entry, a failed PATCH. The only reason a pass ends
     // with work left, so `beanRepairFinished`'s `complete` flag is its negation.
