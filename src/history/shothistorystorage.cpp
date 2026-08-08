@@ -2052,6 +2052,40 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 38: the bean-repair queue column, and a re-run of 37's data pass
+    // for databases that ran an early build of 37 (which unlinked bags before
+    // the column existed). Idempotent: on a database 37 already cleaned, the
+    // scan finds nothing and this is just the ALTER.
+    if (currentVersion >= 37 && currentVersion < 38) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 38 (bean repair queue)";
+        query.finish();
+        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 38 bean repair queue", 1);
+        if (!txn.ok()) {
+            qWarning() << "ShotHistoryStorage: migration 38 could not start a transaction - "
+                          "will retry next launch";
+        } else {
+            if (!hasColumn("shots", "bean_repair_pending")
+                && !query.exec("ALTER TABLE shots ADD COLUMN bean_repair_pending "
+                               "INTEGER NOT NULL DEFAULT 0"))
+                qWarning() << "ShotHistoryStorage: migration 38 add shots.bean_repair_pending failed -"
+                           << query.lastError().text();
+            const int unlinked = hasColumn("shots", "bean_repair_pending")
+                ? CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(m_db) : -1;
+            bool ok = unlinked >= 0;
+            if (ok) {
+                query.exec("DELETE FROM schema_version");
+                ok = query.exec("INSERT INTO schema_version (version) VALUES (38)");
+            }
+            if (ok && txn.commit()) {
+                currentVersion = 38;
+                qDebug() << "ShotHistoryStorage: migration 38 complete - unlinked"
+                         << unlinked << "further bag(s)";
+            } else {
+                qWarning() << "ShotHistoryStorage: migration 38 incomplete - will retry next launch";
+            }
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
