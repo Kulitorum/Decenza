@@ -281,6 +281,10 @@ T.Page {
     property bool fHasMilk: false
     property real fMilkWeightG: 0
     property string fPitcherName: ""
+    // The built-in "Heater off" entry, chosen deliberately. Distinct from
+    // naming no pitcher: that is silence, this is a decision, and the app
+    // resolves them differently.
+    property bool fHeaterOff: false
     property int fPitcherDurationSec: 0
     property int fPitcherFlow: 0
     property real fPitcherTemperatureC: 0
@@ -609,7 +613,7 @@ T.Page {
     }
 
     function applySteamJson(json) {
-        fHasMilk = false; fMilkWeightG = 0
+        fHasMilk = false; fMilkWeightG = 0; fHeaterOff = false
         fPitcherName = ""; fPitcherDurationSec = 0; fPitcherFlow = 0; fPitcherTemperatureC = 0
         if (!json || json === "")
             return
@@ -617,6 +621,7 @@ T.Page {
             var s = JSON.parse(json)
             fHasMilk = !!s.hasMilk
             fMilkWeightG = s.milkWeightG || 0
+            fHeaterOff = !!s.heaterOff
             fPitcherName = s.pitcherName || ""
             fPitcherDurationSec = s.durationSec || 0
             fPitcherFlow = s.flow || 0
@@ -627,11 +632,15 @@ T.Page {
     }
 
     function buildSteamJson() {
-        if (!fHasMilk && fMilkWeightG <= 0 && fPitcherName === "")
+        if (!fHasMilk && fMilkWeightG <= 0 && fPitcherName === "" && !fHeaterOff)
             return ""
         var s = { hasMilk: fHasMilk }
         if (fMilkWeightG > 0) s.milkWeightG = fMilkWeightG
-        if (fPitcherName !== "") {
+        // Mutually exclusive: the built-in entry carries no values, so writing
+        // both would leave activation resolving two contradictory answers.
+        if (fHeaterOff) {
+            s.heaterOff = true
+        } else if (fPitcherName !== "") {
             s.pitcherName = fPitcherName
             s.durationSec = fPitcherDurationSec
             s.flow = fPitcherFlow
@@ -1125,10 +1134,24 @@ T.Page {
     // Snapshot the chosen steam pitcher preset onto the recipe BY VALUE (never
     // a preset index). Shared by the steam window's tiles.
     function selectPitcher(preset) {
+        if (preset.disabled === true) {
+            fHeaterOff = true
+            fPitcherName = ""; fPitcherDurationSec = 0
+            fPitcherFlow = 0; fPitcherTemperatureC = 0
+            return
+        }
+        fHeaterOff = false
         fPitcherName = preset.name || ""
         fPitcherDurationSec = preset.duration || 0
         fPitcherFlow = preset.flow || 0
         fPitcherTemperatureC = preset.temperature || 0
+    }
+
+    // The label for a tile: the built-in entry carries no stored name, so the
+    // view translates it — the same rule the Steam page follows, which is why
+    // neither surface can drift into showing an untranslated "Heater off".
+    function pitcherTileTitle(preset) {
+        return SteamLabels.pitcherName(preset)
     }
 
     // The steam window's tile model: the enabled pitcher presets, plus the
@@ -1140,9 +1163,10 @@ T.Page {
         var arr = []
         var presets = Settings.brew.steamPitcherPresets
         var found = false
+        // Every entry, INCLUDING the built-in "Heater off" appended last. It
+        // used to be filtered out here, which left the wizard unable to express
+        // a drink the machine is perfectly capable of: one that steams nothing.
         for (var i = 0; i < presets.length; ++i) {
-            if (presets[i].disabled)
-                continue
             arr.push(presets[i])
             if ((presets[i].name || "") === fPitcherName)
                 found = true
@@ -3416,9 +3440,9 @@ T.Page {
                                 Layout.fillWidth: true
                                 text: TranslationManager.translate("recipes.composer.steamHint",
                                       "Pick the pitcher you steam this drink with — its preset sets the "
-                                      + "steam time and flow. You'll weigh the milk when you steam; a milk "
-                                      + "drink also keeps the steam heater warm while the recipe is active "
-                                      + "(5–9 min warm-up).")
+                                      + "steam time and flow. You'll weigh the milk when you steam. With "
+                                      + "Let the recipe decide on, this drink warms the steam heater when "
+                                      + "its shot starts; pick Heater off to keep the boiler cold.")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
@@ -3435,11 +3459,13 @@ T.Page {
                                         id: pitcherTile
                                         required property var modelData
 
-                                        title: pitcherTile.modelData.name || ""
+                                        title: wizardPage.pitcherTileTitle(pitcherTile.modelData)
                                         meta: wizardPage.pitcherTileMeta(pitcherTile.modelData)
                                         iconSource: "qrc:/icons/pitcher.svg"
-                                        selected: wizardPage.fPitcherName !== ""
-                                            && (pitcherTile.modelData.name || "") === wizardPage.fPitcherName
+                                        selected: pitcherTile.modelData.disabled === true
+                                            ? wizardPage.fHeaterOff
+                                            : (!wizardPage.fHeaterOff && wizardPage.fPitcherName !== ""
+                                               && (pitcherTile.modelData.name || "") === wizardPage.fPitcherName)
                                         onChosen: {
                                             wizardPage.selectPitcher(pitcherTile.modelData)
                                             wizardPage.detailsContinue()
@@ -3761,7 +3787,9 @@ T.Page {
                             label: TranslationManager.translate("recipes.wizard.rowSteam", "Steam / milk")
                             value: {
                                 var parts = []
-                                if (wizardPage.fPitcherName !== "")
+                                if (wizardPage.fHeaterOff)
+                                    parts.push(SteamLabels.pitcherName({ disabled: true }))
+                                else if (wizardPage.fPitcherName !== "")
                                     parts.push(wizardPage.fPitcherName)
                                 if (wizardPage.fMilkWeightG > 0)
                                     parts.push(TranslationManager.translate(

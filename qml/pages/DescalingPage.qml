@@ -616,24 +616,26 @@ T.Page {
                             AccessibleButton {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.scaled(36)
-                                primary: Settings.brew.steamDisabled
-                                destructive: !Settings.brew.steamDisabled
-                                text: Settings.brew.steamDisabled
+                                // Keyed on the RESOLVED state, not on the transient
+                                // steamDisabled flag: a "Heater off" pitcher or a
+                                // permission-less setting leaves the heater cold with
+                                // that flag clear, and the button used to offer
+                                // "Disable" for a boiler that was already off.
+                                primary: !MainController.steamHeaterOn
+                                destructive: MainController.steamHeaterOn
+                                text: !MainController.steamHeaterOn
                                     ? TranslationManager.translate("descaling.steam.enable", "Enable")
                                     : TranslationManager.translate("descaling.steam.disable", "Disable")
-                                accessibleName: Settings.brew.steamDisabled
+                                accessibleName: !MainController.steamHeaterOn
                                     ? TranslationManager.translate("descaling.steam.enable", "Enable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
                                     : TranslationManager.translate("descaling.steam.disable", "Disable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
                                 _customFontSize: Theme.scaled(14)
                                 _customFontWeight: Font.Bold
                                 onClicked: {
-                                    if (Settings.brew.steamDisabled) {
-                                        // Enable: restore saved temperature (sendSteamTemperature clears flag)
-                                        MainController.sendSteamTemperature(Settings.brew.steamTemperature)
-                                    } else {
-                                        // Disable: send 0 temp (sendSteamTemperature sets flag)
-                                        MainController.sendSteamTemperature(0)
-                                    }
+                                    if (!MainController.steamHeaterOn)
+                                        MainController.startSteamHeating("descaling-enable")
+                                    else
+                                        MainController.turnOffSteamHeater()
                                 }
                             }
                         }

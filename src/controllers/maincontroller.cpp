@@ -126,8 +126,54 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     , m_shotDataModel(shotDataModel)
     , m_profileStorage(profileStorage)
 {
+    // The one place the steam-heater target is decided. Created before
+    // ProfileManager because ProfileManager resolves through it too — a second,
+    // drifted copy of this rule inside uploadCurrentProfile() is what made a
+    // recipe activation's heater state get silently overwritten.
+    m_steamHeaterPolicy = new SteamHeaterPolicy(m_settings, this);
+    m_steamHeaterPolicy->setRecipeIntentProvider([this]() {
+        using Intent = SteamHeaterPolicy::RecipeSteamIntent;
+        if (m_activeRecipe.isEmpty())
+            return Intent::NoRecipe;
+        return activeRecipeHasMilk() ? Intent::WantsSteam : Intent::NoSteam;
+    });
+    connect(m_steamHeaterPolicy, &SteamHeaterPolicy::resolvedChanged,
+            this, &MainController::steamHeaterStateChanged);
+
+    // Re-announce the resolved heater state whenever any of its inputs move, so
+    // the steam readouts can bind to it, AND push the new target to the machine.
+    // Every one of these can flip the answer: the two settings, the transient
+    // flag, and which pitcher is effective.
+    //
+    // The push belongs HERE, on the change, not at each writer. Every caller
+    // that stored one of these settings had to remember to call
+    // applySteamSettings() afterwards, and the ones that forgot were invisible:
+    // the QML switches remembered, the MCP settings_set never did, so setting
+    // the steam temperature over MCP moved the number on screen and left the
+    // boiler on its old target until something unrelated happened to write. Now
+    // no writer has to remember — MCP, the web UI, a settings import and QML all
+    // reach the machine by the same route. The BLE layer dedups an unchanged
+    // payload, so the redundant pushes from paths that DO still call
+    // applySteamSettings() cost nothing on the wire.
+    for (auto signal : {&SettingsBrew::keepWarmWhenIdleChanged,
+                        &SettingsBrew::letRecipeDecideChanged,
+                        &SettingsBrew::steamDisabledChanged,
+                        &SettingsBrew::selectedSteamPitcherChanged,
+                        &SettingsBrew::steamPitcherPresetsChanged,
+                        &SettingsBrew::steamTemperatureChanged}) {
+        connect(m_settings->brew(), signal, this, &MainController::steamHeaterStateChanged);
+        connect(m_settings->brew(), signal, this, [this]() {
+            // Not while a recipe is mid-apply: activation writes several of
+            // these in sequence and ends with its own send, so the intermediate
+            // states are noise.
+            if (!m_applyingRecipe)
+                sendMachineSettings(QStringLiteral("steam-setting-changed"));
+        });
+    }
+
     // Create ProfileManager — owns all profile lifecycle operations
-    m_profileManager = new ProfileManager(m_settings, m_device, m_machineState, m_profileStorage, this);
+    m_profileManager = new ProfileManager(m_settings, m_device, m_machineState, m_profileStorage,
+                                          m_steamHeaterPolicy, this);
 
     // Create LiveSteamCoach — local, real-time during-steam coaching cues. It
     // subscribes itself to MachineState phase/shot-time changes and reads the
@@ -214,11 +260,48 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         // so it resets to normal behavior on next wake/reconnect
         connect(m_machineState, &MachineState::phaseChanged, this, [this]() {
             auto phase = m_machineState->phase();
-            if ((phase == MachineState::Phase::Sleep || phase == MachineState::Phase::Disconnected)
-                && m_settings && m_settings->brew()->steamDisabled()) {
-                qDebug() << "Machine entering" << m_machineState->phaseString() << "- clearing temporary steamDisabled flag";
-                m_settings->brew()->setSteamDisabled(false);
+            const int previousPhase = m_lastPhaseForSteam;
+            m_lastPhaseForSteam = static_cast<int>(phase);
+
+            const bool dormant = phase == MachineState::Phase::Sleep
+                              || phase == MachineState::Phase::Disconnected;
+            if (dormant) {
+                if (m_settings && m_settings->brew()->steamDisabled()) {
+                    qDebug() << "Machine entering" << m_machineState->phaseString() << "- clearing temporary steamDisabled flag";
+                    m_settings->brew()->setSteamDisabled(false);
+                }
+                // Event permission is for the steam session in front of you; it
+                // does not survive a sleep or a disconnect.
+                if (m_steamHeaterPolicy)
+                    m_steamHeaterPolicy->setEventPermission(false);
             }
+
+            // Coming BACK from dormant — waking, or connecting for the first
+            // time this run — re-assert the resolved target.
+            //
+            // The block above clears the transient veto and sends nothing, so
+            // without this the machine keeps whatever it was last told. Observed
+            // on a simulated DE1: the app launched with a persisted
+            // steamDisabled, pushed TargetSteamTemp=0, then cleared the flag on
+            // the Disconnected→connected transition and never re-sent — leaving
+            // a boiler commanded off while every setting said it should be warm,
+            // and the settings screen reading "Current: 0°C" instead of "Off"
+            // because the RESOLVED state was (correctly) on.
+            //
+            // "Never seen a phase yet" (-1) counts as dormant, and that is the
+            // STARTUP case, not an edge case: nothing else pushes ShotSettings
+            // when a machine first becomes live. The profile upload used to
+            // carry the steam target along by accident, but it runs before the
+            // device is connected — in simulator mode the log shows loadProfile
+            // ahead of "Simulated DE1 attached" — so its write is dropped and
+            // never retried. Verified on a running simulated DE1: every input
+            // said warm/160 while the machine sat at 0 from launch.
+            const bool wasDormant = previousPhase < 0
+                                 || previousPhase == static_cast<int>(MachineState::Phase::Sleep)
+                                 || previousPhase == static_cast<int>(MachineState::Phase::Disconnected);
+            if (wasDormant && !dormant)
+                sendMachineSettings(QStringLiteral("wake-steam-reassert"));
+
 
             // Steam session ended — run post-session analysis. m_steamStartTimeMs
             // is only set when isFlowing() was true (Steaming/Pouring substates),
@@ -301,6 +384,13 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // override for a whole session. ProfileManager scanned its catalog in
     // its constructor, so the title→temperature snapshot is ready.
     requestRecipeTempOffsetConversion();
+    // Second half of the "Off" preset migration (steam-heater-policy). The
+    // settings half already removed the presets and remapped the selection;
+    // this rewrites the recipes that named them, which needs a database and so
+    // could not happen in SettingsBrew's constructor. take…() clears the names,
+    // so this runs exactly once, on the launch that migrated.
+    if (m_recipeStorage && m_settings)
+        m_recipeStorage->requestHeaterOffPitcherRewrite(m_settings->brew()->takeMigratedHeaterOffNames());
     setupRecipeConnections();
 
     // One-time idle-button injections (issue #1586). What the gate means is
@@ -669,7 +759,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     // Steam settings changes -> republish state
     connect(m_settings->brew(), &SettingsBrew::steamDisabledChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
-    connect(m_settings->brew(), &SettingsBrew::keepSteamHeaterOnChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
+    connect(m_settings->brew(), &SettingsBrew::keepWarmWhenIdleChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
+    connect(m_settings->brew(), &SettingsBrew::letRecipeDecideChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
 
     // Recipe-aware brew baseline (recipe-baseline-not-override, #1485): the
     // effective baseline + real-override flags change with the active recipe, the
@@ -1041,8 +1132,14 @@ namespace {
 
 // The recipe steam block's JSON shape, shared by activation, the shot-save
 // snapshot, the composer prefill, MCP, and the web UI:
-//   { "hasMilk": bool, "milkWeightG": n, "pitcherName": s,
+//   { "hasMilk": bool, "milkWeightG": n, "heaterOff": bool, "pitcherName": s,
 //     "durationSec": n, "flow": n, "temperatureC": n }
+//
+// "heaterOff" is the built-in "Heater off" entry chosen deliberately, and is
+// mutually exclusive with the pitcher fields — it carries no values of its own.
+// It exists because ABSENT and OFF are different states: a recipe that names no
+// pitcher never had the question put to it, while one carrying this marker was
+// answered "keep the boiler cold".
 QJsonObject parseSteamBlock(const QString& json) {
     if (json.isEmpty())
         return QJsonObject();
@@ -1273,7 +1370,6 @@ void MainController::setupRecipeConnections() {
         }
         const qint64 resolvedBagId = m_activeRecipe.value(
             QStringLiteral("resolvedBagId"), m_settings->dye()->activeBagId()).toLongLong();
-        const bool hadMilk = activeRecipeHasMilk();
         m_activeRecipe = recipe;
         m_activeRecipe.insert(QStringLiteral("resolvedBagId"), resolvedBagId);
         // Claim the dose rung from the row we just read (dose-source-precedence).
@@ -1290,11 +1386,11 @@ void MainController::setupRecipeConnections() {
                 ? 0.0
                 : m_activeRecipe.value(QStringLiteral("doseG")).toDouble());
         emit activeRecipeChanged();
-        // Re-assert the heater hold when hasMilk changed (composer/MCP edit
-        // of the active recipe) or on the startup restore of a milk recipe —
-        // the 5-9 minute warm-up means the hold must follow the cache.
-        if (activeRecipeHasMilk() != hadMilk || activeRecipeHasMilk())
-            applySteamSettings();
+        // The active recipe is one of the policy's inputs, so any refresh of the
+        // cache — startup restore, composer/MCP/web edit — can change the
+        // resolved target. Re-resolve unconditionally; the BLE layer dedups an
+        // unchanged payload.
+        applySteamSettings();
         // Re-seed the brew overrides from the edited recipe, exactly as
         // re-activating it would (add-yield-ratio-anchor). An edit changes the
         // recipe's DESIGN, and the live setup must follow it — the grind push
@@ -1800,13 +1896,22 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // Steam block: pitcher (the pitcher preset IS the steam spec —
         // duration/flow/temperature live on it), milk weight, heater intent.
         const QJsonObject steam = parseSteamBlock(recipe.value("steamJson").toString());
-        if (!steam.isEmpty()) {
+        {
             auto* brew = m_settings->brew();
+            // The recipe's pitcher OVERRIDES the standing selection for as long
+            // as the recipe is active — it is part of the drink, not a new
+            // preference. NoStandingPitcher means "this recipe names none", which
+            // unwinds any override from the recipe before it.
+            int overrideIndex = SettingsBrew::NoStandingPitcher;
             const QString pitcherName = steam.value("pitcherName").toString();
-            if (!pitcherName.isEmpty()) {
+            if (steam.value("heaterOff").toBool()) {
+                // An explicit "Heater off" choice, distinct from naming no
+                // pitcher at all: the first is a decision, the second is silence.
+                overrideIndex = SettingsBrew::HeaterOffPitcherIndex;
+            } else if (!pitcherName.isEmpty()) {
                 const QVariantList presets = brew->steamPitcherPresets();
                 int index = -1;
-                for (int i = 0; i < presets.size(); ++i) {
+                for (int i = 0; i < brew->steamPitcherCount(); ++i) {
                     if (presets.at(i).toMap().value("name").toString()
                             .compare(pitcherName, Qt::CaseInsensitive) == 0) {
                         index = i;
@@ -1816,41 +1921,45 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                 if (index < 0) {
                     // The snapshotted pitcher was deleted — resurrect it from
                     // the recipe's own values so the drink steams as saved
-                    // (snapshot-not-reference; visible, not silent).
+                    // (snapshot-not-reference; visible, not silent). Never for
+                    // the built-in entry: that arrives as the marker above, and
+                    // recreating it as a user preset would put two "Heater off"
+                    // rows in the picker.
                     brew->addSteamPitcherPreset(pitcherName,
                                                 steam.value("durationSec").toInt(),
                                                 steam.value("flow").toInt(),
                                                 steam.value("temperatureC").toDouble());
-                    index = static_cast<int>(brew->steamPitcherPresets().size()) - 1;
+                    index = brew->steamPitcherCount() - 1;
                     qDebug() << "applyActivatedRecipe: recreated deleted pitcher" << pitcherName;
                 }
-                brew->setSelectedSteamCup(index);
+                overrideIndex = index;
             }
+            // Selects AND applies the pitcher's own duration/flow/temperature.
+            // This used to be a bare setSelectedSteamCup(), which stored the
+            // index without applying anything — so activating a recipe heated
+            // to whatever global temperature was last written rather than to
+            // its own pitcher's.
+            setRecipeSteamPitcherOverride(overrideIndex);
+
             const double milkG = steam.value("milkWeightG").toDouble();
             if (milkG > 0)
                 brew->setLastSteamMilkG(milkG);
         }
 
-        // Cache before the heater derivation below: sendMachineSettings
-        // reads activeRecipeHasMilk() from this cache. Safe — the watchers
-        // are still behind the m_applyingRecipe guard.
+        // Cache before the re-resolve below: SteamHeaterPolicy pulls
+        // activeRecipeHasMilk() from this cache. Safe — the watchers are still
+        // behind the m_applyingRecipe guard.
         m_activeRecipe = recipe;
         m_activeRecipe.insert(QStringLiteral("resolvedBagId"), linkedBagId);
 
-        // Heater intent derives from hasMilk — no new setting. The steam
-        // heater takes 5-9 MINUTES to warm, so a milk recipe HOLDS the
-        // heater on for as long as it is active and the machine is awake:
-        // sendMachineSettings treats an active milk recipe like
-        // keepSteamHeaterOn, so every later settings re-send (wake,
-        // reconnect, edits) keeps it warm. A milk-less recipe returns the
-        // heater to the user's baseline. Never fights an explicit keep-on.
-        // Profile-less (hot-water) recipes never take the hold — hot water
-        // needs no pre-warm, and activeRecipeHasMilk() mirrors this rule so
-        // later sendMachineSettings re-sends don't re-assert it either.
-        if (steam.value("hasMilk").toBool() && !profileLess)
-            startSteamHeating(QStringLiteral("recipe-activated"));
-        else
-            applySteamSettings();
+        // Activation does NOT grant permission — it only changes the inputs the
+        // policy resolves from (the recipe, and the pitcher selected above).
+        // Users park a recipe as the machine's resting state between drinks, so
+        // "a milk recipe is selected" is a stale signal for "milk is coming";
+        // Let the recipe decide cashes in at SHOT START instead. This used to
+        // call startSteamHeating(), which lit the boiler for a latte selected
+        // hours before anyone wanted one.
+        applySteamSettings();
 
         // Hot-water block (Americano): opt-in, vessel-carried. Re-select the
         // snapshotted vessel by name so its values become the live hot-water
@@ -2148,7 +2257,6 @@ bool MainController::yieldIsRealOverride() const {
 }
 
 void MainController::deactivateRecipe() {
-    const bool hadMilk = activeRecipeHasMilk();
     // Drop any in-flight self-write count with the recipe it belonged to —
     // its echo would otherwise land with no active recipe and leak the count.
     m_pendingRecipeSelfWrites = 0;
@@ -2160,11 +2268,15 @@ void MainController::deactivateRecipe() {
         m_activeRecipe.clear();
         emit activeRecipeChanged();
     }
-    // Leaving a milk recipe releases the heater hold: re-send settings so
-    // the heater returns to the user's baseline (keep-on users stay warm,
-    // eco users go cold).
-    if (hadMilk)
-        applySteamSettings();
+    // Unwind any pitcher override back to the user's standing selection. This
+    // also re-sends the settings, so the applySteamSettings() below is only
+    // reached when there was no override to unwind.
+    setRecipeSteamPitcherOverride(SettingsBrew::NoStandingPitcher);
+    // The recipe is one of the policy's inputs in BOTH directions — leaving a
+    // milk recipe drops a permission, leaving an espresso drops a VETO — so
+    // re-resolve unconditionally. The BLE layer dedups an unchanged payload, so
+    // the redundant case costs nothing on the wire.
+    applySteamSettings();
 }
 
 void MainController::loadAutoLoadRecipeIfNeeded() {
@@ -2229,7 +2341,14 @@ QString MainController::currentSteamSpecJson() const {
             o.insert("hasMilk", active.value("hasMilk"));
     }
     const QVariantMap pitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
-    if (!pitcher.isEmpty() && !pitcher.value("disabled").toBool()) {
+    if (pitcher.value("disabled").toBool()) {
+        // "Heater off" is a CHOICE and has to be recorded as one. Dropping it —
+        // which is what this did, because the built-in carries no name or values
+        // worth snapshotting — made it indistinguishable from a recipe that
+        // names no pitcher, so a drink saved with the heater deliberately off
+        // reopened as one that had simply never been asked.
+        o.insert("heaterOff", true);
+    } else if (!pitcher.isEmpty()) {
         o.insert("pitcherName", pitcher.value("name").toString());
         o.insert("durationSec", pitcher.value("duration").toInt());
         o.insert("flow", pitcher.value("flow").toInt());
@@ -2562,40 +2681,12 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
 void MainController::sendMachineSettings(const QString& reason) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    // Determine steam temperature to send:
-    // - If the currently selected steam preset is an "Off" pill: send 0
-    //   (matches de1app's persistent steam_disabled behavior — target 0 is
-    //   pushed so the DE1 firmware can still honor GHC presses with no
-    //   steam produced.)
-    // - If steam is disabled (session flag): send 0
-    // - If keepSteamHeaterOn is false: send 0 (user doesn't want heater on)
-    // - Otherwise: send configured temperature
-    //
-    // Rationalization: if the user has selected a non-Off preset, the session
-    // flag is stale (set by a previous turnOffSteamHeater call on a prior Off
-    // selection). The preset is the authoritative user intent — clear the
-    // flag so downstream code sees a consistent state. Without this, IdlePage
-    // / SteamItem applySteamSettings paths (which don't call startSteamHeating)
-    // would leave the flag set and the heater off until the user opened
-    // SteamPage.
-    const QVariantMap currentPitcher = m_settings->brew()->getSteamPitcherPreset(m_settings->brew()->selectedSteamPitcher());
-    const bool currentPitcherDisabled = currentPitcher.value("disabled").toBool();
-    if (!currentPitcherDisabled && m_settings->brew()->steamDisabled()) {
-        m_settings->brew()->setSteamDisabled(false);
-    }
-    double steamTemp;
-    if (currentPitcherDisabled || m_settings->brew()->steamDisabled()) {
-        steamTemp = 0.0;
-    } else if (!m_settings->brew()->keepSteamHeaterOn() && !activeRecipeHasMilk()) {
-        // The steam heater needs 5-9 MINUTES to come up to temperature, so a
-        // milk recipe must HOLD the heater on for as long as it is active and
-        // the machine is awake (add-recipes) — a one-time warm at activation
-        // would be undone by the next settings re-send for keep-heater-off
-        // users, and warming at steam time would mean a long wait.
-        steamTemp = 0.0;
-    } else {
-        steamTemp = m_settings->brew()->steamTemperature();
-    }
+    // Resolved, never derived here — SteamHeaterPolicy is the only place the
+    // rule lives, and this function is a SEND path: it must not mutate the
+    // inputs it is about to read. (It used to clear a stale session flag inline,
+    // which put a second, invisible piece of the rule in the sender. The flag is
+    // now cleared where the user expresses the intent — selectSteamPitcher.)
+    const double steamTemp = m_steamHeaterPolicy->commandedTemperatureC();
 
     double groupTemp = getGroupTemperature();
     qDebug() << "sendMachineSettings: steam=" << steamTemp << "°C, groupTemp=" << groupTemp << "°C";
@@ -2625,6 +2716,61 @@ void MainController::sendMachineSettings(const QString& reason) {
     // 4. Flush timeout MMR (value × 10)
     int secondsValue = static_cast<int>(m_settings->brew()->flushSeconds() * 10);
     m_device->writeMMR(0x803848, secondsValue, mmrReason);
+}
+
+void MainController::selectSteamPitcher(int index, double milkFallbackG) {
+    if (!m_settings) return;
+    auto* brew = m_settings->brew();
+
+    brew->setSelectedSteamCup(index);
+
+    // Net milk on the scale now; the caller's fallback otherwise. This is the one
+    // part that legitimately differs per surface, which is why it is resolved
+    // here and the values themselves are applied by SettingsBrew.
+    double milk = 0.0;
+    if (m_machineState && m_machineState->scale() && !m_machineState->scale()->isFlowScale())
+        milk = brew->netMilkForPitcher(index, m_machineState->scaleWeight());
+    if (milk <= 0.0)
+        milk = milkFallbackG;
+
+    // Selecting a pitcher never GRANTS permission — the row says what the user
+    // would steam with, not whether the boiler runs. Selecting "Heater off" IS
+    // the veto (the policy reads the effective pitcher), so it needs no
+    // transient flag; setting one here would outlive the selection and keep the
+    // heater cold after the user picked a real pitcher again. It does end any
+    // steam event in progress, which is the one thing a tap on it must do.
+    if (brew->applySteamPitcherValues(index, milk) == SettingsBrew::PitcherApply::HeaterOff) {
+        m_steamHeaterPolicy->setEventPermission(false);
+    } else {
+        // Picking a real pitcher REMOVES the transient veto — otherwise a
+        // turnOffSteamHeater() from a previous session would keep the boiler
+        // cold through every later selection, with nothing on screen to explain
+        // it. It grants nothing: what happens next is still the policy's call.
+        brew->setSteamDisabled(false);
+    }
+    applySteamSettings();
+}
+
+void MainController::setRecipeSteamPitcherOverride(int index) {
+    if (!m_settings) return;
+    auto* brew = m_settings->brew();
+
+    if (index != SettingsBrew::NoStandingPitcher) {
+        // Park the standing selection the first time a recipe overrides it. The
+        // guard is what makes recipe-to-recipe switching safe: without it, the
+        // second activation would park the FIRST recipe's pitcher as if the user
+        // had chosen it, and deactivating would restore a drink, not a setting.
+        if (brew->standingSteamPitcher() == SettingsBrew::NoStandingPitcher)
+            brew->setStandingSteamPitcher(brew->selectedSteamPitcher());
+        selectSteamPitcher(index);
+        return;
+    }
+
+    const int standing = brew->standingSteamPitcher();
+    if (standing == SettingsBrew::NoStandingPitcher)
+        return;  // no override was ever applied — nothing to unwind
+    brew->setStandingSteamPitcher(SettingsBrew::NoStandingPitcher);
+    selectSteamPitcher(standing);
 }
 
 void MainController::applySteamSettings() {
@@ -3340,6 +3486,19 @@ double MainController::getGroupTemperature() const {
     return m_profileManager->currentProfile().espressoTemperature();
 }
 
+void MainController::pushShotSettings(double steamTempC, const QString& reason) {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    m_device->setShotSettings(
+        steamTempC,
+        m_settings->brew()->steamTimeout(),
+        m_settings->brew()->waterTemperature(),
+        m_settings->brew()->effectiveHotWaterVolume(),
+        getGroupTemperature(),
+        reason
+    );
+}
+
 void MainController::setSteamTemperatureImmediate(double temp) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
@@ -3350,122 +3509,56 @@ void MainController::setSteamTemperatureImmediate(double temp) {
         m_settings->brew()->setSteamDisabled(false);
     }
 
-    double groupTemp = getGroupTemperature();
-
-    // Send all shot settings with updated temperature
-    m_device->setShotSettings(
-        temp,
-        m_settings->brew()->steamTimeout(),
-        m_settings->brew()->waterTemperature(),
-        m_settings->brew()->effectiveHotWaterVolume(),
-        groupTemp,
-        QStringLiteral("setSteamTemperatureImmediate")
-    );
+    // Resolved, not `temp`: with the heater off, moving the target temperature
+    // stores the new value without waking the boiler. The old code sent `temp`
+    // straight through, so nudging the slider was an undocumented second way to
+    // turn the heater on.
+    pushShotSettings(m_steamHeaterPolicy->commandedTemperatureC(),
+                     QStringLiteral("setSteamTemperatureImmediate"));
 
     qDebug() << "Steam temperature set to:" << temp;
 }
 
-void MainController::sendSteamTemperature(double temp) {
-    // File-based logging for debugging when not connected to console
-    auto logToFile = [](const QString& msg) {
-        QString logPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/steam_debug.log";
-        QFile file(logPath);
-        if (file.open(QIODevice::Append | QIODevice::Text)) {
-            QTextStream out(&file);
-            out << QDateTime::currentDateTime().toString("hh:mm:ss.zzz") << " " << msg << "\n";
-            file.close();
-        }
-    };
+void MainController::startSteamHeating(const QString& reason) {
+    if (!m_settings) return;
 
-    logToFile(QString("sendSteamTemperature called with temp=%1").arg(temp));
-    qDebug() << "sendSteamTemperature:" << temp << "°C";
+    // An explicit steam action. Clear the transient veto and grant event
+    // permission, then send what the policy resolves — which is now on, because
+    // event permission outranks the remaining veto (a "Heater off" selection).
+    m_settings->brew()->setSteamDisabled(false);
+    m_steamHeaterPolicy->setEventPermission(true);
 
-    // Update steamDisabled flag based on temperature
-    // 0°C means disabled, any other temp means enabled
-    if (m_settings) {
-        m_settings->brew()->setSteamDisabled(temp == 0);
-    }
+    const QString tag = reason.isEmpty() ? QStringLiteral("startSteamHeating") : reason;
+    const double steamTemp = m_steamHeaterPolicy->commandedTemperatureC();
+    pushShotSettings(steamTemp, tag);
 
-    if (!m_device) {
-        logToFile("ERROR: No device");
-        return;
-    }
-    if (!m_device->isConnected()) {
-        logToFile("ERROR: Device not connected");
-        return;
-    }
-    if (!m_settings) {
-        logToFile("ERROR: No settings");
-        return;
-    }
+    // Steam flow rides along — it is part of the same steam spec.
+    if (m_device && m_device->isConnected())
+        m_device->writeMMR(0x803828, m_settings->brew()->steamFlow(), tag);
 
-    double groupTemp = getGroupTemperature();
-
-    logToFile(QString("Sending: steamTemp=%1 timeout=%2 waterTemp=%3 waterVol=%4 groupTemp=%5")
-              .arg(temp)
-              .arg(m_settings->brew()->steamTimeout())
-              .arg(m_settings->brew()->waterTemperature())
-              .arg(m_settings->brew()->effectiveHotWaterVolume())
-              .arg(groupTemp));
-
-    // Send to machine without saving to settings (for enable/disable toggle)
-    m_device->setShotSettings(
-        temp,
-        m_settings->brew()->steamTimeout(),
-        m_settings->brew()->waterTemperature(),
-        m_settings->brew()->effectiveHotWaterVolume(),
-        groupTemp,
-        QStringLiteral("sendSteamTemperature")
-    );
-
-    logToFile("Command queued successfully");
+    qDebug() << "Started steam heating to" << steamTemp << "°C from" << tag;
 }
 
-void MainController::startSteamHeating(const QString& reason) {
-    if (!m_device || !m_device->isConnected() || !m_settings) return;
-
-    // Clear steamDisabled flag - we're explicitly starting steam heating
-    m_settings->brew()->setSteamDisabled(false);
-
-    // Always send the configured steam temperature
-    double steamTemp = m_settings->brew()->steamTemperature();
-
-    double groupTemp = getGroupTemperature();
-
-    m_device->setShotSettings(
-        steamTemp,
-        m_settings->brew()->steamTimeout(),
-        m_settings->brew()->waterTemperature(),
-        m_settings->brew()->effectiveHotWaterVolume(),
-        groupTemp,
-        reason.isEmpty() ? QStringLiteral("startSteamHeating") : reason
-    );
-
-    // Also send steam flow via MMR
-    m_device->writeMMR(0x803828, m_settings->brew()->steamFlow(),
-                       QStringLiteral("startSteamHeating"));
-
-    qDebug() << "Started steam heating to" << steamTemp << "°C"
-             << "from" << (reason.isEmpty() ? QStringLiteral("<unspecified>") : reason);
+void MainController::releaseSteamEventPermission() {
+    if (!m_steamHeaterPolicy) return;
+    m_steamHeaterPolicy->setEventPermission(false);
+    // Re-resolve rather than sending 0: a user with Keep warm when idle on, or
+    // a milk recipe still under way, keeps the boiler. The QML used to send 0
+    // unconditionally here, which is what made steaming once turn the heater
+    // off for a keep-warm user.
+    pushShotSettings(m_steamHeaterPolicy->commandedTemperatureC(),
+                     QStringLiteral("steam-event-ended"));
 }
 
 void MainController::turnOffSteamHeater() {
-    if (!m_device || !m_device->isConnected() || !m_settings) return;
+    if (!m_settings) return;
 
-    // Set steamDisabled flag - this ensures consistent state management
+    // The transient veto, and the end of any steam event that was overriding it.
     m_settings->brew()->setSteamDisabled(true);
+    m_steamHeaterPolicy->setEventPermission(false);
 
-    double groupTemp = getGroupTemperature();
-
-    // Send 0°C to turn off steam heater
-    m_device->setShotSettings(
-        0.0,
-        m_settings->brew()->steamTimeout(),
-        m_settings->brew()->waterTemperature(),
-        m_settings->brew()->effectiveHotWaterVolume(),
-        groupTemp,
-        QStringLiteral("turnOffSteamHeater")
-    );
+    pushShotSettings(m_steamHeaterPolicy->commandedTemperatureC(),
+                     QStringLiteral("turnOffSteamHeater"));
 
     qDebug() << "Turned off steam heater (steamDisabled=true)";
 }
@@ -3552,6 +3645,16 @@ void MainController::onEspressoCycleStarted() {
     // its own stopReason to "" on shotStarted; this is belt-and-suspenders
     // and independent of QML/C++ signal ordering.)
     m_pendingStopReason.clear();
+
+    // Shot start is where Let the recipe decide cashes in. The user is making
+    // the drink NOW, so a recipe that steams gets its heater warming while the
+    // espresso pours. Deliberately NOT at recipe activation: users park a
+    // recipe as the machine's resting state, so a selected latte says nothing
+    // about when milk is wanted — see applyActivatedRecipe().
+    if (m_settings && m_settings->brew()->letRecipeDecide()
+        && m_steamHeaterPolicy && m_steamHeaterPolicy->activeRecipeWantsSteam()) {
+        startSteamHeating(QStringLiteral("shot-start-recipe-steams"));
+    }
 
     // Safety check: abort shot if user has a saved scale but it's not connected,
     // AND the current profile actually uses weight (stop-at-weight or frame exit weights).

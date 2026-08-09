@@ -5,6 +5,7 @@
 #include "machine/machinestate.h"
 #include "core/settings.h"
 #include "controllers/profilemanager.h"
+#include "controllers/steamheaterpolicy.h"
 #include "mcp/mcptoolregistry.h"
 
 #include <memory>
@@ -86,12 +87,17 @@ struct McpTestFixture {
     // and may have stale favorites/currentProfile in real QSettings from the dev machine.
     // Filter must be declared before profileManager so it is constructed first and destroyed last.
     ScopedWarningFilter constructionFilter{"Profile not found|Failed to load profile knowledge|refreshProfiles: .*stale|Settings: addFavoriteProfile|Settings: removeFavoriteProfile"};
+    // The steam-heater target's single derivation, handed to ProfileManager
+    // explicitly so a test can drive it (grant event permission, set a recipe
+    // intent) and observe what the profile upload puts on the wire. Without it
+    // ProfileManager builds a private one no test can reach.
+    SteamHeaterPolicy steamHeaterPolicy{&settings};
     ProfileManager profileManager;
     McpToolRegistry registry;
 
     McpTestFixture()
         : machineState(&device)
-        , profileManager(&settings, &device, &machineState)
+        , profileManager(&settings, &device, &machineState, nullptr, &steamHeaterPolicy)
     {
         device.setTransport(&transport);
         // Point profile storage at temp dir so tests don't touch real profiles

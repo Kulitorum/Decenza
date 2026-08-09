@@ -33,22 +33,19 @@ T.Page {
     StackView.onActivated: {
         if (!isSteaming) {
             var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+            // Re-apply the selected pitcher through the one shared implementation
+            // rather than re-deriving its flow/temperature/duration here, which is
+            // what this handler used to do — a fourth copy of the same operation.
+            MainController.selectSteamPitcher(Settings.brew.selectedSteamPitcher,
+                                              steamPage.lastOnScaleMilk)
             if (preset && preset.disabled) {
-                // Selected preset is an "Off" pill — leave the heater off rather
-                // than kicking it on as the page activates. Don't forceActiveFocus
-                // on the hidden duration slider; let the first visible interactive
-                // element (the pill row) take default focus.
-                MainController.turnOffSteamHeater()
+                // "Heater off" is selected — leave the heater off rather than
+                // kicking it on as the page activates, and don't forceActiveFocus
+                // the hidden duration slider; let the pill row take default focus.
             } else {
-                // Sync Settings with selected preset
-                steamPage.syncSteamTimeout()
-                Settings.brew.steamFlow = getCurrentPitcherFlow()
-                Settings.brew.steamTemperature = getCurrentPitcherTemperature()
-                // steamTempSlider.value re-derives from Settings.brew.steamTemperature
-                // via its cToDisplay binding — no imperative write (that would freeze
-                // the binding at an untagged display-unit snapshot).
-                // Start heating steam heater (ignores keepSteamHeaterOn - user wants to steam)
-                // startSteamHeating clears steamDisabled flag automatically
+                // Opening this page is a deliberate "I want to steam", so it grants
+                // permission even when the settings would otherwise keep the heater
+                // cold. startSteamHeating clears the transient steam-off flag.
                 MainController.startSteamHeating("steampage-activated")
                 durationSlider.forceActiveFocus()
             }
@@ -95,6 +92,18 @@ T.Page {
 
     // Check if steam heater needs heating
     readonly property real currentSteamTemp: DE1Device.steamTemperature
+    // Resolved state, not the measured temperature — a boiler that was switched
+    // off minutes ago still reads hot on its way down.
+    readonly property bool steamHeaterOff: !MainController.steamHeaterOn
+    readonly property string heaterOffLabel: SteamLabels.offReadout
+    // The bare current-temperature readout, and the "current / target" pair.
+    readonly property string currentSteamTempText:
+        steamPage.steamHeaterOff ? steamPage.heaterOffLabel
+                                 : Theme.formatTemperature(steamPage.currentSteamTemp, 0)
+    readonly property string steamTempPairText:
+        steamPage.steamHeaterOff ? steamPage.heaterOffLabel
+                                 : Theme.formatTemperature(steamPage.currentSteamTemp, 0) + " / "
+                                   + Theme.formatTemperature(steamPage.targetSteamTemp, 0)
     readonly property real targetSteamTemp: Settings.brew.steamTemperature
     readonly property bool isHeatingUp: !isSteaming && currentSteamTemp < (targetSteamTemp - 5)  // 5°C tolerance
 
@@ -205,10 +214,10 @@ T.Page {
                 // Discard +5s/-5s adjustments made during this session so the
                 // next one starts from the pitcher preset.
                 //
-                // When keepSteamHeaterOn=false the sendSteamTemperature(0) call
+                // When keepWarmWhenIdle=false the sendSteamTemperature(0) call
                 // below re-writes ShotSettings with the reset timeout as a side
                 // effect (it reads Settings.brew.steamTimeout after the assignment),
-                // so the DE1 is in sync immediately. When keepSteamHeaterOn=true
+                // so the DE1 is in sync immediately. When keepWarmWhenIdle=true
                 // the reset just persists to Settings; the next session's
                 // onStateChanged->startSteamHeating picks it up and writes it
                 // (the DE1's commanded state between sessions is idle anyway,
@@ -225,10 +234,10 @@ T.Page {
                 steamPage.lastOnScaleMilk = 0
                 steamPage.syncSteamTimeout()
                 Settings.brew.steamFlow = getCurrentPitcherFlow()
-                if (!Settings.brew.keepSteamHeaterOn) {
-                    console.log("SteamPage: Turning off steam heater (keepSteamHeaterOn=false)")
-                    MainController.sendSteamTemperature(0)  // also sets steamDisabled=true
-                }
+                // The steam event is over. Releasing the permission re-resolves —
+                // it does not force the heater off, so a keep-warm user or an
+                // active milk recipe still keeps the boiler.
+                MainController.releaseSteamEventPermission()
             }
             wasSteaming = false
         }
@@ -267,8 +276,8 @@ T.Page {
     }
 
     function getCurrentPitcherName() {
-        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        return preset ? preset.name : ""
+        return SteamLabels.pitcherName(
+            Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher))
     }
 
     function isCurrentPitcherDisabled() {
@@ -659,7 +668,7 @@ T.Page {
                             activeFocusOnTab: true
                             Accessible.role: Accessible.Button
                             Accessible.name: {
-                                var label = livePitcherPill.modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
+                                var label = SteamLabels.pitcherName(livePitcherPill.modelData) + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
                                 if (livePitcherPill.pitcherDisabled)
                                     label += ", " + TranslationManager.translate("steam.accessibility.presetOff", "turns steam heater off")
                                 var pitcherWt = livePitcherPill.modelData.pitcherWeightG ?? 0
@@ -722,7 +731,7 @@ T.Page {
                             Text {
                                 id: livePitcherText
                                 anchors.centerIn: parent
-                                text: livePitcherPill.modelData.name
+                                text: SteamLabels.pitcherName(livePitcherPill.modelData)
                                 color: livePitcherPill.pitcherSelected
                                     ? Theme.primaryContrastColor
                                     : (livePitcherPill.pitcherDisabled ? Theme.textSecondaryColor : Theme.textColor)
@@ -737,19 +746,14 @@ T.Page {
                                     // Off pills are hidden during steaming (visible binding
                                     // above), so ignore any tap that slips through mid-session.
                                     if (steamPage.isSteaming && livePitcherPill.pitcherDisabled) return
-                                    Settings.brew.selectedSteamPitcher = livePitcherPill.index
-                                    if (livePitcherPill.pitcherDisabled) {
-                                        MainController.turnOffSteamHeater()
-                                        return
-                                    }
-                                    var flow = livePitcherPill.modelData.flow !== undefined ? livePitcherPill.modelData.flow : 150
-                                    // Compute the (weight-scaled) target ONCE and use it for both the
-                                    // persisted Settings value and the value pushed to the DE1, so the
-                                    // UI countdown target and the firmware TargetSteamLength agree.
-                                    var targetTimeout = Settings.brew.effectiveSteamDurationSec(
-                                        Settings.brew.selectedSteamPitcher, steamPage.currentMeasuredMilk())
-                                    Settings.brew.steamTimeout = targetTimeout
-                                    Settings.brew.steamFlow = flow
+                                    // The shared select-and-apply. It writes steamTimeout
+                                    // and steamFlow, so read them back rather than
+                                    // recomputing — recomputing is how the copies drifted.
+                                    MainController.selectSteamPitcher(livePitcherPill.index,
+                                                                      steamPage.currentMeasuredMilk())
+                                    if (livePitcherPill.pitcherDisabled) return
+                                    var flow = Settings.brew.steamFlow
+                                    var targetTimeout = Settings.brew.steamTimeout
                                     if (!steamPage.isSteaming) {
                                         MainController.startSteamHeating("live-pitcher-click")
                                     } else {
@@ -969,7 +973,7 @@ T.Page {
                         // Show temperature during heating, countdown during puffing, time during steaming
                         text: {
                             if (steamPage.isSteamHeating) {
-                                return Theme.formatTemperature(steamPage.currentSteamTemp, 0) + " / " + Theme.formatTemperature(steamPage.targetSteamTemp, 0)
+                                return steamPage.steamTempPairText
                             } else if (steamPage.isPuffing && AppShell.steamAutoFlushCountdown > 0) {
                                 return AppShell.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
                             } else {
@@ -1136,7 +1140,7 @@ T.Page {
                     Text {
                         text: {
                             if (steamPage.isSteamHeating) {
-                                return Theme.formatTemperature(steamPage.currentSteamTemp, 0) + " / " + Theme.formatTemperature(steamPage.targetSteamTemp, 0)
+                                return steamPage.steamTempPairText
                             } else if (steamPage.isPuffing && AppShell.steamAutoFlushCountdown > 0) {
                                 return AppShell.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
                             } else {
@@ -1156,7 +1160,7 @@ T.Page {
                     }
 
                     Text {
-                        text: Theme.formatTemperature(steamPage.currentSteamTemp, 0)
+                        text: steamPage.currentSteamTempText
                         color: Theme.temperatureColor
                         font: Theme.subtitleFont
                         Accessible.ignored: true
@@ -1361,7 +1365,7 @@ T.Page {
 
                     // Temperature display
                     Text {
-                        text: Theme.cToDisplay(steamPage.currentSteamTemp).toFixed(0) + " / " + Theme.formatTemperature(steamPage.targetSteamTemp, 0)
+                        text: steamPage.steamTempPairText
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(14)
                     }
@@ -1426,26 +1430,22 @@ T.Page {
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     function applyPitcher(reason) {
-                                        Settings.brew.selectedSteamPitcher = pitcherDelegate.itemIndex
-                                        if (pitcherPill.pitcherDisabled) {
-                                            MainController.turnOffSteamHeater()
+                                        // Select + apply through the one shared implementation,
+                                        // then read the sliders back off Settings rather than
+                                        // recomputing the same values a second way.
+                                        MainController.selectSteamPitcher(pitcherDelegate.itemIndex,
+                                                                          steamPage.currentMeasuredMilk())
+                                        if (pitcherPill.pitcherDisabled)
                                             return
-                                        }
-                                        var flow = pitcherDelegate.modelData.flow !== undefined ? pitcherDelegate.modelData.flow : 150
-                                        durationSlider.value = pitcherDelegate.modelData.duration
-                                        flowSlider.value = flow
-                                        // Scaled-or-base resolved by the shared SettingsBrew helper,
-                                        // evaluated once so a fresh telemetry tick can't split the decision.
-                                        Settings.brew.steamTimeout = Settings.brew.effectiveSteamDurationSec(
-                                            Settings.brew.selectedSteamPitcher, steamPage.currentMeasuredMilk())
-                                        Settings.brew.steamFlow = flow
+                                        durationSlider.value = Settings.brew.steamTimeout
+                                        flowSlider.value = Settings.brew.steamFlow
                                         MainController.startSteamHeating(reason)
                                     }
 
                                     activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
                                     Accessible.name: {
-                                        var label = pitcherDelegate.modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
+                                        var label = SteamLabels.pitcherName(pitcherDelegate.modelData) + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
                                         if (pitcherDisabled)
                                             label += ", " + TranslationManager.translate("steam.accessibility.presetOff", "turns steam heater off")
                                         var pitcherWt = pitcherDelegate.modelData.pitcherWeightG ?? 0
@@ -1506,7 +1506,7 @@ T.Page {
                                     Text {
                                         id: pitcherText
                                         anchors.centerIn: parent
-                                        text: pitcherDelegate.modelData.name
+                                        text: SteamLabels.pitcherName(pitcherDelegate.modelData)
                                         color: pitcherPill.pitcherSelected
                                             ? Theme.primaryContrastColor
                                             : (pitcherPill.pitcherDisabled ? Theme.textSecondaryColor : Theme.textColor)
@@ -1988,7 +1988,7 @@ T.Page {
                                     onClicked: {
                                         var idx = Settings.brew.selectedSteamPitcher
                                         var preset = Settings.brew.getSteamPitcherPreset(idx)
-                                        var pName = preset ? (preset.name || "") : ""
+                                        var pName = SteamLabels.pitcherName(preset)
                                         if (savePitcherWeightBtn.isClear) {
                                             Settings.brew.setSteamPitcherWeight(idx, 0.0)
                                             steamPage.showPitcherToast(TranslationManager.translate(
@@ -2412,12 +2412,9 @@ T.Page {
         visible: !steamPage.isSteaming && !steamPage.steamSoftStopped && !steamPage.isSteamHeating && !steamPage.isPuffing
         title: steamPage.getCurrentPitcherName() || noPitcherText.text
         onBackClicked: {
-            // Turn off heater if keepSteamHeaterOn is false, otherwise keep it warm
-            if (!Settings.brew.keepSteamHeaterOn) {
-                MainController.sendSteamTemperature(0)  // This sets steamDisabled=true
-            } else {
-                MainController.applySteamSettings()
-            }
+            // Leaving the steam page ends the steam event; what happens to the
+            // boiler is the policy's call, not this button's.
+            MainController.releaseSteamEventPermission()
             AppShell.idleRequested()
         }
 
@@ -2633,7 +2630,6 @@ T.Page {
             Tr { id: addPitcherNamePlaceholder; key: "steam.placeholder.pitcherName"; fallback: "Pitcher name"; visible: false }
             Tr { id: addCancelButtonText; key: "steam.button.cancel"; fallback: "Cancel"; visible: false }
             Tr { id: addButtonText; key: "steam.button.add"; fallback: "Add"; visible: false }
-            Tr { id: addOffButtonText; key: "steam.button.addOff"; fallback: "Add Off"; visible: false }
 
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(280)
@@ -2676,33 +2672,16 @@ T.Page {
 
                 Item { Layout.fillWidth: true }
 
+                // No "Off" button here any more: every machine has one built-in
+                // "Heater off" entry in the pitcher row, so a user-created one
+                // would be a duplicate switch with its own name to keep track of.
                 AccessibleButton {
                     id: addCancelPitcherButton
                     text: addCancelButtonText.text
                     accessibleName: TranslationManager.translate("steam.cancelAddingPitcher", "Cancel adding new pitcher preset")
-                    KeyNavigation.tab: addPitcherOffButton
+                    KeyNavigation.tab: addPitcherConfirmButton
                     KeyNavigation.backtab: newPitcherName
                     onClicked: addPitcherDialog.close()
-                }
-
-                AccessibleButton {
-                    id: addPitcherOffButton
-                    text: addOffButtonText.text
-                    accessibleName: TranslationManager.translate("steam.addNewPitcherOff", "Add new preset that turns the steam heater off")
-                    enabled: newPitcherName.text.trim().length > 0
-                        && !Settings.brew.steamPitcherNameTaken(newPitcherName.text, -1)
-                    KeyNavigation.tab: addPitcherConfirmButton
-                    KeyNavigation.backtab: addCancelPitcherButton
-                    onClicked: {
-                        Keyboard.commit()
-                        if (newPitcherName.text.trim() !== "") {
-                            var presetCount = Settings.brew.steamPitcherPresets.length
-                            Settings.brew.addSteamPitcherPresetDisabled(newPitcherName.text.trim())
-                            Settings.brew.selectedSteamPitcher = presetCount
-                            newPitcherName.text = ""
-                            addPitcherDialog.close()
-                        }
-                    }
                 }
 
                 AccessibleButton {
@@ -2713,11 +2692,11 @@ T.Page {
                     enabled: newPitcherName.text.trim().length > 0
                         && !Settings.brew.steamPitcherNameTaken(newPitcherName.text, -1)
                     KeyNavigation.tab: newPitcherName
-                    KeyNavigation.backtab: addPitcherOffButton
+                    KeyNavigation.backtab: addCancelPitcherButton
                     onClicked: {
                         Keyboard.commit()
                         if (newPitcherName.text.trim() !== "") {
-                            var presetCount = Settings.brew.steamPitcherPresets.length
+                            var presetCount = Settings.brew.steamPitcherCount()
                             Settings.brew.addSteamPitcherPreset(newPitcherName.text.trim(), 30, 150, Settings.brew.steamTemperature)
                             // Selecting the new preset fires onSelectedSteamPitcherChanged,
                             // which loads its temperature into the slider/active temp.
@@ -2750,7 +2729,7 @@ T.Page {
             flowSlider.value = steamPage.getCurrentPitcherFlow()
             // Keep the active steam temperature in sync (not just the slider) when the
             // selected pitcher is edited from anywhere — e.g. via MCP — so a later
-            // applySteamSettings (back-navigation, keepSteamHeaterOn) pushes the
+            // applySteamSettings (back-navigation, keepWarmWhenIdle) pushes the
             // current value rather than a stale one.
             var temp = steamPage.getCurrentPitcherTemperature()
             // Slider re-derives from steamTemperature via its cToDisplay binding.

@@ -13,6 +13,7 @@ class Settings;
 class DE1Device;
 class MachineState;
 class ProfileStorage;
+class SteamHeaterPolicy;
 class QQmlEngine;
 class QJSEngine;
 
@@ -129,9 +130,15 @@ public:
     static void setQmlInstance(ProfileManager *instance);
     static ProfileManager *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
 
+    // `steamHeaterPolicy` is THE steam-target derivation (see steamheaterpolicy.h).
+    // Passing it is how uploadCurrentProfile() avoids re-deriving the steam
+    // temperature itself, which it used to do from an incomplete set of inputs.
+    // When omitted, one is created over the same Settings so there is still only
+    // ever one implementation of the rule.
     explicit ProfileManager(Settings* settings, DE1Device* device,
                            MachineState* machineState,
                            ProfileStorage* profileStorage = nullptr,
+                           SteamHeaterPolicy* steamHeaterPolicy = nullptr,
                            QObject* parent = nullptr);
 
     // === Profile state ===
@@ -539,6 +546,7 @@ private:
     Settings* m_settings = nullptr;
     DE1Device* m_device = nullptr;
     MachineState* m_machineState = nullptr;
+    SteamHeaterPolicy* m_steamHeaterPolicy = nullptr;
     ProfileStorage* m_profileStorage = nullptr;
 
     Profile m_currentProfile;

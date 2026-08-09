@@ -28,13 +28,19 @@ constexpr double kWaterFlowScale = 10.0;   // water preset "flowRate" is tenths 
 QJsonObject steamPitcherToJson(const QVariantMap& m, double globalTempC)
 {
     QJsonObject o;
-    o["name"] = m.value("name").toString();
     const bool disabled = m.value("disabled").toBool();
     if (disabled) {
-        // "Off" preset — heater stays off, so no duration/flow/temperature.
+        // The built-in "Heater off" entry: no duration/flow/temperature, because
+        // it does not steam. It carries no STORED name either — the app's views
+        // translate the label — so name it here rather than handing an MCP client
+        // a nameless row it cannot refer to or explain. English on purpose: this
+        // is a protocol surface, not UI text.
+        o["name"] = QStringLiteral("Heater off");
+        o["builtin"] = true;
         o["disabled"] = true;
         return o;
     }
+    o["name"] = m.value("name").toString();
     o["durationSec"] = m.value("duration").toInt();
     o["flowMlPerSec"] = m.value("flow").toDouble() / kSteamFlowScale;
     o["temperatureC"] = m.contains("temperature") ? m.value("temperature").toDouble() : globalTempC;
@@ -79,32 +85,24 @@ bool missingIndex(const QJsonObject& args, const QString& action, QJsonObject& r
 
 } // namespace
 
-void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController,
-                          MachineState* machineState)
+// machineState is gone from this signature: resolving the milk on the scale
+// moved into MainController::selectSteamPitcher with the rest of the shared
+// select, so this file no longer needs a machine at all.
+void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController)
 {
     // Apply a steam pitcher's stored parameters to the active steam settings and
     // push them to the machine — the non-UI equivalent of selecting the pitcher
     // on the Steam page. Used by select and by add (which auto-selects).
-    auto applySteamPitcher = [settings, mainController, machineState](int index) {
-        if (!settings) return;
-        const QVariantMap p = settings->brew()->getSteamPitcherPreset(index);
-        if (p.isEmpty()) return;  // out-of-range index returns an empty map
-        if (p.value("disabled").toBool()) {
-            if (mainController) mainController->turnOffSteamHeater();
-            return;
-        }
-        // Weight-scaled steaming: resolve scaled-or-base through the shared SettingsBrew
-        // helper (same as the UI preset taps) so an MCP pitcher select can't program an
-        // unscaled duration while the steam plan shows a scaled one. Net milk on the
-        // scale now; 0 (base duration) when no weighing scale is connected.
-        double milk = 0.0;
-        if (machineState && machineState->scale() && !machineState->scale()->isFlowScale())
-            milk = settings->brew()->netMilkForPitcher(index, machineState->scaleWeight());
-        settings->brew()->setSteamTimeout(settings->brew()->effectiveSteamDurationSec(index, milk));
-        settings->brew()->setSteamFlow(p.value("flow").toInt());
-        settings->brew()->setSteamTemperature(p.contains("temperature")
-            ? p.value("temperature").toDouble() : settings->brew()->steamTemperature());
-        if (mainController) mainController->applySteamSettings();
+    // ONE function does this, and it is the same one the idle pill row, the
+    // Steam widget popup, the Steam page and recipe activation call. This lambda
+    // used to re-implement its tail — resolve the milk, apply the values,
+    // dispatch on the result — and that copy drifted the moment the shared one
+    // learned to clear the transient veto when a real pitcher is picked. The
+    // symptom on a live machine: selecting "Heater off" over MCP and then
+    // selecting a real pitcher left the boiler cold with nothing to explain it.
+    auto applySteamPitcher = [mainController](int index) {
+        if (mainController)
+            mainController->selectSteamPitcher(index);
     };
 
     // Likewise for a hot water vessel.
@@ -159,18 +157,23 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
                 result["error"] = "a steam pitcher named \"" + name + "\" already exists";
                 return result;
             }
+            // "Off" pitchers are no longer user-creatable: every install has one
+            // built-in "Heater off" entry. Say so rather than silently creating a
+            // normal pitcher, which would leave the caller believing it made a
+            // heater switch.
             if (args.value("disabled").toBool()) {
-                settings->brew()->addSteamPitcherPresetDisabled(name);
-            } else {
-                const int duration = args.contains("durationSec") ? args.value("durationSec").toInt() : 30;
-                const int flow = args.contains("flowMlPerSec")
-                    ? static_cast<int>(std::lround(args.value("flowMlPerSec").toDouble() * kSteamFlowScale)) : 150;
-                const double temp = args.contains("temperatureC")
-                    ? args.value("temperatureC").toDouble() : settings->brew()->steamTemperature();
-                settings->brew()->addSteamPitcherPreset(name, duration, flow, temp);
+                result["error"] = "heater-off pitchers cannot be created — every machine has a "
+                                  "built-in \"Heater off\" entry in the pitcher list; select that instead";
+                return result;
             }
-            const int newIndex = static_cast<int>(settings->brew()->steamPitcherPresets().size()) - 1;
-            settings->brew()->setSelectedSteamCup(newIndex);
+            const int duration = args.contains("durationSec") ? args.value("durationSec").toInt() : 30;
+            const int flow = args.contains("flowMlPerSec")
+                ? static_cast<int>(std::lround(args.value("flowMlPerSec").toDouble() * kSteamFlowScale)) : 150;
+            const double temp = args.contains("temperatureC")
+                ? args.value("temperatureC").toDouble() : settings->brew()->steamTemperature();
+            settings->brew()->addSteamPitcherPreset(name, duration, flow, temp);
+            const int newIndex = settings->brew()->steamPitcherCount() - 1;
+            settings->brew()->setSelectedSteamCup(newIndex);   // see `select`
             applySteamPitcher(newIndex);
             result["success"] = true;
             result["selectedIndex"] = newIndex;
@@ -215,7 +218,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
             if (missingIndex(args, QStringLiteral("delete"), result)) return result;
             const int index = args.value("index").toInt();
-            if (!indexInRange(index, settings->brew()->steamPitcherPresets().size())) {
+            if (!indexInRange(index, settings->brew()->steamPitcherCount())) {
                 result["error"] = "index out of range"; return result;
             }
             settings->brew()->removeSteamPitcherPreset(index);
@@ -230,13 +233,30 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
             if (missingIndex(args, QStringLiteral("select"), result)) return result;
             const int index = args.value("index").toInt();
-            if (!indexInRange(index, settings->brew()->steamPitcherPresets().size())) {
+            // SELECT accepts the built-in "Heater off" entry; the mutating verbs
+            // above do not. `list` returns it one past the last real preset, so
+            // a client that reads a row and selects it by position must be able
+            // to select THAT row — the count-only check listed an entry it then
+            // refused, which is a surface that contradicts itself. The sentinel
+            // is accepted too, for callers that know it.
+            const bool builtInHeaterOff =
+                index == SettingsBrew::HeaterOffPitcherIndex
+                || index == settings->brew()->steamPitcherCount();
+            if (!builtInHeaterOff && !indexInRange(index, settings->brew()->steamPitcherCount())) {
                 result["error"] = "index out of range"; return result;
             }
-            settings->brew()->setSelectedSteamCup(index);
-            applySteamPitcher(index);
+            const int selection = builtInHeaterOff ? SettingsBrew::HeaterOffPitcherIndex : index;
+            // Store the selection here as well as inside the shared select. The
+            // write is idempotent (setSelectedSteamCup early-returns when
+            // unchanged), and it keeps the tool's reported selectedIndex TRUE in
+            // a context with no controller — headless, or a test — rather than
+            // reporting a selection it merely delegated. What must not be
+            // duplicated is the RULE (which values, which vetoes); a single
+            // idempotent assignment is not that.
+            settings->brew()->setSelectedSteamCup(selection);
+            applySteamPitcher(selection);
             result["success"] = true;
-            result["selectedIndex"] = index;
+            result["selectedIndex"] = selection;
             return result;
         }),
     };

@@ -16,12 +16,24 @@ LayoutWidgetItem {
     readonly property real currentTemp: DE1Device.steamTemperature
     readonly property real targetTemp: Settings.brew.steamTemperature
 
+    // The heater being off is NOT inferable from currentTemp: a boiler that was
+    // switched off five minutes ago still reads 130°. Ask the resolved state.
+    readonly property bool heaterOff: !MainController.steamHeaterOn
+    readonly property string offLabel: SteamLabels.offReadout
+    // What the readout shows: "Off" when the heater is off, the measured
+    // temperature otherwise, an em dash when there is no machine to read.
+    readonly property string readoutText: !DE1Device.connected ? "\u2014"
+                                        : (root.heaterOff ? root.offLabel
+                                                          : Theme.formatTemperature(root.currentTemp, 0))
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     Accessible.role: Accessible.StaticText
-    Accessible.name: "Steam temperature: " + Theme.cToDisplay(root.currentTemp).toFixed(0) +
-                     " degrees, target: " + Theme.cToDisplay(root.targetTemp).toFixed(0) + " degrees"
+    Accessible.name: root.heaterOff
+                     ? "Steam heater: " + root.offLabel
+                     : "Steam temperature: " + Theme.cToDisplay(root.currentTemp).toFixed(0) +
+                       " degrees, target: " + Theme.cToDisplay(root.targetTemp).toFixed(0) + " degrees"
     Accessible.focusable: true
 
     // --- COMPACT MODE (bar / status bar rendering) ---
@@ -48,7 +60,7 @@ LayoutWidgetItem {
             Text {
                 id: compactTemp
                 anchors.verticalCenter: parent.verticalCenter
-                text: DE1Device.connected ? Theme.formatTemperature(root.currentTemp, 0) : "\u2014"
+                text: root.readoutText
                 color: root.readoutColor
                 font: Theme.bodyFont
             }
@@ -59,9 +71,7 @@ LayoutWidgetItem {
             anchors.margins: -Theme.spacingSmall
             onClicked: {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                    AccessibilityManager.announceLabel(
-                        "Steam temperature: " + Theme.cToDisplay(root.currentTemp).toFixed(0) +
-                        " degrees, target: " + Theme.cToDisplay(root.targetTemp).toFixed(0) + " degrees")
+                    AccessibilityManager.announceLabel(root.Accessible.name)
                 }
             }
         }
@@ -92,7 +102,7 @@ LayoutWidgetItem {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: Theme.scaled(4)
                 Text {
-                    text: DE1Device.connected ? Theme.formatTemperature(root.currentTemp, 0) : "\u2014"
+                    text: root.readoutText
                     color: root.readoutColor
                     font: Theme.valueFont
                 }
@@ -117,9 +127,7 @@ LayoutWidgetItem {
             anchors.fill: parent
             onClicked: {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                    AccessibilityManager.announceLabel(
-                        "Steam temperature: " + Theme.cToDisplay(root.currentTemp).toFixed(0) +
-                        " degrees, target: " + Theme.cToDisplay(root.targetTemp).toFixed(0) + " degrees")
+                    AccessibilityManager.announceLabel(root.Accessible.name)
                 }
             }
         }

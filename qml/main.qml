@@ -526,9 +526,7 @@ T.ApplicationWindow {
     Connections {
         target: ProfileManager
         function onAutoLoadStaleCleared() {
-            autoLoadStaleToast.message = trAutoLoadStaleToast.text
-            autoLoadStaleToast.opacity = 1
-            autoLoadStaleToastTimer.restart()
+            autoLoadStaleToast.show(trAutoLoadStaleToast.text)
             if (AccessibilityManager.enabled) {
                 AccessibilityManager.announce(trAutoLoadStaleToast.text, true)
             }
@@ -542,9 +540,7 @@ T.ApplicationWindow {
     Connections {
         target: MainController
         function onAutoLoadRecipeStaleCleared() {
-            autoLoadStaleToast.message = trAutoLoadRecipeStaleToast.text
-            autoLoadStaleToast.opacity = 1
-            autoLoadStaleToastTimer.restart()
+            autoLoadStaleToast.show(trAutoLoadRecipeStaleToast.text)
             if (AccessibilityManager.enabled) {
                 AccessibilityManager.announce(trAutoLoadRecipeStaleToast.text, true)
             }
@@ -608,25 +604,24 @@ T.ApplicationWindow {
 
     // Detect when DE1 enters Steam state (even during heating/FinalHeating substate)
     // This clears steamDisabled BEFORE applySteamSettings runs, so GHC-initiated
-    // steaming works correctly even if keepSteamHeaterOn is false
+    // steaming works correctly even if keepWarmWhenIdle is false
     Connections {
         target: DE1Device
         function onStateChanged() {
             // DE1::State::Steam = 5
             if (DE1Device.state === 5) {
-                // Match de1app: if the currently selected steam preset is an "Off" pill,
-                // leave the heater target at 0 (already pushed via sendMachineSettings /
-                // turnOffSteamHeater). The DE1 still enters Steam state on GHC press, but
-                // with TargetSteamTemp=0 no steam is produced — consistent with the user's
-                // intent to keep the boiler off.
-                var currentPitcher = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-                var currentPitcherDisabled = currentPitcher && currentPitcher.disabled === true
-                if (currentPitcherDisabled) {
-                    console.log("DE1 entered Steam state but Off preset selected — heater stays off")
-                    MainController.turnOffSteamHeater()
-                } else {
-                    console.log("DE1 entered Steam state - starting heater, navigating to SteamPage")
-                    MainController.startSteamHeating("de1-state-steam")  // This clears steamDisabled flag
+                // The DE1 enters Steam in firmware on a GHC press and the app
+                // cannot refuse it, so steam it: event permission outranks a
+                // "Heater off" selection. That entry carries no values of its
+                // own, so the live settings — the last real pitcher's duration,
+                // flow and temperature — are what get used. Say so rather than
+                // silently substituting them.
+                console.log("DE1 entered Steam state - starting heater, navigating to SteamPage")
+                MainController.startSteamHeating("de1-state-steam")
+                if (Settings.brew.isHeaterOffPitcher(Settings.brew.selectedSteamPitcher)) {
+                    steamHeaterOffToast.show(trSteamHeaterOffSteaming.text)
+                    if (AccessibilityManager.enabled)
+                        AccessibilityManager.announce(trSteamHeaterOffSteaming.text)
                 }
                 // Navigate to SteamPage immediately so user sees heating progress
                 var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
@@ -864,11 +859,8 @@ T.ApplicationWindow {
                 AppShell.steamAutoFlushCountdown = 0
                 steamAutoFlushTimer.stop()
                 console.log("Steam auto-flush countdown complete, requesting Idle state")
-                // Turn off steam heater if keepSteamHeaterOn is false
-                if (!Settings.brew.keepSteamHeaterOn) {
-                    console.log("Auto-flush complete, turning off steam heater (keepSteamHeaterOn=false)")
-                    MainController.sendSteamTemperature(0)  // This sets steamDisabled=true
-                }
+                // The steam event is over — re-resolve rather than force off.
+                MainController.releaseSteamEventPermission()
                 if (DE1Device && DE1Device.connected) {
                     DE1Device.requestIdle()  // Triggers steam purge
                 }
@@ -3271,15 +3263,14 @@ T.ApplicationWindow {
             recipesUpgradeDialog.open()
         }
         function onRecipesUpgradeApplied(recipeName, starterRecipeFailed) {
-            root.recipesUpgradeToastText = starterRecipeFailed
+            var upgradeMessage = starterRecipeFailed
                 ? trRecipesUpgradeToastRecipeFailed.text
                 : (recipeName.length > 0
                     ? trRecipesUpgradeToastWithRecipe.text.arg(recipeName)
                     : trRecipesUpgradeToastLayoutOnly.text)
-            recipesUpgradeToast.opacity = 1
-            recipesUpgradeToastTimer.restart()
+            recipesUpgradeToast.show(upgradeMessage)
             if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce(root.recipesUpgradeToastText, starterRecipeFailed)
+                AccessibilityManager.announce(upgradeMessage, starterRecipeFailed)
             }
         }
     }
@@ -3301,41 +3292,18 @@ T.ApplicationWindow {
         fallback: "Layout updated · Couldn't create starter recipe"
         visible: false
     }
-    property string recipesUpgradeToastText: ""
+    StatusToast { id: recipesUpgradeToast }
 
-    Rectangle {
-        id: recipesUpgradeToast
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(40)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: recipesUpgradeToastLabel.implicitWidth + Theme.scaled(32)
-        height: recipesUpgradeToastLabel.implicitHeight + Theme.scaled(16)
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
-        opacity: 0
-        visible: opacity > 0
-        z: 600
-        Accessible.ignored: true
-
-        Behavior on opacity {
-            NumberAnimation { duration: 300 }
-        }
-
-        Text {
-            id: recipesUpgradeToastLabel
-            anchors.centerIn: parent
-            text: root.recipesUpgradeToastText
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(13)
-            Accessible.ignored: true
-        }
+    // Shown when the DE1 enters Steam with the built-in "Heater off" entry
+    // selected. That entry carries no values, so the live settings — the last
+    // real pitcher's — are what run. Explaining beats silently substituting.
+    Tr {
+        id: trSteamHeaterOffSteaming
+        key: "steam.toast.heaterOffSteaming"
+        fallback: "Heater off is selected — steaming with the last used pitcher settings"
+        visible: false
     }
-
-    Timer {
-        id: recipesUpgradeToastTimer
-        interval: 4000
-        onTriggered: recipesUpgradeToast.opacity = 0
-    }
+    StatusToast { id: steamHeaterOffToast }
 
     // Recipe relink toast (recipe-bag-lifecycle): every automatic recipe
     // move — roll-on-finish or wake-on-restock — is silent (no dialog, no
@@ -3347,13 +3315,12 @@ T.ApplicationWindow {
             // A bag with no roaster/coffee text would leave a dangling
             // "moved to " — fall back to a generic phrase.
             var bagName = targetBagName !== "" ? targetBagName : trRecipesRelinkBagFallback.text
-            root.recipesRelinkToastText = movedRecipeIds.length === 1
+            var relinkMessage = movedRecipeIds.length === 1
                 ? trRecipesRelinkOne.text.arg(bagName)
                 : trRecipesRelinkMany.text.arg(movedRecipeIds.length).arg(bagName)
-            recipesRelinkToast.opacity = 1
-            recipesRelinkToastTimer.restart()
+            recipesRelinkToast.show(relinkMessage)
             if (AccessibilityManager.enabled)
-                AccessibilityManager.announce(root.recipesRelinkToastText)
+                AccessibilityManager.announce(relinkMessage)
         }
     }
     Tr {
@@ -3374,41 +3341,7 @@ T.ApplicationWindow {
         fallback: "another bag"
         visible: false
     }
-    property string recipesRelinkToastText: ""
-
-    Rectangle {
-        id: recipesRelinkToast
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(40)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: recipesRelinkToastLabel.implicitWidth + Theme.scaled(32)
-        height: recipesRelinkToastLabel.implicitHeight + Theme.scaled(16)
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
-        opacity: 0
-        visible: opacity > 0
-        z: 600
-        Accessible.ignored: true
-
-        Behavior on opacity {
-            NumberAnimation { duration: 300 }
-        }
-
-        Text {
-            id: recipesRelinkToastLabel
-            anchors.centerIn: parent
-            text: root.recipesRelinkToastText
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(13)
-            Accessible.ignored: true
-        }
-    }
-
-    Timer {
-        id: recipesRelinkToastTimer
-        interval: 4000
-        onTriggered: recipesRelinkToast.opacity = 0
-    }
+    StatusToast { id: recipesRelinkToast }
 
     function maybeShowAutoRelaunchPrompt() {
         if (!MainController.updateChecker.shouldShowAutoRelaunchPrompt) return
@@ -3554,11 +3487,11 @@ T.ApplicationWindow {
             // Check if steaming just ended
             let wasSteamingBefore = (root.previousPhase === MachineState.Phase.Steaming)
             if (wasSteamingBefore && (phase === MachineState.Phase.Idle || phase === MachineState.Phase.Ready)) {
-                // Turn off steam heater if keepSteamHeaterOn is false
-                if (!Settings.brew.keepSteamHeaterOn) {
-                    console.log("Steaming ended, turning off steam heater (keepSteamHeaterOn=false)")
-                    MainController.sendSteamTemperature(0)  // This sets steamDisabled=true
-                }
+                // Back to Idle: the steam event's permission expires here. The
+                // policy decides what the boiler does next — this handler used to
+                // send 0 whenever Keep warm when idle was off, which fought the
+                // recipe permission and turned the heater off mid-milk-recipe.
+                MainController.releaseSteamEventPermission()
                 // Stop and reset auto-flush timer (steaming fully ended)
                 steamAutoFlushTimer.stop()
                 AppShell.steamAutoFlushCountdown = 0
@@ -4716,40 +4649,7 @@ T.ApplicationWindow {
     Tr { id: trAutoLoadStaleToast; key: "profileselector.toast.auto_load_stale"; fallback: "Auto-load profile is no longer available"; visible: false }
     Tr { id: trAutoLoadRecipeStaleToast; key: "recipes.toast.auto_load_stale"; fallback: "Auto-load recipe is no longer available"; visible: false }
 
-    Rectangle {
-        id: autoLoadStaleToast
-        property string message: trAutoLoadStaleToast.text
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(40)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: autoLoadStaleToastLabel.implicitWidth + Theme.scaled(32)
-        height: autoLoadStaleToastLabel.implicitHeight + Theme.scaled(16)
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
-        opacity: 0
-        visible: opacity > 0
-        z: 600
-        Accessible.ignored: true
-
-        Behavior on opacity {
-            NumberAnimation { duration: 300 }
-        }
-
-        Text {
-            id: autoLoadStaleToastLabel
-            anchors.centerIn: parent
-            text: autoLoadStaleToast.message
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(13)
-            Accessible.ignored: true
-        }
-    }
-
-    Timer {
-        id: autoLoadStaleToastTimer
-        interval: 4000
-        onTriggered: autoLoadStaleToast.opacity = 0
-    }
+    StatusToast { id: autoLoadStaleToast }
 
     // Surface storage errors to the user. Both ShotHistoryStorage::errorOccurred
     // and CoffeeBagStorage::errorOccurred previously had NO consumer, so every DB

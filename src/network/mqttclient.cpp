@@ -1058,19 +1058,23 @@ void MqttClient::publishState()
         publish(topicPath("profile_filename"), m_currentProfileFilename, true);
     }
 
-    // Steam mode: derive from Settings and current phase
-    // Per CLAUDE.md: steam is active in Ready/Steaming phases regardless of keepSteamHeaterOn
+    // Steam mode: the phase first, then the commanded target.
+    //
+    // Ready/Steaming report On regardless of settings because the firmware is
+    // running the heater in those phases whatever we last commanded — this
+    // topic reports what the MACHINE is doing. Everything below that is not a
+    // second derivation of the heater rule: it asks SteamHeaterPolicy, which is
+    // the only place that rule exists.
     QString steamMode;
+    auto* policy = m_mainController ? m_mainController->steamHeaterPolicy() : nullptr;
     if (!m_device || !m_settings || m_device->stateString() == "Sleep") {
-        steamMode = "Off";
-    } else if (m_settings->brew()->steamDisabled()) {
         steamMode = "Off";
     } else if (phase == "Ready" || phase == "Steaming") {
         steamMode = "On";
-    } else if (!m_settings->brew()->keepSteamHeaterOn()) {
+    } else if (!policy) {
         steamMode = "Off";
     } else {
-        steamMode = "On";
+        steamMode = policy->resolve().on ? "On" : "Off";
     }
     if (steamMode != m_lastPublishedSteamMode) {
         publish(topicPath("steam_mode"), steamMode, true);

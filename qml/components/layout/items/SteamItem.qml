@@ -139,10 +139,10 @@ LayoutWidgetItem {
             var names = []
             var selectedName = ""
             for (var i = 0; i < presets.length; ++i) {
-                names.push(presets[i].name)
+                names.push(SteamLabels.pitcherName(presets[i]))
             }
             if (Settings.brew.selectedSteamPitcher >= 0 && Settings.brew.selectedSteamPitcher < presets.length) {
-                selectedName = presets[Settings.brew.selectedSteamPitcher].name
+                selectedName = SteamLabels.pitcherName(presets[Settings.brew.selectedSteamPitcher])
             }
             var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -219,45 +219,20 @@ LayoutWidgetItem {
                 pillSuffixMaxWidth: Theme.scaled(60)
                 pillSuffixVersion: parent.popupSuffixVersion
 
-                // Live net-milk suffix — twin of the idle steam pill row's pillSuffixFn
-                // in IdlePage.qml (rationale documented there); keep in sync.
-                pillSuffixFn: function(index) {
-                    if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
-                    var preset = Settings.brew.steamPitcherPresets[index]
-                    if (!preset || preset.disabled) return ""
-                    var pitcherWeight = preset.pitcherWeightG ?? 0
-                    if (pitcherWeight <= 0) return ""
-                    var milkWeight = Math.max(0, MachineState.scaleWeight - pitcherWeight)
-                    return " (" + Math.round(milkWeight) + "g)"
-                }
+                pillSuffixFn: function(index) { return SteamLabels.pitcherPillSuffix(index) }
+                pillLabelFn: function(index, name) { return SteamLabels.pitcherPillLabel(index, name) }
 
                 onPresetSelected: function(index) {
                     var wasAlreadySelected = (index === Settings.brew.selectedSteamPitcher)
-                    Settings.brew.selectedSteamPitcher = index
                     var preset = Settings.brew.getSteamPitcherPreset(index)
+                    // Shared with the idle pill row, the Steam page and MCP; the
+                    // only per-surface difference is the milk fallback, which is
+                    // why that is the argument. Handles "Heater off" itself.
+                    MainController.selectSteamPitcher(index, AppShell.sessionMeasuredMilkG)
                     if (preset && preset.disabled) {
-                        // "Off" preset — disable the steam heater. Don't write
-                        // undefined preset.duration/flow into int Settings, and
-                        // don't start steam on re-tap.
-                        MainController.turnOffSteamHeater()
                         presetPopup.close()
-                        return
+                        return   // never start steam by re-tapping Heater off
                     }
-                    if (preset) {
-                        // Scaled-or-base resolved by the shared SettingsBrew helper — the
-                        // same helper the idle pill tap and steam-plan display use (their
-                        // milk FALLBACKS differ per surface) — so this popup can't program
-                        // an unscaled duration while the plan shows a scaled one. Net milk
-                        // on the scale now, else this session's captured milk.
-                        var milk = (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale)
-                                   ? Settings.brew.netMilkForPitcher(index, MachineState.scaleWeight) : 0
-                        if (milk <= 0)
-                            milk = AppShell.sessionMeasuredMilkG
-                        Settings.brew.steamTimeout = Settings.brew.effectiveSteamDurationSec(index, milk)
-                        Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
-                        Settings.brew.steamTemperature = (preset.temperature !== undefined) ? preset.temperature : Settings.brew.steamTemperature
-                    }
-                    MainController.applySteamSettings()
 
                     if (wasAlreadySelected) {
                         if (MachineState.isReady && root.canStartOperations) {

@@ -989,52 +989,21 @@ T.Page {
                         // read this. Deliberately NOT netMilkForPitcher(): its 50–1500 g
                         // window is sized for time scaling and would zero small amounts
                         // here. Twin of the SteamItem popup's pillSuffixFn — keep in sync.
-                        pillSuffixFn: function(index) {
-                            if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
-                            var preset = Settings.brew.steamPitcherPresets[index]
-                            if (!preset || preset.disabled) return ""
-                            var pitcherWeight = preset.pitcherWeightG ?? 0
-                            if (pitcherWeight <= 0) return ""
-                            var milkWeight = Math.max(0, MachineState.scaleWeight - pitcherWeight)
-                            return " (" + Math.round(milkWeight) + "g)"
-                        }
+                        pillSuffixFn: function(index) { return SteamLabels.pitcherPillSuffix(index) }
 
-                        // Show pitcher presets as "<name> Pitcher" (e.g. "Small Pitcher"),
-                        // skipping the disabled "Off" preset and any name that already
-                        // mentions a pitcher.
-                        pillLabelFn: function(index, name) {
-                            var preset = Settings.brew.steamPitcherPresets[index]
-                            if (preset && preset.disabled) return name
-                            if (!name || name.toLowerCase().indexOf("pitcher") >= 0) return name
-                            return name + " " + TranslationManager.translate("idle.label.pitcherSuffix", "Pitcher")
-                        }
+                        // "<name> Pitcher" (e.g. "Small Pitcher"), except where the
+                        // name already says pitcher and for the built-in entry.
+                        pillLabelFn: function(index, name) { return SteamLabels.pitcherPillLabel(index, name) }
 
                         onPresetSelected: function(index) {
                             var wasAlreadySelected = (index === Settings.brew.selectedSteamPitcher)
-                            Settings.brew.selectedSteamPitcher = index
                             var preset = Settings.brew.getSteamPitcherPreset(index)
-                            if (preset && preset.disabled) {
-                                // "Off" preset — disable the steam heater; don't touch
-                                // steamTimeout/steamFlow (preset.duration/flow are undefined
-                                // for disabled presets and writing undefined to these int
-                                // properties errors), and don't start steam on re-tap.
-                                MainController.turnOffSteamHeater()
-                                return
-                            }
-                            if (preset) {
-                                // Weight-scaled steaming (DSx2-style), via the single source of
-                                // truth in SettingsBrew. Net milk on the scale now, or the last
-                                // measured weight if the pitcher was lifted to the wand.
-                                var idx = Settings.brew.selectedSteamPitcher
-                                var milk = (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale)
-                                           ? Settings.brew.netMilkForPitcher(idx, MachineState.scaleWeight) : 0
-                                if (milk <= 0)
-                                    milk = idlePage.measuredMilkG
-                                Settings.brew.steamTimeout = Settings.brew.effectiveSteamDurationSec(idx, milk)
-                                Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
-                                Settings.brew.steamTemperature = (preset.temperature !== undefined) ? preset.temperature : Settings.brew.steamTemperature
-                            }
-                            MainController.applySteamSettings()
+                            // One implementation of "the user picked this pitcher",
+                            // shared with the Steam page, the Steam widget popup and
+                            // MCP. It handles the "Heater off" entry itself.
+                            MainController.selectSteamPitcher(index, idlePage.measuredMilkG)
+                            if (preset && preset.disabled)
+                                return   // never start steam by re-tapping Heater off
 
                             if (wasAlreadySelected) {
                                 if (MachineState.isReady && idlePage.canStartOperations) {

@@ -50,7 +50,7 @@ class RecipeStorage;
 void registerMachineTools(McpToolRegistry*, DE1Device*, MachineState*, MainController*, ProfileManager*) {}
 void registerShotTools(McpToolRegistry*, ShotHistoryStorage*) {}
 void registerProfileTools(McpToolRegistry*, ProfileManager*) {}
-void registerPresetsTools(McpToolRegistry*, Settings*, MainController*, MachineState*) {}
+void registerPresetsTools(McpToolRegistry*, Settings*, MainController*) {}
 void registerRecipeTools(McpToolRegistry*, ShotHistoryStorage*, RecipeStorage*, MainController*, Settings*) {}
 void registerSettingsReadTools(McpToolRegistry*, Settings*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*) {}
 void registerDialingTools(McpToolRegistry*, MainController*, ProfileManager*, ShotHistoryStorage*, Settings*) {}

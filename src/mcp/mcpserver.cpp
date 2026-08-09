@@ -30,8 +30,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory);
 class ProfileManager;
 void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager);
-void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController,
-                          MachineState* machineState);
+void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController);
 class RecipeStorage;
 void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory,
                          RecipeStorage* recipeStorage, MainController* mainController,
@@ -164,7 +163,7 @@ void McpServer::registerAllTools()
     registerMachineTools(m_toolRegistry, m_device, m_machineState, m_mainController, m_profileManager);
     registerShotTools(m_toolRegistry, m_shotHistory);
     registerProfileTools(m_toolRegistry, m_profileManager);
-    registerPresetsTools(m_toolRegistry, m_settings, m_mainController, m_machineState);
+    registerPresetsTools(m_toolRegistry, m_settings, m_mainController);
     registerRecipeTools(m_toolRegistry, m_shotHistory,
                         m_mainController ? m_mainController->recipeStorage() : nullptr,
                         m_mainController, m_settings);

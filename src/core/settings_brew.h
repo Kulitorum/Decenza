@@ -53,7 +53,14 @@ class SettingsBrew : public QObject {
     // the steam heater. Setter is Q_INVOKABLE rather than a property WRITE so the
     // public API doesn't pretend this value persists across restarts.
     Q_PROPERTY(bool steamDisabled READ steamDisabled NOTIFY steamDisabledChanged FINAL)
-    Q_PROPERTY(bool keepSteamHeaterOn READ keepSteamHeaterOn WRITE setKeepSteamHeaterOn NOTIFY keepSteamHeaterOnChanged FINAL)
+    // The two steam-heater settings. They answer DIFFERENT questions and compose,
+    // which is why there are two rather than one three-way choice:
+    //   keepWarmWhenIdle — is the heater warm when nothing else has an opinion?
+    //   letRecipeDecide  — may the active recipe's pitcher override that?
+    // Neither grants the other's permission; see SteamHeaterPolicy for the one
+    // place they are resolved. Replaces the old single `keepSteamHeaterOn`.
+    Q_PROPERTY(bool keepWarmWhenIdle READ keepWarmWhenIdle WRITE setKeepWarmWhenIdle NOTIFY keepWarmWhenIdleChanged FINAL)
+    Q_PROPERTY(bool letRecipeDecide READ letRecipeDecide WRITE setLetRecipeDecide NOTIFY letRecipeDecideChanged FINAL)
     Q_PROPERTY(int steamAutoFlushSeconds READ steamAutoFlushSeconds WRITE setSteamAutoFlushSeconds NOTIFY steamAutoFlushSecondsChanged FINAL)
 
     // Steam pitcher presets
@@ -154,19 +161,85 @@ public:
     bool steamDisabled() const;
     Q_INVOKABLE void setSteamDisabled(bool disabled);
 
-    bool keepSteamHeaterOn() const;
-    void setKeepSteamHeaterOn(bool keep);
+    bool keepWarmWhenIdle() const;
+    void setKeepWarmWhenIdle(bool keep);
+
+    bool letRecipeDecide() const;
+    void setLetRecipeDecide(bool let);
 
     int steamAutoFlushSeconds() const;
     void setSteamAutoFlushSeconds(int seconds);
 
-    // Steam pitcher presets
+    // Steam pitcher presets.
+    //
+    // The list is the stored presets PLUS one built-in "Heater off" entry,
+    // appended last. That entry is synthetic: it is never written to
+    // steam/pitcherPresets, so no mutator can rename, delete or reorder it, it
+    // cannot be duplicated, and it never travels in a settings backup. It also
+    // carries no stored name — its label is translated by the view at render
+    // time, because a persisted name would go stale on a language change AND is
+    // the thing recipes would otherwise match on.
+    //
+    // Appended LAST, not first, so that every stored index still addresses the
+    // same real preset. Rendering it first would shift the whole list by one and
+    // create two index spaces (stored vs displayed) for every caller to confuse.
+    //
+    // Selecting it stores HeaterOffPitcherIndex rather than a position, so the
+    // selection cannot be invalidated by adding or removing a pitcher.
     QVariantList steamPitcherPresets() const;
     int selectedSteamPitcher() const;
     void setSelectedSteamCup(int index);
 
+    // Sentinel selection value for the built-in entry. -1 is free: it is what
+    // getSteamPitcherPreset() already treats as out of range.
+    static constexpr int HeaterOffPitcherIndex = -1;
+    Q_INVOKABLE bool isHeaterOffPitcher(int index) const;
+
+    // The pitcher the user chose for THEMSELVES, parked while an active recipe
+    // overrides the selection, and restored when that recipe is deactivated or
+    // replaced by one that names no pitcher.
+    //
+    // Stored rather than held in memory so it survives a restart with a recipe
+    // still active. Not user-facing and not in the settings backup: it is the
+    // other half of a live override, meaningless without the recipe it belongs
+    // to. Without it, activating a latte permanently overwrote a standing
+    // "Heater off" — the one-tap idle switch the whole feature is built around.
+    static constexpr int NoStandingPitcher = -2;
+    int standingSteamPitcher() const;
+    void setStandingSteamPitcher(int index);
+
+    // Names of the user-created "Off" presets the constructor migration removed,
+    // for the recipe rewrite that cannot run here (it needs the database).
+    // Reading CLEARS them, so the rewrite runs once and a partial run is not
+    // silently forgotten — the caller either does the work or the names stay.
+    QStringList takeMigratedHeaterOffNames();
+    // The synthetic entry itself, so callers that resolve a pitcher by index can
+    // return it without knowing how it is assembled.
+    static QVariantMap heaterOffPitcherEntry();
+    // How many REAL presets there are — the built-in is not one of them. Callers
+    // iterating the stored list want this, not steamPitcherPresets().size().
+    Q_INVOKABLE int steamPitcherCount() const;
+
+    // Write a pitcher's stored values into the live steam settings (timeout,
+    // flow, temperature). THE definition of "apply this pitcher" — which values,
+    // which fallbacks, and what to skip for the heater-off entry.
+    //
+    // It lives here rather than in MainController because the values are pure
+    // settings work and only the push-to-machine half needs a controller. That
+    // split is what lets the MCP preset tests, which deliberately link no
+    // MainController, still observe apply-on-select instead of quietly asserting
+    // nothing.
+    //
+    // `milkG` is the already-resolved milk weight for weight-timed scaling; the
+    // caller decides where it comes from (scale reading, session capture, 0).
+    enum class PitcherApply {
+        Applied,    // values written
+        HeaterOff,  // the built-in entry — nothing written, caller turns the heater off
+        Missing     // stale index — nothing written
+    };
+    PitcherApply applySteamPitcherValues(int index, double milkG);
+
     Q_INVOKABLE void addSteamPitcherPreset(const QString& name, int duration, int flow, double temperature = 160.0);
-    Q_INVOKABLE void addSteamPitcherPresetDisabled(const QString& name);
     Q_INVOKABLE void updateSteamPitcherPreset(int index, const QString& name, int duration, int flow, double temperature = 160.0);
     Q_INVOKABLE void removeSteamPitcherPreset(int index);
     Q_INVOKABLE void moveSteamPitcherPreset(int from, int to);
@@ -301,7 +374,8 @@ signals:
     void steamTimeoutChanged();
     void steamFlowChanged();
     void steamDisabledChanged();
-    void keepSteamHeaterOnChanged();
+    void keepWarmWhenIdleChanged();
+    void letRecipeDecideChanged();
     void steamAutoFlushSecondsChanged();
     void steamPitcherPresetsChanged();
     void selectedSteamPitcherChanged();

@@ -154,6 +154,11 @@ LayoutWidgetItem {
             void(DE1Device.pressure); void(DE1Device.flow)
             void(DE1Device.waterLevel); void(DE1Device.waterLevelMl)
             void(DE1Device.stateString); void(DE1Device.connected)
+            // %STEAM_TEMP% resolves to "Off" from the heater state, so the binding
+            // has to depend on it too — otherwise the token keeps showing the last
+            // temperature until some unrelated machine value happens to change.
+            if (typeof MainController !== "undefined" && MainController !== null)
+                void(MainController.steamHeaterOn)
         }
         if (_needsScaleData && typeof MachineState !== "undefined" && MachineState !== null) {
             void(MachineState.scaleWeight); void(MachineState.shotTime)
@@ -218,7 +223,14 @@ LayoutWidgetItem {
         var result = sanitizeHtml(text)
         // Machine
         result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? Theme.cToDisplay(DE1Device.temperature).toFixed(1) : "—")
-        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0" : "—")
+        // "Off" when the heater is off — same rule as SteamTemperatureItem, and for
+        // the same reason: the measured boiler temperature cannot tell a hot
+        // boiler from one that is cooling because the heater was switched off.
+        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" && DE1Device !== null
+            ? (typeof MainController !== "undefined" && MainController !== null && !MainController.steamHeaterOn
+                ? SteamLabels.offReadout
+                : Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0")
+            : "—")
         result = result.replace(/%PRESSURE%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.pressure.toFixed(1) : "—")
         result = result.replace(/%FLOW%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.flow.toFixed(1) : "—")
         result = result.replace(/%WATER%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.waterLevel.toFixed(0) : "—")

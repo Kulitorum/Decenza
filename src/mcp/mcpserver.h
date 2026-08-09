@@ -65,7 +65,7 @@ struct PendingConfirmation {
 // scripts/check_mcp_tool_budget.py fingerprints the registered tools and their
 // actions and fails the PR if the surface moved without this string moving, so the
 // rule above is enforced rather than remembered.
-inline constexpr const char* McpSurfaceVersion = "1.1.0";
+inline constexpr const char* McpSurfaceVersion = "1.2.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "8ada4d203b66";

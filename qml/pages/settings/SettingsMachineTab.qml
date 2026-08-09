@@ -285,35 +285,144 @@ KeyboardAwareContainer {
 
                         Text {
                             property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
-                            text: TranslationManager.translate("settings.preferences.current", "Current:") + " " + Theme.formatTemperature(temp, 0)
+                            // "Off" from the resolved state, not from the measured
+                            // temperature — a cooling boiler still reads hot.
+                            text: TranslationManager.translate("settings.preferences.current", "Current:") + " "
+                                  + (MainController.steamHeaterOn
+                                     ? Theme.formatTemperature(temp, 0)
+                                     : SteamLabels.offReadout)
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
 
-                        RowLayout {
+                        // Two settings, not one three-way choice: they answer
+                        // different questions and compose. "Keep warm when idle"
+                        // is the baseline; "Let the recipe decide" is whether an
+                        // active recipe's pitcher may override it.
+                        //
+                        // Each carries a caption because neither name says what
+                        // it DOES to the boiler, and the pair's combined effect is
+                        // the part users get wrong. The captions are the same
+                        // sentences as the manual's four-state table, in the
+                        // reader's own two rows rather than as a grid.
+                        ColumnLayout {
                             Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
 
-                            Text {
-                                text: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(14)
+                            RowLayout {
+                                Layout.fillWidth: true
 
-                                Accessible.ignored: true
-                            }
+                                Text {
+                                    text: TranslationManager.translate("settings.preferences.keepWarmWhenIdle", "Keep warm when idle")
+                                    color: Theme.textColor
+                                    font.family: Theme.bodyFont.family
+                                    font.pixelSize: Theme.scaled(14)
 
-                            Item { Layout.fillWidth: true }
+                                    Accessible.ignored: true
+                                }
 
-                            StyledSwitch {
-                                id: steamHeaterSwitch
-                                checked: Settings.brew.keepSteamHeaterOn
-                                accessibleName: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
-                                onClicked: {
-                                    Settings.brew.keepSteamHeaterOn = checked
-                                    MainController.applySteamSettings()
+                                Item { Layout.fillWidth: true }
+
+                                StyledSwitch {
+                                    id: steamHeaterSwitch
+                                    checked: Settings.brew.keepWarmWhenIdle
+                                    accessibleName: TranslationManager.translate("settings.preferences.keepWarmWhenIdle", "Keep warm when idle")
+                                    // Spoken after the name, so a screen-reader user
+                                    // gets the same explanation the caption gives.
+                                    Accessible.description: keepWarmCaption.text
+                                    onClicked: {
+                                        Settings.brew.keepWarmWhenIdle = checked
+                                        MainController.applySteamSettings()
+                                    }
                                 }
                             }
+
+                            Text {
+                                id: keepWarmCaption
+                                Layout.fillWidth: true
+                                Layout.rightMargin: Theme.scaled(60)
+                                text: TranslationManager.translate(
+                                    "settings.preferences.keepWarmWhenIdleDesc",
+                                    "Holds the steam boiler at temperature the whole time the machine is awake. Off, it heats only when you steam.")
+                                color: Theme.textSecondaryColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(12)
+                                wrapMode: Text.WordWrap
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+
+                            RowLayout {
+                                Layout.fillWidth: true
+
+                                Text {
+                                    text: TranslationManager.translate("settings.preferences.letRecipeDecide", "Let the recipe decide")
+                                    color: Theme.textColor
+                                    font.family: Theme.bodyFont.family
+                                    font.pixelSize: Theme.scaled(14)
+
+                                    Accessible.ignored: true
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                StyledSwitch {
+                                    id: letRecipeDecideSwitch
+                                    checked: Settings.brew.letRecipeDecide
+                                    accessibleName: TranslationManager.translate("settings.preferences.letRecipeDecide", "Let the recipe decide")
+                                    Accessible.description: letRecipeDecideCaption.text
+                                    onClicked: {
+                                        Settings.brew.letRecipeDecide = checked
+                                        MainController.applySteamSettings()
+                                    }
+                                }
+                            }
+
+                            Text {
+                                id: letRecipeDecideCaption
+                                Layout.fillWidth: true
+                                Layout.rightMargin: Theme.scaled(60)
+                                text: TranslationManager.translate(
+                                    "settings.preferences.letRecipeDecideDesc",
+                                    "The active recipe overrules the setting above: one with a pitcher warms the boiler when its shot starts, one without keeps it cold.")
+                                color: Theme.textSecondaryColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(12)
+                                wrapMode: Text.WordWrap
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        // What the two settings resolve to RIGHT NOW. The pair is
+                        // where users get lost — the combination is not readable
+                        // off two independent switches — so state the outcome
+                        // rather than leaving it to be inferred.
+                        Text {
+                            Layout.fillWidth: true
+                            text: {
+                                if (!Settings.brew.letRecipeDecide) {
+                                    return Settings.brew.keepWarmWhenIdle
+                                        ? TranslationManager.translate("settings.preferences.steamSummaryAlways",
+                                            "Now: the heater stays warm, and recipes are ignored.")
+                                        : TranslationManager.translate("settings.preferences.steamSummaryManual",
+                                            "Now: the heater runs only while you steam.")
+                                }
+                                return Settings.brew.keepWarmWhenIdle
+                                    ? TranslationManager.translate("settings.preferences.steamSummaryWarmUnlessRecipe",
+                                        "Now: the heater stays warm unless the active recipe has no pitcher.")
+                                    : TranslationManager.translate("settings.preferences.steamSummaryRecipeOnly",
+                                        "Now: the heater warms when a recipe with a pitcher starts its shot.")
+                            }
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            font.italic: true
+                            wrapMode: Text.WordWrap
                         }
 
                         // Auto flush steam wand setting

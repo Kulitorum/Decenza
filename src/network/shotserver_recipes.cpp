@@ -736,6 +736,7 @@ QString ShotServer::generateRecipesPage() const
         <details class="dialog-section">
             <summary>Milk / steam</summary>
             <div class="check-row"><input type="checkbox" id="fHasMilk"><label for="fHasMilk">Milk drink</label></div>
+            <div class="check-row"><input type="checkbox" id="fHeaterOff"><label for="fHeaterOff">Heater off (keep the steam boiler cold for this recipe)</label></div>
             <div class="grid-2">
                 <div><label>Milk (g)</label><input id="fMilk" type="number" step="1"></div>
                 <div><label>Pitcher name</label><input id="fPitcher"></div>
@@ -1135,6 +1136,7 @@ QString ShotServer::generateRecipesPage() const
             }
             const steam = r.steam || {};
             el('fHasMilk').checked = !!steam.hasMilk;
+            el('fHeaterOff').checked = !!steam.heaterOff;
             el('fMilk').value = steam.milkWeightG || '';
             el('fPitcher').value = steam.pitcherName || '';
             el('fSteamDuration').value = steam.durationSec || '';
@@ -1160,14 +1162,21 @@ QString ShotServer::generateRecipesPage() const
             if (el('fHasMilk').checked) steam.hasMilk = true;
             const milk = parseFloat(el('fMilk').value);
             if (milk > 0) steam.milkWeightG = milk;
-            const pitcher = el('fPitcher').value.trim();
-            if (pitcher) steam.pitcherName = pitcher;
-            const dur = parseInt(el('fSteamDuration').value, 10);
-            if (dur > 0) steam.durationSec = dur;
-            const flow = parseFloat(el('fSteamFlow').value);
-            if (flow > 0) steam.flow = flow;
-            const stemp = parseFloat(el('fSteamTemp').value);
-            if (stemp > 0) steam.temperatureC = stemp;
+            // "Heater off" carries no values of its own and is mutually
+            // exclusive with the pitcher fields — writing both would leave the
+            // app resolving one of two contradictory answers.
+            if (el('fHeaterOff').checked) {
+                steam.heaterOff = true;
+            } else {
+                const pitcher = el('fPitcher').value.trim();
+                if (pitcher) steam.pitcherName = pitcher;
+                const dur = parseInt(el('fSteamDuration').value, 10);
+                if (dur > 0) steam.durationSec = dur;
+                const flow = parseFloat(el('fSteamFlow').value);
+                if (flow > 0) steam.flow = flow;
+                const stemp = parseFloat(el('fSteamTemp').value);
+                if (stemp > 0) steam.temperatureC = stemp;
+            }
             const hotWater = {};
             if (hasWater) hotWater.hasWater = true;
             const vessel = el('fVessel').value.trim();

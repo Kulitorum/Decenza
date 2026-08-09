@@ -5,6 +5,7 @@
 #include <QMap>
 #include <QTimer>
 #include "profilemanager.h"
+#include "steamheaterpolicy.h"
 #include "recipeselectionmodel.h"
 #include "core/yieldspec.h"
 #include "../profile/profile.h"
@@ -198,6 +199,16 @@ class MainController : public QObject {
     Q_PROPERTY(qint64 lastSavedShotId READ lastSavedShotId NOTIFY lastSavedShotIdChanged)
     Q_PROPERTY(bool sawSettling READ isSawSettling NOTIFY sawSettlingChanged)
 
+    // Whether the steam heater is currently commanded ON, resolved by
+    // SteamHeaterPolicy. Every surface that displays a steam temperature reads
+    // this to decide whether to show "Off" instead of a number.
+    //
+    // It must NOT be inferred from DE1Device.steamTemperature: that is the
+    // MEASURED boiler temperature, which keeps reporting 140, 130, 120 … for many
+    // minutes after the heater is switched off. A cooling boiler and a hot one
+    // are indistinguishable by their reading, and only this tells them apart.
+    Q_PROPERTY(bool steamHeaterOn READ steamHeaterOn NOTIFY steamHeaterStateChanged)
+
 public:
     explicit MainController(QNetworkAccessManager* networkManager,
                            Settings* settings, DE1Device* device,
@@ -214,6 +225,10 @@ public:
 
     // ProfileManager accessor
     ProfileManager* profileManager() const { return m_profileManager; }
+    // THE steam-target derivation. Anything that needs to know whether the
+    // steam heater should be warm asks this, and never re-derives it.
+    SteamHeaterPolicy* steamHeaterPolicy() const { return m_steamHeaterPolicy; }
+    bool steamHeaterOn() const { return m_steamHeaterPolicy && m_steamHeaterPolicy->resolve().on; }
 
     // Non-profile accessors
     double filteredGoalPressure() const { return m_filteredGoalPressure; }
@@ -404,6 +419,21 @@ public:
     void drainDbWork(int timeoutMs = 750, DrainReason reason = DrainReason::Exiting);
 
 public slots:
+    // Select a steam pitcher AND apply its stored values (duration, flow,
+    // temperature), then push them to the machine. THE one implementation of
+    // "the user picked this pitcher".
+    //
+    // It existed four times before this — the MCP select path, the idle pill
+    // row, the Steam widget popup and the Steam page's activation handler — and
+    // recipe activation was a fifth caller that did only half of it, storing the
+    // index without applying the values, so activating a recipe heated to the
+    // last global temperature instead of its own pitcher's.
+    //
+    // `milkFallbackG` is the surface's own answer for "how much milk" when
+    // nothing is on the scale; it is the one thing that legitimately differs per
+    // caller, so it is a parameter rather than another copy of the function.
+    Q_INVOKABLE void selectSteamPitcher(int index, double milkFallbackG = 0.0);
+
     void applySteamSettings();
     void applyHotWaterSettings();
     void applyFlushSettings();
@@ -419,16 +449,22 @@ public slots:
     // Soft stop steam (sends 1-second timeout to trigger elapsed > target, no purge)
     Q_INVOKABLE void softStopSteam();
 
-    // Send steam temperature to machine without saving to settings (for enable/disable toggle)
-    Q_INVOKABLE void sendSteamTemperature(double temp);
-
-    // Start heating steam heater (ignores keepSteamHeaterOn - for when user wants to steam).
-    // `reason` is a caller-identifying tag that flows into the [ShotSettings] BLE log
-    // so redundant calls (convergent QML signals, state/phase/isSteaming transitions)
-    // can be attributed. Pass a short kebab-case string like "steampage-activated".
+    // Grant event permission and push the resolved target — for when the user
+    // wants to steam NOW, whatever the standing settings say. `reason` is a
+    // caller-identifying tag that flows into the [ShotSettings] BLE log so
+    // redundant calls (convergent QML signals, state/phase/isSteaming
+    // transitions) can be attributed. Pass a short kebab-case string like
+    // "steampage-activated".
     Q_INVOKABLE void startSteamHeating(const QString& reason = QString());
 
-    // Turn off steam heater (sends 0 C)
+    // Revoke event permission and re-push the resolved target. Called on the
+    // return to Idle: a user who steamed once has not thereby asked for a warm
+    // boiler forever, but a user with Keep warm when idle on has — so this
+    // re-resolves rather than sending 0, which is what the QML used to do and
+    // what made the two settings fight each other.
+    Q_INVOKABLE void releaseSteamEventPermission();
+
+    // Apply the transient veto and push the resolved target (sends 0 C).
     Q_INVOKABLE void turnOffSteamHeater();
 
     // #1161: QML already resolves a stop reason for its overlay
@@ -461,6 +497,7 @@ public slots:
 
 signals:
     void sawSettlingChanged();
+    void steamHeaterStateChanged();
 
     // Filtered goal setpoints (zeroed for non-active mode, reset when extraction ends)
     void goalsChanged();
@@ -623,6 +660,10 @@ private:
 
     ProfileManager* m_profileManager = nullptr;
 
+    // THE steam-heater target derivation, shared with ProfileManager. Never
+    // re-derive a steam temperature at a call site — see steamheaterpolicy.h.
+    SteamHeaterPolicy* m_steamHeaterPolicy = nullptr;
+
     QNetworkAccessManager* m_networkManager = nullptr;
     Settings* m_settings = nullptr;
     DE1Device* m_device = nullptr;
@@ -649,6 +690,15 @@ private:
     // unwrap (m_lastSampleTime is the only place that touches it, and the
     // delta computation handles the wrap inline).
     qint64 m_steamStartTimeMs = 0;  // Wall-clock ms at first steam sample of session
+
+    // Previous phase, for the steam-heater transitions that are edge-triggered
+    // rather than level-triggered: waking from Sleep must re-assert the target
+    // (the transient veto is cleared at sleep and nothing else re-sends it), and
+    // shot start must grant the recipe its event permission exactly once.
+    // Held as int, not MachineState::Phase: this header only forward-declares
+    // MachineState, and pulling the full definition in for one enum would put
+    // every consumer of maincontroller.h behind it.
+    int m_lastPhaseForSteam = -1;
 
     double m_lastSampleTime = 0;    // Previous sample.timer value, for inter-sample delta with explicit wrap handling
     double m_lastShotTime = 0;      // Last shot sample time relative to shot start (for weight sync)
@@ -755,11 +805,26 @@ private:
     // Rebuild + stamp the active recipe's hot-water block from live settings
     // (selected water vessel). No-op unless a hot-water recipe is active.
     void stampActiveRecipeHotWater();
-    // True when the active recipe's steam block declares a milk drink.
-    // sendMachineSettings treats this like keepSteamHeaterOn — the steam
-    // heater takes 5-9 minutes to warm, so a milk recipe holds it on for
-    // as long as it is active and the machine is awake.
+    // True when the active recipe's steam block declares a milk drink. This is
+    // what the recipe WANTS, not what the heater does — SteamHeaterPolicy pulls
+    // it and only lets it decide when the user turned Let the recipe decide on.
     bool activeRecipeHasMilk() const;
+
+    // THE single ShotSettings write for every steam entry point. The four
+    // non-steam fields are read live from Settings here, so no caller can push
+    // a half-stale payload — four call sites used to hand-roll this identical
+    // block and differed only in which steam value they had derived.
+    void pushShotSettings(double steamTempC, const QString& reason);
+
+    // Apply an active recipe's pitcher as an OVERRIDE of the user's standing
+    // selection, or (with SettingsBrew::NoStandingPitcher) unwind back to it.
+    //
+    // A recipe's pitcher is part of the drink, not a new preference: activating
+    // a latte used to overwrite the standing selection outright, so a user whose
+    // resting state was "Heater off" got a warm boiler for the rest of the day
+    // after one milk drink. Idempotent — re-activating while an override is
+    // already parked does not overwrite what was parked.
+    void setRecipeSteamPitcherOverride(int index);
     // Wire the deactivation watchers + write-through stamps (called once
     // from the constructor after storages exist).
     void setupRecipeConnections();
