@@ -207,12 +207,33 @@ public:
     static constexpr int NoStandingPitcher = -2;
     int standingSteamPitcher() const;
     void setStandingSteamPitcher(int index);
+    // Keep the parked selection pointing at the same pitcher when one is removed.
+    void adjustStandingPitcherForRemoval(int removedIndex);
+
+    // Park or unwind a recipe's pitcher override, returning the index the caller
+    // should now select and apply — or NoStandingPitcher for "nothing to do".
+    //
+    // `recipeIndex` is the active recipe's pitcher, or NoStandingPitcher when it
+    // names none (deactivation, or a recipe without a steam block).
+    //
+    // The decision lives here rather than in MainController because it is pure
+    // settings state: which value is parked, when it may be overwritten, and
+    // what comes back. Only the push to the machine needs a controller. Keeping
+    // them together made the rule reachable only through a class the tests
+    // cannot construct, which is a reason to move the rule — not a reason to
+    // leave it untested.
+    int resolveRecipePitcherOverride(int recipeIndex);
 
     // Names of the user-created "Off" presets the constructor migration removed,
     // for the recipe rewrite that cannot run here (it needs the database).
-    // Reading CLEARS them, so the rewrite runs once and a partial run is not
-    // silently forgotten — the caller either does the work or the names stay.
-    QStringList takeMigratedHeaterOffNames();
+    //
+    // Reading does NOT clear them. The rewrite is asynchronous and can fail, and
+    // an earlier version consumed the names up front — so a failed pass lost them
+    // forever and left those recipes naming a preset that no longer exists.
+    // The caller clears only once the pass reports success; until then the names
+    // stay and the rewrite retries on the next launch.
+    QStringList migratedHeaterOffNames() const;
+    void clearMigratedHeaterOffNames();
     // The synthetic entry itself, so callers that resolve a pitcher by index can
     // return it without knowing how it is assembled.
     static QVariantMap heaterOffPitcherEntry();

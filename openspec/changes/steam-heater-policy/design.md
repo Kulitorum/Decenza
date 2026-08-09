@@ -13,6 +13,7 @@
    effective pitcher is "Heater off"   (standing, or the active recipe's override)
    the transient widget toggle
    "Let the recipe decide" + an active recipe that steams nothing
+   the active recipe explicitly names "Heater off"   (ungated — it is a selection)
 ```
 
 Event-granted permission outranks every veto, and that is deliberate rather than an
@@ -27,16 +28,18 @@ active" and "an espresso is active" pull in opposite directions, and collapsing 
 turns **Let the recipe decide** into a heater-off switch for anyone who has simply
 not activated a recipe.
 
-The effective pitcher is the active recipe's pitcher when **Let the recipe decide** is on and a recipe is active, otherwise the standing pitcher. The steam target temperature is the effective pitcher's own temperature, falling back to the global steam temperature when it has none.
+The effective pitcher is the active recipe's pitcher whenever the recipe names one, otherwise the standing pitcher — **not** gated on *Let the recipe decide*. The distinction that setting draws is between what the app INFERS from a recipe and what the user explicitly PUT IN it: naming a pitcher (real, or the built-in "Heater off") is a selection and always applies; deducing "this drink has no pitcher, so keep the boiler cold" and "this drink steams, so warm at shot start" are inferences, and those are what the setting governs. The steam target temperature is the effective pitcher's own temperature, falling back to the global steam temperature when it has none.
 
 The four states the two settings produce:
 
 | Keep warm when idle | Let the recipe decide | No recipe active | Recipe active |
 |---|---|---|---|
-| on | off | warm | warm — recipe ignored |
+| on | off | warm | warm — the app infers nothing from the recipe |
 | on | on | warm | milk → warm · no pitcher → **cold** |
 | off | on | cold until Steam | milk → warm **at shot start** · no pitcher → cold |
 | off | off | cold until Steam | cold until Steam |
+
+A recipe that explicitly names **Heater off** is cold in every row, including the two where *Let the recipe decide* is off — that is a selection the user made, not something the app inferred.
 
 ## Why two settings and not one three-way choice
 

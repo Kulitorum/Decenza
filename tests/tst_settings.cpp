@@ -1143,6 +1143,62 @@ private slots:
         QCOMPARE(brew->steamTimeout(), 31);
     }
 
+    // --- a recipe's pitcher is an OVERRIDE, not an overwrite -----------------
+    //
+    // Activating a latte used to write the standing selection outright, so one
+    // milk drink left a user whose resting state was "Heater off" with a warm
+    // boiler for the rest of the day. The park/unwind decision lives on
+    // SettingsBrew precisely so it can be asserted without a controller.
+
+    void aRecipePitcherParksTheStandingSelectionAndGivesItBack() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Standing"), 30, 150, 150.0);
+        brew->addSteamPitcherPreset(QStringLiteral("RecipeOwn"), 45, 120, 135.0);
+        const int recipePitcher = brew->steamPitcherCount() - 1;
+        const int standing = SettingsBrew::HeaterOffPitcherIndex;
+        brew->setSelectedSteamCup(standing);
+
+        // Activate: the recipe's pitcher is what to select, and the user's own
+        // selection is parked.
+        QCOMPARE(brew->resolveRecipePitcherOverride(recipePitcher), recipePitcher);
+        QCOMPARE(brew->standingSteamPitcher(), standing);
+        brew->setSelectedSteamCup(recipePitcher);
+
+        // Deactivate: the parked selection comes back, and the park is cleared.
+        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher), standing);
+        QCOMPARE(brew->standingSteamPitcher(), SettingsBrew::NoStandingPitcher);
+    }
+
+    // Recipe-to-recipe switching must not re-park. Without the guard the second
+    // activation would store the FIRST recipe's pitcher as if the user had
+    // chosen it, and deactivating would restore a drink, not a setting.
+    void switchingRecipesDoesNotOverwriteTheParkedSelection() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("A"), 30, 150, 150.0);
+        brew->addSteamPitcherPreset(QStringLiteral("B"), 40, 150, 152.0);
+        const int b = brew->steamPitcherCount() - 1;
+        const int a = b - 1;
+        brew->setSelectedSteamCup(SettingsBrew::HeaterOffPitcherIndex);
+
+        brew->resolveRecipePitcherOverride(a);
+        brew->setSelectedSteamCup(a);
+        brew->resolveRecipePitcherOverride(b);       // second recipe
+        brew->setSelectedSteamCup(b);
+
+        QCOMPARE(brew->standingSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
+        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher),
+                 int(SettingsBrew::HeaterOffPitcherIndex));
+    }
+
+    // Deactivating with no override in flight must do nothing at all — not
+    // select index 0, and not select the sentinel.
+    void unwindingWithNoOverrideIsANoOp() {
+        auto* brew = m_settings.brew();
+        QCOMPARE(brew->standingSteamPitcher(), int(SettingsBrew::NoStandingPitcher));
+        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher),
+                 int(SettingsBrew::NoStandingPitcher));
+    }
+
     // --- the "Off" pitcher migration (steam-heater-policy) -------------------
     //
     // A user's own Off presets are removed in favour of the one built-in entry.
@@ -1212,11 +1268,14 @@ private slots:
     // The removed names are handed to the recipe rewrite exactly once — reading
     // them clears them, so a second launch does not re-run a pass over every
     // recipe, and a launch with nothing to migrate hands over nothing.
-    void heaterOffMigrationHandsTheRemovedNamesOverOnce() {
+    void heaterOffMigrationKeepsTheRemovedNamesUntilTheRewriteSucceeds() {
         seedLegacyOffPitchers(legacyPresetsWithOff(), 0);
         Settings fresh;
-        QCOMPARE(fresh.brew()->takeMigratedHeaterOffNames(), QStringList{QStringLiteral("Off")});
-        QVERIFY(fresh.brew()->takeMigratedHeaterOffNames().isEmpty());
+        QCOMPARE(fresh.brew()->migratedHeaterOffNames(), QStringList{QStringLiteral("Off")});
+        // Reading does NOT clear: a failed rewrite must be able to retry.
+        QCOMPARE(fresh.brew()->migratedHeaterOffNames(), QStringList{QStringLiteral("Off")});
+        fresh.brew()->clearMigratedHeaterOffNames();
+        QVERIFY(fresh.brew()->migratedHeaterOffNames().isEmpty());
     }
 
     void heaterOffMigrationIsIdempotent() {
@@ -1238,7 +1297,7 @@ private slots:
         Settings fresh;
         QCOMPARE(fresh.brew()->steamPitcherCount(), 2);
         QCOMPARE(fresh.brew()->selectedSteamPitcher(), 1);
-        QVERIFY(fresh.brew()->takeMigratedHeaterOffNames().isEmpty());
+        QVERIFY(fresh.brew()->migratedHeaterOffNames().isEmpty());
     }
 
     // The built-in's label is reserved even though it has no stored name to

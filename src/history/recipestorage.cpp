@@ -1417,18 +1417,25 @@ bool RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(QSqlDatabase& db,
     return true;
 }
 
-void RecipeStorage::requestHeaterOffPitcherRewrite(const QStringList& removedNames)
+void RecipeStorage::requestHeaterOffPitcherRewrite(const QStringList& removedNames,
+                                                   std::function<void(bool)> onDone)
 {
-    if (removedNames.isEmpty())
+    if (removedNames.isEmpty()) {
+        if (onDone) onDone(true);   // nothing to do IS a completed pass
         return;
+    }
     auto rewritten = std::make_shared<int>(0);
+    auto succeeded = std::make_shared<bool>(false);
     runAsync("recipes_heater_off_rewrite",
-        [removedNames, rewritten](QSqlDatabase& db) {
-            rewriteHeaterOffPitcherRecipesStatic(db, removedNames, rewritten.get());
+        [removedNames, rewritten, succeeded](QSqlDatabase& db) {
+            *succeeded = rewriteHeaterOffPitcherRecipesStatic(db, removedNames, rewritten.get());
         },
-        [this, rewritten](bool) {
+        [this, rewritten, succeeded, onDone](bool ok) {
             if (*rewritten > 0)
                 emit recipesChanged();
+            // Both halves must have held: the async runner reached the work AND
+            // the pass itself ran to completion. A partial run keeps the names.
+            if (onDone) onDone(ok && *succeeded);
         });
 }
 

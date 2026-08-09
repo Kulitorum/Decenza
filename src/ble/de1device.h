@@ -230,7 +230,7 @@ public slots:
     // by the drift auto-heal path to re-assert what we intended WITHOUT
     // re-deriving the value from current Settings — critical because code
     // paths like startSteamHeating() or softStopSteam() write values that
-    // intentionally diverge from Settings.steamTemperature()/keepSteamHeaterOn
+    // intentionally diverge from Settings.steamTemperature()/the keep-warm setting
     // (e.g. startSteamHeating forces the heater on even when keepSteamHeaterOn
     // is false). Resending via sendMachineSettings() would clobber them.
     void resendLastShotSettings();

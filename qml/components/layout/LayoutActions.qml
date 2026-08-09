@@ -344,7 +344,17 @@ QtObject {
                     break
                 case "tempToggleSteam":
                     if (typeof Settings !== "undefined" && Settings !== null && typeof MainController !== "undefined" && MainController !== null) {
-                        if (Settings.brew.steamDisabled)
+                        // RESOLVED state, not the transient steamDisabled flag.
+                        // steamDisabled is only one of several reasons the heater
+                        // can be cold — a "Heater off" pitcher, or simply no
+                        // permission — so keying on it made this toggle
+                        // one-directional: with Keep warm when idle off and
+                        // nothing granting permission, the heater is off while the
+                        // flag is clear, so every tap took the else branch and
+                        // turned off an already-cold boiler. The same swap was made
+                        // in SteamPage, DescalingPage and CustomItem; this
+                        // dispatcher was the one the sweep missed.
+                        if (!MainController.steamHeaterOn)
                             MainController.startSteamHeating("custom-widget-toggle")
                         else
                             MainController.turnOffSteamHeater()

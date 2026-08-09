@@ -357,6 +357,30 @@ private slots:
         }
     }
 
+    // The wizard's two halves of the "Heater off" marker must stay paired.
+    // buildSteamJson writing it while applySteamJson never reads it (or the
+    // reverse) makes a saved recipe reopen as a different drink, and both are
+    // QML functions with no unit-test harness — so assert the SHAPE in source,
+    // which is the realistic regression: someone edits one half.
+    void theWizardWritesAndReadsTheHeaterOffMarkerAsAPair()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR)
+                   + QStringLiteral("/qml/pages/RecipeWizardPage.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString text = QString::fromUtf8(file.readAll());
+
+        QVERIFY2(text.contains(QStringLiteral("s.heaterOff = true")),
+                 "buildSteamJson no longer writes the heaterOff marker");
+        QVERIFY2(text.contains(QStringLiteral("fHeaterOff = !!s.heaterOff")),
+                 "applySteamJson no longer reads the heaterOff marker back");
+
+        // Mutually exclusive with the pitcher fields: the built-in carries no
+        // values, so a block holding both describes a pitcher that is not used
+        // and leaves activation resolving two contradictory answers.
+        QVERIFY2(text.contains(QStringLiteral("if (fHeaterOff) {")),
+                 "the marker and the pitcher fields are no longer exclusive");
+    }
+
     // --- the guard --------------------------------------------------------
 
     // A second derivation is the defect that produced the field bug. It is not

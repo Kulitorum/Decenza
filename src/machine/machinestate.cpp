@@ -402,7 +402,9 @@ void MachineState::updatePhase() {
             //
             // Load-bearing invariant: SteamPage.qml's session-end handler
             // (onIsSteamingChanged's isSteaming=false branch) resets the per-preset
-            // steamTimeout / steamFlow and may call sendSteamTemperature(0). That
+            // steamTimeout / steamFlow and re-sends ShotSettings (today via
+            // MainController::releaseSteamEventPermission — sendSteamTemperature,
+            // which this comment used to name, no longer exists). That
             // handler fires when `phase !== Steaming`, so reclassifying Puffing or
             // Ending out of Steaming here would cause the reset to fire
             // mid-purge — writing to ShotSettings while the DE1 is still handling

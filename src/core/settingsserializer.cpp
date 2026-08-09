@@ -540,7 +540,28 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // whether this JSON carried a presets array) — setting it mid-rebuild would
         // leave it clamped to a stale index. Out-of-range is dropped with a log.
         if (steam.contains("selectedPitcher")) {
-            const int sel = steam["selectedPitcher"].toInt();
+            int sel = steam["selectedPitcher"].toInt();
+            // REMAP, don't just range-check. The import above drops every
+            // `disabled` preset, so the surviving rows renumber underneath a
+            // stored index — the same hazard the constructor migration exists to
+            // handle, and a bare range check reintroduced it here. A backup of
+            // [Off, Small, Large] with selection 0 restored as "Small" and turned
+            // the heater on, silently, for a user whose whole intent was to keep
+            // it off.
+            if (sel >= 0 && steam.contains("pitcherPresets")) {
+                const QJsonArray imported = steam["pitcherPresets"].toArray();
+                int survivorsBefore = 0;
+                bool selectionWasDropped = false;
+                for (int i = 0; i < imported.size() && i <= sel; ++i) {
+                    const bool dropped = imported.at(i).toObject()["disabled"].toBool();
+                    if (i == sel)
+                        selectionWasDropped = dropped;
+                    else if (!dropped)
+                        ++survivorsBefore;
+                }
+                sel = selectionWasDropped ? SettingsBrew::HeaterOffPitcherIndex
+                                          : survivorsBefore;
+            }
             if (sel == SettingsBrew::HeaterOffPitcherIndex
                 || (sel >= 0 && sel < settings->brew()->steamPitcherCount()))
                 settings->brew()->setSelectedSteamCup(sel);

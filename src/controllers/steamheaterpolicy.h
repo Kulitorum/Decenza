@@ -54,9 +54,13 @@ public:
         NoSteam,     // an active recipe that steams nothing — an espresso
     };
 
-    // PULLED, not pushed: the active recipe is mutated at six sites in
-    // MainController, and a pushed copy would only have to be missed at one of
-    // them to resolve against a stale answer. MainController installs this once.
+    // PULLED, not pushed: MainController mutates the active recipe from several
+    // places — activation, the cache refresh, deactivation, and a shared stamp
+    // helper reached from five field writers — and a pushed copy would only have
+    // to be missed at one of them to resolve against a stale answer. Deliberately
+    // no exact count here: an earlier version of this comment asserted "six
+    // sites", which matched no grouping of the code and was never re-derived.
+    // MainController installs this once.
     // Unset means NoRecipe, which is the correct answer for any caller that has
     // no recipe layer at all.
     void setRecipeIntentProvider(std::function<RecipeSteamIntent()> provider);

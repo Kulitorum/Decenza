@@ -39,8 +39,14 @@ Activating a recipe SHALL NOT grant the steam heater permission to be warm. A re
 - **THEN** the standing pitcher is in effect again, unmodified by the activation
 
 #### Scenario: The recipe is ignored when the user says so
-- **WHEN** Let the recipe decide is off
-- **THEN** activating any recipe leaves the effective pitcher and the heater state unchanged
+- **WHEN** Let the recipe decide is off and the active recipe names no pitcher
+- **THEN** activating it leaves the effective pitcher and the heater state unchanged
+
+#### Scenario: An explicit pitcher choice is a selection, not an inference
+- **WHEN** a recipe names a pitcher — a real one, or the built-in "Heater off"
+- **THEN** activating it applies that pitcher whatever the two settings say, because the user chose it when they built the recipe
+- **AND** a recipe carrying "Heater off" leaves the heater cold whatever the two settings say
+- **AND** starting steam on it behaves exactly as it does with "Heater off" standing: the last real pitcher's duration, flow and temperature, with a message saying so
 
 #### Scenario: Milk-less recipe with keep-warm user
 - **WHEN** a recipe with no milk is activated, the user has Keep warm when idle on and Let the recipe decide off

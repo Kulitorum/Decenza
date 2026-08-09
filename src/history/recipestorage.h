@@ -430,13 +430,16 @@ public:
     // "Heater off" row in the picker.
     //
     // Matching is by name, case-insensitively, against `removedNames`. Driven by
-    // SettingsBrew::takeMigratedHeaterOffNames(), so it runs only on the launch
+    // SettingsBrew::migratedHeaterOffNames(), so it runs only on the launch
     // that migrated and is a no-op afterwards. Emits recipesChanged() when at
     // least one row was rewritten.
     static bool rewriteHeaterOffPitcherRecipesStatic(QSqlDatabase& db,
                                                      const QStringList& removedNames,
                                                      int* outRewrittenCount = nullptr);
-    void requestHeaterOffPitcherRewrite(const QStringList& removedNames);
+    // `onDone(true)` only when the pass completed; the caller uses it to decide
+    // whether the migration's name list may be discarded.
+    void requestHeaterOffPitcherRewrite(const QStringList& removedNames,
+                                        std::function<void(bool)> onDone = {});
 
     // Roll-on-finish (synchronous core): relink the finished bag's
     // non-archived recipes to the newest open bag of the same bean identity,

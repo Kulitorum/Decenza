@@ -214,15 +214,6 @@ T.Page {
                 // Discard +5s/-5s adjustments made during this session so the
                 // next one starts from the pitcher preset.
                 //
-                // When keepWarmWhenIdle=false the sendSteamTemperature(0) call
-                // below re-writes ShotSettings with the reset timeout as a side
-                // effect (it reads Settings.brew.steamTimeout after the assignment),
-                // so the DE1 is in sync immediately. When keepWarmWhenIdle=true
-                // the reset just persists to Settings; the next session's
-                // onStateChanged->startSteamHeating picks it up and writes it
-                // (the DE1's commanded state between sessions is idle anyway,
-                // so the lag is invisible).
-                //
                 // A fresh capture is required for the next session — clear the
                 // scaled flag so syncSteamTimeout() falls back to the preset
                 // duration here instead of reusing this session's scaled time

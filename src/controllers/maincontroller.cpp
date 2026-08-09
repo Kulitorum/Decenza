@@ -135,8 +135,21 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         using Intent = SteamHeaterPolicy::RecipeSteamIntent;
         if (m_activeRecipe.isEmpty())
             return Intent::NoRecipe;
+        // An explicit "Heater off" in the recipe DOMINATES hasMilk. A recipe can
+        // carry both — the migration writes the marker onto recipes that named a
+        // removed Off preset and leaves hasMilk untouched — and reading hasMilk
+        // alone made shot start grant permission to the very recipes whose whole
+        // purpose was to keep the boiler cold.
+        if (activeRecipeSaysHeaterOff())
+            return Intent::NoSteam;
         return activeRecipeHasMilk() ? Intent::WantsSteam : Intent::NoSteam;
     });
+    // The active recipe is a resolve() input, so the readouts have to hear about
+    // it. Without this, activating a pitcher-less recipe commanded the DE1 to 0
+    // correctly while every steam readout kept showing a temperature until some
+    // unrelated setting happened to change — and deactivation had the mirror bug.
+    connect(this, &MainController::activeRecipeChanged,
+            this, &MainController::steamHeaterStateChanged);
     connect(m_steamHeaterPolicy, &SteamHeaterPolicy::resolvedChanged,
             this, &MainController::steamHeaterStateChanged);
 
@@ -389,8 +402,23 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // this rewrites the recipes that named them, which needs a database and so
     // could not happen in SettingsBrew's constructor. take…() clears the names,
     // so this runs exactly once, on the launch that migrated.
-    if (m_recipeStorage && m_settings)
-        m_recipeStorage->requestHeaterOffPitcherRewrite(m_settings->brew()->takeMigratedHeaterOffNames());
+    if (m_recipeStorage && m_settings) {
+        // PEEK, don't take: the rewrite is asynchronous and can fail (a bad
+        // SELECT, a mid-batch UPDATE error). Consuming the names up front lost
+        // them permanently on any failure, leaving those recipes naming a preset
+        // that no longer exists — and activation would then resurrect it as a
+        // real pitcher, which is the junk-pitcher outcome the migration exists to
+        // prevent. Cleared only once the pass reports success, so a failure
+        // simply retries next launch.
+        const QStringList removed = m_settings->brew()->migratedHeaterOffNames();
+        if (!removed.isEmpty()) {
+            QPointer<Settings> settingsGuard(m_settings);
+            m_recipeStorage->requestHeaterOffPitcherRewrite(removed, [settingsGuard](bool ok) {
+                if (ok && settingsGuard)
+                    settingsGuard->brew()->clearMigratedHeaterOffNames();
+            });
+        }
+    }
     setupRecipeConnections();
 
     // One-time idle-button injections (issue #1586). What the gate means is
@@ -2268,9 +2296,10 @@ void MainController::deactivateRecipe() {
         m_activeRecipe.clear();
         emit activeRecipeChanged();
     }
-    // Unwind any pitcher override back to the user's standing selection. This
-    // also re-sends the settings, so the applySteamSettings() below is only
-    // reached when there was no override to unwind.
+    // Unwind any pitcher override back to the user's standing selection. That
+    // path re-sends the settings itself, so the applySteamSettings() below is
+    // redundant when an override was unwound — it still runs unconditionally,
+    // and the BLE layer dedups the second identical payload.
     setRecipeSteamPitcherOverride(SettingsBrew::NoStandingPitcher);
     // The recipe is one of the policy's inputs in BOTH directions — leaving a
     // milk recipe drops a permission, leaving an espresso drops a VETO — so
@@ -2295,6 +2324,13 @@ void MainController::loadAutoLoadRecipeIfNeeded() {
     // accessor for a single row.
     m_pendingAutoLoadRecipeId = recipeId;
     m_recipeStorage->requestRecipe(recipeId);
+}
+
+bool MainController::activeRecipeSaysHeaterOff() const {
+    if (m_activeRecipe.isEmpty())
+        return false;
+    return parseSteamBlock(m_activeRecipe.value(QStringLiteral("steamJson")).toString())
+        .value(QStringLiteral("heaterOff")).toBool();
 }
 
 bool MainController::activeRecipeHasMilk() const {
@@ -2506,7 +2542,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // Compare reported against COMMANDED — "did the DE1 honor our last
     // write?" This is the authoritative question for #746, and it correctly
     // handles code paths that write values diverging from Settings
-    // (startSteamHeating forces heater on regardless of keepSteamHeaterOn,
+    // (startSteamHeating forces heater on regardless of the resolved heater policy,
     // softStopSteam writes a 1s timeout, etc.). Comparing against
     // Settings-derived "expected" would make the drift handler clobber
     // those writes.
@@ -2753,24 +2789,10 @@ void MainController::selectSteamPitcher(int index, double milkFallbackG) {
 
 void MainController::setRecipeSteamPitcherOverride(int index) {
     if (!m_settings) return;
-    auto* brew = m_settings->brew();
-
-    if (index != SettingsBrew::NoStandingPitcher) {
-        // Park the standing selection the first time a recipe overrides it. The
-        // guard is what makes recipe-to-recipe switching safe: without it, the
-        // second activation would park the FIRST recipe's pitcher as if the user
-        // had chosen it, and deactivating would restore a drink, not a setting.
-        if (brew->standingSteamPitcher() == SettingsBrew::NoStandingPitcher)
-            brew->setStandingSteamPitcher(brew->selectedSteamPitcher());
-        selectSteamPitcher(index);
-        return;
-    }
-
-    const int standing = brew->standingSteamPitcher();
-    if (standing == SettingsBrew::NoStandingPitcher)
-        return;  // no override was ever applied — nothing to unwind
-    brew->setStandingSteamPitcher(SettingsBrew::NoStandingPitcher);
-    selectSteamPitcher(standing);
+    // The park/unwind decision is SettingsBrew's; this half is only the push.
+    const int select = m_settings->brew()->resolveRecipePitcherOverride(index);
+    if (select != SettingsBrew::NoStandingPitcher)
+        selectSteamPitcher(select);
 }
 
 void MainController::applySteamSettings() {

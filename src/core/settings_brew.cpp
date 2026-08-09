@@ -112,10 +112,12 @@ SettingsBrew::SettingsBrew(QObject* parent)
         bool selectionWasRemoved = false;
         for (int i = 0; i < arr.size(); ++i) {
             const QJsonObject preset = arr.at(i).toObject();
-            // `off` is what the add-dialog wrote, `disabled` what the readers
-            // tested. Both appear in the wild; accept either.
-            if (preset.value(QStringLiteral("disabled")).toBool()
-                || preset.value(QStringLiteral("off")).toBool()) {
+            // `disabled` is the only flag a user-created Off preset ever carried:
+            // addSteamPitcherPresetDisabled() (deleted by this change) wrote that
+            // and nothing else. An earlier version of this loop also accepted an
+            // `off` key, justified in a comment as "what the add-dialog wrote" —
+            // no writer in this codebase's history has ever produced it.
+            if (preset.value(QStringLiteral("disabled")).toBool()) {
                 removedNames << preset.value(QStringLiteral("name")).toString();
                 if (i == selected)
                     selectionWasRemoved = true;
@@ -483,16 +485,15 @@ QVariantList SettingsBrew::steamPitcherPresets() const {
 
 // The built-in "Heater off" entry. Synthetic — assembled here, never stored.
 //
-// `disabled` is kept alongside `off` because every existing reader (the policy,
-// the pill rows, SteamPage, the wizard) already tests it, and a user-created Off
-// preset carried exactly that flag. `builtin` is what marks it unmodifiable.
+// `disabled` is the flag every existing reader already tests (the policy, the
+// pill rows, SteamPage, the wizard), and it is what a user-created Off preset
+// carried. `builtin` is what marks this one unmodifiable.
 //
 // No translated name: this map is data, and the view translates the label. A
 // stored name would be stale after a language change, and worse, name is what
 // recipes historically matched a pitcher on.
 QVariantMap SettingsBrew::heaterOffPitcherEntry() {
     QVariantMap entry;
-    entry.insert(QStringLiteral("off"), true);
     entry.insert(QStringLiteral("disabled"), true);
     entry.insert(QStringLiteral("builtin"), true);
     return entry;
@@ -536,10 +537,38 @@ int SettingsBrew::selectedSteamPitcher() const {
 }
 
 void SettingsBrew::setSelectedSteamCup(int index) {
-    if (selectedSteamPitcher() != index) {
-        m_settings.setValue("steam/selectedPitcher", index);
+    // Normalise the built-in to its SENTINEL, never its display slot.
+    //
+    // The pill rows address delegates by position, so a tap on "Heater off"
+    // arrives here as steamPitcherCount() — and that value stops meaning
+    // "Heater off" the moment a preset is added or deleted. Worse,
+    // removeSteamPitcherPreset() clamps an out-of-range selection down to the
+    // last real pitcher, so deleting a preset silently turned a deliberate
+    // "keep the boiler cold" into a real pitcher and warmed it.
+    //
+    // Normalising HERE rather than at each caller is the point: isHeaterOffPitcher()
+    // deliberately answers to both representations so callers can pass either,
+    // which is exactly what makes an un-normalised store ambiguous. One seam.
+    const int stored = isHeaterOffPitcher(index) ? HeaterOffPitcherIndex : index;
+    if (selectedSteamPitcher() != stored) {
+        m_settings.setValue("steam/selectedPitcher", stored);
         emit selectedSteamPitcherChanged();
     }
+}
+
+void SettingsBrew::adjustStandingPitcherForRemoval(int removedIndex) {
+    // The standing pitcher is a parked SELECTION, so it needs the same index
+    // maintenance the live selection gets. Without it, deleting a preset while a
+    // recipe override is active unwinds to a different pitcher — or, when the
+    // stale index lands on steamPitcherCount(), to the built-in, so the user's
+    // standing pitcher comes back as a cold boiler.
+    const int standing = standingSteamPitcher();
+    if (standing < 0)
+        return;                                   // sentinel or unset: positionless
+    if (standing == removedIndex)
+        setStandingSteamPitcher(HeaterOffPitcherIndex);  // it IS what was deleted
+    else if (standing > removedIndex)
+        setStandingSteamPitcher(standing - 1);
 }
 
 int SettingsBrew::standingSteamPitcher() const {
@@ -550,11 +579,30 @@ void SettingsBrew::setStandingSteamPitcher(int index) {
     m_settings.setValue("steam/standingPitcher", index);
 }
 
-QStringList SettingsBrew::takeMigratedHeaterOffNames() {
-    const QStringList names = m_settings.value("steam/heaterOffRemovedNames").toStringList();
-    if (!names.isEmpty())
-        m_settings.remove("steam/heaterOffRemovedNames");
-    return names;
+int SettingsBrew::resolveRecipePitcherOverride(int recipeIndex) {
+    if (recipeIndex != NoStandingPitcher) {
+        // Park the standing selection the FIRST time a recipe overrides it. The
+        // guard is what makes recipe-to-recipe switching safe: without it, the
+        // second activation would park the first recipe's pitcher as if the user
+        // had chosen it, and deactivating would restore a drink, not a setting.
+        if (standingSteamPitcher() == NoStandingPitcher)
+            setStandingSteamPitcher(selectedSteamPitcher());
+        return recipeIndex;
+    }
+
+    const int standing = standingSteamPitcher();
+    if (standing == NoStandingPitcher)
+        return NoStandingPitcher;   // no override was ever applied
+    setStandingSteamPitcher(NoStandingPitcher);
+    return standing;
+}
+
+QStringList SettingsBrew::migratedHeaterOffNames() const {
+    return m_settings.value("steam/heaterOffRemovedNames").toStringList();
+}
+
+void SettingsBrew::clearMigratedHeaterOffNames() {
+    m_settings.remove("steam/heaterOffRemovedNames");
 }
 
 void SettingsBrew::addSteamPitcherPreset(const QString& name, int duration, int flow, double temperature) {
@@ -648,10 +696,20 @@ void SettingsBrew::removeSteamPitcherPreset(int index) {
         arr.removeAt(index);
         m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
 
-        int selected = selectedSteamPitcher();
-        if (selected >= arr.size() && arr.size() > 0) {
-            setSelectedSteamCup(static_cast<int>(arr.size()) - 1);
-        }
+        // Both the live selection and the parked standing pitcher are positions
+        // into the array that just shrank, so both must SHIFT, not merely be
+        // clamped. Clamping alone was the pre-existing behaviour and it silently
+        // moved the selection to a different pitcher: delete index 0 while index
+        // 2 is selected and the survivors renumber, so 2 now names what used to
+        // be 3. The sentinel is positionless and is left alone by the `>= 0`
+        // guards — which is what keeps a deliberate "Heater off" from being
+        // clamped into a real pitcher and warming the boiler.
+        const int selected = selectedSteamPitcher();
+        if (selected == index)
+            setSelectedSteamCup(HeaterOffPitcherIndex);   // the selected one was deleted
+        else if (selected > index)
+            setSelectedSteamCup(selected - 1);
+        adjustStandingPitcherForRemoval(index);
 
         emit steamPitcherPresetsChanged();
     }

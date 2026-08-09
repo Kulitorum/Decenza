@@ -809,6 +809,10 @@ private:
     // what the recipe WANTS, not what the heater does — SteamHeaterPolicy pulls
     // it and only lets it decide when the user turned Let the recipe decide on.
     bool activeRecipeHasMilk() const;
+    // True when the active recipe explicitly names the built-in "Heater off"
+    // entry. Distinct from "has no milk": this is a choice the user made, and it
+    // outranks hasMilk — a recipe can carry both.
+    bool activeRecipeSaysHeaterOff() const;
 
     // THE single ShotSettings write for every steam entry point. The four
     // non-steam fields are read live from Settings here, so no caller can push
