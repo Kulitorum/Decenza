@@ -228,6 +228,14 @@ private:
     MetaJson m_meta;
     bool     m_metaLoaded = false;
 
+    // True while the in-flight GET carries a Range header, and true once that
+    // Range has been confirmed honoured (HTTP 206). Both are cleared when the
+    // download finishes. The version cross-check on the completed file only
+    // applies to a resumed body — a fresh complete download that is simply
+    // newer than the sidecar is legitimate, not a splice.
+    bool     m_resumedDownload = false;
+    bool     m_rangeHonoured   = false;
+
     QNetworkReply* m_activeReply = nullptr;
     QFile*         m_downloadFile = nullptr;
     QByteArray     m_pendingEtag;             // ETag of in-flight HEAD response

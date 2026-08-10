@@ -193,6 +193,11 @@ private:
     bool        m_updateAvailable  = false;
     bool        m_isDowngrade      = false;
     bool        m_isReflash        = false;
+    // Set when the erase FWMapRequest's own write ACK arrives. Until then an
+    // A009 notification in state Erasing cannot be this cycle's erase-complete
+    // — a terminal verify notification is byte-identical, and the retry path
+    // can deliver one late.
+    bool        m_eraseRequestAcked = false;
     uint32_t    m_availableVersion = 0;
     uint32_t    m_installedVersion = 0;
     double      m_progress         = 0.0;
@@ -213,9 +218,12 @@ private:
     qsizetype   m_chunksQueued     = 0;   // handed to BleTransport
     qsizetype   m_chunksAcked      = 0;   // confirmed by DE1 via writeComplete
 
-    // Erase state: de1app expects *two* notifications — first fwToErase=1
-    // (erase in progress), then fwToErase=0 (erase complete). We only
-    // proceed after the second.
+    // Erase state. de1app's spec describes *two* notifications — fwToErase=1
+    // (in progress), then fwToErase=0 (complete) — but v1333+ sends only the
+    // second, so progression cannot be gated on having seen the first. This
+    // records whether it arrived, for the log and for older firmware; the
+    // transition is driven by the completion notification alone (with the
+    // post-erase timer as fallback).
     bool        m_eraseInProgressSeen = false;
 
     // Dismissed-version memory. When the user taps the banner's "x",

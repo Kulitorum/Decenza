@@ -1,5 +1,7 @@
 #include <QtTest>
 #include <QSignalSpy>
+
+#include <algorithm>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QRegularExpression>
@@ -67,12 +69,34 @@ void writeCachedBlob(const FirmwareUpdater*, DE1::Firmware::FirmwareAssetCache* 
 // queued into MockTransport, then simulating BLE ACKs for each. Returns
 // after the state has advanced to Verifying (or whatever follows, depending
 // on timings in the specific test).
+// A firmware chunk on the wire: 20 bytes on WRITE_TO_MMR whose length byte
+// is 16. Same discriminator FirmwareUpdater::onFirmwareWriteAcked uses to
+// tell chunks from the MMR writes that share the characteristic.
+bool isFirmwareChunkWrite(const QPair<QBluetoothUuid, QByteArray>& w) {
+    return w.first == DE1::Characteristic::WRITE_TO_MMR &&
+           w.second.size() == 20 &&
+           static_cast<uint8_t>(w.second[0]) == 16;
+}
+
+qsizetype firmwareChunkWriteCount(const MockTransport& transport) {
+    return std::count_if(transport.writes.begin(), transport.writes.end(),
+                         isFirmwareChunkWrite);
+}
+
 void simulateFullUpload(MockTransport& transport, const QByteArray& blob,
                         int ackWaitTimeoutMs = 5000) {
     const qsizetype expectedChunks = (blob.size() + 15) / 16;
-    // Expected writes at this point: 1 erase FWMapRequest + N chunks.
+    // Count the CHUNK writes, not the total. This used to wait for
+    // `writes.size() >= 1 + expectedChunks`, assuming exactly one non-chunk
+    // write (the erase FWMapRequest) precedes them — which stopped being true
+    // the moment beginErasePhase() started sending the DE1 to sleep first.
+    // The total was then reached one chunk early, ackAllWritesInOrder() acked
+    // one chunk short of the total, and the updater sat in Uploading forever
+    // waiting for an ACK that had already been counted against a different
+    // write. Counting the thing we actually mean survives any further
+    // pre-erase traffic.
     QTRY_VERIFY_WITH_TIMEOUT(
-        transport.writes.size() >= 1 + expectedChunks, ackWaitTimeoutMs);
+        firmwareChunkWriteCount(transport) >= expectedChunks, ackWaitTimeoutMs);
     transport.ackAllWritesInOrder();
 }
 
@@ -129,6 +153,35 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Failed, 2000);
         QVERIFY(f.updater.retryAvailable());
         QVERIFY(f.updater.errorMessage().contains("Erase"));
+    }
+
+    void erasePhase_sleepsTheMachineBeforeEngagingTheGuard() {
+        Fixture f;
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+
+        // The sleep must reach the wire, and it must precede the erase
+        // request. DE1Device::goToSleep() drops the write once
+        // m_firmwareFlashInProgress is set, so moving the call below
+        // setFirmwareFlashInProgress(true) turns it into a silent no-op that
+        // nothing else would catch: the flash still succeeds, it just runs
+        // with the heaters and refill logic live for its whole ~18 minutes.
+        qsizetype sleepAt = -1;
+        qsizetype eraseAt = -1;
+        for (qsizetype i = 0; i < f.transport.writes.size(); ++i) {
+            const auto& w = f.transport.writes.at(i);
+            if (sleepAt < 0 && w.first == DE1::Characteristic::REQUESTED_STATE &&
+                w.second == QByteArray(1, static_cast<char>(DE1::State::Sleep))) {
+                sleepAt = i;
+            }
+            if (eraseAt < 0 && w.first == DE1::Characteristic::FW_MAP_REQUEST) {
+                eraseAt = i;
+            }
+        }
+        QVERIFY2(sleepAt >= 0, "no sleep written to REQUESTED_STATE before the flash");
+        QVERIFY2(eraseAt >= 0, "no erase FWMapRequest written to A009");
+        QVERIFY2(sleepAt < eraseAt, "sleep must precede the erase request");
     }
 
     void eraseCompleteNotification_startsUploadBeforeFallbackTimer() {
@@ -575,11 +628,13 @@ private slots:
         QVERIFY(f.transport.subscribes.contains(DE1::Characteristic::FW_MAP_REQUEST));
 
         // Wait for all chunks to land in MockTransport (the pump queues them
-        // synchronously with a 0 ms interval). The expected write count is
-        // 1 (erase FWMapRequest) + N (firmware chunks).
+        // synchronously with a 0 ms interval). Count chunk writes rather than
+        // total writes — the erase FWMapRequest is not the only non-chunk
+        // write any more, since beginErasePhase() sends the DE1 to sleep
+        // first. See firmwareChunkWriteCount().
         const qsizetype expectedChunksQueued = (blob.size() + 15) / 16;
         QTRY_VERIFY_WITH_TIMEOUT(
-            f.transport.writes.size() >= 1 + expectedChunksQueued, 5000);
+            firmwareChunkWriteCount(f.transport) >= expectedChunksQueued, 5000);
 
         // Now simulate BLE ACKing each write. The updater counts
         // WRITE_TO_MMR ACKs with length==16; after the last chunk's ACK

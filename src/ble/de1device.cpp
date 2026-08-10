@@ -1194,11 +1194,11 @@ void DE1Device::skipToNextFrame() {
     requestState(DE1::State::SkipToNext);
 }
 
-void DE1Device::goToSleep() {
+bool DE1Device::goToSleep() {
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         m_simulator->goToSleep();
-        return;
+        return true;
     }
 #endif
 
@@ -1208,7 +1208,7 @@ void DE1Device::goToSleep() {
     // REQUESTED_STATE and would otherwise bypass it.
     if (m_firmwareFlashInProgress) {
         DEVICE_WARN(QStringLiteral("Sleep requested during firmware flash, dropping"));
-        return;
+        return false;
     }
 
     // If a profile upload is in progress, defer sleep until it completes.
@@ -1216,10 +1216,10 @@ void DE1Device::goToSleep() {
         DEVICE_LOG(QStringLiteral("Sleep requested during profile upload, deferring until "
                                   "upload completes"));
         m_sleepPendingAfterUpload = true;
-        return;
+        return false;
     }
 
-    if (!m_transport) return;
+    if (!m_transport) return false;
     // Clear pending commands - sleep takes priority. Only drop the MMR
     // cache if something was actually queued — an empty queue means the
     // cache still matches what we've sent. Avoids a spurious re-send of
@@ -1233,6 +1233,7 @@ void DE1Device::goToSleep() {
     // Send sleep command directly (don't queue it)
     QByteArray data(1, static_cast<char>(DE1::State::Sleep));
     m_transport->writeUrgent(DE1::Characteristic::REQUESTED_STATE, data);
+    return true;
 }
 
 void DE1Device::wakeUp() {
