@@ -105,7 +105,12 @@ T.Page {
                                  : Theme.formatTemperature(steamPage.currentSteamTemp, 0) + " / "
                                    + Theme.formatTemperature(steamPage.targetSteamTemp, 0)
     readonly property real targetSteamTemp: Settings.brew.steamTemperature
-    readonly property bool isHeatingUp: !isSteaming && currentSteamTemp < (targetSteamTemp - 5)  // 5°C tolerance
+    // A cold boiler nobody asked to heat is not "heating up". Without the
+    // steamHeaterOff term this banner animated "Heating steam..." over a
+    // progress bar climbing towards a target that was never commanded — on the
+    // same row whose right-hand readout said "Off".
+    readonly property bool isHeatingUp: !isSteaming && !steamHeaterOff
+                                        && currentSteamTemp < (targetSteamTemp - 5)  // 5°C tolerance
 
     // Check if DE1 is in Steam state but still heating (FinalHeating/Heating substate)
     // DE1::State::Steam = 5
@@ -2422,12 +2427,30 @@ T.Page {
             AppShell.idleRequested()
         }
 
+        // The built-in "Heater off" entry carries no duration, flow or
+        // temperature. The sliders keep the LAST real pitcher's values while
+        // hidden, so these three read them out and the bar claimed "60s, Flow
+        // 1.00, 160°C" for an entry with none — numbers belonging to whichever
+        // pitcher happened to be selected before. Show the same word the
+        // readouts use instead. Keyed on the PRESET, not on the resolved heater
+        // state: with a real pitcher selected and the boiler merely idle-cold,
+        // these values still describe what you would steam with.
         Text {
-            text: durationSlider.value.toFixed(0) + "s"
+            text: steamPage.heaterOffLabel
+            visible: steamPage.currentPitcherDisabled
             color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3 }
+        Text {
+            text: durationSlider.value.toFixed(0) + "s"
+            visible: !steamPage.currentPitcherDisabled
+            color: Theme.primaryContrastColor
+            font: Theme.bodyFont
+        }
+        Rectangle {
+            width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3
+            visible: !steamPage.currentPitcherDisabled
+        }
         Tr {
             id: flowLabelText
             key: "steam.label.flow"
@@ -2436,12 +2459,17 @@ T.Page {
         }
         Text {
             text: flowLabelText.text + " " + steamPage.flowToDisplay(flowSlider.value)
+            visible: !steamPage.currentPitcherDisabled
             color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3 }
+        Rectangle {
+            width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3
+            visible: !steamPage.currentPitcherDisabled
+        }
         Text {
             text: steamTempSlider.value.toFixed(0) + Theme.tempUnitSuffix()
+            visible: !steamPage.currentPitcherDisabled
             color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }

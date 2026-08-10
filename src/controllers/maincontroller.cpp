@@ -2766,26 +2766,32 @@ void MainController::selectSteamPitcher(int index, double milkFallbackG) {
     // transient flag; setting one here would outlive the selection and keep the
     // heater cold after the user picked a real pitcher again. It does end any
     // steam event in progress, which is the one thing a tap on it must do.
+    // Switch, not if/else, and deliberately without a `default`: this dispatch
+    // shipped as an if/else that handled two of the enum's three states, so a
+    // stale index fell into the "real pitcher" branch. -Wswitch now makes a
+    // fourth state a build error rather than a silent fall-through.
     const SettingsBrew::PitcherApply applied = brew->applySteamPitcherValues(index, milk);
-    if (applied == SettingsBrew::PitcherApply::Missing) {
+    switch (applied) {
+    case SettingsBrew::PitcherApply::Missing:
         // A stale index wrote NOTHING, so there is no pitcher behind this
-        // selection. Falling through to the "real pitcher" branch cleared the
-        // transient veto and then steamed with whatever numbers happened to be
-        // in Settings — a machine steaming to parameters nobody chose. Fail
-        // safe to cold, and say why: the enum has three states and the caller
-        // handled two.
+        // selection. Treating it as a real pitcher cleared the transient veto
+        // and then steamed with whatever numbers happened to be in Settings —
+        // a machine steaming to parameters nobody chose. Fail safe to cold.
         qWarning() << "MainController: steam pitcher" << index
                    << "no longer exists — leaving the heater cold rather than"
                       " steaming with stale values";
         m_steamHeaterPolicy->setEventPermission(false);
-    } else if (applied == SettingsBrew::PitcherApply::HeaterOff) {
+        break;
+    case SettingsBrew::PitcherApply::HeaterOff:
         m_steamHeaterPolicy->setEventPermission(false);
-    } else {
+        break;
+    case SettingsBrew::PitcherApply::Applied:
         // Picking a real pitcher REMOVES the transient veto — otherwise a
         // turnOffSteamHeater() from a previous session would keep the boiler
         // cold through every later selection, with nothing on screen to explain
         // it. It grants nothing: what happens next is still the policy's call.
         brew->setSteamDisabled(false);
+        break;
     }
     applySteamSettings();
 }

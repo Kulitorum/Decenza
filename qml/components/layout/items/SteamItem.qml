@@ -135,15 +135,16 @@ LayoutWidgetItem {
             // that path, so announce here directly to keep feature parity.
             if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
             var presets = Settings.brew.steamPitcherPresets
-            if (presets.length === 0) return
             var names = []
-            var selectedName = ""
             for (var i = 0; i < presets.length; ++i) {
                 names.push(SteamLabels.pitcherName(presets[i]))
             }
-            if (Settings.brew.selectedSteamPitcher >= 0 && Settings.brew.selectedSteamPitcher < presets.length) {
-                selectedName = SteamLabels.pitcherName(presets[Settings.brew.selectedSteamPitcher])
-            }
+            // Resolve through the helper, not by position: the built-in
+            // "Heater off" pitcher is stored as a sentinel, so a `>= 0` index
+            // test announced an empty name for a perfectly valid selection.
+            // Same fix as the full-mode path in IdlePage.
+            var selectedName = SteamLabels.pitcherName(
+                Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher))
             var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
             if (selectedName !== "") {
                 announcement += ". " + selectedName + " " + TranslationManager.translate("idle.accessible.isSelected", "is selected")

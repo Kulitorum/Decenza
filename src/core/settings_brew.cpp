@@ -11,6 +11,14 @@
 SettingsBrew::SettingsBrew(QObject* parent)
     : QObject(parent)
 {
+    // The display position is derived from BOTH the stored selection and the
+    // preset count — the built-in's row is one past the last preset, so adding
+    // or deleting one moves it without the selection changing.
+    connect(this, &SettingsBrew::selectedSteamPitcherChanged,
+            this, &SettingsBrew::selectedSteamPitcherDisplayIndexChanged);
+    connect(this, &SettingsBrew::steamPitcherPresetsChanged,
+            this, &SettingsBrew::selectedSteamPitcherDisplayIndexChanged);
+
     // Seed default steam pitcher presets if none exist
     if (!m_settings.contains("steam/pitcherPresets")) {
         QJsonArray defaults;
@@ -548,6 +556,13 @@ int SettingsBrew::steamPitcherCount() const {
 
 int SettingsBrew::selectedSteamPitcher() const {
     return m_settings.value("steam/selectedPitcher", 0).toInt();
+}
+
+int SettingsBrew::selectedSteamPitcherDisplayIndex() const {
+    const int selected = selectedSteamPitcher();
+    // steamPitcherCount() is the number of REAL presets, so it is also the
+    // built-in's row: the synthetic entry is appended one past the last.
+    return isHeaterOffPitcher(selected) ? steamPitcherCount() : selected;
 }
 
 void SettingsBrew::setSelectedSteamCup(int index) {

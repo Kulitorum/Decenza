@@ -992,9 +992,12 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                 if (!doc.isNull() && doc.isObject()) {
                     // Filter sensitive keys on import — older backups may contain
                     // passwords/API keys that were exported before this fix
-                    SettingsSerializer::importFromJson(m_settings, doc.object(), SettingsSerializer::sensitiveKeys());
-                    settingsRestored = true;
-                    qDebug() << "ShotServer: Restored settings";
+                    if (SettingsSerializer::importFromJson(m_settings, doc.object(), SettingsSerializer::sensitiveKeys())) {
+                        settingsRestored = true;
+                        qDebug() << "ShotServer: Restored settings";
+                    } else {
+                        qWarning() << "ShotServer: Settings import returned failure";
+                    }
                 }
             }
         }

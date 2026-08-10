@@ -109,6 +109,7 @@ private:
     QByteArray m_origVesselPresets;
     QByteArray m_origPitcherPresets;
     bool m_origHeaterOffMigrated = false;
+    bool m_origSteamRateMigrated = false;
     int m_origSelectedPitcher = 0;
     int m_origStandingPitcher = SettingsBrew::NoStandingPitcher;
     bool m_origMilkAutoCapture;
@@ -262,6 +263,7 @@ private slots:
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray();
           m_origHeaterOffMigrated = raw.value("steam/heaterOffPresetsMigrated", false).toBool();
+          m_origSteamRateMigrated = raw.value("steam/steamRateMigrated", false).toBool();
           m_origSelectedPitcher = raw.value("steam/selectedPitcher", 0).toInt();
           m_origStandingPitcher = raw.value("steam/standingPitcher",
                                             SettingsBrew::NoStandingPitcher).toInt(); }
@@ -305,6 +307,7 @@ private slots:
           // makes the next Settings construction re-run a migration nobody asked
           // for, and the failure then lands in an unrelated test.
           raw.setValue("steam/heaterOffPresetsMigrated", m_origHeaterOffMigrated);
+          raw.setValue("steam/steamRateMigrated", m_origSteamRateMigrated);
           raw.setValue("steam/selectedPitcher", m_origSelectedPitcher);
           // The parked recipe-override pitcher. A test that leaves this set makes
           // the NEXT test's unwind restore a pitcher it never parked, and the
@@ -1393,6 +1396,55 @@ private slots:
         QVERIFY(fresh.brew()->migratedHeaterOffNames().isEmpty());
     }
 
+    // The DISPLAY position, and the signal that keeps it live. Every pill row,
+    // the compact popup's announcement and the MCP `list` response address rows
+    // by position, while the built-in is stored positionlessly — so this is the
+    // read side of that normalisation, and leaving it out is what left "Heater
+    // off" highlighted nowhere. It rides on the preset COUNT as well as the
+    // selection, which is why adding a pitcher has to re-notify: without that
+    // the highlight stays on the row the built-in used to occupy.
+    void theBuiltInsDisplayPositionFollowsThePresetCount() {
+        SettingsBrew* brew = m_settings.brew();
+        brew->setSelectedSteamCup(brew->steamPitcherCount());   // tap "Heater off"
+        QCOMPARE(brew->selectedSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
+
+        const int rowBefore = brew->selectedSteamPitcherDisplayIndex();
+        QCOMPARE(rowBefore, brew->steamPitcherCount());
+        QVERIFY(brew->steamPitcherPresets().at(rowBefore).toMap().value("builtin").toBool());
+
+        QSignalSpy spy(brew, &SettingsBrew::selectedSteamPitcherDisplayIndexChanged);
+        brew->addSteamPitcherPreset(QStringLiteral("Extra"), 30, 150, 150.0);
+        QVERIFY(spy.count() > 0);        // the count moved the row: readers must hear it
+        QCOMPARE(brew->selectedSteamPitcherDisplayIndex(), rowBefore + 1);
+        QVERIFY(brew->steamPitcherPresets()
+                    .at(brew->selectedSteamPitcherDisplayIndex()).toMap().value("builtin").toBool());
+    }
+
+    // An unreadable preset blob must DEFER the migration, not consume it. The
+    // migration examines nothing when the array will not parse, so stamping the
+    // one-time flag anyway would mean a user whose file was momentarily
+    // unreadable never gets migrated at all — their own "Off" preset survives
+    // forever beside the built-in, and their selection is never remapped.
+    void heaterOffMigrationDefersWhenThePresetsCannotBeRead() {
+        {
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.setValue("steam/pitcherPresets", QByteArray("not json"));
+            raw.setValue("steam/heaterOffPresetsMigrated", false);
+            // Close the steam-rate migration gate explicitly: it reads the same
+            // unreadable array and would emit a second, incidental parse warning,
+            // making the expected-message set depend on store history.
+            raw.setValue("steam/steamRateMigrated", true);
+            raw.sync();
+        }
+        // Both halves of the deferral: the reader reports it, the migration says
+        // what it did about it.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("could not parse"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("deferring the Heater off migration"));
+        Settings fresh;
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        QVERIFY(!raw.value("steam/heaterOffPresetsMigrated").toBool());
+    }
+
     // The built-in's label is reserved even though it has no stored name to
     // collide with — two rows reading "Heater off" would be indistinguishable.
     void theBuiltInHeaterOffNameIsReserved() {
@@ -1480,6 +1532,29 @@ private slots:
         QCOMPARE(m_settings.brew()->getSteamPitcherPreset(
                      m_settings.brew()->selectedSteamPitcher()).value("name").toString(),
                  QStringLiteral("Large"));
+    }
+
+    // The failure RETURN, not the remap. Every other importFromJson assertion in
+    // this file is QVERIFY(import...) — the function returned an unconditional
+    // true for its whole life, so its callers' `if (!import…)` branches were dead
+    // code and a restore that dropped the steam selection still reported success.
+    // Reached by a selection with no presets beside it: nothing to remap against,
+    // so the raw index meets the range check.
+    void importReportsFailureWhenTheSelectionCannotBePlaced() {
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+        QJsonObject steam = bundle["steam"].toObject();
+        steam.remove("pitcherPresets");        // no array to renumber against
+        steam["selectedPitcher"] = 50;         // addresses no pitcher on any install
+        bundle["steam"] = steam;
+
+        const int before = m_settings.brew()->selectedSteamPitcher();
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("imported selectedPitcher 50 out of range")));
+        QVERIFY(!SettingsSerializer::importFromJson(&m_settings, bundle));
+        // Reported, and the current selection left alone rather than clamped.
+        QCOMPARE(m_settings.brew()->selectedSteamPitcher(), before);
     }
 
     void steamRateImportReseedsFromLegacyBackup() {

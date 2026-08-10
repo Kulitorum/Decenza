@@ -143,8 +143,30 @@ private slots:
         const int builtIn = m_settings.brew()->steamPitcherCount();
         const QJsonObject r = call("steam_pitcher", {{"action", "select"}, {"index", builtIn}}, /*control*/ 1);
         QVERIFY(r["success"].toBool());
-        QCOMPARE(r["selectedIndex"].toInt(), int(SettingsBrew::HeaterOffPitcherIndex));
+        // The response reports a POSITION in the array `list` returns, not the
+        // stored value: echoing the sentinel answered a select of row N with -1,
+        // which addresses no row and contradicts the request it just satisfied.
+        QCOMPARE(r["selectedIndex"].toInt(), builtIn);
+        QVERIFY(r["heaterOffSelected"].toBool());
+        // Stored positionlessly all the same, so adding or deleting a pitcher
+        // cannot turn this selection into a real one.
         QCOMPARE(m_settings.brew()->selectedSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
+
+        // `list` must answer in the SAME index space, or a client that highlights
+        // presets[selectedIndex] shows nothing selected for a valid selection.
+        const QJsonObject listed = call("steam_pitcher", {{"action", "list"}});
+        QCOMPARE(listed["selectedIndex"].toInt(), builtIn);
+        QVERIFY(listed["heaterOffSelected"].toBool());
+        QVERIFY(listed["presets"].toArray().at(builtIn).toObject()["disabled"].toBool());
+
+        // Editing it is refused with advice that can be followed. The range check
+        // used to run against the list INCLUDING this synthetic row, so it fell
+        // through to "delete and re-add it" — `delete` refuses it and `add`
+        // refuses disabled, so there was no way to comply.
+        const QString editError = call("steam_pitcher",
+            {{"action", "update"}, {"index", builtIn}, {"temperatureC", 140.0}})["error"].toString();
+        QVERIFY(editError.contains(QStringLiteral("cannot be edited")));
+        QVERIFY(!editError.contains(QStringLiteral("delete and re-add")));
 
         // ...and one past THAT is still out of range.
         QCOMPARE(call("steam_pitcher", {{"action", "select"}, {"index", builtIn + 1}}, 1)["error"].toString(),

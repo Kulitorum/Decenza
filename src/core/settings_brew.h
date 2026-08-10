@@ -66,6 +66,10 @@ class SettingsBrew : public QObject {
     // Steam pitcher presets
     Q_PROPERTY(QVariantList steamPitcherPresets READ steamPitcherPresets NOTIFY steamPitcherPresetsChanged FINAL)
     Q_PROPERTY(int selectedSteamPitcher READ selectedSteamPitcher WRITE setSelectedSteamCup NOTIFY selectedSteamPitcherChanged FINAL)
+    // Notified by the presets change too: the built-in's display position is one
+    // past the last real preset, so it moves when the count does.
+    Q_PROPERTY(int selectedSteamPitcherDisplayIndex READ selectedSteamPitcherDisplayIndex
+               NOTIFY selectedSteamPitcherDisplayIndexChanged FINAL)
 
     // Hot water
     Q_PROPERTY(double waterTemperature READ waterTemperature WRITE setWaterTemperature NOTIFY waterTemperatureChanged FINAL)
@@ -194,6 +198,17 @@ public:
     // getSteamPitcherPreset() already treats as out of range.
     static constexpr int HeaterOffPitcherIndex = -1;
     Q_INVOKABLE bool isHeaterOffPitcher(int index) const;
+
+    // The selection as a DISPLAY POSITION — what addresses a row of
+    // steamPitcherPresets(), which is what every pill row, the MCP `list`
+    // response and any screen reader announcement work in. The built-in is
+    // stored as a positionless sentinel, so the stored value addresses no row
+    // and a positional comparison against it silently matches nothing.
+    //
+    // A property rather than an invokable on purpose: a QML binding calling an
+    // invokable records no dependency and would freeze on the value it had when
+    // the page was built.
+    int selectedSteamPitcherDisplayIndex() const;
 
     // The pitcher the user chose for THEMSELVES, parked while an active recipe
     // overrides the selection, and restored when that recipe is deactivated or
@@ -405,6 +420,7 @@ signals:
     void steamAutoFlushSecondsChanged();
     void steamPitcherPresetsChanged();
     void selectedSteamPitcherChanged();
+    void selectedSteamPitcherDisplayIndexChanged();
     void waterTemperatureChanged();
     void waterVolumeChanged();
     void waterVolumeModeChanged();

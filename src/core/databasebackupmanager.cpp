@@ -1049,6 +1049,11 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         // Deliver result to main thread — settings/AI restore touches QSettings
         QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored, errors, merge, destroyed]() {
             if (*destroyed) return;
+            // Mutable copy: the settings import below can add an error, and the
+            // captured list is const. A failed import used to be logged and then
+            // dropped, so the restore still emitted restoreCompleted and told the
+            // user the backup restored cleanly.
+            QVector<QPair<QString, QString>> restoreErrors = errors;
             // Refresh storage state if shots were imported (via separate connection)
             if (shotsImported && m_storage) {
                 m_storage->refreshTotalShots();
@@ -1068,10 +1073,14 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             if (!settingsJson.isEmpty() && m_settings) {
                 QJsonObject json = settingsJson;
                 QStringList excludeKeys = SettingsSerializer::sensitiveKeys();
-                if (!SettingsSerializer::importFromJson(m_settings, json, excludeKeys)) {
+                if (SettingsSerializer::importFromJson(m_settings, json, excludeKeys)) {
+                    qDebug() << "DatabaseBackupManager: Settings restored from backup";
+                } else {
                     qWarning() << "DatabaseBackupManager: Settings import returned failure";
+                    // Key + fallback, untranslated: joinErrors() translates.
+                    restoreErrors << qMakePair(QStringLiteral("backup.error.settingsImport"),
+                                               QStringLiteral("Some settings could not be restored"));
                 }
-                qDebug() << "DatabaseBackupManager: Settings restored from backup";
             }
 
             // Restore AI conversations (writes to QSettings)
@@ -1138,8 +1147,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             }
 
             m_restoreInProgress = false;
-            if (!errors.isEmpty()) {
-                emit restoreFailed(joinErrors(errors));
+            if (!restoreErrors.isEmpty()) {
+                emit restoreFailed(joinErrors(restoreErrors));
             } else {
                 emit restoreCompleted(filename);
             }

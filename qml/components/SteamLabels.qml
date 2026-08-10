@@ -57,17 +57,17 @@ QtObject {
     // the last real preset. So a positional `index === selectedSteamPitcher` never
     // matches it: normalising the write side without this left "Heater off"
     // highlighted nowhere, and announced as unselected to a screen reader.
+    //
+    // The rule itself lives in C++ (SettingsBrew::selectedSteamPitcherDisplayIndex),
+    // because the MCP `list` and `select` responses have to report the same
+    // position and a second copy here would be free to drift from it.
     function pitcherDisplayIndex() {
-        var sel = Settings.brew.selectedSteamPitcher
-        // Read the presets so the binding re-evaluates when the count moves —
-        // the built-in's display position rides on it.
-        var count = Settings.brew.steamPitcherPresets.length
-        return Settings.brew.isHeaterOffPitcher(sel) ? count - 1 : sel
+        return Settings.brew.selectedSteamPitcherDisplayIndex
     }
 
     // True when the pill at `index` (a display position) is the selection.
     function pitcherIsSelected(index) {
-        return index === pitcherDisplayIndex()
+        return index === Settings.brew.selectedSteamPitcherDisplayIndex
     }
 
     // What the steam READOUTS show in place of a temperature when the resolved
