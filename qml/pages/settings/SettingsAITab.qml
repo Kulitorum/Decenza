@@ -262,6 +262,7 @@ KeyboardAwareContainer {
                 // Model selection (providers exposing a fixed catalog of >1 model).
                 // Generic: any provider whose availableModels() returns multiple
                 // entries lights this up automatically — no per-provider wiring.
+                // Hidden when a custom endpoint is set (dynamic picker shown instead).
                 ColumnLayout {
                     id: modelSelect
                     // Re-evaluated when the active provider changes (the binding
@@ -270,7 +271,14 @@ KeyboardAwareContainer {
                         ? MainController.aiManager.availableModels(Settings.ai.aiProvider)
                         : []
                     property string currentProvider: Settings.ai.aiProvider
-                    visible: options.length > 1
+                    property bool hasCustomEndpoint: {
+                        switch(Settings.ai.aiProvider) {
+                            case "openai": return Settings.ai.openaiEndpoint !== ""
+                            case "anthropic": return Settings.ai.anthropicEndpoint !== ""
+                            default: return false
+                        }
+                    }
+                    visible: options.length > 1 && !hasCustomEndpoint
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
 
@@ -336,6 +344,50 @@ KeyboardAwareContainer {
                         font.pixelSize: Theme.scaled(11)
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
+                    }
+                }
+
+                // Dynamic model picker for custom endpoints (OpenAI/Anthropic with custom base URL)
+                ColumnLayout {
+                    visible: modelSelect.hasCustomEndpoint
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    Tr {
+                        key: "settings.ai.model"
+                        fallback: "Model"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                        font.bold: true
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        StyledComboBox {
+                            id: customEndpointModelCombo
+                            Layout.fillWidth: true
+                            model: MainController.aiManager ? MainController.aiManager.customEndpointModels : []
+                            currentIndex: {
+                                var models = MainController.aiManager ? MainController.aiManager.customEndpointModels : []
+                                var stored = Settings.ai.providerModel(Settings.ai.aiProvider)
+                                return Math.max(0, models.indexOf(stored))
+                            }
+                            onActivated: function(index) {
+                                var models = MainController.aiManager ? MainController.aiManager.customEndpointModels : []
+                                if (index >= 0 && index < models.length) {
+                                    Settings.ai.setProviderModel(Settings.ai.aiProvider, models[index])
+                                }
+                            }
+                            accessibleLabel: TranslationManager.translate("settings.ai.modelAccessible", "AI model")
+                        }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.ai.refresh", "Refresh")
+                            accessibleName: TranslationManager.translate("settings.ai.refreshEndpointModels", "Refresh list of available models from custom endpoint")
+                            onClicked: MainController.aiManager?.refreshCustomEndpointModels()
+                        }
                     }
                 }
 

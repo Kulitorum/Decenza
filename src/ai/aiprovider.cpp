@@ -270,6 +270,10 @@ void OpenAIProvider::setModel(const QString& modelId)
 {
     if (modelId.isEmpty())
         return;  // unset → keep the current default
+    if (hasCustomEndpoint()) {
+        m_model = modelId;
+        return;
+    }
     for (const ModelOption& opt : availableModels()) {
         if (opt.id == modelId) {
             m_model = modelId;
@@ -664,6 +668,53 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
     emit testResult(true, tr_("ai.openai.connected", "Connected to OpenAI successfully"));
 }
 
+void OpenAIProvider::refreshModels()
+{
+    if (!hasCustomEndpoint()) return;
+
+    QString urlStr = m_baseUrl + QStringLiteral("/v1/models");
+    QUrl url(urlStr);
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    req.setTransferTimeout(TEST_TIMEOUT_MS);
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+
+    QNetworkReply* reply = m_networkManager->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onModelsReply(reply);
+    });
+}
+
+void OpenAIProvider::onModelsReply(QNetworkReply* reply)
+{
+    reply->deleteLater();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        emit testResult(false, tr_("ai.openai.cannotListModels", "Cannot list models: %1").arg(reply->errorString()));
+        emit modelsRefreshed({});
+        return;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    QJsonArray data = doc.object()["data"].toArray();
+
+    QStringList modelIds;
+    for (const auto& entry : data) {
+        QString id = entry.toObject()["id"].toString();
+        if (!id.isEmpty())
+            modelIds.append(id);
+    }
+
+    emit modelsRefreshed(modelIds);
+
+    if (!modelIds.isEmpty()) {
+        emit testResult(true, tr_("ai.openai.foundModels", "Connected — found %1 model(s)").arg(modelIds.size()));
+    } else {
+        emit testResult(false, tr_("ai.openai.noModels", "Connected but no models found"));
+    }
+}
+
 // ============================================================================
 // Anthropic Provider
 // ============================================================================
@@ -744,6 +795,10 @@ void AnthropicProvider::setModel(const QString& modelId)
 {
     if (modelId.isEmpty())
         return;  // unset → keep the current default
+    if (hasCustomEndpoint()) {
+        m_model = modelId;
+        return;
+    }
     for (const ModelOption& opt : availableModels()) {
         if (opt.id == modelId) {
             m_model = modelId;
@@ -1119,6 +1174,54 @@ void AnthropicProvider::onTestReply(QNetworkReply* reply)
     }
 
     emit testResult(true, tr_("ai.anthropic.connected", "Connected to Anthropic successfully"));
+}
+
+void AnthropicProvider::refreshModels()
+{
+    if (!hasCustomEndpoint()) return;
+
+    QString urlStr = m_baseUrl + QStringLiteral("/v1/models");
+    QUrl url(urlStr);
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setRawHeader("x-api-key", m_apiKey.toUtf8());
+    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    req.setTransferTimeout(TEST_TIMEOUT_MS);
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+
+    QNetworkReply* reply = m_networkManager->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onModelsReply(reply);
+    });
+}
+
+void AnthropicProvider::onModelsReply(QNetworkReply* reply)
+{
+    reply->deleteLater();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        emit testResult(false, tr_("ai.anthropic.cannotListModels", "Cannot list models: %1").arg(reply->errorString()));
+        emit modelsRefreshed({});
+        return;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    QJsonArray data = doc.object()["data"].toArray();
+
+    QStringList modelIds;
+    for (const auto& entry : data) {
+        QString id = entry.toObject()["id"].toString();
+        if (!id.isEmpty())
+            modelIds.append(id);
+    }
+
+    emit modelsRefreshed(modelIds);
+
+    if (!modelIds.isEmpty()) {
+        emit testResult(true, tr_("ai.anthropic.foundModels", "Connected — found %1 model(s)").arg(modelIds.size()));
+    } else {
+        emit testResult(false, tr_("ai.anthropic.noModels", "Connected but no models found"));
+    }
 }
 
 // ============================================================================

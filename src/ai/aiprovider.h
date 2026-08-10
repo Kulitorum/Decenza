@@ -212,9 +212,10 @@ public:
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL
     void setBaseUrl(const QString& url) { m_baseUrl = url.endsWith(QLatin1Char('/')) ? url.chopped(1) : url; }
+    bool hasCustomEndpoint() const { return !m_baseUrl.isEmpty(); }
     // Select the wire model. Ignores empty (keeps current default) and any id
     // not in availableModels(), so a stale/unknown stored value can't break the
-    // request.
+    // request. Skips validation when a custom endpoint is set.
     void setModel(const QString& modelId);
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
@@ -229,11 +230,16 @@ public:
     bool supportsUrlAnalysis() const override { return true; }
     void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;
+    void refreshModels();
+
+signals:
+    void modelsRefreshed(const QStringList& models);
 
 private slots:
     void onAnalysisReply(QNetworkReply* reply);
     void onResponsesReply(QNetworkReply* reply);
     void onTestReply(QNetworkReply* reply);
+    void onModelsReply(QNetworkReply* reply);
 
 private:
     void sendRequest(const QJsonObject& requestBody);
@@ -270,9 +276,10 @@ public:
     void setApiKey(const QString& key) { m_apiKey = key; }
     // empty → keeps default upstream URL
     void setBaseUrl(const QString& url) { m_baseUrl = url.endsWith(QLatin1Char('/')) ? url.chopped(1) : url; }
+    bool hasCustomEndpoint() const { return !m_baseUrl.isEmpty(); }
     // Select the wire model. Ignores empty (keeps current default) and any id
     // not in availableModels(), so a stale/unknown stored value can't break the
-    // request.
+    // request. Skips validation when a custom endpoint is set.
     void setModel(const QString& modelId);
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
@@ -284,10 +291,15 @@ public:
     bool supportsUrlAnalysis() const override { return true; }
     void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;
+    void refreshModels();
+
+signals:
+    void modelsRefreshed(const QStringList& models);
 
 private slots:
     void onAnalysisReply(QNetworkReply* reply);
     void onTestReply(QNetworkReply* reply);
+    void onModelsReply(QNetworkReply* reply);
 
 private:
     void sendRequest(const QJsonObject& requestBody);

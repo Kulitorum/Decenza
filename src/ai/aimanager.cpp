@@ -107,6 +107,7 @@ void AIManager::createProviders()
     connect(openai, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(openai, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
     connect(openai, &AIProvider::testResult, this, &AIManager::onTestResult);
+    connect(openai, &OpenAIProvider::modelsRefreshed, this, &AIManager::onCustomEndpointModelsRefreshed);
     m_openaiProvider.reset(openai);
 
     // Create Anthropic provider
@@ -117,6 +118,7 @@ void AIManager::createProviders()
     connect(anthropic, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(anthropic, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
     connect(anthropic, &AIProvider::testResult, this, &AIManager::onTestResult);
+    connect(anthropic, &AnthropicProvider::modelsRefreshed, this, &AIManager::onCustomEndpointModelsRefreshed);
     m_anthropicProvider.reset(anthropic);
 
     // Create Gemini provider
@@ -1667,6 +1669,26 @@ void AIManager::onOllamaModelsRefreshed(const QStringList& models)
     emit ollamaModelsChanged();
 }
 
+void AIManager::refreshCustomEndpointModels()
+{
+    const QString provider = m_settings->ai()->aiProvider();
+    if (provider == QLatin1String("openai")) {
+        auto* openai = dynamic_cast<OpenAIProvider*>(m_openaiProvider.get());
+        if (openai && openai->hasCustomEndpoint())
+            openai->refreshModels();
+    } else if (provider == QLatin1String("anthropic")) {
+        auto* anthropic = dynamic_cast<AnthropicProvider*>(m_anthropicProvider.get());
+        if (anthropic && anthropic->hasCustomEndpoint())
+            anthropic->refreshModels();
+    }
+}
+
+void AIManager::onCustomEndpointModelsRefreshed(const QStringList& models)
+{
+    m_customEndpointModels = models;
+    emit customEndpointModelsChanged();
+}
+
 void AIManager::onSettingsChanged()
 {
     // Update providers with new settings
@@ -1683,6 +1705,10 @@ void AIManager::onSettingsChanged()
         anthropic->setModel(m_settings->ai()->providerModel("anthropic"));  // empty → keeps default
         anthropic->setBaseUrl(m_settings->ai()->anthropicEndpoint());
     }
+
+    // Refresh custom endpoint model list when either provider has a custom base URL
+    if ((openai && openai->hasCustomEndpoint()) || (anthropic && anthropic->hasCustomEndpoint()))
+        refreshCustomEndpointModels();
 
     auto* gemini = dynamic_cast<GeminiProvider*>(m_geminiProvider.get());
     if (gemini) {
