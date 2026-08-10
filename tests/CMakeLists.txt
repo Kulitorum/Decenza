@@ -404,7 +404,9 @@ add_decenza_test(tst_firmwareheader
 # covered by the integration test in tst_firmwareflow. ---
 add_decenza_test(tst_firmwareassetcachehelpers
     tst_firmwareassetcachehelpers.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/firmwareassetcache.cpp
 )
+target_link_libraries(tst_firmwareassetcachehelpers PRIVATE decenza_testresources)
 
 # --- tst_migrationinterfaceselect: pure interface-selection ordering for
 # multi-homing-robust device-migration connects. orderedSubnetCandidates() is
@@ -881,6 +883,7 @@ add_decenza_test(tst_firmwareupdater
     ${CMAKE_SOURCE_DIR}/src/controllers/firmwareupdater.cpp
     ${CMAKE_SOURCE_DIR}/src/core/firmwareassetcache.cpp
 )
+target_link_libraries(tst_firmwareupdater PRIVATE decenza_testresources)
 
 # --- tst_profileupload: Profile upload frame-ACK verification ---
 add_decenza_test(tst_profileupload

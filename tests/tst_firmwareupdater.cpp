@@ -545,10 +545,54 @@ private slots:
         QVERIFY(!f.updater.updateAvailable());
     }
 
+    void bundledCheck_exposesReleaseNotesForQml() {
+        DE1Device device;
+        DE1::Firmware::FirmwareAssetCache cache;
+        FirmwareUpdater updater(&device, &cache);
+        updater.setInstalledVersionProvider([]{ return 1200u; });
+
+        updater.checkForUpdate();
+
+        QCOMPARE(updater.availableVersion(), 1352);
+        QCOMPARE(updater.availableVersionLabel(), QStringLiteral("1352"));
+        QCOMPARE(updater.availableChannelLabel(), QStringLiteral("Stable"));
+        QVERIFY(updater.availableReleaseNotes().contains(QStringLiteral("NoAC")));
+
+        cache.setChannel(DE1::Firmware::FirmwareAssetCache::Channel::EarlyAccess);
+        updater.checkForUpdate();
+
+        QCOMPARE(updater.availableVersion(), 1358);
+        QCOMPARE(updater.availableVersionLabel(), QStringLiteral("1358"));
+        QCOMPARE(updater.availableChannelLabel(), QStringLiteral("Early access"));
+        QVERIFY(updater.availableReleaseNotes().contains(QStringLiteral("Cold maintenance")));
+    }
+
+    void bundledCheckError_surfacesNonRetryableFileValidityFailure() {
+        Fixture f;
+        DE1::Firmware::FirmwareAssetCache::CheckResult r;
+        r.kind = DE1::Firmware::FirmwareAssetCache::CheckResult::Error;
+        r.errorDetail = QStringLiteral("Bundled firmware manifest is unreadable");
+
+        QTest::ignoreMessage(
+            QtWarningMsg,
+            QRegularExpression(R"(\[firmware\] FAIL phase=\s*Idle.*reason=\s*The firmware file is not valid)"));
+        emit f.cache.checkFinished(r);
+
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
+        QCOMPARE(f.updater.errorMessage(),
+                 QStringLiteral("The firmware file is not valid. Please report this."));
+        QVERIFY(!f.updater.retryAvailable());
+        QCOMPARE(f.updater.availableVersion(), 0u);
+        QVERIFY(f.updater.availableVersionLabel().isEmpty());
+        QVERIFY(f.updater.availableChannelLabel().isEmpty());
+        QVERIFY(f.updater.availableReleaseNotes().isEmpty());
+        QVERIFY(!f.updater.updateAvailable());
+    }
+
     void olderRemoteSetsDowngradeAvailability() {
         // Mirrors de1app's "Firmware downgrade available" UX: when the
         // cached firmware is strictly older than what's on the DE1 (e.g.
-        // user flipped channel nightly → stable), updateAvailable still
+        // user flipped channel early access -> stable), updateAvailable still
         // becomes true and isDowngrade is set.
         Fixture f;
         f.updater.setInstalledVersionProvider([]{ return uint32_t(1352); });

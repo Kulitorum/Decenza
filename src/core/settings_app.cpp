@@ -444,14 +444,14 @@ void SettingsApp::setAutoRelaunchPromptShown(bool shown) {
     emit autoRelaunchPromptShownChanged();
 }
 
-bool SettingsApp::firmwareNightlyChannel() const {
-    return m_settings.value("firmware/nightlyChannel", false).toBool();
+bool SettingsApp::firmwareEarlyAccess() const {
+    return m_settings.value("firmware/EA", false).toBool();
 }
 
-void SettingsApp::setFirmwareNightlyChannel(bool enabled) {
-    if (firmwareNightlyChannel() != enabled) {
-        m_settings.setValue("firmware/nightlyChannel", enabled);
-        emit firmwareNightlyChannelChanged();
+void SettingsApp::setFirmwareEarlyAccess(bool enabled) {
+    if (firmwareEarlyAccess() != enabled) {
+        m_settings.setValue("firmware/EA", enabled);
+        emit firmwareEarlyAccessChanged();
     }
 }
 

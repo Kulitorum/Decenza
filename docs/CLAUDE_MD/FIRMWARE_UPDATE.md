@@ -8,13 +8,13 @@ Decenza ships a built-in DE1 firmware updater that mirrors what the original `de
 
 Two buttons:
 
-- **Check now** — forces a check against Decent's update CDN for a newer firmware. Bypasses the once-per-week throttle.
+- **Check now** — forces a check against the bundled firmware catalog. Bypasses the once-per-week throttle.
 - **Update now** — runs the three-phase flash. Disabled until a check has confirmed there's a new version available, and disabled mid-shot.
 
 ## What happens automatically
 
-- 30 seconds after the app starts (and at most once per 168 hours), Decenza checks the active firmware channel on `fast.decentespresso.com` for a newer version. The default (stable) channel is `https://fast.decentespresso.com/download/sync/de1plus/fw/bootfwupdate.dat`; the nightly channel, opt-in via the toggle in Settings → Firmware, is `.../de1nightly/fw/bootfwupdate.dat`. The check is a lightweight HTTP HEAD; on ETag change, a `Range: bytes=0-63` GET fetches only the 64-byte header for version comparison. The full body is only downloaded when you tap "Update now".
-- The remote `Version` is compared against `MMR 0x800010` (the firmware build number the DE1 reports over BLE). Strictly greater = newer.
+- 30 seconds after the app starts (and at most once per 168 hours), Decenza compares the selected bundled firmware entry against the DE1's installed build. Stable is bundled build 1352; Early access, opt-in via Settings → Firmware, is bundled build 1358. No network request is needed for the check or for the firmware bytes.
+- The bundled manifest build is compared against `MMR 0x800010` (the firmware build number the DE1 reports over BLE). Strictly greater = newer.
 - Persistence: `firmware/lastCheckedAt` (epoch seconds) lives in `QSettings`.
 
 ## What an update looks like
@@ -58,19 +58,19 @@ Failure types and what they mean:
 | "Verification failed at block A.B.C" | DE1 detected corruption at byte offset A·B·C during verify | Retry. If it repeats, this is worth a bug report — include the block offset. |
 | "DE1 did not reconnect after verify" | Disconnected during verify, didn't come back within the 180 s (3 min) ambiguous-verify grace window | Power-cycle the DE1 and reconnect; if the version reads as the new build, the update actually succeeded and we just missed the confirmation — Decenza will retroactively flip to "Update complete" once the new version reads back. |
 | "No response from DE1 during verify" | The 60 s verify timeout fired without a notification | Most commonly a missing subscribe before verify (fixed) or a bootloader that validated and rebooted without emitting a response (the ambiguous-verify path will catch this via post-reconnect version check). Retry is usually correct. |
-| "The firmware file is not valid. Please report this." | Downloaded `.dat` failed BoardMarker check | **Non-retryable.** The CDN probably served a corrupted file — this should never happen. Report it. |
+| "The firmware file is not valid. Please report this." | Bundled `.bin` failed manifest/header/digest validation | **Non-retryable.** The application bundle probably contains mismatched firmware assets — this should never happen. Report it. |
 | "Finish current operation first" | Tried to update mid-shot/steam/flush/descale | End the current operation and tap Retry. |
 
 ## Where the firmware comes from
 
-Decent's own update CDN, the same host Tcl de1app uses. Two channels:
+Decenza ships the firmware images in the app bundle, using Decaid's firmware manifest as the source of truth. Two channels:
 
-| Channel | URL | Who should pick it |
+| Channel | Bundled build | Who should pick it |
 |---|---|---|
-| Stable (default) | `https://fast.decentespresso.com/download/sync/de1plus/fw/bootfwupdate.dat` | Everyone, unless you have a reason to opt into pre-release firmware. |
-| Nightly (opt-in) | `https://fast.decentespresso.com/download/sync/de1nightly/fw/bootfwupdate.dat` | Testers who want what Decent's de1app users on the nightly channel get. |
+| Stable (default) | 1352 (`de1-1352.bin`) | Everyone, unless you have a reason to opt into pre-release firmware. |
+| Early access (opt-in) | 1358 (`de1-1358.bin`) | Testers who want to try the newer bundled firmware before it becomes Decenza's default. |
 
-Decent's own `de1beta` channel is not wired — in practice it has not been updated reliably for a long time and tracks stable. Switching channels via the toggle wipes the local cache so the next check contacts the new endpoint fresh.
+The Firmware tab shows release notes from the selected Decaid manifest entry, tied to the displayed channel and version. Early access is persisted as `firmware/EA`; the one-time upgrade removes the obsolete `firmware/nightlyChannel` key and resets every install to Stable before a user opts into Early access again.
 
 **There is no version gate at all**, matching de1app — every version check in its `start_firmware_update` (`de1_comms.tcl:884-895`) is commented out, so its button flashes whatever is in `bootfwupdate.dat` regardless of what the machine reports. Decenza does the same and labels the action instead of blocking it:
 
@@ -84,15 +84,15 @@ Decent's own `de1beta` channel is not wired — in practice it has not been upda
 
 Re-flashing the same build used to short-circuit to `Succeeded` without writing anything. That made the one case that most needs a flash unreachable: a bank that verified but did not take, leaving the DE1 running the old image while reporting the new build. It is also safe for the same reason a failed update is — the write lands in the inactive bank.
 
-The downloaded file is cached at `QStandardPaths::AppDataLocation/firmware/bootfwupdate.dat` with a sidecar `.meta.json` storing `{etag, version, downloadedAtEpoch}`. A subsequent check returns `304 Not Modified` from the CDN when the ETag hasn't changed, and we don't re-download.
+There is no production download cache or sidecar metadata any more; the selected resource is validated from the application bundle before flashing. Unit tests can still point `FirmwareAssetCache::setCacheRoot()` at a synthetic `bootfwupdate.dat` to exercise the flash state machine without bundling a real firmware image into every test fixture.
 
 ## What's validated client-side
 
 `validateFile()` checks `BoardMarker == 0xDE100001` (offset 4), a file-size floor of `ByteCount + 64`, and a set of structural invariants adopted from reaprime/decaid's `FirmwareValidator`: `ByteCount` non-zero, `0 < CpuBytes <= ByteCount`, the reserved word at offset 20 zero, `CheckSum`/`DCSum`/`HeaderChecksum` all non-zero, and the IV not all-zero. Failing any of the latter gives `Validation::MalformedHeader`.
 
-**Why the structural checks are not busywork:** BoardMarker is identical in every DE1 image ever published and sits in the first 16 bytes, so BoardMarker-plus-a-size-floor accepts a file **spliced from two revisions** — which the cache's `Range:` resume can produce by appending a new revision's tail onto an old revision's body. The result has the right total length and a valid-looking header, and the corruption is only discovered by the DE1 at the end of a ~18-minute flash.
+Bundled images then get a second validation pass against Decaid's manifest: exact file byte length, SHA-256 digest, header `Version`, `BoardMarker`, `ByteCount`, and `CpuBytes` must all match the selected manifest entry. A mismatch is a packaging error and is non-retryable from the UI.
 
-The splice itself is caught by `versionMatchesMeta()`: the sidecar records the Version the server reported for the ETag this channel is currently serving (read via the 64-byte Range GET during the availability check), and a cached or downloaded file whose header disagrees is discarded rather than flashed. A resume is now only attempted when the on-disk bytes are `Truncated` **and** their Version matches — i.e. a genuine interrupted download of this same revision.
+**Why the structural checks are not busywork:** BoardMarker is identical in every DE1 image ever published and sits in the first 16 bytes, so BoardMarker-plus-a-size-floor accepts a file with a valid-looking header but wrong body. The manifest digest and exact-size check are what prove the bundled bytes are the pinned Decaid artifact.
 
 The `CheckSum` / `DCSum` / `HeaderChecksum` **algorithms** remain undocumented, so we can only assert they are populated, not recompute them; the DE1's own verify-phase response is still the authoritative correctness check. Kal Freese's working Python updater skips them too. A `TODO(firmware-crc)` marker in `FirmwareAssetCache` documents where real checksum validation would plug in once Decent confirms the algorithms.
 
@@ -104,8 +104,7 @@ Every state transition, upload-progress heartbeat (every 5 %), and failure goes 
 
 Three lines exist specifically because the failure they diagnose is invisible without them:
 
-- `[firmware] payload: <n> bytes sha256=… version=… byteCount=… cpuBytes=…` — logged in `loadCachedPayload()`, immediately before the first chunk. `validateFile()` checks only BoardMarker (offset 4) and a size floor, so a `.dat` assembled from two revisions by the cache's Range-resume path passes validation unchanged; the digest is the only thing that catches it. Compare against the CDN file for the active channel.
-- `[firmware] downloadIfNeeded: … existingBytes=… metaVersion=… metaEtag=…` and `using cached file without download: …` — whether we resumed onto an existing file, and whether we skipped the server entirely.
+- `[firmware] payload: <n> bytes sha256=… version=… byteCount=… cpuBytes=…` — logged in `loadCachedPayload()`, immediately before the first chunk. Compare against the selected Decaid manifest entry.
 - `A009 parsed: windowIncrement=… erase=… map=… firstError=…` (`[Firmware]` tag, `de1device.cpp`) — `WindowIncrement` is decoded but not carried on the `fwMapResponse` signal. It is what separates a terminal verify verdict from an in-progress notification: reaprime/decaid accepts a verify response only when `WindowIncrement == 0`, while we accept the first notification of any shape. A non-zero value on the notification that produced "Verification failed at block A.B.C" means that address is a cursor, not a corrupt block. Milestone lines carry a `[+MM:SS.ms]` elapsed prefix from the moment `startUpdate` was tapped, so the log trail tells you exactly how long each phase took.
 
 Example field-report log for a successful update:
@@ -132,8 +131,8 @@ Failure log lines include the phase, chunk progress (`acked/queued/total`), retr
 
 When the DE1 simulator is active (`DE1Device::simulationMode() == true`), the firmware tab is fully usable for UI development — only the flash itself is blocked:
 
-- `checkForUpdate` and `onCheckFinished` run normally against the live CDN, so the Available / Installed version surfaces populate.
-- `MainController`'s `installedVersionProvider` returns `1` while in simulation mode, so both the stable and nightly channels register as "update available" (exercising the channel toggle + the downgrade path).
+- `checkForUpdate` and `onCheckFinished` run normally against the bundled manifest, so the Available / Installed version and release-note surfaces populate.
+- `MainController`'s `installedVersionProvider` returns `1` while in simulation mode, so both the Stable and Early access channels register as "update available" (exercising the channel toggle + the downgrade path).
 - `FirmwareUpdater::isSimulated` is exposed as a Q_PROPERTY; the QML gates the "Update now" button on `!fw.isSimulated` and shows a grey "Simulator connected — flashing is disabled" strip on the tab.
 - `FirmwareUpdater::startUpdate` refuses unconditionally when `DE1Device::simulationMode()` is true, as a hard safety net against direct invocation from MCP/tests/remote-control paths that bypass the UI gate.
 
@@ -151,7 +150,7 @@ Five suites cover the firmware module. **No counts here on purpose** — the num
 
 - `tst_firmwarepackets` — packet builder byte layouts (FWMapRequest, firmware chunk, parser)
 - `tst_firmwareheader` — `.dat` header parser and on-disk validator: BoardMarker, the size floor and ceiling, and the malformed-header shapes (`_data()` table)
-- `tst_firmwareassetcachehelpers` — sidecar JSON round-trip, Range-header computation
+- `tst_firmwareassetcachehelpers` — Decaid manifest parsing, bundled resource validation, channel classification, release-note metadata
 - `tst_de1device_firmware` — `DE1Device::writeFWMapRequest` / `writeFirmwareChunk` (bypasses MMR dedupe cache), `fwMapResponse` signal including `WindowIncrement`
 - `tst_firmwareupdater` — full state-machine flows: happy path; sleep precedes the erase request; the erase-complete notification starts the upload ahead of the fallback timer; "still erasing" does not, and neither does one arriving before the erase request's own write ACK; a non-terminal verify notification is ignored rather than reported as failure; erase timeout; disconnect during upload; verify failure; precondition refused; same-version re-flash still flashes; dismiss; retry restart; verify-disconnect retroactive success and grace timeout
 
@@ -163,7 +162,7 @@ Build with `-DBUILD_TESTS=ON` and run individual binaries from `build/<config>/t
 |---|---|
 | `src/ble/protocol/firmwarepackets.h` | Byte-layout helpers (FWMapRequest, firmware chunk, notification parser) |
 | `src/core/firmwareheader.h` | `.dat` header parser + `validateFile()` |
-| `src/core/firmwareassetcache.{h,cpp}` | HTTP HEAD + Range download + sidecar persistence |
+| `src/core/firmwareassetcache.{h,cpp}` | Decaid manifest parsing, bundled resource selection, manifest/header/digest validation |
 | `src/ble/de1device.{h,cpp}` | `writeFWMapRequest`, `writeFirmwareChunk`, `subscribeFirmwareNotifications`, `fwMapResponse` signal |
 | `src/controllers/firmwareupdater.{h,cpp}` | The state machine and the QML-facing `Q_PROPERTY` surface |
 | `qml/pages/settings/SettingsFirmwareTab.qml` | The UI |

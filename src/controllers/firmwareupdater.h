@@ -50,6 +50,9 @@ class FirmwareUpdater : public QObject {
     // flash duration.
     Q_PROPERTY(bool isFlashing READ isFlashing NOTIFY stateChanged)
     Q_PROPERTY(int availableVersion READ availableVersion NOTIFY availabilityChanged)
+    Q_PROPERTY(QString availableVersionLabel READ availableVersionLabel NOTIFY availabilityChanged)
+    Q_PROPERTY(QString availableChannelLabel READ availableChannelLabel NOTIFY availabilityChanged)
+    Q_PROPERTY(QString availableReleaseNotes READ availableReleaseNotes NOTIFY availabilityChanged)
     Q_PROPERTY(int installedVersion READ installedVersion NOTIFY installedVersionChanged)
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY stateChanged)
@@ -133,6 +136,9 @@ public:
     }
     bool needsManualReboot() const { return m_needsManualReboot; }
     int availableVersion() const { return static_cast<int>(m_availableVersion); }
+    QString availableVersionLabel() const { return m_availableVersionLabel; }
+    QString availableChannelLabel() const { return m_availableChannelLabel; }
+    QString availableReleaseNotes() const { return m_availableReleaseNotes; }
     int installedVersion() const;  // logs [firmware] getter call so we can verify QML reads it
     double progress() const { return m_progress; }
     QString errorMessage() const { return m_errorMessage; }
@@ -199,6 +205,9 @@ private:
     // can deliver one late.
     bool        m_eraseRequestAcked = false;
     uint32_t    m_availableVersion = 0;
+    QString     m_availableVersionLabel;
+    QString     m_availableChannelLabel;
+    QString     m_availableReleaseNotes;
     uint32_t    m_installedVersion = 0;
     double      m_progress         = 0.0;
     QString     m_errorMessage;

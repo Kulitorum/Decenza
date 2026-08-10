@@ -830,14 +830,14 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_firmwareAssetCache = new DE1::Firmware::FirmwareAssetCache(this);
     m_firmwareAssetCache->setNetworkManager(m_networkManager);
     if (m_settings) {
-        m_firmwareAssetCache->setChannel(m_settings->app()->firmwareNightlyChannel()
-            ? DE1::Firmware::FirmwareAssetCache::Channel::Nightly
+        m_firmwareAssetCache->setChannel(m_settings->app()->firmwareEarlyAccess()
+            ? DE1::Firmware::FirmwareAssetCache::Channel::EarlyAccess
             : DE1::Firmware::FirmwareAssetCache::Channel::Stable);
-        connect(m_settings->app(), &SettingsApp::firmwareNightlyChannelChanged,
+        connect(m_settings->app(), &SettingsApp::firmwareEarlyAccessChanged,
                 this, [this]() {
             if (!m_firmwareAssetCache) return;
-            m_firmwareAssetCache->setChannel(m_settings->app()->firmwareNightlyChannel()
-                ? DE1::Firmware::FirmwareAssetCache::Channel::Nightly
+            m_firmwareAssetCache->setChannel(m_settings->app()->firmwareEarlyAccess()
+                ? DE1::Firmware::FirmwareAssetCache::Channel::EarlyAccess
                 : DE1::Firmware::FirmwareAssetCache::Channel::Stable);
             // Re-check immediately so the UI reflects the new channel's
             // available version without waiting for the weekly poll.
@@ -860,7 +860,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_firmwareUpdater->setInstalledVersionProvider([this]() -> uint32_t {
         if (!m_device) return 0;
         // Simulator: pretend to be on an ancient firmware so both the
-        // stable and nightly channels always register as "update available",
+        // stable and early access channels always register as "update available",
         // letting a developer exercise the Firmware page end-to-end without
         // a real DE1 to flash. The simulator never ships a firmware
         // build-number, so this is the only signal the page has anyway.
@@ -4899,5 +4899,3 @@ void MainController::processVisualizerReconciliation()
              << kReconcileWindowDays << "days)";
     m_visualizer->fetchShotListSince(windowStartEpoch);
 }
-
-

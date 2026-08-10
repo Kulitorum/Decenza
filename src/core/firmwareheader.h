@@ -7,7 +7,6 @@
 
 #include <QByteArray>
 #include <QFile>
-#include <QFileInfo>
 #include <QString>
 
 // DE1 bootfwupdate.dat header parser and on-disk validator.
@@ -107,19 +106,13 @@ struct ValidationResult {
 inline ValidationResult validateFile(const QString& path) {
     ValidationResult result;
 
-    QFileInfo info(path);
-    if (!info.exists() || !info.isFile()) {
-        result.status = Validation::UnreadableFile;
-        result.errorDetail = QStringLiteral("File does not exist: %1").arg(path);
-        return result;
-    }
-
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         result.status = Validation::UnreadableFile;
         result.errorDetail = QStringLiteral("Cannot open firmware file: %1").arg(file.errorString());
         return result;
     }
+    const qint64 fileSize = file.size();
 
     QByteArray headerBytes = file.read(HEADER_SIZE);
     if (headerBytes.size() < HEADER_SIZE) {
@@ -144,11 +137,11 @@ inline ValidationResult validateFile(const QString& path) {
     }
 
     const qint64 expected = qint64(result.header.byteCount) + HEADER_SIZE;
-    if (info.size() < expected) {
+    if (fileSize < expected) {
         result.status = Validation::Truncated;
         result.errorDetail = QStringLiteral(
             "Firmware file truncated: have %1 bytes, need at least %2 (ByteCount + header)"
-        ).arg(info.size()).arg(expected);
+        ).arg(fileSize).arg(expected);
         return result;
     }
 
@@ -156,17 +149,17 @@ inline ValidationResult validateFile(const QString& path) {
     // declares is the signature of a resume the server answered with the
     // whole body instead of the requested range: the partial's bytes with a
     // complete copy appended. Published images carry a small trailing pad
-    // (nightly v1352 is 463,872 bytes against a ByteCount of 461,824, so
+    // (bundled v1352 is 463,872 bytes against a ByteCount of 461,824, so
     // 1,984 bytes past ByteCount + 64), so the ceiling has to allow slack —
     // but not a second image's worth. A whole duplicate body is orders of
     // magnitude past this.
     constexpr qint64 MAX_TRAILING_SLACK = 64 * 1024;
-    if (info.size() > expected + MAX_TRAILING_SLACK) {
+    if (fileSize > expected + MAX_TRAILING_SLACK) {
         result.status = Validation::MalformedHeader;
         result.errorDetail = QStringLiteral(
             "Firmware file oversized: %1 bytes against a declared %2 "
             "(ByteCount + header). A body was appended to a partial download."
-        ).arg(info.size()).arg(expected);
+        ).arg(fileSize).arg(expected);
         return result;
     }
 

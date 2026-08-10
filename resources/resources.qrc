@@ -8,6 +8,12 @@
         <file>sounds/frameclick2.wav</file>
         <file>sounds/frameclick3.wav</file>
         <file>sounds/frameclick4.wav</file>
+        <!-- Bundled DE1 firmware images and Decaid manifest. The aliases preserve
+             Decaid's asset paths so the manifest can be consumed without rewriting
+             its assetPath fields. -->
+        <file alias="assets/firmware/manifest.json">firmware/manifest.json</file>
+        <file alias="assets/firmware/de1/de1-1352.bin">firmware/de1/de1-1352.bin</file>
+        <file alias="assets/firmware/de1/de1-1358.bin">firmware/de1/de1-1358.bin</file>
         <!-- Bundled UI font (Roboto, SIL OFL 1.1, renamed to the application-specific
              family "Decenza Sans") — gives deterministic glyph metrics across
              platforms/OEMs/OS versions. The rename is what makes that guarantee hold:

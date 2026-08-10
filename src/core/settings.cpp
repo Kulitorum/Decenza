@@ -172,6 +172,17 @@ Settings::Settings(QObject* parent)
         qDebug() << "Settings: Migrated auto flow calibration to default-on";
     }
 
+    // One-time firmware-channel reset. The old nightly setting selected a
+    // moving CDN channel, so it must not silently become consent for bundled
+    // Early access firmware. Every existing install starts on Stable; users
+    // can opt into Early access again through the Firmware tab.
+    if (!m_settings.contains("firmware/earlyAccessV1Migrated")) {
+        m_settings.remove("firmware/nightlyChannel");
+        m_settings.setValue("firmware/EA", false);
+        m_settings.setValue("firmware/earlyAccessV1Migrated", true);
+        qDebug() << "Settings: Reset firmware channel to Stable";
+    }
+
     // One-time migration: the headless-only "skip purge confirm" toggle was folded
     // into the unified steamTwoTapStop setting. If skipPurgeConfirm was true (user
     // explicitly opted into single-tap on a headless machine) AND the unified key
