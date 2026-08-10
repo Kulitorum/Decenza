@@ -39,6 +39,7 @@ class FirmwareUpdater : public QObject {
     Q_PROPERTY(QString stateText READ stateText NOTIFY stateChanged)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY availabilityChanged)
     Q_PROPERTY(bool isDowngrade READ isDowngrade NOTIFY availabilityChanged)
+    Q_PROPERTY(bool isReflash READ isReflash NOTIFY availabilityChanged)
     // True while wired to the DE1 simulator (no real BLE). The check,
     // download, and version surfaces still run so the page is usable;
     // only the flash itself is blocked.
@@ -117,6 +118,12 @@ public:
     // Mirrors de1app's "Firmware downgrade available" affordance: the user
     // is allowed to flash it, but the UI should label it as a downgrade.
     bool isDowngrade() const { return m_isDowngrade; }
+    // True when the available firmware is the *same build* as what's
+    // installed. Flashing is still permitted — de1app has no version gate at
+    // all (every check in start_firmware_update is commented out), and a
+    // re-flash is the only way to recover a bank that verified but did not
+    // take. The UI warns rather than disabling the button.
+    bool isReflash() const { return m_isReflash; }
     bool isSimulated() const;
     bool isFlashing() const {
         return m_state == State::Erasing ||
@@ -184,6 +191,7 @@ private:
     State       m_state            = State::Idle;
     bool        m_updateAvailable  = false;
     bool        m_isDowngrade      = false;
+    bool        m_isReflash        = false;
     uint32_t    m_availableVersion = 0;
     uint32_t    m_installedVersion = 0;
     double      m_progress         = 0.0;

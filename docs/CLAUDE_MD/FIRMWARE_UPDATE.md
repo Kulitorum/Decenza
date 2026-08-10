@@ -67,7 +67,17 @@ Decent's own update CDN, the same host Tcl de1app uses. Two channels:
 
 Decent's own `de1beta` channel is not wired — in practice it has not been updated reliably for a long time and tracks stable. Switching channels via the toggle wipes the local cache so the next check contacts the new endpoint fresh.
 
-**Downgrades are allowed**, matching de1app. If the remote firmware on the selected channel is *older* than what's on the DE1 (e.g. you flip nightly → stable after having flashed a nightly build), the Firmware tab labels the action as "Downgrade now" and shows a yellow strip with both the installed and the available version. `FirmwareUpdater::isDowngrade` exposes this to QML. The three-phase flash procedure is direction-agnostic: it writes whatever's in the cached `.dat`. The equality-only pre-flight guard at the start of Phase 1 only short-circuits when installed == downloaded.
+**There is no version gate at all**, matching de1app — every version check in its `start_firmware_update` (`de1_comms.tcl:884-895`) is commented out, so its button flashes whatever is in `bootfwupdate.dat` regardless of what the machine reports. Decenza does the same and labels the action instead of blocking it:
+
+| Remote vs installed | Button | Strip |
+|---|---|---|
+| Newer | "Update now" | — |
+| Older | "Downgrade now" | yellow: rolls the DE1 back |
+| Same | "Reflash" | yellow: already on this version |
+
+`FirmwareUpdater::isDowngrade` and `::isReflash` expose this to QML; the button's only requirement is `availableVersion > 0` (a check has succeeded). The three-phase flash is direction-agnostic — it writes whatever's in the cached `.dat`.
+
+Re-flashing the same build used to short-circuit to `Succeeded` without writing anything. That made the one case that most needs a flash unreachable: a bank that verified but did not take, leaving the DE1 running the old image while reporting the new build. It is also safe for the same reason a failed update is — the write lands in the inactive bank.
 
 The downloaded file is cached at `QStandardPaths::AppDataLocation/firmware/bootfwupdate.dat` with a sidecar `.meta.json` storing `{etag, version, downloadedAtEpoch}`. A subsequent check returns `304 Not Modified` from the CDN when the ETag hasn't changed, and we don't re-download.
 
@@ -77,7 +87,13 @@ Only `BoardMarker == 0xDE100001` (offset 4 of the 64-byte header) and the on-dis
 
 ## What gets logged
 
-Every state transition, upload-progress heartbeat (every 5 %), and failure goes through `qCDebug`/`qCWarning` with the `decenza.firmware` Qt logging category and the `[firmware]` prefix. Milestone lines carry a `[+MM:SS.ms]` elapsed prefix from the moment `startUpdate` was tapped, so the log trail tells you exactly how long each phase took.
+Every state transition, upload-progress heartbeat (every 5 %), and failure goes through `qCDebug`/`qCWarning` with the `decenza.firmware` Qt logging category and the `[firmware]` prefix.
+
+Three lines exist specifically because the failure they diagnose is invisible without them:
+
+- `[firmware] payload: <n> bytes sha256=… version=… byteCount=… cpuBytes=…` — logged in `loadCachedPayload()`, immediately before the first chunk. `validateFile()` checks only BoardMarker (offset 4) and a size floor, so a `.dat` assembled from two revisions by the cache's Range-resume path passes validation unchanged; the digest is the only thing that catches it. Compare against the CDN file for the active channel.
+- `[firmware] downloadIfNeeded: … existingBytes=… metaVersion=… metaEtag=…` and `using cached file without download: …` — whether we resumed onto an existing file, and whether we skipped the server entirely.
+- `A009 parsed: windowIncrement=… erase=… map=… firstError=…` (`[Firmware]` tag, `de1device.cpp`) — `WindowIncrement` is decoded but not carried on the `fwMapResponse` signal. It is what separates a terminal verify verdict from an in-progress notification: reaprime/decaid accepts a verify response only when `WindowIncrement == 0`, while we accept the first notification of any shape. A non-zero value on the notification that produced "Verification failed at block A.B.C" means that address is a cursor, not a corrupt block. Milestone lines carry a `[+MM:SS.ms]` elapsed prefix from the moment `startUpdate` was tapped, so the log trail tells you exactly how long each phase took.
 
 Example field-report log for a successful update:
 
@@ -124,7 +140,7 @@ The firmware module ships with **63 unit tests** across:
 - `tst_firmwareheader` (12) — `.dat` file header parser + on-disk validator
 - `tst_firmwareassetcachehelpers` (12) — sidecar JSON round-trip, Range-header computation
 - `tst_de1device_firmware` (13) — `DE1Device::writeFWMapRequest` / `writeFirmwareChunk` (bypasses MMR dedupe cache), `fwMapResponse` signal
-- `tst_firmwareupdater` (13) — full state-machine flows: happy path, erase timeout, disconnect during upload, verify failure, precondition refused, race guard, dismiss, retry restart, verify-disconnect retroactive success + grace timeout
+- `tst_firmwareupdater` (13) — full state-machine flows: happy path, erase timeout, disconnect during upload, verify failure, precondition refused, same-version re-flash still flashes, dismiss, retry restart, verify-disconnect retroactive success + grace timeout
 
 Build with `-DBUILD_TESTS=ON` and run individual binaries from `build/<config>/tests/Debug/`.
 

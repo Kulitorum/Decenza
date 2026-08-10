@@ -291,10 +291,23 @@ void FirmwareAssetCache::downloadIfNeeded() {
     // If we already have a validated file matching the sidecar version,
     // skip the download entirely — the caller can use cachedPath/cachedHeader.
     QFileInfo info(cachePath());
+    qCDebug(firmwareLog) << "[firmware] downloadIfNeeded: channel="
+                         << currentUrl() << "existingBytes="
+                         << (info.exists() ? info.size() : 0)
+                         << "metaVersion=" << m_meta.version
+                         << "metaEtag=" << m_meta.etag;
     if (info.exists()) {
         auto header = cachedHeader();
         if (header && header->boardMarker == BOARD_MARKER &&
             info.size() >= qint64(header->byteCount) + HEADER_SIZE) {
+            // Short-circuit: the on-disk file is *accepted without contacting
+            // the server*. Nothing here proves it came from the channel we are
+            // now on — only that its first 64 bytes parse and it is long
+            // enough. Log the version we are about to hand back so a mismatch
+            // against the UI's "Available:" is visible in the trail.
+            qCDebug(firmwareLog) << "[firmware] using cached file without "
+                                    "download: version=" << header->version
+                                 << "size=" << info.size();
             emit downloadFinished(cachePath(), *header);
             return;
         }

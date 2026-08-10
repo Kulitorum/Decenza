@@ -20,7 +20,7 @@
 // test runs in < 100 ms instead of the real 45-second flash.
 //
 // This file starts with the happy path only (§4a); error-path tests
-// (disconnect, timeout, verify failure, precondition, race guard) land
+// (disconnect, timeout, verify failure, precondition, same-version) land
 // in §4b, and retry/dismiss/verify-retroactive-success semantics in §4c.
 
 namespace {
@@ -186,22 +186,29 @@ private slots:
         QVERIFY(!sawFirmwareWrite);
     }
 
-    void raceGuardAlreadyUpdated_jumpsToSucceeded() {
+    void sameVersion_stillFlashes() {
         Fixture f;
-        // Installed version already equals what the file contains.
+        // Installed version already equals what the file contains. This used
+        // to short-circuit to Succeeded without writing anything, which made
+        // the case that most needs a flash — a bank that verified but did not
+        // take, so the DE1 reports the new build while running the old one —
+        // unreachable. de1app has no version gate at all (every check in
+        // start_firmware_update is commented out); we match it and warn in the
+        // UI instead. The flash must actually start.
         f.updater.setInstalledVersionProvider([]{ return 1352u; });
         writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
         f.updater.startUpdate();
 
-        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Succeeded);
-        // Race guard fired before any BLE write: no erase, no chunks.
+        QTRY_VERIFY(f.updater.state() != FirmwareUpdater::State::Downloading);
+        QVERIFY(f.updater.state() != FirmwareUpdater::State::Succeeded);
+
         bool sawEraseReq = false;
         for (const auto& w : f.transport.writes) {
             if (w.first == DE1::Characteristic::FW_MAP_REQUEST) {
                 sawEraseReq = true; break;
             }
         }
-        QVERIFY(!sawEraseReq);
+        QVERIFY(sawEraseReq);
     }
 
     // ===== §4b+: firmware-flash MMR-write guard =====
