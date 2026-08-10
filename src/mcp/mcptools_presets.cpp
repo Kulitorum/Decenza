@@ -239,9 +239,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             // to select THAT row — the count-only check listed an entry it then
             // refused, which is a surface that contradicts itself. The sentinel
             // is accepted too, for callers that know it.
-            const bool builtInHeaterOff =
-                index == SettingsBrew::HeaterOffPitcherIndex
-                || index == settings->brew()->steamPitcherCount();
+            const bool builtInHeaterOff = settings->brew()->isHeaterOffPitcher(index);
             if (!builtInHeaterOff && !indexInRange(index, settings->brew()->steamPitcherCount())) {
                 result["error"] = "index out of range"; return result;
             }

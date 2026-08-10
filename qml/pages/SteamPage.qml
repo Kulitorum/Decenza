@@ -641,7 +641,7 @@ T.Page {
                             required property var modelData
 
                             readonly property bool pitcherDisabled: livePitcherPill.modelData.disabled === true
-                            readonly property bool pitcherSelected: livePitcherPill.index === Settings.brew.selectedSteamPitcher
+                            readonly property bool pitcherSelected: SteamLabels.pitcherIsSelected(livePitcherPill.index)
 
                             // Hide "Off" presets from the mid-session preset row — there's no
                             // meaningful action when tapped mid-steam, so don't show the pill.
@@ -1408,7 +1408,7 @@ T.Page {
                                 Rectangle {
                                     id: pitcherPill
                                     readonly property bool pitcherDisabled: pitcherDelegate.modelData.disabled === true
-                                    readonly property bool pitcherSelected: pitcherDelegate.itemIndex === Settings.brew.selectedSteamPitcher
+                                    readonly property bool pitcherSelected: SteamLabels.pitcherIsSelected(pitcherDelegate.itemIndex)
 
                                     width: pitcherText.implicitWidth + 24
                                     height: Theme.scaled(36)
@@ -1446,7 +1446,11 @@ T.Page {
                                             label += ", " + TranslationManager.translate("accessibility.selected", "selected")
                                         return label
                                     }
-                                    Accessible.description: TranslationManager.translate("steam.accessibility.pitcherEditHint", "Double-tap or long-press to edit preset.")
+                                    // Don't invite a gesture that will be refused: the
+                                    // built-in "Heater off" entry cannot be edited.
+                                    Accessible.description: pitcherPill.pitcherDisabled
+                                        ? ""
+                                        : TranslationManager.translate("steam.accessibility.pitcherEditHint", "Double-tap or long-press to edit preset.")
                                     Accessible.focusable: true
                                     Accessible.onPressAction: pitcherPill.applyPitcher("pitcher-a11y")
 
@@ -1537,8 +1541,17 @@ T.Page {
                                             }
                                         }
 
+                                        // The built-in "Heater off" entry is not in the
+                                        // stored array: SettingsBrew refuses to rename,
+                                        // delete or reorder it with a qWarning and a void
+                                        // return. That refusal is invisible from here — the
+                                        // dialog opened on a nameless entry and CLOSED as if
+                                        // Save/Delete had worked. Refuse at the gesture, so
+                                        // the affordance is never offered.
                                         onDoubleClicked: {
                                             holdTimer.stop()
+                                            if (pitcherPill.pitcherDisabled)
+                                                return
                                             dragArea.held = true  // Prevent single-click selection on release
                                             steamPage.editingPitcherIndex = pitcherDelegate.itemIndex
                                             editPitcherNameInput.text = pitcherDelegate.modelData.name
@@ -1549,7 +1562,7 @@ T.Page {
                                             id: holdTimer
                                             interval: 500
                                             onTriggered: {
-                                                if (!dragArea.moved) {
+                                                if (!dragArea.moved && !pitcherPill.pitcherDisabled) {
                                                     dragArea.held = true
                                                     steamPage.editingPitcherIndex = pitcherDelegate.itemIndex
                                                     editPitcherNameInput.text = pitcherDelegate.modelData.name

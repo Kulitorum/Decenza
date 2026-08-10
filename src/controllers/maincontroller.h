@@ -818,7 +818,11 @@ private:
     // non-steam fields are read live from Settings here, so no caller can push
     // a half-stale payload — four call sites used to hand-roll this identical
     // block and differed only in which steam value they had derived.
-    void pushShotSettings(double steamTempC, const QString& reason);
+    // Returns false when the payload never left the app (no device, or
+    // disconnected) so callers do not log success for a command that was
+    // dropped. The eventual state is self-healing — the return-from-dormant
+    // re-assert covers reconnect — but the log must not claim otherwise.
+    bool pushShotSettings(double steamTempC, const QString& reason);
 
     // Apply an active recipe's pitcher as an OVERRIDE of the user's standing
     // selection, or (with SettingsBrew::NoStandingPitcher) unwind back to it.

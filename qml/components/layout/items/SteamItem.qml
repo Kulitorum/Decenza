@@ -215,7 +215,7 @@ LayoutWidgetItem {
                 id: popupPillRow
                 maxWidth: Theme.scaled(600)
                 presets: Settings.brew.steamPitcherPresets
-                selectedIndex: Settings.brew.selectedSteamPitcher
+                selectedIndex: SteamLabels.pitcherDisplayIndex()
                 pillSuffixMaxWidth: Theme.scaled(60)
                 pillSuffixVersion: parent.popupSuffixVersion
 

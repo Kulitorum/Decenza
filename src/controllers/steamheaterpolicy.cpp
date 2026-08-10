@@ -3,12 +3,39 @@
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QVariantMap>
 
 SteamHeaterPolicy::SteamHeaterPolicy(Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
 {
+}
+
+SteamHeaterPolicy::RecipeSteamIntent SteamHeaterPolicy::intentForRecipe(const QVariantMap& recipe)
+{
+    if (recipe.isEmpty())
+        return RecipeSteamIntent::NoRecipe;
+
+    const QJsonObject steam = QJsonDocument::fromJson(
+        recipe.value(QStringLiteral("steamJson")).toString().toUtf8()).object();
+
+    // An explicit "Heater off" DOMINATES hasMilk. A recipe can carry both — the
+    // migration writes the marker onto recipes that named a removed Off preset
+    // and leaves hasMilk untouched — and reading hasMilk first granted shot-start
+    // permission to the very recipes whose purpose is a cold boiler.
+    if (steam.value(QStringLiteral("heaterOff")).toBool())
+        return RecipeSteamIntent::NoSteam;
+
+    // Profile-less (hot-water tea) recipes never hold the heater, even if an
+    // MCP or web author attached a milk block to one.
+    if (recipe.value(QStringLiteral("profileTitle")).toString().trimmed().isEmpty())
+        return RecipeSteamIntent::NoSteam;
+
+    return steam.value(QStringLiteral("hasMilk")).toBool()
+        ? RecipeSteamIntent::WantsSteam
+        : RecipeSteamIntent::NoSteam;
 }
 
 void SteamHeaterPolicy::setRecipeIntentProvider(std::function<RecipeSteamIntent()> provider)
@@ -70,7 +97,6 @@ SteamTarget SteamHeaterPolicy::resolve() const
             return target;
     }
 
-    target.on = true;
     // The effective pitcher's own temperature when it carries one, else the
     // global. A pitcher preset is the steam spec, so a recipe or a pill that
     // selects one must heat to ITS temperature, not the last global value.
@@ -83,6 +109,5 @@ SteamTarget SteamHeaterPolicy::resolve() const
     const double pitcherTemp = heaterOffPitcher
         ? 0.0
         : pitcher.value(QStringLiteral("temperature")).toDouble();
-    target.temperatureC = pitcherTemp > 0.0 ? pitcherTemp : brew->steamTemperature();
-    return target;
+    return SteamTarget::heating(pitcherTemp > 0.0 ? pitcherTemp : brew->steamTemperature());
 }

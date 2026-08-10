@@ -186,6 +186,83 @@ private slots:
         QVERIFY(f.policy.resolve().on);
     }
 
+    // The selected pitcher's OWN temperature wins over the global. Every other
+    // test here selects index 0 (the "Small" default, which carries no
+    // temperature field) or the built-in, so this branch of the ternary had
+    // never once been taken — flipping it would have passed the whole suite.
+    void aPitcherWithItsOwnTemperatureOverridesTheGlobal()
+    {
+        Fixture f;
+        f.brew()->addSteamPitcherPreset(QStringLiteral("Hot"), 40, 150, 149.0);
+        f.selectPitcher(f.brew()->steamPitcherCount() - 1);
+        f.brew()->setKeepWarmWhenIdle(true);
+        f.brew()->setSteamTemperature(158.0);          // deliberately different
+
+        QCOMPARE(f.policy.commandedTemperatureC(), 149.0);
+    }
+
+    // ...and the global is the fallback when the pitcher carries none, which is
+    // the half the rest of the suite exercises. Asserted together so the pair
+    // cannot be satisfied by a constant.
+    void aPitcherWithoutATemperatureFallsBackToTheGlobal()
+    {
+        Fixture f;
+        f.selectPitcher(0);                            // "Small": no temperature field
+        f.brew()->setKeepWarmWhenIdle(true);
+        f.brew()->setSteamTemperature(157.0);
+
+        QCOMPARE(f.policy.commandedTemperatureC(), 157.0);
+    }
+
+    // --- the recipe → intent rule ------------------------------------------
+    //
+    // Extracted onto this class precisely so it can be asserted: it used to live
+    // inside a MainController lambda that no test can construct.
+
+    void aRecipeCarryingTheHeaterOffMarkerOverridesItsOwnMilkFlag()
+    {
+        // The migration writes the marker onto recipes that named a removed Off
+        // preset and leaves hasMilk alone, so BOTH is the normal shape, not a
+        // contrived one. Reading hasMilk first granted shot-start permission to
+        // exactly the recipes meant to keep the boiler cold.
+        const QVariantMap recipe{
+            {QStringLiteral("profileTitle"), QStringLiteral("Some profile")},
+            {QStringLiteral("steamJson"), QStringLiteral(R"({"hasMilk":true,"heaterOff":true})")}};
+        QCOMPARE(SteamHeaterPolicy::intentForRecipe(recipe),
+                 SteamHeaterPolicy::RecipeSteamIntent::NoSteam);
+    }
+
+    void aMilkRecipeWantsSteamAndAnEspressoDoesNot()
+    {
+        const QVariantMap milk{
+            {QStringLiteral("profileTitle"), QStringLiteral("P")},
+            {QStringLiteral("steamJson"), QStringLiteral(R"({"hasMilk":true})")}};
+        QCOMPARE(SteamHeaterPolicy::intentForRecipe(milk),
+                 SteamHeaterPolicy::RecipeSteamIntent::WantsSteam);
+
+        const QVariantMap espresso{
+            {QStringLiteral("profileTitle"), QStringLiteral("P")},
+            {QStringLiteral("steamJson"), QString()}};
+        QCOMPARE(SteamHeaterPolicy::intentForRecipe(espresso),
+                 SteamHeaterPolicy::RecipeSteamIntent::NoSteam);
+
+        // No recipe is NOT "a recipe that steams nothing" — the distinction the
+        // three-state enum exists for.
+        QCOMPARE(SteamHeaterPolicy::intentForRecipe({}),
+                 SteamHeaterPolicy::RecipeSteamIntent::NoRecipe);
+    }
+
+    // A profile-less (hot-water tea) recipe never holds the heater, even when an
+    // MCP or web author has attached a milk block to it.
+    void aProfileLessRecipeNeverWantsSteam()
+    {
+        const QVariantMap tea{
+            {QStringLiteral("profileTitle"), QStringLiteral("   ")},
+            {QStringLiteral("steamJson"), QStringLiteral(R"({"hasMilk":true})")}};
+        QCOMPARE(SteamHeaterPolicy::intentForRecipe(tea),
+                 SteamHeaterPolicy::RecipeSteamIntent::NoSteam);
+    }
+
     // --- veto -------------------------------------------------------------
 
     void anOffPitcherVetoesAPermittedHeater()

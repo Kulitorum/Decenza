@@ -978,7 +978,7 @@ T.Page {
                         anchors.horizontalCenter: parent.horizontalCenter
                         maxWidth: steamPresetLoader.width
                         presets: Settings.brew.steamPitcherPresets
-                        selectedIndex: Settings.brew.selectedSteamPitcher
+                        selectedIndex: SteamLabels.pitcherDisplayIndex()
                         supportLongPress: true
                         pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
                         pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion

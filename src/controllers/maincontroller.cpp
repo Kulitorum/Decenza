@@ -131,18 +131,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // drifted copy of this rule inside uploadCurrentProfile() is what made a
     // recipe activation's heater state get silently overwritten.
     m_steamHeaterPolicy = new SteamHeaterPolicy(m_settings, this);
+    // The rule itself lives on SteamHeaterPolicy so it can be asserted without a
+    // MainController; this lambda only supplies the row it reads.
     m_steamHeaterPolicy->setRecipeIntentProvider([this]() {
-        using Intent = SteamHeaterPolicy::RecipeSteamIntent;
-        if (m_activeRecipe.isEmpty())
-            return Intent::NoRecipe;
-        // An explicit "Heater off" in the recipe DOMINATES hasMilk. A recipe can
-        // carry both — the migration writes the marker onto recipes that named a
-        // removed Off preset and leaves hasMilk untouched — and reading hasMilk
-        // alone made shot start grant permission to the very recipes whose whole
-        // purpose was to keep the boiler cold.
-        if (activeRecipeSaysHeaterOff())
-            return Intent::NoSteam;
-        return activeRecipeHasMilk() ? Intent::WantsSteam : Intent::NoSteam;
+        return SteamHeaterPolicy::intentForRecipe(m_activeRecipe);
     });
     // The active recipe is a resolve() input, so the readouts have to hear about
     // it. Without this, activating a pitcher-less recipe commanded the DE1 to 0
@@ -400,8 +392,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Second half of the "Off" preset migration (steam-heater-policy). The
     // settings half already removed the presets and remapped the selection;
     // this rewrites the recipes that named them, which needs a database and so
-    // could not happen in SettingsBrew's constructor. take…() clears the names,
-    // so this runs exactly once, on the launch that migrated.
+    // could not happen in SettingsBrew's constructor.
     if (m_recipeStorage && m_settings) {
         // PEEK, don't take: the rewrite is asynchronous and can fail (a bad
         // SELECT, a mid-batch UPDATE error). Consuming the names up front lost
@@ -2775,7 +2766,19 @@ void MainController::selectSteamPitcher(int index, double milkFallbackG) {
     // transient flag; setting one here would outlive the selection and keep the
     // heater cold after the user picked a real pitcher again. It does end any
     // steam event in progress, which is the one thing a tap on it must do.
-    if (brew->applySteamPitcherValues(index, milk) == SettingsBrew::PitcherApply::HeaterOff) {
+    const SettingsBrew::PitcherApply applied = brew->applySteamPitcherValues(index, milk);
+    if (applied == SettingsBrew::PitcherApply::Missing) {
+        // A stale index wrote NOTHING, so there is no pitcher behind this
+        // selection. Falling through to the "real pitcher" branch cleared the
+        // transient veto and then steamed with whatever numbers happened to be
+        // in Settings — a machine steaming to parameters nobody chose. Fail
+        // safe to cold, and say why: the enum has three states and the caller
+        // handled two.
+        qWarning() << "MainController: steam pitcher" << index
+                   << "no longer exists — leaving the heater cold rather than"
+                      " steaming with stale values";
+        m_steamHeaterPolicy->setEventPermission(false);
+    } else if (applied == SettingsBrew::PitcherApply::HeaterOff) {
         m_steamHeaterPolicy->setEventPermission(false);
     } else {
         // Picking a real pitcher REMOVES the transient veto — otherwise a
@@ -3508,8 +3511,16 @@ double MainController::getGroupTemperature() const {
     return m_profileManager->currentProfile().espressoTemperature();
 }
 
-void MainController::pushShotSettings(double steamTempC, const QString& reason) {
-    if (!m_device || !m_device->isConnected() || !m_settings) return;
+bool MainController::pushShotSettings(double steamTempC, const QString& reason) {
+    if (!m_device || !m_device->isConnected() || !m_settings) {
+        // Say so. The callers below used to log "Turned off steam heater" whether
+        // or not the command left the app, so a log read during a disconnect
+        // asserted something that had not happened. applyHeaterTweaks in this
+        // same file logs exactly this skip — local precedent this did not follow.
+        qDebug() << "pushShotSettings: skipped," << reason
+                 << "(device connected:" << (m_device && m_device->isConnected()) << ")";
+        return false;
+    }
 
     m_device->setShotSettings(
         steamTempC,
@@ -3519,6 +3530,7 @@ void MainController::pushShotSettings(double steamTempC, const QString& reason) 
         getGroupTemperature(),
         reason
     );
+    return true;
 }
 
 void MainController::setSteamTemperatureImmediate(double temp) {
@@ -3552,13 +3564,14 @@ void MainController::startSteamHeating(const QString& reason) {
 
     const QString tag = reason.isEmpty() ? QStringLiteral("startSteamHeating") : reason;
     const double steamTemp = m_steamHeaterPolicy->commandedTemperatureC();
-    pushShotSettings(steamTemp, tag);
+    const bool sent = pushShotSettings(steamTemp, tag);
 
     // Steam flow rides along — it is part of the same steam spec.
     if (m_device && m_device->isConnected())
         m_device->writeMMR(0x803828, m_settings->brew()->steamFlow(), tag);
 
-    qDebug() << "Started steam heating to" << steamTemp << "°C from" << tag;
+    if (sent)
+        qDebug() << "Started steam heating to" << steamTemp << "°C from" << tag;
 }
 
 void MainController::releaseSteamEventPermission() {
@@ -3579,10 +3592,10 @@ void MainController::turnOffSteamHeater() {
     m_settings->brew()->setSteamDisabled(true);
     m_steamHeaterPolicy->setEventPermission(false);
 
-    pushShotSettings(m_steamHeaterPolicy->commandedTemperatureC(),
-                     QStringLiteral("turnOffSteamHeater"));
-
-    qDebug() << "Turned off steam heater (steamDisabled=true)";
+    if (pushShotSettings(m_steamHeaterPolicy->commandedTemperatureC(),
+                         QStringLiteral("turnOffSteamHeater"))) {
+        qDebug() << "Turned off steam heater (steamDisabled=true)";
+    }
 }
 
 void MainController::setHotWaterFlowRateImmediate(int flow) {

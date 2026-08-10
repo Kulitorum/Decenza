@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QVariantMap>
 
 #include <functional>
 
@@ -10,6 +11,17 @@ class Settings;
 // temperature it is aiming for. `commandedTemperatureC()` is what goes on the
 // wire — the DE1 reads a TargetSteamTemp of 0 as "heater off".
 struct SteamTarget {
+    // Build through these, not by aggregate init. `on` and `temperatureC` are
+    // read INDEPENDENTLY — steamHeaterOn reads the flag, the send paths read the
+    // derived value — so {on: true, temperatureC: 0} is a split brain: the UI
+    // says warm while the wire says off (the DE1 reads a target of 0 as off).
+    // Unreachable today because resolve() is the only construction site; the
+    // factories make it unreachable by construction instead of by inspection.
+    static SteamTarget off() { return {}; }
+    static SteamTarget heating(double tempC) {
+        return tempC > 0.0 ? SteamTarget{true, tempC} : SteamTarget{};
+    }
+
     bool on = false;
     double temperatureC = 0.0;
 
@@ -63,6 +75,13 @@ public:
     // MainController installs this once.
     // Unset means NoRecipe, which is the correct answer for any caller that has
     // no recipe layer at all.
+    // THE rule that turns a recipe row into an intent. Static, and taking the
+    // recipe map rather than reading MainController state, so it can be asserted
+    // directly — the same move that put resolveRecipePitcherOverride on
+    // SettingsBrew. Marker dominance (an explicit "Heater off" outranks hasMilk)
+    // lived only inside a MainController lambda, where no test could reach it.
+    static RecipeSteamIntent intentForRecipe(const QVariantMap& recipe);
+
     void setRecipeIntentProvider(std::function<RecipeSteamIntent()> provider);
     RecipeSteamIntent recipeIntent() const;
     bool activeRecipeWantsSteam() const { return recipeIntent() == RecipeSteamIntent::WantsSteam; }

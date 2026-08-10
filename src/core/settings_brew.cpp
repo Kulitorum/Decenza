@@ -104,7 +104,20 @@ SettingsBrew::SettingsBrew(QObject* parent)
     // The names of what was removed are kept for the recipe rewrite, which needs
     // a database and therefore cannot happen here.
     if (!m_settings.value("steam/heaterOffPresetsMigrated", false).toBool()) {
-        const QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"));
+        // Capture parseFailed like every other reader in this file. An unreadable
+        // array yields an empty one, which looks exactly like "nothing to
+        // migrate" — so without this the one-time flag got stamped on a launch
+        // where the presets were never actually examined, and a transient
+        // corruption meant the install would never revisit the migration.
+        bool migrationParseFailed = false;
+        const QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"),
+                                               &migrationParseFailed);
+        // Skip the BLOCK, never return — this is a constructor, and the brew
+        // overrides below still have to load.
+        if (migrationParseFailed) {
+            qWarning() << "SettingsBrew: steam pitcher presets unreadable — deferring the"
+                          " Heater off migration to the next launch";
+        } else {
         QJsonArray kept;
         QStringList removedNames;
         const int selected = m_settings.value("steam/selectedPitcher", 0).toInt();
@@ -138,6 +151,7 @@ SettingsBrew::SettingsBrew(QObject* parent)
                     << (selectionWasRemoved ? HeaterOffPitcherIndex : remapped);
         }
         m_settings.setValue("steam/heaterOffPresetsMigrated", true);
+        }
     }
 
     // Load persistent brew overrides into the cache (Settings used to do this).
@@ -542,9 +556,11 @@ void SettingsBrew::setSelectedSteamCup(int index) {
     // The pill rows address delegates by position, so a tap on "Heater off"
     // arrives here as steamPitcherCount() — and that value stops meaning
     // "Heater off" the moment a preset is added or deleted. Worse,
-    // removeSteamPitcherPreset() clamps an out-of-range selection down to the
-    // last real pitcher, so deleting a preset silently turned a deliberate
-    // "keep the boiler cold" into a real pitcher and warmed it.
+    // removeSteamPitcherPreset() USED TO clamp an out-of-range selection down to
+    // the last real pitcher, so deleting a preset silently turned a deliberate
+    // "keep the boiler cold" into a real pitcher and warmed it. (It shifts now —
+    // see there — but normalising here is what makes the sentinel positionless
+    // in the first place, so neither fix is sufficient alone.)
     //
     // Normalising HERE rather than at each caller is the point: isHeaterOffPitcher()
     // deliberately answers to both representations so callers can pass either,
@@ -571,12 +587,33 @@ void SettingsBrew::adjustStandingPitcherForRemoval(int removedIndex) {
         setStandingSteamPitcher(standing - 1);
 }
 
+void SettingsBrew::adjustStandingPitcherForMove(int from, int to) {
+    // Same arithmetic the live selection uses a few lines below its own move.
+    const int standing = standingSteamPitcher();
+    if (standing < 0)
+        return;                                   // sentinel or unset: positionless
+    if (standing == from)
+        setStandingSteamPitcher(to);
+    else if (from < standing && to >= standing)
+        setStandingSteamPitcher(standing - 1);
+    else if (from > standing && to <= standing)
+        setStandingSteamPitcher(standing + 1);
+}
+
 int SettingsBrew::standingSteamPitcher() const {
     return m_settings.value("steam/standingPitcher", NoStandingPitcher).toInt();
 }
 
 void SettingsBrew::setStandingSteamPitcher(int index) {
-    m_settings.setValue("steam/standingPitcher", index);
+    // Normalise exactly as setSelectedSteamCup does. This stores the same kind
+    // of value — a parked SELECTION — and every current caller happens to pass
+    // an already-normalised one, which is an invariant held by review rather
+    // than by code. The display slot reaching here would rot the same way it
+    // rotted the live selection. NoStandingPitcher is passed through: it is not
+    // a pitcher at all, so isHeaterOffPitcher() must not get a say.
+    const int stored = (index == NoStandingPitcher || !isHeaterOffPitcher(index))
+        ? index : HeaterOffPitcherIndex;
+    m_settings.setValue("steam/standingPitcher", stored);
 }
 
 int SettingsBrew::resolveRecipePitcherOverride(int recipeIndex) {
@@ -742,6 +779,7 @@ void SettingsBrew::moveSteamPitcherPreset(int from, int to) {
         } else if (from > selected && to <= selected) {
             setSelectedSteamCup(selected + 1);
         }
+        adjustStandingPitcherForMove(from, to);
 
         emit steamPitcherPresetsChanged();
     }

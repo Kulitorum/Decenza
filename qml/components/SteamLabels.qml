@@ -50,6 +50,26 @@ QtObject {
         return " (" + Math.round(Math.max(0, MachineState.scaleWeight - pitcherWeight)) + "g)"
     }
 
+    // The current selection as a DISPLAY POSITION.
+    //
+    // The built-in is STORED as a positionless sentinel (-1), but every pill row
+    // addresses its delegates by position and the built-in's position is one past
+    // the last real preset. So a positional `index === selectedSteamPitcher` never
+    // matches it: normalising the write side without this left "Heater off"
+    // highlighted nowhere, and announced as unselected to a screen reader.
+    function pitcherDisplayIndex() {
+        var sel = Settings.brew.selectedSteamPitcher
+        // Read the presets so the binding re-evaluates when the count moves —
+        // the built-in's display position rides on it.
+        var count = Settings.brew.steamPitcherPresets.length
+        return Settings.brew.isHeaterOffPitcher(sel) ? count - 1 : sel
+    }
+
+    // True when the pill at `index` (a display position) is the selection.
+    function pitcherIsSelected(index) {
+        return index === pitcherDisplayIndex()
+    }
+
     // What the steam READOUTS show in place of a temperature when the resolved
     // target is off. Deliberately terser than the pitcher label: it sits where a
     // number would, in widgets a few characters wide.

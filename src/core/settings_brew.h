@@ -207,8 +207,13 @@ public:
     static constexpr int NoStandingPitcher = -2;
     int standingSteamPitcher() const;
     void setStandingSteamPitcher(int index);
-    // Keep the parked selection pointing at the same pitcher when one is removed.
+    // Keep the parked selection pointing at the same pitcher when the stored
+    // array changes under it. Removal and reorder BOTH need this — the live
+    // selection has had reorder handling for years and the parked one had
+    // neither, so a drag while a recipe override was active silently restored a
+    // different pitcher on deactivation.
     void adjustStandingPitcherForRemoval(int removedIndex);
+    void adjustStandingPitcherForMove(int from, int to);
 
     // Park or unwind a recipe's pitcher override, returning the index the caller
     // should now select and apply — or NoStandingPitcher for "nothing to do".

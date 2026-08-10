@@ -432,6 +432,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& json,
                                         const QStringList& excludeKeys)
 {
+    // Set false by any step that could not apply what the backup asked for.
+    // The single `return true` this function used to end on made every failure
+    // unreportable by construction.
+    bool importOk = true;
     // Machine settings
     if (json.contains("machine") && !excludeKeys.contains("machine")) {
         QJsonObject machine = json["machine"].toObject();
@@ -565,9 +569,15 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             if (sel == SettingsBrew::HeaterOffPitcherIndex
                 || (sel >= 0 && sel < settings->brew()->steamPitcherCount()))
                 settings->brew()->setSelectedSteamCup(sel);
-            else
+            else {
+                // Reportable, not just logged. importFromJson returned an
+                // unconditional true, so the caller's `if (!import…)` branch was
+                // dead code and a restore that left the steam selection wrong
+                // still announced "Settings restored from backup".
+                importOk = false;
                 qWarning() << "SettingsSerializer: imported selectedPitcher" << sel
                            << "out of range after import; leaving current selection";
+            }
         }
     }
 
@@ -1030,7 +1040,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Sync to disk
     settings->sync();
 
-    return true;
+    return importOk;
 }
 
 QJsonValue SettingsSerializer::variantToJson(const QVariant& value)
