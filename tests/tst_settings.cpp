@@ -519,6 +519,26 @@ private slots:
         QVERIFY(!after.contains("shot/defaultRating"));
     }
 
+    void firmwareEarlyAccessUpgradeResetsLegacyChannelOnce() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.remove("firmware/earlyAccessV1Migrated");
+        raw.setValue("firmware/nightlyChannel", true);
+        raw.setValue("firmware/EA", true);
+        raw.sync();
+
+        Settings upgraded;
+        QVERIFY(!upgraded.app()->firmwareEarlyAccess());
+
+        raw.sync();
+        QVERIFY(!raw.contains("firmware/nightlyChannel"));
+        QVERIFY(raw.value("firmware/earlyAccessV1Migrated").toBool());
+        QVERIFY(!raw.value("firmware/EA").toBool());
+
+        upgraded.app()->setFirmwareEarlyAccess(true);
+        Settings relaunched;
+        QVERIFY(relaunched.app()->firmwareEarlyAccess());
+    }
+
     void emptyScaleAddressIsValid() {
         m_settings.setScaleAddress("");
         QCOMPARE(m_settings.scaleAddress(), QString(""));

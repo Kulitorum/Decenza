@@ -46,11 +46,12 @@ class SettingsApp : public QObject {
     // prompt by writing false; UpdateChecker mutates via the C++ setter.
     Q_PROPERTY(bool autoRelaunchPromptShown READ autoRelaunchPromptShown NOTIFY autoRelaunchPromptShownChanged FINAL)
 
-    // DE1 firmware update channel. When false (default), firmware comes
-    // from fast.decentespresso.com/download/sync/de1plus; when true,
-    // from .../de1nightly. Independent from betaUpdatesEnabled, which
-    // controls the Decenza *app* update channel.
-    Q_PROPERTY(bool firmwareNightlyChannel READ firmwareNightlyChannel WRITE setFirmwareNightlyChannel NOTIFY firmwareNightlyChannelChanged FINAL)
+    // DE1 firmware update channel. false = bundled Stable firmware, true =
+    // bundled Early access firmware. The historical nightly preference is
+    // removed by Settings' one-time firmware-channel upgrade.
+    // Independent from betaUpdatesEnabled, which controls the Decenza *app*
+    // update channel.
+    Q_PROPERTY(bool firmwareEarlyAccess READ firmwareEarlyAccess WRITE setFirmwareEarlyAccess NOTIFY firmwareEarlyAccessChanged FINAL)
 
     // Daily backup
     Q_PROPERTY(int dailyBackupHour READ dailyBackupHour WRITE setDailyBackupHour NOTIFY dailyBackupHourChanged FINAL)
@@ -143,8 +144,8 @@ public:
     void setAutoCheckUpdates(bool enabled);
     bool betaUpdatesEnabled() const;
     void setBetaUpdatesEnabled(bool enabled);
-    bool firmwareNightlyChannel() const;
-    void setFirmwareNightlyChannel(bool enabled);
+    bool firmwareEarlyAccess() const;
+    void setFirmwareEarlyAccess(bool enabled);
     qint64 lastKnownApkSizeBytes() const;
     void setLastKnownApkSizeBytes(qint64 size);
 
@@ -216,7 +217,7 @@ signals:
     void betaUpdatesEnabledChanged();
     void lastKnownApkSizeBytesChanged();
     void autoRelaunchPromptShownChanged();
-    void firmwareNightlyChannelChanged();
+    void firmwareEarlyAccessChanged();
     void dailyBackupHourChanged();
     void waterLevelDisplayUnitChanged();
     void temperatureUnitChanged();

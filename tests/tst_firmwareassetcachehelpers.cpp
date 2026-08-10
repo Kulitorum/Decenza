@@ -1,15 +1,8 @@
 #include <QtTest>
+#include <QHash>
+#include <QTemporaryDir>
 
 #include "core/firmwareassetcache.h"
-
-// Pure helpers used by FirmwareAssetCache:
-//   - MetaJson round-trip (sidecar .meta.json that tracks {etag, version,
-//     downloadedAtEpoch} so we don't re-download unchanged firmware)
-//   - rangeHeaderFor() — computes the correct HTTP Range header (or
-//     nothing) given an existing partial-file size
-//
-// The FirmwareAssetCache class itself talks to QNetworkAccessManager and
-// is covered by the §5 integration test, not here.
 
 class tst_FirmwareAssetCacheHelpers : public QObject {
     Q_OBJECT
@@ -17,100 +10,125 @@ class tst_FirmwareAssetCacheHelpers : public QObject {
 private slots:
     void init() { QTest::failOnWarning(); }
 
-    // ===== MetaJson round-trip =====
+    void manifestContainsExpectedEntriesAndReleaseNotes() {
+        QFile manifest(QString::fromLatin1(
+            DE1::Firmware::FirmwareAssetCache::FIRMWARE_MANIFEST_RESOURCE));
+        QVERIFY2(manifest.open(QIODevice::ReadOnly),
+                 qPrintable(QStringLiteral("manifest missing: %1").arg(manifest.errorString())));
 
-    void metaJson_roundTripsExactly() {
-        DE1::Firmware::MetaJson in;
-        in.etag              = QStringLiteral("\"bcfebcf3449b8933288a51fa79b0751c\"");
-        in.version           = 1352;
-        in.downloadedAtEpoch = 1776696227;
+        QString error;
+        const auto entries = DE1::Firmware::parseFirmwareManifest(manifest.readAll(), &error);
+        QVERIFY2(!entries.isEmpty(), qPrintable(error));
+        QCOMPARE(entries.size(), 2);
 
-        QByteArray json = DE1::Firmware::serializeMeta(in);
-        QVERIFY(!json.isEmpty());
+        QHash<QString, DE1::Firmware::FirmwareCatalogEntry> byId;
+        for (const auto& entry : entries) {
+            byId.insert(entry.id, entry);
+        }
+        QVERIFY(byId.contains(QStringLiteral("de1-1352")));
+        QVERIFY(byId.contains(QStringLiteral("de1-1358")));
 
-        auto parsed = DE1::Firmware::parseMeta(json);
-        QVERIFY(parsed.has_value());
-        QCOMPARE(parsed->etag,              in.etag);
-        QCOMPARE(parsed->version,           in.version);
-        QCOMPARE(parsed->downloadedAtEpoch, in.downloadedAtEpoch);
+        const auto stable = byId.value(QStringLiteral("de1-1352"));
+        QCOMPARE(stable.build, uint32_t(1352));
+        QCOMPARE(stable.byteLength, qint64(463872));
+        QCOMPARE(stable.sha256Hex,
+                 QByteArray("d9433b85167566d7b457e03e2151e860c10ff5d3b4e41b163667b8314aeb2927"));
+        QCOMPARE(stable.expectedHeaderBoardMarker, uint32_t(0xDE100001));
+        QCOMPARE(stable.expectedBodyByteCount, uint32_t(461824));
+        QCOMPARE(stable.expectedCpuByteCount, uint32_t(298592));
+        QVERIFY(stable.releaseNotes.contains(QStringLiteral("NoAC")));
+
+        const auto early = byId.value(QStringLiteral("de1-1358"));
+        QCOMPARE(early.build, uint32_t(1358));
+        QCOMPARE(early.byteLength, qint64(463872));
+        QCOMPARE(early.sha256Hex,
+                 QByteArray("ada25161ebbd661b44b3aab2c7756f42d95064a931462b3d134e8db66d198747"));
+        QCOMPARE(early.expectedHeaderBoardMarker, uint32_t(0xDE100001));
+        QCOMPARE(early.expectedBodyByteCount, uint32_t(461824));
+        QCOMPARE(early.expectedCpuByteCount, uint32_t(298880));
+        QVERIFY(early.releaseNotes.contains(QStringLiteral("Cold maintenance")));
     }
 
-    void metaJson_parsesEmptyEtag() {
-        // An empty etag is legal when the sidecar is being written before
-        // a real server response is known. Must not reject.
-        DE1::Firmware::MetaJson in;
-        in.etag = QString();
-        in.version = 0;
-        in.downloadedAtEpoch = 0;
+    void bundledFilesValidateAgainstManifest() {
+        QFile manifest(QString::fromLatin1(
+            DE1::Firmware::FirmwareAssetCache::FIRMWARE_MANIFEST_RESOURCE));
+        QVERIFY(manifest.open(QIODevice::ReadOnly));
+        QString error;
+        const auto entries = DE1::Firmware::parseFirmwareManifest(manifest.readAll(), &error);
+        QVERIFY2(!entries.isEmpty(), qPrintable(error));
 
-        QByteArray json = DE1::Firmware::serializeMeta(in);
-        auto parsed = DE1::Firmware::parseMeta(json);
-        QVERIFY(parsed.has_value());
-        QCOMPARE(parsed->etag.isEmpty(), true);
+        for (const auto& entry : entries) {
+            const auto result = DE1::Firmware::validateBundledFirmwareFile(
+                entry.resourcePath(), entry);
+            QCOMPARE(result.status, DE1::Firmware::Validation::Ok);
+            QCOMPARE(result.header.version, entry.build);
+            QCOMPARE(result.header.boardMarker, entry.expectedHeaderBoardMarker);
+            QCOMPARE(result.header.byteCount, entry.expectedBodyByteCount);
+            QCOMPARE(result.header.cpuBytes, entry.expectedCpuByteCount);
+        }
     }
 
-    void metaJson_rejectsMalformed() {
-        QCOMPARE(DE1::Firmware::parseMeta(QByteArray()).has_value(), false);
-        QCOMPARE(DE1::Firmware::parseMeta(QByteArray("{")).has_value(), false);
-        QCOMPARE(DE1::Firmware::parseMeta(QByteArray("not json")).has_value(), false);
+    void channelSelectionClassifiesAndExposesReleaseNotes() {
+        DE1::Firmware::FirmwareAssetCache cache;
+
+        QList<DE1::Firmware::FirmwareAssetCache::CheckResult> results;
+        connect(&cache, &DE1::Firmware::FirmwareAssetCache::checkFinished,
+                this, [&results](DE1::Firmware::FirmwareAssetCache::CheckResult r) {
+                    results.append(r);
+                });
+
+        cache.checkForUpdate(/*installed*/ 1200);
+        QCOMPARE(results.size(), 1);
+        auto stable = results.takeFirst();
+        QCOMPARE(stable.kind, DE1::Firmware::FirmwareAssetCache::CheckResult::Newer);
+        QCOMPARE(stable.remoteVersion, uint32_t(1352));
+        QCOMPARE(stable.channelLabel, QStringLiteral("Stable"));
+        QVERIFY(stable.releaseNotes.contains(QStringLiteral("NoAC")));
+
+        cache.setChannel(DE1::Firmware::FirmwareAssetCache::Channel::EarlyAccess);
+        cache.checkForUpdate(/*installed*/ 1358);
+        QCOMPARE(results.size(), 1);
+        auto early = results.takeFirst();
+        QCOMPARE(early.kind, DE1::Firmware::FirmwareAssetCache::CheckResult::Same);
+        QCOMPARE(early.remoteVersion, uint32_t(1358));
+        QCOMPARE(early.channelLabel, QStringLiteral("Early access"));
+        QVERIFY(early.releaseNotes.contains(QStringLiteral("Cold maintenance")));
+
+        cache.checkForUpdate(/*installed*/ 2000);
+        QCOMPARE(results.size(), 1);
+        auto downgrade = results.takeFirst();
+        QCOMPARE(downgrade.kind, DE1::Firmware::FirmwareAssetCache::CheckResult::Older);
+        QCOMPARE(downgrade.remoteVersion, uint32_t(1358));
     }
 
-    void metaJson_rejectsWrongTypes() {
-        // "version" must be a number, not a string. Reject so we don't
-        // silently accept a broken sidecar and mis-compare versions.
-        QByteArray bad = QByteArray(
-            R"({"etag":"abc","version":"1352","downloadedAtEpoch":0})");
-        QCOMPARE(DE1::Firmware::parseMeta(bad).has_value(), false);
+    void invalidManifestRejected() {
+        QString error;
+        const auto entries = DE1::Firmware::parseFirmwareManifest(
+            QByteArray(R"({"schemaVersion":1,"artifacts":[{"id":"de1-1352"}]})"),
+            &error);
+        QVERIFY(entries.isEmpty());
+        QVERIFY(!error.isEmpty());
     }
 
-    void metaJson_ignoresExtraFields() {
-        // Forward-compat: if a future Decenza adds new fields to the
-        // sidecar, an older version must still parse the fields it knows.
-        QByteArray withExtras = QByteArray(
-            R"({"etag":"xyz","version":1352,"downloadedAtEpoch":100,"futureField":"ignore me"})");
-        auto parsed = DE1::Firmware::parseMeta(withExtras);
-        QVERIFY(parsed.has_value());
-        QCOMPARE(parsed->etag,    QStringLiteral("xyz"));
-        QCOMPARE(parsed->version, uint32_t(1352));
-    }
+    void bundledValidationRejectsMismatchedFile() {
+        QFile manifest(QString::fromLatin1(
+            DE1::Firmware::FirmwareAssetCache::FIRMWARE_MANIFEST_RESOURCE));
+        QVERIFY(manifest.open(QIODevice::ReadOnly));
+        QString error;
+        const auto entries = DE1::Firmware::parseFirmwareManifest(manifest.readAll(), &error);
+        QVERIFY2(!entries.isEmpty(), qPrintable(error));
+        const auto entry = entries.first();
 
-    // ===== rangeHeaderFor: compute resume Range header =====
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("de1-1352.bin"));
+        QFile corrupt(path);
+        QVERIFY(corrupt.open(QIODevice::WriteOnly));
+        corrupt.write(QByteArray(128, char(0)));
+        corrupt.close();
 
-    void rangeHeaderFor_noPartial_returnsEmpty() {
-        // Nothing on disk yet → no Range header (do a fresh GET).
-        auto r = DE1::Firmware::rangeHeaderFor(/*existingSize*/ 0,
-                                               /*expectedTotal*/ 453000);
-        QCOMPARE(r.has_value(), false);
-    }
-
-    void rangeHeaderFor_partial_returnsResumeHeader() {
-        // 100 000 bytes on disk out of 453 000 → Range: bytes=100000-
-        auto r = DE1::Firmware::rangeHeaderFor(100000, 453000);
-        QVERIFY(r.has_value());
-        QCOMPARE(*r, QByteArray("bytes=100000-"));
-    }
-
-    void rangeHeaderFor_completeFile_returnsEmpty() {
-        // If we already have the whole file, there's nothing to resume —
-        // caller should skip the download entirely, not ask for a Range.
-        auto r = DE1::Firmware::rangeHeaderFor(453000, 453000);
-        QCOMPARE(r.has_value(), false);
-    }
-
-    void rangeHeaderFor_overrun_returnsEmpty() {
-        // existingSize > expectedTotal would mean our cache is bigger than
-        // the server claims — the cache is stale/corrupt; caller must
-        // wipe and re-download rather than sending a bogus Range.
-        auto r = DE1::Firmware::rangeHeaderFor(1000000, 453000);
-        QCOMPARE(r.has_value(), false);
-    }
-
-    void rangeHeaderFor_unknownTotal_partialOnly() {
-        // If the server didn't report a Content-Length yet, we still want
-        // to resume from what we have on disk.
-        auto r = DE1::Firmware::rangeHeaderFor(50000, /*unknown*/ -1);
-        QVERIFY(r.has_value());
-        QCOMPARE(*r, QByteArray("bytes=50000-"));
+        const auto result = DE1::Firmware::validateBundledFirmwareFile(path, entry);
+        QVERIFY(result.status != DE1::Firmware::Validation::Ok);
     }
 };
 

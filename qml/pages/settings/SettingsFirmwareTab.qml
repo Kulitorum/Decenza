@@ -50,7 +50,7 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(110)
+            Layout.preferredHeight: Theme.scaled(120)
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.borderColor
@@ -133,7 +133,7 @@ Item {
                     // build. Same-build re-flash is warned about in the strip
                     // below, not blocked: it is the only recovery for a bank
                     // that verified but did not take. The requirement is a
-                    // known remote version (i.e. a check has succeeded), not a
+                    // known bundled version (i.e. a check has succeeded), not a
                     // newer one.
                     enabled: firmwareTab.fw && firmwareTab.fw.availableVersion > 0 && !firmwareTab.isWorking && !firmwareTab.fw.isSimulated
                     onClicked: if (firmwareTab.fw) firmwareTab.fw.startUpdate()
@@ -141,10 +141,60 @@ Item {
             }
         }
 
+        // ----- Bundled release notes -------------------------------
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.scaled(86)
+            visible: firmwareTab.fw && firmwareTab.fw.availableVersion > 0
+            color: Theme.cardBackgroundColor
+            radius: Theme.cardRadius
+            border.color: Theme.borderColor
+            border.width: 1
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
+                spacing: Theme.scaled(3)
+
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate(
+                              "firmware.tab.releaseNotesHeader",
+                              "%1 firmware v%2")
+                          .arg(firmwareTab.fw && firmwareTab.fw.availableChannelLabel
+                               ? firmwareTab.fw.availableChannelLabel
+                               : TranslationManager.translate("firmware.tab.stableChannel", "Stable"))
+                          .arg(firmwareTab.fw && firmwareTab.fw.availableVersionLabel
+                               ? firmwareTab.fw.availableVersionLabel
+                               : (firmwareTab.fw ? firmwareTab.fw.availableVersion : "—"))
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(13)
+                    font.bold: true
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    text: firmwareTab.fw && firmwareTab.fw.availableReleaseNotes
+                          ? firmwareTab.fw.availableReleaseNotes
+                          : TranslationManager.translate(
+                                "firmware.tab.noReleaseNotes",
+                                "No release notes are included for this firmware.")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(11)
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                }
+            }
+        }
+
         // ----- Downgrade warning strip -----------------------------
         // Surfaced whenever the available blob is older than what's
-        // installed, so a user flipping the channel toggle (e.g. nightly
-        // → stable) sees clearly that flashing will roll the DE1 back.
+        // installed, so a user flipping the channel toggle (e.g. Early access
+        // → Stable) sees clearly that flashing will roll the DE1 back.
 
         Rectangle {
             Layout.fillWidth: true
@@ -390,8 +440,8 @@ Item {
                 spacing: Theme.scaled(2)
 
                 Tr {
-                    key: "firmware.tab.nightlyChannel"
-                    fallback: "Use nightly firmware channel"
+                    key: "firmware.tab.earlyAccessChannel"
+                    fallback: "Use early access firmware"
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(13)
                     font.bold: true
@@ -399,10 +449,9 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: TranslationManager.translate(
-                              "firmware.tab.nightlyChannelNote",
-                              "Off: stable (de1plus). On: nightly (de1nightly). " +
-                              "Nightly may include unreleased firmware that Decent " +
-                              "has not yet promoted to the stable channel.")
+                              "firmware.tab.earlyAccessChannelNote",
+                              "Off: bundled Stable firmware. On: bundled Early access firmware. " +
+                              "Release notes for the selected version are shown above.")
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(11)
                     wrapMode: Text.Wrap
@@ -410,16 +459,16 @@ Item {
             }
 
             Switch {
-                id: nightlyChannelSwitch
-                checked: Settings.app.firmwareNightlyChannel
+                id: earlyAccessSwitch
+                checked: Settings.app.firmwareEarlyAccess
                 enabled: !firmwareTab.isWorking
-                onToggled: Settings.app.firmwareNightlyChannel = checked
+                onToggled: Settings.app.firmwareEarlyAccess = checked
                 Accessible.role: Accessible.CheckBox
                 Accessible.name: TranslationManager.translate(
-                                    "firmware.tab.nightlyChannel",
-                                    "Use nightly firmware channel")
+                                    "firmware.tab.earlyAccessChannel",
+                                    "Use early access firmware")
                 Accessible.focusable: true
-                Accessible.onPressAction: nightlyChannelSwitch.toggle()
+                Accessible.onPressAction: earlyAccessSwitch.toggle()
             }
         }
 
@@ -430,8 +479,7 @@ Item {
             Layout.topMargin: Theme.spacingMedium
             text: TranslationManager.translate(
                       "firmware.tab.sourceNote",
-                      "Firmware is fetched from Decent's update CDN " +
-                      "(fast.decentespresso.com). Auto-checks run weekly. " +
+                      "Firmware is bundled with Decenza. Auto-checks run weekly. " +
                       "The upload usually takes less than 30 minutes over " +
                       "Bluetooth — keep the app open and the DE1 connected " +
                       "until the update completes.")

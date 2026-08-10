@@ -331,6 +331,14 @@ add_library(decenza_testresources OBJECT ${CMAKE_SOURCE_DIR}/resources/resources
 set_target_properties(decenza_testresources PROPERTIES AUTORCC ON)
 target_link_libraries(decenza_testresources PUBLIC Qt6::Core)
 
+# FirmwareAssetCache is exercised by exactly these two targets. Keep its
+# Q_OBJECT implementation in one narrow library so it is compiled once.
+add_library(decenza_firmwareassetcachelib STATIC
+    ${CMAKE_SOURCE_DIR}/src/core/firmwareassetcache.cpp
+)
+set_target_properties(decenza_firmwareassetcachelib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_link_libraries(decenza_firmwareassetcachelib PUBLIC decenza_testlib)
+
 add_decenza_test(tst_binarycodec
     tst_binarycodec.cpp
 )
@@ -404,6 +412,10 @@ add_decenza_test(tst_firmwareheader
 # covered by the integration test in tst_firmwareflow. ---
 add_decenza_test(tst_firmwareassetcachehelpers
     tst_firmwareassetcachehelpers.cpp
+)
+target_link_libraries(tst_firmwareassetcachehelpers PRIVATE
+    decenza_firmwareassetcachelib
+    decenza_testresources
 )
 
 # --- tst_migrationinterfaceselect: pure interface-selection ordering for
@@ -879,7 +891,10 @@ add_decenza_test(tst_firmwareupdater
     tst_firmwareupdater.cpp
     mocks/MockTransport.h
     ${CMAKE_SOURCE_DIR}/src/controllers/firmwareupdater.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/firmwareassetcache.cpp
+)
+target_link_libraries(tst_firmwareupdater PRIVATE
+    decenza_firmwareassetcachelib
+    decenza_testresources
 )
 
 # --- tst_profileupload: Profile upload frame-ACK verification ---

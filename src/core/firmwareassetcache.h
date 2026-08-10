@@ -4,32 +4,30 @@
 #include <optional>
 
 #include <QByteArray>
+#include <QList>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QObject>
 #include <QString>
+#include <QStringList>
+#include <QVariant>
 
 #include "core/firmwareheader.h"
 
-// Downloads, caches, and validates the DE1 bootfwupdate.dat firmware
-// binary from Decent's update CDN (fast.decentespresso.com), the same
-// host Tcl de1app uses. Two channels are exposed: Stable (de1plus) and
-// Nightly (de1nightly). Decent's "de1beta" channel is not wired because
-// Decent has stopped updating it reliably.
+// Loads and validates bundled DE1 firmware binaries shipped with Decenza.
+// The firmware catalog is Decaid's manifest, included in resources alongside
+// the binaries. Two product channels are exposed: Stable and Early access.
 //
-// A sidecar .meta.json file tracks the server ETag plus the version we
-// parsed out of the header, so subsequent checks can answer "is there
-// something new?" with a single HEAD + If-None-Match request.
-//
-// The pure helpers (MetaJson serialize/parse, rangeHeaderFor) are inline
-// in this header and tested in tst_firmwareassetcachehelpers.cpp. The
-// FirmwareAssetCache class itself is tested at the integration level
-// (see tests/tst_firmwareflow.cpp).
+// Test scaffolding can still point setCacheRoot() at a temporary directory
+// containing bootfwupdate.dat; that override keeps FirmwareUpdater state
+// machine tests focused on BLE behavior rather than real bundled bytes.
 
 namespace DE1::Firmware {
 
-// Sidecar persistence record. Lives at cachedPath() + ".meta.json".
+// Legacy sidecar persistence record retained only for older helper tests and
+// for reading any stale files left in AppData by prior Decenza versions. The
+// production firmware path no longer writes or depends on sidecar metadata.
 struct MetaJson {
     QString  etag;                 // server ETag of the last-observed remote file
     uint32_t version = 0;          // Version field parsed from the cached header
@@ -97,21 +95,45 @@ inline std::optional<QByteArray> rangeHeaderFor(qint64 existingSize, qint64 expe
     return QByteArray("bytes=") + QByteArray::number(existingSize) + "-";
 }
 
+struct FirmwareCatalogEntry {
+    QString id;
+    QString source;
+    QString machineFamily;
+    QStringList supportedModels;
+    uint32_t build = 0;
+    QString versionLabel;
+    QString imageFormat;
+    qint64 byteLength = 0;
+    QByteArray sha256Hex;
+    QString channel;
+    QString releaseNotes;
+    QString assetPath;
+    uint32_t expectedHeaderBoardMarker = 0;
+    uint32_t expectedBodyByteCount = 0;
+    uint32_t expectedCpuByteCount = 0;
+    QString provenance;
+
+    QString resourcePath() const {
+        return QStringLiteral(":/") + assetPath;
+    }
+};
+
+QList<FirmwareCatalogEntry> parseFirmwareManifest(const QByteArray& json,
+                                                  QString* error = nullptr);
+QString firmwareSha256Hex(const QString& path, QString* error = nullptr);
+ValidationResult validateBundledFirmwareFile(const QString& path,
+                                             const FirmwareCatalogEntry& entry);
+
 }  // namespace DE1::Firmware
 
 // -----------------------------------------------------------------------
-// FirmwareAssetCache — network-driven downloader + cache.
+// FirmwareAssetCache — bundled firmware selector + validator.
 //
-// Owns the two network round-trips: (a) cheap HEAD with If-None-Match to
-// detect new firmware, promoted to a 64-byte Range-GET when the ETag has
-// changed so we can read the remote Version without pulling ~453 KB; and
-// (b) full-body GET (optionally resumed via Range) when the user taps
-// Update. All HTTP calls go through QNetworkAccessManager; setNetworkManager
-// allows test scaffolding to inject a mock.
-//
-// Unit tests cover only the pure helpers above. The class itself is
-// exercised by the §5 integration test (tst_firmwareflow.cpp) which uses
-// a mocked QNetworkAccessManager to drive the full flow end-to-end.
+// Keeps the existing check/download signal contract used by FirmwareUpdater,
+// but the default implementation is local: checkForUpdate() compares the
+// selected manifest entry with the installed DE1 version, and
+// downloadIfNeeded() validates the bundled resource before handing its path to
+// the flash state machine.
 // -----------------------------------------------------------------------
 
 class QNetworkAccessManager;
@@ -124,21 +146,15 @@ class FirmwareAssetCache : public QObject {
     Q_OBJECT
 
 public:
-    // Release channel on fast.decentespresso.com. Mirrors the channel
-    // Tcl de1app selects via its app_updates_beta_enabled setting
-    // (Stable = de1plus, Nightly = de1nightly).
     enum class Channel {
-        Stable  = 0,
-        Nightly = 1,
+        Stable      = 0,
+        EarlyAccess = 1,
+        Nightly     = 1,  // compatibility alias for existing call sites/tests
     };
     Q_ENUM(Channel)
 
-    // Upstream URLs for each channel. Kept here so a future change is a
-    // one-line edit and so the active URL can be inspected from tests.
-    static constexpr const char* FIRMWARE_URL_STABLE =
-        "https://fast.decentespresso.com/download/sync/de1plus/fw/bootfwupdate.dat";
-    static constexpr const char* FIRMWARE_URL_NIGHTLY =
-        "https://fast.decentespresso.com/download/sync/de1nightly/fw/bootfwupdate.dat";
+    static constexpr const char* FIRMWARE_MANIFEST_RESOURCE =
+        ":/assets/firmware/manifest.json";
 
     struct CheckResult {
         // Newer: remote > installed (upgrade offered).
@@ -149,15 +165,16 @@ public:
         Kind     kind          = Error;
         uint32_t remoteVersion = 0;
         QString  errorDetail;                // empty on success
+        QString  versionLabel;
+        QString  channelLabel;
+        QString  releaseNotes;
     };
 
     explicit FirmwareAssetCache(QObject* parent = nullptr);
     ~FirmwareAssetCache() override;
 
-    // Dependency injection for tests. Pass a custom QNetworkAccessManager
-    // (typically one that returns synthetic replies). FirmwareAssetCache
-    // does NOT take ownership; the caller is responsible for the manager's
-    // lifetime. If never called, the cache creates and owns its own manager.
+    // No-op compatibility hook retained for older tests/call sites. The
+    // production firmware path no longer performs network requests.
     void setNetworkManager(QNetworkAccessManager* manager);
 
     // Override the cache root (defaults to
@@ -165,15 +182,12 @@ public:
     // QTemporaryDir to isolate from the user's real cache.
     void setCacheRoot(const QString& absolutePath);
 
-    // Release channel. Switching channels wipes the on-disk cache so the
-    // next checkForUpdate()/downloadIfNeeded() contacts the new source.
-    // Default is Channel::Stable.
+    // Product firmware channel. Default is Channel::Stable.
     Channel channel() const { return m_channel; }
     void setChannel(Channel channel);
 
-    // Current upstream URL (whichever channel is active). Exposed for
-    // diagnostics/tests; callers normally don't need to read this.
-    const char* currentUrl() const;
+    // Compatibility diagnostic string: now the selected bundled resource path.
+    QString currentUrl() const;
 
     QString cachePath() const;                // <root>/bootfwupdate.dat
     QString metaPath() const;                 // <root>/bootfwupdate.dat.meta.json
@@ -185,8 +199,13 @@ public:
     // genuine partial of this revision apart from a leftover of another one.
     bool versionMatchesMeta(uint32_t headerVersion) const;
 
-    // Wipe the cache file and the sidecar meta. Used when the user resets,
-    // or when validation finds a permanently-invalid file.
+    std::optional<FirmwareCatalogEntry> selectedEntry(QString* error = nullptr) const;
+    QString selectedVersionLabel() const;
+    QString selectedChannelLabel() const;
+    QString selectedReleaseNotes() const;
+    bool usesBundledSource() const { return !hasCacheOverride(); }
+
+    // Wipe legacy cache override files. Bundled resources are never removed.
     void clearCache();
 
 public slots:
@@ -195,7 +214,7 @@ public slots:
     // it drives the Newer/Same classification.
     void checkForUpdate(uint32_t installedVersion);
 
-    // Full download (with Range resume when a partial cache exists).
+    // Validate the selected bundled file, or the test override cache file.
     // Always emits exactly one of downloadFinished or downloadFailed.
     void downloadIfNeeded();
 
@@ -205,21 +224,12 @@ signals:
     void downloadFinished(QString path, DE1::Firmware::Header header);
     void downloadFailed(QString reason);
 
-private slots:
-    void onHeadReplyFinished();
-    void onHeaderRangeReplyFinished();
-    void onDownloadReadyRead();
-    void onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal);
-    void onDownloadFinished();
-
 private:
+    bool hasCacheOverride() const;
     void ensureCacheDir() const;
     void loadMetaFromDisk();
     void saveMetaToDisk();
-    void abortActiveReply();
-    void cleanUpDownloadFile();
     void failDownload(const QString& reason);
-    void issueHeaderRangeRequest(const QByteArray& newEtag);
 
     QNetworkAccessManager* m_manager      = nullptr;
     bool                   m_ownsManager  = false;
@@ -228,17 +238,6 @@ private:
     MetaJson m_meta;
     bool     m_metaLoaded = false;
 
-    // True while the in-flight GET carries a Range header, and true once that
-    // Range has been confirmed honoured (HTTP 206). Both are cleared when the
-    // download finishes. The version cross-check on the completed file only
-    // applies to a resumed body — a fresh complete download that is simply
-    // newer than the sidecar is legitimate, not a splice.
-    bool     m_resumedDownload = false;
-    bool     m_rangeHonoured   = false;
-
-    QNetworkReply* m_activeReply = nullptr;
-    QFile*         m_downloadFile = nullptr;
-    QByteArray     m_pendingEtag;             // ETag of in-flight HEAD response
     uint32_t       m_installedVersion = 0;
     Channel        m_channel = Channel::Stable;
 };

@@ -484,7 +484,25 @@ void FirmwareUpdater::dismissAvailability() {
 
 void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
     if (m_state != State::Checking && m_state != State::Idle) return;
+    if (result.kind == FirmwareAssetCache::CheckResult::Error) {
+        m_availableVersion = 0;
+        m_availableVersionLabel.clear();
+        m_availableChannelLabel.clear();
+        m_availableReleaseNotes.clear();
+        m_updateAvailable = false;
+        m_isDowngrade = false;
+        m_isReflash = false;
+        emit availabilityChanged();
+        failWith(QStringLiteral("The firmware file is not valid. Please report this."),
+                 /*retryable*/ false);
+        return;
+    }
     m_availableVersion = result.remoteVersion;
+    m_availableVersionLabel = result.versionLabel.isEmpty()
+        ? (result.remoteVersion > 0 ? QString::number(result.remoteVersion) : QString())
+        : result.versionLabel;
+    m_availableChannelLabel = result.channelLabel;
+    m_availableReleaseNotes = result.releaseNotes;
     // updateAvailable reflects the pure version comparison: the simulator
     // gate lives in startUpdate() and in the QML (`isSimulated`) so users
     // can still see what *would* be flashable against a real DE1.
@@ -543,12 +561,31 @@ void FirmwareUpdater::onDownloadFinished(QString path, Header header) {
     m_installedVersion = currentInstalled;
 
     m_availableVersion = header.version;
+    if (m_availableVersionLabel.isEmpty()) {
+        m_availableVersionLabel = QString::number(header.version);
+    }
+    if (m_cache) {
+        if (m_availableChannelLabel.isEmpty()) {
+            m_availableChannelLabel = m_cache->selectedChannelLabel();
+        }
+        if (m_availableReleaseNotes.isEmpty()) {
+            m_availableReleaseNotes = m_cache->selectedReleaseNotes();
+        }
+    }
+    emit availabilityChanged();
     setState(State::Ready);
     beginErasePhase();
 }
 
 void FirmwareUpdater::onDownloadFailed(QString reason) {
     if (m_state != State::Downloading) return;
+    if (m_cache && m_cache->usesBundledSource()) {
+        qCWarning(firmwareLog).noquote()
+            << "[firmware] bundled source validation failed:" << reason;
+        failWith(QStringLiteral("The firmware file is not valid. Please report this."),
+                 /*retryable*/ false);
+        return;
+    }
     failWith(reason, /*retryable*/ true);
 }
 
@@ -702,7 +739,7 @@ void FirmwareUpdater::loadCachedPayload() {
     // on the resume path, plus the size ceiling and structural checks in
     // validateFile), so this is no longer the only line of defence — but it is
     // the only one that states, in a submitted log, exactly which bytes went
-    // to the machine. Compare against the CDN file for the active channel.
+    // to the machine. Compare against the selected Decaid manifest entry.
     const QByteArray digest =
         QCryptographicHash::hash(m_firmwareBytes, QCryptographicHash::Sha256).toHex();
     auto header = DE1::Firmware::parseHeader(m_firmwareBytes);
