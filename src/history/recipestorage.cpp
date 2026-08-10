@@ -1352,6 +1352,94 @@ void RecipeStorage::requestLegacyTempOffsetConversion(const QHash<QString, doubl
 }
 
 // static
+bool RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(QSqlDatabase& db,
+                                                         const QStringList& removedNames,
+                                                         int* outRewrittenCount)
+{
+    if (outRewrittenCount)
+        *outRewrittenCount = 0;
+    if (removedNames.isEmpty())
+        return true;
+
+    QSqlQuery select(db);
+    if (!select.exec("SELECT id, steam_json FROM recipes "
+                     "WHERE steam_json IS NOT NULL AND steam_json != ''")) {
+        qWarning() << "RecipeStorage: heater-off rewrite select failed:"
+                   << select.lastError().text();
+        return false;
+    }
+
+    struct Row { qint64 id; QString json; };
+    QVector<Row> rows;
+    while (select.next()) {
+        const qint64 id = select.value(0).toLongLong();
+        QJsonObject steam = QJsonDocument::fromJson(select.value(1).toString().toUtf8()).object();
+        const QString pitcherName = steam.value(QStringLiteral("pitcherName")).toString();
+        if (pitcherName.isEmpty())
+            continue;
+        bool matched = false;
+        for (const QString& removed : removedNames) {
+            if (pitcherName.compare(removed, Qt::CaseInsensitive) == 0) {
+                matched = true;
+                break;
+            }
+        }
+        if (!matched)
+            continue;
+
+        // The marker replaces the pitcher fields outright — the built-in entry
+        // carries no values, so leaving durationSec/flow/temperatureC behind
+        // would describe a pitcher that is not being used.
+        steam.remove(QStringLiteral("pitcherName"));
+        steam.remove(QStringLiteral("durationSec"));
+        steam.remove(QStringLiteral("flow"));
+        steam.remove(QStringLiteral("temperatureC"));
+        steam.insert(QStringLiteral("heaterOff"), true);
+        rows.append({id, QString::fromUtf8(QJsonDocument(steam).toJson(QJsonDocument::Compact))});
+    }
+
+    for (const Row& row : rows) {
+        QSqlQuery update(db);
+        update.prepare("UPDATE recipes SET steam_json = :json WHERE id = :id");
+        update.bindValue(":json", row.json);
+        update.bindValue(":id", row.id);
+        if (!update.exec()) {
+            qWarning() << "RecipeStorage: heater-off rewrite update failed:"
+                       << update.lastError().text();
+            return false;
+        }
+        if (outRewrittenCount)
+            ++(*outRewrittenCount);
+    }
+    if (!rows.isEmpty())
+        qInfo() << "RecipeStorage: rewrote" << rows.size()
+                << "recipe(s) from a removed Off pitcher to the Heater off marker";
+    return true;
+}
+
+void RecipeStorage::requestHeaterOffPitcherRewrite(const QStringList& removedNames,
+                                                   std::function<void(bool)> onDone)
+{
+    if (removedNames.isEmpty()) {
+        if (onDone) onDone(true);   // nothing to do IS a completed pass
+        return;
+    }
+    auto rewritten = std::make_shared<int>(0);
+    auto succeeded = std::make_shared<bool>(false);
+    runAsync("recipes_heater_off_rewrite",
+        [removedNames, rewritten, succeeded](QSqlDatabase& db) {
+            *succeeded = rewriteHeaterOffPitcherRecipesStatic(db, removedNames, rewritten.get());
+        },
+        [this, rewritten, succeeded, onDone](bool ok) {
+            if (*rewritten > 0)
+                emit recipesChanged();
+            // Both halves must have held: the async runner reached the work AND
+            // the pass itself ran to completion. A partial run keeps the names.
+            if (onDone) onDone(ok && *succeeded);
+        });
+}
+
+// static
 QVector<qint64> RecipeStorage::relinkForFinishedBagStatic(QSqlDatabase& db, qint64 finishedBagId,
                                                           qint64* outTargetBagId)
 {

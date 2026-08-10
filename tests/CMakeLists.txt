@@ -115,6 +115,10 @@ set(CORE_SOURCES
 
 set(CONTROLLER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/controllers/shottimingcontroller.cpp
+    # The steam-target derivation. One small TU whose only dependency is Settings,
+    # which decenza_testlib already carries — so this is the cheap shape (compiled
+    # once here) rather than the expensive one the header warns about.
+    ${CMAKE_SOURCE_DIR}/src/controllers/steamheaterpolicy.cpp
 )
 
 # Shot analysis / projection layer. Plain Qt Core — no Quick or Graphs — so it
@@ -503,6 +507,11 @@ add_decenza_test(tst_shotprojection
 # --- tst_roastdate: RoastDate::toIso() roast-date normalizer (header-only) ---
 add_decenza_test(tst_roastdate
     tst_roastdate.cpp
+)
+
+# --- tst_steamheaterpolicy: THE steam-target derivation, and that it stays the only one ---
+add_decenza_test(tst_steamheaterpolicy
+    tst_steamheaterpolicy.cpp
 )
 
 # --- tst_settings: Settings persistence and defaults ---

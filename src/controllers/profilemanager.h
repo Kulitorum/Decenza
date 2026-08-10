@@ -13,6 +13,7 @@ class Settings;
 class DE1Device;
 class MachineState;
 class ProfileStorage;
+class SteamHeaterPolicy;
 class QQmlEngine;
 class QJSEngine;
 
@@ -129,9 +130,19 @@ public:
     static void setQmlInstance(ProfileManager *instance);
     static ProfileManager *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
 
+    // `steamHeaterPolicy` is THE steam-target derivation (see steamheaterpolicy.h).
+    // Passing it is how uploadCurrentProfile() avoids re-deriving the steam
+    // temperature itself, which it used to do from an incomplete set of inputs.
+    //
+    // Not defaulted, and no fallback instance: a privately-built policy has no
+    // recipe-intent provider and no event permission, so it would resolve a
+    // DIFFERENT answer — a second oracle inside the change whose whole purpose
+    // is that there is only one. Null is honest instead: uploadCurrentProfile()
+    // then leaves the steam field alone rather than inventing a value.
     explicit ProfileManager(Settings* settings, DE1Device* device,
                            MachineState* machineState,
                            ProfileStorage* profileStorage = nullptr,
+                           SteamHeaterPolicy* steamHeaterPolicy = nullptr,
                            QObject* parent = nullptr);
 
     // === Profile state ===
@@ -539,6 +550,7 @@ private:
     Settings* m_settings = nullptr;
     DE1Device* m_device = nullptr;
     MachineState* m_machineState = nullptr;
+    SteamHeaterPolicy* m_steamHeaterPolicy = nullptr;
     ProfileStorage* m_profileStorage = nullptr;
 
     Profile m_currentProfile;

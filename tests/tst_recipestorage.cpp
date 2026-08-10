@@ -4,6 +4,8 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QSignalSpy>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 #include "history/recipestorage.h"
@@ -2339,6 +2341,82 @@ private slots:
             const QVector<InventoryRecipe> active = RecipeStorage::loadInventoryStatic(db, false);
             for (const InventoryRecipe& e : active)
                 QVERIFY(e.recipe.id != usedId);
+        });
+    }
+    // steam-heater-policy: recipes that named a user-created "Off" pitcher must
+    // be rewritten to the {"heaterOff": true} marker when that preset is removed.
+    // Leaving the NAME behind is not harmless — activation's resurrect path would
+    // recreate it as a real preset, putting a second "Heater off" row in every
+    // picker and turning a deliberate off-choice into a pitcher nobody made.
+    void heaterOffRewriteReplacesRemovedPitcherNamesWithTheMarker() {
+        const QString path = freshDbPath();
+        qint64 offId = 0, realId = 0, bareId = 0;
+        withRawDb(path, "heateroff_seed", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe off = sampleRecipe();
+            off.name = "No steam latte";
+            off.steamJson = R"({"hasMilk":true,"milkWeightG":120,"pitcherName":"Off",)"
+                            R"("durationSec":30,"flow":150,"temperatureC":140})";
+            offId = RecipeStorage::insertRecipeStatic(db, off);
+
+            Recipe real = sampleRecipe();
+            real.name = "Real latte";
+            real.steamJson = R"({"hasMilk":true,"pitcherName":"Small","durationSec":30})";
+            realId = RecipeStorage::insertRecipeStatic(db, real);
+
+            Recipe bare = sampleRecipe();
+            bare.name = "Plain espresso";
+            bare.steamJson = "";
+            bareId = RecipeStorage::insertRecipeStatic(db, bare);
+        });
+        QVERIFY(offId > 0 && realId > 0 && bareId > 0);
+
+        int rewritten = 0;
+        withRawDb(path, "heateroff_run", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(
+                        db, {QStringLiteral("off")}, &rewritten));   // matched case-insensitively
+        });
+        QCOMPARE(rewritten, 1);
+
+        withRawDb(path, "heateroff_verify", [&](QSqlDatabase& db) {
+            const QJsonObject steam = QJsonDocument::fromJson(
+                RecipeStorage::loadRecipeStatic(db, offId).steamJson.toUtf8()).object();
+            QVERIFY(steam.value("heaterOff").toBool());
+            // The declared intent survives; the pitcher fields do not — the
+            // built-in carries no values, so keeping them would describe a
+            // pitcher that is not being used.
+            QVERIFY(steam.value("hasMilk").toBool());
+            QCOMPARE(steam.value("milkWeightG").toDouble(), 120.0);
+            QVERIFY(!steam.contains("pitcherName"));
+            QVERIFY(!steam.contains("durationSec"));
+            QVERIFY(!steam.contains("flow"));
+            QVERIFY(!steam.contains("temperatureC"));
+
+            // Untouched: a recipe naming a surviving pitcher, and one with no
+            // steam block at all.
+            const QJsonObject realSteam = QJsonDocument::fromJson(
+                RecipeStorage::loadRecipeStatic(db, realId).steamJson.toUtf8()).object();
+            QCOMPARE(realSteam.value("pitcherName").toString(), QStringLiteral("Small"));
+            QVERIFY(!realSteam.contains("heaterOff"));
+            QVERIFY(RecipeStorage::loadRecipeStatic(db, bareId).steamJson.isEmpty());
+        });
+
+        // Idempotent: re-running finds nothing, because the name is gone.
+        withRawDb(path, "heateroff_rerun", [&](QSqlDatabase& db) {
+            int again = -1;
+            QVERIFY(RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(
+                        db, {QStringLiteral("Off")}, &again));
+            QCOMPARE(again, 0);
+        });
+    }
+
+    void heaterOffRewriteWithNoRemovedNamesIsANoOp() {
+        const QString path = freshDbPath();
+        withRawDb(path, "heateroff_none", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            int count = -1;
+            QVERIFY(RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(db, {}, &count));
+            QCOMPARE(count, 0);
         });
     }
 };

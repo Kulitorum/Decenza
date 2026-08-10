@@ -742,9 +742,12 @@ void DataMigrationClient::onSettingsReply()
             // re-entered on the target device. Only non-credential settings transfer.
             // We additionally drop machine-specific flow calibration and defensively
             // re-exclude any mqttPassword key on import.
-            SettingsSerializer::importFromJson(m_settings, doc.object(), {"flowCalibration", "mqttPassword"});
-            m_settingsImported = 1;
-            qDebug() << "DataMigrationClient: Settings imported successfully";
+            if (SettingsSerializer::importFromJson(m_settings, doc.object(), {"flowCalibration", "mqttPassword"})) {
+                m_settingsImported = 1;
+                qDebug() << "DataMigrationClient: Settings imported successfully";
+            } else {
+                qWarning() << "DataMigrationClient: Settings import returned failure";
+            }
         }
     }
 

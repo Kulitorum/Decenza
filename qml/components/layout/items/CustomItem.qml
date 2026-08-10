@@ -11,6 +11,20 @@ import Decenza
 LayoutWidgetItem {
     id: root
 
+    // %STEAM_TEMP% resolves to "Off" from the RESOLVED heater state, not from
+    // the measured temperature — a boiler switched off minutes ago still reads
+    // hot on its way down.
+    //
+    // Hoisted to a property so the read happens on steamHeaterStateChanged and
+    // nowhere else. Read inline it would run inside `resolvedText`, which
+    // re-evaluates on every DE1 sample (~10 Hz while the machine runs) for every
+    // Custom widget on the layout — and each read is a full policy resolve:
+    // QSettings, a JSON parse of the pitcher blob, and a second parse of the
+    // active recipe when Let the recipe decide is on. A widget with no
+    // %STEAM_TEMP% in it paid that too.
+    readonly property bool _steamHeaterOff:
+        typeof MainController !== "undefined" && MainController !== null && !MainController.steamHeaterOn
+
     readonly property string content: modelData.content || "Text"
     readonly property string textAlign: modelData.align || "center"
     readonly property string action: modelData.action || ""
@@ -218,7 +232,14 @@ LayoutWidgetItem {
         var result = sanitizeHtml(text)
         // Machine
         result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? Theme.cToDisplay(DE1Device.temperature).toFixed(1) : "—")
-        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0" : "—")
+        // "Off" when the heater is off — same rule as SteamTemperatureItem, and for
+        // the same reason: the measured boiler temperature cannot tell a hot
+        // boiler from one that is cooling because the heater was switched off.
+        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" && DE1Device !== null
+            ? (root._steamHeaterOff
+                ? SteamLabels.offReadout
+                : Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0")
+            : "—")
         result = result.replace(/%PRESSURE%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.pressure.toFixed(1) : "—")
         result = result.replace(/%FLOW%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.flow.toFixed(1) : "—")
         result = result.replace(/%WATER%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.waterLevel.toFixed(0) : "—")

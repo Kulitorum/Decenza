@@ -551,7 +551,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"steamTemperature", QJsonObject{{"type", "number"}, {"description", "Steam temperature in Celsius"}}},
                 {"steamTimeout", QJsonObject{{"type", "integer"}, {"description", "Steam timeout in seconds"}}},
                 {"steamFlowMlPerSec", QJsonObject{{"type", "number"}, {"description", "Steam flow rate in mL/s"}}},
-                {"keepSteamHeaterOn", QJsonObject{{"type", "boolean"}, {"description", "Keep steam heater on between operations"}}},
+                {"keepWarmWhenIdle", QJsonObject{{"type", "boolean"}, {"description", "Keep the steam heater warm while the machine is idle"}}},
+                {"letRecipeDecide", QJsonObject{{"type", "boolean"}, {"description", "Let the active recipe's pitcher decide the steam heater"}}},
                 {"steamAutoFlushSeconds", QJsonObject{{"type", "integer"}, {"description", "Auto-flush after steam (0 to disable)"}}},
                 {"steamTwoTapStop", QJsonObject{{"type", "boolean"}, {"description", "Require two taps to stop steaming"}}},
                 // Hot water
@@ -835,10 +836,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 addSetter([settings, v]() { settings->brew()->setSteamFlow(v); });
                 updated << "steamFlowMlPerSec";
             }
-            if (args.contains("keepSteamHeaterOn")) {
-                bool v = args["keepSteamHeaterOn"].toBool();
-                addSetter([settings, v]() { settings->brew()->setKeepSteamHeaterOn(v); });
-                updated << "keepSteamHeaterOn";
+            if (args.contains("keepWarmWhenIdle")) {
+                bool v = args["keepWarmWhenIdle"].toBool();
+                addSetter([settings, v]() { settings->brew()->setKeepWarmWhenIdle(v); });
+                updated << "keepWarmWhenIdle";
+            }
+            if (args.contains("letRecipeDecide")) {
+                bool v = args["letRecipeDecide"].toBool();
+                addSetter([settings, v]() { settings->brew()->setLetRecipeDecide(v); });
+                updated << "letRecipeDecide";
             }
             if (args.contains("steamAutoFlushSeconds")) {
                 int v = args["steamAutoFlushSeconds"].toInt();
@@ -1496,7 +1502,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // All changes were synchronous (e.g., profile temperature/weight)
                 respond(result);
             } else {
-                // Execute all setters on the main thread, then respond
+                // Execute all setters on the main thread, then respond. Steam
+                // settings need no push from here: MainController watches the
+                // SettingsBrew signals and re-sends the resolved target itself,
+                // so every writer — QML, MCP, web, a backup import — reaches the
+                // machine without each one remembering to.
                 QMetaObject::invokeMethod(qApp, [setters, respond, result]() {
                     for (const auto& setter : setters) setter();
                     respond(result);

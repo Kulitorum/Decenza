@@ -421,6 +421,26 @@ public:
     // marker and retry next launch.
     void requestLegacyTempOffsetConversion(const QHash<QString, double>& profileTempsByTitle);
 
+    // steam-heater-policy migration: recipes that named one of the user-created
+    // "Off" pitcher presets now removed from settings. Their steam block keeps
+    // hasMilk and milkWeightG but trades the pitcher fields for the
+    // {"heaterOff": true} marker, so the recipe still says "keep the boiler
+    // cold" instead of silently naming a pitcher that no longer exists — which
+    // the activation path would resurrect as a real preset, putting a second
+    // "Heater off" row in the picker.
+    //
+    // Matching is by name, case-insensitively, against `removedNames`. Driven by
+    // SettingsBrew::migratedHeaterOffNames(), so it runs only on the launch
+    // that migrated and is a no-op afterwards. Emits recipesChanged() when at
+    // least one row was rewritten.
+    static bool rewriteHeaterOffPitcherRecipesStatic(QSqlDatabase& db,
+                                                     const QStringList& removedNames,
+                                                     int* outRewrittenCount = nullptr);
+    // `onDone(true)` only when the pass completed; the caller uses it to decide
+    // whether the migration's name list may be discarded.
+    void requestHeaterOffPitcherRewrite(const QStringList& removedNames,
+                                        std::function<void(bool)> onDone = {});
+
     // Roll-on-finish (synchronous core): relink the finished bag's
     // non-archived recipes to the newest open bag of the same bean identity,
     // skipping dup-guard collisions. Returns the moved recipe ids (empty when

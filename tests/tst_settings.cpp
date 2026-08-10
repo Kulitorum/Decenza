@@ -108,6 +108,10 @@ private:
     QString m_origTemperatureUnit;
     QByteArray m_origVesselPresets;
     QByteArray m_origPitcherPresets;
+    bool m_origHeaterOffMigrated = false;
+    bool m_origSteamRateMigrated = false;
+    int m_origSelectedPitcher = 0;
+    int m_origStandingPitcher = SettingsBrew::NoStandingPitcher;
     bool m_origMilkAutoCapture;
     double m_origSteamSecPerGram;
     int m_origActiveRecipeId;
@@ -257,7 +261,12 @@ private slots:
         m_origSteamSecPerGram = m_settings.brew()->steamSecondsPerGram();
         { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
-          m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray(); }
+          m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray();
+          m_origHeaterOffMigrated = raw.value("steam/heaterOffPresetsMigrated", false).toBool();
+          m_origSteamRateMigrated = raw.value("steam/steamRateMigrated", false).toBool();
+          m_origSelectedPitcher = raw.value("steam/selectedPitcher", 0).toInt();
+          m_origStandingPitcher = raw.value("steam/standingPitcher",
+                                            SettingsBrew::NoStandingPitcher).toInt(); }
         m_origActiveRecipeId = m_settings.dye()->activeRecipeId();
         m_origAutoLoadRecipeId = m_settings.dye()->autoLoadRecipeId();
         // Layout: saved/restored here for the same reason as the font sizes
@@ -293,6 +302,18 @@ private slots:
         { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("water/vesselPresets", m_origVesselPresets);
           raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
+          // The "Off" pitcher migration's inputs. Its sentinel and the selection
+          // it remaps are BOTH restored: a test that leaves the sentinel cleared
+          // makes the next Settings construction re-run a migration nobody asked
+          // for, and the failure then lands in an unrelated test.
+          raw.setValue("steam/heaterOffPresetsMigrated", m_origHeaterOffMigrated);
+          raw.setValue("steam/steamRateMigrated", m_origSteamRateMigrated);
+          raw.setValue("steam/selectedPitcher", m_origSelectedPitcher);
+          // The parked recipe-override pitcher. A test that leaves this set makes
+          // the NEXT test's unwind restore a pitcher it never parked, and the
+          // failure lands somewhere unrelated.
+          raw.setValue("steam/standingPitcher", m_origStandingPitcher);
+          raw.remove("steam/heaterOffRemovedNames");
           raw.sync(); }
         // Recipe state (add-recipes).
         m_settings.dye()->setActiveRecipeId(m_origActiveRecipeId);
@@ -901,7 +922,7 @@ private slots:
     void steamPitcherPresetTemperatureRoundTrip() {
         // Per-pitcher steam temperature must survive an export -> import cycle.
         m_settings.brew()->addSteamPitcherPreset("Latte", 45, 150, 135.0);
-        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        const int idx = m_settings.brew()->steamPitcherCount() - 1;
 
         QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
 
@@ -920,7 +941,7 @@ private slots:
         // Weight-timed steaming OFF: scaledSteamTime() always yields 0, so the
         // effective duration must be the preset's fixed duration, not 0.
         m_settings.brew()->addSteamPitcherPreset("Latte", 45, 150, 135.0);
-        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        const int idx = m_settings.brew()->steamPitcherCount() - 1;
         m_settings.brew()->setSteamPitcherCalibration(idx, 300.0);
         // Disable AFTER calibrating — setSteamPitcherCalibration re-enables the toggle
         // as its explicit opt-in side effect, which would put this test back on the
@@ -936,7 +957,7 @@ private slots:
         // must cap at 120, not program a multi-minute steam. Scaling is now the
         // GLOBAL seconds-per-gram rate, not per-pitcher reference milk.
         m_settings.brew()->addSteamPitcherPreset("Jug", 30, 150, 135.0);
-        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        const int idx = m_settings.brew()->steamPitcherCount() - 1;
         m_settings.brew()->calibrateSteamFromReference(100.0, 30.0);  // 0.30 s/g; also enables the toggle
 
         // Unclamped: 0.30 * 600 = 180 → clamped to 120.
@@ -950,7 +971,7 @@ private slots:
         // failed import). The helper must warn — loud and greppable — and still
         // return 0 rather than inventing a time.
         m_settings.brew()->addSteamPitcherPreset("Corrupt", 0, 150, 135.0);
-        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        const int idx = m_settings.brew()->steamPitcherCount() - 1;
 
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(QStringLiteral("no positive duration")));
@@ -961,7 +982,7 @@ private slots:
         // Weight-timed steaming ON + a global rate + positive milk: the scaled
         // value wins over the base duration (the PR's core new behavior).
         m_settings.brew()->addSteamPitcherPreset("Latte", 30, 150, 135.0);
-        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        const int idx = m_settings.brew()->steamPitcherCount() - 1;
         m_settings.brew()->calibrateSteamFromReference(200.0, 30.0);  // 0.15 s/g; also enables the toggle
 
         // secPerGram * milk = 0.15 * 400 = 60 (pitcher-agnostic; base 30s is ignored).
@@ -970,8 +991,9 @@ private slots:
 
     void effectiveSteamDurationSecZeroForDisabledPreset() {
         m_settings.brew()->setMilkAutoCaptureEnabled(true);
-        m_settings.brew()->addSteamPitcherPresetDisabled("Off");
-        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        // The built-in "Heater off" entry, addressed by its sentinel. Users can
+        // no longer create heater-off presets, so this is the only one there is.
+        const int idx = SettingsBrew::HeaterOffPitcherIndex;
 
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 300.0), 0);
     }
@@ -990,7 +1012,7 @@ private slots:
         // captured): must yield the base duration — not 0, and not the 5s clamp floor.
         // The SteamItem popup tap relies on exactly this cell when tapped scale-less.
         m_settings.brew()->addSteamPitcherPreset("Latte", 45, 150, 135.0);
-        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        const int idx = m_settings.brew()->steamPitcherCount() - 1;
         m_settings.brew()->setSteamPitcherCalibration(idx, 300.0);  // also enables the toggle
 
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 0.0), 45);
@@ -1004,7 +1026,7 @@ private slots:
         m_settings.brew()->setMilkAutoCaptureEnabled(true);
         m_settings.brew()->setSteamSecondsPerGram(0.0);
         m_settings.brew()->addSteamPitcherPreset("Cortado", 20, 150, 135.0);
-        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        const int idx = m_settings.brew()->steamPitcherCount() - 1;
 
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 300.0), 20);
     }
@@ -1089,6 +1111,384 @@ private slots:
         // cleanup() restores steam/pitcherPresets + steamSecondsPerGram.
     }
 
+    // applySteamPitcherValues is THE definition of "apply this pitcher": which
+    // values get written, what the built-in entry skips, and what a stale index
+    // does. It lives on SettingsBrew rather than MainController so it can be
+    // asserted here, without a controller — the MCP preset test links none and
+    // would otherwise be asserting a stub.
+    void applyingAPitcherWritesItsValuesToTheLiveSteamSettings() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("ApplyMe"), 42, 120, 133.0);
+        const int idx = brew->steamPitcherCount() - 1;
+
+        QCOMPARE(brew->applySteamPitcherValues(idx, 0.0), SettingsBrew::PitcherApply::Applied);
+        QCOMPARE(brew->steamTemperature(), 133.0);
+        QCOMPARE(brew->steamTimeout(), 42);
+        QCOMPARE(brew->steamFlow(), 120);
+    }
+
+    // The built-in carries no values of its own, so applying it must write
+    // NOTHING — the live settings keep the last real pitcher's numbers, which is
+    // what a steam session falls back to when the heater is switched on anyway
+    // by a GHC press. Writing zeros here would silently destroy that fallback.
+    void applyingTheBuiltInHeaterOffWritesNoValues() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Before"), 37, 110, 141.0);
+        brew->applySteamPitcherValues(brew->steamPitcherCount() - 1, 0.0);
+
+        QCOMPARE(brew->applySteamPitcherValues(SettingsBrew::HeaterOffPitcherIndex, 0.0),
+                 SettingsBrew::PitcherApply::HeaterOff);
+        QCOMPARE(brew->steamTemperature(), 141.0);
+        QCOMPARE(brew->steamTimeout(), 37);
+        QCOMPARE(brew->steamFlow(), 110);
+    }
+
+    void applyingAStaleIndexWritesNothingAndSaysSo() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Live"), 31, 105, 139.0);
+        brew->applySteamPitcherValues(brew->steamPitcherCount() - 1, 0.0);
+
+        QCOMPARE(brew->applySteamPitcherValues(9999, 0.0), SettingsBrew::PitcherApply::Missing);
+        QCOMPARE(brew->steamTemperature(), 139.0);
+        QCOMPARE(brew->steamTimeout(), 31);
+    }
+
+    // --- the built-in is addressed by SENTINEL, never by position ------------
+    //
+    // The pill rows hand this function the built-in's DISPLAY SLOT. Storing that
+    // raw is what shipped the original bug: it stops meaning "Heater off" the
+    // moment the preset count moves.
+
+    void selectingTheBuiltInByDisplaySlotStoresTheSentinel() {
+        auto* brew = m_settings.brew();
+        brew->setSelectedSteamCup(brew->steamPitcherCount());     // what a pill tap passes
+        QCOMPARE(brew->selectedSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
+
+        // Add a pitcher: the display slot moved, the stored selection did not,
+        // and it still resolves to the built-in.
+        brew->addSteamPitcherPreset(QStringLiteral("Later"), 30, 150, 150.0);
+        QCOMPARE(brew->selectedSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
+        QVERIFY(brew->getSteamPitcherPreset(brew->selectedSteamPitcher())
+                    .value("disabled").toBool());
+    }
+
+    // --- removing a preset must SHIFT what points past it --------------------
+
+    void removingAPresetShiftsTheSelectionRatherThanClampingIt() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("R1"), 31, 150, 150.0);
+        brew->addSteamPitcherPreset(QStringLiteral("R2"), 32, 150, 151.0);
+        const int r2 = brew->steamPitcherCount() - 1;
+        const int r1 = r2 - 1;
+        brew->setSelectedSteamCup(r2);
+
+        brew->removeSteamPitcherPreset(r1);       // delete the one BELOW the selection
+        // Clamping (the old behaviour) left the index alone unless out of range,
+        // so the user silently ended up on a different pitcher.
+        QCOMPARE(brew->getSteamPitcherPreset(brew->selectedSteamPitcher())
+                     .value("name").toString(), QStringLiteral("R2"));
+    }
+
+    void removingTheSelectedPresetFallsBackToHeaterOff() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Doomed"), 33, 150, 150.0);
+        const int doomed = brew->steamPitcherCount() - 1;
+        brew->setSelectedSteamCup(doomed);
+
+        brew->removeSteamPitcherPreset(doomed);
+        // Cold is the safe landing when the thing you selected is gone; the old
+        // clamp picked whatever pitcher happened to be last and warmed it.
+        QCOMPARE(brew->selectedSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
+    }
+
+    void removingAPresetShiftsTheParkedStandingPitcherToo() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("S1"), 34, 150, 150.0);
+        brew->addSteamPitcherPreset(QStringLiteral("S2"), 35, 150, 151.0);
+        const int s2 = brew->steamPitcherCount() - 1;
+        const int s1 = s2 - 1;
+        brew->setStandingSteamPitcher(s2);        // as a recipe override would park it
+
+        brew->removeSteamPitcherPreset(s1);
+        QCOMPARE(brew->getSteamPitcherPreset(brew->standingSteamPitcher())
+                     .value("name").toString(), QStringLiteral("S2"));
+    }
+
+    void removingTheParkedStandingPitcherLandsItOnHeaterOff() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Parked"), 36, 150, 150.0);
+        const int parked = brew->steamPitcherCount() - 1;
+        brew->setStandingSteamPitcher(parked);
+
+        brew->removeSteamPitcherPreset(parked);
+        QCOMPARE(brew->standingSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
+    }
+
+    // Reordering needs the same upkeep as removal. The live selection has had it
+    // for years; the parked one had neither until the review asked why.
+    void reorderingPresetsMovesTheParkedStandingPitcherWithThem() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("M1"), 37, 150, 150.0);
+        brew->addSteamPitcherPreset(QStringLiteral("M2"), 38, 150, 151.0);
+        const int m2 = brew->steamPitcherCount() - 1;
+        const int m1 = m2 - 1;
+        brew->setStandingSteamPitcher(m2);
+
+        brew->moveSteamPitcherPreset(m2, m1);     // drag M2 above M1
+        QCOMPARE(brew->getSteamPitcherPreset(brew->standingSteamPitcher())
+                     .value("name").toString(), QStringLiteral("M2"));
+    }
+
+    // --- a recipe's pitcher is an OVERRIDE, not an overwrite -----------------
+    //
+    // Activating a latte used to write the standing selection outright, so one
+    // milk drink left a user whose resting state was "Heater off" with a warm
+    // boiler for the rest of the day. The park/unwind decision lives on
+    // SettingsBrew precisely so it can be asserted without a controller.
+
+    void aRecipePitcherParksTheStandingSelectionAndGivesItBack() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Standing"), 30, 150, 150.0);
+        brew->addSteamPitcherPreset(QStringLiteral("RecipeOwn"), 45, 120, 135.0);
+        const int recipePitcher = brew->steamPitcherCount() - 1;
+        const int standing = SettingsBrew::HeaterOffPitcherIndex;
+        brew->setSelectedSteamCup(standing);
+
+        // Activate: the recipe's pitcher is what to select, and the user's own
+        // selection is parked.
+        QCOMPARE(brew->resolveRecipePitcherOverride(recipePitcher), recipePitcher);
+        QCOMPARE(brew->standingSteamPitcher(), standing);
+        brew->setSelectedSteamCup(recipePitcher);
+
+        // Deactivate: the parked selection comes back, and the park is cleared.
+        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher), standing);
+        QCOMPARE(brew->standingSteamPitcher(), SettingsBrew::NoStandingPitcher);
+    }
+
+    // A recipe carrying the heater-off marker selects the BUILT-IN, and the
+    // preset list does not grow. The marker is a reference to the one synthetic
+    // entry, so materialising it as a stored preset — the obvious way to make
+    // "the recipe's pitcher" uniform — would put a second unremovable "Heater
+    // off" row in every picker, one per recipe activated.
+    void aMarkerRecipeSelectsTheBuiltInWithoutCreatingAPreset() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Mine"), 30, 150, 150.0);
+        const int mine = brew->steamPitcherCount() - 1;
+        brew->setSelectedSteamCup(mine);
+        const int presetsBefore = brew->steamPitcherCount();
+
+        // Activation passes the sentinel, as SteamHeaterPolicy's marker path does.
+        const int select = brew->resolveRecipePitcherOverride(SettingsBrew::HeaterOffPitcherIndex);
+        QCOMPARE(select, int(SettingsBrew::HeaterOffPitcherIndex));
+        brew->setSelectedSteamCup(select);
+
+        QCOMPARE(brew->steamPitcherCount(), presetsBefore);
+        QVERIFY(brew->getSteamPitcherPreset(brew->selectedSteamPitcher())
+                    .value("builtin").toBool());
+        // ...and the user's own pitcher is parked, so deactivating returns it.
+        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher), mine);
+    }
+
+    // Recipe-to-recipe switching must not re-park. Without the guard the second
+    // activation would store the FIRST recipe's pitcher as if the user had
+    // chosen it, and deactivating would restore a drink, not a setting.
+    void switchingRecipesDoesNotOverwriteTheParkedSelection() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("A"), 30, 150, 150.0);
+        brew->addSteamPitcherPreset(QStringLiteral("B"), 40, 150, 152.0);
+        const int b = brew->steamPitcherCount() - 1;
+        const int a = b - 1;
+        brew->setSelectedSteamCup(SettingsBrew::HeaterOffPitcherIndex);
+
+        brew->resolveRecipePitcherOverride(a);
+        brew->setSelectedSteamCup(a);
+        brew->resolveRecipePitcherOverride(b);       // second recipe
+        brew->setSelectedSteamCup(b);
+
+        QCOMPARE(brew->standingSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
+        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher),
+                 int(SettingsBrew::HeaterOffPitcherIndex));
+    }
+
+    // Deactivating with no override in flight must do nothing at all — not
+    // select index 0, and not select the sentinel.
+    void unwindingWithNoOverrideIsANoOp() {
+        auto* brew = m_settings.brew();
+        QCOMPARE(brew->standingSteamPitcher(), int(SettingsBrew::NoStandingPitcher));
+        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher),
+                 int(SettingsBrew::NoStandingPitcher));
+    }
+
+    // --- the "Off" pitcher migration (steam-heater-policy) -------------------
+    //
+    // A user's own Off presets are removed in favour of the one built-in entry.
+    // The selection remap is the part that matters: a selection left pointing at
+    // a stale index resolves to a REAL pitcher, so getting this wrong silently
+    // turns the steam boiler on at upgrade for exactly the users who had chosen
+    // to keep it off.
+
+    // Seed the pre-migration state: `presets` as the stored array, `selected` as
+    // the stored selection, sentinel cleared so the ctor migration runs.
+    void seedLegacyOffPitchers(const QJsonArray& presets, int selected) {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.setValue("steam/pitcherPresets", QJsonDocument(presets).toJson());
+        raw.setValue("steam/selectedPitcher", selected);
+        raw.setValue("steam/heaterOffPresetsMigrated", false);
+        raw.remove("steam/heaterOffRemovedNames");
+        raw.sync();
+    }
+
+    static QJsonArray legacyPresetsWithOff() {
+        QJsonArray arr;
+        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150; arr.append(p); }
+        { QJsonObject p; p["name"] = "Off";   p["disabled"] = true;                arr.append(p); }
+        { QJsonObject p; p["name"] = "Large"; p["duration"] = 60; p["flow"] = 150; arr.append(p); }
+        return arr;
+    }
+
+    void heaterOffMigrationRemovesUserOffPresets() {
+        seedLegacyOffPitchers(legacyPresetsWithOff(), 0);
+        Settings fresh;
+        // Two real pitchers left; the built-in is synthetic and not one of them.
+        QCOMPARE(fresh.brew()->steamPitcherCount(), 2);
+        const QVariantList presets = fresh.brew()->steamPitcherPresets();
+        QCOMPARE(presets.size(), 3);   // + the built-in, appended last
+        QCOMPARE(presets.at(0).toMap().value("name").toString(), QStringLiteral("Small"));
+        QCOMPARE(presets.at(1).toMap().value("name").toString(), QStringLiteral("Large"));
+        QVERIFY(presets.at(2).toMap().value("builtin").toBool());
+    }
+
+    void heaterOffMigrationLandsARemovedSelectionOnTheBuiltIn() {
+        // THE case: the user was sitting ON their Off preset. Without the remap
+        // the stored index 1 now names "Large" and the boiler comes on.
+        seedLegacyOffPitchers(legacyPresetsWithOff(), 1);
+        Settings fresh;
+        QCOMPARE(fresh.brew()->selectedSteamPitcher(), SettingsBrew::HeaterOffPitcherIndex);
+        QVERIFY(fresh.brew()->getSteamPitcherPreset(fresh.brew()->selectedSteamPitcher())
+                    .value("disabled").toBool());
+    }
+
+    void heaterOffMigrationShiftsASelectionAboveARemovedPreset() {
+        // "Large" was index 2 with one Off preset below it; it is index 1 now.
+        seedLegacyOffPitchers(legacyPresetsWithOff(), 2);
+        Settings fresh;
+        QCOMPARE(fresh.brew()->selectedSteamPitcher(), 1);
+        QCOMPARE(fresh.brew()->getSteamPitcherPreset(1).value("name").toString(),
+                 QStringLiteral("Large"));
+    }
+
+    void heaterOffMigrationLeavesASelectionBelowARemovedPresetAlone() {
+        seedLegacyOffPitchers(legacyPresetsWithOff(), 0);
+        Settings fresh;
+        QCOMPARE(fresh.brew()->selectedSteamPitcher(), 0);
+        QCOMPARE(fresh.brew()->getSteamPitcherPreset(0).value("name").toString(),
+                 QStringLiteral("Small"));
+    }
+
+    // The removed names are handed to the recipe rewrite exactly once — reading
+    // them clears them, so a second launch does not re-run a pass over every
+    // recipe, and a launch with nothing to migrate hands over nothing.
+    void heaterOffMigrationKeepsTheRemovedNamesUntilTheRewriteSucceeds() {
+        seedLegacyOffPitchers(legacyPresetsWithOff(), 0);
+        Settings fresh;
+        QCOMPARE(fresh.brew()->migratedHeaterOffNames(), QStringList{QStringLiteral("Off")});
+        // Reading does NOT clear: a failed rewrite must be able to retry.
+        QCOMPARE(fresh.brew()->migratedHeaterOffNames(), QStringList{QStringLiteral("Off")});
+        fresh.brew()->clearMigratedHeaterOffNames();
+        QVERIFY(fresh.brew()->migratedHeaterOffNames().isEmpty());
+    }
+
+    void heaterOffMigrationIsIdempotent() {
+        seedLegacyOffPitchers(legacyPresetsWithOff(), 1);
+        { Settings first; QCOMPARE(first.brew()->steamPitcherCount(), 2); }
+        // Second launch: the sentinel is set, so nothing is removed or remapped
+        // a second time and the selection stays on the built-in.
+        Settings second;
+        QCOMPARE(second.brew()->steamPitcherCount(), 2);
+        QCOMPARE(second.brew()->selectedSteamPitcher(), SettingsBrew::HeaterOffPitcherIndex);
+    }
+
+    // An install with no Off presets must not have its selection touched at all.
+    void heaterOffMigrationLeavesAnUnaffectedInstallAlone() {
+        QJsonArray arr;
+        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150; arr.append(p); }
+        { QJsonObject p; p["name"] = "Large"; p["duration"] = 60; p["flow"] = 150; arr.append(p); }
+        seedLegacyOffPitchers(arr, 1);
+        Settings fresh;
+        QCOMPARE(fresh.brew()->steamPitcherCount(), 2);
+        QCOMPARE(fresh.brew()->selectedSteamPitcher(), 1);
+        QVERIFY(fresh.brew()->migratedHeaterOffNames().isEmpty());
+    }
+
+    // The DISPLAY position, and the signal that keeps it live. Every pill row,
+    // the compact popup's announcement and the MCP `list` response address rows
+    // by position, while the built-in is stored positionlessly — so this is the
+    // read side of that normalisation, and leaving it out is what left "Heater
+    // off" highlighted nowhere. It rides on the preset COUNT as well as the
+    // selection, which is why adding a pitcher has to re-notify: without that
+    // the highlight stays on the row the built-in used to occupy.
+    void theBuiltInsDisplayPositionFollowsThePresetCount() {
+        SettingsBrew* brew = m_settings.brew();
+        brew->setSelectedSteamCup(brew->steamPitcherCount());   // tap "Heater off"
+        QCOMPARE(brew->selectedSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
+
+        const int rowBefore = brew->selectedSteamPitcherDisplayIndex();
+        QCOMPARE(rowBefore, brew->steamPitcherCount());
+        QVERIFY(brew->steamPitcherPresets().at(rowBefore).toMap().value("builtin").toBool());
+
+        QSignalSpy spy(brew, &SettingsBrew::selectedSteamPitcherDisplayIndexChanged);
+        brew->addSteamPitcherPreset(QStringLiteral("Extra"), 30, 150, 150.0);
+        QVERIFY(spy.count() > 0);        // the count moved the row: readers must hear it
+        QCOMPARE(brew->selectedSteamPitcherDisplayIndex(), rowBefore + 1);
+        QVERIFY(brew->steamPitcherPresets()
+                    .at(brew->selectedSteamPitcherDisplayIndex()).toMap().value("builtin").toBool());
+    }
+
+    // An unreadable preset blob must DEFER the migration, not consume it. The
+    // migration examines nothing when the array will not parse, so stamping the
+    // one-time flag anyway would mean a user whose file was momentarily
+    // unreadable never gets migrated at all — their own "Off" preset survives
+    // forever beside the built-in, and their selection is never remapped.
+    void heaterOffMigrationDefersWhenThePresetsCannotBeRead() {
+        {
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.setValue("steam/pitcherPresets", QByteArray("not json"));
+            raw.setValue("steam/heaterOffPresetsMigrated", false);
+            // Close the steam-rate migration gate explicitly: it reads the same
+            // unreadable array and would emit a second, incidental parse warning,
+            // making the expected-message set depend on store history.
+            raw.setValue("steam/steamRateMigrated", true);
+            raw.sync();
+        }
+        // Both halves of the deferral: the reader reports it, the migration says
+        // what it did about it.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("could not parse"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("deferring the Heater off migration"));
+        Settings fresh;
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        QVERIFY(!raw.value("steam/heaterOffPresetsMigrated").toBool());
+    }
+
+    // The built-in's label is reserved even though it has no stored name to
+    // collide with — two rows reading "Heater off" would be indistinguishable.
+    void theBuiltInHeaterOffNameIsReserved() {
+        QVERIFY(m_settings.brew()->steamPitcherNameTaken(QStringLiteral("Heater off")));
+        QVERIFY(m_settings.brew()->steamPitcherNameTaken(QStringLiteral("  heater OFF ")));
+        QVERIFY(!m_settings.brew()->steamPitcherNameTaken(QStringLiteral("Heater offside")));
+    }
+
+    // The standing selection is the other half of the recipe override: parked on
+    // activation, restored on deactivation. Unset must be distinguishable from
+    // "the user has Heater off selected", which is why the sentinel is -2.
+    void theStandingPitcherStartsUnsetAndRoundTrips() {
+        QCOMPARE(m_settings.brew()->standingSteamPitcher(), SettingsBrew::NoStandingPitcher);
+        m_settings.brew()->setStandingSteamPitcher(SettingsBrew::HeaterOffPitcherIndex);
+        QCOMPARE(m_settings.brew()->standingSteamPitcher(), SettingsBrew::HeaterOffPitcherIndex);
+        QVERIFY(m_settings.brew()->standingSteamPitcher() != SettingsBrew::NoStandingPitcher);
+        m_settings.brew()->setStandingSteamPitcher(SettingsBrew::NoStandingPitcher);
+        QCOMPARE(m_settings.brew()->standingSteamPitcher(), SettingsBrew::NoStandingPitcher);
+    }
+
     void steamRateMigrationSentinelPreventsReseed() {
         // A calibrated legacy preset is present, but the sentinel says migration already
         // ran and the user deliberately left the rate at 0 (via the ± control). The ctor
@@ -1111,6 +1511,74 @@ private slots:
         { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("steam/steamRateMigrated", origMigrated);
           raw.sync(); }
+    }
+
+    // A backup made BEFORE the built-in entry existed carries user-created
+    // `disabled` presets. The import drops them, so the survivors renumber
+    // underneath the stored selection — the same hazard the ctor migration
+    // handles, which the import path originally met with a bare range check.
+    void importRemapsASelectionThatPointedAtADroppedOffPreset() {
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+        QJsonObject steam = bundle["steam"].toObject();
+        QJsonArray presets;
+        { QJsonObject p; p["name"] = "Off"; p["disabled"] = true;                    presets.append(p); }
+        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150;   presets.append(p); }
+        { QJsonObject p; p["name"] = "Large"; p["duration"] = 60; p["flow"] = 150;   presets.append(p); }
+        steam["pitcherPresets"] = presets;
+        steam["selectedPitcher"] = 0;          // the user was sitting ON the Off preset
+        bundle["steam"] = steam;
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+
+        // A bare range check passed index 0 and landed the user on "Small",
+        // heater ON, for a backup whose whole intent was to keep it off.
+        QCOMPARE(m_settings.brew()->selectedSteamPitcher(),
+                 int(SettingsBrew::HeaterOffPitcherIndex));
+    }
+
+    void importShiftsASelectionThatSatAboveADroppedOffPreset() {
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+        QJsonObject steam = bundle["steam"].toObject();
+        QJsonArray presets;
+        { QJsonObject p; p["name"] = "Off"; p["disabled"] = true;                    presets.append(p); }
+        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150;   presets.append(p); }
+        { QJsonObject p; p["name"] = "Large"; p["duration"] = 60; p["flow"] = 150;   presets.append(p); }
+        steam["pitcherPresets"] = presets;
+        steam["selectedPitcher"] = 2;          // "Large", with one dropped row below it
+        bundle["steam"] = steam;
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+
+        QCOMPARE(m_settings.brew()->getSteamPitcherPreset(
+                     m_settings.brew()->selectedSteamPitcher()).value("name").toString(),
+                 QStringLiteral("Large"));
+    }
+
+    // The failure RETURN, not the remap. Every other importFromJson assertion in
+    // this file is QVERIFY(import...) — the function returned an unconditional
+    // true for its whole life, so its callers' `if (!import…)` branches were dead
+    // code and a restore that dropped the steam selection still reported success.
+    // Reached by a selection with no presets beside it: nothing to remap against,
+    // so the raw index meets the range check.
+    void importReportsFailureWhenTheSelectionCannotBePlaced() {
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+        QJsonObject steam = bundle["steam"].toObject();
+        steam.remove("pitcherPresets");        // no array to renumber against
+        steam["selectedPitcher"] = 50;         // addresses no pitcher on any install
+        bundle["steam"] = steam;
+
+        const int before = m_settings.brew()->selectedSteamPitcher();
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("imported selectedPitcher 50 out of range")));
+        QVERIFY(!SettingsSerializer::importFromJson(&m_settings, bundle));
+        // Reported, and the current selection left alone rather than clamped.
+        QCOMPARE(m_settings.brew()->selectedSteamPitcher(), before);
     }
 
     void steamRateImportReseedsFromLegacyBackup() {

@@ -18,9 +18,16 @@ void MainController::applyHotWaterSettings() {}
 void MainController::turnOffSteamHeater() {}
 
 // Implemented in src/mcp/mcptools_presets.cpp.
-class MachineState;
-void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController,
-                          MachineState* machineState);
+void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController);
+
+// Selecting a pitcher is ONE function shared with the idle pill row, the Steam
+// widget popup, the Steam page and recipe activation; the MCP tool calls it
+// rather than re-implementing its tail, which is what let the two drift. This
+// file links no MainController, so the stub makes select a no-op here — and the
+// rule it dispatches (which values a pitcher writes, and what the built-in
+// entry skips) is asserted directly against SettingsBrew in tst_settings, where
+// it lives and where no stub can hollow it out.
+void MainController::selectSteamPitcher(int, double) {}
 
 // Exercises the steam-pitcher and hot-water-vessel MCP tools: unit conversions
 // (steam flow ×100, water flow ×10), partial-update merge (editing one field must
@@ -58,7 +65,7 @@ private slots:
     void initTestCase() {
         // No MachineState in the harness: applySteamPitcher's milk read is
         // nullptr-guarded, so selects resolve to the preset's base duration.
-        registerPresetsTools(&m_registry, &m_settings, nullptr, nullptr);
+        registerPresetsTools(&m_registry, &m_settings, nullptr);
     }
 
     void init() { QTest::failOnWarning();
@@ -111,34 +118,86 @@ private slots:
         QCOMPARE(p["name"].toString(), QString("Edit"));
     }
 
-    void steamSelectAppliesTemperatureToActive() {
+    // What SELECT still owns here is the access boundary and the index it
+    // reports. Applying the pitcher's values is delegated to the shared
+    // MainController::selectSteamPitcher — stubbed in this file — and the rule
+    // itself is asserted against SettingsBrew in tst_settings. Asserting it
+    // through this tool would only re-test the stub.
+    void steamSelectIsControlLevelButEditingIsNot() {
         const int a = call("steam_pitcher", {{"action", "add"}, {"name", "A"}, {"temperatureC", 130.0}})["selectedIndex"].toInt();
-        call("steam_pitcher", {{"action", "add"}, {"name", "B"}, {"temperatureC", 150.0}});  // now selected, active = 150
-        QCOMPARE(m_settings.brew()->steamTemperature(), 150.0);
+        call("steam_pitcher", {{"action", "add"}, {"name", "B"}, {"temperatureC", 150.0}});
 
         QVERIFY(call("steam_pitcher", {{"action", "select"}, {"index", a}}, /*control*/ 1)["success"].toBool());
-        // The other half of the boundary: a Control-level client may switch pitchers
-        // but must not rewrite them. Declaring add/update/delete as "control" would
-        // let a network client edit the user's presets, and every other assertion
-        // here would stay green.
+        // A Control-level client may switch pitchers but must not rewrite them.
+        // Declaring add/update/delete as "control" would let a network client
+        // edit the user's presets, and every other assertion here would stay green.
         QCOMPARE(call("steam_pitcher", {{"action", "delete"}, {"index", a}}, /*control*/ 1)["callError"].toString(),
                  QString("Access level insufficient"));
-        QCOMPARE(m_settings.brew()->steamTemperature(), 130.0);  // apply-on-select
+    }
+
+    // The built-in "Heater off" entry is listed one past the last real preset
+    // and must be SELECTABLE at that position — a surface that lists a row and
+    // then refuses it contradicts itself. It is stored as the sentinel, never as
+    // a position, so adding or deleting a pitcher cannot invalidate it.
+    void steamSelectAcceptsTheBuiltInHeaterOffEntry() {
+        const int builtIn = m_settings.brew()->steamPitcherCount();
+        const QJsonObject r = call("steam_pitcher", {{"action", "select"}, {"index", builtIn}}, /*control*/ 1);
+        QVERIFY(r["success"].toBool());
+        // The response reports a POSITION in the array `list` returns, not the
+        // stored value: echoing the sentinel answered a select of row N with -1,
+        // which addresses no row and contradicts the request it just satisfied.
+        QCOMPARE(r["selectedIndex"].toInt(), builtIn);
+        QVERIFY(r["heaterOffSelected"].toBool());
+        // Stored positionlessly all the same, so adding or deleting a pitcher
+        // cannot turn this selection into a real one.
+        QCOMPARE(m_settings.brew()->selectedSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
+
+        // `list` must answer in the SAME index space, or a client that highlights
+        // presets[selectedIndex] shows nothing selected for a valid selection.
+        const QJsonObject listed = call("steam_pitcher", {{"action", "list"}});
+        QCOMPARE(listed["selectedIndex"].toInt(), builtIn);
+        QVERIFY(listed["heaterOffSelected"].toBool());
+        QVERIFY(listed["presets"].toArray().at(builtIn).toObject()["disabled"].toBool());
+
+        // Editing it is refused with advice that can be followed. The range check
+        // used to run against the list INCLUDING this synthetic row, so it fell
+        // through to "delete and re-add it" — `delete` refuses it and `add`
+        // refuses disabled, so there was no way to comply.
+        const QString editError = call("steam_pitcher",
+            {{"action", "update"}, {"index", builtIn}, {"temperatureC", 140.0}})["error"].toString();
+        QVERIFY(editError.contains(QStringLiteral("cannot be edited")));
+        QVERIFY(!editError.contains(QStringLiteral("delete and re-add")));
+
+        // ...and one past THAT is still out of range.
+        QCOMPARE(call("steam_pitcher", {{"action", "select"}, {"index", builtIn + 1}}, 1)["error"].toString(),
+                 QString("index out of range"));
     }
 
     void steamUpdateOfSelectedReappliesActive() {
         const int a = call("steam_pitcher", {{"action", "add"}, {"name", "Sel"}, {"temperatureC", 128.0}})["selectedIndex"].toInt();
-        QCOMPARE(m_settings.brew()->steamTemperature(), 128.0);
         QVERIFY(call("steam_pitcher", {{"action", "update"}, {"index", a}, {"temperatureC", 137.0}})["success"].toBool());
-        QCOMPARE(m_settings.brew()->steamTemperature(), 137.0);  // re-applied because it's selected
+        QCOMPARE(m_settings.brew()->getSteamPitcherPreset(a)["temperature"].toDouble(), 137.0);
     }
 
-    void steamUpdateDisabledRejected() {
-        const qsizetype before = m_settings.brew()->steamPitcherPresets().size();
-        call("steam_pitcher", {{"action", "add"}, {"name", "Off"}, {"disabled", true}});
-        const qsizetype idx = m_settings.brew()->steamPitcherPresets().size() - 1;
-        QVERIFY(idx >= before);
-        QJsonObject r = call("steam_pitcher", {{"action", "update"}, {"index", idx}, {"temperatureC", 150.0}});
+    // Heater-off pitchers are no longer user-creatable: every machine has one
+    // built-in "Heater off" entry. Refusing loudly matters more than refusing —
+    // silently creating a NORMAL pitcher would leave the caller believing it had
+    // made a heater switch, and it would sit in the list looking like one.
+    void steamDisabledPresetsCannotBeCreated() {
+        const int before = m_settings.brew()->steamPitcherCount();
+        QJsonObject r = call("steam_pitcher", {{"action", "add"}, {"name", "Off"}, {"disabled", true}});
+        QVERIFY(!r["success"].toBool());
+        QVERIFY(r["error"].toString().contains("Heater off"));
+        QCOMPARE(m_settings.brew()->steamPitcherCount(), before);
+    }
+
+    // The built-in entry is not in the stored array, so its display slot is one
+    // past the last real preset. Addressing it must fail rather than fall through
+    // onto a real pitcher.
+    void steamBuiltInHeaterOffCannotBeUpdated() {
+        const int builtInSlot = m_settings.brew()->steamPitcherCount();
+        QJsonObject r = call("steam_pitcher",
+                             {{"action", "update"}, {"index", builtInSlot}, {"temperatureC", 150.0}});
         QVERIFY(!r["success"].toBool());
         QVERIFY(r.contains("error"));
     }

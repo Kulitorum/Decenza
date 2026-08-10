@@ -976,6 +976,61 @@ private slots:
         QCOMPARE(targetEspressoVol, static_cast<uint8_t>(200));
     }
 
+    // steam-heater-policy, the REPORTED FIELD BUG. uploadCurrentProfile() used
+    // to hand-roll its own steam-target rule that knew only two of the five
+    // inputs, so a profile upload re-sent steam = 0 for anyone with the
+    // keep-warm setting off — silently undoing the heater state a recipe
+    // activation had just applied, because the upload it triggered was deferred
+    // behind m_uploadInFlight and landed AFTERWARDS. Byte 0-1 of the ShotSettings
+    // payload is TargetSteamTemp (U8P0 in byte 1 for the DE1's layout; byte 0 is
+    // the steam-flow/settings bitmask), so assert on what actually went out.
+    void uploadCurrentProfileDoesNotClobberAPermittedSteamHeater() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        // The precondition that used to break: no STATE permission at all.
+        f.settings.brew()->setKeepWarmWhenIdle(false);
+        f.settings.brew()->setLetRecipeDecide(true);
+        f.settings.brew()->setSteamTemperature(152.0);
+        f.settings.brew()->setSteamDisabled(false);
+        // ...and a live steam event, which is what a milk recipe's shot start
+        // grants. The upload must respect it rather than re-deriving from the
+        // settings and finding nothing.
+        f.steamHeaterPolicy.setEventPermission(true);
+
+        f.transport.clearWrites();
+        f.device.m_lastShotSettingsPayload.clear();
+        f.profileManager.uploadCurrentProfile();
+
+        auto settingsWrites = f.writesTo(SHOT_SETTINGS);
+        QVERIFY(!settingsWrites.isEmpty());
+        const QByteArray data = settingsWrites.last();
+        QVERIFY(data.size() >= 2);
+        QCOMPARE(static_cast<uint8_t>(data[1]), static_cast<uint8_t>(152));
+    }
+
+    // The other direction, so the test above cannot pass by simply always
+    // sending the configured temperature: with nothing permitting the heater the
+    // upload must still command 0.
+    void uploadCurrentProfileSendsZeroWhenNothingPermitsTheHeater() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.settings.brew()->setKeepWarmWhenIdle(false);
+        f.settings.brew()->setLetRecipeDecide(true);
+        f.settings.brew()->setSteamTemperature(152.0);
+        f.settings.brew()->setSteamDisabled(false);
+        f.steamHeaterPolicy.setEventPermission(false);
+
+        f.transport.clearWrites();
+        f.device.m_lastShotSettingsPayload.clear();
+        f.profileManager.uploadCurrentProfile();
+
+        auto settingsWrites = f.writesTo(SHOT_SETTINGS);
+        QVERIFY(!settingsWrites.isEmpty());
+        const QByteArray data = settingsWrites.last();
+        QVERIFY(data.size() >= 2);
+        QCOMPARE(static_cast<uint8_t>(data[1]), static_cast<uint8_t>(0));
+    }
+
     void uploadCurrentProfileRespectsWaterVolumeMode() {
         // Regression: profile upload must match MainController::sendMachineSettings
         // on hot water volume, otherwise two back-to-back writes with different

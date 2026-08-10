@@ -30,25 +30,6 @@ No brewing, steaming, or navigation flow SHALL require a recipe. With no recipe 
 - **WHEN** a bean-less recipe's activation clears the active bag
 - **THEN** the recipe remains the active recipe — the ingredient-swap deactivation watcher treats "no bag" as matching a recipe that has no bag
 
-### Requirement: Steam settings write on recipe switch with a held heater state
-Activating a recipe SHALL write its steam block into the live brew settings (propagating to the DE1 as today) at activation time, not at shot start. Because the steam heater takes 5–9 minutes to reach temperature, an active milk recipe (`hasMilk: true`) SHALL HOLD the heater on for as long as it is active and the machine is awake: every machine-settings send SHALL treat an active milk recipe like `keepSteamHeaterOn`, so re-sends (wake, reconnect, settings edits) keep the heater warm. Deactivating (or switching to a milk-less recipe) SHALL return the heater to the user's baseline. When `keepSteamHeaterOn` is enabled by the user, a milk-less recipe SHALL NOT override it to off. No new user-facing steam-mode setting SHALL be added.
-
-#### Scenario: Milk recipe selected
-- **WHEN** a recipe with `hasMilk: true` is activated
-- **THEN** steam temperature/flow/timeout and pitcher/milk weight apply immediately and the heater begins warming
-
-#### Scenario: Heater hold survives settings re-sends
-- **WHEN** a milk recipe is active with `keepSteamHeaterOn` disabled and machine settings are re-sent (wake, reconnect, an unrelated settings edit)
-- **THEN** the steam heater target stays on
-
-#### Scenario: Leaving the milk recipe releases the hold
-- **WHEN** the active milk recipe is deactivated (or a milk-less recipe is activated) and the user has `keepSteamHeaterOn` disabled
-- **THEN** the heater returns to off
-
-#### Scenario: Milk-less recipe with keep-heater-on user
-- **WHEN** a recipe with `hasMilk: false` is activated and the user has `keepSteamHeaterOn` enabled
-- **THEN** the heater stays warm
-
 ### Requirement: Tweaks write through; ingredient swaps deactivate
 While a recipe is active, changes to dose, steam values, milk weight, or the hot-water selection (the chosen water vessel and its values) SHALL write through to the active recipe (no dirty state, matching bag semantics). Grind/RPM changes SHALL write through to the active bag and stamp the recipe's own `grindPinned`/`rpmPinned` (per `fix-recipe-grind-integrity`: grind lives on the recipe, the bag always mirrors the last dial, and a grind-less `tea*` recipe never adopts a grind).
 
@@ -277,4 +258,52 @@ The affected recipes SHALL NOT be modified — the profile SHALL NOT be snapshot
 #### Scenario: Repairing a broken recipe
 - **WHEN** the user opens a recipe marked as missing its profile in the recipe editor and selects an installed profile
 - **THEN** the recipe activates normally afterwards
+
+### Requirement: Steam settings write on recipe switch, heater follows the user's settings
+
+Activating a recipe SHALL write its steam block into the live brew settings (propagating to the DE1 as today) at activation time, not at shot start, and SHALL apply the selected pitcher's stored values — duration, flow and temperature — not merely record its index.
+
+The recipe's pitcher SHALL be an **override** of the standing pitcher rather than a write to it: while the recipe is active and **Let the recipe decide** is on, the recipe's pitcher is the effective pitcher; deactivating SHALL restore the standing pitcher without the recipe having modified it.
+
+Activating a recipe SHALL NOT grant the steam heater permission to be warm. A recipe that uses steam SHALL warm the heater when its **shot starts**, and only when **Let the recipe decide** is on; that permission SHALL be revoked when the machine returns to Idle. A recipe carrying the "Heater off" marker, or carrying no pitcher, SHALL veto the heater immediately on activation when **Let the recipe decide** is on.
+
+`hasMilk` SHALL NOT cause the heater to be warmed and SHALL NOT override the user's settings. Whether a recipe uses steam SHALL be determined by `hasMilk` or by the presence of a pitcher that is not the off marker.
+
+#### Scenario: Milk recipe selected
+- **WHEN** a recipe with a milk pitcher is activated
+- **THEN** its steam temperature, flow and timeout apply immediately from that pitcher, and the heater state follows the user's settings — it is not warmed by the act of selecting
+
+#### Scenario: Milk recipe's shot warms the heater
+- **WHEN** Keep warm when idle is off, Let the recipe decide is on, a milk recipe is active, and its shot starts
+- **THEN** the steam heater begins warming to that recipe's pitcher temperature
+
+#### Scenario: Warmth from a shot is released at Idle
+- **WHEN** the shot and any steaming finish and the machine returns to Idle, with Keep warm when idle off
+- **THEN** the steam heater is turned off
+
+#### Scenario: A recipe without a pitcher turns the heater off
+- **WHEN** Let the recipe decide is on and a recipe carrying no pitcher is activated
+- **THEN** the steam heater is turned off immediately
+
+#### Scenario: Deactivating restores the standing pitcher
+- **WHEN** a recipe whose pitcher differs from the standing pitcher is deactivated
+- **THEN** the standing pitcher is in effect again, unmodified by the activation
+
+#### Scenario: The recipe is ignored when the user says so
+- **WHEN** Let the recipe decide is off and the active recipe names no pitcher
+- **THEN** activating it leaves the effective pitcher and the heater state unchanged
+
+#### Scenario: An explicit pitcher choice is a selection, not an inference
+- **WHEN** a recipe names a pitcher — a real one, or the built-in "Heater off"
+- **THEN** activating it applies that pitcher whatever the two settings say, because the user chose it when they built the recipe
+- **AND** a recipe carrying "Heater off" leaves the heater cold whatever the two settings say
+- **AND** starting steam on it behaves exactly as it does with "Heater off" standing: the last real pitcher's duration, flow and temperature, with a message saying so
+
+#### Scenario: Milk-less recipe with keep-warm user
+- **WHEN** a recipe with no milk is activated, the user has Keep warm when idle on and Let the recipe decide off
+- **THEN** the heater stays warm
+
+#### Scenario: Heater state survives a profile upload
+- **WHEN** a recipe activation sets the heater state and the profile upload it triggered completes afterwards
+- **THEN** the heater state is unchanged by that upload
 

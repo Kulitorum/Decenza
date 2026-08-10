@@ -126,7 +126,8 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("lightThemeName", "machine")) result["lightThemeName"] = settings->theme()->lightThemeName();
             if (include("autoSleepMinutes", "machine")) result["autoSleepMinutes"] = settings->value("autoSleepMinutes", 60).toInt();
             if (include("postShotReviewTimeout", "machine")) result["postShotReviewTimeout"] = settings->value("postShotReviewTimeout", 31).toInt();
-            if (include("keepSteamHeaterOn", "machine")) result["keepSteamHeaterOn"] = settings->brew()->keepSteamHeaterOn();
+            if (include("keepWarmWhenIdle", "machine")) result["keepWarmWhenIdle"] = settings->brew()->keepWarmWhenIdle();
+            if (include("letRecipeDecide", "machine")) result["letRecipeDecide"] = settings->brew()->letRecipeDecide();
             if (include("steamAutoFlushSeconds", "machine")) result["steamAutoFlushSeconds"] = settings->brew()->steamAutoFlushSeconds();
             if (include("refillKitOverride", "machine")) result["refillKitOverride"] = settings->app()->refillKitOverride();
             if (include("waterRefillPoint", "machine")) result["waterRefillPoint"] = settings->app()->waterRefillPoint();

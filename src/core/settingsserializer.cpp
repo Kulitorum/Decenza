@@ -68,7 +68,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["temperature"] = settings->brew()->steamTemperature();
     steam["timeout"] = settings->brew()->steamTimeout();
     steam["flow"] = settings->brew()->steamFlow();
-    steam["keepHeaterOn"] = settings->brew()->keepSteamHeaterOn();
+    steam["keepWarmWhenIdle"] = settings->brew()->keepWarmWhenIdle();
+    steam["letRecipeDecide"] = settings->brew()->letRecipeDecide();
     steam["disabled"] = settings->brew()->steamDisabled();
     steam["autoFlushSeconds"] = settings->brew()->steamAutoFlushSeconds();
     steam["twoTapStop"] = settings->hardware()->steamTwoTapStop();
@@ -81,13 +82,17 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     for (const QVariant& preset : settings->brew()->steamPitcherPresets()) {
         QJsonObject p;
         QVariantMap m = preset.toMap();
+        // The built-in "Heater off" entry is synthetic and every install has
+        // its own — exporting it would import as a duplicate (or, on an older
+        // build, as a user-created Off preset).
+        if (m.value("builtin").toBool()) continue;
         p["name"] = m["name"].toString();
         p["duration"] = m["duration"].toInt();
         p["flow"] = m["flow"].toInt();
         // Per-pitcher steam temperature; legacy presets (and pre-temperature
         // backups) fall back to the current global steam temperature. Disabled
         // presets carry no temperature — the heater is off for them.
-        if (!m.value("disabled").toBool())
+        if (!SettingsBrew::isHeaterOffPitcher(m))
             p["temperature"] = m.contains("temperature") ? m["temperature"].toDouble()
                                                          : settings->brew()->steamTemperature();
         // The weight-based-steaming feature is keyed on these, so they must round-trip.
@@ -427,6 +432,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& json,
                                         const QStringList& excludeKeys)
 {
+    // Set false by any step that could not apply what the backup asked for.
+    // The single `return true` this function used to end on made every failure
+    // unreportable by construction.
+    bool importOk = true;
     // Machine settings
     if (json.contains("machine") && !excludeKeys.contains("machine")) {
         QJsonObject machine = json["machine"].toObject();
@@ -467,7 +476,12 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (steam.contains("temperature")) settings->brew()->setSteamTemperature(steam["temperature"].toDouble());
         if (steam.contains("timeout")) settings->brew()->setSteamTimeout(steam["timeout"].toInt());
         if (steam.contains("flow")) settings->brew()->setSteamFlow(steam["flow"].toInt());
-        if (steam.contains("keepHeaterOn")) settings->brew()->setKeepSteamHeaterOn(steam["keepHeaterOn"].toBool());
+        // `keepHeaterOn` is the pre-split key: it means exactly what
+        // keepWarmWhenIdle means now, so an older backup restores that half and
+        // leaves letRecipeDecide at its default.
+        if (steam.contains("keepWarmWhenIdle")) settings->brew()->setKeepWarmWhenIdle(steam["keepWarmWhenIdle"].toBool());
+        else if (steam.contains("keepHeaterOn")) settings->brew()->setKeepWarmWhenIdle(steam["keepHeaterOn"].toBool());
+        if (steam.contains("letRecipeDecide")) settings->brew()->setLetRecipeDecide(steam["letRecipeDecide"].toBool());
         if (steam.contains("disabled")) settings->brew()->setSteamDisabled(steam["disabled"].toBool());
         if (steam.contains("autoFlushSeconds")) settings->brew()->setSteamAutoFlushSeconds(steam["autoFlushSeconds"].toInt());
         if (steam.contains("twoTapStop")) settings->hardware()->setSteamTwoTapStop(steam["twoTapStop"].toBool());
@@ -475,19 +489,23 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // Import pitcher presets
         if (steam.contains("pitcherPresets")) {
             // Clear existing presets first by removing them in reverse order
-            QVariantList existingPresets = settings->brew()->steamPitcherPresets();
-            for (qsizetype i = existingPresets.size() - 1; i >= 0; --i) {
-                settings->brew()->removeSteamPitcherPreset(static_cast<int>(i));
+            // steamPitcherCount(), not steamPitcherPresets().size(): the latter
+            // includes the synthetic "Heater off" entry, which has no stored row
+            // to remove.
+            for (int i = settings->brew()->steamPitcherCount() - 1; i >= 0; --i) {
+                settings->brew()->removeSteamPitcherPreset(i);
             }
             // Add imported presets
             QJsonArray presets = steam["pitcherPresets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
+                // A `disabled` preset in the backup is a user-created "Off"
+                // pitcher from before the built-in entry existed. It is dropped:
+                // every install now has the built-in, and re-creating it would
+                // put back the duplicate this change removes.
                 const bool disabled = p["disabled"].toBool();
-                const qsizetype before = settings->brew()->steamPitcherPresets().size();
-                if (disabled) {
-                    settings->brew()->addSteamPitcherPresetDisabled(p["name"].toString());
-                } else {
+                const int before = settings->brew()->steamPitcherCount();
+                if (!disabled) {
                     // Legacy presets predate the per-pitcher temperature field; fall
                     // back to the device's current global steam temperature.
                     const double presetTemp = p.contains("temperature") ? p["temperature"].toDouble()
@@ -498,9 +516,9 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 // Restore weight + milk calibration ONLY for an enabled preset whose
                 // add actually appended one entry — never onto a disabled preset, nor
                 // (if a corrupt store no-ops the add) onto the wrong/previous one.
-                const qsizetype after = settings->brew()->steamPitcherPresets().size();
+                const int after = settings->brew()->steamPitcherCount();
                 if (!disabled && after == before + 1) {
-                    const int idx = static_cast<int>(after) - 1;
+                    const int idx = after - 1;
                     if (p.contains("pitcherWeightG")) settings->brew()->setSteamPitcherWeight(idx, p["pitcherWeightG"].toDouble());
                     if (p.contains("calibMilkG")) settings->brew()->setSteamPitcherCalibration(idx, p["calibMilkG"].toDouble());
                 }
@@ -526,12 +544,40 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // whether this JSON carried a presets array) — setting it mid-rebuild would
         // leave it clamped to a stale index. Out-of-range is dropped with a log.
         if (steam.contains("selectedPitcher")) {
-            const int sel = steam["selectedPitcher"].toInt();
-            if (sel >= 0 && sel < static_cast<int>(settings->brew()->steamPitcherPresets().size()))
+            int sel = steam["selectedPitcher"].toInt();
+            // REMAP, don't just range-check. The import above drops every
+            // `disabled` preset, so the surviving rows renumber underneath a
+            // stored index — the same hazard the constructor migration exists to
+            // handle, and a bare range check reintroduced it here. A backup of
+            // [Off, Small, Large] with selection 0 restored as "Small" and turned
+            // the heater on, silently, for a user whose whole intent was to keep
+            // it off.
+            if (sel >= 0 && steam.contains("pitcherPresets")) {
+                const QJsonArray imported = steam["pitcherPresets"].toArray();
+                int survivorsBefore = 0;
+                bool selectionWasDropped = false;
+                for (int i = 0; i < imported.size() && i <= sel; ++i) {
+                    const bool dropped = imported.at(i).toObject()["disabled"].toBool();
+                    if (i == sel)
+                        selectionWasDropped = dropped;
+                    else if (!dropped)
+                        ++survivorsBefore;
+                }
+                sel = selectionWasDropped ? SettingsBrew::HeaterOffPitcherIndex
+                                          : survivorsBefore;
+            }
+            if (sel == SettingsBrew::HeaterOffPitcherIndex
+                || (sel >= 0 && sel < settings->brew()->steamPitcherCount()))
                 settings->brew()->setSelectedSteamCup(sel);
-            else
+            else {
+                // Reportable, not just logged. importFromJson returned an
+                // unconditional true, so the caller's `if (!import…)` branch was
+                // dead code and a restore that left the steam selection wrong
+                // still announced "Settings restored from backup".
+                importOk = false;
                 qWarning() << "SettingsSerializer: imported selectedPitcher" << sel
                            << "out of range after import; leaving current selection";
+            }
         }
     }
 
@@ -994,7 +1040,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Sync to disk
     settings->sync();
 
-    return true;
+    return importOk;
 }
 
 QJsonValue SettingsSerializer::variantToJson(const QVariant& value)

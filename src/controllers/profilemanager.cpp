@@ -1,6 +1,7 @@
 #include <optional>
 #include "core/settings_app.h"
 #include "profilemanager.h"
+#include "steamheaterpolicy.h"
 #include "../core/drinktypes.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
@@ -131,11 +132,13 @@ ProfileManager *ProfileManager::create(QQmlEngine *qmlEngine, QJSEngine *jsEngin
 ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                                MachineState* machineState,
                                ProfileStorage* profileStorage,
+                               SteamHeaterPolicy* steamHeaterPolicy,
                                QObject* parent)
     : QObject(parent)
     , m_settings(settings)
     , m_device(device)
     , m_machineState(machineState)
+    , m_steamHeaterPolicy(steamHeaterPolicy)
     , m_profileStorage(profileStorage)
 {
     // Retry pending profile upload when machine reaches Idle, Ready, Sleep, or
@@ -2184,7 +2187,22 @@ void ProfileManager::uploadCurrentProfile() {
         // Update shot settings with the profile's target temperature
         // This controls what temperature the machine heats to in Ready state
         if (m_settings) {
-            double steamTemp = (m_settings->brew()->steamDisabled() || !m_settings->brew()->keepSteamHeaterOn()) ? 0.0 : m_settings->brew()->steamTemperature();
+            // Resolved by SteamHeaterPolicy, never derived here. This used to be a
+            // private copy of the rule that knew only steamDisabled and
+            // keepSteamHeaterOn — not the active recipe — so every profile upload
+            // re-sent steam = 0 for a keep-heater-off user. Recipe activation
+            // triggers an upload, and that upload is deferred behind
+            // m_uploadInFlight, so it landed AFTER startSteamHeating() and undid
+            // it: picking a milk recipe left the steam heater cold.
+            // No policy means no opinion about the steam target — send what the
+            // machine already holds rather than a second, differently-derived
+            // answer. Every production and test construction passes one.
+            if (!m_steamHeaterPolicy) {
+                qWarning() << "ProfileManager: no steam heater policy — skipping the profile"
+                              " upload's ShotSettings write rather than guessing a steam target";
+                return;
+            }
+            double steamTemp = m_steamHeaterPolicy->commandedTemperatureC();
             m_device->setShotSettings(
                 steamTemp,
                 m_settings->brew()->steamTimeout(),

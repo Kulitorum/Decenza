@@ -254,6 +254,9 @@ QJsonObject steamBlockSchema()
         {"properties", QJsonObject{
             {"hasMilk", QJsonObject{{"type", "boolean"}}},
             {"milkWeightG", QJsonObject{{"type", "number"}}},
+            {"heaterOff", QJsonObject{{"type", "boolean"},
+                {"description", "The built-in Heater off entry was chosen; mutually "
+                                "exclusive with the pitcher fields"}}},
             {"pitcherName", QJsonObject{{"type", "string"}}},
             {"durationSec", QJsonObject{{"type", "integer"}}},
             {"flow", QJsonObject{{"type", "integer"},
