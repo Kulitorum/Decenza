@@ -153,7 +153,7 @@ Five suites cover the firmware module. **No counts here on purpose** — the num
 - `tst_firmwareheader` — `.dat` header parser and on-disk validator: BoardMarker, the size floor and ceiling, and the malformed-header shapes (`_data()` table)
 - `tst_firmwareassetcachehelpers` — sidecar JSON round-trip, Range-header computation
 - `tst_de1device_firmware` — `DE1Device::writeFWMapRequest` / `writeFirmwareChunk` (bypasses MMR dedupe cache), `fwMapResponse` signal including `WindowIncrement`
-- `tst_firmwareupdater` — full state-machine flows: happy path; sleep precedes the erase request; the erase-complete notification starts the upload ahead of the fallback timer; "still erasing" does not; a non-terminal verify notification is ignored rather than reported as failure; erase timeout; disconnect during upload; verify failure; precondition refused; same-version re-flash still flashes; dismiss; retry restart; verify-disconnect retroactive success and grace timeout
+- `tst_firmwareupdater` — full state-machine flows: happy path; sleep precedes the erase request; the erase-complete notification starts the upload ahead of the fallback timer; "still erasing" does not, and neither does one arriving before the erase request's own write ACK; a non-terminal verify notification is ignored rather than reported as failure; erase timeout; disconnect during upload; verify failure; precondition refused; same-version re-flash still flashes; dismiss; retry restart; verify-disconnect retroactive success and grace timeout
 
 Build with `-DBUILD_TESTS=ON` and run individual binaries from `build/<config>/tests/Debug/`.
 

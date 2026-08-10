@@ -197,8 +197,43 @@ private slots:
         f.updater.startUpdate();
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
 
+        // The erase request's own write ACK is what marks this erase cycle as
+        // started; a notification arriving before it cannot be its answer.
+        emit f.transport.writeComplete(DE1::Characteristic::FW_MAP_REQUEST,
+                                       QByteArray::fromHex("00000101000000"));
+
         // firstError here is the 0,0,0 we sent on the erase request, echoed
         // back — the transition must not depend on its value.
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001000000"));
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
+                                  FirmwareUpdater::State::Uploading, 2000);
+    }
+
+    void eraseCompleteBeforeRequestAck_isIgnored() {
+        Fixture f;
+        // A terminal VERIFY notification is byte-identical to an
+        // erase-complete one. The retry path makes that reachable: a verify
+        // that timed out at 60 s leaves the DE1 still scanning, the user taps
+        // Retry, and the late response lands in the new Erasing window. Acting
+        // on it would stream the whole upload into a bank still being erased.
+        // Without the ACK gate this test transitions to Uploading.
+        f.updater.setPostEraseWaitMs(60000);
+        f.updater.setEraseTimeoutMs(60000);
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+
+        // No writeComplete for the erase request — so this notification cannot
+        // be its answer.
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001FFFFFD"));
+        QTest::qWait(100);
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+
+        // Once the request is ACKed, the next notification is acted on.
+        emit f.transport.writeComplete(DE1::Characteristic::FW_MAP_REQUEST,
+                                       QByteArray::fromHex("00000101000000"));
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
                                       QByteArray::fromHex("00000001000000"));
         QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
