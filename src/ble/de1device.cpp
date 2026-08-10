@@ -304,14 +304,6 @@ void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteA
         FW_LOG(QStringLiteral("A009 notify: %1").arg(QString::fromLatin1(data.toHex(' '))));
         auto parsed = DE1::Firmware::parseFWMapNotification(data);
         if (parsed) {
-            // WindowIncrement is decoded but not carried on fwMapResponse, so
-            // it is logged here. It is the field that separates a terminal
-            // verify verdict from an in-progress notification: reaprime/decaid
-            // only accepts a verify response when WindowIncrement == 0, while
-            // we accept the first notification of any shape. If a failing
-            // update logs a non-zero value on the line that produced
-            // "Verification failed", the address in that message is a cursor,
-            // not a corrupt block.
             FW_LOG(QStringLiteral("A009 parsed: windowIncrement=%1 erase=%2 map=%3 firstError=%4")
                        .arg(parsed->windowIncrement)
                        .arg(parsed->fwToErase)
@@ -319,7 +311,7 @@ void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteA
                        .arg(QString::fromLatin1(
                            QByteArray(reinterpret_cast<const char*>(parsed->firstError.data()), 3)
                                .toHex(' '))));
-            emit fwMapResponse(parsed->fwToErase, parsed->fwToMap,
+            emit fwMapResponse(parsed->windowIncrement, parsed->fwToErase, parsed->fwToMap,
                                QByteArray(reinterpret_cast<const char*>(parsed->firstError.data()), 3));
         } else {
             FW_WARN(QStringLiteral("A009 notify too short to parse: %1 bytes").arg(data.size()));

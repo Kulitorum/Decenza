@@ -38,11 +38,20 @@ void packU32LE(QByteArray& buf, int off, uint32_t v) {
 // side accepts this per the spec (BoardMarker + size check only).
 QByteArray makeFirmwareBlob(uint32_t version, qsizetype payloadSize = 256) {
     QByteArray blob(DE1::Firmware::HEADER_SIZE + payloadSize, char(0));
+    packU32LE(blob, 0,  0x11223344);                            // CheckSum
     packU32LE(blob, 4,  DE1::Firmware::BOARD_MARKER);
     packU32LE(blob, 8,  version);
-    packU32LE(blob, 12, static_cast<uint32_t>(payloadSize));
-    // IV (offsets 28-59) stays all zeros; DE1 side decrypts in real flash,
-    // but tests never reach a real device so content doesn't matter.
+    packU32LE(blob, 12, static_cast<uint32_t>(payloadSize));    // ByteCount
+    packU32LE(blob, 16, static_cast<uint32_t>(payloadSize / 2));// CpuBytes
+    // offset 20 Unused stays zero
+    packU32LE(blob, 24, 0x55667788);                            // DCSum
+    // The checksum words and the IV must be non-zero: validateFile() rejects
+    // an all-zero one, because no published image leaves them empty and that
+    // is what distinguishes a real header from a spliced or synthetic one.
+    for (int i = 0; i < 32; ++i) {
+        blob[28 + i] = static_cast<char>(i + 1);                // IV
+    }
+    packU32LE(blob, 60, 0x99AABBCC);                            // HeaderCheckSum
     return blob;
 }
 
@@ -122,6 +131,43 @@ private slots:
         QVERIFY(f.updater.errorMessage().contains("Erase"));
     }
 
+    void eraseCompleteNotification_startsUploadBeforeFallbackTimer() {
+        Fixture f;
+        // The post-erase wait is a fallback, not the trigger. With it set far
+        // beyond the test's patience, the only thing that can reach Uploading
+        // is the erase-complete notification. A captured DE1+/PCB 1.3 flash
+        // reported it at +1.31 s against a 10 s wait, so this is the normal
+        // path and the timer is the exception.
+        f.updater.setPostEraseWaitMs(60000);
+        f.updater.setEraseTimeoutMs(60000);
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+
+        // firstError here is the 0,0,0 we sent on the erase request, echoed
+        // back — the transition must not depend on its value.
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001000000"));
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
+                                  FirmwareUpdater::State::Uploading, 2000);
+    }
+
+    void eraseInProgressNotification_doesNotStartUpload() {
+        Fixture f;
+        // fwToErase=1 is "still erasing" — v1333+ skips it, but older
+        // firmware sends it first and it must not be mistaken for completion.
+        f.updater.setPostEraseWaitMs(60000);
+        f.updater.setEraseTimeoutMs(60000);
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000101000000"));
+        QTest::qWait(100);
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+    }
+
     void disconnectDuringUpload_failsRetryable() {
         Fixture f;
         QTest::ignoreMessage(QtWarningMsg,
@@ -158,6 +204,31 @@ private slots:
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
         QVERIFY(f.updater.retryAvailable());
         QVERIFY(f.updater.errorMessage().contains("Verification"));
+    }
+
+    void verifyIgnoresNonTerminalNotification_thenAcceptsVerdict() {
+        Fixture f;
+        const QByteArray blob = makeFirmwareBlob(1352);
+        writeCachedBlob(&f.updater, &f.cache, blob);
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+        simulateFullUpload(f.transport, blob);
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+
+        // WindowIncrement 0x0120 — the bootloader talking mid-scan. Its
+        // FirstError is a cursor, not a corrupt-block address. Treating it as
+        // a verdict reports "Verification failed at block 0.72.0" on a flash
+        // that is still verifying, and Retry cannot help because the next
+        // attempt reports the same cursor.
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("01200001004800"));
+        QTest::qWait(50);
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+
+        // The real verdict still lands.
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001FFFFFD"));
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::AwaitingReboot);
     }
 
     void preconditionRefuses_duringShot() {

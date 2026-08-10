@@ -142,9 +142,27 @@ private slots:
 
         QCOMPARE(spy.count(), 1);
         const QList<QVariant> args = spy.takeFirst();
-        QCOMPARE(args.at(0).toUInt(),         0u);                           // fwToErase
-        QCOMPARE(args.at(1).toUInt(),         1u);                           // fwToMap
-        QCOMPARE(args.at(2).toByteArray(),    QByteArray::fromHex("FFFFFD"));// firstError
+        QCOMPARE(args.at(0).toUInt(),         0u);                           // windowIncrement
+        QCOMPARE(args.at(1).toUInt(),         0u);                           // fwToErase
+        QCOMPARE(args.at(2).toUInt(),         1u);                           // fwToMap
+        QCOMPARE(args.at(3).toByteArray(),    QByteArray::fromHex("FFFFFD"));// firstError
+    }
+
+    void fwMapResponseSignal_carriesWindowIncrement() {
+        TestFixture f;
+        QSignalSpy spy(&f.device, &DE1Device::fwMapResponse);
+        // WindowIncrement is bytes 0-1, big-endian. It has to survive to the
+        // signal: FirmwareUpdater treats a verify notification with a
+        // non-zero value as in-progress rather than as a verdict, and reading
+        // its FirstError as a corrupt-block address reports normal scan
+        // progress as a permanent flash failure.
+        emit f.transport.dataReceived(
+            DE1::Characteristic::FW_MAP_REQUEST,
+            QByteArray::fromHex("01200001004800"));
+        QCOMPARE(spy.count(), 1);
+        const QList<QVariant> args = spy.takeFirst();
+        QCOMPARE(args.at(0).toUInt(), 0x0120u);
+        QCOMPARE(args.at(3).toByteArray(), QByteArray::fromHex("004800"));
     }
 
     void fwMapResponseSignal_firesOnEraseNotification() {
@@ -155,8 +173,8 @@ private slots:
             QByteArray::fromHex("00000100000000"));
         QCOMPARE(spy.count(), 1);
         const auto args = spy.takeFirst();
-        QCOMPARE(args.at(0).toUInt(), 1u);    // fwToErase
-        QCOMPARE(args.at(1).toUInt(), 0u);    // fwToMap
+        QCOMPARE(args.at(1).toUInt(), 1u);    // fwToErase
+        QCOMPARE(args.at(2).toUInt(), 0u);    // fwToMap
     }
 
     void fwMapResponseSignal_ignoresShortBuffer() {

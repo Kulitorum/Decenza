@@ -102,7 +102,7 @@ public:
 
     // Timing knobs (defaults match the spec). Tests set these to small
     // values to avoid minute-long test runs.
-    void setPostEraseWaitMs(int ms);          // default 10000 (Android) or 1000 (other)
+    void setPostEraseWaitMs(int ms);          // default 10000, every platform
     void setChunkPumpIntervalMs(int ms);      // default 1
     void setEraseTimeoutMs(int ms);           // default 30000
     void setVerifyTimeoutMs(int ms);          // default 60000
@@ -165,7 +165,8 @@ private slots:
     void onDownloadFinished(QString path, DE1::Firmware::Header header);
     void onDownloadFailed(QString reason);
     void onDownloadProgress(qint64 received, qint64 total);
-    void onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap, QByteArray firstError);
+    void onFwMapResponse(uint16_t windowIncrement, uint8_t fwToErase,
+                         uint8_t fwToMap, QByteArray firstError);
     void onDeviceConnectionChanged();
     void onDeviceFirmwareVersionChanged();
     void onPostEraseWaitComplete();
@@ -265,7 +266,7 @@ private:
     // NB: these inline initializers are the actual defaults. The
     // constexpr DEFAULT_*_MS values in firmwareupdater.cpp are advisory
     // documentation only — they're never used to construct these members.
-    int         m_postEraseWaitMs      = 0;       // overridden in ctor based on OS
+    int         m_postEraseWaitMs      = 0;       // set in ctor; see DEFAULT_POST_ERASE_WAIT_MS
     int         m_chunkPumpIntervalMs  = 1;
     int         m_eraseTimeoutMs       = 30000;
     int         m_verifyTimeoutMs      = 60000;   // bumped from 10000; see below

@@ -4,7 +4,6 @@
 #include <QDebug>
 #include <QFile>
 #include <QLoggingCategory>
-#include <QOperatingSystemVersion>
 
 #include "ble/de1device.h"
 #include "ble/de1transport.h"
@@ -22,19 +21,27 @@ using namespace DE1::Firmware;
 
 namespace {
 
-constexpr int DEFAULT_POST_ERASE_WAIT_ANDROID_MS = 10000;
-constexpr int DEFAULT_POST_ERASE_WAIT_OTHER_MS   = 1000;
+// Fixed wait between the erase command and the first firmware chunk, on
+// every platform.
+//
+// This was 10 s on Android and 1 s everywhere else, sourced from de1app —
+// but de1app branches on `$::has_bluetooth`, not on platform
+// (de1_comms.tcl:941-947). Its 1 s arm is the no-BLE dry run, a few lines
+// below the block that fakes the connection handles because no machine is
+// attached; every real flash it performs waits 10 s regardless of OS. We
+// read that as "Android vs everything else", so iOS, macOS, Windows and
+// Linux inherited the no-machine timing, and the docs grew a rationale
+// ("an Android-specific BLE race") that nothing in de1app supports.
+//
+// 1 s is not merely unjustified, it is too short: a captured flash on a
+// DE1+/PCB 1.3 took 1.31 s to report erase-complete, so the chunk pump
+// would have started while the bootloader was still erasing.
+constexpr int DEFAULT_POST_ERASE_WAIT_MS = 10000;
 
 // Progress weighting so the bar doesn't sit at 0% and 100% for seconds at
 // a time. See docs/plans/2026-04-20-firmware-update-design.md §5.3.
 constexpr double PROGRESS_ERASE_MAX  = 0.10;
 constexpr double PROGRESS_UPLOAD_MAX = 0.90;
-
-int defaultPostEraseWaitMs() {
-    return (QOperatingSystemVersion::currentType() == QOperatingSystemVersion::Android)
-        ? DEFAULT_POST_ERASE_WAIT_ANDROID_MS
-        : DEFAULT_POST_ERASE_WAIT_OTHER_MS;
-}
 
 // Format an elapsed count as "[+MM:SS.ms]" — fits long uploads and is
 // trivially greppable with /\[\+\d+:/ to strip back to phase order.
@@ -55,7 +62,7 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
     : QObject(parent)
     , m_device(device)
     , m_cache(cache)
-    , m_postEraseWaitMs(defaultPostEraseWaitMs())
+    , m_postEraseWaitMs(DEFAULT_POST_ERASE_WAIT_MS)
 {
     m_postEraseWaitTimer.setSingleShot(true);
     m_eraseTimeoutTimer.setSingleShot(true);
@@ -563,6 +570,21 @@ void FirmwareUpdater::beginErasePhase() {
         return;
     }
     m_eraseInProgressSeen = false;
+
+    // Put the machine to sleep first. An awake DE1 runs its heaters, PID and
+    // refill logic for the ~18 minutes this takes, on the same MCU that is
+    // erasing and programming flash. reaprime/decaid requests sleep before
+    // erase for this reason; de1app has the line but leaves it commented out.
+    // Preconditions already refused a flash mid-shot, so there is no
+    // in-progress operation to interrupt here.
+    //
+    // Order matters: goToSleep() is itself dropped once the flash guard is
+    // engaged (de1device.cpp — REQUESTED_STATE bypasses the MMR guard and so
+    // carries its own check), so this must run *before* the line below. It
+    // writes via writeUrgent, which prepends to the transport queue, so the
+    // DE1 sees the sleep request ahead of the erase command.
+    m_device->goToSleep();
+
     // Engage the MMR-write guard on the device *before* we subscribe or
     // write anything. Firmware chunks share the WRITE_TO_MMR characteristic
     // with regular MMR writes (distinguished only by the length byte), so a
@@ -574,17 +596,19 @@ void FirmwareUpdater::beginErasePhase() {
     m_device->writeFWMapRequest(/*erase*/ 1, /*map*/ 1);
     setProgress(0.02);  // visible motion as Phase 1 starts
 
-    // Match de1app's behaviour: don't gate the next phase on receiving the
-    // erase-complete notification. de1app sends the erase command and waits
-    // a fixed OS-appropriate delay (10 s Android / 1 s other) before
-    // starting the chunk pump — see de1_comms.tcl:913 / :920. The
-    // notifications are informational; if Android BLE drops the CCCD
-    // subscription or the DE1 doesn't emit them on this firmware, we
-    // would otherwise hang in Erasing forever waiting for a signal that
-    // never arrives. Use the post-erase timer as the single source of
-    // truth for "erase done, start uploading".
-    qCDebug(firmwareLog) << "[firmware] erase command sent, waiting"
-                         << m_postEraseWaitMs << "ms before chunk pump";
+    // The DE1 tells us when the erase is done; prefer that over the clock.
+    // The erase-complete notification (fwToErase=0, fwToMap=1) starts the
+    // chunk pump as soon as it lands — reaprime/decaid does the same, and a
+    // captured DE1+/PCB 1.3 flash reported it at +1.31 s against a 10 s
+    // wait. The timer stays as the fallback rather than the sole source of
+    // truth, because the notification can genuinely fail to arrive: the
+    // A009 CCCD subscription is fragile enough that verify has to re-subscribe
+    // (see beginVerifyPhase), and de1app gates on nothing at all. So a
+    // dropped notification costs the old fixed delay instead of hanging in
+    // Erasing forever.
+    qCDebug(firmwareLog) << "[firmware] erase command sent, waiting for "
+                            "erase-complete notification or"
+                         << m_postEraseWaitMs << "ms, whichever is first";
     if (m_postEraseWaitMs <= 0) {
         onPostEraseWaitComplete();
     } else {
@@ -764,27 +788,54 @@ void FirmwareUpdater::onVerifyTimeout() {
 
 // ---- fwMapResponse router ----------------------------------------------
 
-void FirmwareUpdater::onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
-                                     QByteArray firstError) {
-    Q_UNUSED(fwToMap);
-
+void FirmwareUpdater::onFwMapResponse(uint16_t windowIncrement, uint8_t fwToErase,
+                                     uint8_t fwToMap, QByteArray firstError) {
     qCDebug(firmwareLog).noquote()
-        << "[firmware] fwMapResponse received: erase=" << fwToErase
+        << "[firmware] fwMapResponse received: windowIncrement=" << windowIncrement
+        << "erase=" << fwToErase
         << "map=" << fwToMap << "firstError=" << firstError.toHex(' ');
 
     if (m_state == State::Erasing) {
-        // Per de1app, these are informational during the erase phase — we
-        // don't gate the post-erase wait on them anymore. Logged so we can
-        // see whether the DE1 is actually sending them on this firmware
-        // generation, and tracked so verify-phase logic can use the flag
-        // if needed.
         if (fwToErase == 1) {
+            // "Still erasing." Older firmware emits this before the
+            // completion notification; v1333+ skips it. Informational.
             m_eraseInProgressSeen = true;
+            return;
         }
+        if (windowIncrement != 0 || fwToMap != 1) {
+            return;  // not the erase-complete shape
+        }
+        // Erase complete. Deliberately does NOT test firstError: the DE1
+        // echoes back whatever we put in that field on the erase request
+        // (we send 0,0,0 and get 0,0,0 — captured flash, DE1+/PCB 1.3), so
+        // comparing it to a constant tests our own outbound bytes, not the
+        // machine. decaid's _isEraseComplete does exactly that against
+        // 0xFF,0xFF,0xFF because 0xFF,0xFF,0xFF is what it happens to send.
+        qCDebug(firmwareLog).noquote()
+            << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+            << "[firmware] erase-complete notification — starting chunk pump "
+               "without waiting out the remaining"
+            << m_postEraseWaitTimer.remainingTime() << "ms";
+        m_postEraseWaitTimer.stop();
+        onPostEraseWaitComplete();
         return;
     }
 
     if (m_state == State::Verifying) {
+        // Only a notification with WindowIncrement == 0 and fwToMap == 1 is a
+        // verdict. Anything else is the bootloader talking mid-scan, and its
+        // FirstError is a cursor rather than a corrupt-block address —
+        // reporting it as "Verification failed at block A.B.C" turns normal
+        // progress into a permanent-looking failure that survives Retry.
+        // reaprime/decaid filters on exactly these two fields. Keep waiting;
+        // the verify timeout is the backstop if no verdict ever arrives.
+        if (windowIncrement != 0 || fwToMap != 1) {
+            qCDebug(firmwareLog).noquote()
+                << "[firmware] ignoring non-terminal verify notification: "
+                   "windowIncrement=" << windowIncrement << "map=" << fwToMap
+                << "firstError=" << firstError.toHex(' ');
+            return;
+        }
         m_verifyTimeoutTimer.stop();
         const QByteArray expected = QByteArray::fromHex("FFFFFD");
         if (firstError == expected) {

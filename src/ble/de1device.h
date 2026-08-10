@@ -351,8 +351,13 @@ signals:
     // Phase 1 the DE1 emits two notifications: first with fwToErase=1
     // (erase in progress), then fwToErase=0 (erase complete). Phase 3 emits
     // one notification whose firstError == {0xFF,0xFF,0xFD} on success.
-    void fwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
-                       QByteArray firstError);
+    //
+    // windowIncrement is carried because it is what separates a terminal
+    // response from an in-progress one. A verify notification with a
+    // non-zero WindowIncrement is not a verdict, and reading its FirstError
+    // as a corrupt-block address turns progress into a reported failure.
+    void fwMapResponse(uint16_t windowIncrement, uint8_t fwToErase,
+                       uint8_t fwToMap, QByteArray firstError);
     // Emitted after the DE1 reports its stored ShotSettings (either from our
     // initial read on connect or from an indication after a write). Values
     // are the DE1's current targets; 0 means the heater/setting is off.

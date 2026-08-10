@@ -180,6 +180,11 @@ public:
     std::optional<Header> cachedHeader() const;
     std::optional<MetaJson> cachedMeta() const { return m_meta; }
 
+    // True when `headerVersion` agrees with the version the sidecar recorded
+    // for the ETag this channel is currently serving — the check that tells a
+    // genuine partial of this revision apart from a leftover of another one.
+    bool versionMatchesMeta(uint32_t headerVersion) const;
+
     // Wipe the cache file and the sidecar meta. Used when the user resets,
     // or when validation finds a permanently-invalid file.
     void clearCache();

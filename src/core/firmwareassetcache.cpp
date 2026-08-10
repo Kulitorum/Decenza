@@ -85,6 +85,16 @@ std::optional<Header> FirmwareAssetCache::cachedHeader() const {
     return parseHeader(bytes);
 }
 
+bool FirmwareAssetCache::versionMatchesMeta(uint32_t headerVersion) const {
+    // The sidecar's version is what the server reported for the ETag it is
+    // currently serving on this channel, read from a 64-byte Range GET during
+    // the availability check. A cached file whose header disagrees is not the
+    // file the check was about: a leftover from the other channel, or a body
+    // spliced from an older revision. Zero means we have never completed a
+    // check, so there is nothing to contradict and the file is taken as-is.
+    return m_meta.version == 0 || m_meta.version == headerVersion;
+}
+
 void FirmwareAssetCache::clearCache() {
     abortActiveReply();
     cleanUpDownloadFile();
@@ -297,19 +307,46 @@ void FirmwareAssetCache::downloadIfNeeded() {
                          << "metaVersion=" << m_meta.version
                          << "metaEtag=" << m_meta.etag;
     if (info.exists()) {
-        auto header = cachedHeader();
-        if (header && header->boardMarker == BOARD_MARKER &&
-            info.size() >= qint64(header->byteCount) + HEADER_SIZE) {
-            // Short-circuit: the on-disk file is *accepted without contacting
-            // the server*. Nothing here proves it came from the channel we are
-            // now on — only that its first 64 bytes parse and it is long
-            // enough. Log the version we are about to hand back so a mismatch
-            // against the UI's "Available:" is visible in the trail.
+        auto validated = validateFile(cachePath());
+        if (validated.status == Validation::Ok &&
+            versionMatchesMeta(validated.header.version)) {
+            // Short-circuit: the on-disk file is accepted without contacting
+            // the server. Log the version we hand back so a mismatch against
+            // the UI's "Available:" is visible in the trail.
             qCDebug(firmwareLog) << "[firmware] using cached file without "
-                                    "download: version=" << header->version
+                                    "download: version=" << validated.header.version
                                  << "size=" << info.size();
-            emit downloadFinished(cachePath(), *header);
+            emit downloadFinished(cachePath(), validated.header);
             return;
+        }
+        // Not usable as-is. Resuming onto it is only safe when the bytes on
+        // disk are a genuine prefix of the revision we are about to fetch —
+        // i.e. an interrupted download of *this* file. That is exactly the
+        // Truncated case with a matching Version.
+        //
+        // Any other state must be wiped rather than resumed. The resume below
+        // sends `Range: bytes=<size>-` and appends, so resuming onto a
+        // different revision splices that revision's body to the new one's
+        // tail. The result is a file of the correct total length whose first
+        // 64 bytes are a valid header — it passes BoardMarker, the size
+        // floor and every structural check, and the corruption is only
+        // discovered by the DE1 at the end of a ~18-minute flash.
+        const bool resumable =
+            validated.status == Validation::Truncated &&
+            versionMatchesMeta(validated.header.version);
+        if (resumable) {
+            qCDebug(firmwareLog) << "[firmware] resuming interrupted download of "
+                                    "version" << validated.header.version
+                                 << "from byte" << info.size();
+        } else {
+            qCWarning(firmwareLog) << "[firmware] discarding cached file:"
+                                   << (validated.status == Validation::Ok
+                                           ? QStringLiteral("header version %1 is not the %2 "
+                                                            "the server reported for this ETag")
+                                                 .arg(validated.header.version).arg(m_meta.version)
+                                           : validated.errorDetail);
+            QFile::remove(cachePath());
+            info.refresh();
         }
     }
 
@@ -397,6 +434,17 @@ void FirmwareAssetCache::onDownloadFinished() {
     }
 
     auto result = validateFile(cachePath());
+    if (result.status == Validation::Ok && !versionMatchesMeta(result.header.version)) {
+        // Structurally sound but not the revision this channel is serving —
+        // the signature of a resume that spliced two images. Force the
+        // failure here rather than letting it reach the flash.
+        result.status = Validation::MalformedHeader;
+        result.errorDetail = QStringLiteral(
+            "Downloaded firmware reports version %1, but the server said this "
+            "channel is serving %2. The download was assembled from more than "
+            "one revision; it has been discarded.")
+            .arg(result.header.version).arg(m_meta.version);
+    }
     if (result.status != Validation::Ok) {
         // On any validation failure, the cached file is either invalid or
         // incomplete — either way, wipe it so the next retry starts clean
