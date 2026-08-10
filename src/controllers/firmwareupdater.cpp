@@ -1,5 +1,6 @@
 #include "controllers/firmwareupdater.h"
 
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QFile>
 #include <QLoggingCategory>
@@ -484,6 +485,10 @@ void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
         (result.kind == FirmwareAssetCache::CheckResult::Newer ||
          result.kind == FirmwareAssetCache::CheckResult::Older);
     m_isDowngrade = (result.kind == FirmwareAssetCache::CheckResult::Older);
+    // Same build is not an "update available" — the banner stays quiet — but
+    // it is still flashable, so the QML labels and warns off this flag rather
+    // than off updateAvailable.
+    m_isReflash   = (result.kind == FirmwareAssetCache::CheckResult::Same);
     if (offersFlash) {
         // The dismissed-version pin applies to both directions: once the
         // user hides the banner for a given remote version, don't re-open
@@ -505,6 +510,7 @@ void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
                                                                                 : "Error")
         << " updateAvailable=" << m_updateAvailable
         << " isDowngrade=" << m_isDowngrade
+        << " isReflash=" << m_isReflash
         << (result.errorDetail.isEmpty() ? QString() : QStringLiteral(" err=") + result.errorDetail);
     emit availabilityChanged();
     setState(State::Idle);
@@ -515,20 +521,19 @@ void FirmwareUpdater::onDownloadFinished(QString path, Header header) {
     Q_UNUSED(header);
     if (m_state != State::Downloading) return;
 
-    // Race guard: re-read installed version. If it *equals* the cached
-    // header's version, there's nothing to do — short-circuit to Succeeded.
-    // A strict mismatch (newer *or* older) proceeds: de1app allows
-    // downgrades (matching channel swap: nightly → stable), so we only
-    // bail on true equality, not on "installed >= available".
+    // No version gate. de1app has none either — every version check in
+    // start_firmware_update (de1_comms.tcl:884-895) is commented out, so its
+    // update button flashes whatever is in bootfwupdate.dat regardless of
+    // what the machine reports. This used to short-circuit an equal version
+    // to Succeeded without writing anything, which made the one case that
+    // most needs a flash — a bank that verified but did not take, so the DE1
+    // still runs the old image while reporting the new build — unreachable
+    // from the UI. Re-flashing the same build is safe for the same reason a
+    // failed update is: the write lands in the inactive bank and the active
+    // one is untouched until verify passes. The UI warns instead of blocking.
     const uint32_t currentInstalled = m_installedVersionProvider
         ? m_installedVersionProvider() : m_installedVersion;
     m_installedVersion = currentInstalled;
-    if (currentInstalled == header.version) {
-        m_updateAvailable = false;
-        emit availabilityChanged();
-        setState(State::Succeeded);
-        return;
-    }
 
     m_availableVersion = header.version;
     setState(State::Ready);
@@ -642,6 +647,23 @@ void FirmwareUpdater::loadCachedPayload() {
         return;
     }
     m_firmwareBytes = f.readAll();
+
+    // Fingerprint what we are about to write to flash. FirmwareHeader's
+    // validateFile() only checks BoardMarker (offset 4) and a size floor, so
+    // a file assembled from two different revisions — which the cache's
+    // Range-resume path can produce — passes validation unchanged. A digest
+    // is the only thing that distinguishes the bytes we meant to flash from
+    // the bytes we have. Compare against the CDN file for the active channel.
+    const QByteArray digest =
+        QCryptographicHash::hash(m_firmwareBytes, QCryptographicHash::Sha256).toHex();
+    auto header = DE1::Firmware::parseHeader(m_firmwareBytes);
+    qCDebug(firmwareLog).noquote()
+        << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+        << "[firmware] payload:" << m_firmwareBytes.size() << "bytes sha256="
+        << QString::fromLatin1(digest)
+        << "version=" << (header ? header->version : 0)
+        << "byteCount=" << (header ? header->byteCount : 0)
+        << "cpuBytes=" << (header ? header->cpuBytes : 0);
 }
 
 void FirmwareUpdater::onChunkPumpTick() {

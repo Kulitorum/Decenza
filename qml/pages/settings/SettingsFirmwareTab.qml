@@ -115,13 +115,27 @@ Item {
                 AccessibleButton {
                     Layout.preferredWidth: Theme.scaled(140)
                     Layout.preferredHeight: Theme.scaled(40)
-                    text: firmwareTab.fw && firmwareTab.fw.isDowngrade
-                          ? TranslationManager.translate(
-                                "firmware.tab.downgradeNow", "Downgrade now")
-                          : TranslationManager.translate(
+                    text: {
+                        if (!firmwareTab.fw) return TranslationManager.translate(
                                 "firmware.tab.updateNow", "Update now")
+                        if (firmwareTab.fw.isDowngrade)
+                            return TranslationManager.translate(
+                                "firmware.tab.downgradeNow", "Downgrade now")
+                        if (firmwareTab.fw.isReflash)
+                            return TranslationManager.translate(
+                                "firmware.tab.reflashNow", "Reflash")
+                        return TranslationManager.translate(
+                                "firmware.tab.updateNow", "Update now")
+                    }
                     accessibleName: text
-                    enabled: firmwareTab.fw && firmwareTab.fw.updateAvailable && !firmwareTab.isWorking && !firmwareTab.fw.isSimulated
+                    // No version gate — matches de1app, which flashes whatever
+                    // is in bootfwupdate.dat regardless of the installed
+                    // build. Same-build re-flash is warned about in the strip
+                    // below, not blocked: it is the only recovery for a bank
+                    // that verified but did not take. The requirement is a
+                    // known remote version (i.e. a check has succeeded), not a
+                    // newer one.
+                    enabled: firmwareTab.fw && firmwareTab.fw.availableVersion > 0 && !firmwareTab.isWorking && !firmwareTab.fw.isSimulated
                     onClicked: if (firmwareTab.fw) firmwareTab.fw.startUpdate()
                 }
             }
@@ -135,7 +149,9 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(70)
-            visible: firmwareTab.fw && firmwareTab.fw.updateAvailable && firmwareTab.fw.isDowngrade
+            visible: firmwareTab.fw
+                     && ((firmwareTab.fw.updateAvailable && firmwareTab.fw.isDowngrade)
+                         || firmwareTab.fw.isReflash)
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.warningColor
@@ -150,22 +166,34 @@ Item {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(2)
 
-                    Tr {
-                        key: "firmware.tab.downgradeHeader"
-                        fallback: "This is a downgrade"
+                    Text {
+                        text: firmwareTab.fw && firmwareTab.fw.isReflash
+                              ? TranslationManager.translate(
+                                    "firmware.tab.reflashHeader",
+                                    "Already on this version")
+                              : TranslationManager.translate(
+                                    "firmware.tab.downgradeHeader",
+                                    "This is a downgrade")
                         color: Theme.warningColor
                         font.pixelSize: Theme.scaled(14)
                         font.bold: true
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: TranslationManager.translate(
-                                  "firmware.tab.downgradeDetail",
-                                  "Installed v%1 → available v%2. " +
-                                  "Flashing will roll the DE1 back. " +
-                                  "Continue only if you know why.")
-                              .arg(firmwareTab.fw && firmwareTab.fw.installedVersion > 0 ? firmwareTab.fw.installedVersion : "—")
-                              .arg(firmwareTab.fw ? firmwareTab.fw.availableVersion : "—")
+                        text: firmwareTab.fw && firmwareTab.fw.isReflash
+                              ? TranslationManager.translate(
+                                    "firmware.tab.reflashDetail",
+                                    "The DE1 already reports v%1. " +
+                                    "Flashing it again takes the full upload time " +
+                                    "and is only useful if the last update did not take.")
+                                .arg(firmwareTab.fw.availableVersion)
+                              : TranslationManager.translate(
+                                    "firmware.tab.downgradeDetail",
+                                    "Installed v%1 → available v%2. " +
+                                    "Flashing will roll the DE1 back. " +
+                                    "Continue only if you know why.")
+                                .arg(firmwareTab.fw && firmwareTab.fw.installedVersion > 0 ? firmwareTab.fw.installedVersion : "—")
+                                .arg(firmwareTab.fw ? firmwareTab.fw.availableVersion : "—")
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.Wrap
