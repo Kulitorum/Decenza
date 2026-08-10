@@ -620,33 +620,6 @@ void FirmwareUpdater::beginErasePhase() {
                 Qt::UniqueConnection);
     }
 
-    // Put the machine to sleep first. An awake DE1 runs its heaters, PID and
-    // refill logic for the ~18 minutes this takes, on the same MCU that is
-    // erasing and programming flash. reaprime/decaid requests sleep before
-    // erase for this reason; de1app has the line but leaves it commented out.
-    // The precondition check refused a flash mid-shot, but it ran once in
-    // startUpdate() and the download happened since, so this is not a
-    // guarantee that nothing is running now — only that nothing was when the
-    // user tapped.
-    //
-    // Order matters: goToSleep() is itself dropped once the flash guard is
-    // engaged (de1device.cpp — REQUESTED_STATE bypasses the MMR guard and so
-    // carries its own check), so this must run *before* the line below. It
-    // writes via writeUrgent, which goes straight out when no write is in
-    // flight and otherwise prepends to the queue; either way the DE1 sees the
-    // sleep request ahead of the erase command.
-    //
-    // It can still decline — a profile upload in flight defers it, and the
-    // deferred retry is then dropped by the guard we are about to engage. Say
-    // so rather than letting the flash run with the heaters live and no trace
-    // of why.
-    if (!m_device->goToSleep()) {
-        qCWarning(firmwareLog).noquote()
-            << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-            << "[firmware] machine did not go to sleep before erase — flashing with "
-               "heaters/PID/refill live for the whole upload";
-    }
-
     // Engage the MMR-write guard on the device *before* we subscribe or
     // write anything. Firmware chunks share the WRITE_TO_MMR characteristic
     // with regular MMR writes (distinguished only by the length byte), so a
