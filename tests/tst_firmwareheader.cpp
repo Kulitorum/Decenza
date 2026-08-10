@@ -46,6 +46,16 @@ QByteArray makeHeader(uint32_t checksum, uint32_t boardMarker, uint32_t version,
     return header;
 }
 
+// Build a header that passes every structural check in validateFile(): a
+// real image never leaves CpuBytes, the three checksum words or the IV at
+// zero, so a header built with makeHeader()'s bare defaults is *supposed* to
+// be rejected. Tests that are about something other than structure use this.
+QByteArray makeValidHeader(uint32_t version, uint32_t byteCount) {
+    return makeHeader(/*checksum*/ 0x11223344, DE1::Firmware::BOARD_MARKER,
+                      version, byteCount, /*cpuBytes*/ byteCount / 2,
+                      /*dcSum*/ 0x55667788, /*headerChecksum*/ 0x99AABBCC);
+}
+
 // Write a synthetic .dat file: 64-byte header plus `payloadSize` bytes of
 // zero payload. Returns the path.
 QString writeSyntheticDat(const QTemporaryDir& dir, const QByteArray& header,
@@ -131,8 +141,7 @@ private slots:
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const qsizetype payloadSize = 256;
-        QByteArray header = makeHeader(0, DE1::Firmware::BOARD_MARKER, 1352,
-                                       uint32_t(payloadSize));
+        QByteArray header = makeValidHeader(1352, uint32_t(payloadSize));
         QString path = writeSyntheticDat(dir, header, payloadSize);
 
         auto result = DE1::Firmware::validateFile(path);
@@ -161,12 +170,70 @@ private slots:
         // Retryable: next download may well complete.
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
-        QByteArray header = makeHeader(0, DE1::Firmware::BOARD_MARKER, 1,
-                                       /*byteCount*/ 1024);
+        QByteArray header = makeValidHeader(1, /*byteCount*/ 1024);
         QString path = writeSyntheticDat(dir, header, /*payloadSize*/ 256);
 
         auto result = DE1::Firmware::validateFile(path);
         QCOMPARE(result.status, DE1::Firmware::Validation::Truncated);
+    }
+
+    // ===== validateFile: structural checks =====
+    //
+    // BoardMarker sits at offset 4 and is identical in every DE1 image ever
+    // published, so it plus a size floor accepts a file spliced from two
+    // revisions. These reject headers that no real image produces.
+
+    void validateFile_rejectsMalformedHeaders_data() {
+        QTest::addColumn<uint32_t>("checksum");
+        QTest::addColumn<uint32_t>("byteCount");
+        QTest::addColumn<uint32_t>("cpuBytes");
+        QTest::addColumn<uint32_t>("dcSum");
+        QTest::addColumn<uint32_t>("headerChecksum");
+        QTest::addColumn<bool>("zeroIv");
+
+        //                                   checksum     byteCount cpuBytes  dcSum       hdrSum      zeroIv
+        QTest::newRow("zero ByteCount")    << 0x11223344u << 0u    << 0u     << 0x5566u << 0x99AAu << false;
+        QTest::newRow("zero CpuBytes")     << 0x11223344u << 256u  << 0u     << 0x5566u << 0x99AAu << false;
+        QTest::newRow("CpuBytes > body")   << 0x11223344u << 256u  << 512u   << 0x5566u << 0x99AAu << false;
+        QTest::newRow("zero CheckSum")     << 0u          << 256u  << 128u   << 0x5566u << 0x99AAu << false;
+        QTest::newRow("zero DCSum")        << 0x11223344u << 256u  << 128u   << 0u      << 0x99AAu << false;
+        QTest::newRow("zero HeaderCheckSum")<< 0x11223344u<< 256u  << 128u   << 0x5566u << 0u      << false;
+        QTest::newRow("all-zero IV")       << 0x11223344u << 256u  << 128u   << 0x5566u << 0x99AAu << true;
+    }
+
+    void validateFile_rejectsMalformedHeaders() {
+        QFETCH(uint32_t, checksum);
+        QFETCH(uint32_t, byteCount);
+        QFETCH(uint32_t, cpuBytes);
+        QFETCH(uint32_t, dcSum);
+        QFETCH(uint32_t, headerChecksum);
+        QFETCH(bool, zeroIv);
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QByteArray header = makeHeader(checksum, DE1::Firmware::BOARD_MARKER, 1352,
+                                       byteCount, cpuBytes, dcSum, headerChecksum);
+        if (zeroIv) {
+            header.replace(28, 32, QByteArray(32, char(0)));
+        }
+        QString path = writeSyntheticDat(dir, header, /*payloadSize*/ 512);
+
+        auto result = DE1::Firmware::validateFile(path);
+        QCOMPARE(result.status, DE1::Firmware::Validation::MalformedHeader);
+        QVERIFY(!result.errorDetail.isEmpty());
+    }
+
+    void validateFile_acceptsReservedFieldZeroOnly() {
+        // Offset 20 is documented as always zero. A non-zero value means the
+        // bytes at that offset are not a header field we understand.
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QByteArray header = makeValidHeader(1352, 256);
+        packU32LE(header, 20, 0xDEADBEEF);
+        QString path = writeSyntheticDat(dir, header, 256);
+
+        auto result = DE1::Firmware::validateFile(path);
+        QCOMPARE(result.status, DE1::Firmware::Validation::MalformedHeader);
     }
 
     void validateFile_tooShortHeader() {

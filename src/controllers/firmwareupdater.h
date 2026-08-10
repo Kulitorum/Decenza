@@ -102,7 +102,7 @@ public:
 
     // Timing knobs (defaults match the spec). Tests set these to small
     // values to avoid minute-long test runs.
-    void setPostEraseWaitMs(int ms);          // default 10000 (Android) or 1000 (other)
+    void setPostEraseWaitMs(int ms);          // default 10000, every platform
     void setChunkPumpIntervalMs(int ms);      // default 1
     void setEraseTimeoutMs(int ms);           // default 30000
     void setVerifyTimeoutMs(int ms);          // default 60000
@@ -165,7 +165,8 @@ private slots:
     void onDownloadFinished(QString path, DE1::Firmware::Header header);
     void onDownloadFailed(QString reason);
     void onDownloadProgress(qint64 received, qint64 total);
-    void onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap, QByteArray firstError);
+    void onFwMapResponse(uint16_t windowIncrement, uint8_t fwToErase,
+                         uint8_t fwToMap, QByteArray firstError);
     void onDeviceConnectionChanged();
     void onDeviceFirmwareVersionChanged();
     void onPostEraseWaitComplete();
@@ -192,6 +193,11 @@ private:
     bool        m_updateAvailable  = false;
     bool        m_isDowngrade      = false;
     bool        m_isReflash        = false;
+    // Set when the erase FWMapRequest's own write ACK arrives. Until then an
+    // A009 notification in state Erasing cannot be this cycle's erase-complete
+    // — a terminal verify notification is byte-identical, and the retry path
+    // can deliver one late.
+    bool        m_eraseRequestAcked = false;
     uint32_t    m_availableVersion = 0;
     uint32_t    m_installedVersion = 0;
     double      m_progress         = 0.0;
@@ -212,9 +218,12 @@ private:
     qsizetype   m_chunksQueued     = 0;   // handed to BleTransport
     qsizetype   m_chunksAcked      = 0;   // confirmed by DE1 via writeComplete
 
-    // Erase state: de1app expects *two* notifications — first fwToErase=1
-    // (erase in progress), then fwToErase=0 (erase complete). We only
-    // proceed after the second.
+    // Erase state. de1app's spec describes *two* notifications — fwToErase=1
+    // (in progress), then fwToErase=0 (complete) — but v1333+ sends only the
+    // second, so progression cannot be gated on having seen the first. This
+    // records whether it arrived, for the log and for older firmware; the
+    // transition is driven by the completion notification alone (with the
+    // post-erase timer as fallback).
     bool        m_eraseInProgressSeen = false;
 
     // Dismissed-version memory. When the user taps the banner's "x",
@@ -265,7 +274,7 @@ private:
     // NB: these inline initializers are the actual defaults. The
     // constexpr DEFAULT_*_MS values in firmwareupdater.cpp are advisory
     // documentation only — they're never used to construct these members.
-    int         m_postEraseWaitMs      = 0;       // overridden in ctor based on OS
+    int         m_postEraseWaitMs      = 0;       // set in ctor; see DEFAULT_POST_ERASE_WAIT_MS
     int         m_chunkPumpIntervalMs  = 1;
     int         m_eraseTimeoutMs       = 30000;
     int         m_verifyTimeoutMs      = 60000;   // bumped from 10000; see below

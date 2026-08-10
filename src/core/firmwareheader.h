@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -17,12 +18,14 @@
 // and HeaderChecksum (offsets 28-59 and 60-63) were added to support
 // encrypted payloads and are currently opaque to Decenza.
 //
-// Client-side validation is limited to BoardMarker equality and a
-// byte-count sanity check against the on-disk file size. The CheckSum,
-// DCSum, and HeaderChecksum algorithms are pending a protocol question
-// to Decent (see TODO(firmware-crc)); the DE1's own verify-phase
-// response (FirstError == {0xFF, 0xFF, 0xFD}) is the authoritative
-// correctness gate for the flashed image.
+// Client-side validation covers BoardMarker equality, the on-disk file
+// size against ByteCount (both a floor and a ceiling), and a set of
+// structural invariants on the remaining header fields — see
+// validateFile(). The CheckSum, DCSum and HeaderChecksum *algorithms* are
+// pending a protocol question to Decent (see TODO(firmware-crc)), so those
+// fields can only be asserted non-empty, not recomputed; the DE1's own
+// verify-phase response (FirstError == {0xFF, 0xFF, 0xFD}) remains the
+// authoritative correctness gate for the flashed image.
 
 namespace DE1::Firmware {
 
@@ -85,7 +88,8 @@ enum class Validation {
     UnreadableFile,
     TooShortHeader,
     BadBoardMarker,
-    Truncated
+    Truncated,
+    MalformedHeader
 };
 
 struct ValidationResult {
@@ -95,9 +99,11 @@ struct ValidationResult {
 };
 
 // Validate an on-disk bootfwupdate.dat. Reads the first HEADER_SIZE bytes,
-// parses them, and checks BoardMarker + file-size sanity. Does NOT compute
-// any of the opaque checksum fields — those await a protocol answer from
-// Decent (TODO(firmware-crc)).
+// parses them, and checks BoardMarker, the file size against ByteCount in
+// both directions, and the structural invariants listed at the bottom of
+// the function. Does NOT recompute the opaque checksum fields — those await
+// a protocol answer from Decent (TODO(firmware-crc)) — but does reject them
+// when zero, since no published image leaves them empty.
 inline ValidationResult validateFile(const QString& path) {
     ValidationResult result;
 
@@ -143,6 +149,53 @@ inline ValidationResult validateFile(const QString& path) {
         result.errorDetail = QStringLiteral(
             "Firmware file truncated: have %1 bytes, need at least %2 (ByteCount + header)"
         ).arg(info.size()).arg(expected);
+        return result;
+    }
+
+    // Upper bound as well as a floor. A file LONGER than its own header
+    // declares is the signature of a resume the server answered with the
+    // whole body instead of the requested range: the partial's bytes with a
+    // complete copy appended. Published images carry a small trailing pad
+    // (nightly v1352 is 463,872 bytes against a ByteCount of 461,824, so
+    // 1,984 bytes past ByteCount + 64), so the ceiling has to allow slack —
+    // but not a second image's worth. A whole duplicate body is orders of
+    // magnitude past this.
+    constexpr qint64 MAX_TRAILING_SLACK = 64 * 1024;
+    if (info.size() > expected + MAX_TRAILING_SLACK) {
+        result.status = Validation::MalformedHeader;
+        result.errorDetail = QStringLiteral(
+            "Firmware file oversized: %1 bytes against a declared %2 "
+            "(ByteCount + header). A body was appended to a partial download."
+        ).arg(info.size()).arg(expected);
+        return result;
+    }
+
+    // Internal-consistency checks, adopted from reaprime/decaid's
+    // FirmwareValidator. They cost nothing and reject a file whose header is
+    // structurally impossible — which BoardMarker plus a size floor does not,
+    // since BoardMarker sits at offset 4 and is identical in every DE1 image
+    // ever published. A file spliced from two revisions passes both of the
+    // checks above unchanged.
+    const auto& h = result.header;
+    QString malformed;
+    if (h.byteCount == 0) {
+        malformed = QStringLiteral("ByteCount is zero");
+    } else if (h.cpuBytes == 0 || h.cpuBytes > h.byteCount) {
+        malformed = QStringLiteral("CpuBytes %1 is not within ByteCount %2")
+                        .arg(h.cpuBytes).arg(h.byteCount);
+    } else if (h.unused != 0) {
+        malformed = QStringLiteral("reserved header field is %1, expected 0").arg(h.unused);
+    } else if (h.checksum == 0 || h.dcSum == 0 || h.headerChecksum == 0) {
+        // The algorithms are undocumented (TODO(firmware-crc)), so we cannot
+        // recompute these — but a real image never leaves them zero, so an
+        // all-zero field still means the header is not a published one.
+        malformed = QStringLiteral("checksum fields are incomplete");
+    } else if (std::all_of(h.iv.begin(), h.iv.end(), [](uint8_t b) { return b == 0; })) {
+        malformed = QStringLiteral("payload IV is all zeroes");
+    }
+    if (!malformed.isEmpty()) {
+        result.status = Validation::MalformedHeader;
+        result.errorDetail = QStringLiteral("Invalid DE1 firmware header: %1").arg(malformed);
         return result;
     }
 

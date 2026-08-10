@@ -207,7 +207,13 @@ public slots:
     void stopOperationUrgent(qint64 sawTriggerMs);  // Includes SAW trigger timestamp for latency tracing
     void requestIdle();           // Hard stop (requests Idle state, triggers steam purge)
     void skipToNextFrame();   // Skip to next profile frame during extraction (0x0E)
-    void goToSleep();
+    // Returns true when the sleep command actually reached the transport.
+    // False means it was dropped or deferred (flash in progress, profile
+    // upload in flight, no transport) — callers that need the machine
+    // genuinely asleep must check, not assume. Deliberately not [[nodiscard]]:
+    // most callers are fire-and-forget UI actions where a deferred sleep is
+    // fine, and only the firmware flash cares.
+    bool goToSleep();
     void wakeUp();
 
     // Profile upload
@@ -347,12 +353,21 @@ signals:
     void heaterVoltageChanged();
 
     // Firmware-update response from the DE1 (A009 notification). Carries
-    // the parsed fwToErase/fwToMap flags and the 3-byte FirstError. During
-    // Phase 1 the DE1 emits two notifications: first with fwToErase=1
-    // (erase in progress), then fwToErase=0 (erase complete). Phase 3 emits
-    // one notification whose firstError == {0xFF,0xFF,0xFD} on success.
-    void fwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
-                       QByteArray firstError);
+    // the parsed WindowIncrement, fwToErase/fwToMap flags and the 3-byte
+    // FirstError. de1app's spec describes two Phase 1 notifications —
+    // fwToErase=1 (erase in progress) then fwToErase=0 (erase complete) —
+    // but v1333+ sends only the completion one. Phase 3 emits a notification
+    // whose firstError == {0xFF,0xFF,0xFD} on success.
+    //
+    // windowIncrement is carried because it is part of what separates a
+    // terminal response from an in-progress one. It is not sufficient alone:
+    // FirstError == {0xFF,0xFF,0xFF} is the bootloader's "no error found"
+    // value and also what the caller writes into the request, so it comes
+    // back on in-progress notifications that are otherwise shaped exactly
+    // like a verdict. See FirmwareUpdater::onFwMapResponse for the full
+    // predicate.
+    void fwMapResponse(uint16_t windowIncrement, uint8_t fwToErase,
+                       uint8_t fwToMap, QByteArray firstError);
     // Emitted after the DE1 reports its stored ShotSettings (either from our
     // initial read on connect or from an indication after a write). Values
     // are the DE1's current targets; 0 means the heater/setting is off.

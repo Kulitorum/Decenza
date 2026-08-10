@@ -85,6 +85,16 @@ std::optional<Header> FirmwareAssetCache::cachedHeader() const {
     return parseHeader(bytes);
 }
 
+bool FirmwareAssetCache::versionMatchesMeta(uint32_t headerVersion) const {
+    // The sidecar's version is what the server reported for the ETag it is
+    // currently serving on this channel, read from a 64-byte Range GET during
+    // the availability check. A cached file whose header disagrees is not the
+    // file the check was about: a leftover from the other channel, or a body
+    // spliced from an older revision. Zero means we have never completed a
+    // check, so there is nothing to contradict and the file is taken as-is.
+    return m_meta.version == 0 || m_meta.version == headerVersion;
+}
+
 void FirmwareAssetCache::clearCache() {
     abortActiveReply();
     cleanUpDownloadFile();
@@ -290,6 +300,12 @@ void FirmwareAssetCache::downloadIfNeeded() {
 
     // If we already have a validated file matching the sidecar version,
     // skip the download entirely — the caller can use cachedPath/cachedHeader.
+    // Byte offset a resume should continue from; 0 means "download the whole
+    // body". Tracked explicitly rather than re-derived from the file's size
+    // later, so that a failed delete cannot silently turn a rejected file
+    // back into a resume target.
+    qint64 resumeFrom = 0;
+
     QFileInfo info(cachePath());
     qCDebug(firmwareLog) << "[firmware] downloadIfNeeded: channel="
                          << currentUrl() << "existingBytes="
@@ -297,19 +313,59 @@ void FirmwareAssetCache::downloadIfNeeded() {
                          << "metaVersion=" << m_meta.version
                          << "metaEtag=" << m_meta.etag;
     if (info.exists()) {
-        auto header = cachedHeader();
-        if (header && header->boardMarker == BOARD_MARKER &&
-            info.size() >= qint64(header->byteCount) + HEADER_SIZE) {
-            // Short-circuit: the on-disk file is *accepted without contacting
-            // the server*. Nothing here proves it came from the channel we are
-            // now on — only that its first 64 bytes parse and it is long
-            // enough. Log the version we are about to hand back so a mismatch
-            // against the UI's "Available:" is visible in the trail.
+        auto validated = validateFile(cachePath());
+        if (validated.status == Validation::Ok &&
+            versionMatchesMeta(validated.header.version)) {
+            // Short-circuit: the on-disk file is accepted without contacting
+            // the server. Log the version we hand back so a mismatch against
+            // the UI's "Available:" is visible in the trail.
             qCDebug(firmwareLog) << "[firmware] using cached file without "
-                                    "download: version=" << header->version
+                                    "download: version=" << validated.header.version
                                  << "size=" << info.size();
-            emit downloadFinished(cachePath(), *header);
+            emit downloadFinished(cachePath(), validated.header);
             return;
+        }
+        // Not usable as-is. Resuming onto it is only safe when the bytes on
+        // disk are a genuine prefix of the revision we are about to fetch —
+        // i.e. an interrupted download of *this* file. That is exactly the
+        // Truncated case with a matching Version.
+        //
+        // Any other state must be wiped rather than resumed. The resume below
+        // sends `Range: bytes=<size>-` and appends, so resuming onto a
+        // different revision splices that revision's body to the new one's
+        // tail. The result is a file of the correct total length whose first
+        // 64 bytes are a valid header — it passes BoardMarker, the size
+        // floor and every structural check, and the corruption is only
+        // discovered by the DE1 at the end of a ~18-minute flash.
+        //
+        // A known sidecar version is required, not merely a matching one:
+        // m_meta.version == 0 means we have never completed a check (or the
+        // sidecar is unreadable), so there is nothing to compare against and
+        // "matches" would be vacuously true — exactly the state the guard
+        // exists to reject. A full re-download is cheap next to flashing a
+        // wrong image.
+        const bool resumable =
+            validated.status == Validation::Truncated &&
+            m_meta.version != 0 &&
+            versionMatchesMeta(validated.header.version);
+        if (resumable) {
+            resumeFrom = info.size();
+            qCDebug(firmwareLog) << "[firmware] resuming interrupted download of "
+                                    "version" << validated.header.version
+                                 << "from byte" << resumeFrom;
+        } else {
+            qCWarning(firmwareLog) << "[firmware] discarding cached file:"
+                                   << (validated.status == Validation::Ok
+                                           ? QStringLiteral("header version %1 is not the %2 "
+                                                            "the server reported for this ETag")
+                                                 .arg(validated.header.version).arg(m_meta.version)
+                                           : validated.errorDetail);
+            // Deliberately not gated on the result: a failed remove (locked
+            // file, permissions) must not leave us resuming onto the bytes we
+            // just rejected. resumeFrom stays 0 and the file is opened with
+            // Truncate below, so the restart is clean whether or not this
+            // succeeded.
+            (void)QFile::remove(cachePath());
         }
     }
 
@@ -322,28 +378,22 @@ void FirmwareAssetCache::downloadIfNeeded() {
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
 
-    // Resume-from-partial if we have usable bytes on disk. The existing
-    // partial-size vs. expected-total check is conservative: when we have
-    // no previous ETag we don't know the expected total yet, which the
-    // rangeHeaderFor() "unknownTotal" branch handles.
-    qint64 existing = info.exists() ? info.size() : 0;
-    auto rangeHeader = rangeHeaderFor(existing, /*unknown total*/ -1);
+    auto rangeHeader = rangeHeaderFor(resumeFrom, /*unknown total*/ -1);
+    m_resumedDownload = rangeHeader.has_value();
     if (rangeHeader) {
         req.setRawHeader("Range", *rangeHeader);
-    } else {
-        // Either nothing on disk or a weird overrun → wipe and start clean.
-        if (existing > 0) {
-            QFile::remove(cachePath());
-        }
-        existing = 0;
     }
 
-    // Open the download file in append-or-create mode. QIODevice::Append is
-    // what we want: if Range was set, we pick up where the file left off;
-    // otherwise the file was just removed, so there's nothing to append
-    // over and Append is equivalent to WriteOnly.
+    // Append only when resuming; otherwise Truncate. Truncate is what makes
+    // the restart safe without trusting the delete above to have worked — an
+    // Append onto a file that failed to delete would splice the whole body
+    // onto the rejected bytes, which is the corruption this all exists to
+    // prevent.
     m_downloadFile = new QFile(cachePath());
-    if (!m_downloadFile->open(QIODevice::Append)) {
+    const auto openMode = m_resumedDownload
+                          ? QIODevice::Append
+                          : (QIODevice::WriteOnly | QIODevice::Truncate);
+    if (!m_downloadFile->open(openMode)) {
         const QString msg = QStringLiteral("Cannot open cache file for writing: %1")
                             .arg(m_downloadFile->errorString());
         cleanUpDownloadFile();
@@ -363,6 +413,30 @@ void FirmwareAssetCache::downloadIfNeeded() {
 
 void FirmwareAssetCache::onDownloadReadyRead() {
     if (!m_activeReply || !m_downloadFile) return;
+
+    // A resume is only a resume if the server honoured the Range. Servers,
+    // proxies and redirect targets are all free to ignore it and answer 200
+    // with the WHOLE body — and NoLessSafeRedirectPolicy is set, so a
+    // redirect that drops the header is reachable. Appending a full body to a
+    // partial produces an oversized file whose header is the partial's, which
+    // passes the version check (that is why the resume was allowed) and every
+    // structural check. Abandon the resume and restart clean instead.
+    if (m_resumedDownload && !m_rangeHonoured) {
+        const int status = m_activeReply->attribute(
+            QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (status != 206) {
+            qCWarning(firmwareLog) << "[firmware] resume requested but server answered"
+                                   << status << "- restarting the download from scratch";
+            abortActiveReply();
+            cleanUpDownloadFile();
+            (void)QFile::remove(cachePath());
+            m_resumedDownload = false;
+            downloadIfNeeded();   // cache file is gone, so this cannot re-resume
+            return;
+        }
+        m_rangeHonoured = true;
+    }
+
     QByteArray chunk = m_activeReply->readAll();
     if (!chunk.isEmpty()) {
         m_downloadFile->write(chunk);
@@ -396,7 +470,32 @@ void FirmwareAssetCache::onDownloadFinished() {
         return;
     }
 
+    const bool wasResumed = m_resumedDownload;
+    m_resumedDownload = false;
+    m_rangeHonoured   = false;
+
     auto result = validateFile(cachePath());
+    if (result.status == Validation::Ok && wasResumed &&
+        !versionMatchesMeta(result.header.version)) {
+        // A RESUMED body whose header is not the revision we expected is a
+        // splice: old bytes on disk, new bytes appended.
+        //
+        // This must not be applied to a fresh, complete download. startUpdate()
+        // goes straight to downloadIfNeeded() with no new HEAD, so m_meta
+        // holds whatever the last availability check wrote — 30 s after launch,
+        // then weekly. On a tablet left running for days, against a channel
+        // that republishes (nightly does, constantly), a perfectly good
+        // single-revision download can legitimately be newer than the sidecar.
+        // Rejecting that would accuse the server of splicing, delete the file,
+        // and leave Retry looping on the identical rejection until the next
+        // scheduled check — unrecoverable from the UI.
+        result.status = Validation::MalformedHeader;
+        result.errorDetail = QStringLiteral(
+            "Resumed download reports version %1, but the partial on disk was "
+            "version %2. The file was assembled from more than one revision; "
+            "it has been discarded.")
+            .arg(result.header.version).arg(m_meta.version);
+    }
     if (result.status != Validation::Ok) {
         // On any validation failure, the cached file is either invalid or
         // incomplete — either way, wipe it so the next retry starts clean
