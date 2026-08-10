@@ -579,8 +579,14 @@ void FirmwareUpdater::onDownloadFinished(QString path, Header header) {
 
 void FirmwareUpdater::onDownloadFailed(QString reason) {
     if (m_state != State::Downloading) return;
-    const bool retryable = !(m_cache && m_cache->usesBundledSource());
-    failWith(reason, retryable);
+    if (m_cache && m_cache->usesBundledSource()) {
+        qCWarning(firmwareLog).noquote()
+            << "[firmware] bundled source validation failed:" << reason;
+        failWith(QStringLiteral("The firmware file is not valid. Please report this."),
+                 /*retryable*/ false);
+        return;
+    }
+    failWith(reason, /*retryable*/ true);
 }
 
 void FirmwareUpdater::onDownloadProgress(qint64 received, qint64 total) {

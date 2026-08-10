@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QSignalBlocker>
 
 #include <algorithm>
 #include <QTemporaryDir>
@@ -587,6 +588,32 @@ private slots:
         QVERIFY(f.updater.availableChannelLabel().isEmpty());
         QVERIFY(f.updater.availableReleaseNotes().isEmpty());
         QVERIFY(!f.updater.updateAvailable());
+    }
+
+    void bundledDownloadFailure_surfacesGenericNonRetryableError() {
+        DE1Device device;
+        DE1::Firmware::FirmwareAssetCache cache;
+        FirmwareUpdater updater(&device, &cache);
+        updater.setPreconditionProvider([]{ return true; });
+        updater.setInstalledVersionProvider([]{ return 1200u; });
+
+        QSignalBlocker blockCacheSignals(&cache);
+        updater.startUpdate();
+        QCOMPARE(updater.state(), FirmwareUpdater::State::Downloading);
+        blockCacheSignals.unblock();
+
+        QTest::ignoreMessage(
+            QtWarningMsg,
+            QRegularExpression(R"(\[firmware\] bundled source validation failed:.*digest mismatch)"));
+        QTest::ignoreMessage(
+            QtWarningMsg,
+            QRegularExpression(R"(\[firmware\] FAIL phase=\s*Downloading.*reason=\s*The firmware file is not valid)"));
+        emit cache.downloadFailed(QStringLiteral("Bundled firmware digest mismatch"));
+
+        QCOMPARE(updater.state(), FirmwareUpdater::State::Failed);
+        QCOMPARE(updater.errorMessage(),
+                 QStringLiteral("The firmware file is not valid. Please report this."));
+        QVERIFY(!updater.retryAvailable());
     }
 
     void olderRemoteSetsDowngradeAvailability() {
