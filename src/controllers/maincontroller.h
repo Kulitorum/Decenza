@@ -467,6 +467,11 @@ public slots:
     // Apply the transient veto and push the resolved target (sends 0 C).
     Q_INVOKABLE void turnOffSteamHeater();
 
+    // Flip the heater from whatever it is now. The DIRECTION rule — which of the
+    // two calls above matches which resolved state — lived at two QML sites, and
+    // a sweep that changed it already missed one of them once.
+    Q_INVOKABLE void toggleSteamHeater(const QString& reason = QString());
+
     // #1161: QML already resolves a stop reason for its overlay
     // ("manual" | "weight" | "machine" | "") across every stop entry
     // point. It pushes that here via a single onStopReasonChanged handler
@@ -805,15 +810,6 @@ private:
     // Rebuild + stamp the active recipe's hot-water block from live settings
     // (selected water vessel). No-op unless a hot-water recipe is active.
     void stampActiveRecipeHotWater();
-    // True when the active recipe's steam block declares a milk drink. This is
-    // what the recipe WANTS, not what the heater does — SteamHeaterPolicy pulls
-    // it and only lets it decide when the user turned Let the recipe decide on.
-    bool activeRecipeHasMilk() const;
-    // True when the active recipe explicitly names the built-in "Heater off"
-    // entry. Distinct from "has no milk": this is a choice the user made, and it
-    // outranks hasMilk — a recipe can carry both.
-    bool activeRecipeSaysHeaterOff() const;
-
     // THE single ShotSettings write for every steam entry point. The four
     // non-steam fields are read live from Settings here, so no caller can push
     // a half-stale payload — four call sites used to hand-roll this identical

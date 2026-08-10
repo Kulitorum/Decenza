@@ -216,12 +216,12 @@ LayoutWidgetItem {
                 id: popupPillRow
                 maxWidth: Theme.scaled(600)
                 presets: Settings.brew.steamPitcherPresets
-                selectedIndex: SteamLabels.pitcherDisplayIndex()
+                selectedIndex: Settings.brew.selectedSteamPitcherDisplayIndex
                 pillSuffixMaxWidth: Theme.scaled(60)
                 pillSuffixVersion: parent.popupSuffixVersion
 
-                pillSuffixFn: function(index) { return SteamLabels.pitcherPillSuffix(index) }
-                pillLabelFn: function(index, name) { return SteamLabels.pitcherPillLabel(index, name) }
+                pillSuffixFn: function(preset) { return SteamLabels.pitcherPillSuffix(preset) }
+                pillLabelFn: function(preset, name) { return SteamLabels.pitcherPillLabel(preset, name) }
 
                 onPresetSelected: function(index) {
                     var wasAlreadySelected = (index === Settings.brew.selectedSteamPitcher)

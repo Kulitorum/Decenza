@@ -22,9 +22,9 @@ LayoutWidgetItem {
     readonly property string offLabel: SteamLabels.offReadout
     // What the readout shows: "Off" when the heater is off, the measured
     // temperature otherwise, an em dash when there is no machine to read.
-    readonly property string readoutText: !DE1Device.connected ? "\u2014"
-                                        : (root.heaterOff ? root.offLabel
-                                                          : Theme.formatTemperature(root.currentTemp, 0))
+    readonly property string readoutText: !DE1Device.connected
+        ? "\u2014"
+        : SteamLabels.temperatureText(root.heaterOff, root.currentTemp)
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

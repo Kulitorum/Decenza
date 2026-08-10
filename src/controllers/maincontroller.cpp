@@ -1929,8 +1929,12 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                 overrideIndex = SettingsBrew::HeaterOffPitcherIndex;
             } else if (!pitcherName.isEmpty()) {
                 const QVariantList presets = brew->steamPitcherPresets();
+                // -1: the synthetic built-in is appended last, and it is not a
+                // name match candidate. Counting with steamPitcherCount() here
+                // re-parsed the whole preset blob on every iteration.
+                const int realCount = static_cast<int>(presets.size()) - 1;
                 int index = -1;
-                for (int i = 0; i < brew->steamPitcherCount(); ++i) {
+                for (int i = 0; i < realCount; ++i) {
                     if (presets.at(i).toMap().value("name").toString()
                             .compare(pitcherName, Qt::CaseInsensitive) == 0) {
                         index = i;
@@ -1965,9 +1969,9 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                 brew->setLastSteamMilkG(milkG);
         }
 
-        // Cache before the re-resolve below: SteamHeaterPolicy pulls
-        // activeRecipeHasMilk() from this cache. Safe — the watchers are still
-        // behind the m_applyingRecipe guard.
+        // Cache before the re-resolve below: the policy's intent provider reads
+        // m_activeRecipe through SteamHeaterPolicy::intentForRecipe(). Safe —
+        // the watchers are still behind the m_applyingRecipe guard.
         m_activeRecipe = recipe;
         m_activeRecipe.insert(QStringLiteral("resolvedBagId"), linkedBagId);
 
@@ -2317,25 +2321,6 @@ void MainController::loadAutoLoadRecipeIfNeeded() {
     m_recipeStorage->requestRecipe(recipeId);
 }
 
-bool MainController::activeRecipeSaysHeaterOff() const {
-    if (m_activeRecipe.isEmpty())
-        return false;
-    return parseSteamBlock(m_activeRecipe.value(QStringLiteral("steamJson")).toString())
-        .value(QStringLiteral("heaterOff")).toBool();
-}
-
-bool MainController::activeRecipeHasMilk() const {
-    if (m_activeRecipe.isEmpty())
-        return false;
-    // A profile-less (hot-water tea) recipe never holds the steam heater,
-    // even if an MCP/web author attached a milk block to one — activation
-    // skipped the hold and re-sends must not re-assert it.
-    if (m_activeRecipe.value(QStringLiteral("profileTitle")).toString().trimmed().isEmpty())
-        return false;
-    return parseSteamBlock(m_activeRecipe.value(QStringLiteral("steamJson")).toString())
-        .value(QStringLiteral("hasMilk")).toBool();
-}
-
 void MainController::stampActiveRecipe(const QString& field, const QVariant& value) {
     if (m_applyingRecipe || m_activeRecipe.isEmpty() || !m_recipeStorage || !m_settings)
         return;
@@ -2368,7 +2353,7 @@ QString MainController::currentSteamSpecJson() const {
             o.insert("hasMilk", active.value("hasMilk"));
     }
     const QVariantMap pitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
-    if (pitcher.value("disabled").toBool()) {
+    if (SettingsBrew::isHeaterOffPitcher(pitcher)) {
         // "Heater off" is a CHOICE and has to be recorded as one. Dropping it —
         // which is what this did, because the built-in carries no name or values
         // worth snapshotting — made it indistinguishable from a recipe that
@@ -3602,6 +3587,16 @@ void MainController::turnOffSteamHeater() {
                          QStringLiteral("turnOffSteamHeater"))) {
         qDebug() << "Turned off steam heater (steamDisabled=true)";
     }
+}
+
+void MainController::toggleSteamHeater(const QString& reason) {
+    // One place decides which direction "toggle" means. Two QML sites carried
+    // this if/else, and the comment on one of them records that a sweep which
+    // changed the condition missed the other.
+    if (steamHeaterOn())
+        turnOffSteamHeater();
+    else
+        startSteamHeating(reason);
 }
 
 void MainController::setHotWaterFlowRateImmediate(int flow) {

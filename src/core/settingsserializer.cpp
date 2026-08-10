@@ -92,7 +92,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         // Per-pitcher steam temperature; legacy presets (and pre-temperature
         // backups) fall back to the current global steam temperature. Disabled
         // presets carry no temperature — the heater is off for them.
-        if (!m.value("disabled").toBool())
+        if (!SettingsBrew::isHeaterOffPitcher(m))
             p["temperature"] = m.contains("temperature") ? m["temperature"].toDouble()
                                                          : settings->brew()->steamTemperature();
         // The weight-based-steaming feature is keyed on these, so they must round-trip.

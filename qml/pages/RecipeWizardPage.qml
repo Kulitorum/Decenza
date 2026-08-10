@@ -3794,7 +3794,7 @@ T.Page {
                             value: {
                                 var parts = []
                                 if (wizardPage.fHeaterOff)
-                                    parts.push(SteamLabels.pitcherName({ disabled: true }))
+                                    parts.push(SteamLabels.heaterOffName)
                                 else if (wizardPage.fPitcherName !== "")
                                     parts.push(wizardPage.fPitcherName)
                                 if (wizardPage.fMilkWeightG > 0)

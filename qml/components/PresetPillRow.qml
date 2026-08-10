@@ -138,8 +138,13 @@ FocusScope {
 
     // Base name for layout calculation (no live suffix — avoids layout recalc on every scale tick)
     function pillLayoutName(index) {
-        var name = presets[index] ? (presets[index].name || "") : ""
-        if (pillLabelFn) name = pillLabelFn(index, name)
+        // Hand the PRESET to the callbacks, not the index. They used to look it
+        // up again from Settings, and that lookup re-parses the whole stored
+        // preset blob — twice per pill, on a path pillSuffixVersion drives from
+        // every scale weight change (~10 Hz with a scale connected).
+        var preset = presets[index]
+        var name = preset ? (preset.name || "") : ""
+        if (pillLabelFn) name = pillLabelFn(preset, name)
         if (modified && index === selectedIndex) {
             name = modifiedIsReadOnly
                 ? name + " " + TranslationManager.translate("presets.modified", "(modified)")
@@ -154,7 +159,7 @@ FocusScope {
         var _ = pillSuffixVersion  // Track for reactivity
         var name = pillLayoutName(index)
         if (pillSuffixFn) {
-            var suffix = pillSuffixFn(index)
+            var suffix = pillSuffixFn(presets[index])
             if (suffix) name = name + suffix
         }
         return name

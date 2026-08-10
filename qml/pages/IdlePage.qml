@@ -978,7 +978,7 @@ T.Page {
                         anchors.horizontalCenter: parent.horizontalCenter
                         maxWidth: steamPresetLoader.width
                         presets: Settings.brew.steamPitcherPresets
-                        selectedIndex: SteamLabels.pitcherDisplayIndex()
+                        selectedIndex: Settings.brew.selectedSteamPitcherDisplayIndex
                         supportLongPress: true
                         pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
                         pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
@@ -990,12 +990,13 @@ T.Page {
                         // the capture path (idleMilkCapture) and steam-time scaling never
                         // read this. Deliberately NOT netMilkForPitcher(): its 50–1500 g
                         // window is sized for time scaling and would zero small amounts
-                        // here. Twin of the SteamItem popup's pillSuffixFn — keep in sync.
-                        pillSuffixFn: function(index) { return SteamLabels.pitcherPillSuffix(index) }
+                        // here. The rule itself is SteamLabels' — this only wires it in,
+                        // so the SteamItem popup cannot drift from it.
+                        pillSuffixFn: function(preset) { return SteamLabels.pitcherPillSuffix(preset) }
 
                         // "<name> Pitcher" (e.g. "Small Pitcher"), except where the
                         // name already says pitcher and for the built-in entry.
-                        pillLabelFn: function(index, name) { return SteamLabels.pitcherPillLabel(index, name) }
+                        pillLabelFn: function(preset, name) { return SteamLabels.pitcherPillLabel(preset, name) }
 
                         onPresetSelected: function(index) {
                             var wasAlreadySelected = (index === Settings.brew.selectedSteamPitcher)

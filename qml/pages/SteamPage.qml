@@ -98,12 +98,10 @@ T.Page {
     readonly property string heaterOffLabel: SteamLabels.offReadout
     // The bare current-temperature readout, and the "current / target" pair.
     readonly property string currentSteamTempText:
-        steamPage.steamHeaterOff ? steamPage.heaterOffLabel
-                                 : Theme.formatTemperature(steamPage.currentSteamTemp, 0)
+        SteamLabels.temperatureText(steamPage.steamHeaterOff, steamPage.currentSteamTemp)
     readonly property string steamTempPairText:
-        steamPage.steamHeaterOff ? steamPage.heaterOffLabel
-                                 : Theme.formatTemperature(steamPage.currentSteamTemp, 0) + " / "
-                                   + Theme.formatTemperature(steamPage.targetSteamTemp, 0)
+        SteamLabels.temperaturePairText(steamPage.steamHeaterOff,
+                                        steamPage.currentSteamTemp, steamPage.targetSteamTemp)
     readonly property real targetSteamTemp: Settings.brew.steamTemperature
     // A cold boiler nobody asked to heat is not "heating up". Without the
     // steamHeaterOff term this banner animated "Heating steam..." over a

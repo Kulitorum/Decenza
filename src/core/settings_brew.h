@@ -198,6 +198,18 @@ public:
     // getSteamPitcherPreset() already treats as out of range.
     static constexpr int HeaterOffPitcherIndex = -1;
     Q_INVOKABLE bool isHeaterOffPitcher(int index) const;
+    // The same question asked of a preset MAP, for readers holding one already.
+    // Five call sites spelled `preset.value("disabled").toBool()` by hand and a
+    // sixth asked it via "builtin" instead, so two keys answered one question
+    // and each reader picked one.
+    static bool isHeaterOffPitcher(const QVariantMap& preset);
+
+    // The built-in's English label. Two things must agree on it: the name
+    // reservation that stops a user pitcher rendering identically to it, and
+    // what the MCP surface reports for the synthetic row. Renaming one alone
+    // would leave the reservation protecting a name nothing advertises — and
+    // the test that guards the reservation would still pass.
+    static QString heaterOffEnglishLabel();
 
     // The selection as a DISPLAY POSITION — what addresses a row of
     // steamPitcherPresets(), which is what every pill row, the MCP `list`
@@ -222,13 +234,14 @@ public:
     static constexpr int NoStandingPitcher = -2;
     int standingSteamPitcher() const;
     void setStandingSteamPitcher(int index);
-    // Keep the parked selection pointing at the same pitcher when the stored
-    // array changes under it. Removal and reorder BOTH need this — the live
-    // selection has had reorder handling for years and the parked one had
-    // neither, so a drag while a recipe override was active silently restored a
-    // different pitcher on deactivation.
-    void adjustStandingPitcherForRemoval(int removedIndex);
-    void adjustStandingPitcherForMove(int from, int to);
+    // Index maintenance for a stored SELECTION when the array changes under it,
+    // as pure functions so the live selection and the parked standing pitcher
+    // get identical treatment from one definition. They were two hand-copies of
+    // the same arithmetic, and the parked one had no reorder handling at all —
+    // a drag while a recipe override was active silently restored a different
+    // pitcher on deactivation. Sentinels (< 0) are positionless and pass through.
+    static int shiftedForRemoval(int index, int removedIndex);
+    static int shiftedForMove(int index, int from, int to);
 
     // Park or unwind a recipe's pitcher override, returning the index the caller
     // should now select and apply — or NoStandingPitcher for "nothing to do".
@@ -437,6 +450,10 @@ signals:
     void ignoreVolumeWithScaleChanged();
 
 private:
+    // Refuse an index addressing the synthetic built-in entry, warning as it
+    // does. `verb` completes "the built-in Heater off entry cannot be <verb>".
+    bool rejectsBuiltInPitcher(int index, const char* verb) const;
+
     mutable AppSettings m_settings;
 
     // Session-only steam-disable flag (used during descaling)

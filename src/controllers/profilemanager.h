@@ -133,8 +133,12 @@ public:
     // `steamHeaterPolicy` is THE steam-target derivation (see steamheaterpolicy.h).
     // Passing it is how uploadCurrentProfile() avoids re-deriving the steam
     // temperature itself, which it used to do from an incomplete set of inputs.
-    // When omitted, one is created over the same Settings so there is still only
-    // ever one implementation of the rule.
+    //
+    // Not defaulted, and no fallback instance: a privately-built policy has no
+    // recipe-intent provider and no event permission, so it would resolve a
+    // DIFFERENT answer — a second oracle inside the change whose whole purpose
+    // is that there is only one. Null is honest instead: uploadCurrentProfile()
+    // then leaves the steam field alone rather than inventing a value.
     explicit ProfileManager(Settings* settings, DE1Device* device,
                            MachineState* machineState,
                            ProfileStorage* profileStorage = nullptr,

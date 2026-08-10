@@ -353,11 +353,9 @@ QtObject {
                         // flag is clear, so every tap took the else branch and
                         // turned off an already-cold boiler. The same swap was made
                         // in SteamPage, DescalingPage and CustomItem; this
-                        // dispatcher was the one the sweep missed.
-                        if (!MainController.steamHeaterOn)
-                            MainController.startSteamHeating("custom-widget-toggle")
-                        else
-                            MainController.turnOffSteamHeater()
+                        // dispatcher was the one the sweep missed — which is why
+                        // the direction now lives in MainController, not here.
+                        MainController.toggleSteamHeater("custom-widget-toggle")
                     }
                     break
                 case "uploadVisualizer":

@@ -138,8 +138,7 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
     , m_settings(settings)
     , m_device(device)
     , m_machineState(machineState)
-    , m_steamHeaterPolicy(steamHeaterPolicy ? steamHeaterPolicy
-                                            : new SteamHeaterPolicy(settings, this))
+    , m_steamHeaterPolicy(steamHeaterPolicy)
     , m_profileStorage(profileStorage)
 {
     // Retry pending profile upload when machine reaches Idle, Ready, Sleep, or
@@ -2195,6 +2194,14 @@ void ProfileManager::uploadCurrentProfile() {
             // triggers an upload, and that upload is deferred behind
             // m_uploadInFlight, so it landed AFTER startSteamHeating() and undid
             // it: picking a milk recipe left the steam heater cold.
+            // No policy means no opinion about the steam target — send what the
+            // machine already holds rather than a second, differently-derived
+            // answer. Every production and test construction passes one.
+            if (!m_steamHeaterPolicy) {
+                qWarning() << "ProfileManager: no steam heater policy — skipping the profile"
+                              " upload's ShotSettings write rather than guessing a steam target";
+                return;
+            }
             double steamTemp = m_steamHeaterPolicy->commandedTemperatureC();
             m_device->setShotSettings(
                 steamTemp,

@@ -28,14 +28,14 @@ constexpr double kWaterFlowScale = 10.0;   // water preset "flowRate" is tenths 
 QJsonObject steamPitcherToJson(const QVariantMap& m, double globalTempC)
 {
     QJsonObject o;
-    const bool disabled = m.value("disabled").toBool();
+    const bool disabled = SettingsBrew::isHeaterOffPitcher(m);
     if (disabled) {
         // The built-in "Heater off" entry: no duration/flow/temperature, because
         // it does not steam. It carries no STORED name either — the app's views
         // translate the label — so name it here rather than handing an MCP client
         // a nameless row it cannot refer to or explain. English on purpose: this
         // is a protocol surface, not UI text.
-        o["name"] = QStringLiteral("Heater off");
+        o["name"] = SettingsBrew::heaterOffEnglishLabel();
         o["builtin"] = true;
         o["disabled"] = true;
         return o;
@@ -213,11 +213,11 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             if (!indexInRange(index, settings->brew()->steamPitcherCount())) {
                 result["error"] = "index out of range"; return result;
             }
+            // No second "is this disabled" check: nothing left in range can be.
+            // The built-in is refused above, the constructor migration removed
+            // every stored disabled preset, `add` refuses `disabled`, and the
+            // import loop drops them.
             const QVariantMap existing = settings->brew()->getSteamPitcherPreset(index);
-            if (existing.value("disabled").toBool()) {
-                result["error"] = "Cannot edit a disabled (Off) pitcher; delete and re-add it";
-                return result;
-            }
             const QString name = args.contains("name") ? args.value("name").toString() : existing.value("name").toString();
             const int duration = args.contains("durationSec") ? args.value("durationSec").toInt() : existing.value("duration").toInt();
             const int flow = args.contains("flowMlPerSec")
@@ -269,7 +269,6 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             if (!builtInHeaterOff && !indexInRange(index, settings->brew()->steamPitcherCount())) {
                 result["error"] = "index out of range"; return result;
             }
-            const int selection = builtInHeaterOff ? SettingsBrew::HeaterOffPitcherIndex : index;
             // Store the selection here as well as inside the shared select. The
             // write is idempotent (setSelectedSteamCup early-returns when
             // unchanged), and it keeps the tool's reported selectedIndex TRUE in
@@ -277,8 +276,11 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             // reporting a selection it merely delegated. What must not be
             // duplicated is the RULE (which values, which vetoes); a single
             // idempotent assignment is not that.
-            settings->brew()->setSelectedSteamCup(selection);
-            applySteamPitcher(selection);
+            //
+            // The sentinel normalisation is NOT re-derived here: the setter owns
+            // it, and reading the stored value back is what carries it forward.
+            settings->brew()->setSelectedSteamCup(index);
+            applySteamPitcher(settings->brew()->selectedSteamPitcher());
             result["success"] = true;
             // Report the same index space `list` does. Echoing the stored value
             // answered a select of the built-in's row with -1, contradicting the

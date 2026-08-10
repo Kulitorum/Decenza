@@ -288,9 +288,7 @@ KeyboardAwareContainer {
                             // "Off" from the resolved state, not from the measured
                             // temperature — a cooling boiler still reads hot.
                             text: TranslationManager.translate("settings.preferences.current", "Current:") + " "
-                                  + (MainController.steamHeaterOn
-                                     ? Theme.formatTemperature(temp, 0)
-                                     : SteamLabels.offReadout)
+                                  + SteamLabels.temperatureText(!MainController.steamHeaterOn, temp)
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)

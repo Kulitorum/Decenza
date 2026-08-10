@@ -58,32 +58,31 @@ void SteamHeaterPolicy::setEventPermission(bool granted)
 
 SteamTarget SteamHeaterPolicy::resolve() const
 {
-    SteamTarget target;
     if (!m_settings)
-        return target;
+        return SteamTarget::off();
 
     auto* brew = m_settings->brew();
     if (!brew)
-        return target;
+        return SteamTarget::off();
 
     const QVariantMap pitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
-    const bool heaterOffPitcher = pitcher.value(QStringLiteral("disabled")).toBool();
+    const bool heaterOffPitcher = SettingsBrew::isHeaterOffPitcher(pitcher);
 
     // Event permission short-circuits every veto — see setEventPermission().
     if (!eventPermission()) {
         // VETO — the effective pitcher is "Heater off", or the transient session
         // flag is set. Either forces the heater cold whatever the settings say.
         if (heaterOffPitcher)
-            return target;
+            return SteamTarget::off();
         if (brew->steamDisabled())
-            return target;
+            return SteamTarget::off();
         // VETO — Let the recipe decide, with an active recipe that steams
         // nothing. This is the setting's whole point: park an espresso and the
         // boiler goes cold even for a Keep-warm user. It applies only when a
         // recipe is actually active; with none, the recipe layer has no opinion
         // and Keep warm when idle is unopposed.
         if (brew->letRecipeDecide() && recipeIntent() == RecipeSteamIntent::NoSteam)
-            return target;
+            return SteamTarget::off();
 
         // STATE permission — one source. Not "the user selected a pitcher": the
         // pitcher row says what the user would steam WITH, it is not a heater
@@ -94,7 +93,7 @@ SteamTarget SteamHeaterPolicy::resolve() const
         // selected" is a stale signal for "milk is coming". Let the recipe
         // decide grants its permission as an EVENT at shot start instead.
         if (!brew->keepWarmWhenIdle())
-            return target;
+            return SteamTarget::off();
     }
 
     // The effective pitcher's own temperature when it carries one, else the
