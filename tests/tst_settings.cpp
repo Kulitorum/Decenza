@@ -1265,6 +1265,30 @@ private slots:
         QCOMPARE(brew->standingSteamPitcher(), SettingsBrew::NoStandingPitcher);
     }
 
+    // A recipe carrying the heater-off marker selects the BUILT-IN, and the
+    // preset list does not grow. The marker is a reference to the one synthetic
+    // entry, so materialising it as a stored preset — the obvious way to make
+    // "the recipe's pitcher" uniform — would put a second unremovable "Heater
+    // off" row in every picker, one per recipe activated.
+    void aMarkerRecipeSelectsTheBuiltInWithoutCreatingAPreset() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Mine"), 30, 150, 150.0);
+        const int mine = brew->steamPitcherCount() - 1;
+        brew->setSelectedSteamCup(mine);
+        const int presetsBefore = brew->steamPitcherCount();
+
+        // Activation passes the sentinel, as SteamHeaterPolicy's marker path does.
+        const int select = brew->resolveRecipePitcherOverride(SettingsBrew::HeaterOffPitcherIndex);
+        QCOMPARE(select, int(SettingsBrew::HeaterOffPitcherIndex));
+        brew->setSelectedSteamCup(select);
+
+        QCOMPARE(brew->steamPitcherCount(), presetsBefore);
+        QVERIFY(brew->getSteamPitcherPreset(brew->selectedSteamPitcher())
+                    .value("builtin").toBool());
+        // ...and the user's own pitcher is parked, so deactivating returns it.
+        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher), mine);
+    }
+
     // Recipe-to-recipe switching must not re-park. Without the guard the second
     // activation would store the FIRST recipe's pitcher as if the user had
     // chosen it, and deactivating would restore a drink, not a setting.

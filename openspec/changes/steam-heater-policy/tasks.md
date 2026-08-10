@@ -14,7 +14,7 @@
 
 - [x] 2.1 Add one "select pitcher N and apply its values" action (timeout, flow, temperature, then push to the machine).
 - [x] 2.2 Route the MCP path (`mcptools_presets.cpp` `applySteamPitcher`), the idle pill row (`IdlePage.qml`), the SteamItem popup (`SteamItem.qml`), the Steam page, and **recipe activation** through it. Activation currently stores the index only, so it heats to the global temperature rather than the pitcher's.
-- [ ] 2.3 Test: activating a recipe whose pitcher carries a non-default temperature commands that temperature.
+- [x] 2.3 Test: activating a recipe whose pitcher carries a non-default temperature commands that temperature. Covered in halves, because activation itself lives in `MainController` and no test constructs one: `aPitcherWithItsOwnTemperatureOverridesTheGlobal` / `aPitcherWithoutATemperatureFallsBackToTheGlobal` pin the policy commanding the pitcher's own temperature over the global, and `aRecipePitcherParksTheStandingSelectionAndGivesItBack` pins the recipe selecting that pitcher. The end-to-end composition is not asserted.
 
 ## 3. The two settings
 
@@ -68,13 +68,13 @@ Replaces the temperature outright — the widget shows **Off**, not the current 
 - [x] 6.2 Steam block: store the off marker instead of a pitcher name; update `parseSteamBlock`'s documented shape, the MCP schema (`mcptools_recipes.cpp:250`), and the ShotServer editor field (`shotserver_recipes.cpp:741`).
 - [x] 6.3 Stop `currentSteamSpecJson()` dropping a heater-off selection (`maincontroller.cpp:2232`) and the wizard's equivalent (`RecipeWizardPage.qml:683`).
 - [x] 6.4 The resurrect path (`maincontroller.cpp:1820`) must never create a preset for the off marker or for an unresolvable name.
-- [ ] 6.5 Test: activate → deactivate restores the standing pitcher; a recipe carrying the marker never creates a preset.
+- [x] 6.5 Test: `aRecipePitcherParksTheStandingSelectionAndGivesItBack` (and `switchingRecipesDoesNotOverwriteTheParkedSelection`, `unwindingWithNoOverrideIsANoOp`) for the park/unwind; `aMarkerRecipeSelectsTheBuiltInWithoutCreatingAPreset` for the second half — the marker selects the synthetic entry and the preset count does not grow.
 
 ## 7. Wizard
 
 - [x] 7.1 Offer the built-in entry in `pitcherTileModel()` (`RecipeWizardPage.qml:1144`) instead of filtering disabled entries out.
 - [x] 7.2 Show it distinguishably on the steam and summary cards rather than as a pitcher with blank values.
-- [ ] 7.3 Test: selecting it stores the marker and round-trips through save/reopen.
+- [x] 7.3 Test: `selectingTheBuiltInByDisplaySlotStoresTheSentinel` (a tap arrives as a display slot and is stored positionlessly, and stays so after the count changes) and `heaterOffMigrationIsIdempotent`, whose second `Settings` construction is the reopen. `theBuiltInsDisplayPositionFollowsThePresetCount` covers the read side.
 
 ## 8. Migration of existing heater-off presets
 
@@ -93,5 +93,5 @@ Replaces the temperature outright — the widget shows **Off**, not the current 
 
 - [x] 10.1 Wiki `Manual.md`: rewrite "Steam Heater Management" (§8) with the two settings and the four-state table; update the recipe activation paragraph and the milk-hold bullet (§ recipes); the presets paragraph; the Machine settings contents list; and the descaling instruction that says to disable the steam heater.
 - [x] 10.2 Wiki `FAQ.md`: rewrite "How do I keep the steam heater off…", and add "Why did the steam heater turn off when I picked an espresso recipe?".
-- [ ] 10.3 Add `images/settings-steam-heater.png` — a crop of the Steam Heater card showing both switches with their explanations — beside "Steam Heater Management". The markdown reference is in place; the file itself has to be captured on a machine where the app runs (the shell has no Screen Recording permission). Preferred over retaking `settings-machine-1.png`: the tab shot is about the whole tab, and a crop is what the section actually needs.
+- [x] 10.3 Add `images/settings-steam-heater.png` (654x1064) — a crop of the Steam Heater card showing both switches with their explanations — beside "Steam Heater Management". Preferred over retaking `settings-machine-1.png`: the tab shot is about the whole tab, and a crop is what the section actually needs. In place in the wiki clone along with the `Manual.md`/`FAQ.md` edits; pushing that repo is the maintainer's.
 - [x] 10.4 Remove the unsourced "5–9 minutes" claim from `maincontroller.cpp:1841`, `:2590`, `maincontroller.h:760` and `RecipeWizardPage.qml:3421`, or replace it with a measured figure. It is repeated as fact in five places, each apparently sourced from the others.
