@@ -93,5 +93,5 @@ Replaces the temperature outright — the widget shows **Off**, not the current 
 
 - [x] 10.1 Wiki `Manual.md`: rewrite "Steam Heater Management" (§8) with the two settings and the four-state table; update the recipe activation paragraph and the milk-hold bullet (§ recipes); the presets paragraph; the Machine settings contents list; and the descaling instruction that says to disable the steam heater.
 - [x] 10.2 Wiki `FAQ.md`: rewrite "How do I keep the steam heater off…", and add "Why did the steam heater turn off when I picked an espresso recipe?".
-- [ ] 10.3 Retake `images/settings-machine-1.png` once the two switches ship.
+- [ ] 10.3 Add `images/settings-steam-heater.png` — a crop of the Steam Heater card showing both switches with their explanations — beside "Steam Heater Management". The markdown reference is in place; the file itself has to be captured on a machine where the app runs (the shell has no Screen Recording permission). Preferred over retaking `settings-machine-1.png`: the tab shot is about the whole tab, and a crop is what the section actually needs.
 - [x] 10.4 Remove the unsourced "5–9 minutes" claim from `maincontroller.cpp:1841`, `:2590`, `maincontroller.h:760` and `RecipeWizardPage.qml:3421`, or replace it with a measured figure. It is repeated as fact in five places, each apparently sourced from the others.
