@@ -759,10 +759,12 @@ T.Page {
                     }
                     break
                 case "steam":
-                    presets = Settings.brew.steamPitcherPresets
-                    if (Settings.brew.selectedSteamPitcher >= 0 && Settings.brew.selectedSteamPitcher < presets.length) {
-                        selectedName = presets[Settings.brew.selectedSteamPitcher].name
-                    }
+                    // Resolve through the helper, not by position: the built-in
+                    // "Heater off" pitcher is stored as a sentinel, so a `>= 0`
+                    // index test announced an empty name for a perfectly valid
+                    // selection.
+                    selectedName = SteamLabels.pitcherName(
+                        Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher))
                     break
                 case "hotwater":
                     // Announce the visible page (the row just reset to page 1).

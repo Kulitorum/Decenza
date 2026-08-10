@@ -687,13 +687,19 @@ T.Page {
     // the shot predates steam snapshots). Mirrors currentSteamSpecJson().
     function currentSteamSnapshot() {
         var s = {}
-        var idx = Settings.brew.selectedSteamPitcher
-        var presets = Settings.brew.steamPitcherPresets
-        if (idx >= 0 && idx < presets.length && !presets[idx].disabled) {
-            s.pitcherName = presets[idx].name || ""
-            s.durationSec = presets[idx].duration || 0
-            s.flow = presets[idx].flow || 0
-            s.temperatureC = presets[idx].temperature || 0
+        // "Heater off" is a PITCHER, so snapshotting the current state has to
+        // record it like any other. Testing only for a real preset dropped it,
+        // and a drink promoted while it was selected reopened as one that had
+        // never been asked the question. Resolved through getSteamPitcherPreset
+        // so the sentinel and the display slot both answer.
+        var current = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+        if (current && current.disabled === true) {
+            s.heaterOff = true
+        } else if (current && (current.name || "") !== "") {
+            s.pitcherName = current.name
+            s.durationSec = current.duration || 0
+            s.flow = current.flow || 0
+            s.temperatureC = current.temperature || 0
         }
         if (Settings.brew.lastSteamMilkG > 0)
             s.milkWeightG = Settings.brew.lastSteamMilkG
