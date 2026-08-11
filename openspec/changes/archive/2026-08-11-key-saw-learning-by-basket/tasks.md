@@ -9,17 +9,20 @@
       `saw/basketKeyMigrated`): copy each pre-basket bucket into the baskets THAT PROFILE was
       pulled with, tag entries `inherited`, skip untried combinations and profiles absent from the
       window, never overwrite a basket that has data, leave the two-segment keys in place, set the
-      flag only on a complete run, and clear it in `resetSawLearning()`
+      flag only on a demonstrated-successful read, and clear it in `resetSawLearning()` and
+      `sawLearningImport()`
 - [x] 1.4 Widen `recomputeGlobalSawBootstrap` to take contributions from every per-basket bucket on
-      the scale type, skipping buckets whose newest median is `inherited` so one seeded batch cannot
-      vote once per basket; key and IQR fencing unchanged
-- [x] 1.5 Make `resetSawLearningForProfile` clear every basket bucket plus the legacy tier for the
-      `(profile, scale)` pair, and update the MCP tool's description to match — no new tool
+      the scale type, skipping buckets whose newest median is `inherited` AND the two-segment source
+      bucket (frozen, so it would vote its own past forever) so one seeded batch cannot vote once per
+      basket; key and IQR fencing unchanged
+- [x] 1.5 Make `resetSawLearningForProfile` clear every basket bucket plus the pre-basket bucket for
+      the `(profile, scale)` pair, and update the MCP tool's description to match — no new tool
 - [x] 1.6 Extend `tst_saw_settings`: two baskets on one profile+scale learn independently, `(none)` is
       its own bucket, a basket switch mid-batch leaves the pending batch with its original basket, no
-      new write ever lands on a two-segment key, and the migration re-keys, carries pending batches
+      new write ever lands on a two-segment key, and the copy carries buckets forward, carries pending batches
       without committing, untried combinations and absent profiles are skipped, a basket with its own
-      data is never overwritten, a partial run leaves the flag unset, no equipment recorded uses the
+      data is never overwritten, an empty basket set over a store with buckets is refused, a partial
+      run leaves the flag unset, no equipment recorded uses the
       no-basket value, and inherited medians do not vote in the bootstrap
 
 - [x] 1.7 Source the combinations from the shot history, not the equipment inventory: add
@@ -39,18 +42,20 @@
 
 ## 3. Calibration tab
 
-- [x] 3.1 Show the active basket alongside profile and scale in the SAW card, and add the
-      basket-blind legacy tier to the model-source suffix set
-- [x] 3.2 Make the per-profile reset button's label and confirmation state that it clears every basket
-      for the active profile and scale
+- [x] 3.1 Name the profile, scale and basket the displayed value belongs to in the SAW card (the
+      profile was missing before this change), with a dye dependency on the lag/tier bindings so a
+      basket switch does not leave the new name beside the old number
+- [x] 3.2 Offer a profile-scoped reset that clears every basket for the active profile and scale,
+      visible when that scope has data (not when its tier happens to be winning), and put the
+      full wipe behind a confirmation
 - [ ] 3.3 Open the Calibration tab in a running build and confirm the suffix and reset wording (QML has
       no test harness)
 
 ## 4. Documentation and close-out
 
 - [x] 4.1 Update `docs/CLAUDE_MD/SAW_LEARNING.md`: three-part key, storage schema table, read-path
-      chain with the legacy tier, logging table, and the measured basket data from proposal.md as the
-      evidence section
+      chain, the one-time copy and its failure gating, logging table, and the measured basket data
+      from proposal.md as the evidence section
 - [x] 4.2 Record the transport measurement in `SAW_LEARNING.md` as the reason the three Half Decent
       Scale transports stay separate — the split currently has no stated justification beyond a
       `scaletypeids.h` comment, and the next reader will otherwise re-propose the merge

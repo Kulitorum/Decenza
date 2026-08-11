@@ -39,6 +39,12 @@ committed medians. The system SHALL NOT retain a permanent basket-blind fallback
 attribute the history to a single basket, and SHALL NOT seed a combination that was never
 pulled.
 
+Because no reader consults pre-basket keys once the copy is marked complete, the system SHALL
+treat any answer it cannot distinguish from failure as failure: it SHALL mark the copy complete
+only on a history read that demonstrably succeeded, and SHALL leave it open — to retry on a later
+launch — on a failed read, an unavailable store, or an empty result over a store that still holds
+pre-basket buckets.
+
 #### Scenario: Every basket in recent use keeps predicting what it predicted before
 
 - **WHEN** a store containing pre-basket `(profile, scale)` history is opened by a build that
@@ -80,6 +86,34 @@ pulled.
   history
 - **THEN** those buckets SHALL NOT contribute, so one batch of shots cannot count once per
   basket
+- **AND** the pre-basket bucket the copies came from SHALL NOT contribute either, since nothing
+  updates it again and it would otherwise vote a frozen snapshot of its own past forever
+
+#### Scenario: A failed or unavailable history read does not close the copy
+
+- **WHEN** the query behind the basket set fails, or the shot store cannot be opened or is not
+  ready
+- **THEN** no result SHALL be delivered to the copy step
+- **AND** the copy SHALL remain open so a later launch retries it
+
+#### Scenario: An empty result over a store holding pre-basket buckets is refused
+
+- **WHEN** the copy step is handed an empty basket set while pre-basket buckets still exist
+- **THEN** it SHALL refuse the answer, copy nothing, and leave itself open
+- **AND** it SHALL record that it did so
+
+#### Scenario: Every outcome is recorded, including copying nothing
+
+- **WHEN** the copy step finishes, whether it created buckets or not
+- **THEN** it SHALL emit a user-visible record of the outcome, including how many pre-basket
+  buckets were left behind, since after closing they are no longer read
+
+#### Scenario: Importing pre-basket learning reopens the copy
+
+- **WHEN** stop-at-weight learning is imported from a store written before basket keying (device
+  transfer or backup restore)
+- **THEN** the copy SHALL be reopened, so the imported buckets are carried onto baskets rather
+  than restored where no reader looks
 
 #### Scenario: An incomplete seed does not foreclose the rest
 
@@ -101,7 +135,7 @@ pulled.
 
 For a `(profile, scale, basket)` triple that has at least `kSawMinMediansForGraduation`
 committed medians, the predictor SHALL fit the weighted-average smoother over those medians
-(newest-first, capped at 12). The documented value of `kSawMinMediansForGraduation` SHALL match the
+(newest-first, bounded by the per-pair trim). The documented value of `kSawMinMediansForGraduation` SHALL match the
 value the code uses.
 
 #### Scenario: Graduated pair uses its committed medians
@@ -109,7 +143,7 @@ value the code uses.
 - **WHEN** a `(profile, scale, basket)` triple has at least `kSawMinMediansForGraduation`
   committed medians
 - **THEN** the predictor SHALL build the smoother input from the most recent committed medians for
-  that triple (up to 12, newest-first)
+  that triple (newest-first, bounded by the per-pair trim)
 - **AND** SHALL run the same Gaussian-weighted-average smoother as the global-pool path, with σ=0.25
 
 ### Requirement: Pre-Graduation Bootstrap Falls Through to Existing Scalar Path

@@ -1229,8 +1229,9 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
     // Rejected alternatives, both built first: a permanent basket-blind fallback tier (never
     // trims, never ages out, and keeps a second reader plus a blended tier and two extra
     // model-source values alive forever), and re-keying onto the single ACTIVE basket (which
-    // on this maintainer's own device would have labelled ~1038 shots of Decent-basket
-    // history as the 4-shot Graph basket). See docs/CLAUDE_MD/SAW_LEARNING.md.
+    // on this maintainer's own device would have labelled 1038 shots of Decent-basket
+    // history as the 4-shot Graph basket — both figures are the equipment packages' own
+    // shotCount aggregates). See docs/CLAUDE_MD/SAW_LEARNING.md.
     // An empty map cannot be a TRUE answer for a store that has pre-basket buckets: those
     // buckets exist because shots were pulled. Treat it as a failed/unavailable history read
     // and leave the flag open — closing on this answer is what would make them unreachable.

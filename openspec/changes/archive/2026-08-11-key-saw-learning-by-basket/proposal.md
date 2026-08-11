@@ -22,7 +22,8 @@ flow-matched, same bean and profile, and drip still halves. Grind remains confou
 any residual non-basket contribution would have to act through puck retention independently of both
 flow and duration.
 
-Evidence limits, stated plainly: n=3 on the Graph basket, one device, one profile. That is enough to
+Evidence limits, stated plainly: the Graph basket has 4 recorded shots, 3 of them with usable SAW
+data (1098, 1100, 1101 — 1097 ran away and never triggered a stop), so n=3; one device, one profile. That is enough to
 justify **isolating** the key — isolation only asserts the populations may differ, and if the true gap
 is smaller than measured the fix still holds, while a gap of zero costs only graduation speed. It
 would not be enough to justify a hard-coded per-basket offset, and none is proposed. This is [#847](https://github.com/Kulitorum/Decenza/issues/847)

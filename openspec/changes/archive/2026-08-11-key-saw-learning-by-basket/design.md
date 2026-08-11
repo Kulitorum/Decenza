@@ -41,7 +41,7 @@ See proposal.md — Why for the measured motivation. Design-relevant current sta
 
 ### Key shape: a third `::` segment, and segment count distinguishes the tier
 
-`sawPairKey(profile, scaleType, basketBrand, basketModel)` →
+`sawPairKey(profile, scaleType, basketKey)` →
 `"<profile>::<normalizedScaleTypeId>::<basketKey>"`. The scale segment is unchanged from today —
 per-transport, normalized exactly as it already is.
 
@@ -89,7 +89,7 @@ bootstrap: its key is unchanged.
 
 ### One-time seed into the combinations actually pulled
 
-`seedSawBucketsFromPreBasketKeys(basketKeys, inventoryComplete)` copies each two-segment bucket
+`seedSawBucketsFromPreBasketKeys(basketsByProfile, historyComplete)` copies each two-segment bucket
 into `"<profile>::<scale>::<basket>"` for every basket that profile was pulled with, guarded by
 `saw/basketKeyMigrated`. Scoped per profile, not the (profile × basket) product: a basket used
 with one profile says nothing about another, and a profile with no shots in the window is left
@@ -116,6 +116,39 @@ the FILENAME, so `MainController` maps each through `ProfileManager::titleToFile
 unresolvable title drops out. `Settings` has no handle on the shot database, which is why the
 wiring lives in `MainController` rather than with the other migrations.
 
+### Closing the copy is gated on a demonstrated success, not on absence of failure
+
+Found in review, by three reviewers independently, and worth stating as a decision because the
+first implementation looked correct and was not. Once `saw/basketKeyMigrated` is set, nothing
+reads two-segment keys — so any path that closes the flag having copied nothing orphans the user's
+entire learning history, unrecoverably. Two such paths existed:
+
+- `withTempDb` reports whether the CONNECTION opened and the body ran, **not** whether the body
+  succeeded (`dbutils.h:334-336`). Gating the emit on that let a failed query deliver an empty
+  list. There is now a separate `queryOk`, set only after the read completes.
+- The `!m_ready` early return emitted an empty list. That shape came from
+  `requestMostRecentShotId`, whose `-1` a consumer can tell apart from a real answer; an empty
+  LIST cannot be told apart from "nothing pulled recently". It now emits nothing.
+
+The seed also refuses an empty basket set when pre-basket buckets still exist — that combination
+can only be a failed read, since those buckets exist because shots were pulled. Three independent
+guards for one outcome, deliberately, because the outcome is unrecoverable and the flag is
+one-way.
+
+Two consequences elsewhere: `sawLearningImport()` clears the flag (a pre-basket export restores
+two-segment buckets, and every device has already closed the seed by then), and the seed logs at
+INFO on **every** outcome including "created nothing" — the destructive case was the one case the
+first version did not log.
+
+### The bootstrap contributor set excludes the source bucket too
+
+`recomputeGlobalSawBootstrap()` skips buckets whose newest median is `inherited`, so one copied
+batch cannot vote once per basket. It must also skip the two-segment bucket the copies came from:
+it is left in place for rollback and nothing writes it again, so it would contribute a frozen
+snapshot of its own past forever. With a single profile and basket its mere presence lifts the
+contributor count to 2 and conjures a bootstrap out of the live bucket averaged against its own
+history.
+
 ### Two rejected designs, and why each looked safer
 
 **A permanent basket-blind fallback tier** — read the two-segment bucket when the active basket
@@ -127,7 +160,8 @@ per user once.
 
 **Re-keying onto the single active basket** — one line simpler than seeding a set, and wrong in
 the case that matters: on the maintainer's own device the active package was the 4-shot Graph
-basket while ~1038 shots of history came from the Decent basket, so it would have labelled all
+basket while 1038 shots of history came from the Decent basket (both counts are the packages'
+own `shotCount` aggregates, read from the equipment inventory), so it would have labelled all
 of that history Graph. A most-used-basket rule would fix that case but still has to judge which
 basket owns a blend. Copying into every basket in use avoids the judgement entirely.
 
@@ -152,8 +186,9 @@ basket owns a blend. Copying into every basket in use avoids the judgement entir
 
 ## Migration Plan
 
-1. Ship the four-argument `sawPairKey()` with all callers updated.
-2. On first launch after upgrading, `MainController` queries the last 100 shots for the baskets in
+1. Ship the three-argument `sawPairKey()` (the basket segment arrives already normalized by
+   `sawBasketKey()`) with all callers updated.
+2. On first launch after upgrading, `MainController` queries the last 500 shots for the baskets in
    use and `seedSawBucketsFromPreBasketKeys()` copies every two-segment bucket into each of them.
 3. Rollback: the seed copies rather than moves, so the two-segment keys an older build reads are
    still there, untouched. Rolling back is lossless.
