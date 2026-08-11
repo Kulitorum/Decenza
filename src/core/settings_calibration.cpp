@@ -10,6 +10,7 @@
 // an individual shot's stop.
 #define SAWC_LOG(msg)  SAW_LOG_STDERR("Learning", msg)
 #define SAWC_WARN(msg) SAW_WARN_STDERR("Learning", msg)
+#define SAWC_INFO(msg) SAW_INFO_STDERR("Learning", msg)
 
 #include <QDateTime>
 #include <QJsonDocument>
@@ -32,12 +33,14 @@ constexpr qsizetype kBatchSize = 3;
 constexpr qsizetype kMaxPairHistory = 10;
 constexpr double kBatchMaxDeviation = 1.5;    // seconds — single lag from batch median
 
-// How many committed medians the per-pair readers actually consult.
+// The read window for sawLearnedLagFor and getExpectedDripFor. NOT every per-pair reader:
+// sawLearningEntriesFor honours its caller's maxEntries (8 or 12), and sawLearnedLagFor may
+// walk further than this to find three entries with flow > 0.5.
 constexpr qsizetype kSawReadWindow = 3;
 
 // The basket segment used when the active equipment package has no basket component.
-// Unreachable by sawBasketKey() normalization, which emits only [a-z0-9-], so it cannot
-// collide with a real basket named "(none)".
+// Unreachable by sawBasketKey() normalization: "(" and ")" are not alphanumeric, so they can
+// never reach its output. (NOT because the output is [a-z0-9-] — it is not; see sawBasketKey.)
 const QLatin1String kNoBasketKey("(none)");
 
 QJsonObject parseFlowCalBatch(const QSettings& settings) {
@@ -655,9 +658,12 @@ QJsonObject SettingsCalibration::sawLearningExport() const {
 }
 
 void SettingsCalibration::sawLearningImport(const QJsonObject& o) {
-    // A pre-basket export carries two-segment buckets, and every device has already set the
-    // seed flag on its first launch of this build — so importing without reopening the seed
-    // restores data no reader will ever look at. resetSawLearning() clears the flag for the
+    // A pre-basket export carries two-segment buckets, and a device will normally have closed
+    // the seed long before an import — so importing without reopening it restores data no
+    // reader will ever look at. Clearing is unconditional, which is safe either way: a device
+    // whose seed never closed (a failed history read) simply stays open. Note the seed only
+    // runs from MainController's constructor, so the restored data becomes readable on the
+    // NEXT launch, not at import time. resetSawLearning() clears the flag for the
     // same reason; the device-transfer path reaches HERE instead, and used not to.
     m_settings.remove("saw/basketKeyMigrated");
     if (o.contains("learningHistory"))
@@ -701,9 +707,8 @@ void SettingsCalibration::resetSawLearning() {
 bool SettingsCalibration::hasSawLearningForProfile(const QString& profileFilename,
                                                    const QString& scaleType) const {
     if (profileFilename.isEmpty()) return false;
-    // Same exact-or-"::" prefix rule as resetSawLearningForProfile, and for the same reason:
-    // profile filenames are free-form, so a bare startsWith would count "d_flow_q::decent"
-    // as data belonging to "d_flow".
+    // Same exact-or-"::" prefix rule as resetSawLearningForProfile — the reason is spelled out
+    // there (the collision is in the SCALE segment), and is deliberately not repeated here.
     const QString legacyKey = sawLegacyPairKey(profileFilename, resolveScaleKey(scaleType));
     const QString perBasketPrefix = legacyKey + QStringLiteral("::");
     const auto anyIn = [&](const QJsonObject& map) {
@@ -1147,12 +1152,17 @@ void SettingsCalibration::recomputeGlobalSawBootstrap(const QString& scaleType) 
     // medians) for the read path are a stricter bar handled in sawLearnedLagFor /
     // sawModelSource.
     //
-    // The contributor set is every bucket on this scale — each (profile, basket) bucket
-    // and each pre-basket-keying legacy bucket alike, since the loop filters on the
-    // stored "scale" field and not on key shape. That is deliberate and is what pays for
-    // the basket dimension: a brand-new basket cold-starts from this device's own history
-    // on this scale rather than from the 0.38 s constant. The bootstrap KEY stays
-    // per-scale, so a basket is never a bootstrap of its own.
+    // The contributor set is every THREE-SEGMENT bucket on this scale whose newest median is
+    // not inherited — the two exclusions are applied in the loop below and each is explained
+    // there. That is what pays for the basket dimension: a brand-new basket cold-starts from
+    // this device's own history on this scale rather than from the 0.38 s constant, without
+    // one seeded batch voting once per basket. The bootstrap KEY stays per-scale, so a basket
+    // is never a bootstrap of its own.
+    //
+    // Consequence worth knowing: a store holding only pre-basket buckets, with no seeded
+    // basket yet, now yields NO bootstrap at all (fewer than 2 contributors). That is correct
+    // — every candidate would have been a frozen snapshot — but it is a behaviour change from
+    // the version that counted them.
     QJsonObject map = loadPerProfileSawHistoryMap();
     QVector<double> lags;
     for (auto it = map.begin(); it != map.end(); ++it) {
@@ -1178,7 +1188,12 @@ void SettingsCalibration::recomputeGlobalSawBootstrap(const QString& scaleType) 
         if (flow > 0.5) lags.append(drip / flow);
     }
     if (lags.size() < 2) {
-        // Need at least 2 contributing pairs to compute a useful bootstrap median.
+        // Need at least 2 contributing buckets to compute a useful bootstrap median. Logged
+        // because the exclusions above made zero contributors reachable — an unseeded store, or
+        // one whose seed was reopened — and a silent return there leaves no per-scale prior and
+        // no explanation for it.
+        SAWC_LOG(QStringLiteral("Global bootstrap for %1 not computed — %2 eligible bucket(s)")
+                     .arg(scaleType).arg(lags.size()));
         return;
     }
     std::sort(lags.begin(), lags.end());
@@ -1237,14 +1252,21 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
     // and leave the flag open — closing on this answer is what would make them unreachable.
     // Belt and braces behind the emit-only-on-success rule in requestRecentProfileBasketPairs:
     // three independent reviewers reached this same state by different doors.
-    if (basketsByProfile.isEmpty()) {
-        const QJsonObject existing = loadPerProfileSawHistoryMap();
-        if (!existing.isEmpty()) {
-            SAWC_WARN(QStringLiteral("Basket seed got no profile/basket pairs while %1 pre-basket "
-                                     "bucket(s) exist — treating as a failed history read, "
-                                     "retrying next launch").arg(existing.size()));
-            return;
-        }
+    // Count PRE-BASKET buckets specifically, not every key: counting all of them refused
+    // forever on a store that is already migrated and legitimately has no recent shots
+    // (reachable after a device transfer, which reopens the seed) and logged a count of
+    // pre-basket buckets that did not exist.
+    const QJsonObject preExisting = loadPerProfileSawHistoryMap();
+    int preBasketCount = 0;
+    for (auto it = preExisting.begin(); it != preExisting.end(); ++it) {
+        if (it.key().count(QStringLiteral("::")) == 1 && !it.value().toArray().isEmpty())
+            ++preBasketCount;
+    }
+    if (basketsByProfile.isEmpty() && preBasketCount > 0) {
+        SAWC_WARN(QStringLiteral("Basket seed got no profile/basket pairs while %1 pre-basket "
+                                 "bucket(s) exist — treating as a failed history read, "
+                                 "retrying next launch").arg(preBasketCount));
+        return;
     }
 
     const auto seed = [&basketsByProfile](const QJsonObject& in) -> QJsonObject {
@@ -1283,11 +1305,43 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
     const QJsonObject newBatch = seed(batch);
 
     const bool changed = (newHistory != history) || (newBatch != batch);
+
+    // The third door to the same unrecoverable state, and the one the first two guards miss: a
+    // NON-empty pair map that matches nothing. Every bucket's profile segment fails the
+    // basketsByProfile lookup, nothing is copied, and the flag would close over data no reader
+    // will look at again. Reachable when every profile was renamed (old shots carry the old
+    // title, whose slug is not the filename the bucket is keyed under), when buckets were keyed
+    // on a raw TITLE by the load-profile-from-a-shot path, or when all SAW-trained profiles sit
+    // outside the shot window. With pre-basket buckets present AND profiles in the window, zero
+    // matches is far likelier a key-derivation defect than a user who retired every profile.
+    if (newHistory.size() == history.size() && preBasketCount > 0) {
+        SAWC_WARN(QStringLiteral("Basket seed matched none of %1 pre-basket bucket(s) against %2 "
+                                 "profile(s) in the window — treating as a key-derivation "
+                                 "failure, retrying next launch")
+                      .arg(preBasketCount).arg(basketsByProfile.size()));
+        return;
+    }
+
     if (newHistory != history) savePerProfileSawHistoryMap(newHistory);
     if (newBatch != batch) savePerProfileSawBatchMap(newBatch);
 
-    // Count the buckets left behind BEFORE closing the flag: once it is set they are
-    // unreachable, so this is the only record that they existed.
+    // Verify the copies reached disk BEFORE closing the one-way flag: savePerProfile* marks its
+    // cache valid unconditionally, so a failed write is invisible for the rest of the session.
+    // Same sync+status check settings_hardware.cpp:145 uses for a far less consequential value.
+    if (changed) {
+        m_settings.sync();
+        if (m_settings.status() != QSettings::NoError) {
+            SAWC_WARN(QStringLiteral("Seeded SAW buckets did not persist (QSettings status %1) — "
+                                     "leaving the seed open so it retries next launch")
+                          .arg(static_cast<int>(m_settings.status())));
+            invalidateCache();   // do not serve an unpersisted map as though it were stored
+            return;
+        }
+    }
+
+    // Count the buckets left behind BEFORE closing the flag: once set, they are unreachable
+    // unless the flag is reopened (resetSawLearning / sawLearningImport), so this is the only
+    // record that they existed.
     int orphaned = 0;
     for (auto it = history.begin(); it != history.end(); ++it) {
         if (it.key().count(QStringLiteral("::")) != 1 || it.value().toArray().isEmpty()) continue;
@@ -1302,7 +1356,7 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
     // LOGGING.md's audience rule — and the destructive case is exactly changed==false, which
     // the first version was the one case not to log. Counts are buckets CREATED, not map
     // sizes: logging newHistory.size() said "9 history bucket(s)" on a run that created two.
-    SAW_INFO_STDERR("Learning",
+    SAWC_INFO(
         QStringLiteral("Basket seed (%1): %2 profile(s) in window, created %3 history and %4 "
                        "pending bucket(s), %5 pre-basket bucket(s) had no basket in the window")
             .arg(historyComplete ? QStringLiteral("complete") : QStringLiteral("partial"))

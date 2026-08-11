@@ -280,8 +280,10 @@ public:
     // 25 baskets and use 3, and a basket used with one profile says nothing about another.
     //
     // `profileTitle` is the shot's `profile_name`, which is the profile TITLE — SAW keys use
-    // the FILENAME, so the caller maps it through ProfileManager::titleToFilename(). A title
-    // that no longer resolves (deleted profile) simply drops out.
+    // the FILENAME, so the caller maps it through ProfileManager::titleToFilename() — a PURE
+    // slug transform that consults no catalog, so a deleted profile's title still yields a
+    // filename. What actually drops out is a title whose slug matches no stored key, which is
+    // the renamed-profile case; see the caller in maincontroller.cpp.
     //
     // Bounded at `limit` rows with a small join. Deliberately NOT a DISTINCT over the whole
     // table: `shots` carries debug_log and profile_json blobs, so a full scan drags those

@@ -509,6 +509,27 @@ private slots:
         QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
     }
 
+    void aWindowThatMatchesNothingDoesNotCloseTheSeed() {
+        // The third door to the same unrecoverable state: the pair map is NON-empty, so the
+        // empty-map guard does not fire, but no bucket's profile matches it — every profile
+        // renamed, or all SAW-trained profiles outside the shot window. Nothing is copied and
+        // the flag must NOT close over data no reader will look at again.
+        QJsonObject map;
+        QJsonArray arr; arr.append(medianEntry(1.35, 1.5, "decent"));
+        map[QStringLiteral("profile_a::decent")] = arr;
+        seedPerProfileHistory(map);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Basket seed matched none of 1 pre-basket bucket\(s\))"));
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(QStringLiteral("some_other_profile"), {kBasketOne}), true);
+
+        // Still open, so the real answer still lands later.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
+    }
+
     void scopedResetDoesNotTouchAnotherTransportOfTheSameScale() {
         // The reachable prefix trap, and the destructive one: "p::decent" IS a prefix of
         // "p::decent-wifi::<basket>", so a bare startsWith in the scoped reset would wipe the

@@ -2955,7 +2955,7 @@ void ShotHistoryStorage::requestRecentProfileBasketPairs(int limit)
     runOnDbThread([this, dbPath, rowLimit, destroyed]() {
         QVariantList pairs;
         // Separate from `opened`: withTempDb reports whether the CONNECTION opened and the
-        // body RAN, not whether the body succeeded (dbutils.h:334-336). Gating the emit on
+        // body RAN, not whether the body succeeded (dbutils.h:332-333, via the SerialDbWorker contract at :358). Gating the emit on
         // `opened` alone let a failed query deliver an empty list, which closed the seed's
         // flag and orphaned every pre-basket bucket permanently.
         bool queryOk = false;
@@ -2988,6 +2988,17 @@ void ShotHistoryStorage::requestRecentProfileBasketPairs(int limit)
                 m.insert(QStringLiteral("brand"), query.value(1).toString());
                 m.insert(QStringLiteral("model"), query.value(2).toString());
                 pairs.append(m);
+            }
+            // QSqlQuery::next() returns false BOTH at end-of-result and on an error
+            // (qsql_sqlite.cpp: SQLITE_DONE sets no error, SQLITE_BUSY/ERROR/MISUSE do), so
+            // loop exit alone is not proof of a completed read — a lock outlasting
+            // busy_timeout mid-scan would deliver a TRUNCATED pair list and the seed would
+            // close over it, orphaning every profile it had not reached yet.
+            if (query.lastError().isValid()) {
+                SAW_WARN_STDERR("Learning",
+                    QStringLiteral("Basket-seed query truncated mid-read (%1) — seed deferred "
+                                   "to next launch").arg(query.lastError().text()));
+                return;
             }
             queryOk = true;   // only a read that ran to completion may be delivered
         });

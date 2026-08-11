@@ -180,14 +180,14 @@ public:
 
 
 
-    // Per-pair pending batch accumulator (5 entries before committing the batch median).
+    // Per-pair pending batch accumulator (kBatchSize entries — 3 — before the batch median).
     QJsonArray sawPendingBatch(const QString& profileFilename,
                                const QString& scaleType = QString(),
                                const QString& basketKey = QString()) const;
 
     // Basket identity as a SAW key segment: brand + model lowercased with every run of
     // non-alphanumerics collapsed to '-'. Both empty yields kNoBasketKey, which a real
-    // basket can never produce because normalization emits only [a-z0-9-]. Static and
+    // basket can never produce, because "(" and ")" are not alphanumeric. Static and
     // public so tests and callers holding a specific basket can build the same key.
     static QString sawBasketKey(const QString& brand, const QString& model);
 

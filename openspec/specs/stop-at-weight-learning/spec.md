@@ -61,7 +61,9 @@ per-transport scale type and only its contributor set widens to cover per-basket
 
 - **WHEN** the global bootstrap lag for a scale type is recomputed
 - **THEN** every `(profile, scale, basket)` bucket with committed history on that scale type SHALL
-  be eligible to contribute its most recent committed median lag
+  be eligible to contribute its most recent committed median lag, EXCEPT a bucket whose newest
+  median was copied forward by the pre-basket seed and the pre-basket bucket it was copied from
+  — neither has learned anything of its own, and counting them lets one batch vote repeatedly
 - **AND** the result SHALL remain a single scalar per scale type, so a brand-new basket still gets a
   device-specific cold-start prior
 

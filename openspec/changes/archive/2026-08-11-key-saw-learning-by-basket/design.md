@@ -47,7 +47,7 @@ per-transport, normalized exactly as it already is.
 
 `basketKey` is `brand + " " + model` lowercased with every run of non-alphanumerics collapsed to `-`
 (e.g. `Graph Coffee` + `Stepped 58→46mm` → `graph-coffee-stepped-58-46mm`). No basket → the literal
-`(none)`, which real values cannot produce because normalization emits only `[a-z0-9-]`.
+`(none)`, which real values cannot produce because `(` and `)` are not alphanumeric.
 
 A two-segment key is therefore, by construction, a pre-basket key. That is what the one-time
 migration below keys off, and it is why detecting un-migrated data needs no schema marker.
@@ -81,8 +81,10 @@ existing.
 
 ### Bootstrap pools across baskets, per scale
 
-`recomputeGlobalSawBootstrap(scale)` considers every bucket on that scale — per-basket and legacy —
-contributing each one's most recent committed median lag, IQR-fenced as today. A brand-new basket
+`recomputeGlobalSawBootstrap(scale)` considers every per-basket bucket on that scale, contributing
+each one's most recent committed median lag, IQR-fenced as today. (Review narrowed this: copied
+medians and the frozen pre-basket bucket are both excluded — see "The bootstrap contributor set
+excludes the source bucket too" below, which supersedes this paragraph.) A brand-new basket
 therefore cold-starts from this device's own experience on that scale rather than from 0.38 s. This is
 the piece that pays for the extra bucket dimension, and it is the only behavioral change to the
 bootstrap: its key is unchanged.
@@ -113,7 +115,8 @@ and `profile_json` blobs, so a full scan drags those pages along. The window is 
 limitation: a profile untouched for 500 shots is treated as untried and cold-starts from the
 bootstrap when it comes back. And `shots.profile_name` is the profile TITLE while SAW keys use
 the FILENAME, so `MainController` maps each through `ProfileManager::titleToFilename()`; an
-unresolvable title drops out. `Settings` has no handle on the shot database, which is why the
+title whose slug matches no stored key drops out — the renamed-profile case, since the
+transform consults no catalog and a DELETED profile still yields a filename. `Settings` has no handle on the shot database, which is why the
 wiring lives in `MainController` rather than with the other migrations.
 
 ### Closing the copy is gated on a demonstrated success, not on absence of failure
