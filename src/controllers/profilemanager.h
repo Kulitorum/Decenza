@@ -217,6 +217,15 @@ public:
     Q_INVOKABLE void activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind);
     Q_INVOKABLE void clearBrewOverrides();
 
+    // Arm (or clear) ONLY the brew-temperature override and push it to the machine.
+    // The temperature-only slice of activateBrewWithOverrides: set-or-clear the
+    // override against the profile baseline (tapping the profile's own temperature
+    // disarms rather than pins a redundant override), then re-upload. The
+    // brew-bar Temp Quick-Select widget uses this so a picked value actually
+    // reaches the DE1 — a bare Settings.brew.temperatureOverride write only takes
+    // effect on the next uploadCurrentProfile().
+    Q_INVOKABLE void applyTemperatureOverride(double temperatureC);
+
     // Shot latch (add-yield-ratio-anchor Decision 9): the resolved target AND
     // the dose are frozen at espressoCycleStarted and released at shot end,
     // so NOTHING — a dose write, a bean switch, a recipe activation, an

@@ -1351,6 +1351,7 @@ set(QML_FILES
     qml/components/SteamGraph.qml
     qml/components/StatusBar.qml
     qml/components/RatioPresetDialog.qml
+    qml/components/TempPickerDialog.qml
     qml/components/GrindField.qml
     qml/components/GrindPickerDialog.qml
     qml/components/GrindRowSource.qml
@@ -1477,6 +1478,7 @@ set(QML_FILES
     qml/components/layout/items/MilkWeightItem.qml
     qml/components/layout/items/RatioQuickSelectItem.qml
     qml/components/layout/items/GrindQuickSelectItem.qml
+    qml/components/layout/items/TempQuickSelectItem.qml
     qml/components/layout/items/ShotPlanItem.qml
     qml/components/layout/items/SpacerItem.qml
     qml/components/layout/LayoutActions.qml

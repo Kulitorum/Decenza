@@ -67,6 +67,7 @@ LayoutWidgetItem {
                 id: ratioValue
                 anchors.centerIn: parent
                 text: root.ratioText
+                Accessible.ignored: true   // the pill Rectangle carries Accessible.name
                 // Accent-blue value reads against the solid chip; over a background
                 // image the chip is the neutral glass scrim, so the value uses the
                 // light zone text color (like the Sleep/Quit labels on their glass).

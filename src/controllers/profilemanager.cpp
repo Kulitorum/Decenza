@@ -638,6 +638,21 @@ void ProfileManager::activateBrewWithOverrides(double dose, double yield, double
     activateBrewWithOverrides(dose, yield, YieldSpec::modeAbsolute(), temperature, grind);
 }
 
+void ProfileManager::applyTemperatureOverride(double temperatureC) {
+    // The temperature branch of activateBrewWithOverrides, on its own: set-or-clear
+    // against the profile baseline so tapping the profile's own temperature disarms
+    // the override instead of pinning a redundant one. The m_settings guard mirrors
+    // the sibling; uploadCurrentProfile() runs regardless, exactly as there.
+    if (m_settings) {
+        if (qAbs(temperatureC - m_currentProfile.espressoTemperature()) > 0.1)
+            m_settings->brew()->setTemperatureOverride(temperatureC);
+        else
+            m_settings->brew()->clearTemperatureOverride();
+    }
+    // Re-upload profile with the temperature applied to the machine frames.
+    uploadCurrentProfile();
+}
+
 void ProfileManager::clearBrewOverrides() {
     if (m_settings) {
         m_settings->brew()->clearAllBrewOverrides();
