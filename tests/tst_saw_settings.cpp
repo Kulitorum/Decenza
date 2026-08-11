@@ -509,6 +509,37 @@ private slots:
         QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
     }
 
+    void aCorruptHistoryBlobIsQuarantinedAndDoesNotCloseTheSeed() {
+        // The store used to reset a bad blob to "{}" and log "history lost" — destroying the
+        // only copy of bytes that truncation often leaves partly salvageable — and the seed
+        // would then close over the emptied store, making a recoverable loss permanent.
+        const QByteArray badBytes = QByteArrayLiteral(R"({"profile_a::decent": [{"drip": 1.35,)");
+        {
+            QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
+            qs.setValue("saw/perProfileHistory", badBytes);
+            qs.remove("saw/perProfileHistory.corrupt");
+            qs.sync();
+        }
+        m_settings.calibration()->invalidateCache();
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Corrupt saw/perProfileHistory JSON: .* quarantined)"));
+        QCOMPARE(m_settings.calibration()->allPerProfileSawHistory().size(), 0);   // triggers the read
+
+        // The raw bytes survive for recovery, with a timestamp.
+        QSettings probe(Settings::testQSettingsPath(), QSettings::IniFormat);
+        QCOMPARE(probe.value("saw/perProfileHistory.corrupt").toByteArray(), badBytes);
+        QVERIFY(!probe.value("saw/perProfileHistory.corruptAt").toString().isEmpty());
+
+        // And the seed refuses to close over the emptied store.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Basket seed deferred: the SAW store was reset)"));
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+        QVERIFY2(!probe.value("saw/basketKeyMigrated", false).toBool(),
+                 "seed closed over a store emptied by a corrupt blob");
+    }
+
     void aWindowThatMatchesNothingDoesNotCloseTheSeed() {
         // The third door to the same unrecoverable state: the pair map is NON-empty, so the
         // empty-map guard does not fire, but no bucket's profile matches it — every profile
