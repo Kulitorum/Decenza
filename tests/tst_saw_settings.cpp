@@ -398,7 +398,11 @@ private slots:
         map[QStringLiteral("profile_b::decent")] = b;   // never pulled in the window
         seedPerProfileHistory(map);
 
-        // profile_a was only ever pulled with basket one.
+        // profile_a was only ever pulled with basket one. profile_b is deliberately left
+        // behind, and the seed now warns about exactly that — the only record those buckets
+        // ever existed, so the warning is asserted rather than merely tolerated.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] 1 pre-basket SAW bucket\(s\) closed out unseeded)"));
         m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
             pulledWith(kProfileA, {kBasketOne}), true);
 
@@ -461,19 +465,72 @@ private slots:
     }
 
     void inheritedMediansDoNotVoteInTheBootstrap() {
-        // One batch of shots, copied into three baskets, must not count three times toward
-        // the cross-basket bootstrap median — that would let it drag the prior onto itself.
+        // One batch of shots, copied into three baskets, must not count three times toward the
+        // cross-basket bootstrap median — that would let it drag the device-wide prior onto
+        // itself. The earlier version of this test asserted the bootstrap was 0.0 after the
+        // seed, which held with the guard DELETED too (the seed never recomputes it): a test
+        // that could not fail. This one forces a recompute with two real contributors.
+        QJsonObject map;
+        QJsonArray arr; arr.append(medianEntry(1.35, 1.5, "decent"));   // lag 0.90
+        map[QStringLiteral("profile_a::decent")] = arr;
+        seedPerProfileHistory(map);
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne, kBasketTwo, "third-basket"}), true);
+
+        // Two OTHER profiles earn real medians, which is what triggers the recompute.
+        commitBatch(kProfileB, 0.60, 1.5);   // lag 0.40
+        commitBatch(kProfileC, 0.75, 1.5);   // lag 0.50
+
+        // Contributors must be the two real medians only -> median 0.45. If the inherited
+        // copies voted (three of them at 0.90, plus the frozen two-segment source), the
+        // median would be dragged to 0.90.
+        const double bootstrap = m_settings.calibration()->globalSawBootstrapLag(kScale);
+        QVERIFY2(qAbs(bootstrap - 0.45) < 0.03,
+                 qPrintable(QString("inherited or frozen medians voted: bootstrap %1").arg(bootstrap)));
+    }
+
+    void anEmptyWindowDoesNotCloseTheSeed() {
+        // Both database failure doors deliver an empty pair list, and closing the seed on it
+        // makes every pre-basket bucket unreachable forever. An empty window over a store that
+        // HAS buckets is a failed read, not an answer.
         QJsonObject map;
         QJsonArray arr; arr.append(medianEntry(1.35, 1.5, "decent"));
         map[QStringLiteral("profile_a::decent")] = arr;
         seedPerProfileHistory(map);
 
-        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
-            pulledWith(kProfileA, {kBasketOne, kBasketTwo, "third-basket"}), true);
+        // The refusal warning is the observable behaviour under test, not noise.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Basket seed got no profile/basket pairs while 1 pre-basket bucket\(s\) exist)"));
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys({}, true);
 
-        // Three seeded buckets exist, but none has earned a median of its own, so the
-        // bootstrap has nothing to compute from.
-        QCOMPARE(m_settings.calibration()->globalSawBootstrapLag(kScale), 0.0);
+        // The flag must still be open, so a good window later still lands the data.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
+    }
+
+    void scopedResetDoesNotTouchAnotherTransportOfTheSameScale() {
+        // The reachable prefix trap, and the destructive one: "p::decent" IS a prefix of
+        // "p::decent-wifi::<basket>", so a bare startsWith in the scoped reset would wipe the
+        // WiFi and USB scales' learning when clearing the BLE scale. The earlier assertion
+        // here used a profile-name prefix, which cannot collide ("d_flow::decent" is not a
+        // prefix of "d_flow_q::decent") and so passed with the rule removed.
+        QJsonObject map;
+        QJsonArray bt;   bt.append(medianEntry(1.35, 1.5, "decent"));
+        QJsonArray wifi; wifi.append(medianEntry(0.65, 1.5, "decent-wifi"));
+        map[QStringLiteral("profile_a::decent")] = bt;                                   // legacy arm
+        map[QStringLiteral("profile_a::decent-wifi::") + QString(kBasketOne)] = wifi;    // sibling transport
+        seedPerProfileHistory(map);
+
+        m_settings.calibration()->resetSawLearningForProfile(kProfileA, QStringLiteral("decent"));
+
+        // The BLE scale's legacy bucket is gone...
+        QVERIFY(!m_settings.calibration()->allPerProfileSawHistory().contains("profile_a::decent"));
+        QCOMPARE(m_settings.calibration()->hasSawLearningForProfile(kProfileA, QStringLiteral("decent")), false);
+        // ...and the WiFi scale is untouched.
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, QStringLiteral("decent-wifi"),
+                                                               kBasketOne).size(), 1);
+        QCOMPARE(m_settings.calibration()->hasSawLearningForProfile(kProfileA, QStringLiteral("decent-wifi")), true);
     }
 
     // ===== Batch rejection on high deviation =====

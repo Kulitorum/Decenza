@@ -383,13 +383,24 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // database, which Settings has no handle on — and it has to be the SHOT HISTORY rather
     // than the equipment inventory: a user can own 25 baskets and pull shots with 3, and
     // seeding the other 22 would fabricate buckets of borrowed data. Guarded and idempotent
-    // inside seedSawBucketsFromPreBasketKeys(); a failed query emits nothing, leaving the
-    // flag unset so it retries next launch.
+    // inside seedSawBucketsFromPreBasketKeys(). A query that fails, cannot open the DB, or
+    // runs before the store is ready emits NOTHING, so the flag stays unset and the seed
+    // retries next launch — and the seed additionally refuses an empty pair list when
+    // pre-basket buckets exist, since that combination can only be a failed read.
     connect(m_shotHistory, &ShotHistoryStorage::recentProfileBasketPairsReady, this,
             [this](const QVariantList& pairs) {
-                // Shots record the profile TITLE; SAW keys use the FILENAME. A title that no
-                // longer resolves (deleted profile) drops out, which is correct — its bucket
-                // is unreachable either way and stays put for a rollback.
+                // Shots record the profile TITLE; SAW keys use the FILENAME. titleToFilename
+                // is a PURE slug transform (profile.cpp:1767) — it consults no catalog, so a
+                // deleted profile's title still maps to a filename and the isEmpty() guard
+                // below only fires for a title with no alphanumerics at all. An earlier
+                // comment here claimed it dropped unresolvable profiles; it does not.
+                //
+                // The real residual: a RENAMED profile's old shots carry the old title, whose
+                // slug will not match the filename its bucket is keyed under, so that bucket
+                // reads as "untried" and is left behind. The save path keeps title and
+                // filename in lockstep by uniquifying the title (profilesavehelper.cpp), so
+                // this is sound today but not by construction. The count of buckets left
+                // behind is logged by the seed.
                 QHash<QString, QStringList> basketsByProfile;
                 for (const QVariant& v : pairs) {
                     const QVariantMap m = v.toMap();

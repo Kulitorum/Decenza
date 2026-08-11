@@ -156,7 +156,7 @@ Item {
                                 // while shots train another (WiFi primary, BLE actually serving).
                                 property string _scale: MachineState.activeScaleType
                                 property double _lagDep: Settings.calibration.sawLearnedLag
-                                text: { void(_lagDep);
+                                text: { void(_lagDep); void(sawSourceRow._basketDep);
                                     return Settings.calibration.sawLearnedLagFor(_profile, _scale).toFixed(2)
                                       + TranslationManager.translate("common.unit.seconds", "s"); }
                                 color: Theme.primaryColor
@@ -169,7 +169,13 @@ Item {
                             id: sawSourceRow
                             Layout.fillWidth: true
                             property double _modelDep: Settings.calibration.sawLearnedLag  // dep tracker for rebind
-                            property string _modelSource: { void(_modelDep);
+                            // Second dep tracker, for the BASKET. sawLearnedLagChanged fires on
+                            // calibration writes and resets — never on an equipment-package
+                            // switch — so without this the label named the NEW basket beside the
+                            // old basket's lag and tier, which is worse than saying nothing.
+                            property string _basketDep: Settings.dye.dyeBasketBrand + "|"
+                                                        + Settings.dye.dyeBasketModel
+                            property string _modelSource: { void(_modelDep); void(_basketDep);
                                 return Settings.calibration.sawModelSource(ProfileManager.baseProfileName, MachineState.activeScaleType); }
                             // The number is keyed on (profile, scale, basket), so the card names all
                             // three — otherwise switching any one of them changes the lag on screen
@@ -191,7 +197,7 @@ Item {
                             // void(_modelDep) first, like _modelSource above: this is a
                             // Q_INVOKABLE, so a binding that just calls it records no dependency
                             // and the button would stay visible after its own reset.
-                            property bool _hasProfileData: { void(_modelDep);
+                            property bool _hasProfileData: { void(_modelDep); void(_basketDep);
                                 return Settings.calibration.hasSawLearningForProfile(
                                     ProfileManager.baseProfileName, MachineState.activeScaleType); }
                             property string _sourceSuffix: {
@@ -255,7 +261,7 @@ Item {
                                     anchors.margins: -Theme.scaled(4)
                                     accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTimingAll", "Reset all weight stop timing")
                                     accessibleItem: resetAllText
-                                    // Confirmed, unlike the two scoped resets: this one discards
+                                    // Confirmed, unlike the scoped reset: this one discards
                                     // months of learning for EVERY profile and scale the user owns,
                                     // and it used to fire on a single tap.
                                     onAccessibleClicked: resetAllSawConfirmDialog.open()

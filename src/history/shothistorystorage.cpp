@@ -2,6 +2,7 @@
 #include "shothistorystorage.h"
 #include "core/appsettings.h"
 #include "shothistorystorage_internal.h"
+#include "machine/sawlogging.h"   // SAW_WARN_STDERR: the basket-seed query is a [SAW] line
 #include "coffeebagstorage.h"
 #include "equipmentstorage.h"
 #include "equipmentlogging.h"
@@ -2937,7 +2938,14 @@ void ShotHistoryStorage::requestMostRecentShotId()
 void ShotHistoryStorage::requestRecentProfileBasketPairs(int limit)
 {
     if (!m_ready) {
-        emit recentProfileBasketPairsReady({});
+        // Deliberately NO emit. This pattern came from requestMostRecentShotId, whose -1
+        // sentinel a consumer can tell apart from a real answer — an empty LIST cannot be
+        // told apart from "nothing pulled recently", and the one consumer closes a one-time
+        // migration on that answer. A store whose initialize() failed is exactly the store
+        // that must retry next launch, not the one to foreclose.
+        SAW_WARN_STDERR("Learning",
+            QStringLiteral("Basket-seed query skipped: shot history not ready (DB init "
+                           "failed?) — seed deferred to next launch"));
         return;
     }
 
@@ -2946,21 +2954,32 @@ void ShotHistoryStorage::requestRecentProfileBasketPairs(int limit)
     auto destroyed = m_destroyed;
     runOnDbThread([this, dbPath, rowLimit, destroyed]() {
         QVariantList pairs;
+        // Separate from `opened`: withTempDb reports whether the CONNECTION opened and the
+        // body RAN, not whether the body succeeded (dbutils.h:334-336). Gating the emit on
+        // `opened` alone let a failed query deliver an empty list, which closed the seed's
+        // flag and orphaned every pre-basket bucket permanently.
+        bool queryOk = false;
         bool opened = withTempDb(dbPath, "shs_pbpairs", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             // Inner LIMIT first so the join runs over `rowLimit` rows, not the whole table.
-            // Basket identity resolves through the equipment_id pointer, the same way the
-            // grinder-identity queries in shothistorystorage_queries.cpp do it.
+            // ORDER BY id LIMIT 1 per package matches equipmentstorage.cpp:817 and :1134:
+            // there is no unique key on (package_id, kind), so a plain join fans out over a
+            // duplicate basket row and would seed a bucket currentBasketKey() never produces.
             query.prepare(
-                "SELECT DISTINCT s.profile_name, COALESCE(eb.brand, ''), COALESCE(eb.model, '') "
+                "SELECT DISTINCT s.profile_name, "
+                "  COALESCE((SELECT b.brand FROM equipment_items b "
+                "            WHERE b.package_id = s.equipment_id AND b.kind = 'basket' "
+                "            ORDER BY b.id LIMIT 1), ''), "
+                "  COALESCE((SELECT b.model FROM equipment_items b "
+                "            WHERE b.package_id = s.equipment_id AND b.kind = 'basket' "
+                "            ORDER BY b.id LIMIT 1), '') "
                 "FROM (SELECT profile_name, equipment_id FROM shots "
-                "      ORDER BY timestamp DESC LIMIT :limit) s "
-                "LEFT JOIN equipment_items eb "
-                "  ON eb.package_id = s.equipment_id AND eb.kind = 'basket'");
+                "      ORDER BY timestamp DESC LIMIT :limit) s");
             query.bindValue(":limit", rowLimit);
             if (!query.exec()) {
-                qWarning() << "ShotHistoryStorage: recent profile/basket pairs query failed:"
-                           << query.lastError().text();
+                SAW_WARN_STDERR("Learning",
+                    QStringLiteral("Basket-seed query failed, seed deferred to next launch: %1")
+                        .arg(query.lastError().text()));
                 return;
             }
             while (query.next()) {
@@ -2970,10 +2989,16 @@ void ShotHistoryStorage::requestRecentProfileBasketPairs(int limit)
                 m.insert(QStringLiteral("model"), query.value(2).toString());
                 pairs.append(m);
             }
+            queryOk = true;   // only a read that ran to completion may be delivered
         });
-        // Skip the emit on open failure: an empty list means "nothing pulled recently" to the
-        // consumer, and the SAW seed would mark itself complete on that answer.
-        if (*destroyed || !opened) return;
+        if (!opened) {
+            SAW_WARN_STDERR("Learning",
+                QStringLiteral("Basket-seed query could not open the shot DB — seed deferred "
+                               "to next launch"));
+        }
+        // Deliver ONLY a completed read: an empty list is indistinguishable from "nothing
+        // pulled recently", and the consumer closes its one-time migration on it.
+        if (*destroyed || !opened || !queryOk) return;
         QMetaObject::invokeMethod(this, [this, pairs, destroyed]() {
             if (*destroyed) return;
             emit recentProfileBasketPairsReady(pairs);

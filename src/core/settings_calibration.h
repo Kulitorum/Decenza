@@ -16,10 +16,9 @@ class Settings;
 
 // Auto flow calibration + SAW (stop-at-weight) learning. Split from Settings as
 // part of the Tier 3 domain decomposition (issue #860). Holds a non-owning
-// pointer to Settings so sawLearnedLag() / getExpectedDrip() can read the
-// current scaleType() without a public-API change. The owner pointer is used
-// ONLY for that single lookup — no other Settings surface is reached through
-// it.
+// pointer to Settings so sawLearnedLag() / getExpectedDrip() can read the current
+// scaleType() without a public-API change. TWO read-only lookups reach through it now:
+// scaleType(), and dye()'s cached basket identity via currentBasketKey(). Nothing else.
 //
 // SCALE AND BASKET KEY RESOLUTION — read this before adding a SAW call site.
 //
@@ -148,7 +147,7 @@ public:
     // pending batches, all bootstrap values, the basket-seed flag, and (via
     // sawLearningResetRequested) the hot-water offset. Months of learning for every profile
     // the user owns, so the Calibration card puts it behind a confirmation and offers the
-    // two scoped resets below alongside it — it used to be the ONLY affordance shown
+    // scoped reset below alongside it — it used to be the ONLY affordance shown
     // whenever the displayed value came from a global tier, one tap, no confirm.
     Q_INVOKABLE void resetSawLearning();
 
@@ -283,8 +282,9 @@ private:
     QJsonObject loadPerProfileSawBatchMap() const;
     void savePerProfileSawBatchMap(const QJsonObject& map);
     // The per-basket key: "<profile>::<scaleId>::<basketKey>". Its two-segment sibling
-    // below is the SAME string every build before basket keying wrote, which is why the
-    // legacy tier needs no migration: segment count IS the tier marker.
+    // below is the SAME string every build before basket keying wrote, which is how the
+    // seed spots data it has not carried yet. There is no legacy READ tier; segment count
+    // marks un-migrated data, not a tier.
     static QString sawPairKey(const QString& profileFilename, const QString& scaleType,
                               const QString& basketKey);
     static QString sawLegacyPairKey(const QString& profileFilename, const QString& scaleType);
@@ -298,15 +298,16 @@ private:
     // resolve" cannot be implemented three subtly different ways.
     QString resolveScaleKey(const QString& explicitKey) const;
 
-    // Same contract as resolveScaleKey, for the basket segment: an explicit key is used
-    // as given, an empty one resolves via currentBasketKey().
+    // NOT the same contract as resolveScaleKey in the one way that matters: that one
+    // NORMALIZES an explicit key, this one uses it verbatim — so an explicit basketKey must
+    // already be sawBasketKey() output, or it opens a bucket no reader finds. Empty resolves.
     QString resolveBasketKey(const QString& explicitKey) const;
 
     // The graduation test in one place: this triple's committed medians, or empty.
     QJsonArray graduatedPairHistory(const QString& profileFilename, const QString& scaleType,
                                     const QString& basketKey) const;
 
-    Settings* m_owner = nullptr;  // Non-owning; used ONLY for currentScaleType() lookup.
+    Settings* m_owner = nullptr;  // Non-owning; currentScaleType() + currentBasketKey() only.
     std::function<QString()> m_servingScaleType;  // See setServingScaleTypeProvider().
     // Last non-canonical serving id already reported, so the diagnostic in
     // currentScaleType() logs once per distinct scale rather than on every SAW read.
