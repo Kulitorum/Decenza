@@ -1335,7 +1335,15 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
         return;
     }
 
-    const auto seed = [&basketsByProfile](const QJsonObject& in) -> QJsonObject {
+    // Counted INSIDE the copy loop, never re-derived in a second pass: the target-key derivation
+    // must exist at one site only, or the copy and the count are free to drift apart silently.
+    struct SeedStats {
+        int matched = 0;      // pre-basket buckets with data AND at least one basket in the window
+        int alreadyFull = 0;  // of those, the ones whose every target bucket already existed
+    };
+    SeedStats historyStats;
+    const auto seed = [&basketsByProfile](const QJsonObject& in,
+                                         SeedStats* stats = nullptr) -> QJsonObject {
         QJsonObject out = in;
         for (auto it = in.begin(); it != in.end(); ++it) {
             const QString key = it.key();
@@ -1345,8 +1353,11 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
             if (baskets.isEmpty()) continue;                      // profile never pulled: untried
             if (it.value().toArray().isEmpty()) continue;         // nothing to inherit
 
+            bool anyTarget = false;
+            bool anyCreated = false;
             for (const QString& basket : baskets) {
                 if (basket.isEmpty()) continue;
+                anyTarget = true;
                 const QString newKey = key + QStringLiteral("::") + basket;
                 if (out.contains(newKey)) continue;               // basket already has data
                 QJsonArray arr = it.value().toArray();
@@ -1357,12 +1368,16 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
                     arr[i] = o;
                 }
                 out[newKey] = arr;
+                anyCreated = true;
             }
+            if (!anyTarget || !stats) continue;
+            ++stats->matched;
+            if (!anyCreated) ++stats->alreadyFull;                 // every target was already there
         }
         return out;
     };
 
-    const QJsonObject newHistory = seed(history);
+    const QJsonObject newHistory = seed(history, &historyStats);
     // Pending batches are copied too, so a part-filled batch is not lost — but a copied
     // batch is never committed here. The commit path owns the dispersion gate and the
     // auto-reset check, and a median minted by a migration would skip both.
@@ -1378,7 +1393,19 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
     // on a raw TITLE by the load-profile-from-a-shot path, or when all SAW-trained profiles sit
     // outside the shot window. With pre-basket buckets present AND profiles in the window, zero
     // matches is far likelier a key-derivation defect than a user who retired every profile.
-    if (newHistory.size() == history.size() && preBasketCount > 0) {
+    //
+    // "Created nothing" is NOT that state when every target already exists, and conflating the two
+    // was a live defect rather than a wording nit. sawLearningImport() clears the flag
+    // unconditionally (:679), and a donor device is normally already seeded — its three-segment
+    // buckets are all present, beside the two-segment leftovers this seed deliberately keeps for
+    // rollback. So the first launch after a device transfer created nothing, warned, and returned
+    // without closing the flag: the same WARN every launch forever, blaming the key derivation for
+    // a store that was simply already copied. Verified by clearing the flag on a seeded store and
+    // launching. matched > 0 is what separates them; matched == 0 means every pre-basket bucket's
+    // profile segment failed the lookup, which is the genuine derivation failure this guards.
+    const bool everyMatchAlreadyCopied =
+        historyStats.matched > 0 && historyStats.alreadyFull == historyStats.matched;
+    if (newHistory.size() == history.size() && preBasketCount > 0 && !everyMatchAlreadyCopied) {
         SAWC_WARN(QStringLiteral("Basket seed matched none of %1 pre-basket bucket(s) against %2 "
                                  "profile(s) in the window — treating as a key-derivation "
                                  "failure, retrying next launch")

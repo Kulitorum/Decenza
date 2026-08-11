@@ -623,6 +623,33 @@ private slots:
         QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
     }
 
+    void anAlreadySeededStoreClosesTheSeedInsteadOfWarningEveryLaunch() {
+        // sawLearningImport() clears the one-way flag, so the first launch after a device transfer
+        // re-runs the seed against a store that is ALREADY per-basket: every target exists, so
+        // nothing is created. That used to hit the matched-nothing guard — WARN, return, flag left
+        // open — and therefore the same WARN on every launch forever, accusing the key derivation
+        // of a fault it did not have. Found by clearing the flag on a real seeded store and
+        // launching, not by reading the code.
+        QJsonObject map;
+        QJsonArray legacy; legacy.append(medianEntry(1.35, 1.5, "decent"));
+        QJsonArray copied; copied.append(medianEntry(1.35, 1.5, "decent"));
+        map[QStringLiteral("profile_a::decent")] = legacy;                            // rollback leftover
+        map[QStringLiteral("profile_a::decent::") + QString(kBasketOne)] = copied;    // already seeded
+        seedPerProfileHistory(map);
+
+        // Deliberately no ignoreMessage: a WARN here fails the test under failOnWarning.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+
+        // Asserted behaviourally rather than by reading the flag from a probe QSettings: this path
+        // changes nothing, so it never syncs, and a probe would read a stale file. A closed flag
+        // means the next call returns at the top and copies nothing into the second basket.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketTwo}), true);
+        QVERIFY2(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketTwo).isEmpty(),
+                 "seed stayed open on an already-seeded store, so it re-runs on every launch");
+    }
+
     void scopedResetDoesNotTouchAnotherTransportOfTheSameScale() {
         // The reachable prefix trap, and the destructive one: "p::decent" IS a prefix of
         // "p::decent-wifi::<basket>", so a bare startsWith in the scoped reset would wipe the
