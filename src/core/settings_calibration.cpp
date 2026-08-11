@@ -654,6 +654,17 @@ QJsonObject SettingsCalibration::sawLearningExport() const {
     if (!pb.isEmpty()) o["perProfileBatch"] = QJsonDocument::fromJson(pb).object();
     if (m_settings.contains("saw/globalBootstrapLag"))
         o["globalBootstrapLag"] = m_settings.value("saw/globalBootstrapLag").toDouble();
+    // Carry any quarantined corrupt blob. Without this a device transfer taken after a
+    // corruption migrates the emptied store and leaves the only copy of the salvageable bytes
+    // behind on the old device — and the quarantine is also the seed's gate, so the new device
+    // would close the seed the transfer was supposed to preserve learning across.
+    for (const auto& key : {QStringLiteral("saw/perProfileHistory.corrupt"),
+                            QStringLiteral("saw/perProfileHistory.corruptAt"),
+                            QStringLiteral("saw/perProfileBatch.corrupt"),
+                            QStringLiteral("saw/perProfileBatch.corruptAt")}) {
+        if (m_settings.contains(key))
+            o[key.mid(4)] = QString::fromUtf8(m_settings.value(key).toByteArray());
+    }
     return o;
 }
 
@@ -666,6 +677,13 @@ void SettingsCalibration::sawLearningImport(const QJsonObject& o) {
     // NEXT launch, not at import time. resetSawLearning() clears the flag for the
     // same reason; the device-transfer path reaches HERE instead, and used not to.
     m_settings.remove("saw/basketKeyMigrated");
+    for (const auto& key : {QStringLiteral("perProfileHistory.corrupt"),
+                            QStringLiteral("perProfileHistory.corruptAt"),
+                            QStringLiteral("perProfileBatch.corrupt"),
+                            QStringLiteral("perProfileBatch.corruptAt")}) {
+        if (o.contains(key))
+            m_settings.setValue(QStringLiteral("saw/") + key, o[key].toString().toUtf8());
+    }
     if (o.contains("learningHistory"))
         m_settings.setValue("saw/learningHistory", QJsonDocument(o["learningHistory"].toArray()).toJson());
     if (o.contains("perProfileHistory"))
@@ -692,6 +710,18 @@ void SettingsCalibration::resetSawLearning() {
     // pre-basket backup permanently unreadable — the buckets would come back two-segment
     // with the migration already marked done.
     m_settings.remove("saw/basketKeyMigrated");
+    // Clear the corruption latch too: this call deliberately discards every bucket, so there
+    // is nothing left for the latch to protect, and leaving it set would block the seed for
+    // the rest of the session over data the user just threw away.
+    // The quarantined blobs go too: this call is the user saying "start over", so keeping bytes
+    // they just discarded would hold the seed's gate open forever. It also keeps the "wipes EVERY
+    // saw/* key" promise on this function true.
+    for (const auto& qkey : {QStringLiteral("saw/perProfileHistory.corrupt"),
+                             QStringLiteral("saw/perProfileHistory.corruptAt"),
+                             QStringLiteral("saw/perProfileBatch.corrupt"),
+                             QStringLiteral("saw/perProfileBatch.corruptAt")}) {
+        m_settings.remove(qkey);
+    }
     m_sawHistoryCacheDirty = true;
     m_sawConvergedCache = -1;
     m_perProfileSawHistoryCacheValid = false;
@@ -814,19 +844,40 @@ QString SettingsCalibration::resolveBasketKey(const QString& explicitKey) const 
     return explicitKey.isEmpty() ? currentBasketKey() : explicitKey;
 }
 
+QJsonObject SettingsCalibration::loadSawMap(const QString& settingsKey) const {
+    // One implementation for both SAW maps. They were near-identical copies, and the
+    // quarantine below is exactly the kind of policy that would have been added to one and
+    // not the other.
+    QJsonParseError parseError;
+    const QByteArray raw = m_settings.value(settingsKey, "{}").toByteArray();
+    QJsonObject map = QJsonDocument::fromJson(raw, &parseError).object();
+    if (parseError.error == QJsonParseError::NoError) return map;
+
+    // QUARANTINE before overwriting. This used to reset the key to "{}" and log "history lost",
+    // which made the loss sound unavoidable while destroying the only copy of the bytes — and
+    // truncation from a partly-flushed write is precisely the case where they are partly
+    // salvageable.
+    //
+    // NEWEST capture wins. Keeping the first was the original instinct and it is wrong: the only
+    // case it defends is re-reading the same blob after a failed "{}" write, where overwriting is
+    // a no-op — while the case it loses is real. Truncation in month one, six months of rebuilt
+    // learning, truncation again: keep-first would retain the stale two-bucket blob and overwrite
+    // the valuable one with "{}", which is the destruction this exists to prevent. (The "a later
+    // failure re-reads our {}" reasoning was false anyway: "{}" is valid JSON.)
+    const QString quarantineKey = settingsKey + QStringLiteral(".corrupt");
+    m_settings.setValue(quarantineKey, raw);
+    m_settings.setValue(quarantineKey + QStringLiteral("At"),
+                        QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    m_settings.setValue(settingsKey, "{}");
+    SAWC_WARN(QStringLiteral("Corrupt %1 JSON: %2 — %3 bytes quarantined at %4, store reset")
+                  .arg(settingsKey, parseError.errorString())
+                  .arg(raw.size()).arg(quarantineKey));
+    return QJsonObject();
+}
+
 QJsonObject SettingsCalibration::loadPerProfileSawHistoryMap() const {
     if (m_perProfileSawHistoryCacheValid) return m_perProfileSawHistoryCache;
-    QJsonParseError parseError;
-    QJsonObject map = QJsonDocument::fromJson(
-        m_settings.value("saw/perProfileHistory", "{}").toByteArray(),
-        &parseError).object();
-    if (parseError.error != QJsonParseError::NoError) {
-        SAWC_WARN(QStringLiteral("Corrupt perProfileHistory JSON: %1 — per-profile history lost")
-                      .arg(parseError.errorString()));
-        m_settings.setValue("saw/perProfileHistory", "{}");
-        map = QJsonObject();
-    }
-    m_perProfileSawHistoryCache = map;
+    m_perProfileSawHistoryCache = loadSawMap(QStringLiteral("saw/perProfileHistory"));
     m_perProfileSawHistoryCacheValid = true;
     return m_perProfileSawHistoryCache;
 }
@@ -840,16 +891,7 @@ void SettingsCalibration::savePerProfileSawHistoryMap(const QJsonObject& map) {
 
 QJsonObject SettingsCalibration::loadPerProfileSawBatchMap() const {
     if (m_perProfileSawBatchCacheValid) return m_perProfileSawBatchCache;
-    QJsonParseError parseError;
-    QJsonObject map = QJsonDocument::fromJson(
-        m_settings.value("saw/perProfileBatch", "{}").toByteArray(),
-        &parseError).object();
-    if (parseError.error != QJsonParseError::NoError) {
-        SAWC_WARN(QStringLiteral("Corrupt perProfileBatch JSON: %1").arg(parseError.errorString()));
-        m_settings.setValue("saw/perProfileBatch", "{}");
-        map = QJsonObject();
-    }
-    m_perProfileSawBatchCache = map;
+    m_perProfileSawBatchCache = loadSawMap(QStringLiteral("saw/perProfileBatch"));
     m_perProfileSawBatchCacheValid = true;
     return m_perProfileSawBatchCache;
 }
@@ -1256,11 +1298,35 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
     // forever on a store that is already migrated and legitimately has no recent shots
     // (reachable after a device transfer, which reopens the seed) and logged a count of
     // pre-basket buckets that did not exist.
-    const QJsonObject preExisting = loadPerProfileSawHistoryMap();
+    // BOTH maps first. The order is load-bearing twice over: a quarantine is written lazily by
+    // whichever load hits the bad blob, so a gate before the batch read would miss batch-only
+    // corruption entirely, and the count below must see the post-reset store.
+    const QJsonObject history = loadPerProfileSawHistoryMap();
+    const QJsonObject batch = loadPerProfileSawBatchMap();
+
     int preBasketCount = 0;
-    for (auto it = preExisting.begin(); it != preExisting.end(); ++it) {
+    for (auto it = history.begin(); it != history.end(); ++it) {
         if (it.key().count(QStringLiteral("::")) == 1 && !it.value().toArray().isEmpty())
             ++preBasketCount;
+    }
+
+    // Gate on the PERSISTED quarantine, not a session flag. A session flag covered only the run
+    // that found the corruption — but the reset it guards is persisted, and restoring bytes can
+    // only happen between runs, so by the next launch the store parses clean, every other guard
+    // passes over an empty store, and the flag closes anyway. The quarantine key outlives the
+    // session; "bytes are still waiting to be restored" is the fact that matters.
+    //
+    // Deferring only while there is nothing to copy is deliberate: restore the blob and the
+    // pre-basket buckets reappear, so the next launch seeds normally; never restore it and the
+    // seed had no work anyway, so holding the flag open costs nothing. resetSawLearning() drops
+    // the quarantine, which is how a user says "start over" and releases the hold.
+    const bool quarantined = m_settings.contains("saw/perProfileHistory.corrupt")
+                             || m_settings.contains("saw/perProfileBatch.corrupt");
+    if (quarantined && preBasketCount == 0) {
+        SAWC_WARN(QStringLiteral("Basket seed deferred: a corrupt SAW blob is quarantined and no "
+                                 "pre-basket bucket is present to copy — closing the seed would "
+                                 "make the loss permanent if those bytes are restored"));
+        return;
     }
     if (basketsByProfile.isEmpty() && preBasketCount > 0) {
         SAWC_WARN(QStringLiteral("Basket seed got no profile/basket pairs while %1 pre-basket "
@@ -1269,7 +1335,15 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
         return;
     }
 
-    const auto seed = [&basketsByProfile](const QJsonObject& in) -> QJsonObject {
+    // Counted INSIDE the copy loop, never re-derived in a second pass: the target-key derivation
+    // must exist at one site only, or the copy and the count are free to drift apart silently.
+    struct SeedStats {
+        int matched = 0;      // pre-basket buckets with data AND at least one basket in the window
+        int alreadyFull = 0;  // of those, the ones whose every target bucket already existed
+    };
+    SeedStats historyStats;
+    const auto seed = [&basketsByProfile](const QJsonObject& in,
+                                         SeedStats* stats = nullptr) -> QJsonObject {
         QJsonObject out = in;
         for (auto it = in.begin(); it != in.end(); ++it) {
             const QString key = it.key();
@@ -1279,8 +1353,11 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
             if (baskets.isEmpty()) continue;                      // profile never pulled: untried
             if (it.value().toArray().isEmpty()) continue;         // nothing to inherit
 
+            bool anyTarget = false;
+            bool anyCreated = false;
             for (const QString& basket : baskets) {
                 if (basket.isEmpty()) continue;
+                anyTarget = true;
                 const QString newKey = key + QStringLiteral("::") + basket;
                 if (out.contains(newKey)) continue;               // basket already has data
                 QJsonArray arr = it.value().toArray();
@@ -1291,14 +1368,16 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
                     arr[i] = o;
                 }
                 out[newKey] = arr;
+                anyCreated = true;
             }
+            if (!anyTarget || !stats) continue;
+            ++stats->matched;
+            if (!anyCreated) ++stats->alreadyFull;                 // every target was already there
         }
         return out;
     };
 
-    const QJsonObject history = loadPerProfileSawHistoryMap();
-    const QJsonObject batch = loadPerProfileSawBatchMap();
-    const QJsonObject newHistory = seed(history);
+    const QJsonObject newHistory = seed(history, &historyStats);
     // Pending batches are copied too, so a part-filled batch is not lost — but a copied
     // batch is never committed here. The commit path owns the dispersion gate and the
     // auto-reset check, and a median minted by a migration would skip both.
@@ -1314,7 +1393,19 @@ void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, Q
     // on a raw TITLE by the load-profile-from-a-shot path, or when all SAW-trained profiles sit
     // outside the shot window. With pre-basket buckets present AND profiles in the window, zero
     // matches is far likelier a key-derivation defect than a user who retired every profile.
-    if (newHistory.size() == history.size() && preBasketCount > 0) {
+    //
+    // "Created nothing" is NOT that state when every target already exists, and conflating the two
+    // was a live defect rather than a wording nit. sawLearningImport() clears the flag
+    // unconditionally (:679), and a donor device is normally already seeded — its three-segment
+    // buckets are all present, beside the two-segment leftovers this seed deliberately keeps for
+    // rollback. So the first launch after a device transfer created nothing, warned, and returned
+    // without closing the flag: the same WARN every launch forever, blaming the key derivation for
+    // a store that was simply already copied. Verified by clearing the flag on a seeded store and
+    // launching. matched > 0 is what separates them; matched == 0 means every pre-basket bucket's
+    // profile segment failed the lookup, which is the genuine derivation failure this guards.
+    const bool everyMatchAlreadyCopied =
+        historyStats.matched > 0 && historyStats.alreadyFull == historyStats.matched;
+    if (newHistory.size() == history.size() && preBasketCount > 0 && !everyMatchAlreadyCopied) {
         SAWC_WARN(QStringLiteral("Basket seed matched none of %1 pre-basket bucket(s) against %2 "
                                  "profile(s) in the window — treating as a key-derivation "
                                  "failure, retrying next launch")

@@ -509,6 +509,99 @@ private slots:
         QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
     }
 
+    void aCorruptHistoryBlobIsQuarantinedAndDoesNotCloseTheSeed() {
+        // The store used to reset a bad blob to "{}" and log "history lost" — destroying the
+        // only copy of bytes that truncation often leaves partly salvageable — and the seed
+        // would then close over the emptied store, making a recoverable loss permanent.
+        const QByteArray badBytes = QByteArrayLiteral(R"({"profile_a::decent": [{"drip": 1.35,)");
+        {
+            QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
+            qs.setValue("saw/perProfileHistory", badBytes);
+            qs.remove("saw/perProfileHistory.corrupt");
+            qs.sync();
+        }
+        m_settings.calibration()->invalidateCache();
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Corrupt saw/perProfileHistory JSON: .* quarantined)"));
+        QCOMPARE(m_settings.calibration()->allPerProfileSawHistory().size(), 0);   // triggers the read
+
+        // The raw bytes survive for recovery, with a timestamp.
+        QSettings probe(Settings::testQSettingsPath(), QSettings::IniFormat);
+        QCOMPARE(probe.value("saw/perProfileHistory.corrupt").toByteArray(), badBytes);
+        QVERIFY(!probe.value("saw/perProfileHistory.corruptAt").toString().isEmpty());
+
+        // And the seed refuses to close over the emptied store.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Basket seed deferred: a corrupt SAW blob is quarantined)"));
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+        QVERIFY2(!probe.value("saw/basketKeyMigrated", false).toBool(),
+                 "seed closed over a store emptied by a corrupt blob");
+    }
+
+    void aCorruptBatchBlobAlsoDefersTheSeed() {
+        // The batch map is loaded LATER in the seed than the history map, so a gate placed
+        // before that read missed batch-only corruption entirely: the quarantine happened, then
+        // the flag closed in the same call. Both maps are now read before the gate.
+        {
+            QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
+            qs.setValue("saw/perProfileBatch", QByteArrayLiteral(R"({"profile_a::decent": [{)"));
+            qs.sync();
+        }
+        m_settings.calibration()->invalidateCache();
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Corrupt saw/perProfileBatch JSON)"));
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Basket seed deferred: a corrupt SAW blob is quarantined)"));
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+
+        QSettings probe(Settings::testQSettingsPath(), QSettings::IniFormat);
+        QVERIFY2(!probe.value("saw/basketKeyMigrated", false).toBool(),
+                 "seed closed despite a quarantined batch blob");
+    }
+
+    void theQuarantineGatesTheSeedOnLaterLaunchesToo() {
+        // The gate must be the PERSISTED quarantine, not a session flag: the reset it guards is
+        // persisted and restoring bytes can only happen between runs, so a session flag protected
+        // only the run that found the corruption. Simulate the NEXT launch — store already reset
+        // to "{}", so nothing is corrupt now and no latch could be set.
+        {
+            QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
+            qs.setValue("saw/perProfileHistory", "{}");
+            qs.setValue("saw/perProfileHistory.corrupt", QByteArrayLiteral(R"({"profile_a::decent": [{)"));
+            qs.sync();
+        }
+        m_settings.calibration()->invalidateCache();
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Basket seed deferred: a corrupt SAW blob is quarantined)"));
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+
+        QSettings probe(Settings::testQSettingsPath(), QSettings::IniFormat);
+        QVERIFY2(!probe.value("saw/basketKeyMigrated", false).toBool(),
+                 "seed closed on a later launch over a store emptied by corruption");
+    }
+
+    void resetDropsTheQuarantineSoTheSeedIsReleased() {
+        {
+            QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
+            qs.setValue("saw/perProfileHistory.corrupt", QByteArrayLiteral("bad"));
+            qs.setValue("saw/perProfileHistory.corruptAt", "2026-01-01T00:00:00Z");
+            qs.sync();
+        }
+        m_settings.calibration()->resetSawLearning();
+
+        // "Wipes EVERY saw/* key" has to include the quarantine, or the gate holds forever over
+        // data the user deliberately discarded.
+        QSettings probe(Settings::testQSettingsPath(), QSettings::IniFormat);
+        QVERIFY(!probe.contains("saw/perProfileHistory.corrupt"));
+        QVERIFY(!probe.contains("saw/perProfileHistory.corruptAt"));
+    }
+
     void aWindowThatMatchesNothingDoesNotCloseTheSeed() {
         // The third door to the same unrecoverable state: the pair map is NON-empty, so the
         // empty-map guard does not fire, but no bucket's profile matches it — every profile
@@ -528,6 +621,33 @@ private slots:
         m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
             pulledWith(kProfileA, {kBasketOne}), true);
         QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
+    }
+
+    void anAlreadySeededStoreClosesTheSeedInsteadOfWarningEveryLaunch() {
+        // sawLearningImport() clears the one-way flag, so the first launch after a device transfer
+        // re-runs the seed against a store that is ALREADY per-basket: every target exists, so
+        // nothing is created. That used to hit the matched-nothing guard — WARN, return, flag left
+        // open — and therefore the same WARN on every launch forever, accusing the key derivation
+        // of a fault it did not have. Found by clearing the flag on a real seeded store and
+        // launching, not by reading the code.
+        QJsonObject map;
+        QJsonArray legacy; legacy.append(medianEntry(1.35, 1.5, "decent"));
+        QJsonArray copied; copied.append(medianEntry(1.35, 1.5, "decent"));
+        map[QStringLiteral("profile_a::decent")] = legacy;                            // rollback leftover
+        map[QStringLiteral("profile_a::decent::") + QString(kBasketOne)] = copied;    // already seeded
+        seedPerProfileHistory(map);
+
+        // Deliberately no ignoreMessage: a WARN here fails the test under failOnWarning.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+
+        // Asserted behaviourally rather than by reading the flag from a probe QSettings: this path
+        // changes nothing, so it never syncs, and a probe would read a stale file. A closed flag
+        // means the next call returns at the top and copies nothing into the second basket.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketTwo}), true);
+        QVERIFY2(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketTwo).isEmpty(),
+                 "seed stayed open on an already-seeded store, so it re-runs on every launch");
     }
 
     void scopedResetDoesNotTouchAnotherTransportOfTheSameScale() {

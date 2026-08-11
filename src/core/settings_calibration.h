@@ -277,6 +277,11 @@ private:
 
     // INVARIANT: all writes route through savePerProfileSawHistoryMap() /
     // savePerProfileSawBatchMap() to keep the cache and QSettings in sync.
+    // Parse one saw/* JSON map. On a parse failure it quarantines the raw bytes under
+    // "<key>.corrupt" (+ ".corruptAt") before resetting the key. That quarantine is also the
+    // PERSISTED gate the one-time basket seed checks, so it will not close over a store emptied
+    // by corruption — including on a later launch, when the store parses clean again.
+    QJsonObject loadSawMap(const QString& settingsKey) const;
     QJsonObject loadPerProfileSawHistoryMap() const;
     void savePerProfileSawHistoryMap(const QJsonObject& map);
     QJsonObject loadPerProfileSawBatchMap() const;
