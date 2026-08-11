@@ -2934,6 +2934,53 @@ void ShotHistoryStorage::requestMostRecentShotId()
     });
 }
 
+void ShotHistoryStorage::requestRecentProfileBasketPairs(int limit)
+{
+    if (!m_ready) {
+        emit recentProfileBasketPairsReady({});
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    const int rowLimit = qBound(1, limit, 5000);
+    auto destroyed = m_destroyed;
+    runOnDbThread([this, dbPath, rowLimit, destroyed]() {
+        QVariantList pairs;
+        bool opened = withTempDb(dbPath, "shs_pbpairs", [&](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            // Inner LIMIT first so the join runs over `rowLimit` rows, not the whole table.
+            // Basket identity resolves through the equipment_id pointer, the same way the
+            // grinder-identity queries in shothistorystorage_queries.cpp do it.
+            query.prepare(
+                "SELECT DISTINCT s.profile_name, COALESCE(eb.brand, ''), COALESCE(eb.model, '') "
+                "FROM (SELECT profile_name, equipment_id FROM shots "
+                "      ORDER BY timestamp DESC LIMIT :limit) s "
+                "LEFT JOIN equipment_items eb "
+                "  ON eb.package_id = s.equipment_id AND eb.kind = 'basket'");
+            query.bindValue(":limit", rowLimit);
+            if (!query.exec()) {
+                qWarning() << "ShotHistoryStorage: recent profile/basket pairs query failed:"
+                           << query.lastError().text();
+                return;
+            }
+            while (query.next()) {
+                QVariantMap m;
+                m.insert(QStringLiteral("profileTitle"), query.value(0).toString());
+                m.insert(QStringLiteral("brand"), query.value(1).toString());
+                m.insert(QStringLiteral("model"), query.value(2).toString());
+                pairs.append(m);
+            }
+        });
+        // Skip the emit on open failure: an empty list means "nothing pulled recently" to the
+        // consumer, and the SAW seed would mark itself complete on that answer.
+        if (*destroyed || !opened) return;
+        QMetaObject::invokeMethod(this, [this, pairs, destroyed]() {
+            if (*destroyed) return;
+            emit recentProfileBasketPairsReady(pairs);
+        }, Qt::QueuedConnection);
+    });
+}
+
 void ShotHistoryStorage::requestShot(qint64 shotId)
 {
     if (!m_ready) {

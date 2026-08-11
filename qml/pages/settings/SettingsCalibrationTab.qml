@@ -171,6 +171,29 @@ Item {
                             property double _modelDep: Settings.calibration.sawLearnedLag  // dep tracker for rebind
                             property string _modelSource: { void(_modelDep);
                                 return Settings.calibration.sawModelSource(ProfileManager.baseProfileName, MachineState.activeScaleType); }
+                            // The number is keyed on (profile, scale, basket), so the card names all
+                            // three — otherwise switching any one of them changes the lag on screen
+                            // with nothing to explain why. The profile was missing even before the
+                            // basket existed, which made the per-profile tier unreadable: the label
+                            // said "Decent Scale (per-profile)" without saying WHICH profile.
+                            //
+                            // currentProfileTitle, not baseProfileName: the title is the label a user
+                            // recognises, the filename is the key. (Not currentProfileName either —
+                            // that one prefixes "*" once the profile is edited.)
+                            property string _profileLabel: {
+                                var p = (ProfileManager.currentProfileTitle || "").trim();
+                                return p === "" ? "" : p + " · ";
+                            }
+                            property string _basketLabel: {
+                                var b = (Settings.dye.dyeBasketBrand + " " + Settings.dye.dyeBasketModel).trim();
+                                return b === "" ? "" : " + " + b;
+                            }
+                            // void(_modelDep) first, like _modelSource above: this is a
+                            // Q_INVOKABLE, so a binding that just calls it records no dependency
+                            // and the button would stay visible after its own reset.
+                            property bool _hasProfileData: { void(_modelDep);
+                                return Settings.calibration.hasSawLearningForProfile(
+                                    ProfileManager.baseProfileName, MachineState.activeScaleType); }
                             property string _sourceSuffix: {
                                 if (_modelSource === "perProfile")
                                     return " " + TranslationManager.translate("settings.preferences.sawPerProfile", "(per-profile)");
@@ -184,7 +207,11 @@ Item {
                             Text {
                                 // Show the human-readable scale name, not scaleType — the latter
                                 // is now a canonical id ("decent", "bookoo"), not a display label.
-                                text: (MachineState.activeScaleName || TranslationManager.translate("settings.options.none", "none"))
+                                // Same for the basket: the model is keyed on a normalized slug, so
+                                // render the package's own brand/model instead.
+                                text: sawSourceRow._profileLabel
+                                      + (MachineState.activeScaleName || TranslationManager.translate("settings.options.none", "none"))
+                                      + sawSourceRow._basketLabel
                                       + sawSourceRow._sourceSuffix
                                       + " · "
                                       + TranslationManager.translate("settings.options.autoLearns", "learns when to stop so your cup hits target weight")
@@ -196,17 +223,22 @@ Item {
 
                             Item { Layout.fillWidth: true }
 
+                            // Two scopes. Visibility on the scoped one keys on whether there is
+                            // DATA to clear, not on which tier is winning: a bucket can hold
+                            // medians while the bootstrap or the global pool outranks it, and
+                            // gating on the tier hid it exactly then — leaving the full wipe as
+                            // the only button on the card.
                             Text {
                                 id: resetThisProfileText
-                                visible: sawSourceRow._modelSource === "perProfile"
-                                text: TranslationManager.translate("settings.options.resetThisProfile", "Reset this profile")
+                                visible: sawSourceRow._hasProfileData
+                                text: TranslationManager.translate("settings.options.resetThisProfileAllBaskets", "Reset profile")
                                 color: Theme.primaryColor
                                 font.pixelSize: Theme.scaled(12)
                                 Accessible.ignored: true
                                 AccessibleMouseArea {
                                     anchors.fill: parent
                                     anchors.margins: -Theme.scaled(4)
-                                    accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTimingProfile", "Reset weight stop timing for current profile")
+                                    accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTimingProfileAllBaskets", "Reset weight stop timing for current profile, every basket")
                                     accessibleItem: resetThisProfileText
                                     onAccessibleClicked: Settings.calibration.resetSawLearningForProfile(ProfileManager.baseProfileName, MachineState.activeScaleType)
                                 }
@@ -223,7 +255,10 @@ Item {
                                     anchors.margins: -Theme.scaled(4)
                                     accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTimingAll", "Reset all weight stop timing")
                                     accessibleItem: resetAllText
-                                    onAccessibleClicked: Settings.calibration.resetSawLearning()
+                                    // Confirmed, unlike the two scoped resets: this one discards
+                                    // months of learning for EVERY profile and scale the user owns,
+                                    // and it used to fire on a single tap.
+                                    onAccessibleClicked: resetAllSawConfirmDialog.open()
                                 }
                             }
                         }
@@ -659,6 +694,69 @@ Item {
     }
 
     // Heater Calibration Warning Dialog
+    // Confirmation for the full SAW wipe. Same shape as calibrationWarningDialog below —
+    // this page's established confirm pattern rather than a fourth variant of one.
+    DecenzaDialog {
+        id: resetAllSawConfirmDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent.width * 0.85, Theme.scaled(400))
+        modal: true
+        dim: true
+        padding: Theme.scaled(20)
+        closePolicy: Dialog.CloseOnEscape
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.warningColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(15)
+
+            Text {
+                text: TranslationManager.translate("settings.calibration.resetAllSawTitle", "Reset all weight stop timing?")
+                color: Theme.warningColor
+                font.pixelSize: Theme.scaled(16)
+                font.bold: true
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.calibration.resetAllSawMessage",
+                    "This erases the learned stop timing for every profile, scale and basket — not just the one shown — and cannot be undone. Each combination needs about 3 shots to learn again. To clear only the profile shown, use Reset profile instead.")
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(13)
+                wrapMode: Text.Wrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(12)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("common.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("settings.calibration.cancelResetAllSaw", "Keep weight stop timing")
+                    onClicked: resetAllSawConfirmDialog.close()
+                }
+
+                Item { Layout.fillWidth: true }
+
+                AccessibleButton {
+                    primary: true
+                    text: TranslationManager.translate("settings.options.resetAll", "Reset all")
+                    accessibleName: TranslationManager.translate("settings.calibration.confirmResetAllSaw", "Confirm resetting all weight stop timing")
+                    onClicked: {
+                        resetAllSawConfirmDialog.close()
+                        Settings.calibration.resetSawLearning()
+                    }
+                }
+            }
+        }
+    }
+
     DecenzaDialog {
         id: calibrationWarningDialog
         parent: Overlay.overlay

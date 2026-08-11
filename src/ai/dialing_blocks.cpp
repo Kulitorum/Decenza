@@ -514,18 +514,22 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
     const QString profileFilename = profileManager->baseProfileName();
     if (scaleType.isEmpty() || profileFilename.isEmpty()) return QJsonObject();
 
+    // Basket left to resolve, for the same reason the scale is: the active basket is the
+    // bucket the learner is training and the Calibration tab is showing.
+    const QString basketKey = settings->calibration()->currentBasketKey();
     const double predictedDripG =
-        settings->calibration()->getExpectedDripFor(profileFilename, scaleType, flowAtCutoff);
+        settings->calibration()->getExpectedDripFor(profileFilename, scaleType, flowAtCutoff, basketKey);
     const QString sourceTier =
-        settings->calibration()->sawModelSource(profileFilename, scaleType);
+        settings->calibration()->sawModelSource(profileFilename, scaleType, basketKey);
     const double learnedLagSec =
-        settings->calibration()->sawLearnedLagFor(profileFilename, scaleType);
+        settings->calibration()->sawLearnedLagFor(profileFilename, scaleType, basketKey);
     const qsizetype sampleCount =
-        settings->calibration()->perProfileSawHistory(profileFilename, scaleType).size();
+        settings->calibration()->perProfileSawHistory(profileFilename, scaleType, basketKey).size();
 
     QJsonObject sawPrediction;
     sawPrediction["profileFilename"] = profileFilename;
     sawPrediction["scaleType"] = scaleType;
+    sawPrediction["basket"] = basketKey;
     sawPrediction["flowAtCutoffMlPerSec"] =
         QString::number(flowAtCutoff, 'f', 2).toDouble();
     sawPrediction["predictedDripG"] =

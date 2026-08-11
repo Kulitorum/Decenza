@@ -32,6 +32,14 @@ constexpr qsizetype kBatchSize = 3;
 constexpr qsizetype kMaxPairHistory = 10;
 constexpr double kBatchMaxDeviation = 1.5;    // seconds — single lag from batch median
 
+// How many committed medians the per-pair readers actually consult.
+constexpr qsizetype kSawReadWindow = 3;
+
+// The basket segment used when the active equipment package has no basket component.
+// Unreachable by sawBasketKey() normalization, which emits only [a-z0-9-], so it cannot
+// collide with a real basket named "(none)".
+const QLatin1String kNoBasketKey("(none)");
+
 QJsonObject parseFlowCalBatch(const QSettings& settings) {
     QJsonParseError parseError;
     QJsonObject map = QJsonDocument::fromJson(
@@ -516,7 +524,8 @@ double SettingsCalibration::sensorLag(const QString& scaleType)
 }
 
 void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, QString scaleType,
-                                              double overshoot, const QString& profileFilename) {
+                                              double overshoot, const QString& profileFilename,
+                                              const QString& basketKey) {
     // Key SAW learning on the canonical type-id (rename-stable). Covers both the
     // per-pair path (addSawPerPairEntry) and the legacy global-pool path below.
     scaleType = ScaleTypeIds::normalizeScaleTypeId(scaleType);
@@ -545,7 +554,7 @@ void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, QStr
     // wrong and must accept the new baseline rather than defending the stale converged model.
     bool isAutoResetCandidate = (overshoot < -6.0);
     if (!isAutoResetCandidate && isSawConverged(scaleType)) {
-        double expectedDrip = getExpectedDripFor(profileFilename, scaleType, flowRate);
+        double expectedDrip = getExpectedDripFor(profileFilename, scaleType, flowRate, basketKey);
         double threshold = qMax(3.0, expectedDrip);  // Reject if deviation exceeds expected drip (or 3g floor)
         if (qAbs(drip - expectedDrip) > threshold) {
             SAWC_WARN(QStringLiteral("Outlier rejected: drip=%1 g expected=%2 g threshold=%3 g "
@@ -562,7 +571,7 @@ void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, QStr
     // and provides outlier rejection via the median + per-element deviation check. See
     // AUTO_FLOW_CALIBRATION for the same pattern applied to flow cal.
     if (!profileFilename.isEmpty()) {
-        addSawPerPairEntry(drip, flowRate, scaleType, overshoot, profileFilename);
+        addSawPerPairEntry(drip, flowRate, scaleType, overshoot, profileFilename, basketKey);
         return;
     }
 
@@ -667,6 +676,11 @@ void SettingsCalibration::resetSawLearning() {
     m_settings.remove("saw/perProfileHistory");
     m_settings.remove("saw/perProfileBatch");
     m_settings.remove("saw/globalBootstrapLag");
+    // The basket re-key flag goes too: with every bucket gone there is nothing left to
+    // attribute to the wrong basket, and leaving it set would make a store restored from a
+    // pre-basket backup permanently unreadable — the buckets would come back two-segment
+    // with the migration already marked done.
+    m_settings.remove("saw/basketKeyMigrated");
     m_sawHistoryCacheDirty = true;
     m_sawConvergedCache = -1;
     m_perProfileSawHistoryCacheValid = false;
@@ -679,39 +693,107 @@ void SettingsCalibration::resetSawLearning() {
     emit sawLearningResetRequested();
 }
 
+bool SettingsCalibration::hasSawLearningForProfile(const QString& profileFilename,
+                                                   const QString& scaleType) const {
+    if (profileFilename.isEmpty()) return false;
+    // Same exact-or-"::" prefix rule as resetSawLearningForProfile, and for the same reason:
+    // profile filenames are free-form, so a bare startsWith would count "d_flow_q::decent"
+    // as data belonging to "d_flow".
+    const QString legacyKey = sawLegacyPairKey(profileFilename, resolveScaleKey(scaleType));
+    const QString perBasketPrefix = legacyKey + QStringLiteral("::");
+    const auto anyIn = [&](const QJsonObject& map) {
+        for (auto it = map.begin(); it != map.end(); ++it) {
+            if ((it.key() == legacyKey || it.key().startsWith(perBasketPrefix))
+                && !it.value().toArray().isEmpty())
+                return true;
+        }
+        return false;
+    };
+    return anyIn(loadPerProfileSawHistoryMap()) || anyIn(loadPerProfileSawBatchMap());
+}
+
 void SettingsCalibration::resetSawLearningForProfile(const QString& profileFilename, const QString& scaleType) {
     if (profileFilename.isEmpty()) {
         SAWC_WARN(QStringLiteral("resetSawLearningForProfile called with empty profile"));
         return;
     }
-    const QString key = sawPairKey(profileFilename, scaleType);
+    // Clears EVERY basket bucket for this (profile, scale), plus the pre-basket-keying
+    // two-segment bucket. The legacy key is the prefix of every per-basket key for the
+    // same pair, so one prefix test covers both shapes — and it must be an exact-or-"::"
+    // test, not a bare startsWith: profile filenames are free-form, so "d_flow::decent"
+    // is a prefix of "d_flow_q::decent" and a bare test would wipe an unrelated profile.
+    const QString legacyKey = sawLegacyPairKey(profileFilename, scaleType);
+    const QString perBasketPrefix = legacyKey + QStringLiteral("::");
+    const auto matches = [&](const QString& k) {
+        return k == legacyKey || k.startsWith(perBasketPrefix);
+    };
     QJsonObject historyMap = loadPerProfileSawHistoryMap();
     QJsonObject batchMap = loadPerProfileSawBatchMap();
-    bool changed = false;
-    if (historyMap.contains(key)) {
-        historyMap.remove(key);
+    int removed = 0;
+    for (const QString& k : historyMap.keys()) {
+        if (matches(k)) { historyMap.remove(k); ++removed; }
+    }
+    for (const QString& k : batchMap.keys()) {
+        if (matches(k)) { batchMap.remove(k); ++removed; }
+    }
+    if (removed > 0) {
         savePerProfileSawHistoryMap(historyMap);
-        changed = true;
-    }
-    if (batchMap.contains(key)) {
-        batchMap.remove(key);
         savePerProfileSawBatchMap(batchMap);
-        changed = true;
-    }
-    if (changed) {
-        SAWC_LOG(QStringLiteral("Reset perProfileHistory for %1").arg(key));
+        SAWC_LOG(QStringLiteral("Reset perProfileHistory for %1 — %2 bucket(s) across all baskets")
+                     .arg(legacyKey).arg(removed));
         emit sawLearnedLagChanged();
     }
 }
 
 // ---- per-(profile, scale) helpers ----
 
-QString SettingsCalibration::sawPairKey(const QString& profileFilename, const QString& scaleType) {
+QString SettingsCalibration::sawLegacyPairKey(const QString& profileFilename, const QString& scaleType) {
     // Key on the canonical type-id so per-(profile, scale) reads/writes stay in sync
     // regardless of whether the caller passed an id or a legacy display name. This is
     // the single choke point for perProfileSawHistory / sawPendingBatch /
     // resetSawLearningForProfile / addSawPerPairEntry.
     return profileFilename + QStringLiteral("::") + ScaleTypeIds::normalizeScaleTypeId(scaleType);
+}
+
+QString SettingsCalibration::sawPairKey(const QString& profileFilename, const QString& scaleType,
+                                        const QString& basketKey) {
+    // Three segments. The two-segment form above is byte-identical to what every build
+    // before basket keying wrote, so old data needs no migration: it simply reads as the
+    // basket-blind tier and ages out. Nothing writes a two-segment key any more.
+    return sawLegacyPairKey(profileFilename, scaleType) + QStringLiteral("::")
+           + (basketKey.isEmpty() ? QString(kNoBasketKey) : basketKey);
+}
+
+QString SettingsCalibration::sawBasketKey(const QString& brand, const QString& model) {
+    const QString combined = (brand.trimmed() + QLatin1Char(' ') + model.trimmed()).trimmed();
+    if (combined.isEmpty()) return QString(kNoBasketKey);
+    QString out;
+    out.reserve(combined.size());
+    bool pendingDash = false;
+    for (const QChar c : combined) {
+        if (c.isLetterOrNumber()) {
+            // Latin-lowercase only: toLower() on a non-Latin script is a no-op for our
+            // purposes but never *adds* a character, so the [a-z0-9-] guarantee that
+            // keeps kNoBasketKey unreachable holds either way.
+            if (pendingDash && !out.isEmpty()) out.append(QLatin1Char('-'));
+            pendingDash = false;
+            out.append(c.toLower());
+        } else {
+            pendingDash = true;
+        }
+    }
+    return out.isEmpty() ? QString(kNoBasketKey) : out;
+}
+
+QString SettingsCalibration::currentBasketKey() const {
+    // SettingsDye already resolves the active package's basket and caches it, so this is
+    // a member read rather than a query — safe on the shot path.
+    if (!m_owner || !m_owner->dye()) return QString(kNoBasketKey);
+    return sawBasketKey(m_owner->dye()->dyeBasketBrand(), m_owner->dye()->dyeBasketModel());
+}
+
+QString SettingsCalibration::resolveBasketKey(const QString& explicitKey) const {
+    return explicitKey.isEmpty() ? currentBasketKey() : explicitKey;
 }
 
 QJsonObject SettingsCalibration::loadPerProfileSawHistoryMap() const {
@@ -761,18 +843,24 @@ void SettingsCalibration::savePerProfileSawBatchMap(const QJsonObject& map) {
     m_perProfileSawBatchCacheValid = true;
 }
 
-QJsonArray SettingsCalibration::perProfileSawHistory(const QString& profileFilename, const QString& scaleType) const {
+QJsonArray SettingsCalibration::perProfileSawHistory(const QString& profileFilename,
+                                                     const QString& scaleType,
+                                                     const QString& basketKey) const {
     return loadPerProfileSawHistoryMap()
-        .value(sawPairKey(profileFilename, resolveScaleKey(scaleType))).toArray();
+        .value(sawPairKey(profileFilename, resolveScaleKey(scaleType), resolveBasketKey(basketKey)))
+        .toArray();
 }
 
 QJsonObject SettingsCalibration::allPerProfileSawHistory() const {
     return loadPerProfileSawHistoryMap();
 }
 
-QJsonArray SettingsCalibration::sawPendingBatch(const QString& profileFilename, const QString& scaleType) const {
+QJsonArray SettingsCalibration::sawPendingBatch(const QString& profileFilename,
+                                                const QString& scaleType,
+                                                const QString& basketKey) const {
     return loadPerProfileSawBatchMap()
-        .value(sawPairKey(profileFilename, resolveScaleKey(scaleType))).toArray();
+        .value(sawPairKey(profileFilename, resolveScaleKey(scaleType), resolveBasketKey(basketKey)))
+        .toArray();
 }
 
 double SettingsCalibration::globalSawBootstrapLag(const QString& scaleType) const {
@@ -787,11 +875,12 @@ void SettingsCalibration::setGlobalSawBootstrapLag(const QString& scaleType, dou
 
 // ---- per-(profile, scale) read path ----
 
-QString SettingsCalibration::sawModelSource(const QString& profileFilename, QString scaleType) const {
+QString SettingsCalibration::sawModelSource(const QString& profileFilename, QString scaleType,
+                                            const QString& basketKey) const {
     scaleType = resolveScaleKey(scaleType);
     if (!profileFilename.isEmpty()) {
-        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
-        if (pairHistory.size() >= kSawMinMediansForGraduation) return QStringLiteral("perProfile");
+        if (!graduatedPairHistory(profileFilename, scaleType, basketKey).isEmpty())
+            return QStringLiteral("perProfile");
     }
     if (globalSawBootstrapLag(scaleType) > 0.0) return QStringLiteral("globalBootstrap");
     ensureSawCacheLoaded();
@@ -801,44 +890,56 @@ QString SettingsCalibration::sawModelSource(const QString& profileFilename, QStr
     return QStringLiteral("scaleDefault");
 }
 
+// The committed medians for (profile, scale, basket) once the triple has graduated, else
+// empty — which is the caller's signal to fall through to the bootstrap. Oldest-first;
+// every reader walks it backwards. One helper so the graduation test cannot drift between
+// the four readers below.
+//
+// There is deliberately NO basket-blind fallback tier here. Pre-basket history is copied
+// once into the combinations actually pulled by seedSawBucketsFromPreBasketKeys(), so this stays
+// a single lookup rather than carrying a frozen bucket and a warmup blend forever.
+QJsonArray SettingsCalibration::graduatedPairHistory(const QString& profileFilename,
+                                                     const QString& scaleType,
+                                                     const QString& basketKey) const {
+    if (profileFilename.isEmpty()) return QJsonArray();
+    const QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType, basketKey);
+    return (pairHistory.size() >= kSawMinMediansForGraduation) ? pairHistory : QJsonArray();
+}
+
 QList<QPair<double, double>> SettingsCalibration::sawLearningEntriesFor(const QString& profileFilename,
                                                                        const QString& scaleType,
-                                                                       int maxEntries) const {
+                                                                       int maxEntries,
+                                                                       const QString& basketKey) const {
     const QString scale = resolveScaleKey(scaleType);
     QList<QPair<double, double>> result;
-    if (!profileFilename.isEmpty()) {
-        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scale);
-        if (pairHistory.size() >= kSawMinMediansForGraduation) {
-            for (qsizetype i = pairHistory.size() - 1; i >= 0 && result.size() < maxEntries; --i) {
-                QJsonObject obj = pairHistory[i].toObject();
-                if (obj.contains("drip")) {
-                    result.append({obj["drip"].toDouble(), obj["flow"].toDouble()});
-                }
-            }
-            if (!result.isEmpty()) return result;
+    const QJsonArray pairHistory = graduatedPairHistory(profileFilename, scale, basketKey);
+    for (qsizetype i = pairHistory.size() - 1; i >= 0 && result.size() < maxEntries; --i) {
+        QJsonObject obj = pairHistory[i].toObject();
+        if (obj.contains("drip")) {
+            result.append({obj["drip"].toDouble(), obj["flow"].toDouble()});
         }
     }
+    if (!result.isEmpty()) return result;
     return sawLearningEntries(scale, maxEntries);
 }
 
-double SettingsCalibration::sawLearnedLagFor(const QString& profileFilename, const QString& scaleType) const {
+double SettingsCalibration::sawLearnedLagFor(const QString& profileFilename, const QString& scaleType,
+                                             const QString& basketKey) const {
     const QString scale = resolveScaleKey(scaleType);
-    if (!profileFilename.isEmpty()) {
-        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scale);
-        if (pairHistory.size() >= kSawMinMediansForGraduation) {
-            double sumLag = 0;
-            qsizetype count = 0;
-            for (qsizetype i = pairHistory.size() - 1; i >= 0 && count < 3; --i) {
-                QJsonObject obj = pairHistory[i].toObject();
-                double drip = obj.value("drip").toDouble();
-                double flow = obj.value("flow").toDouble();
-                if (flow > 0.5) {
-                    sumLag += drip / flow;
-                    ++count;
-                }
+    const QJsonArray pairHistory = graduatedPairHistory(profileFilename, scale, basketKey);
+    if (!pairHistory.isEmpty()) {
+        double sumLag = 0;
+        qsizetype count = 0;
+        for (qsizetype i = pairHistory.size() - 1; i >= 0 && count < kSawReadWindow; --i) {
+            QJsonObject obj = pairHistory[i].toObject();
+            double drip = obj.value("drip").toDouble();
+            double flow = obj.value("flow").toDouble();
+            if (flow > 0.5) {
+                sumLag += drip / flow;
+                ++count;
             }
-            if (count > 0) return sumLag / count;
         }
+        if (count > 0) return sumLag / count;
     }
     double bootstrap = globalSawBootstrapLag(scale);
     if (bootstrap > 0.0) return bootstrap;
@@ -847,35 +948,34 @@ double SettingsCalibration::sawLearnedLagFor(const QString& profileFilename, con
 
 double SettingsCalibration::getExpectedDripFor(const QString& profileFilename,
                                                const QString& scaleType,
-                                               double currentFlowRate) const {
+                                               double currentFlowRate,
+                                               const QString& basketKey) const {
     const QString scale = resolveScaleKey(scaleType);
-    if (!profileFilename.isEmpty()) {
-        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scale);
-        if (pairHistory.size() >= kSawMinMediansForGraduation) {
-            // Same flow-similarity kernel as the global getExpectedDrip(), but
-            // recencyMin is fixed at 3.0 — per-pair history only kicks in after
-            // graduation (≥ kSawMinMediansForGraduation committed medians).
-            // Reads at most 3 recent entries, matching the per-pair read window.
-            struct Entry { double drip; double flow; };
-            QVector<Entry> entries;
-            for (qsizetype i = pairHistory.size() - 1; i >= 0 && entries.size() < 3; --i) {
-                QJsonObject obj = pairHistory[i].toObject();
-                if (obj.contains("drip")) entries.append({obj["drip"].toDouble(), obj["flow"].toDouble()});
+    const QJsonArray pairHistory = graduatedPairHistory(profileFilename, scale, basketKey);
+    if (!pairHistory.isEmpty()) {
+        // Same flow-similarity kernel as the global getExpectedDrip(), but
+        // recencyMin is fixed at 3.0 — per-pair history only kicks in after
+        // graduation (≥ kSawMinMediansForGraduation committed medians).
+        // Reads at most 3 recent entries, matching the per-pair read window.
+        struct Entry { double drip; double flow; };
+        QVector<Entry> entries;
+        for (qsizetype i = pairHistory.size() - 1; i >= 0 && entries.size() < kSawReadWindow; --i) {
+            QJsonObject obj = pairHistory[i].toObject();
+            if (obj.contains("drip")) entries.append({obj["drip"].toDouble(), obj["flow"].toDouble()});
+        }
+        if (!entries.isEmpty()) {
+            QVector<double> drips, flows;
+            drips.reserve(entries.size());
+            flows.reserve(entries.size());
+            for (const Entry& e : std::as_const(entries)) {
+                drips.append(e.drip);
+                flows.append(e.flow);
             }
-            if (!entries.isEmpty()) {
-                QVector<double> drips, flows;
-                drips.reserve(entries.size());
-                flows.reserve(entries.size());
-                for (const Entry& e : std::as_const(entries)) {
-                    drips.append(e.drip);
-                    flows.append(e.flow);
-                }
-                const double prediction = SawPrediction::weightedDripPrediction(
-                    drips, flows, currentFlowRate,
-                    /*recencyMax=*/10.0, /*recencyMin=*/3.0);
-                if (!qIsNaN(prediction)) {
-                    return prediction;
-                }
+            const double prediction = SawPrediction::weightedDripPrediction(
+                drips, flows, currentFlowRate,
+                /*recencyMax=*/10.0, /*recencyMin=*/3.0);
+            if (!qIsNaN(prediction)) {
+                return prediction;
             }
         }
     }
@@ -889,8 +989,12 @@ double SettingsCalibration::getExpectedDripFor(const QString& profileFilename,
 // ---- per-pair batch accumulator + commit ----
 
 void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const QString& scaleType,
-                                             double overshoot, const QString& profileFilename) {
-    const QString key = sawPairKey(profileFilename, scaleType);
+                                             double overshoot, const QString& profileFilename,
+                                             const QString& basketKey) {
+    // resolveBasketKey, not a bare basketKey: an empty key here would key on the literal
+    // empty segment and silently open a bucket no reader ever looks in.
+    const QString basket = resolveBasketKey(basketKey);
+    const QString key = sawPairKey(profileFilename, scaleType, basket);
 
     // 1. Append entry to pending batch
     QJsonObject batchMap = loadPerProfileSawBatchMap();
@@ -901,6 +1005,7 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
     entry["overshoot"] = overshoot;
     entry["scale"] = scaleType;
     entry["profile"] = profileFilename;
+    entry["basket"] = basket;
     entry["ts"] = QDateTime::currentSecsSinceEpoch();
     batch.append(entry);
 
@@ -981,6 +1086,7 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
     medianEntry["overshoot"] = medianOver;
     medianEntry["scale"] = scaleType;
     medianEntry["profile"] = profileFilename;
+    medianEntry["basket"] = basket;
     medianEntry["ts"] = QDateTime::currentSecsSinceEpoch();
     medianEntry["batchSize"] = batch.size();
     pairHistory.append(medianEntry);
@@ -1027,6 +1133,13 @@ void SettingsCalibration::recomputeGlobalSawBootstrap(const QString& scaleType) 
     // crossed the per-profile graduation threshold (kSawMinMediansForGraduation
     // medians) for the read path are a stricter bar handled in sawLearnedLagFor /
     // sawModelSource.
+    //
+    // The contributor set is every bucket on this scale — each (profile, basket) bucket
+    // and each pre-basket-keying legacy bucket alike, since the loop filters on the
+    // stored "scale" field and not on key shape. That is deliberate and is what pays for
+    // the basket dimension: a brand-new basket cold-starts from this device's own history
+    // on this scale rather than from the 0.38 s constant. The bootstrap KEY stays
+    // per-scale, so a basket is never a bootstrap of its own.
     QJsonObject map = loadPerProfileSawHistoryMap();
     QVector<double> lags;
     for (auto it = map.begin(); it != map.end(); ++it) {
@@ -1036,6 +1149,11 @@ void SettingsCalibration::recomputeGlobalSawBootstrap(const QString& scaleType) 
         if (pairHistory.last().toObject().value("scale").toString() != scaleType) continue;
         // Use the last committed median lag as that pair's representative.
         QJsonObject last = pairHistory.last().toObject();
+        // Skip buckets whose newest median is still inherited from the pre-basket upgrade
+        // seed. That median was copied into EVERY basket, so counting it once per bucket
+        // would let one batch of shots vote N times and drag the cross-basket median onto
+        // itself. A bucket that has learned nothing of its own has nothing to contribute.
+        if (last.value("inherited").toBool()) continue;
         double drip = last.value("drip").toDouble();
         double flow = last.value("flow").toDouble();
         if (flow > 0.5) lags.append(drip / flow);
@@ -1063,6 +1181,90 @@ void SettingsCalibration::recomputeGlobalSawBootstrap(const QString& scaleType) 
     SAWC_LOG(QStringLiteral("Global bootstrap lag for %1 updated to %2 s "
                             "(median of %3 pairs with committed history)")
                  .arg(scaleType).arg(median, 0, 'f', 3).arg(n));
+}
+
+void SettingsCalibration::seedSawBucketsFromPreBasketKeys(const QHash<QString, QStringList>& basketsByProfile,
+                                                          bool historyComplete) {
+    if (m_settings.value("saw/basketKeyMigrated", false).toBool()) return;
+
+    // Upgrade path for stores written before the basket joined the key. Each pre-basket
+    // "<profile>::<scale>" bucket is COPIED into "<profile>::<scale>::<basket>" for every
+    // basket that profile was actually pulled with, so each of those combinations keeps
+    // predicting exactly what the single shared model predicted and then diverges as it
+    // earns medians of its own.
+    //
+    // Scoped per profile on purpose: a basket used with one profile says nothing about
+    // another, and seeding every (profile x basket) product would fabricate buckets of
+    // borrowed data for combinations the user never tried. A profile absent from the
+    // caller's history window is left alone entirely — untried means untried, and its
+    // bucket stays where it is.
+    //
+    // Copy, not move, and three things follow:
+    //   - The two-segment keys are LEFT IN PLACE. Nothing reads them any more, but an older
+    //     build rolled back to still does, so rollback is lossless and this stays repeatable.
+    //   - Copies are tagged "inherited". Only recomputeGlobalSawBootstrap() consults that:
+    //     one batch copied into N baskets must not vote N times in the cross-basket median.
+    //   - Seeding is additive and per bucket, so it can run again as more history becomes
+    //     known. The flag is set only when the caller says its window is complete.
+    //
+    // Rejected alternatives, both built first: a permanent basket-blind fallback tier (never
+    // trims, never ages out, and keeps a second reader plus a blended tier and two extra
+    // model-source values alive forever), and re-keying onto the single ACTIVE basket (which
+    // on this maintainer's own device would have labelled ~1038 shots of Decent-basket
+    // history as the 4-shot Graph basket). See docs/CLAUDE_MD/SAW_LEARNING.md.
+    const auto seed = [&basketsByProfile](const QJsonObject& in) -> QJsonObject {
+        QJsonObject out = in;
+        for (auto it = in.begin(); it != in.end(); ++it) {
+            const QString key = it.key();
+            if (key.count(QStringLiteral("::")) != 1) continue;   // already per-basket
+            const QString profile = key.left(key.indexOf(QStringLiteral("::")));
+            const QStringList baskets = basketsByProfile.value(profile);
+            if (baskets.isEmpty()) continue;                      // profile never pulled: untried
+            if (it.value().toArray().isEmpty()) continue;         // nothing to inherit
+
+            for (const QString& basket : baskets) {
+                if (basket.isEmpty()) continue;
+                const QString newKey = key + QStringLiteral("::") + basket;
+                if (out.contains(newKey)) continue;               // basket already has data
+                QJsonArray arr = it.value().toArray();
+                for (qsizetype i = 0; i < arr.size(); ++i) {
+                    QJsonObject o = arr[i].toObject();
+                    o["basket"] = basket;
+                    o["inherited"] = true;
+                    arr[i] = o;
+                }
+                out[newKey] = arr;
+            }
+        }
+        return out;
+    };
+
+    const QJsonObject history = loadPerProfileSawHistoryMap();
+    const QJsonObject batch = loadPerProfileSawBatchMap();
+    const QJsonObject newHistory = seed(history);
+    // Pending batches are copied too, so a part-filled batch is not lost — but a copied
+    // batch is never committed here. The commit path owns the dispersion gate and the
+    // auto-reset check, and a median minted by a migration would skip both.
+    const QJsonObject newBatch = seed(batch);
+
+    const bool changed = (newHistory != history) || (newBatch != batch);
+    if (newHistory != history) savePerProfileSawHistoryMap(newHistory);
+    if (newBatch != batch) savePerProfileSawBatchMap(newBatch);
+
+    if (historyComplete) m_settings.setValue("saw/basketKeyMigrated", true);
+    if (changed) {
+        // Report buckets CREATED, not map sizes. The first version logged newHistory.size(),
+        // which reads as a count of work done and is actually the total number of keys in the
+        // store — it said "9 history bucket(s)" on a run that created two.
+        SAWC_LOG(QStringLiteral("Seeded pre-basket SAW history for %1 profile(s) — created %2 "
+                                "history bucket(s) and %3 pending (history window %4)")
+                     .arg(basketsByProfile.size())
+                     .arg(newHistory.size() - history.size())
+                     .arg(newBatch.size() - batch.size())
+                     .arg(historyComplete ? QStringLiteral("complete")
+                                          : QStringLiteral("partial")));
+        emit sawLearnedLagChanged();
+    }
 }
 
 void SettingsCalibration::migrateScaleTypeIds() {
@@ -1103,8 +1305,14 @@ void SettingsCalibration::migrateScaleTypeIds() {
         for (auto it = in.begin(); it != in.end(); ++it) {
             const QString key = it.key();
             QString newKey = key;
+            // Two-segment keys only. A three-segment key already carries a basket, and its
+            // LAST segment is that basket rather than the scale — normalizing it would
+            // rewrite the basket as if it were a scale id. In practice this migration runs
+            // from Settings init, before any shot can write a per-basket key, so the guard
+            // is for the ordering nobody has promised to preserve rather than for a case
+            // seen today.
             const qsizetype sep = key.lastIndexOf(QStringLiteral("::"));
-            if (sep >= 0) {
+            if (sep >= 0 && key.count(QStringLiteral("::")) == 1) {
                 newKey = key.left(sep) + QStringLiteral("::")
                        + ScaleTypeIds::normalizeScaleTypeId(key.mid(sep + 2));
             }

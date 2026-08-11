@@ -373,6 +373,40 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     }
     m_settings->dye()->setEquipmentStorage(m_equipmentStorage);
 
+    // One-time SAW upgrade path: stores written before the basket joined the SAW key hold
+    // "<profile>::<scale>" buckets that no reader looks for any more. Copy each into
+    // "<profile>::<scale>::<basket>" for every basket the recent shot history shows in use,
+    // so each basket keeps predicting exactly what the single shared model predicted and
+    // then diverges as it earns medians of its own.
+    //
+    // Wired here rather than inside Settings because the basket set comes from the shot
+    // database, which Settings has no handle on — and it has to be the SHOT HISTORY rather
+    // than the equipment inventory: a user can own 25 baskets and pull shots with 3, and
+    // seeding the other 22 would fabricate buckets of borrowed data. Guarded and idempotent
+    // inside seedSawBucketsFromPreBasketKeys(); a failed query emits nothing, leaving the
+    // flag unset so it retries next launch.
+    connect(m_shotHistory, &ShotHistoryStorage::recentProfileBasketPairsReady, this,
+            [this](const QVariantList& pairs) {
+                // Shots record the profile TITLE; SAW keys use the FILENAME. A title that no
+                // longer resolves (deleted profile) drops out, which is correct — its bucket
+                // is unreachable either way and stays put for a rollback.
+                QHash<QString, QStringList> basketsByProfile;
+                for (const QVariant& v : pairs) {
+                    const QVariantMap m = v.toMap();
+                    const QString filename =
+                        m_profileManager->titleToFilename(m.value("profileTitle").toString());
+                    if (filename.isEmpty()) continue;
+                    const QString basket =
+                        SettingsCalibration::sawBasketKey(m.value("brand").toString(),
+                                                          m.value("model").toString());
+                    QStringList& baskets = basketsByProfile[filename];
+                    if (!baskets.contains(basket)) baskets << basket;
+                }
+                m_settings->calibration()->seedSawBucketsFromPreBasketKeys(
+                    basketsByProfile, /*historyComplete=*/true);
+            });
+    m_shotHistory->requestRecentProfileBasketPairs();
+
     // Recipe storage shares the same database (recipes table, migration 25).
     // Wired BEFORE the clearBrewOverrides connection below on purpose: the
     // deactivate-on-bag-swap watcher inside must see the swap first, so the

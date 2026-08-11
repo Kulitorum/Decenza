@@ -365,9 +365,11 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["success"] = true;
             result["profileFilename"] = filename;
             result["scaleType"] = scale;
-            result["message"] = QString("SAW learning reset for %1 on %2").arg(filename, scale);
+            result["message"] = QString("SAW learning reset for %1 on %2 (all baskets)")
+                                    .arg(filename, scale);
             return result;
-        }, QStringLiteral("Erase stop-at-weight learning for one profile/scale pair — irreversible")),
+        }, QStringLiteral("Erase stop-at-weight learning for one profile/scale pair, across every "
+                          "basket — irreversible")),
     };
 
     registry->registerActionTool(
