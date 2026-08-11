@@ -373,6 +373,51 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     }
     m_settings->dye()->setEquipmentStorage(m_equipmentStorage);
 
+    // One-time SAW upgrade path: stores written before the basket joined the SAW key hold
+    // "<profile>::<scale>" buckets that no reader looks for any more. Copy each into
+    // "<profile>::<scale>::<basket>" for every basket the recent shot history shows in use,
+    // so each basket keeps predicting exactly what the single shared model predicted and
+    // then diverges as it earns medians of its own.
+    //
+    // Wired here rather than inside Settings because the basket set comes from the shot
+    // database, which Settings has no handle on — and it has to be the SHOT HISTORY rather
+    // than the equipment inventory: a user can own 25 baskets and pull shots with 3, and
+    // seeding the other 22 would fabricate buckets of borrowed data. Guarded and idempotent
+    // inside seedSawBucketsFromPreBasketKeys(). A query that fails, cannot open the DB, or
+    // runs before the store is ready emits NOTHING, so the flag stays unset and the seed
+    // retries next launch — and the seed additionally refuses an empty pair list when
+    // pre-basket buckets exist, since that combination can only be a failed read.
+    connect(m_shotHistory, &ShotHistoryStorage::recentProfileBasketPairsReady, this,
+            [this](const QVariantList& pairs) {
+                // Shots record the profile TITLE; SAW keys use the FILENAME. titleToFilename
+                // is a PURE slug transform (profile.cpp:1767) — it consults no catalog, so a
+                // deleted profile's title still maps to a filename and the isEmpty() guard
+                // below only fires for a title with no alphanumerics at all. An earlier
+                // comment here claimed it dropped unresolvable profiles; it does not.
+                //
+                // The real residual: a RENAMED profile's old shots carry the old title, whose
+                // slug will not match the filename its bucket is keyed under, so that bucket
+                // reads as "untried" and is left behind. The save path keeps title and
+                // filename in lockstep by uniquifying the title (profilesavehelper.cpp), so
+                // this is sound today but not by construction. The count of buckets left
+                // behind is logged by the seed.
+                QHash<QString, QStringList> basketsByProfile;
+                for (const QVariant& v : pairs) {
+                    const QVariantMap m = v.toMap();
+                    const QString filename =
+                        m_profileManager->titleToFilename(m.value("profileTitle").toString());
+                    if (filename.isEmpty()) continue;
+                    const QString basket =
+                        SettingsCalibration::sawBasketKey(m.value("brand").toString(),
+                                                          m.value("model").toString());
+                    QStringList& baskets = basketsByProfile[filename];
+                    if (!baskets.contains(basket)) baskets << basket;
+                }
+                m_settings->calibration()->seedSawBucketsFromPreBasketKeys(
+                    basketsByProfile, /*historyComplete=*/true);
+            });
+    m_shotHistory->requestRecentProfileBasketPairs();
+
     // Recipe storage shares the same database (recipes table, migration 25).
     // Wired BEFORE the clearBrewOverrides connection below on purpose: the
     // deactivate-on-bag-swap watcher inside must see the swap first, so the

@@ -270,6 +270,27 @@ public:
     // Async: fetch most recent shot ID on background thread, emits mostRecentShotIdReady()
     Q_INVOKABLE void requestMostRecentShotId();
 
+    // Async: the DISTINCT (profile title, basket identity) pairs among the most recent
+    // `limit` shots, as {profileTitle, brand, model} maps; emits
+    // recentProfileBasketPairsReady(). A shot with no equipment package contributes an empty
+    // brand+model, which callers map to their no-basket value.
+    //
+    // PAIRS, not just baskets, and not the equipment inventory. The one consumer (the SAW
+    // pre-basket seed) must only seed combinations that were actually pulled: a user can own
+    // 25 baskets and use 3, and a basket used with one profile says nothing about another.
+    //
+    // `profileTitle` is the shot's `profile_name`, which is the profile TITLE — SAW keys use
+    // the FILENAME, so the caller maps it through ProfileManager::titleToFilename() — a PURE
+    // slug transform that consults no catalog, so a deleted profile's title still yields a
+    // filename. What actually drops out is a title whose slug matches no stored key, which is
+    // the renamed-profile case; see the caller in maincontroller.cpp.
+    //
+    // Bounded at `limit` rows with a small join. Deliberately NOT a DISTINCT over the whole
+    // table: `shots` carries debug_log and profile_json blobs, so a full scan drags those
+    // pages along (see the cost note on queryDistinctList). The window means a profile
+    // untouched for `limit` shots is treated as untried.
+    Q_INVOKABLE void requestRecentProfileBasketPairs(int limit = 500);
+
     // Get filter options. Each runs its query against the live database and
     // returns the answer. There is deliberately no cache; the measurements and
     // the reasoning are on queryDistinctList() in shothistorystorage_queries.cpp
@@ -487,6 +508,7 @@ signals:
     // is the normal case.
     void pendingBeanRepairsReady(bool ok, const QVector<BeanRepair>& repairs);
     void mostRecentShotIdReady(qint64 shotId);
+    void recentProfileBasketPairsReady(const QVariantList& pairs);
     void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool grindIssueDetected, bool skipFirstFrameDetected, bool pourTruncatedDetected);
 
 private:

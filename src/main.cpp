@@ -1360,13 +1360,19 @@ int main(int argc, char *argv[])
     // and learn under the key that actually made the prediction.
     QString sawScaleKeyForShot;
 
+    // The basket segment of the SAW key, latched at the same moment and for the same
+    // reason: swapping the active equipment package between the stop and settling
+    // completion would otherwise file the entry under a basket that did not pull the shot.
+    QString sawBasketKeyForShot;
+
     // Connect SAW learning signal to settings persistence.
     // Logs the predicted-vs-actual drip ("accuracy" line) before persisting, so any single
     // shot's debug log records whether SAW hit its target. addSawLearningPoint then routes
     // the entry through the per-(profile, scale) batch accumulator and emits the
     // "accumulated"/"committed"/"batch rejected" qDebug line that ShotDebugLogger captures.
     QObject::connect(&timingController, &ShotTimingController::sawLearningComplete,
-                     [&settings, &mainController, &machineState, &sawScaleKeyForShot](
+                     [&settings, &mainController, &machineState, &sawScaleKeyForShot,
+                      &sawBasketKeyForShot](
                              double drip, double flowAtStop, double overshoot) {
                          // Prefer the latched key. Empty only if learning somehow fires
                          // without a cycle start, in which case live state is all there is.
@@ -1384,15 +1390,21 @@ int main(int argc, char *argv[])
                                      .arg(sawScaleKeyForShot, liveScaleType));
                          }
                          const QString profileFilename = mainController.profileManager()->baseProfileName();
-                         const double predictedDrip = settings.calibration()->getExpectedDripFor(profileFilename, scaleType, flowAtStop);
+                         // Same latch-or-live rule as the scale key above.
+                         const QString basketKey = sawBasketKeyForShot.isEmpty()
+                                                       ? settings.calibration()->currentBasketKey()
+                                                       : sawBasketKeyForShot;
+                         const double predictedDrip = settings.calibration()->getExpectedDripFor(
+                             profileFilename, scaleType, flowAtStop, basketKey);
                          SAW_LOG_STDERR("Learning",
                              QStringLiteral("Accuracy: predictedDrip=%1 g actualDrip=%2 g "
                                             "delta=%3 g overshoot=%4 g flow=%5 g/s "
-                                            "scale=%6 profile=%7")
+                                            "scale=%6 profile=%7 basket=%8")
                                  .arg(predictedDrip, 0, 'f', 2).arg(drip, 0, 'f', 2)
                                  .arg(drip - predictedDrip, 0, 'f', 2).arg(overshoot, 0, 'f', 2)
-                                 .arg(flowAtStop, 0, 'f', 2).arg(scaleType, profileFilename));
-                         settings.calibration()->addSawLearningPoint(drip, flowAtStop, scaleType, overshoot, profileFilename);
+                                 .arg(flowAtStop, 0, 'f', 2).arg(scaleType, profileFilename, basketKey));
+                         settings.calibration()->addSawLearningPoint(drip, flowAtStop, scaleType, overshoot,
+                                                                    profileFilename, basketKey);
                      });
 
     // Forward sawSettling state to MainController for QML binding
@@ -1497,7 +1509,7 @@ int main(int argc, char *argv[])
     // startExtraction() (which resets m_tareComplete=false), causing tare to be lost.
     QObject::connect(&machineState, &MachineState::espressoCycleStarted,
                      [&weightProcessor, &machineState, &settings, &mainController, &timingController,
-                      &sawScaleKeyForShot]() {
+                      &sawScaleKeyForShot, &sawBasketKeyForShot]() {
                          // Freeze the resolved target + dose for the duration
                          // of the shot (add-yield-ratio-anchor Decision 9),
                          // alongside the SAW model snapshot below so the two
@@ -1519,16 +1531,18 @@ int main(int argc, char *argv[])
                          double targetWeight = machineState.targetWeight();
                          QString scaleType = machineState.activeScaleType();
                          sawScaleKeyForShot = scaleType;  // latched for the learning path
+                         const QString basketKey = settings.calibration()->currentBasketKey();
+                         sawBasketKeyForShot = basketKey;  // latched for the same reason
                          QString profileFilename = mainController.profileManager()->baseProfileName();
                          bool converged = settings.calibration()->isSawConverged(scaleType);
                          int maxEntries = converged ? 12 : 8;
-                         const auto entries = settings.calibration()->sawLearningEntriesFor(profileFilename, scaleType, maxEntries);
-                         const QString modelSource = settings.calibration()->sawModelSource(profileFilename, scaleType);
-                         const double currentLag = settings.calibration()->sawLearnedLagFor(profileFilename, scaleType);
+                         const auto entries = settings.calibration()->sawLearningEntriesFor(profileFilename, scaleType, maxEntries, basketKey);
+                         const QString modelSource = settings.calibration()->sawModelSource(profileFilename, scaleType, basketKey);
+                         const double currentLag = settings.calibration()->sawLearnedLagFor(profileFilename, scaleType, basketKey);
                          SAW_LOG_STDERR("Learning",
-                             QStringLiteral("Model: source=%1 lag=%2 s profile=%3 scale=%4 historyN=%5")
+                             QStringLiteral("Model: source=%1 lag=%2 s profile=%3 scale=%4 basket=%5 historyN=%6")
                                  .arg(modelSource).arg(currentLag, 0, 'f', 3)
-                                 .arg(profileFilename, scaleType).arg(entries.size()));
+                                 .arg(profileFilename, scaleType, basketKey).arg(entries.size()));
                          QVector<double> drips, flows;
                          drips.reserve(entries.size());
                          flows.reserve(entries.size());

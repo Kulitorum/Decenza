@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QSettings>
+#include <QHash>
 
 #include "core/settings.h"
 #include "core/settings_calibration.h"
@@ -23,6 +24,10 @@ private:
     static constexpr const char* kProfileA = "profile_a";
     static constexpr const char* kProfileB = "profile_b";
     static constexpr const char* kProfileC = "profile_c";
+    // Already-normalized basket keys. Tests pass these explicitly because the resolving
+    // path reads the active equipment package, which no test installs.
+    static constexpr const char* kBasketOne = "decent-18g-ridged";
+    static constexpr const char* kBasketTwo = "graph-coffee-stepped-58-46mm";
 
     // Drive a full 3-shot batch with consistent (drip, flow, overshoot).
     void commitBatch(const QString& profile, double drip, double flow, double overshoot = 0.0) {
@@ -253,6 +258,300 @@ private slots:
         m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
         QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale).size(), 0);
         QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 1);
+    }
+
+    // ===== Basket dimension of the key =====
+
+    void twoBasketsOnOneProfileAndScaleLearnIndependently() {
+        // The defect this whole change exists for: one basket's drip training the model
+        // another basket predicts from. Two baskets, deliberately 2x apart in drip (the
+        // measured Graph-vs-Decent gap), each graduated on its own three shots.
+        for (int i = 0; i < 3; ++i) {
+            m_settings.calibration()->addSawLearningPoint(1.35, 1.5, kScale, 0.0, kProfileA, kBasketOne);
+            m_settings.calibration()->addSawLearningPoint(0.65, 1.5, kScale, 0.0, kProfileA, kBasketTwo);
+        }
+
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketTwo).size(), 1);
+
+        const double lagOne = m_settings.calibration()->sawLearnedLagFor(kProfileA, kScale, kBasketOne);
+        const double lagTwo = m_settings.calibration()->sawLearnedLagFor(kProfileA, kScale, kBasketTwo);
+        QVERIFY2(qAbs(lagOne - 0.90) < 0.02, qPrintable(QString("basket one lag %1").arg(lagOne)));
+        QVERIFY2(qAbs(lagTwo - 0.433) < 0.02, qPrintable(QString("basket two lag %1").arg(lagTwo)));
+
+        // And the prediction each basket gets is its own, not a blend.
+        const double dripOne = m_settings.calibration()->getExpectedDripFor(kProfileA, kScale, 1.5, kBasketOne);
+        const double dripTwo = m_settings.calibration()->getExpectedDripFor(kProfileA, kScale, 1.5, kBasketTwo);
+        QVERIFY2(dripOne - dripTwo > 0.5,
+                 qPrintable(QString("baskets not isolated: %1 vs %2").arg(dripOne).arg(dripTwo)));
+    }
+
+    void noBasketIsItsOwnBucket() {
+        commitBatch(kProfileA, 1.35, 1.5);  // no basket argument → resolves to "(none)"
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 1);
+        // A real basket must not see the no-basket bucket's history.
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 0);
+    }
+
+    void basketSwitchMidBatchLeavesPendingBatchWithItsOriginalBasket() {
+        m_settings.calibration()->addSawLearningPoint(1.35, 1.5, kScale, 0.0, kProfileA, kBasketOne);
+        m_settings.calibration()->addSawLearningPoint(1.35, 1.5, kScale, 0.0, kProfileA, kBasketOne);
+        // User swaps basket with the batch one shot short.
+        m_settings.calibration()->addSawLearningPoint(0.65, 1.5, kScale, 0.0, kProfileA, kBasketTwo);
+
+        // No commit anywhere: neither batch reached three, and the switch did not tip the
+        // first over by donating the second basket's shot.
+        QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale, kBasketOne).size(), 2);
+        QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale, kBasketTwo).size(), 1);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 0);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketTwo).size(), 0);
+    }
+
+    void basketKeyNormalizationCannotCollideWithTheNoBasketSentinel() {
+        QCOMPARE(SettingsCalibration::sawBasketKey("Graph Coffee", "Stepped 58→46mm"),
+                 QString("graph-coffee-stepped-58-46mm"));
+        // Case and punctuation differences fold together...
+        QCOMPARE(SettingsCalibration::sawBasketKey("  decent ", "18g Ridged"),
+                 SettingsCalibration::sawBasketKey("DECENT", "18g_Ridged"));
+        // ...and both empty, or punctuation-only, land on the sentinel rather than on an
+        // empty segment that would key a bucket no reader looks in.
+        QCOMPARE(SettingsCalibration::sawBasketKey("", ""), QString("(none)"));
+        QCOMPARE(SettingsCalibration::sawBasketKey("()", "-"), QString("(none)"));
+        // A basket literally named "(none)" normalizes to letters, so it cannot alias.
+        QCOMPARE(SettingsCalibration::sawBasketKey("(none)", ""), QString("none"));
+    }
+
+    // ===== Scoped resets =====
+
+    void resetForProfileClearsPendingBatchesToo() {
+        for (int i = 0; i < 3; ++i)
+            m_settings.calibration()->addSawLearningPoint(1.35, 1.5, kScale, 0.0, kProfileA, kBasketOne);
+        m_settings.calibration()->addSawLearningPoint(0.65, 1.5, kScale, 0.0, kProfileA, kBasketTwo);  // pending only
+
+        m_settings.calibration()->resetSawLearningForProfile(kProfileA, kScale);
+
+        // Committed medians AND a part-filled batch in another basket both go: a reset that
+        // left the pending entries would commit them into the "cleared" profile three shots later.
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 0);
+        QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale, kBasketTwo).size(), 0);
+    }
+
+    void hasSawLearningForProfileSpansBasketsAndIgnoresPrefixSiblings() {
+        QCOMPARE(m_settings.calibration()->hasSawLearningForProfile(kProfileA, kScale), false);
+
+        // A single pending entry counts: there is something to clear even pre-graduation, and
+        // gating the button on graduation would hide it while a batch was accumulating.
+        m_settings.calibration()->addSawLearningPoint(1.35, 1.5, kScale, 0.0, kProfileA, kBasketOne);
+        QCOMPARE(m_settings.calibration()->hasSawLearningForProfile(kProfileA, kScale), true);
+
+        // Another profile's data does not count, and a profile whose name merely PREFIXES
+        // this one must not claim it — the free-form-filename trap the reset path guards.
+        QCOMPARE(m_settings.calibration()->hasSawLearningForProfile(kProfileB, kScale), false);
+        QCOMPARE(m_settings.calibration()->hasSawLearningForProfile("profile", kScale), false);
+    }
+
+    // ===== One-time seed of pre-basket buckets =====
+
+    // profile -> baskets it was actually pulled with, as MainController builds it from the
+    // shot history.
+    static QHash<QString, QStringList> pulledWith(const QString& profile, const QStringList& baskets) {
+        QHash<QString, QStringList> m;
+        m.insert(profile, baskets);
+        return m;
+    }
+
+    void seedCopiesPreBasketHistoryIntoEveryBasketThatProfileWasPulledWith() {
+        QJsonObject map;
+        QJsonArray arr;
+        for (int i = 0; i < 3; ++i) arr.append(medianEntry(1.35, 1.5, "decent"));
+        map[QStringLiteral("profile_a::decent")] = arr;
+        seedPerProfileHistory(map);
+
+        // Before the seed the data is unreachable — there is no fallback tier, which is
+        // exactly why this is not optional.
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 0);
+
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne, kBasketTwo}), true);
+
+        // BOTH baskets now predict what the single shared model predicted before the upgrade
+        // — that is the point of copying rather than choosing one basket to own the history.
+        for (const char* basket : {kBasketOne, kBasketTwo}) {
+            const QJsonArray seeded =
+                m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, basket);
+            QCOMPARE(seeded.size(), 3);
+            QCOMPARE(seeded[0].toObject()["basket"].toString(), QString(basket));
+            QVERIFY(seeded[0].toObject()["inherited"].toBool());
+            const double lag = m_settings.calibration()->sawLearnedLagFor(kProfileA, kScale, basket);
+            QVERIFY2(qAbs(lag - 0.90) < 0.02,
+                     qPrintable(QString("basket %1 lag moved: %2").arg(basket).arg(lag)));
+        }
+        // The two-segment key is left in place so an older build can still read it.
+        QVERIFY(m_settings.calibration()->allPerProfileSawHistory().contains("profile_a::decent"));
+    }
+
+    void seedSkipsProfilesAndCombinationsNeverPulled() {
+        QJsonObject map;
+        QJsonArray a; a.append(medianEntry(1.35, 1.5, "decent"));
+        QJsonArray b; b.append(medianEntry(1.35, 1.5, "decent"));
+        map[QStringLiteral("profile_a::decent")] = a;
+        map[QStringLiteral("profile_b::decent")] = b;   // never pulled in the window
+        seedPerProfileHistory(map);
+
+        // profile_a was only ever pulled with basket one. profile_b is deliberately left
+        // behind, and the seed now warns about exactly that — the only record those buckets
+        // ever existed, so the warning is asserted rather than merely tolerated.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] 1 pre-basket SAW bucket\(s\) closed out unseeded)"));
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
+        // The untried (profile_a, basket two) combination gets no fabricated bucket...
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketTwo).size(), 0);
+        // ...and profile_b, absent from the window, is left entirely alone.
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileB, kScale, kBasketOne).size(), 0);
+        QVERIFY(m_settings.calibration()->allPerProfileSawHistory().contains("profile_b::decent"));
+    }
+
+    void seedNeverOverwritesABasketThatAlreadyHasData() {
+        QJsonObject map;
+        QJsonArray legacyArr; legacyArr.append(medianEntry(1.35, 1.5, "decent"));   // lag 0.90
+        QJsonArray owned;     owned.append(medianEntry(0.65, 1.5, "decent"));       // lag 0.433
+        map[QStringLiteral("profile_a::decent")] = legacyArr;
+        map[QStringLiteral("profile_a::decent::") + QString(kBasketTwo)] = owned;
+        seedPerProfileHistory(map);
+
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne, kBasketTwo}), true);
+
+        const double owns = m_settings.calibration()->sawLearnedLagFor(kProfileA, kScale, kBasketTwo);
+        QVERIFY2(qAbs(owns - 0.433) < 0.02, qPrintable(QString("own data overwritten: %1").arg(owns)));
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
+    }
+
+    void partialSeedDoesNotSetTheFlagSoLaterCombinationsStillGetData() {
+        QJsonObject map;
+        QJsonArray arr; arr.append(medianEntry(1.35, 1.5, "decent"));
+        map[QStringLiteral("profile_a::decent")] = arr;
+        seedPerProfileHistory(map);
+
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), false);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketTwo).size(), 0);
+
+        // Because the flag was not set, the complete run still lands.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne, kBasketTwo}), true);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketTwo).size(), 1);
+
+        // And now it is closed: a further basket is refused.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {"third-basket"}), true);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, "third-basket").size(), 0);
+    }
+
+    void seedWithNoEquipmentRecordedUsesTheNoBasketValue() {
+        QJsonObject map;
+        QJsonArray arr; arr.append(medianEntry(1.35, 1.5, "decent"));
+        map[QStringLiteral("profile_a::decent")] = arr;
+        seedPerProfileHistory(map);
+
+        // Shots pulled with no equipment package resolve to empty brand+model.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {SettingsCalibration::sawBasketKey("", "")}), true);
+
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 1);
+    }
+
+    void inheritedMediansDoNotVoteInTheBootstrap() {
+        // One batch of shots, copied into three baskets, must not count three times toward the
+        // cross-basket bootstrap median — that would let it drag the device-wide prior onto
+        // itself. The earlier version of this test asserted the bootstrap was 0.0 after the
+        // seed, which held with the guard DELETED too (the seed never recomputes it): a test
+        // that could not fail. This one forces a recompute with two real contributors.
+        QJsonObject map;
+        QJsonArray arr; arr.append(medianEntry(1.35, 1.5, "decent"));   // lag 0.90
+        map[QStringLiteral("profile_a::decent")] = arr;
+        seedPerProfileHistory(map);
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne, kBasketTwo, "third-basket"}), true);
+
+        // Two OTHER profiles earn real medians, which is what triggers the recompute.
+        commitBatch(kProfileB, 0.60, 1.5);   // lag 0.40
+        commitBatch(kProfileC, 0.75, 1.5);   // lag 0.50
+
+        // Contributors must be the two real medians only -> median 0.45. If the inherited
+        // copies voted (three of them at 0.90, plus the frozen two-segment source), the
+        // median would be dragged to 0.90.
+        const double bootstrap = m_settings.calibration()->globalSawBootstrapLag(kScale);
+        QVERIFY2(qAbs(bootstrap - 0.45) < 0.03,
+                 qPrintable(QString("inherited or frozen medians voted: bootstrap %1").arg(bootstrap)));
+    }
+
+    void anEmptyWindowDoesNotCloseTheSeed() {
+        // Both database failure doors deliver an empty pair list, and closing the seed on it
+        // makes every pre-basket bucket unreachable forever. An empty window over a store that
+        // HAS buckets is a failed read, not an answer.
+        QJsonObject map;
+        QJsonArray arr; arr.append(medianEntry(1.35, 1.5, "decent"));
+        map[QStringLiteral("profile_a::decent")] = arr;
+        seedPerProfileHistory(map);
+
+        // The refusal warning is the observable behaviour under test, not noise.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Basket seed got no profile/basket pairs while 1 pre-basket bucket\(s\) exist)"));
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys({}, true);
+
+        // The flag must still be open, so a good window later still lands the data.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
+    }
+
+    void aWindowThatMatchesNothingDoesNotCloseTheSeed() {
+        // The third door to the same unrecoverable state: the pair map is NON-empty, so the
+        // empty-map guard does not fire, but no bucket's profile matches it — every profile
+        // renamed, or all SAW-trained profiles outside the shot window. Nothing is copied and
+        // the flag must NOT close over data no reader will look at again.
+        QJsonObject map;
+        QJsonArray arr; arr.append(medianEntry(1.35, 1.5, "decent"));
+        map[QStringLiteral("profile_a::decent")] = arr;
+        seedPerProfileHistory(map);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[SAW\]\[Learning\] Basket seed matched none of 1 pre-basket bucket\(s\))"));
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(QStringLiteral("some_other_profile"), {kBasketOne}), true);
+
+        // Still open, so the real answer still lands later.
+        m_settings.calibration()->seedSawBucketsFromPreBasketKeys(
+            pulledWith(kProfileA, {kBasketOne}), true);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale, kBasketOne).size(), 1);
+    }
+
+    void scopedResetDoesNotTouchAnotherTransportOfTheSameScale() {
+        // The reachable prefix trap, and the destructive one: "p::decent" IS a prefix of
+        // "p::decent-wifi::<basket>", so a bare startsWith in the scoped reset would wipe the
+        // WiFi and USB scales' learning when clearing the BLE scale. The earlier assertion
+        // here used a profile-name prefix, which cannot collide ("d_flow::decent" is not a
+        // prefix of "d_flow_q::decent") and so passed with the rule removed.
+        QJsonObject map;
+        QJsonArray bt;   bt.append(medianEntry(1.35, 1.5, "decent"));
+        QJsonArray wifi; wifi.append(medianEntry(0.65, 1.5, "decent-wifi"));
+        map[QStringLiteral("profile_a::decent")] = bt;                                   // legacy arm
+        map[QStringLiteral("profile_a::decent-wifi::") + QString(kBasketOne)] = wifi;    // sibling transport
+        seedPerProfileHistory(map);
+
+        m_settings.calibration()->resetSawLearningForProfile(kProfileA, QStringLiteral("decent"));
+
+        // The BLE scale's legacy bucket is gone...
+        QVERIFY(!m_settings.calibration()->allPerProfileSawHistory().contains("profile_a::decent"));
+        QCOMPARE(m_settings.calibration()->hasSawLearningForProfile(kProfileA, QStringLiteral("decent")), false);
+        // ...and the WiFi scale is untouched.
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, QStringLiteral("decent-wifi"),
+                                                               kBasketOne).size(), 1);
+        QCOMPARE(m_settings.calibration()->hasSawLearningForProfile(kProfileA, QStringLiteral("decent-wifi")), true);
     }
 
     // ===== Batch rejection on high deviation =====
@@ -498,13 +797,16 @@ private slots:
         map["profile_a::Decent Scale"] = arr;
         seedPerProfileHistory(map);
 
-        // Orphaned before migration: reading under the canonical id finds nothing.
-        QCOMPARE(m_settings.calibration()->perProfileSawHistory("profile_a", "decent").size(), 0);
+        // Orphaned before migration: nothing under the canonical id yet.
+        QVERIFY(!m_settings.calibration()->allPerProfileSawHistory().contains("profile_a::decent"));
 
         m_settings.calibration()->migrateScaleTypeIds();
 
-        // Rekeyed to "profile_a::decent" with the same median + rewritten scale field.
-        const QJsonArray hist = m_settings.calibration()->perProfileSawHistory("profile_a", "decent");
+        // Rekeyed to "profile_a::decent" with the same median + rewritten scale field. Read
+        // through the raw map: this migration predates basket keying and both sees and
+        // writes two-segment keys, which seedSawBucketsFromPreBasketKeys() copies separately.
+        const QJsonArray hist =
+            m_settings.calibration()->allPerProfileSawHistory().value("profile_a::decent").toArray();
         QCOMPARE(hist.size(), 1);
         QCOMPARE(hist[0].toObject()["drip"].toDouble(), 0.6);
         QCOMPARE(hist[0].toObject()["scale"].toString(), QString("decent"));
@@ -518,7 +820,8 @@ private slots:
 
         m_settings.calibration()->migrateScaleTypeIds();
 
-        QCOMPARE(m_settings.calibration()->perProfileSawHistory("profile_a", "decent-wifi").size(), 1);
+        QCOMPARE(m_settings.calibration()->allPerProfileSawHistory()
+                     .value("profile_a::decent-wifi").toArray().size(), 1);
     }
 
     void migrationIsIdempotent() {
@@ -530,7 +833,8 @@ private slots:
         m_settings.calibration()->migrateScaleTypeIds();
         m_settings.calibration()->migrateScaleTypeIds();   // second run is a no-op
 
-        QCOMPARE(m_settings.calibration()->perProfileSawHistory("profile_a", "decent").size(), 1);
+        QCOMPARE(m_settings.calibration()->allPerProfileSawHistory()
+                     .value("profile_a::decent").toArray().size(), 1);
     }
 
     void migrationMergesCollidingBucketsWithoutLoss() {
@@ -544,7 +848,8 @@ private slots:
         m_settings.calibration()->migrateScaleTypeIds();
 
         // Both legacy and pre-existing id entries survive under the id key.
-        QCOMPARE(m_settings.calibration()->perProfileSawHistory("profile_a", "decent").size(), 2);
+        QCOMPARE(m_settings.calibration()->allPerProfileSawHistory()
+                     .value("profile_a::decent").toArray().size(), 2);
     }
 
     void addKnownScaleStoresCanonicalId() {
@@ -590,9 +895,18 @@ private slots:
         qs.sync();
         m_settings.calibration()->invalidateCache();
 
-        QCOMPARE(m_settings.calibration()->sawPendingBatch("profile_a", "bookoo").size(), 0);  // orphaned
+        // Asserted on the raw map, not through sawPendingBatch(): this migration predates
+        // basket keying and both reads and writes TWO-segment keys, while the accessor now
+        // looks for a three-segment one. seedSawBucketsFromPreBasketKeys() is what carries a
+        // two-segment batch onto a basket, and it is covered separately.
+        const auto rawBatch = [&]() {
+            QSettings probe(Settings::testQSettingsPath(), QSettings::IniFormat);
+            return QJsonDocument::fromJson(probe.value("saw/perProfileBatch").toByteArray())
+                       .object().value("profile_a::bookoo").toArray().size();
+        };
+        QCOMPARE(rawBatch(), qsizetype(0));   // orphaned under the display-name key
         m_settings.calibration()->migrateScaleTypeIds();
-        QCOMPARE(m_settings.calibration()->sawPendingBatch("profile_a", "bookoo").size(), 1);  // rekeyed
+        QCOMPARE(rawBatch(), qsizetype(1));   // rekeyed to the canonical id
     }
 
     // migrateScaleTypeIds() branch D: globalBootstrapLag sub-keys.
