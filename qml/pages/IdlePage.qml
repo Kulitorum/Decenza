@@ -172,42 +172,16 @@ T.Page {
         idlePage.topPanelClearance = 0
     }
 
-    // Center-zone inline carousel: when the expanded center column reaches the
-    // bottom-anchored lower-mid band, slide the COLUMN up so the band stays
-    // visible, rather than hiding the band. The band sits on bottomBar.top
-    // (modulo the user's zone Y-offset) and can't be shoved down without running
-    // into the bottom action bar — so the movable side is the column, exactly
-    // the "slide content aside instead of overlapping" the picker popups already
-    // do (bottomPanelClearance). Read the column's UN-OFFSET bottom against the
-    // band's un-offset (layout) top lowerMidBar.y — which the column slide never
-    // writes back to — so the slide can't feed into its own input. (The band DOES
-    // slide via its own transform; carouselOverlapsBand accounts for that.)
-    readonly property real _bandOverlap: {
+    // Center-zone inline carousel: when the expanded center column would reach
+    // the bottom-anchored lower-mid band, the band is HIDDEN (faded out) rather
+    // than shoved down — the band sits on bottomBar.top (modulo the user's zone
+    // Y-offset), so "down" runs it into the bottom action bar. One-way: reads the column's
+    // un-offset bottom against the band's static top.
+    readonly property bool carouselOverlapsBand: {
         if (idlePage.activePresetFunction === "" || !idlePage.lowerMidBarVisible)
-            return 0
-        return Math.max(0, (centerContent.y + centerContent.height + Theme.spacingMedium) - lowerMidBar.y)
+            return false
+        return (centerContent.y + centerContent.height + Theme.spacingMedium) > lowerMidBar.y
     }
-    // How far the column slides up to clear the band, bounded so it never slides
-    // off the top under the status bar. Combined with the popup clearance (max)
-    // where the transform is applied, so a picker over an active preset still works.
-    readonly property real presetBandClearance: Math.min(idlePage._bandOverlap, idlePage._maxPanelClearance)
-    // Fade the band when the column's RENDERED bottom would still overlap the band's
-    // RENDERED top — i.e. the slide can't clear it. This accounts for BOTH transforms:
-    // the column slides up by max(bottomPanelClearance, presetBandClearance) and down
-    // by topPanelClearance (see the Translate below), and the band slides up by its OWN
-    // bottomPanelClearance transform too — so only the column's slide BEYOND the band's,
-    // i.e. max(0, presetBandClearance - bottomPanelClearance), actually reduces the
-    // overlap. Residual = _bandOverlap - max(0, presetBandClearance - bottomPanelClearance)
-    // + topPanelClearance. Fires when the slide falls short: a very short viewport (the
-    // _maxPanelClearance cap bites), an upper-half picker whose topPanelClearance pushes
-    // the column down, OR a lower-half picker open over an active preset (band and column
-    // ride up together, so the slide can't clear it and the fade takes over). Gated on a
-    // real active-preset overlap (_bandOverlap > 0) so a picker alone never fades the band.
-    readonly property bool carouselOverlapsBand:
-        idlePage._bandOverlap > 0
-        && (idlePage._bandOverlap
-            - Math.max(0, idlePage.presetBandClearance - idlePage.bottomPanelClearance)
-            + idlePage.topPanelClearance) > 0.5
 
     Component.onCompleted: {
         MainController.bagStorage.requestInventory()
@@ -917,7 +891,7 @@ T.Page {
         // Transient slide to clear a picker popup: up for a lower-half popup,
         // down for an upper-half one (restores to 0 on close).
         transform: Translate {
-            y: -Math.max(idlePage.bottomPanelClearance, idlePage.presetBandClearance) + idlePage.topPanelClearance
+            y: -idlePage.bottomPanelClearance + idlePage.topPanelClearance
             // qmllint disable Quick.layout-positioning
             // False positive, verified: this `y` belongs to the Translate transform, not to the
             // layout-managed item. A transform is precisely how you offset an item inside a layout
