@@ -4,9 +4,12 @@ import Decenza
 
 // Equipment package card (add-equipment-packages). Mirrors BagCard. Shows the
 // package identity via the shared EquipmentSummary renderer (grinder, dial,
-// basket, puck prep), then adds the inventory chrome. Equipment is switched
-// per-bag from Brew Settings, so the card itself is informational + edit/remove
-// (no global "selected" state). One
+// basket, puck prep), then adds the inventory chrome. Tapping the card switches
+// to the package — `selected` tracks Settings.dye.activeEquipmentId and the tap
+// calls switchToEquipment(), the same shape as BagCard's activeBagId. (This
+// header used to claim the card was informational with "no global selected
+// state"; the property and the tap handler have both been here since the card
+// was written, so that was never true.) One
 // removal action follows the package's life: a trash icon while no SHOT
 // references it (a mistaken creation — hard delete), then "Remove" once shots
 // exist (soft-delete, history kept). Storage is the authoritative backstop — it
@@ -31,6 +34,22 @@ Rectangle {
     implicitHeight: cardColumn.implicitHeight + Theme.scaled(24)
 
     Accessible.ignored: true
+
+    // Tap anywhere on the card to switch to this package (#1798, same defect as
+    // BagCard: the tap area wrapped only the summary row, leaving the action
+    // row's whitespace and the card padding dead). The action-row buttons keep
+    // their own taps.
+    CardTapArea {
+        id: cardTapArea
+        accessibleName: card.selected
+            ? summary.accessibleSummary + ", " + TranslationManager.translate("accessibility.selected", "selected")
+            : summary.accessibleSummary
+        accessibleItem: card
+        onAccessibleClicked: {
+            if (card.pkg && card.pkg.id !== undefined)
+                Settings.dye.switchToEquipment(card.pkg)
+        }
+    }
 
     Timer {
         id: deleteRefusedTimer
@@ -57,40 +76,22 @@ Rectangle {
         anchors.margins: Theme.scaled(12)
         spacing: Theme.scaled(6)
 
-        Item {
-            id: infoArea
+        // Shared identity rendering (grinder/basket/puck prep). The package map
+        // exposes the canonical puck-prep string as `puckPrepCanonical`.
+        // cardTapArea (declared above) switches to this package.
+        EquipmentSummary {
+            id: summary
             Layout.fillWidth: true
-            implicitHeight: summary.implicitHeight
-
-            // Shared identity rendering (grinder/basket/puck prep). The package map
-            // exposes the canonical puck-prep string as `puckPrepCanonical`.
-            EquipmentSummary {
-                id: summary
-                anchors.left: parent.left
-                anchors.right: parent.right
-                grinderName: (card.pkg && card.pkg.name) ? String(card.pkg.name) : ""
-                grinderBrand: (card.pkg && card.pkg.grinderBrand) || ""
-                grinderModel: (card.pkg && card.pkg.grinderModel) || ""
-                grinderBurrs: (card.pkg && card.pkg.grinderBurrs) || ""
-                // Grind/rpm are a per-shot dial-in, not equipment — the inventory
-                // card lists only what the package IS, so the last-dial line is
-                // left unfed here (Shot Detail / Post-Shot Review still show it).
-                basketBrand: (card.pkg && card.pkg.basketBrand) || ""
-                basketModel: (card.pkg && card.pkg.basketModel) || ""
-                puckPrepCanonical: (card.pkg && card.pkg.puckPrepCanonical) || ""
-            }
-
-            AccessibleMouseArea {
-                anchors.fill: parent
-                accessibleName: card.selected
-                    ? summary.accessibleSummary + ", " + TranslationManager.translate("accessibility.selected", "selected")
-                    : summary.accessibleSummary
-                accessibleItem: infoArea
-                onAccessibleClicked: {
-                    if (card.pkg && card.pkg.id !== undefined)
-                        Settings.dye.switchToEquipment(card.pkg)
-                }
-            }
+            grinderName: (card.pkg && card.pkg.name) ? String(card.pkg.name) : ""
+            grinderBrand: (card.pkg && card.pkg.grinderBrand) || ""
+            grinderModel: (card.pkg && card.pkg.grinderModel) || ""
+            grinderBurrs: (card.pkg && card.pkg.grinderBurrs) || ""
+            // Grind/rpm are a per-shot dial-in, not equipment — the inventory
+            // card lists only what the package IS, so the last-dial line is
+            // left unfed here (Shot Detail / Post-Shot Review still show it).
+            basketBrand: (card.pkg && card.pkg.basketBrand) || ""
+            basketModel: (card.pkg && card.pkg.basketModel) || ""
+            puckPrepCanonical: (card.pkg && card.pkg.puckPrepCanonical) || ""
         }
 
         Tr {

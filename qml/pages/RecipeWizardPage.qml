@@ -2342,11 +2342,9 @@ T.Page {
                 }
             }
         }
-        // Card-wide select target: sits UNDER the header-action buttons (z:-1)
-        // so their taps win, while a tap anywhere else opens the step.
-        AccessibleMouseArea {
-            anchors.fill: parent
-            z: -1
+        // Card-wide select target: sits under the header-action buttons so
+        // their taps win, while a tap anywhere else opens the step.
+        CardTapArea {
             accessibleName: summaryRow.label + ", " + summaryRow.accessibleValue
             accessibleItem: parent
             onAccessibleClicked: {
@@ -2881,12 +2879,10 @@ T.Page {
                                                     }
                                                 }
                                             }
-                                            // The tile-wide select target sits UNDER the
-                                            // info buttons (z: -1) so their own tap areas
-                                            // win — same pattern as the recipe cards.
-                                            AccessibleMouseArea {
-                                                anchors.fill: parent
-                                                z: -1
+                                            // The tile-wide select target sits under the
+                                            // info buttons so their own tap areas win —
+                                            // same pattern as the recipe cards.
+                                            CardTapArea {
                                                 accessibleName: profileLoader.row.title
                                                     + (tileRect.metaLine !== "" ? ", " + tileRect.metaLine : "")
                                                     + (profileLoader.row.reason !== "" ? ", " + profileLoader.row.reason : "")

@@ -471,9 +471,7 @@ T.Page {
         opacity: archivedCard ? 0.7 : 1.0
 
         // Tap anywhere on the card to activate (buttons overlay and win).
-        AccessibleMouseArea {
-            anchors.fill: parent
-            z: -1
+        CardTapArea {
             enabled: !card.archivedCard
             accessibleName: TranslationManager.translate("recipes.accessible.activate", "Activate recipe %1").arg(card.recipe.name || "")
             accessibleItem: card
