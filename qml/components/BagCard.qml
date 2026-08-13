@@ -222,7 +222,7 @@ Rectangle {
     implicitWidth: Theme.scaled(360)
     implicitHeight: cardColumn.implicitHeight + Theme.scaled(24)
 
-    Accessible.ignored: true  // AccessibleMouseArea below carries the card's accessibility
+    Accessible.ignored: true  // cardTapArea below carries the card's accessibility
 
     BeanBaseDetailsPopup {
         id: beanDetailsPopup
@@ -249,11 +249,10 @@ Rectangle {
 
     // Tap anywhere on the card to select the bag (#1798: the tap area used to
     // wrap only the info row, so the action row's whitespace and the card's
-    // padding were dead space). z: -1 keeps every button and the thumbnail
-    // above it, so they still win their own taps — the RecipeCard pattern.
-    AccessibleMouseArea {
-        anchors.fill: parent
-        z: -1
+    // padding were dead space). The action-row buttons keep their own taps;
+    // everything else — text, photo, whitespace — selects.
+    CardTapArea {
+        id: cardTapArea
         accessibleName: card.accessibleSummary
         accessibleItem: card
         onAccessibleClicked: {
@@ -287,7 +286,7 @@ Rectangle {
         anchors.margins: Theme.scaled(12)
         spacing: Theme.scaled(6)
 
-        // Info area — the card-wide tap area below selects the bag
+        // Info area — cardTapArea (declared above) selects the bag
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.scaled(10)

@@ -4,9 +4,12 @@ import Decenza
 
 // Equipment package card (add-equipment-packages). Mirrors BagCard. Shows the
 // package identity via the shared EquipmentSummary renderer (grinder, dial,
-// basket, puck prep), then adds the inventory chrome. Equipment is switched
-// per-bag from Brew Settings, so the card itself is informational + edit/remove
-// (no global "selected" state). One
+// basket, puck prep), then adds the inventory chrome. Tapping the card switches
+// to the package — `selected` tracks Settings.dye.activeEquipmentId and the tap
+// calls switchToEquipment(), the same shape as BagCard's activeBagId. (This
+// header used to claim the card was informational with "no global selected
+// state"; the property and the tap handler have both been here since the card
+// was written, so that was never true.) One
 // removal action follows the package's life: a trash icon while no SHOT
 // references it (a mistaken creation — hard delete), then "Remove" once shots
 // exist (soft-delete, history kept). Storage is the authoritative backstop — it
@@ -34,11 +37,10 @@ Rectangle {
 
     // Tap anywhere on the card to switch to this package (#1798, same defect as
     // BagCard: the tap area wrapped only the summary row, leaving the action
-    // row's whitespace and the card padding dead). z: -1 keeps the buttons above
-    // it so they still win their own taps.
-    AccessibleMouseArea {
-        anchors.fill: parent
-        z: -1
+    // row's whitespace and the card padding dead). The action-row buttons keep
+    // their own taps.
+    CardTapArea {
+        id: cardTapArea
         accessibleName: card.selected
             ? summary.accessibleSummary + ", " + TranslationManager.translate("accessibility.selected", "selected")
             : summary.accessibleSummary
@@ -75,8 +77,8 @@ Rectangle {
         spacing: Theme.scaled(6)
 
         // Shared identity rendering (grinder/basket/puck prep). The package map
-        // exposes the canonical puck-prep string as `puckPrepCanonical`. The
-        // card-wide tap area above switches to this package.
+        // exposes the canonical puck-prep string as `puckPrepCanonical`.
+        // cardTapArea (declared above) switches to this package.
         EquipmentSummary {
             id: summary
             Layout.fillWidth: true
