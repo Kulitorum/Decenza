@@ -137,7 +137,7 @@ Item {
             color: Theme.primaryColor
             font.pixelSize: Theme.scaled(12)
             // accessibleItem of the AccessibleMouseArea below — ignore this Text
-            // node so it doesn't overlap the button node (BagCard infoArea pattern).
+            // node so it doesn't overlap the button node (BagCard tap-area pattern).
             Accessible.ignored: true
 
             AccessibleMouseArea {

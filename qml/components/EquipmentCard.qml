@@ -32,6 +32,23 @@ Rectangle {
 
     Accessible.ignored: true
 
+    // Tap anywhere on the card to switch to this package (#1798, same defect as
+    // BagCard: the tap area wrapped only the summary row, leaving the action
+    // row's whitespace and the card padding dead). z: -1 keeps the buttons above
+    // it so they still win their own taps.
+    AccessibleMouseArea {
+        anchors.fill: parent
+        z: -1
+        accessibleName: card.selected
+            ? summary.accessibleSummary + ", " + TranslationManager.translate("accessibility.selected", "selected")
+            : summary.accessibleSummary
+        accessibleItem: card
+        onAccessibleClicked: {
+            if (card.pkg && card.pkg.id !== undefined)
+                Settings.dye.switchToEquipment(card.pkg)
+        }
+    }
+
     Timer {
         id: deleteRefusedTimer
         interval: 4000  // UI auto-dismiss (allowed timer use)
@@ -57,40 +74,22 @@ Rectangle {
         anchors.margins: Theme.scaled(12)
         spacing: Theme.scaled(6)
 
-        Item {
-            id: infoArea
+        // Shared identity rendering (grinder/basket/puck prep). The package map
+        // exposes the canonical puck-prep string as `puckPrepCanonical`. The
+        // card-wide tap area above switches to this package.
+        EquipmentSummary {
+            id: summary
             Layout.fillWidth: true
-            implicitHeight: summary.implicitHeight
-
-            // Shared identity rendering (grinder/basket/puck prep). The package map
-            // exposes the canonical puck-prep string as `puckPrepCanonical`.
-            EquipmentSummary {
-                id: summary
-                anchors.left: parent.left
-                anchors.right: parent.right
-                grinderName: (card.pkg && card.pkg.name) ? String(card.pkg.name) : ""
-                grinderBrand: (card.pkg && card.pkg.grinderBrand) || ""
-                grinderModel: (card.pkg && card.pkg.grinderModel) || ""
-                grinderBurrs: (card.pkg && card.pkg.grinderBurrs) || ""
-                // Grind/rpm are a per-shot dial-in, not equipment — the inventory
-                // card lists only what the package IS, so the last-dial line is
-                // left unfed here (Shot Detail / Post-Shot Review still show it).
-                basketBrand: (card.pkg && card.pkg.basketBrand) || ""
-                basketModel: (card.pkg && card.pkg.basketModel) || ""
-                puckPrepCanonical: (card.pkg && card.pkg.puckPrepCanonical) || ""
-            }
-
-            AccessibleMouseArea {
-                anchors.fill: parent
-                accessibleName: card.selected
-                    ? summary.accessibleSummary + ", " + TranslationManager.translate("accessibility.selected", "selected")
-                    : summary.accessibleSummary
-                accessibleItem: infoArea
-                onAccessibleClicked: {
-                    if (card.pkg && card.pkg.id !== undefined)
-                        Settings.dye.switchToEquipment(card.pkg)
-                }
-            }
+            grinderName: (card.pkg && card.pkg.name) ? String(card.pkg.name) : ""
+            grinderBrand: (card.pkg && card.pkg.grinderBrand) || ""
+            grinderModel: (card.pkg && card.pkg.grinderModel) || ""
+            grinderBurrs: (card.pkg && card.pkg.grinderBurrs) || ""
+            // Grind/rpm are a per-shot dial-in, not equipment — the inventory
+            // card lists only what the package IS, so the last-dial line is
+            // left unfed here (Shot Detail / Post-Shot Review still show it).
+            basketBrand: (card.pkg && card.pkg.basketBrand) || ""
+            basketModel: (card.pkg && card.pkg.basketModel) || ""
+            puckPrepCanonical: (card.pkg && card.pkg.puckPrepCanonical) || ""
         }
 
         Tr {

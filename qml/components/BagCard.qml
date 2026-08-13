@@ -247,6 +247,21 @@ Rectangle {
         }
     }
 
+    // Tap anywhere on the card to select the bag (#1798: the tap area used to
+    // wrap only the info row, so the action row's whitespace and the card's
+    // padding were dead space). z: -1 keeps every button and the thumbnail
+    // above it, so they still win their own taps — the RecipeCard pattern.
+    AccessibleMouseArea {
+        anchors.fill: parent
+        z: -1
+        accessibleName: card.accessibleSummary
+        accessibleItem: card
+        onAccessibleClicked: {
+            if (card.bag && card.bag.id !== undefined)
+                Settings.dye.activeBagId = card.bag.id
+        }
+    }
+
     Timer {
         id: deleteRefusedTimer
         interval: 4000  // UI auto-dismiss (allowed timer use)
@@ -272,119 +287,99 @@ Rectangle {
         anchors.margins: Theme.scaled(12)
         spacing: Theme.scaled(6)
 
-        // Info area — tap to select
-        Item {
-            id: infoArea
+        // Info area — the card-wide tap area below selects the bag
+        RowLayout {
             Layout.fillWidth: true
-            implicitHeight: infoRow.implicitHeight
+            spacing: Theme.scaled(10)
 
-            RowLayout {
-                id: infoRow
-                anchors.left: parent.left
-                anchors.right: parent.right
-                spacing: Theme.scaled(10)
+            // Bag photo — the shared BeanThumbnail cache widget (legacy
+            // blob `image` URL as fallback).
+            BeanThumbnail {
+                Layout.preferredWidth: Theme.scaled(44)
+                Layout.preferredHeight: Theme.scaled(44)
+                Layout.alignment: Qt.AlignTop
+                imageKey: card.imageKey
+                fallbackName: (card.bag && card.bag.coffeeName) || ""
+                link: card.beanBase.link || ""
+                legacyImageUrl: card.beanBase.image || ""
+            }
 
-                // Bag photo — the shared BeanThumbnail cache widget (legacy
-                // blob `image` URL as fallback).
-                BeanThumbnail {
-                    Layout.preferredWidth: Theme.scaled(44)
-                    Layout.preferredHeight: Theme.scaled(44)
-                    Layout.alignment: Qt.AlignTop
-                    imageKey: card.imageKey
-                    fallbackName: (card.bag && card.bag.coffeeName) || ""
-                    link: card.beanBase.link || ""
-                    legacyImageUrl: card.beanBase.image || ""
-                }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(2)
 
-                ColumnLayout {
-                    id: infoColumn
+                RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(2)
+                    spacing: Theme.scaled(6)
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(6)
-
-                        ColoredIcon {
-                            visible: card.hasCanonical
-                            Layout.alignment: Qt.AlignTop
-                            source: "qrc:/icons/tick.svg"
-                            iconWidth: Theme.scaled(14)
-                            iconHeight: Theme.scaled(14)
-                            iconColor: Theme.primaryColor
-                            Accessible.ignored: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: (card.bag && card.bag.coffeeName) || (card.bag && card.bag.roasterName) || ""
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.subtitleFont.pixelSize
-                            font.bold: true
-                            color: Theme.textColor
-                            elide: Text.ElideRight
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        visible: !!(card.bag && card.bag.coffeeName && card.bag.roasterName)
-                        text: (card.bag && card.bag.roasterName) || ""
-                        font: Theme.labelFont
-                        color: Theme.textSecondaryColor
-                        elide: Text.ElideRight
-                        Accessible.ignored: true
-                    }
-
-                    // Canonical: one dense attribute line; partial: nothing (no placeholders)
-                    Text {
-                        Layout.fillWidth: true
-                        visible: card.attrLine.length > 0
-                        text: card.attrLineRich
-                        textFormat: Text.StyledText
-                        font: Theme.captionFont
-                        color: Theme.textSecondaryColor
-                        elide: Text.ElideRight
-                        Accessible.ignored: true
-                    }
-
-                    // Tasting notes earn a line of their own — the most
-                    // interesting canonical data. One elided line; the info
-                    // button opens the full record.
-                    Text {
-                        Layout.fillWidth: true
-                        visible: !!(card.beanBase.tastingNotes)
-                        text: card.beanBase.tastingNotes || ""
-                        font.family: Theme.captionFont.family
-                        font.pixelSize: Theme.captionFont.pixelSize
-                        font.italic: true
-                        color: Theme.textSecondaryColor
-                        elide: Text.ElideRight
+                    ColoredIcon {
+                        visible: card.hasCanonical
+                        Layout.alignment: Qt.AlignTop
+                        source: "qrc:/icons/tick.svg"
+                        iconWidth: Theme.scaled(14)
+                        iconHeight: Theme.scaled(14)
+                        iconColor: Theme.primaryColor
                         Accessible.ignored: true
                     }
 
                     Text {
                         Layout.fillWidth: true
-                        visible: card.metaLine.length > 0
-                        text: card.metaLineRich
-                        textFormat: Text.StyledText
-                        font: Theme.captionFont
+                        text: (card.bag && card.bag.coffeeName) || (card.bag && card.bag.roasterName) || ""
+                        font.family: Theme.bodyFont.family
+                        font.pixelSize: Theme.subtitleFont.pixelSize
+                        font.bold: true
                         color: Theme.textColor
                         elide: Text.ElideRight
                         Accessible.ignored: true
                     }
-
                 }
-            }
 
-            AccessibleMouseArea {
-                anchors.fill: parent
-                accessibleName: card.accessibleSummary
-                accessibleItem: infoArea
-                onAccessibleClicked: {
-                    if (card.bag && card.bag.id !== undefined)
-                        Settings.dye.activeBagId = card.bag.id
+                Text {
+                    Layout.fillWidth: true
+                    visible: !!(card.bag && card.bag.coffeeName && card.bag.roasterName)
+                    text: (card.bag && card.bag.roasterName) || ""
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
+
+                // Canonical: one dense attribute line; partial: nothing (no placeholders)
+                Text {
+                    Layout.fillWidth: true
+                    visible: card.attrLine.length > 0
+                    text: card.attrLineRich
+                    textFormat: Text.StyledText
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
+
+                // Tasting notes earn a line of their own — the most
+                // interesting canonical data. One elided line; the info
+                // button opens the full record.
+                Text {
+                    Layout.fillWidth: true
+                    visible: !!(card.beanBase.tastingNotes)
+                    text: card.beanBase.tastingNotes || ""
+                    font.family: Theme.captionFont.family
+                    font.pixelSize: Theme.captionFont.pixelSize
+                    font.italic: true
+                    color: Theme.textSecondaryColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: card.metaLine.length > 0
+                    text: card.metaLineRich
+                    textFormat: Text.StyledText
+                    font: Theme.captionFont
+                    color: Theme.textColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
                 }
             }
         }
