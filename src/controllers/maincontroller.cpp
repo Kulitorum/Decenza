@@ -20,6 +20,7 @@
 #include "../ble/de1device.h"
 #include "../ble/de1logging.h"
 #include "../machine/machinestate.h"
+#include "../machine/frameexitreason.h"
 #include "../models/shotdatamodel.h"
 #include "../models/shotcomparisonmodel.h"
 #include "../network/visualizeruploader.h"
@@ -3825,6 +3826,9 @@ void MainController::onEspressoCycleStarted() {
     m_frameWeightSkipSent = -1;
     m_frameStartTime = 0;
     m_lastPressure = 0;
+    m_prevPressure = 0;
+    m_prevFlow = 0;
+    m_prevValid = false;
     if (m_filteredGoalPressure != 0 || m_filteredGoalFlow != 0) {
         m_filteredGoalPressure = 0;
         m_filteredGoalFlow = 0;
@@ -4529,7 +4533,12 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         return;
     }
 
-    // Track latest sensor values for transition reason inference
+    // Track the latest two sensor values for transition reason inference. The
+    // previous sample is what gives FrameExit::inferReason its extrapolation
+    // tolerance — see frameexitreason.h.
+    m_prevPressure = m_lastPressure;
+    m_prevFlow = m_lastFlow;
+    m_prevValid = m_extractionStarted;
     m_lastPressure = sample.groupPressure;
     m_lastFlow = sample.groupFlow;
 
@@ -4605,51 +4614,86 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
             frameName = QString("F%1").arg(frameIndex);
         }
 
+        // The machine reported a non-zero frame without the app ever having
+        // seen frame 0 — the firmware skip that ShotAnalysis' skip-first-frame
+        // detector exists to catch, observed live. Name the firmware build:
+        // this is reported against specific builds (#1813 cites v1333 and
+        // v1352) and a submitted log otherwise leaves the reader guessing
+        // which one produced it.
+        if (m_lastFrameNumber < 0 && sample.frameNumber > 0) {
+            qWarning() << "MainController: extraction opened at frame" << sample.frameNumber
+                       << "- frame 0 never reported by the machine (firmware skip)"
+                       << "firmwareBuild:" << (m_device ? m_device->firmwareBuildNumber() : 0)
+                       << "t:" << time;
+        }
+
         // Determine transition reason for the PREVIOUS frame that just exited
         QString transitionReason;
         int prevFrameIndex = m_lastFrameNumber;
         if (prevFrameIndex >= 0 && prevFrameIndex < steps.size()) {
             const ProfileFrame& prevFrame = steps[prevFrameIndex];
+            const double frameElapsed = time - m_frameStartTime;
 
-            if (m_timingController && m_timingController->wasWeightExit(prevFrameIndex)) {
-                // App sent skipToNextFrame() due to weight - 100% certain
-                transitionReason = QStringLiteral("weight");
-            } else if (prevFrame.exitIf) {
-                // Machine-side exit condition was configured - infer from sensor values
-                double frameElapsed = time - m_frameStartTime;
-                bool timeExpired = frameElapsed >= prevFrame.seconds * 0.9;
+            FrameExit::Inputs in;
+            in.exitIf = prevFrame.exitIf;
+            in.exitType = prevFrame.exitType;
+            in.exitPressureOver = prevFrame.exitPressureOver;
+            in.exitPressureUnder = prevFrame.exitPressureUnder;
+            in.exitFlowOver = prevFrame.exitFlowOver;
+            in.exitFlowUnder = prevFrame.exitFlowUnder;
+            in.configuredSeconds = prevFrame.seconds;
+            in.pressure = m_lastPressure;
+            in.flow = m_lastFlow;
+            in.prevPressure = m_prevPressure;
+            in.prevFlow = m_prevFlow;
+            in.prevValid = m_prevValid;
+            in.frameElapsedSec = frameElapsed;
+            in.weightExit = m_timingController
+                && m_timingController->wasWeightExit(prevFrameIndex);
 
-                if (prevFrame.exitType == QStringLiteral("pressure_over") && m_lastPressure >= prevFrame.exitPressureOver) {
-                    transitionReason = QStringLiteral("pressure");
-                } else if (prevFrame.exitType == QStringLiteral("pressure_under") && m_lastPressure > 0 && m_lastPressure <= prevFrame.exitPressureUnder) {
-                    transitionReason = QStringLiteral("pressure");
-                } else if (prevFrame.exitType == QStringLiteral("flow_over") && m_lastFlow >= prevFrame.exitFlowOver) {
-                    transitionReason = QStringLiteral("flow");
-                } else if (prevFrame.exitType == QStringLiteral("flow_under") && m_lastFlow > 0 && m_lastFlow <= prevFrame.exitFlowUnder) {
-                    transitionReason = QStringLiteral("flow");
-                } else if (timeExpired) {
-                    // Exit condition configured but time ran out first
-                    transitionReason = QStringLiteral("time");
-                } else {
-                    // Exit condition was configured, but the sensor threshold was NOT
-                    // confirmed above and time did not expire — usually a real sensor
-                    // exit whose crossing fell between BLE samples. Record it as an
-                    // UNCONFIRMED sensor exit (hint from exitType): displays render it
-                    // like the sensor exit it probably was, the grind detector's
-                    // limiter-tail trim treats pressure_unconfirmed as limiter
-                    // engagement, but the skip-first-frame guard only trusts confirmed
-                    // "pressure"/"flow"/"weight" — so a genuinely skipped frame (which
-                    // lands in this branch) still flags.
-                    transitionReason = prevFrame.exitType.contains(QStringLiteral("pressure"))
-                        ? QStringLiteral("pressure_unconfirmed") : QStringLiteral("flow_unconfirmed");
-                    qDebug() << "MainController: Frame" << prevFrameIndex
-                             << "exit reason unconfirmed - exitType:" << prevFrame.exitType
-                             << "pressure:" << m_lastPressure << "flow:" << m_lastFlow
-                             << "recorded as" << transitionReason;
-                }
-            } else {
-                // No exit condition configured - frame ended by time
-                transitionReason = QStringLiteral("time");
+            const FrameExit::Result exit = FrameExit::inferReason(in);
+            transitionReason = exit.reason;
+
+            if (exit.extrapolated) {
+                qDebug() << "MainController: Frame" << prevFrameIndex
+                         << "exit confirmed by extrapolation - exitType:" << prevFrame.exitType
+                         << "pressure:" << m_lastPressure << "(prev" << m_prevPressure << ")"
+                         << "flow:" << m_lastFlow << "(prev" << m_prevFlow << ")"
+                         << "recorded as" << transitionReason;
+            } else if (transitionReason.endsWith(QStringLiteral("_unconfirmed"))) {
+                qDebug() << "MainController: Frame" << prevFrameIndex
+                         << "exit reason unconfirmed - exitType:" << prevFrame.exitType
+                         << "pressure:" << m_lastPressure << "(prev" << m_prevPressure << ")"
+                         << "flow:" << m_lastFlow << "(prev" << m_prevFlow << ")"
+                         << "recorded as" << transitionReason;
+            }
+
+            // Frame 0 ending unconfirmed and shorter than the detector's
+            // cutoff is the exact shape that makes
+            // ShotAnalysis::detectSkipFirstFrame badge the shot "First step
+            // skipped" — the cutoff is mirrored from its short-first-step
+            // branch so this line predicts the badge rather than approximating
+            // it. Logged with the firmware build so a report of that badge can
+            // be answered from the log alone: whether the frame ran, for how
+            // long, against what threshold, and on which firmware. (The
+            // detector additionally requires a profile of 2+ frames, which any
+            // frame change proves.)
+            const double skipCutoffSec = prevFrame.seconds > 0.0
+                ? std::min(2.0, 0.5 * prevFrame.seconds) : 2.0;
+            if (prevFrameIndex == 0 && frameElapsed < skipCutoffSec
+                && transitionReason.endsWith(QStringLiteral("_unconfirmed"))) {
+                qWarning() << "MainController: frame 0 ended at" << frameElapsed
+                           << "s unconfirmed, under the" << skipCutoffSec
+                           << "s skip cutoff - skip-first-frame badge will fire."
+                           << "exitType:" << prevFrame.exitType
+                           << "thresholds P>" << prevFrame.exitPressureOver
+                           << "P<" << prevFrame.exitPressureUnder
+                           << "F>" << prevFrame.exitFlowOver
+                           << "F<" << prevFrame.exitFlowUnder
+                           << "samples P:" << m_prevPressure << "->" << m_lastPressure
+                           << "F:" << m_prevFlow << "->" << m_lastFlow
+                           << "configuredSeconds:" << prevFrame.seconds
+                           << "firmwareBuild:" << (m_device ? m_device->firmwareBuildNumber() : 0);
             }
         }
 

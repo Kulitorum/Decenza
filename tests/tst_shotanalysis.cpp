@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include "ai/shotanalysis.h"
+#include "machine/frameexitreason.h"
 #include "history/shothistorystorage.h"
 #include "history/shotbadgeprojection.h"
 #include "shotcurvefixtures.h"
@@ -204,6 +205,188 @@ private slots:
             phase(0.0, "Fill", 0),
             phase(0.3, "Pour", 1, false, "flow_unconfirmed"),
         }, 3, true);
+    }
+
+    // FrameExit::inferReason ----------------------------------------------
+    //
+    // Lives here rather than in its own file because the reason string it
+    // produces is what detectSkipFirstFrame (directly above) and
+    // analyzeFlowVsGoal's limiter-tail trim read as ground truth — the two are
+    // one behaviour, and the false positive in #1813 was only visible across
+    // the seam. Header-only helper, so no extra production source is linked.
+    void frameExitReasonInference()
+    {
+        auto pressureOverFrame = [](double threshold, double seconds) {
+            FrameExit::Inputs in;
+            in.exitIf = true;
+            in.exitType = QStringLiteral("pressure_over");
+            in.exitPressureOver = threshold;
+            in.configuredSeconds = seconds;
+            return in;
+        };
+
+        // Transition sample already at/over the threshold — confirmed outright,
+        // no extrapolation involved.
+        {
+            FrameExit::Inputs in = pressureOverFrame(2.10, 25.0);
+            in.pressure = 2.30;
+            in.prevPressure = 2.05;
+            in.prevValid = true;
+            in.frameElapsedSec = 1.9;
+            const auto r = FrameExit::inferReason(in);
+            QCOMPARE(r.reason, QStringLiteral("pressure"));
+            QVERIFY(!r.extrapolated);
+        }
+
+        // #1813's actual numbers: D-Flow frame 0 "Filling", exit_pressure_over
+        // 2.10, seconds 25. Transition sample 2.048 bar, preceding sample
+        // 1.869 bar 210 ms earlier. 2.048 + 0.179 = 2.227 >= 2.10, so the
+        // crossing fell inside one sample and the exit is confirmed. Before
+        // the tolerance this recorded pressure_unconfirmed, and
+        // detectSkipFirstFrame then badged a correct shot at 1.888 s.
+        {
+            FrameExit::Inputs in = pressureOverFrame(2.10, 25.0);
+            in.pressure = 2.048;
+            in.prevPressure = 1.869;
+            in.prevValid = true;
+            in.frameElapsedSec = 1.888;
+            const auto r = FrameExit::inferReason(in);
+            QCOMPARE(r.reason, QStringLiteral("pressure"));
+            QVERIFY(r.extrapolated);
+        }
+        // ... and the marker that shot produces no longer flags.
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Filling", 0),
+            phase(1.888, "Infusing", 1, false, "pressure"),
+        }, 3, /*firstFrameConfiguredSeconds=*/25.0, false);
+
+        // One sample short of reaching it: 1.90 + 0.05 = 1.95 < 2.10.
+        {
+            FrameExit::Inputs in = pressureOverFrame(2.10, 25.0);
+            in.pressure = 1.90;
+            in.prevPressure = 1.85;
+            in.prevValid = true;
+            in.frameElapsedSec = 1.5;
+            QCOMPARE(FrameExit::inferReason(in).reason,
+                     QStringLiteral("pressure_unconfirmed"));
+        }
+
+        // Flat sensor: no rise, so no tolerance however close the threshold is.
+        {
+            FrameExit::Inputs in = pressureOverFrame(2.10, 25.0);
+            in.pressure = 2.09;
+            in.prevPressure = 2.09;
+            in.prevValid = true;
+            in.frameElapsedSec = 1.5;
+            QCOMPARE(FrameExit::inferReason(in).reason,
+                     QStringLiteral("pressure_unconfirmed"));
+        }
+
+        // Falling toward a *_over threshold: moving away, no tolerance.
+        {
+            FrameExit::Inputs in = pressureOverFrame(2.10, 25.0);
+            in.pressure = 2.00;
+            in.prevPressure = 2.40;
+            in.prevValid = true;
+            in.frameElapsedSec = 1.5;
+            QCOMPARE(FrameExit::inferReason(in).reason,
+                     QStringLiteral("pressure_unconfirmed"));
+        }
+
+        // No preceding sample in this shot — nothing to extrapolate from, so a
+        // frame that ends on the very first sample stays unconfirmed. This is
+        // the genuine firmware-skip shape and must not be swallowed.
+        {
+            FrameExit::Inputs in = pressureOverFrame(2.10, 25.0);
+            in.pressure = 2.048;
+            in.prevPressure = 0.0;
+            in.prevValid = false;
+            in.frameElapsedSec = 0.2;
+            QCOMPARE(FrameExit::inferReason(in).reason,
+                     QStringLiteral("pressure_unconfirmed"));
+        }
+
+        // pressure_under, both ways. The `> 0` guard keeps a zeroed sensor from
+        // confirming an exit it never saw.
+        {
+            FrameExit::Inputs in;
+            in.exitIf = true;
+            in.exitType = QStringLiteral("pressure_under");
+            in.exitPressureUnder = 4.0;
+            in.configuredSeconds = 30.0;
+            in.pressure = 4.30;
+            in.prevPressure = 4.70;   // falling 0.40/sample → 3.90 <= 4.0
+            in.prevValid = true;
+            in.frameElapsedSec = 5.0;
+            const auto r = FrameExit::inferReason(in);
+            QCOMPARE(r.reason, QStringLiteral("pressure"));
+            QVERIFY(r.extrapolated);
+
+            in.prevPressure = 4.32;   // barely falling → 4.28, still above
+            QCOMPARE(FrameExit::inferReason(in).reason,
+                     QStringLiteral("pressure_unconfirmed"));
+
+            in.pressure = 0.0;        // sensor absent: guard refuses to confirm
+            in.prevPressure = 0.0;
+            QCOMPARE(FrameExit::inferReason(in).reason,
+                     QStringLiteral("pressure_unconfirmed"));
+        }
+
+        // flow_over / flow_under carry the same rule and the flow vocabulary.
+        {
+            FrameExit::Inputs in;
+            in.exitIf = true;
+            in.exitType = QStringLiteral("flow_over");
+            in.exitFlowOver = 2.0;
+            in.configuredSeconds = 20.0;
+            in.flow = 1.90;
+            in.prevFlow = 1.75;
+            in.prevValid = true;
+            in.frameElapsedSec = 3.0;
+            const auto r = FrameExit::inferReason(in);
+            QCOMPARE(r.reason, QStringLiteral("flow"));
+            QVERIFY(r.extrapolated);
+
+            in.exitType = QStringLiteral("flow_under");
+            in.exitFlowUnder = 1.0;
+            in.flow = 1.10;
+            in.prevFlow = 1.40;
+            QCOMPARE(FrameExit::inferReason(in).reason, QStringLiteral("flow"));
+
+            in.flow = 1.10;
+            in.prevFlow = 1.12;       // barely falling → 1.08, still above
+            QCOMPARE(FrameExit::inferReason(in).reason,
+                     QStringLiteral("flow_unconfirmed"));
+        }
+
+        // Precedence is unchanged by the tolerance: a weight skip wins over any
+        // sensor arm, time expiry (>= 90 % of configured) wins over the
+        // unconfirmed fallback, and a frame with no exit condition is "time".
+        {
+            FrameExit::Inputs in = pressureOverFrame(2.10, 25.0);
+            in.pressure = 2.048;
+            in.prevPressure = 1.869;
+            in.prevValid = true;
+            in.frameElapsedSec = 1.888;
+            in.weightExit = true;
+            QCOMPARE(FrameExit::inferReason(in).reason, QStringLiteral("weight"));
+        }
+        {
+            FrameExit::Inputs in = pressureOverFrame(9.0, 10.0);
+            in.pressure = 3.0;
+            in.prevPressure = 3.0;
+            in.prevValid = true;
+            in.frameElapsedSec = 9.5;
+            QCOMPARE(FrameExit::inferReason(in).reason, QStringLiteral("time"));
+        }
+        {
+            FrameExit::Inputs in;
+            in.exitIf = false;
+            in.configuredSeconds = 10.0;
+            in.frameElapsedSec = 1.0;
+            QCOMPARE(FrameExit::inferReason(in).reason, QStringLiteral("time"));
+        }
     }
 
     // buildChannelingWindows ---------------------------------------------

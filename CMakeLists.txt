@@ -958,6 +958,7 @@ set(HEADERS
     src/core/asynclogger.h
     src/core/btlogfilter.h
     src/machine/machinestate.h
+    src/machine/frameexitreason.h
     src/machine/weightprocessor.h
     src/machine/stepexitarbiter.h
     src/profile/profile.h

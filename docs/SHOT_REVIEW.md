@@ -363,10 +363,25 @@ frame exited on its own confirmed exit condition, so it executed as designed and
 was not skipped. DE1 preinfusion/fill frames routinely exit far earlier than
 their configured max duration (that is their purpose), and without this guard the
 duration checks below flag them as "skipped." These reasons are recorded only for
-a *confirmed* sensor exit. When the exit was configured but the threshold
-crossing fell between BLE samples (and time had not expired), `MainController`
-records `"pressure_unconfirmed"`/`"flow_unconfirmed"` instead — a hint, not
-ground truth. The guard intentionally does **not** match the unconfirmed
+a *confirmed* sensor exit. When the exit was configured but the threshold was
+not reached (and time had not expired), `MainController` records
+`"pressure_unconfirmed"`/`"flow_unconfirmed"` instead — a hint, not ground
+truth.
+
+"Reached" is not a bare comparison against the transition sample, and reading it
+as one is what made this detector badge correct shots. The DE1 evaluates its
+exit condition on its own internal cadence, an order of magnitude faster than
+the ~10 Hz BLE stream, so a fast-rising fill frame normally crosses its
+threshold *between* two samples the app can see —
+[#1813](https://github.com/Kulitorum/Decenza/issues/1813): `pressure_over 2.10`,
+transition sample 2.048 bar, preceding sample 1.869 bar, crossing ~60 ms after
+the last visible sample. `FrameExit::inferReason`
+(`src/machine/frameexitreason.h`) therefore confirms when the threshold falls
+within one sample-interval's worth of the *observed* change toward it. The
+tolerance is the measured per-sample delta, never a constant: flat, moving away,
+or no preceding sample in the shot all get none — which is what keeps a
+genuinely skipped frame (no rise to extrapolate from) in the unconfirmed branch
+where this detector can still catch it. The guard intentionally does **not** match the unconfirmed
 variants: a genuinely skipped frame lands in that same unconfirmed branch, so
 trusting the hint would mask the very bug this detector exists to catch.
 Unconfirmed, `"time"`, and empty (old-data) reasons all fall through to the
