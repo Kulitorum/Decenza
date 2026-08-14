@@ -728,6 +728,14 @@ private:
     bool m_shotSettingsResendInFlight = false;
     double m_lastPressure = 0;       // Last sample pressure (for transition reason inference)
     double m_lastFlow = 0;           // Last sample flow (for transition reason inference)
+    // The sample BEFORE m_lastPressure/m_lastFlow. The machine can cross a
+    // frame's exit threshold between two BLE samples, so the per-sample delta
+    // is the tolerance FrameExit::inferReason extrapolates with. m_prevValid is
+    // false on the first sample of a shot, where there is nothing to
+    // extrapolate from and no tolerance is given.
+    double m_prevPressure = 0;
+    double m_prevFlow = 0;
+    bool m_prevValid = false;
     bool m_tareDone = false;  // Track if we've tared for this shot
     QString m_pendingStopReason;  // #1161: QML-reported stop reason for the in-flight shot
 

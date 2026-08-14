@@ -8,6 +8,7 @@
 #ifndef DECENZA_SHOTANALYSIS_H
 #define DECENZA_SHOTANALYSIS_H
 
+#include <algorithm>
 #include <optional>
 #include <QVector>
 #include <QPointF>
@@ -462,6 +463,19 @@ public:
     static bool detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
                                      int expectedFrameCount = -1,
                                      double firstFrameConfiguredSeconds = -1.0);
+
+    // The short-first-step branch's cutoff, as its own function because a
+    // second site needs it: MainController logs a live "this shot is about to
+    // be badged" warning and has to use the SAME number, or the log line
+    // predicts a badge that does not fire (and stays silent on ones that do).
+    // A hand-copied formula there would be free to drift from this one with
+    // nothing failing.
+    static constexpr double skipFirstFrameCutoffSec(double firstFrameConfiguredSeconds)
+    {
+        return firstFrameConfiguredSeconds > 0.0
+            ? std::min(2.0, 0.5 * firstFrameConfiguredSeconds)
+            : 2.0;
+    }
 
     // Structured detector outputs — the typed values behind the in-app
     // Shot Summary dialog's detector evaluations. Exposed so external
