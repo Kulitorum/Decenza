@@ -30,6 +30,18 @@
  * unconfirmed branch meaningful — a genuinely skipped frame has no rise to
  * extrapolate from, so it still lands there, which is what the skip detector
  * exists to catch.
+ *
+ * The tolerance takes the two readings as one sample apart and does not measure
+ * the gap between them, so a stalled BLE notification widens it. That direction
+ * is deliberate: a stall means MORE unobserved time, so the threshold is more
+ * likely to have been crossed out of sight, not less. Refusing to extrapolate
+ * across a gap would fall back to `*_unconfirmed` exactly when the evidence for
+ * a real crossing is strongest, and put the #1813 badge back on a shot whose
+ * only fault was a dropped packet. Both readings are printed by the
+ * confirmed-by-extrapolation log line in MainController, so if a stall ever
+ * does produce a wrong verdict, a submitted log settles it with numbers rather
+ * than a guess -- which is the point at which normalising by the real sample
+ * interval would be worth its machinery.
  */
 namespace FrameExit {
 
