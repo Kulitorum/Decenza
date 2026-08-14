@@ -130,7 +130,33 @@ private:
     // Write retry logic (like de1app)
     std::function<void()> m_lastCommand;
     int m_writeRetryCount = 0;
-    static constexpr int MAX_WRITE_RETRIES = 10;
+
+    // Was 10. Measured across 434 retry cycles in 28 user-submitted debug logs
+    // (#1176 … #1810): every write that recovered did so by retry 9, exactly ONE
+    // recovered at retry 10, and 380 cycles — 88% of all retry activity — ran the
+    // full budget and failed. So the tail of the old budget was almost pure waste.
+    //
+    // The budget is also a TIME bound, and that is what actually broke: at 10
+    // retries a timing-out write occupies the link for
+    //   11 × WRITE_TIMEOUT_MS + 10 × WRITE_RETRY_DELAY_MS = 60.0 s
+    // which is not shorter than the 60 s MMR keepalive period — so on a degraded
+    // link the next keepalive is queued before the previous one is abandoned and
+    // the link never goes idle (measured dispatch→abandonment in #1691: 60.06 s,
+    // with keepalive exhaustions exactly 60.0 s apart). At 5 the worst case is
+    //   6 × 5000 + 5 × 500 = 32.5 s
+    // leaving the link idle before the next periodic write.
+    //
+    // 5 rather than 3 (both were in range) because it retains 43 of the 54
+    // observed recoveries against 37 at 3, for 11 s more worst-case latency that
+    // still clears the keepalive period. Flat, NOT scaled by recent failure
+    // history: at 380/434 cycles the failing-link case already dominates, so a
+    // graduated budget would buy under a second and cost a second concept.
+    //
+    // Changing this REQUIRES re-deriving the DE1-fault-cluster weighting in
+    // QtScaleBleTransport::onDe1LinkFault — it treats a cascade as two faults on
+    // the reasoning that ten retries is ~5 s of sustained write starvation, which
+    // is false here, and shorter cascades also fire more often.
+    static constexpr int MAX_WRITE_RETRIES = 5;
     QTimer m_writeTimeoutTimer;
     static constexpr int WRITE_TIMEOUT_MS = 5000;
     static constexpr int WRITE_RETRY_DELAY_MS = 500;

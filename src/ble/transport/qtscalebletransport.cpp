@@ -393,14 +393,34 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     // Primary signal: a DE1-link fault clustered shortly after the scale
     // requested HIGH is the dual-HIGH contention signature (#1093/#1176).
     //
-    // A "write-failed" kind represents a 10-retry GATT-write cascade — ~5s
-    // of sustained write starvation, not a single transient blip — so it
+    // A "write-failed" kind represents a multi-retry GATT-write cascade — a
+    // stretch of sustained write starvation, not a single transient blip — so it
     // counts as 2 faults: a cascade alone is sufficient evidence of dual-HIGH
     // starvation; we must not require a follow-on fault that may never arrive
     // on devices where the controller subsequently recovers (#1238: the P80X
     // emitted only one controller-error, 20.034s after the cascade). Transient
     // single-write retries that recover are not signaled at the source (see
     // bletransport.cpp ~538), so capable hardware does not false-positive.
+    //
+    // COUPLED TO MAX_WRITE_RETRIES (bletransport.h). This comment used to read
+    // "a 10-retry cascade — ~5s of sustained starvation". Both halves moved when
+    // the budget dropped to 5, and the ~5s figure was only ever right for the
+    // fast CharacteristicWriteError path; the write-timeout path was 60.0s at 10
+    // retries. Current durations: timeout cascade 6×5000 + 5×500 = 32.5s;
+    // CharacteristicWriteError cascade ~2.5s. Shorter cascades also complete
+    // sooner, so a sustained failure produces them at roughly twice the old rate
+    // — though the threshold is ≥2/60s and a cascade already counts 2, so an
+    // episode fires on its first cascade either way; what changed is that it is
+    // detected sooner, not more often. Re-derive BOTH numbers if the budget moves
+    // again, and do not restate a duration without recomputing it.
+    //
+    // KNOWN OVER-EAGER (not fixed here, deliberately): #1691 is a Windows 11
+    // x86_64 desktop where a single MMR keepalive exhaustion latched skip-HIGH
+    // app-run-wide at t=4342.56, demoting every scale to BALANCED for the run.
+    // The latch is specified as the mitigation for dual-HIGH radio contention on
+    // WEAK hardware, which a desktop is not. Narrowing this needs its own
+    // evidence — tightening it blind risks re-breaking #1238, where the
+    // follow-on fault never came.
     const bool isCascade = (kind == QLatin1String("write-failed"));
     bool fired = m_priority.onDe1Fault(nowMs());
     if (!fired && isCascade) fired = m_priority.onDe1Fault(nowMs());

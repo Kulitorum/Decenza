@@ -107,6 +107,48 @@ private slots:
         if (expected == 1)
             QCOMPARE(fault.first().at(0).toString(), QStringLiteral("controller-error"));
     }
+
+    // The write-retry budget is a TIME bound, and that is the half that broke.
+    //
+    // A timing-out write occupies the link for
+    //   (MAX_WRITE_RETRIES + 1) × WRITE_TIMEOUT_MS + MAX_WRITE_RETRIES × WRITE_RETRY_DELAY_MS
+    // and the app issues periodic writes on a 60 s cadence (BatteryManager's
+    // charger keepalive, batterymanager.cpp:26). At the old budget of 10 that
+    // came to exactly 60.0 s, so on a degraded link the next keepalive was
+    // queued before the previous one was abandoned and the link never went
+    // idle — measured dispatch→abandonment in #1691 at 60.06 s, with keepalive
+    // exhaustions 60.0 s apart.
+    //
+    // This asserts the relationship, not the constants: raising either the
+    // retry count or the timeout without re-checking the cadence puts the link
+    // back into permanent occupancy, and nothing else in the suite would say
+    // so. Verified to fail by restoring MAX_WRITE_RETRIES to 10.
+    void writeRetryBudgetLeavesTheLinkIdleBetweenPeriodicWrites() {
+        constexpr int kShortestPeriodicWriteMs = 60000;  // batterymanager.cpp:26
+
+        constexpr int worstCaseMs =
+            (BleTransport::MAX_WRITE_RETRIES + 1) * BleTransport::WRITE_TIMEOUT_MS
+            + BleTransport::MAX_WRITE_RETRIES * BleTransport::WRITE_RETRY_DELAY_MS;
+
+        QVERIFY2(worstCaseMs < kShortestPeriodicWriteMs,
+                 qPrintable(QStringLiteral(
+                     "a timing-out write occupies the link for %1 ms, which is not "
+                     "shorter than the %2 ms periodic-write cadence — the link never "
+                     "goes idle on a degraded connection (#1691)")
+                         .arg(worstCaseMs).arg(kShortestPeriodicWriteMs)));
+    }
+
+    // Guards the retry budget itself against being raised back without the
+    // reasoning being re-read. 434 retry cycles measured across the #1176-#1810
+    // debug-log corpus: every recovery happened by retry 9, exactly one write
+    // recovered at retry 10, and 380 cycles ran the full budget and failed.
+    //
+    // The upper bound is the real assertion — the lower one only catches a
+    // budget cut so far it would abandon writes that routinely recover.
+    void writeRetryBudgetStaysInTheMeasuredBand() {
+        QVERIFY(BleTransport::MAX_WRITE_RETRIES >= 3);
+        QVERIFY(BleTransport::MAX_WRITE_RETRIES <= 5);
+    }
 };
 
 QTEST_MAIN(tst_BleTransportError)
