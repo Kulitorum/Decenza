@@ -55,25 +55,6 @@ associated value at its existing safe/permissive default.
   `isHeadless` remains `true`) rather than staying in an unknown or stale state
   silently
 
-### Requirement: MMR write verification retries a missing read-back, not just a mismatched one
-The system SHALL retry the read-back issued by write verification
-(`writeMMRVerified`) when no response arrives within a timeout, in addition to
-its existing retry-on-mismatch behavior, so a dropped verification-read
-notification does not leave the verification pending indefinitely.
-
-#### Scenario: A dropped verification read-back is retried
-- **WHEN** `writeMMRVerified` writes a value and the subsequent read-back
-  request receives no response within the configured timeout
-- **THEN** the system re-issues the read-back request
-- **AND** logs a warning if retries are exhausted without any response, instead
-  of leaving the verification pending with no record of failure
-
-#### Scenario: A mismatched read-back still retries as before
-- **WHEN** the read-back response arrives but its value does not match the
-  written value
-- **THEN** the system retries as it does today, unaffected by the new
-  missing-response handling
-
 ### Requirement: GHC status is logged exactly once per successful connect
 The system SHALL log the parsed GHC status exactly once per DE1 connection in
 which the GHC_INFO read succeeds (directly or via retry), so the absence of this
@@ -86,4 +67,22 @@ ambiguous with "value unchanged, so not logged."
 - **THEN** a `"GHC status: ..."` log line is recorded for that connection
 - **AND** its absence from a connection's log indicates the read failed even
   after retries, not that the status was unchanged
+
+### Requirement: One MMR register is written at one assurance level
+
+The system SHALL NOT write a given MMR register through the verified path at one call site and the unverified path at another. Mixed assurance on one register means whether the setting reaches the machine depends on which code path last wrote it, which is not diagnosable from the machine's behaviour and not reproducible from a log.
+
+Choosing which level a register uses is a per-register decision. Where a register is left unverified, the reason SHALL be stated at the call site, so the choice is visible as a decision rather than an oversight.
+
+No MMR write SHALL be verified by reading the register back. Unverified is not merely the default side of that split — after this change it is the only side, and the verification mechanism is removed rather than left available. Read-back verification is not free on this protocol: an MMR read is itself a write to the read-request characteristic, so verifying a write issues a second write, plus a retry ladder of further writes, onto the same link whose write failures prompted the verification. Neither reference implementation verifies an MMR write at all, while both retry MMR *reads* — which is the asymmetry the protocol actually justifies. Reintroducing read-back verification SHALL require stating the consequence of the write silently not landing, for the specific register, and SHALL account for that cost.
+
+#### Scenario: A register written from several call sites
+
+- **WHEN** an MMR register is written from more than one call site
+- **THEN** all of those call sites use the same assurance level
+
+#### Scenario: A register deliberately left unverified
+
+- **WHEN** a register is written unverified
+- **THEN** the reason is recorded at the call site
 

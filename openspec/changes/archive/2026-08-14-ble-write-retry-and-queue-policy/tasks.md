@@ -75,6 +75,6 @@
 
 ## 11. Close-out
 
-- [ ] 11.1 Re-read #1466, #1468, #1485 and #1586 in light of the queue-stacking fix; comment if it plausibly explains the reported symptom. Note that 1466/1468/1485/c1469 are one SM-T503 session at different truncations, so they are one event, not four.
-- [ ] 11.2 Check the wiki manual's connection-troubleshooting wording for any instruction to toggle Bluetooth or reboot that this change makes obsolete.
-- [ ] 11.3 Archive with `openspec archive ble-write-retry-and-queue-policy` as the last commit on the branch, before merge.
+- [ ] 11.1 (Post-merge.) Re-read #1466, #1468, #1485 and #1586 in light of the queue-stacking fix; comment if it plausibly explains the reported symptom. Note that 1466/1468/1485/c1469 are one SM-T503 session at different truncations, so they are one event, not four.
+- [x] 11.2 No wiki update needed — maintainer's call. Nothing here is a user-visible feature change; the adapter retirement removes an automatic remedy that never worked on API 33+, and toggling Bluetooth by hand remains exactly as valid a user action as before (the new log line says so).
+- [x] 11.3 Archive with `openspec archive ble-write-retry-and-queue-policy` as the last commit on the branch, before merge.
