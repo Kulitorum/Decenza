@@ -269,6 +269,14 @@ private slots:
         // together by QtScaleBleTransport::onDe1LinkFault.
         QCOMPARE(fault.count(), 3);
         QCOMPARE(abandoned.count(), 3);
+
+        // ~BleTransport() runs disconnect(), which closes the still-open
+        // episode with its peak. Expected here rather than suppressed: a link
+        // torn down mid-episode is exactly the case that must not go
+        // unrecorded, and this is the assertion that it does not.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Link dropped while it had stopped accepting writes. "
+                               "The run reached 3"));
     }
 
     void consecutiveAbandonedWritesReportOnceAtTheBound() {
@@ -290,12 +298,66 @@ private slots:
         // this, m_writeDeadLinkReported's reset is never exercised: a link that
         // dies, recovers and dies again would go silent the second time, which
         // is the opposite of what the member's comment claims.
+        // Recovery closes the episode with the run it reached — the number the
+        // once-per-episode WARN cannot carry, and the one the corpus threshold
+        // was actually derived from.
+        QTest::ignoreMessage(QtInfoMsg,
+            QRegularExpression("accepting writes again. The run reached 5 "));
         transport.noteWriteSucceeded();
+
         transport.noteWriteAbandoned();
         transport.noteWriteAbandoned();
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("DE1 link has stopped accepting writes: 3 consecutive"));
         transport.noteWriteAbandoned();
+
+        // Closed out by ~BleTransport() -> disconnect().
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Link dropped while it had stopped accepting writes. "
+                               "The run reached 3"));
+    }
+
+    // The run is restated as it grows, so a log carries how bad the link got
+    // rather than only that it went bad. Without this the line always prints
+    // the threshold, and a reader seeing "3" would take the mildest possible
+    // reading of a link that reached 89 in the corpus.
+    void aWorseningRunIsRestatedPeriodically() {
+        BleTransport transport;
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("DE1 link has stopped accepting writes: 3 consecutive"));
+        for (int i = 0; i < BleTransport::WRITE_DEAD_LINK_THRESHOLD; ++i)
+            transport.noteWriteAbandoned();
+
+        // Silent until the next restatement point — failOnWarning enforces it.
+        for (int i = 1; i < BleTransport::WRITE_DEAD_LINK_RESTATE; ++i)
+            transport.noteWriteAbandoned();
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("still not accepting writes: 13 consecutive"));
+        transport.noteWriteAbandoned();
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Link dropped while it had stopped accepting writes. "
+                               "The run reached 13"));
+    }
+
+    // A link that goes away mid-episode did not recover, and must not be
+    // logged as though it had. Same counters, different story.
+    void aDisconnectDuringAnEpisodeReportsThePeakNotARecovery() {
+        BleTransport transport;
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("DE1 link has stopped accepting writes: 3 consecutive"));
+        for (int i = 0; i < BleTransport::WRITE_DEAD_LINK_THRESHOLD; ++i)
+            transport.noteWriteAbandoned();
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Link dropped while it had stopped accepting writes. "
+                               "The run reached 3"));
+        transport.forgetWriteFailureState();
+        QCOMPARE(transport.m_consecutiveWriteFailures, 0);
+        QCOMPARE(transport.m_writeDeadLinkReported, false);
     }
 
     void aSuccessfulWriteClearsTheCount() {

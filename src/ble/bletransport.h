@@ -245,6 +245,17 @@ private:
     int m_consecutiveWriteFailures = 0;
     bool m_writeDeadLinkReported = false;
     static constexpr int WRITE_DEAD_LINK_THRESHOLD = 3;
+    // Reporting once per episode means the line always prints the threshold —
+    // and the threshold is not the number that matters. What separated benign
+    // from pathological across the corpus was the PEAK run: nine logs at 1,
+    // #1713 at 2, then 7, 8, 11 and 89. A reader (or a field AI) seeing only
+    // "3" would take the mildest possible reading of the worst possible link.
+    //
+    // So the run is restated every RESTATE writes past the threshold, and the
+    // episode is closed out with its peak either way it ends — recovery or
+    // disconnect. Count-based, not timed: this is a periodic restatement of a
+    // counter, so a timer would only add a second clock to reason about.
+    static constexpr int WRITE_DEAD_LINK_RESTATE = 10;
 
     // Edge-triggered so a backed-up queue reports once rather than on every
     // enqueue. de1app warns at 20 (de1_comms.tcl:49) and has no cap either;
@@ -257,8 +268,15 @@ private:
     // reports the link as no longer accepting writes when the count passes the
     // bound.
     void noteWriteAbandoned();
-    // Called wherever a write completes and on disconnect.
+    // Called when a write completes. Closes out a reported episode with the
+    // run it reached, at INFO — per LOGGING.md the recurring failure is a fault
+    // reported at WARN whose resolution sits at DEBUG, leaving the reader with
+    // only the failure half.
     void noteWriteSucceeded();
+    // Called on disconnect. Same counters, different story: the link went away
+    // rather than recovering, and saying "accepting writes again" there would
+    // be false.
+    void forgetWriteFailureState();
 
     // Service discovery retry logic
     QBluetoothDeviceInfo m_pendingDevice;

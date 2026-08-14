@@ -350,7 +350,7 @@ void BleTransport::disconnect() {
     m_writeRetryCount = 0;
     m_lastWriteUuid.clear();
     m_lastWriteData.clear();
-    noteWriteSucceeded();
+    forgetWriteFailureState();
     m_queueDepthReported = false;
 
     // Reset the notification-subscribe sequence so a stale in-flight
@@ -596,7 +596,7 @@ void BleTransport::onControllerDisconnected() {
     // Failures observed while a link was already dying must not be carried
     // into the next connection, where they would make a healthy link look
     // write-dead after one more abandoned write.
-    noteWriteSucceeded();
+    forgetWriteFailureState();
     m_queueDepthReported = false;
 
     if (!m_disconnectedEmittedForAttempt) {
@@ -1039,8 +1039,19 @@ void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteAr
 
 void BleTransport::noteWriteAbandoned() {
     ++m_consecutiveWriteFailures;
-    if (m_consecutiveWriteFailures < WRITE_DEAD_LINK_THRESHOLD || m_writeDeadLinkReported)
+    if (m_consecutiveWriteFailures < WRITE_DEAD_LINK_THRESHOLD)
         return;
+
+    if (m_writeDeadLinkReported) {
+        // Already reported; restate the run periodically so the log carries how
+        // bad it got, not just that it started. See WRITE_DEAD_LINK_RESTATE.
+        if ((m_consecutiveWriteFailures - WRITE_DEAD_LINK_THRESHOLD) % WRITE_DEAD_LINK_RESTATE == 0) {
+            warn(QString("DE1 link still not accepting writes: %1 consecutive "
+                         "writes abandoned so far.")
+                     .arg(m_consecutiveWriteFailures));
+        }
+        return;
+    }
 
     m_writeDeadLinkReported = true;
 
@@ -1067,6 +1078,24 @@ void BleTransport::noteWriteAbandoned() {
 }
 
 void BleTransport::noteWriteSucceeded() {
+    if (m_writeDeadLinkReported) {
+        // INFO, not DEBUG: this is the other half of a WARN a user has already
+        // seen, and it carries the peak — the number the threshold was derived
+        // from and the one a later reader needs to judge severity.
+        info(QString("DE1 link is accepting writes again. The run reached %1 "
+                     "consecutive abandoned writes before recovering.")
+                 .arg(m_consecutiveWriteFailures));
+    }
+    m_consecutiveWriteFailures = 0;
+    m_writeDeadLinkReported = false;
+}
+
+void BleTransport::forgetWriteFailureState() {
+    if (m_writeDeadLinkReported) {
+        warn(QString("Link dropped while it had stopped accepting writes. The "
+                     "run reached %1 consecutive abandoned writes.")
+                 .arg(m_consecutiveWriteFailures));
+    }
     m_consecutiveWriteFailures = 0;
     m_writeDeadLinkReported = false;
 }
