@@ -691,9 +691,15 @@ bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
         // The first non-zero frame's marker records why the PRECEDING frame
         // exited. (Same transitionReason signal analyzeFlowVsGoal — called by
         // detectGrindIssue — reads.) Only CONFIRMED reasons suppress here —
-        // MainController records "pressure"/"flow"/"weight" solely when the
-        // sensor exit was verified against the transition sample. The
-        // unconfirmed variants ("pressure_unconfirmed"/"flow_unconfirmed"),
+        // MainController records "pressure"/"flow"/"weight" when the sensor
+        // exit was satisfied at the transition sample, OR when the threshold
+        // was reached by extrapolating one sample forward at the measured
+        // per-sample rate of change (#1813: the machine crosses its threshold
+        // between BLE samples on any fast-moving frame — see
+        // FrameExit::inferReason in machine/frameexitreason.h, which gives no
+        // tolerance to a flat or receding signal, or to a transition with no
+        // preceding sample). The unconfirmed variants
+        // ("pressure_unconfirmed"/"flow_unconfirmed"),
         // "time", and empty (old data) all fall through to the duration checks
         // below: a genuinely skipped frame lands in MainController's
         // unconfirmed branch, so trusting those hints would mask the very bug
@@ -718,11 +724,7 @@ bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
         // is known, compare against half of configured (capped at 2 s) so a
         // 1.87 s actual on a 2 s configured frame — 94 % of plan — does not
         // flag.
-        double cutoff = 2.0;
-        if (firstFrameConfiguredSeconds > 0.0)
-            cutoff = std::min(2.0, 0.5 * firstFrameConfiguredSeconds);
-
-        return phase.time < cutoff;
+        return phase.time < skipFirstFrameCutoffSec(firstFrameConfiguredSeconds);
     }
 
     return false;

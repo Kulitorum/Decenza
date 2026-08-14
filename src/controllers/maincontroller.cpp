@@ -26,6 +26,7 @@
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
 #include "../ai/aimanager.h"
+#include "../ai/shotanalysis.h"
 #include "../history/equipmentlogging.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"
@@ -4671,15 +4672,16 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
             // Frame 0 ending unconfirmed and shorter than the detector's
             // cutoff is the exact shape that makes
             // ShotAnalysis::detectSkipFirstFrame badge the shot "First step
-            // skipped" — the cutoff is mirrored from its short-first-step
-            // branch so this line predicts the badge rather than approximating
-            // it. Logged with the firmware build so a report of that badge can
-            // be answered from the log alone: whether the frame ran, for how
-            // long, against what threshold, and on which firmware. (The
+            // skipped". The cutoff comes from the detector's own helper rather
+            // than a copy of its formula, so this line predicts the badge
+            // instead of approximating it and cannot drift out of agreement
+            // with it. Logged with the firmware build so a report of that badge
+            // can be answered from the log alone: whether the frame ran, for
+            // how long, against what threshold, and on which firmware. (The
             // detector additionally requires a profile of 2+ frames, which any
             // frame change proves.)
-            const double skipCutoffSec = prevFrame.seconds > 0.0
-                ? std::min(2.0, 0.5 * prevFrame.seconds) : 2.0;
+            const double skipCutoffSec =
+                ShotAnalysis::skipFirstFrameCutoffSec(prevFrame.seconds);
             if (prevFrameIndex == 0 && frameElapsed < skipCutoffSec
                 && transitionReason.endsWith(QStringLiteral("_unconfirmed"))) {
                 qWarning() << "MainController: frame 0 ended at" << frameElapsed

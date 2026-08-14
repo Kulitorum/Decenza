@@ -34,9 +34,12 @@ struct HistoryPhaseMarker {
     int frameNumber = 0;
     bool isFlowMode = false;
     // Why the PRECEDING frame exited. Confirmed ground truth: "weight",
-    // "pressure", "flow". Likely-but-unconfirmed sensor exit (threshold not
-    // seen in the BLE sample at transition): "pressure_unconfirmed",
-    // "flow_unconfirmed". Time-based: "time". "" = unknown/old data.
+    // "pressure", "flow" — the threshold was satisfied at the transition
+    // sample, or reached by extrapolating one sample forward at the measured
+    // rate of change (see FrameExit::inferReason). Likely-but-unconfirmed
+    // sensor exit (threshold not reached even with that extrapolation):
+    // "pressure_unconfirmed", "flow_unconfirmed". Time-based: "time".
+    // "" = unknown/old data.
     QString transitionReason;
 };
 
