@@ -79,6 +79,21 @@ public:
     virtual qsizetype clearQueue() { return 0; }
 
     /**
+     * Discard pending commands targeting any of the given characteristics and
+     * return how many were dropped. Unlike clearQueue(), this leaves unrelated
+     * pending work alone: it exists so an operation that has been superseded,
+     * or has terminally failed, can withdraw its OWN remaining writes without
+     * throwing away writes nothing has superseded.
+     *
+     * Only queued commands are affected. A write already in flight is not
+     * withdrawn — it is on the wire or being retried, and cancelling it would
+     * leave m_writePending state inconsistent for no gain.
+     *
+     * Transports without queuing return 0.
+     */
+    virtual qsizetype discardQueued(const QList<QBluetoothUuid>&) { return 0; }
+
+    /**
      * Check if the transport is currently connected.
      */
     virtual bool isConnected() const = 0;

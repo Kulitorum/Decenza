@@ -211,7 +211,7 @@ BleTransport::~BleTransport() {
 // -- DE1Transport interface implementation --
 
 void BleTransport::write(const QBluetoothUuid& uuid, const QByteArray& data) {
-    queueCommand([this, uuid, data]() {
+    queueCommand(uuid, [this, uuid, data]() {
         writeCharacteristic(uuid, data);
     });
 }
@@ -226,9 +226,9 @@ void BleTransport::writeUrgent(const QBluetoothUuid& uuid, const QByteArray& dat
     // writeCharacteristic directly — writeCharacteristic is not re-entrant and would
     // corrupt m_writePending/m_lastWriteUuid/m_writeTimeoutTimer state.
     if (m_writePending) {
-        m_commandQueue.prepend([this, uuid, data]() {
+        m_commandQueue.prepend({uuid, [this, uuid, data]() {
             writeCharacteristic(uuid, data);
-        });
+        }});
     } else {
         writeCharacteristic(uuid, data);
     }
@@ -238,7 +238,7 @@ void BleTransport::read(const QBluetoothUuid& uuid) {
     // Queue the read so it runs after any pending writes complete. Without
     // queueing, a read issued right after a write executes immediately and
     // returns the pre-write value, defeating any read-after-write verification.
-    queueCommand([this, uuid]() {
+    queueCommand(uuid, [this, uuid]() {
         if (!m_service || !m_characteristics.contains(uuid)) {
             log(QString("read(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
             return;
@@ -403,6 +403,29 @@ qsizetype BleTransport::clearQueue() {
     m_lastWriteUuid.clear();
     m_lastWriteData.clear();
     return cleared;
+}
+
+qsizetype BleTransport::discardQueued(const QList<QBluetoothUuid>& uuids) {
+    if (uuids.isEmpty() || m_commandQueue.isEmpty()) return 0;
+
+    // Deliberately does NOT touch the in-flight write. clearQueue() counts it
+    // because its callers are about to change machine state and need the MMR
+    // dedup cache invalidated if an MMR write was mid-air; here the caller is
+    // withdrawing work it queued itself, and a write already dispatched has
+    // either landed or is being retried by the write-timeout path.
+    const qsizetype before = m_commandQueue.size();
+    QQueue<QueuedCommand> kept;
+    for (const QueuedCommand& c : std::as_const(m_commandQueue)) {
+        if (!uuids.contains(c.uuid))
+            kept.enqueue(c);
+    }
+    m_commandQueue.swap(kept);
+
+    const qsizetype dropped = before - m_commandQueue.size();
+    if (dropped > 0)
+        log(QString("Discarded %1 queued command(s) for %2 characteristic(s)")
+                .arg(dropped).arg(uuids.size()));
+    return dropped;
 }
 
 bool BleTransport::isConnected() const {
@@ -993,8 +1016,8 @@ void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteAr
     m_service->writeCharacteristic(m_characteristics[uuid], data);
 }
 
-void BleTransport::queueCommand(std::function<void()> command) {
-    m_commandQueue.enqueue(command);
+void BleTransport::queueCommand(const QBluetoothUuid& uuid, std::function<void()> command) {
+    m_commandQueue.enqueue({uuid, std::move(command)});
     if (!m_writePending && !m_commandTimer.isActive()) {
         m_commandTimer.start();
     }
@@ -1004,8 +1027,8 @@ void BleTransport::processCommandQueue() {
     if (m_writePending || m_commandQueue.isEmpty()) return;
 
     auto command = m_commandQueue.dequeue();
-    m_lastCommand = command;  // Store for potential retry
-    command();
+    m_lastCommand = command.run;  // Store for potential retry
+    command.run();
 
     // Reads don't set m_writePending and don't re-enter via
     // onCharacteristicWritten, so the queue would otherwise stall after a

@@ -1314,6 +1314,30 @@ void DE1Device::writeTankPreheatForProfile(const Profile& profile) {
 // that here: record the expected leading bytes, collect them from each ACK,
 // and on completion verify the two lists match exactly.
 
+qsizetype DE1Device::discardQueuedProfileWrites() {
+    if (!m_transport) return 0;
+
+    // HEADER_WRITE and FRAME_WRITE carry profile frames and nothing else, so
+    // the characteristic alone identifies this operation's work. Deliberately
+    // NOT the tank-preheat MMR write that uploadProfile() issues after the
+    // frames: it goes to WRITE_TO_MMR alongside unrelated settings, and it is
+    // idempotent — the next upload records its own value in m_lastMMRValues, so
+    // a stale queued preheat is at worst one superseded write, never a wrong
+    // final state.
+    //
+    // That is also why this needs no m_lastMMRValues invalidation, which
+    // clearCommandQueue() does pair with its clear (:1243-1261). The dedup
+    // cache only covers MMR registers, and no MMR write is discarded here.
+    const qsizetype dropped = m_transport->discardQueued(
+        {DE1::Characteristic::HEADER_WRITE, DE1::Characteristic::FRAME_WRITE});
+    if (dropped > 0) {
+        DEVICE_LOG(QStringLiteral("Discarded %1 queued profile write(s) from a "
+                                  "superseded or failed upload")
+                       .arg(dropped));
+    }
+    return dropped;
+}
+
 void DE1Device::startProfileUploadTracking(const QString& profileTitle,
                                            const QList<QByteArray>& frames)
 {
@@ -1324,6 +1348,14 @@ void DE1Device::startProfileUploadTracking(const QString& profileTitle,
     if (m_profileUploadInProgress) {
         finishProfileUpload(false, QStringLiteral("superseded by a new upload"));
     }
+    // No discard here. The supersede path reaches it through
+    // finishProfileUpload(false) on the line above, which is also the failure
+    // path, so one call site covers both — and an unconditional discard here
+    // would run a queue scan on every upload and, worse, entitle this function
+    // to throw away HEADER_WRITE/FRAME_WRITE queued by anything else. Only a
+    // producer withdraws its own work (de1app's rule: the removal sits with
+    // the code about to enqueue the replacement, never at a shared choke
+    // point).
 
     m_uploadProfileTitle = profileTitle;
     m_uploadExpectedFrameBytes.clear();
@@ -1421,6 +1453,25 @@ void DE1Device::finishProfileUpload(bool success, const QString& reason)
         m_uploadConnection = {};
     }
     m_profileUploadInProgress = false;
+
+    // A failed upload withdraws its own remaining frames.
+    //
+    // This is what actually produced the #1466 stacking, and it is NOT the
+    // missing retry guard it looked like: ProfileManager already refuses to
+    // start an upload while one is in flight (m_uploadInFlight,
+    // profilemanager.cpp:2176), and it arms the retry timer only from inside
+    // the profileUploaded handler (:247) — so a retry cannot overlap the
+    // ATTEMPT. What it can overlap is the attempt's WRITES. m_uploadTimeoutTimer
+    // is 10 s (:79) while a single timing-out write occupied the link far
+    // longer than that, so the tracker gave up, released the gate, and the
+    // retry was issued into a queue still holding every frame of the attempt
+    // that had just been declared failed. Guarding harder upstream would not
+    // have helped; withdrawing the dead frames here is what closes it.
+    //
+    // Only on failure. A successful upload has no frames left to withdraw, and
+    // calling it there would only add a queue scan per upload.
+    if (!success)
+        discardQueuedProfileWrites();
 
     // Use .noquote() so QString reasons/titles land as plain text (no
     // surrounding quotes), making the messages scannable in the debug log

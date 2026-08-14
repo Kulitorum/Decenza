@@ -44,10 +44,16 @@ The discard SHALL be limited to the superseded operation's own writes. Supersedi
 implemented by clearing the pending queue: unrelated pending work is not superseded by a new
 upload, and discarding it converts a targeted correction into an unbounded one.
 
-The system SHALL NOT discard pending writes merely because an unrelated write was abandoned
-after its retries. Work queued behind a failure is not itself known to be failing, and a link
-that has genuinely stopped accepting writes is recognised by the consecutive-failure rule below
-rather than by pre-emptively emptying the queue.
+An operation that has terminally failed SHALL likewise discard its own remaining pending writes.
+An attempt can be declared failed while its writes are still outstanding — a failure deadline
+shorter than the time a write may occupy the link makes this the normal case, not an edge one —
+and those writes then sit ahead of the next attempt, which is the same defect as a supersede that
+leaves its predecessor queued.
+
+The system SHALL NOT discard pending writes merely because an *unrelated* write was abandoned
+after its retries. Work queued behind someone else's failure is not itself known to be failing,
+and a link that has genuinely stopped accepting writes is recognised by the consecutive-failure
+rule below rather than by pre-emptively emptying the queue.
 
 #### Scenario: A profile upload supersedes an in-flight one
 
@@ -59,9 +65,14 @@ rather than by pre-emptively emptying the queue.
 - **WHEN** a profile upload supersedes a previous one while writes unrelated to either are pending
 - **THEN** those unrelated writes are still issued
 
-#### Scenario: A write is abandoned with work queued behind it
+#### Scenario: An operation fails with its own writes still pending
 
-- **WHEN** a write is abandoned after its retries and further writes are queued behind it
+- **WHEN** a multi-write operation is declared failed while some of its writes are still pending
+- **THEN** those writes are discarded before the operation is retried
+
+#### Scenario: An unrelated write is abandoned with work queued behind it
+
+- **WHEN** a write is abandoned after its retries and further, unrelated writes are queued behind it
 - **THEN** those writes are still attempted
 
 #### Scenario: The discard is recorded
@@ -113,6 +124,11 @@ queue grows with every retry instead of draining.
 The system SHALL enforce this by tracking whether an attempt is outstanding, and SHALL schedule
 the next attempt only once the previous one has concluded. It SHALL NOT rely on a delay chosen to
 be longer than an attempt is expected to take.
+
+An attempt SHALL be treated as concluded only once its writes are no longer pending. Tracking the
+attempt alone is not sufficient: an attempt declared failed on a deadline shorter than its writes'
+lifetime releases the guard while those writes are still queued, and the next attempt is then
+issued behind them. Discarding the failed attempt's own writes as it concludes satisfies this.
 
 #### Scenario: A retry becomes due while the previous attempt is outstanding
 

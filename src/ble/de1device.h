@@ -440,6 +440,12 @@ private:
                                       const QByteArray& data);
     void finishProfileUpload(bool success, const QString& reason = QString());
 
+    // Withdraw an upload's own still-queued HEADER_WRITE/FRAME_WRITE commands
+    // from the transport queue. Returns how many were dropped. See the call
+    // sites for why an upload that has been superseded or has terminally
+    // failed must not leave its frames queued ahead of the next attempt.
+    qsizetype discardQueuedProfileWrites();
+
     // Writes the profile's tank_desired_water_temperature (clamped 0-45 °C)
     // to TANK_TEMP_THRESHOLD as part of every profile upload, so the next
     // profile overrides or clears the previous one's preheat. Direct-control

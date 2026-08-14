@@ -56,6 +56,30 @@ public:
         pendingQueueSize = 0;
         return dropped;
     }
+
+    // Simulated pending-queue CONTENTS, for discardQueued() — the selective
+    // counterpart to pendingQueueSize above. Tests seed it with the
+    // characteristics they want to model as still queued; discardQueued()
+    // removes the matching entries and reports how many went, which is what
+    // BleTransport does with its real queue.
+    QList<QBluetoothUuid> pendingQueued;
+
+    // Every discardQueued() call's argument, in order, so a test can assert
+    // that a caller asked for the right characteristics even when nothing was
+    // queued to drop.
+    QList<QList<QBluetoothUuid>> discardQueuedCalls;
+
+    qsizetype discardQueued(const QList<QBluetoothUuid>& uuids) override {
+        discardQueuedCalls.append(uuids);
+        qsizetype dropped = 0;
+        for (qsizetype i = pendingQueued.size() - 1; i >= 0; --i) {
+            if (uuids.contains(pendingQueued.at(i))) {
+                pendingQueued.removeAt(i);
+                ++dropped;
+            }
+        }
+        return dropped;
+    }
     bool isConnected() const override { return m_connected; }
     QString transportName() const override { return QStringLiteral("Mock"); }
 

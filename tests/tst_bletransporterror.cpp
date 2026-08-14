@@ -4,6 +4,7 @@
 
 #include "ble/bletransport.h"
 #include "ble/blecontrollererror.h"
+#include "ble/protocol/de1characteristics.h"
 
 // The #1658 contract, pinned at the one place that enforces it.
 //
@@ -148,6 +149,69 @@ private slots:
     void writeRetryBudgetStaysInTheMeasuredBand() {
         QVERIFY(BleTransport::MAX_WRITE_RETRIES >= 3);
         QVERIFY(BleTransport::MAX_WRITE_RETRIES <= 5);
+    }
+
+    // -- Selective discard --
+    //
+    // The queue's only correction used to be clearQueue(), which throws away
+    // writes nothing has superseded. These pin the narrower operation: an
+    // upload withdraws its OWN frames and leaves everything else alone.
+    //
+    // Nothing here spins an event loop, so the 50 ms command timer never fires
+    // and the queue stays exactly as written(). writeCharacteristic() would in
+    // any case return early with no service attached.
+
+    void discardQueuedRemovesOnlyTheNamedCharacteristics() {
+        BleTransport transport;
+        transport.write(DE1::Characteristic::HEADER_WRITE, QByteArray(1, 'h'));
+        transport.write(DE1::Characteristic::FRAME_WRITE, QByteArray(1, 'a'));
+        transport.write(DE1::Characteristic::SHOT_SETTINGS, QByteArray(1, 's'));
+        transport.write(DE1::Characteristic::FRAME_WRITE, QByteArray(1, 'b'));
+        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
+        QCOMPARE(transport.m_commandQueue.size(), 5);
+
+        const qsizetype dropped = transport.discardQueued(
+            {DE1::Characteristic::HEADER_WRITE, DE1::Characteristic::FRAME_WRITE});
+
+        QCOMPARE(dropped, 3);
+        QCOMPARE(transport.m_commandQueue.size(), 2);
+        // Survivors keep their relative order — a discard must not reshuffle
+        // the writes it spares.
+        QCOMPARE(transport.m_commandQueue.at(0).uuid, DE1::Characteristic::SHOT_SETTINGS);
+        QCOMPARE(transport.m_commandQueue.at(1).uuid, DE1::Characteristic::WRITE_TO_MMR);
+    }
+
+    // The invariant the spec asks for, asserted rather than built: a stop is
+    // issued through writeUrgent(), which prepends when a write is in flight,
+    // and no discard may take it. The stop paths clear before writing so this
+    // is belt-and-braces today — which is exactly why it needs a test, since
+    // nothing else would notice if that ordering changed.
+    void aPendingUrgentStateWriteSurvivesADiscard() {
+        BleTransport transport;
+        transport.write(DE1::Characteristic::FRAME_WRITE, QByteArray(1, 'a'));
+
+        transport.m_writePending = true;   // force the prepend branch
+        transport.writeUrgent(DE1::Characteristic::REQUESTED_STATE,
+                              QByteArray(1, static_cast<char>(DE1::State::Idle)));
+        transport.m_writePending = false;
+        QCOMPARE(transport.m_commandQueue.size(), 2);
+
+        const qsizetype dropped = transport.discardQueued(
+            {DE1::Characteristic::HEADER_WRITE, DE1::Characteristic::FRAME_WRITE});
+
+        QCOMPARE(dropped, 1);
+        QCOMPARE(transport.m_commandQueue.size(), 1);
+        QCOMPARE(transport.m_commandQueue.head().uuid, DE1::Characteristic::REQUESTED_STATE);
+    }
+
+    void discardQueuedWithNoMatchLeavesTheQueueUntouched() {
+        BleTransport transport;
+        transport.write(DE1::Characteristic::SHOT_SETTINGS, QByteArray(1, 's'));
+        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
+
+        QCOMPARE(transport.discardQueued({DE1::Characteristic::FRAME_WRITE}), 0);
+        QCOMPARE(transport.discardQueued({}), 0);
+        QCOMPARE(transport.m_commandQueue.size(), 2);
     }
 };
 

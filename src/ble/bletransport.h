@@ -41,6 +41,7 @@ public:
     void subscribeAll() override;
     void disconnect() override;
     qsizetype clearQueue() override;
+    qsizetype discardQueued(const QList<QBluetoothUuid>& uuids) override;
     bool isConnected() const override;
     QString transportName() const override { return QStringLiteral("BLE"); }
 
@@ -89,7 +90,7 @@ private:
     bool setupController(const QBluetoothDeviceInfo& device);
     void setupService();
     void writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data);
-    void queueCommand(std::function<void()> command);
+    void queueCommand(const QBluetoothUuid& uuid, std::function<void()> command);
 
     // Post-connect notification subscription (CCCD enable), sequenced and
     // confirmed one at a time — see subscribeAll(). Fires connected() only
@@ -122,8 +123,21 @@ private:
     // corresponds to a subsequent m_controller->connectToDevice() call.
     bool m_disconnectedEmittedForAttempt = false;
 
-    // Command queue (50ms spacing between BLE writes)
-    QQueue<std::function<void()>> m_commandQueue;
+    // Command queue (50ms spacing between BLE writes).
+    //
+    // Each entry carries the characteristic it targets so a caller can discard
+    // just its own pending work — see discardQueued(). Without it the queue is
+    // opaque and the only available correction is clearQueue(), which throws
+    // away unrelated writes that nothing has superseded. de1app makes the same
+    // distinction by matching on a per-entry comment string
+    // (remove_matching_ble_queue_entries, de1_comms.tcl:1423, called at 14
+    // sites); the UUID is the equivalent handle here and is already in scope at
+    // both queueCommand() call sites.
+    struct QueuedCommand {
+        QBluetoothUuid uuid;
+        std::function<void()> run;
+    };
+    QQueue<QueuedCommand> m_commandQueue;
     QTimer m_commandTimer;
     bool m_writePending = false;
 
