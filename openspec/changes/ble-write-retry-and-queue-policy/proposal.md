@@ -1,18 +1,26 @@
 ## Why
 
 Decenza spends almost all of its BLE write-retry budget on writes that will never land, and
-issues fresh work into a queue still draining doomed writes. Measured across 434 retry
-cycles in 28 user-submitted debug logs (format-aware, session-scoped):
+issues fresh work into a queue still draining doomed writes. Measured across 283 retry
+cycles in a 26-log user-submitted corpus (format-aware, session-scoped, duplicate captures
+of the same session collapsed); 12 of those logs show any retry activity at all:
 
-| highest retry reached | cycles | recovered |
+| retries needed | cycles | recovered |
 |---|---|---|
-| 1-4 | 37 | 37 |
-| 5-9 | 17 | 17 |
-| **10** | **380** | **1** |
+| 1-4 | 16 | 16 |
+| 5-9 | 7 | 7 |
+| **ran out** | **260** | **0** |
 
-Every write that was going to succeed did so by retry 9. Exactly one write in the entire
-corpus succeeded on the tenth retry, while 380 cycles — 88% of all retry activity — ran the
-full budget and failed. With `WRITE_TIMEOUT_MS = 5000`, `MAX_WRITE_RETRIES = 10` and
+Every write that was going to succeed did so by retry 9, and no cycle is observed to recover
+at retry 10, while 260 cycles — 92% of all retry activity — ran the full budget and failed.
+(264 exhaustion lines appear; the extra four are head-trimmed sessions whose opening
+`retrying 1/10` is not in the capture.)
+
+**An earlier revision of this proposal gave a different census** — 434 cycles, 380
+exhaustions, one recovery at retry 10 — and stated it as measurement. It did not survive
+re-derivation from the corpus and is corrected here rather than quietly swapped. The
+qualitative conclusion is unchanged and slightly stronger: the share of retry activity that
+runs the full budget and fails is 92%, not 88%. With `WRITE_TIMEOUT_MS = 5000`, `MAX_WRITE_RETRIES = 10` and
 `WRITE_RETRY_DELAY_MS = 500` (`src/ble/bletransport.h:133-136`), a timing-out write occupies
 **11 × 5 s + 10 × 0.5 s = 60.0 s** before being abandoned — measured dispatch-to-abandonment
 in [#1691](https://github.com/Kulitorum/Decenza/issues/1691) at 60.06 s. That is longer than
@@ -74,7 +82,7 @@ fallback that fires when the adapter never changed state, and all 100 reported s
 
 - **Cut the per-write retry budget from 10 to a flat 3-5**, and recalibrate the one consumer
   that was tuned against the old budget (below). No graduated or link-state-dependent budget:
-  the census above shows a flat bound captures the benefit, and 380 of 434 cycles never
+  the census above shows a flat bound captures the benefit, and 260 of 283 cycles never
   recover at any budget.
 - **Recalibrate the DE1-fault-cluster weighting.** `ble-connection-priority` currently
   specifies that "a 10-retry write-failed cascade counts as 2 faults, so a single cascade

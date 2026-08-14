@@ -82,10 +82,10 @@ DE1Device::DE1Device(QObject* parent)
     });
 
     // Sweeps m_pendingMMRReads for one-shot MMR reads (GHC info, machine
-    // identity, heater voltage, refill-kit status, writeMMRVerified
-    // read-backs) that haven't gotten a response in time. Repeating rather
-    // than single-shot: started on the first pending read, stopped once the
-    // table drains, so it's inert outside a connect/verify window.
+    // identity, heater voltage, refill-kit status) that haven't gotten a
+    // response in time. Repeating rather than single-shot: started on the first
+    // pending read, stopped once the table drains, so it's inert outside a
+    // connect window.
     m_mmrReadRetryTimer.setInterval(250);
     connect(&m_mmrReadRetryTimer, &QTimer::timeout, this, &DE1Device::checkMMRReadTimeouts);
 
@@ -245,9 +245,8 @@ void DE1Device::onTransportDisconnected() {
     // than trusting cached values from the previous session (the DE1 may have
     // power-cycled or had its firmware state reset between sessions).
     m_lastMMRValues.clear();
-    m_pendingMMRVerifies.clear();
     // Stop chasing reads for a connection that no longer exists — a reconnect
-    // re-issues them fresh via sendInitialSettings()/writeMMRVerified().
+    // re-issues them fresh via sendInitialSettings().
     m_pendingMMRReads.clear();
     m_mmrReadRetryTimer.stop();
     // Drop any pending profile-upload settle window — it belongs to the dead
@@ -837,17 +836,6 @@ void DE1Device::checkMMRReadTimeouts() {
         }
 
         m_pendingMMRReads.remove(address);
-
-        // If this was a writeMMRVerified read-back, don't leave the
-        // verification pending forever with no signal — the write itself
-        // may well have succeeded, but we have no way to confirm it now.
-        if (m_pendingMMRVerifies.contains(address)) {
-            MMR_WARN(QStringLiteral("verify abandoned for 0x%1 — no read-back response "
-                                    "after retries [%2]")
-                         .arg(address, 6, 16, QLatin1Char('0'))
-                         .arg(m_pendingMMRVerifies.value(address).reason));
-            m_pendingMMRVerifies.remove(address);
-        }
     }
 
     if (m_pendingMMRReads.isEmpty()) {
@@ -961,36 +949,10 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         }
     }
 
-    // writeMMRVerified read-back: if this address has a pending verify,
-    // compare what the DE1 reports against what we wrote. Match → done.
-    // Mismatch → retry until the budget is exhausted. This sits below the
-    // address-specific handlers above so they still see the read response
-    // (no early return) — verifications and address handlers are independent.
-    auto verifyIt = m_pendingMMRVerifies.constFind(address);
-    if (verifyIt != m_pendingMMRVerifies.constEnd() && data.size() >= 8) {
-        uint32_t actualValue =
-            (static_cast<uint32_t>(static_cast<uint8_t>(d[7])) << 24) |
-            (static_cast<uint32_t>(static_cast<uint8_t>(d[6])) << 16) |
-            (static_cast<uint32_t>(static_cast<uint8_t>(d[5])) << 8) |
-            static_cast<uint32_t>(static_cast<uint8_t>(d[4]));
-
-        if (actualValue == verifyIt.value().expectedValue) {
-            MMR_LOG(QStringLiteral("verify ok: 0x%1 = %2 [%3]")
-                        .arg(address, 6, 16, QLatin1Char('0'))
-                        .arg(actualValue)
-                        .arg(verifyIt.value().reason));
-            m_pendingMMRVerifies.remove(address);
-        } else {
-            retryMMRVerify(address,
-                QString("read-mismatch got=%1").arg(actualValue));
-        }
-    }
-
-    // A response for this address arrived (whether or not its content
-    // matched what the address-specific handling above or the verify check
-    // expected) — clear the "no response at all" timeout tracking. This sits
-    // below every other handler so they still see the response first
-    // (additive, no early return), same as the verify check above.
+    // A response for this address arrived (whether or not its content matched
+    // what the address-specific handling above expected) — clear the "no
+    // response at all" timeout tracking. This sits below every other handler so
+    // they still see the response first (additive, no early return).
     auto pendingReadIt = m_pendingMMRReads.find(address);
     if (pendingReadIt != m_pendingMMRReads.end()) {
         m_pendingMMRReads.erase(pendingReadIt);
@@ -1615,17 +1577,21 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     // Log the dispatched write. Three tags so grep counts stay accurate:
     //   "[DE1][MMR] write:"       — value changed since the last write to this
     //                                 address.
-    //   "[DE1][MMR] retry-write:" — writeMMRVerified retry (force=true +
-    //                                 unchanged because the cache holds the
-    //                                 expected value, and reason carries the
-    //                                 "-retry" suffix).
+    //   "[DE1][MMR] retry-write:" — force=true + unchanged, with a "-retry"
+    //                                 suffix on the reason. No caller produces
+    //                                 this today: it existed for
+    //                                 writeMMRVerified's re-write, which is
+    //                                 gone. Kept because it is the tag in every
+    //                                 historical log and removing it would make
+    //                                 those lines fall into "keepalive", which
+    //                                 is exactly the miscount the split was
+    //                                 added to prevent.
     //   "[DE1][MMR] keepalive:"   — force=true + unchanged from any other caller.
     //                          In practice that's only BatteryManager's 60 s
     //                          USB-charger refresh.
     // Before this split a wedge log showed a 5 s "Write timeout" out of nowhere
     // because the write that actually started the timeout never logged anything
-    // (see #1309). The retry sub-tag also keeps a `grep keepalive` count of
-    // charger refreshes from being polluted by verify retries.
+    // (see #1309).
     QString tag;
     if (!valueUnchanged) {
         tag = QStringLiteral("write");
@@ -1713,79 +1679,6 @@ void DE1Device::subscribeFirmwareNotifications() {
     }
     FW_LOG(QStringLiteral("Subscribing to A009 (FW_MAP_REQUEST) notifications"));
     m_transport->subscribe(DE1::Characteristic::FW_MAP_REQUEST);
-}
-
-void DE1Device::writeMMRVerified(uint32_t address, uint32_t value,
-                                  const QString& reason, int maxRetries) {
-    if (!m_transport) return;
-
-    // Drop the whole verified-write request — both the initial write and
-    // its scheduled read-back would fire into the flash stream.
-    if (dropIfFirmwareFlashInProgress(address, value, reason, "write verified")) {
-        return;
-    }
-
-    // Replace any prior verification for this address — newest write wins.
-    // (Mid-drag the user can replace the value many times before the first
-    // read-back lands; we only care about reaching the latest value.)
-    m_pendingMMRVerifies.insert(address, PendingMMRVerify{value, maxRetries, reason});
-
-    // Initial write. force=true bypasses dedup so a retry that re-writes the
-    // same value actually reaches the wire (otherwise the cache would elide).
-    writeMMR(address, value, reason, /*force=*/true);
-
-    // Schedule the read-back. 50ms gives the BLE queue's 50ms inter-write
-    // spacing time to dispatch the write and the DE1 a tick to process it.
-    QTimer::singleShot(50, this, [this, address]() {
-        scheduleMMRVerifyRead(address);
-    });
-}
-
-void DE1Device::scheduleMMRVerifyRead(uint32_t address) {
-    if (!m_pendingMMRVerifies.contains(address)) return;
-    if (!m_transport) {
-        m_pendingMMRVerifies.remove(address);
-        return;
-    }
-
-    // Response arrives via READ_FROM_MMR notification and is dispatched by
-    // parseMMRResponse: a mismatch is handled by the m_pendingMMRVerifies
-    // check (retryMMRVerify re-writes and calls back in here); a response
-    // that never arrives at all is handled by the m_pendingMMRReads tracking
-    // issueMMRReadWithRetry registers below — previously nothing covered that
-    // case and a dropped read-back left the verification pending forever.
-    issueMMRReadWithRetry(address, QStringLiteral("MMR verify read-back"));
-}
-
-void DE1Device::retryMMRVerify(uint32_t address, const QString& cause) {
-    auto it = m_pendingMMRVerifies.find(address);
-    if (it == m_pendingMMRVerifies.end()) return;
-
-    it.value().attemptsRemaining--;
-
-    if (it.value().attemptsRemaining <= 0) {
-        MMR_WARN(QStringLiteral("verify FAILED for 0x%1 expected=%2 [%3 / %4]")
-                     .arg(address, 6, 16, QLatin1Char('0'))
-                     .arg(it.value().expectedValue)
-                     .arg(it.value().reason)
-                     .arg(cause));
-        m_pendingMMRVerifies.remove(address);
-        return;
-    }
-
-    MMR_LOG(QStringLiteral("verify retry for 0x%1 expected=%2 attempts_left=%3 [%4 / %5]")
-                .arg(address, 6, 16, QLatin1Char('0'))
-                .arg(it.value().expectedValue)
-                .arg(it.value().attemptsRemaining)
-                .arg(it.value().reason)
-                .arg(cause));
-
-    writeMMR(address, it.value().expectedValue,
-             it.value().reason + QStringLiteral("-retry"), /*force=*/true);
-
-    QTimer::singleShot(50, this, [this, address]() {
-        scheduleMMRVerifyRead(address);
-    });
 }
 
 void DE1Device::setUsbChargerOn(bool on, bool force) {

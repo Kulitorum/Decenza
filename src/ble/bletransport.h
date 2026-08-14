@@ -145,10 +145,18 @@ private:
     std::function<void()> m_lastCommand;
     int m_writeRetryCount = 0;
 
-    // Was 10. Measured across 434 retry cycles in 28 user-submitted debug logs
-    // (#1176 … #1810): every write that recovered did so by retry 9, exactly ONE
-    // recovered at retry 10, and 380 cycles — 88% of all retry activity — ran the
-    // full budget and failed. So the tail of the old budget was almost pure waste.
+    // Was 10. Measured across 283 retry cycles in the 26-log user-submitted
+    // corpus (#1176 … #1810); 12 of those logs show any retry activity at all.
+    // Cycles are counted by their "retrying 1/10" line and their outcome by the
+    // highest retry they reached:
+    //
+    //     retries needed   1   2   3   4   5   6   7   8   9   ran out
+    //     cycles          10   2   3   1   1   2   1   2   1       260
+    //
+    // So 23 cycles recovered and 260 — 92% of all retry activity — ran the full
+    // budget and failed. (264 exhaustion lines were logged; the extra four are
+    // head-trimmed sessions whose "retrying 1/10" is not in the capture. No
+    // cycle is observed to recover at retry 10.)
     //
     // The budget is also a TIME bound, and that is what actually broke: at 10
     // retries a timing-out write occupies the link for
@@ -160,11 +168,20 @@ private:
     //   6 × 5000 + 5 × 500 = 32.5 s
     // leaving the link idle before the next periodic write.
     //
-    // 5 rather than 3 (both were in range) because it retains 43 of the 54
-    // observed recoveries against 37 at 3, for 11 s more worst-case latency that
-    // still clears the keepalive period. Flat, NOT scaled by recent failure
-    // history: at 380/434 cycles the failing-link case already dominates, so a
+    // 5 rather than 3 (both are in range) retains 17 of the 23 observed
+    // recoveries against 15 at 3 — two cycles out of 283, for 11 s more
+    // worst-case latency that still clears the keepalive period. That is a
+    // narrow margin and the honest reading is that either value is defensible;
+    // 5 is the more conservative of the two. Flat, NOT scaled by recent failure
+    // history: at 260/283 cycles the failing-link case already dominates, so a
     // graduated budget would buy under a second and cost a second concept.
+    //
+    // These figures replace an earlier set (434 cycles, 380 exhaustions, "43 of
+    // 54 recoveries at a budget of 5") that were stated here as measurement and
+    // did not survive re-derivation from the corpus. The QUALITATIVE conclusion
+    // was unchanged — if anything the true share running the full budget is
+    // higher — but the counts were not reproducible, so they are recorded here
+    // as having been wrong rather than quietly swapped.
     //
     // Changing this REQUIRES re-deriving the DE1-fault-cluster weighting in
     // QtScaleBleTransport::onDe1LinkFault — it treats a cascade as two faults on

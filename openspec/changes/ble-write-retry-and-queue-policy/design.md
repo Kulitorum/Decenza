@@ -2,9 +2,9 @@
 
 See `proposal.md` — Why, for the measurements.
 
-The primary evidence is the retry census: across 434 retry cycles in the corpus, every write
-that recovered did so by retry 9, exactly one recovered at retry 10, and 380 cycles ran the
-full budget and failed. That is a direct measurement of this codebase's own behaviour on real
+The primary evidence is the retry census: across 283 retry cycles in the corpus, every write
+that recovered did so by retry 9, none is observed to recover at retry 10, and 260 cycles ran
+the full budget and failed. That is a direct measurement of this codebase's own behaviour on real
 user hardware, and it is what the retry bound rests on.
 
 **On the reference implementations.** An earlier revision of this change justified most of its
@@ -144,9 +144,12 @@ entirely Android-only and no existing test of the recovery path.
 
 ### A flat retry bound, not a graduated one
 
-The census settles it. A flat bound of 3 keeps 37 of the 54 observed recoveries; a bound of 5
-keeps 43. The failing-link case is 380 of 434 cycles, so a flat bound already spends almost
-nothing on doomed writes — a link-state-dependent budget would buy the difference between
+The census settles the graduated question, though not as decisively as an earlier revision
+claimed. A flat bound of 3 keeps 15 of the 23 observed recoveries; a bound of 5 keeps 17 — a
+difference of two cycles out of 283, so either value is defensible and 5 is simply the more
+conservative. (The earlier figures, "37 of 54" against "43", were not reproducible from the
+corpus; see proposal.md.) What the census does settle is the shape: the failing-link case is
+260 of 283 cycles, so a flat bound already spends almost nothing on doomed writes — a link-state-dependent budget would buy the difference between
 three retries on a dead link and one, under a second, at the cost of a second concept.
 **Alternative considered:** reducing the budget as consecutive failures accumulate, as an
 earlier revision proposed. Rejected: no user-felt win, per CLAUDE.md's complexity rule.

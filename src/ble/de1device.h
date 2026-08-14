@@ -153,8 +153,8 @@ public:
     void setSimulationMode(bool enabled);
 
     // Firmware-flash guard. Set to true by FirmwareUpdater for the duration
-    // of the erase/upload/verify sequence so writeMMR() / writeMMRUrgent() /
-    // writeMMRVerified() can drop incoming MMR writes — otherwise a stray
+    // of the erase/upload/verify sequence so writeMMR() / writeMMRUrgent()
+    // can drop incoming MMR writes — otherwise a stray
     // MMR packet on the WRITE_TO_MMR characteristic (length byte 4) would
     // interleave with in-flight firmware chunks (length byte 16) on A006
     // and force a failed verify + full retry. Analogous to de1app's
@@ -261,17 +261,6 @@ public slots:
     void writeMMRUrgent(uint32_t address, uint32_t value,
                         const QString& reason = QString());
 
-    // MMR write with read-back verification: write, then read the register
-    // back ~50ms later, retry up to maxRetries times if the read doesn't
-    // return the value we wrote. Used for SteamFlow during steaming as
-    // defensive insurance — on-device testing showed zero retries needed
-    // in practice, but verify-and-retry catches any silent drop (e.g. a
-    // BLE write lost during high traffic) without costing a retry budget
-    // on the happy path. A subsequent call for the same address replaces
-    // (cancels) the prior verification — newest write wins.
-    void writeMMRVerified(uint32_t address, uint32_t value,
-                          const QString& reason = QString(),
-                          int maxRetries = 5);
 
     // USB charger control (force=true to resend even if state unchanged, needed for DE1's 10-min timeout)
     void setUsbChargerOn(bool on, bool force = false);
@@ -383,11 +372,10 @@ private:
     // Build the 20-byte MMR payload without sending it (shared by writeMMR/writeMMRUrgent)
     static QByteArray buildMMRPayload(uint32_t address, uint32_t value);
 
-    // Firmware-flash guard shared by writeMMR / writeMMRUrgent /
-    // writeMMRVerified. Returns true (and logs a qWarning) when the caller
-    // should bail because a flash is in progress; false means "proceed".
-    // `label` distinguishes the variant in the log line ("write", "write urgent",
-    // "write verified").
+    // Firmware-flash guard shared by writeMMR / writeMMRUrgent. Returns true
+    // (and logs a qWarning) when the caller should bail because a flash is in
+    // progress; false means "proceed". `label` distinguishes the variant in the
+    // log line ("write", "write urgent").
     bool dropIfFirmwareFlashInProgress(uint32_t address, uint32_t value,
                                        const QString& reason,
                                        const char* label) const;
@@ -413,16 +401,11 @@ private:
     void parseMMRResponse(const QByteArray& data);
     void rebuildVersionLine3();
 
-    // writeMMRVerified helpers
-    void scheduleMMRVerifyRead(uint32_t address);
-    void retryMMRVerify(uint32_t address, const QString& cause);
-
-    // Generic one-shot MMR read with timeout + bounded retry, covering both
-    // the post-connect informational reads (GHC info, machine identity,
-    // heater voltage, refill-kit status) and writeMMRVerified's read-back.
-    // Guards against a dropped READ_FROM_MMR response notification (e.g. the
-    // post-connect subscription race) leaving a value silently missing or a
-    // verification pending forever. See docs/CLAUDE_MD/BLE_PROTOCOL.md and the
+    // Generic one-shot MMR read with timeout + bounded retry, covering the
+    // post-connect informational reads (GHC info, machine identity, heater
+    // voltage, refill-kit status). Guards against a dropped READ_FROM_MMR
+    // response notification (e.g. the post-connect subscription race) leaving a
+    // value silently missing. See docs/CLAUDE_MD/BLE_PROTOCOL.md and the
     // harden-de1-ble-reliability change for the failure this fixes.
     void issueMMRReadWithRetry(uint32_t address, const QString& reason);
     void sendMMRReadRequest(uint32_t address) const;
@@ -502,19 +485,9 @@ private:
     // whole log, can be. One line per 10 minutes carrying the count; a value CHANGE still prints
     // immediately, because that is the event worth seeing.
     LogCollapse m_keepaliveLog{10 * 60 * 1000};
-    // Pending writeMMRVerified() entries keyed by address. Each tracks the
-    // expected value and remaining retry budget; cleared when a read-back
-    // matches or retries are exhausted, and on transport disconnect.
-    struct PendingMMRVerify {
-        uint32_t expectedValue;
-        int attemptsRemaining;
-        QString reason;
-    };
-    QHash<uint32_t, PendingMMRVerify> m_pendingMMRVerifies;
     // Pending one-shot MMR reads keyed by address — covers both the
-    // post-connect informational reads issued via issueMMRReadWithRetry() and
-    // writeMMRVerified's read-back (scheduleMMRVerifyRead() registers here
-    // too). Cleared when parseMMRResponse() sees a response for that address,
+    // post-connect informational reads issued via issueMMRReadWithRetry().
+    // Cleared when parseMMRResponse() sees a response for that address,
     // when retries are exhausted, and on transport disconnect. A single sweep
     // timer (not one QTimer per address) checks every entry's deadline —
     // simpler than N timers for what is at most a handful of concurrent reads.

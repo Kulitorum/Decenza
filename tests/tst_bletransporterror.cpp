@@ -140,9 +140,9 @@ private slots:
     }
 
     // Guards the retry budget itself against being raised back without the
-    // reasoning being re-read. 434 retry cycles measured across the #1176-#1810
-    // debug-log corpus: every recovery happened by retry 9, exactly one write
-    // recovered at retry 10, and 380 cycles ran the full budget and failed.
+    // reasoning being re-read. 283 retry cycles measured across the #1176-#1810
+    // debug-log corpus: 23 recovered, every one of them by retry 9, and 260 —
+    // 92% — ran the full budget and failed.
     //
     // The upper bound is the real assertion — the lower one only catches a
     // budget cut so far it would abandon writes that routinely recover.
