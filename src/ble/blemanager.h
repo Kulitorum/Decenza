@@ -1004,6 +1004,8 @@ private:
     // .disable()/enable(), the silent path on API ≤ 32. No-op on every other
     // platform (wedge recovery is Android-only — see maybeRecoverWedgedStack).
     void setAdapterPower(bool on);
+    // Android API level, or -1 where unreadable / not Android. Cached.
+    static int androidSdkInt();
     // True for ≥45s of sustained both-links-down + recent DE1 controller fault
     // before we treat it as a wedge — avoids cycling on a one-off blip.
     static constexpr int kWedgeConfirmMs = 45 * 1000;

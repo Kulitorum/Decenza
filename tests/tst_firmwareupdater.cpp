@@ -417,11 +417,10 @@ private slots:
 
     void firmwareGuard_dropsMMRWrites() {
         Fixture f;
-        // The guard emits a qWarning on every drop — verifying all three
-        // drop paths also means we expect all three warnings.
+        // The guard emits a qWarning on every drop — verifying both drop paths
+        // also means we expect both warnings.
         const QRegularExpression dropRe(
-            R"(\[MMR\] write(?: urgent| verified)? DROPPED \(firmware flash in progress\))");
-        QTest::ignoreMessage(QtWarningMsg, dropRe);
+            R"(\[MMR\] write(?: urgent)? DROPPED \(firmware flash in progress\))");
         QTest::ignoreMessage(QtWarningMsg, dropRe);
         QTest::ignoreMessage(QtWarningMsg, dropRe);
 
@@ -434,12 +433,12 @@ private slots:
         // test targets only the DE1Device write gate).
         f.device.setFirmwareFlashInProgress(true);
 
-        // All three MMR write paths must now drop their packets. We call
-        // each with a distinct address so dedup can't mask the drop via an
-        // unchanged-value short-circuit.
+        // Both MMR write paths must now drop their packets. We call each with
+        // a distinct address so dedup can't mask the drop via an
+        // unchanged-value short-circuit. (There were three: writeMMRVerified
+        // was removed with the read-after-write machinery.)
         f.device.writeMMR(0x80000D, 42, QStringLiteral("blocked"));
         f.device.writeMMRUrgent(0x80000E, 42, QStringLiteral("blocked"));
-        f.device.writeMMRVerified(0x80000F, 42, QStringLiteral("blocked"));
 
         QCOMPARE(f.transport.writes.size(), baselineWrites);
 

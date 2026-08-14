@@ -447,6 +447,100 @@ private slots:
 
         transport.ackAllWritesInOrder();
     }
+
+    // ===== A failed upload withdraws its own queued frames (#1466) =====
+    //
+    // The stacking in #1466 was NOT a missing retry guard. ProfileManager
+    // already refuses to start an upload while one is in flight and arms its
+    // retry timer only from the profileUploaded handler, so a retry cannot
+    // overlap the ATTEMPT. It overlapped the attempt's WRITES: the tracker
+    // gives up after 10 s (de1device.cpp:79) while a timing-out write held the
+    // link far longer, so the gate was released with every frame of the failed
+    // attempt still queued, and the retry's header landed behind them.
+    //
+    // So the assertion is about the queue, not the signal: when an upload is
+    // declared failed, its frames must be gone.
+
+    void aFailedUploadWithdrawsItsOwnQueuedFrames() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        // Model the attempt's writes as still pending on the link, alongside
+        // unrelated work that nothing has superseded.
+        transport.pendingQueued = {
+            DE1::Characteristic::HEADER_WRITE,
+            DE1::Characteristic::FRAME_WRITE,
+            DE1::Characteristic::FRAME_WRITE,
+            DE1::Characteristic::SHOT_SETTINGS,
+            DE1::Characteristic::WRITE_TO_MMR,
+        };
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Profile upload FAILED — frame sequence mismatch"));
+
+        device.uploadProfile(makeSimpleProfile());
+        emit transport.writeComplete(DE1::Characteristic::HEADER_WRITE,
+                                     transport.writes.at(0).second);
+        for (int i = 0; i < 3; ++i) {
+            emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                         transport.writes.at(1).second);
+        }
+
+        QCOMPARE(transport.pendingQueued,
+                 QList<QBluetoothUuid>({DE1::Characteristic::SHOT_SETTINGS,
+                                        DE1::Characteristic::WRITE_TO_MMR}));
+    }
+
+    void aSucceedingUploadDoesNotTouchTheQueue() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        transport.pendingQueued = {DE1::Characteristic::SHOT_SETTINGS};
+
+        device.uploadProfile(makeSimpleProfile());
+        transport.ackAllWritesInOrder();
+
+        QCOMPARE(transport.pendingQueued,
+                 QList<QBluetoothUuid>({DE1::Characteristic::SHOT_SETTINGS}));
+        // Not merely "nothing was dropped" — the scan is not run at all.
+        QCOMPARE(transport.discardQueuedCalls.size(), 0);
+    }
+
+    // A supersede must leave the link clear before the replacement's header is
+    // written, whether or not the previous tracker was still attached.
+    void aSupersededUploadLeavesNoFramesQueued() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Profile upload FAILED — superseded by a new upload"));
+
+        device.uploadProfile(makeSimpleProfile());
+        transport.pendingQueued = {
+            DE1::Characteristic::HEADER_WRITE,
+            DE1::Characteristic::FRAME_WRITE,
+            DE1::Characteristic::SHOT_SETTINGS,
+        };
+
+        const qsizetype writesBeforeSupersede = transport.writes.size();
+        device.uploadProfile(makeSimpleProfile());
+
+        QCOMPARE(transport.pendingQueued,
+                 QList<QBluetoothUuid>({DE1::Characteristic::SHOT_SETTINGS}));
+
+        // The ordering, not just the outcome. Moving the discard to AFTER the
+        // replacement's frames are queued would leave pendingQueued identical
+        // while discarding the NEW upload's frames in production — so the
+        // outcome assertion above cannot see the catastrophic case. The discard
+        // must happen at the write count from before the second upload.
+        QCOMPARE(transport.discardQueuedCalls.size(), 1);
+        QCOMPARE(transport.writeCountAtDiscard.first(), writesBeforeSupersede);
+
+        transport.ackAllWritesInOrder();
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ProfileUpload)

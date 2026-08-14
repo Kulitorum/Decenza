@@ -37,6 +37,7 @@ public:
                             const QBluetoothUuid& characteristicUuid) override;
 
     bool isConnected() const override;
+    bool isConnecting() const override;
 
 private:
     void log(const QString& msg);

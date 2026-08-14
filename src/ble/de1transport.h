@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QBluetoothUuid>
 #include <QByteArray>
+#include <QList>
 #include <QString>
 
 /**
@@ -79,6 +80,21 @@ public:
     virtual qsizetype clearQueue() { return 0; }
 
     /**
+     * Discard pending commands targeting any of the given characteristics and
+     * return how many were dropped. Unlike clearQueue(), this leaves unrelated
+     * pending work alone: it exists so an operation that has been superseded,
+     * or has terminally failed, can withdraw its OWN remaining writes without
+     * throwing away writes nothing has superseded.
+     *
+     * Only queued commands are affected. A write already in flight is not
+     * withdrawn — it is on the wire or being retried, and cancelling it would
+     * leave m_writePending state inconsistent for no gain.
+     *
+     * Transports without queuing return 0.
+     */
+    virtual qsizetype discardQueued(const QList<QBluetoothUuid>&) { return 0; }
+
+    /**
      * Check if the transport is currently connected.
      */
     virtual bool isConnected() const = 0;
@@ -106,6 +122,20 @@ signals:
      * @param data The raw binary payload.
      */
     void dataReceived(const QBluetoothUuid& uuid, const QByteArray& data);
+
+    /**
+     * Emitted when a write is abandoned after exhausting its retries.
+     *
+     * Carries the payload, not just the characteristic, because the device
+     * layer is the only place that can decode what was lost — and it must,
+     * for two reasons. The log line at the transport can only say "20 bytes to
+     * a005", which does not tell a reader which setting failed to reach the
+     * machine. And any device-layer cache recording "the DE1 now holds this
+     * value" is wrong the moment a write is abandoned; left uncorrected, the
+     * next identical write is elided as unchanged and the loss becomes
+     * permanent rather than transient.
+     */
+    void writeAbandoned(const QBluetoothUuid& uuid, const QByteArray& data);
 
     /**
      * Emitted when a write operation completes successfully.

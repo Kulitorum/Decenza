@@ -10,10 +10,10 @@
 
 // Covers the one-shot MMR read reliability work in the harden-de1-ble-reliability
 // change: a post-connect informational read (GHC info, machine identity, etc.)
-// or a writeMMRVerified read-back whose response notification is dropped must be
-// retried, and on exhaustion must leave the associated value at its safe default
-// rather than pending forever. Also covers the profile-upload settle window that
-// keeps startEspresso() from racing the DE1 firmware's post-upload flash write.
+// whose response notification is dropped must be retried, and on exhaustion must
+// leave the associated value at its safe default rather than pending forever.
+// Also covers the profile-upload settle window that keeps startEspresso() from
+// racing the DE1 firmware's post-upload flash write.
 //
 // The read timeout/retry sweep (checkMMRReadTimeouts) is driven directly with
 // deadlines forced into the past instead of waiting out the real 4s timeout, so
@@ -143,36 +143,6 @@ private slots:
         QCOMPARE(f.device.isHeadless(), true);
     }
 
-    // ===== writeMMRVerified read-back: dropped response is not abandoned =====
-
-    void verifyReadbackExhaustionClearsVerify() {
-        TestFixture f;
-        // Register a pending verify and its read-back exactly as
-        // writeMMRVerified()/scheduleMMRVerifyRead() would, without the 50ms
-        // singleShot in between.
-        const uint32_t addr = DE1::MMR::FAN_THRESHOLD;
-        f.device.m_pendingMMRVerifies.insert(
-            addr, DE1Device::PendingMMRVerify{55, 3, QStringLiteral("test")});
-        f.device.scheduleMMRVerifyRead(addr);
-        QVERIFY(f.device.m_pendingMMRReads.contains(addr));
-
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
-        expireAndSweep(f.device);
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
-        expireAndSweep(f.device);
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[DE1\\]\\[MMR\\] read FAILED after retries"));
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[DE1\\]\\[MMR\\] verify abandoned"));
-        expireAndSweep(f.device);
-
-        // Both the read tracking and the verify entry are cleared — the verify
-        // no longer sits pending forever with no signal.
-        QVERIFY(!f.device.m_pendingMMRReads.contains(addr));
-        QVERIFY(!f.device.m_pendingMMRVerifies.contains(addr));
-    }
 
     // ===== Multiple concurrent pending reads (the real sendInitialSettings path) =====
 
