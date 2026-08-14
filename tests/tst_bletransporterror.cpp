@@ -204,6 +204,70 @@ private slots:
         QCOMPARE(transport.m_commandQueue.head().uuid, DE1::Characteristic::REQUESTED_STATE);
     }
 
+    // -- A link that has stopped accepting writes --
+    //
+    // init()'s failOnWarning is what makes the negative half of these
+    // assertions real: a second report, or a report before the bound, fails the
+    // test without any explicit check for it.
+
+    void consecutiveAbandonedWritesReportOnceAtTheBound() {
+        BleTransport transport;
+
+        // Below the bound: silent.
+        transport.noteWriteAbandoned();
+        transport.noteWriteAbandoned();
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("DE1 link has stopped accepting writes: 3 consecutive"));
+        transport.noteWriteAbandoned();
+
+        // Still failing does not re-report — one episode, one line.
+        transport.noteWriteAbandoned();
+        transport.noteWriteAbandoned();
+    }
+
+    void aSuccessfulWriteClearsTheCount() {
+        BleTransport transport;
+        transport.noteWriteAbandoned();
+        transport.noteWriteAbandoned();
+        transport.noteWriteSucceeded();
+
+        // The count restarted, so two more must not reach the bound.
+        transport.noteWriteAbandoned();
+        transport.noteWriteAbandoned();
+        QCOMPARE(transport.m_consecutiveWriteFailures, 2);
+    }
+
+    void aDisconnectClearsTheCount() {
+        BleTransport transport;
+        transport.noteWriteAbandoned();
+        transport.noteWriteAbandoned();
+
+        transport.onControllerDisconnected();
+
+        QCOMPARE(transport.m_consecutiveWriteFailures, 0);
+        // And a link that already reported is allowed to report again on the
+        // next connection — the episode ended with the link.
+        QCOMPARE(transport.m_writeDeadLinkReported, false);
+    }
+
+    // -- Queue depth --
+
+    void aBackedUpQueueReportsItsDepthOnce() {
+        BleTransport transport;
+
+        for (int i = 0; i < BleTransport::QUEUE_DEPTH_WARN - 1; ++i)
+            transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("BLE write queue is 20 deep"));
+        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
+
+        // Deeper still is the same episode, not a new one.
+        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
+        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
+    }
+
     void discardQueuedWithNoMatchLeavesTheQueueUntouched() {
         BleTransport transport;
         transport.write(DE1::Characteristic::SHOT_SETTINGS, QByteArray(1, 's'));

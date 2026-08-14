@@ -156,8 +156,19 @@ void QtScaleBleTransport::disconnectFromDevice() {
 
     if (m_controller) {
         m_controller->disconnect();
-        if (m_controller->state() == QLowEnergyController::ConnectedState ||
-            m_controller->state() == QLowEnergyController::DiscoveringState) {
+        // ConnectingState belongs here too. A controller deleted while still
+        // Connecting never asks the platform to stop, so the connection attempt
+        // it started stays outstanding — on Android until the stack's own ~30 s
+        // supervision timeout — and every retry in that window is rejected as a
+        // duplicate connect to a device the platform still considers busy. That
+        // is the shape of the #1810 reporter's symptom: a connect held ~30 s
+        // while the app believed it had already torn it down.
+        //
+        // DiscoveredState likewise: service discovery having finished does not
+        // make the link any less connected.
+        const auto state = m_controller->state();
+        if (state != QLowEnergyController::UnconnectedState &&
+            state != QLowEnergyController::ClosingState) {
             m_controller->disconnectFromDevice();
         }
         m_controller->deleteLater();
@@ -294,6 +305,11 @@ void QtScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
 
 bool QtScaleBleTransport::isConnected() const {
     return m_connected;
+}
+
+bool QtScaleBleTransport::isConnecting() const {
+    return m_controller
+        && m_controller->state() == QLowEnergyController::ConnectingState;
 }
 
 bool QtScaleBleTransport::isLinkReady() const {

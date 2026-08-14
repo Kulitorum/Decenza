@@ -143,6 +143,7 @@ BleTransport::BleTransport(QObject* parent)
                 // Error" modals behind the screensaver (#1423). Persistent failures
                 // still reach the user via the reconnect path's own errors.
                 emit de1LinkFault(QStringLiteral("write-failed"));
+                noteWriteAbandoned();
                 m_lastCommand = nullptr;
                 m_writeRetryCount = 0;
                 processCommandQueue();  // Move on to next command
@@ -342,6 +343,8 @@ void BleTransport::disconnect() {
     m_writeRetryCount = 0;
     m_lastWriteUuid.clear();
     m_lastWriteData.clear();
+    noteWriteSucceeded();
+    m_queueDepthReported = false;
 
     // Reset the notification-subscribe sequence so a stale in-flight
     // subscribeAll() from a torn-down connection can't bleed into the next
@@ -583,6 +586,11 @@ void BleTransport::onControllerDisconnected() {
     m_currentSubscribeUuid = QBluetoothUuid();
     m_subscribeTimeoutTimer.stop();
     m_notificationLiveness.invalidate();
+    // Failures observed while a link was already dying must not be carried
+    // into the next connection, where they would make a healthy link look
+    // write-dead after one more abandoned write.
+    noteWriteSucceeded();
+    m_queueDepthReported = false;
 
     if (!m_disconnectedEmittedForAttempt) {
         m_disconnectedEmittedForAttempt = true;
@@ -759,6 +767,7 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                             // No user-facing errorOccurred here — same rationale as the
                             // write-timeout exhaustion path above (#1423).
                             emit de1LinkFault(QStringLiteral("write-failed"));
+                            noteWriteAbandoned();
                             m_lastCommand = nullptr;
                             m_writeRetryCount = 0;
                             processCommandQueue();
@@ -879,6 +888,7 @@ void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, co
     m_writePending = false;
     m_writeTimeoutTimer.stop();
     m_writeRetryCount = 0;
+    noteWriteSucceeded();
     m_lastCommand = nullptr;
     m_lastWriteUuid.clear();
     m_lastWriteData.clear();
@@ -1016,8 +1026,59 @@ void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteAr
     m_service->writeCharacteristic(m_characteristics[uuid], data);
 }
 
+void BleTransport::noteWriteAbandoned() {
+    ++m_consecutiveWriteFailures;
+    if (m_consecutiveWriteFailures < WRITE_DEAD_LINK_THRESHOLD || m_writeDeadLinkReported)
+        return;
+
+    m_writeDeadLinkReported = true;
+
+    // Deliberately not corroborated against m_controller->state(). decaid
+    // confirms its equivalent finding with an OS connection-state query and
+    // treats an inconclusive answer as changing nothing
+    // (universal_ble_transport.dart:466-483) — a good rule, but Qt's
+    // QLowEnergyController::state() is not that query. It reports what Qt
+    // believes, and Qt believing the link is up is precisely the condition
+    // being reported here, so reading it could only ever confirm what we
+    // already know. Adding it would look like corroboration while supplying
+    // none.
+    //
+    // WARN, and written to stand alone: these logs are read by users and by
+    // their AI assistants, who have no knowledge of this subsystem, so a bare
+    // failure count would be uninterpretable.
+    warn(QString("DE1 link has stopped accepting writes: %1 consecutive writes "
+                 "abandoned after exhausting their retries, while the link "
+                 "still reports itself connected. Commands sent to the machine "
+                 "are being discarded. Reconnecting the DE1 is what clears "
+                 "this — from the Connections page, or over MCP with "
+                 "devices_connect_de1.")
+             .arg(m_consecutiveWriteFailures));
+}
+
+void BleTransport::noteWriteSucceeded() {
+    m_consecutiveWriteFailures = 0;
+    m_writeDeadLinkReported = false;
+}
+
 void BleTransport::queueCommand(const QBluetoothUuid& uuid, std::function<void()> command) {
     m_commandQueue.enqueue({uuid, std::move(command)});
+
+    // Report a backlog once per episode. A queue this deep means the link is
+    // not keeping up, and today that is only ever visible after the fact, as
+    // the write failures it goes on to produce. Nothing is shed — see the
+    // header.
+    if (m_commandQueue.size() >= QUEUE_DEPTH_WARN) {
+        if (!m_queueDepthReported) {
+            m_queueDepthReported = true;
+            warn(QString("BLE write queue is %1 deep — the link is not keeping "
+                         "up with the commands being issued")
+                     .arg(m_commandQueue.size()));
+        }
+    } else if (m_commandQueue.size() <= QUEUE_DEPTH_WARN / 2) {
+        // Re-arm only once well clear of the threshold, so a queue hovering at
+        // the boundary does not log on every other enqueue.
+        m_queueDepthReported = false;
+    }
     if (!m_writePending && !m_commandTimer.isActive()) {
         m_commandTimer.start();
     }

@@ -100,6 +100,21 @@ public:
     virtual bool isConnected() const = 0;
 
     /**
+     * True while the transport is holding a connection attempt that has not
+     * yet resolved — a controller in Connecting, not yet Connected and not
+     * yet failed.
+     *
+     * Distinct from isConnected(), and the distinction is load-bearing: a
+     * connect held in Connecting occupies the platform's connection slot, so
+     * every retry against it is rejected as a duplicate, while isConnected()
+     * reports false the whole time. A teardown gated on isConnected() alone
+     * therefore never fires for exactly the case that needs it.
+     *
+     * Default false for transports that do not park a controller.
+     */
+    virtual bool isConnecting() const { return false; }
+
+    /**
      * Connection-priority backoff (dual-HIGH BLE contention, #1093/#1176).
      * When set, the transport must NOT request CONNECTION_PRIORITY_HIGH on
      * (re)connect, leaving the link at the platform-default BALANCED interval.

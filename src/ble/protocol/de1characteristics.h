@@ -139,6 +139,8 @@ namespace MMR {
     constexpr uint32_t HEATER_VOLTAGE       = 0x803834;
     constexpr uint32_t ESPRESSO_WARMUP_TIMEOUT = 0x803838;  // Warmup timeout in tenths of seconds (de1app default: 10 = 1.0s)
     constexpr uint32_t FLOW_CALIBRATION     = 0x80383C;  // Flow calibration multiplier (value = int(1000 * multiplier))
+    constexpr uint32_t FLUSH_FLOW_RATE      = 0x803840;  // Flush flow rate in tenths mL/s (de1app: set_flush_flow_rate)
+    constexpr uint32_t FLUSH_TIMEOUT        = 0x803848;  // Flush timeout in tenths of seconds (de1app: set_flush_timeout)
     constexpr uint32_t HOT_WATER_FLOW_RATE  = 0x80384C;  // Hot water flow rate in tenths mL/s (de1app default: 10 = 1.0 mL/s)
     constexpr uint32_t STEAM_TWO_TAP_STOP   = 0x803850;  // SteamPurgeMode: 0=off, 1=two taps to stop steam (first tap → puffs, second → purge)
     constexpr uint32_t USB_CHARGER          = 0x803854;  // USB charger on/off (1=on, 0=off)

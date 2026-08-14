@@ -177,6 +177,46 @@ private:
     QString m_lastWriteUuid;
     QByteArray m_lastWriteData;
 
+    // Consecutive writes abandoned after exhausting their retries, reset by any
+    // successful write and by a disconnect. Recognises a link that has stopped
+    // accepting writes while still reporting itself connected — the one state
+    // where every other indicator looks healthy: the controller says
+    // ConnectedState and notifications can keep arriving, so neither
+    // m_notificationLiveness below nor the wedge detector (which gates on
+    // !m_de1Connected, blemanager.cpp:356) can see it.
+    //
+    // Separation in the corpus is wide: nine logs peak at 1 abandoned write,
+    // #1713 at 2, and the pathological ones sit at 7, 8, 11 and 89. The bound
+    // is set just above the benign side of that gap. The corpus figure is a
+    // PROXY that overestimates — those logs carry no per-write success marker,
+    // so runs were computed resetting only at disconnects and session
+    // boundaries — which is a further argument for the low end.
+    //
+    // Reporting only. Nothing is torn down on this signal and no user-facing
+    // error is raised; the point is to make the condition visible in a
+    // submitted log before deciding what to do about it. (decaid does tear
+    // down on its equivalent detector — universal_ble_transport.dart:497 — at
+    // a threshold of 3 GATT timeouts. That number does not transfer: it counts
+    // operations carrying no per-write retries, whereas one unit here is an
+    // already-exhausted write.)
+    int m_consecutiveWriteFailures = 0;
+    bool m_writeDeadLinkReported = false;
+    static constexpr int WRITE_DEAD_LINK_THRESHOLD = 3;
+
+    // Edge-triggered so a backed-up queue reports once rather than on every
+    // enqueue. de1app warns at 20 (de1_comms.tcl:49) and has no cap either;
+    // this is the same signal, and like de1app's it sheds nothing — a depth
+    // report is a diagnosis, not a policy.
+    bool m_queueDepthReported = false;
+    static constexpr qsizetype QUEUE_DEPTH_WARN = 20;
+
+    // Called from both retry-exhaustion sites. Counts the abandoned write and
+    // reports the link as no longer accepting writes when the count passes the
+    // bound.
+    void noteWriteAbandoned();
+    // Called wherever a write completes and on disconnect.
+    void noteWriteSucceeded();
+
     // Service discovery retry logic
     QBluetoothDeviceInfo m_pendingDevice;
     QTimer m_retryTimer;

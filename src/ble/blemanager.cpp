@@ -249,6 +249,30 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
     emit bluetoothAvailableChanged();
 }
 
+// Android API level, or -1 where it cannot be read (and on every other
+// platform). Cached: SDK_INT is a permanent OS characteristic.
+//
+// Centralised because there are now two callers with different predicates —
+// the dual-HIGH seed at SDK < 30 and the adapter-remedy gate at SDK >= 33 —
+// and each was otherwise free to hand-roll its own JNI read, its own
+// exception check and its own failure behaviour.
+int BLEManager::androidSdkInt()
+{
+#ifdef Q_OS_ANDROID
+    static const int cached = []() {
+        QJniEnvironment jniEnv;
+        const jint v = QJniObject::getStaticField<jint>(
+            "android/os/Build$VERSION", "SDK_INT");
+        if (jniEnv.checkAndClearExceptions() || v <= 0)
+            return -1;
+        return static_cast<int>(v);
+    }();
+    return cached;
+#else
+    return -1;
+#endif
+}
+
 void BLEManager::setAdapterPower(bool on)
 {
 #if defined(Q_OS_ANDROID)
@@ -400,10 +424,48 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
         return;
     }
 
+    // API 33+ (Android 13): BluetoothAdapter.disable()/enable() are no-ops for
+    // a non-privileged app. The call returns, nothing happens, no hostMode
+    // event ever arrives, and ~10 s later the safety watchdog observes the
+    // adapter is on — because it was never off — and calls
+    // finishAdapterRecovery(true), which logs "adapter recovered". In #1810
+    // that is 100 out of 100 recoveries: every one reported success having
+    // changed nothing. The only real effect the mechanism had on these devices
+    // was the reconnect re-arm inside finishAdapterRecovery(), so that is what
+    // is kept, reached directly rather than through ten seconds of pretence.
+    //
+    // Not a claim that the wedge is imaginary — the detector's fingerprint
+    // stands. This retires a remedy that cannot work, not the detection.
+    // A failed SDK read (-1) counts as unavailable. That is the safe default in
+    // both directions: we do not manipulate the user's radio on a device whose
+    // API level we could not establish, and the re-arm below still runs, so the
+    // only thing given up is a remedy we could not have known would work.
+    const bool adapterRemedyAvailable = androidSdkInt() > 0 && androidSdkInt() < 33;
+
     const QDateTime now = QDateTime::currentDateTime();
     if (m_lastAdapterRecovery.isValid()
         && m_lastAdapterRecovery.msecsTo(now) < kAdapterRecoveryBackoffMs) {
         BT_LOG_TAGGED("BLEManager", QStringLiteral("BLE stack still appears wedged (") + QStringLiteral(" ") + QString("%1").arg(reason) + QStringLiteral(" ") + QStringLiteral(") but within recovery backoff — not cycling adapter yet (#1309)"));
+        return;
+    }
+
+    if (!adapterRemedyAvailable) {
+        m_lastAdapterRecovery = now;   // the backoff still paces the re-arm
+        m_adapterRecoveryCount++;
+        m_wedgeSince = QDateTime();
+        m_lastDe1FaultTime = QDateTime();
+        BT_WARN_TAGGED("BLEManager", QStringLiteral(
+            "BLE stack appears wedged (") + reason + QStringLiteral(
+            ") — NOT power-cycling the Bluetooth adapter: this Android version "
+            "(SDK ") + QString::number(androidSdkInt()) + QStringLiteral(
+            ") ignores an app's request to turn the radio off and on, so the "
+            "attempt would change nothing and then report success. Re-arming "
+            "the DE1 and scale reconnect paths directly instead. If this keeps "
+            "recurring, toggling Bluetooth off and on in system settings is "
+            "the equivalent action, and only you can perform it (#1309)."));
+        emit bleStackRecovered();      // the re-arm main.cpp listens for
+        if (!m_savedScaleAddress.isEmpty())
+            tryDirectConnectToScale();
         return;
     }
 
@@ -515,16 +577,13 @@ void BLEManager::setSettings(SettingsHardware* settings)
         // this block. There is no in-app way to permanently restore HIGH on
         // SDK<30 hardware — the only exit is an OS upgrade to SDK≥30.
         constexpr int kSeedSdkBelow = 30;  // #1097's predicate, now reused as a seed
-        QJniEnvironment jniEnv;
-        const jint sdkInt = QJniObject::getStaticField<jint>(
-            "android/os/Build$VERSION", "SDK_INT");
-        const bool jniFailed = jniEnv.checkAndClearExceptions();
-        if (jniFailed || sdkInt <= 0) {
+        const int sdkInt = androidSdkInt();
+        if (sdkInt <= 0) {
             SCALE_WARN_STDERR_TAGGED("ConnectionPriority",
                 QStringLiteral("First-launch seed: failed to read "
-                      "Android SDK_INT via JNI (sdkInt=%1, jni_exception=%2) "
+                      "Android SDK_INT via JNI (sdkInt=%1) "
                       "— seed skipped, runtime detector will arm normally.")
-                       .arg(sdkInt).arg(jniFailed ? "yes" : "no"));
+                       .arg(sdkInt));
         } else if (sdkInt < kSeedSdkBelow) {
             const QString kind = QStringLiteral("seed:sdk<%1").arg(kSeedSdkBelow);
             latchScaleSkipHighPriority(kind);
@@ -1823,10 +1882,22 @@ void BLEManager::onScaleConnectionTimeout() {
         // Gate on the transport actually holding something — the perpetual 60s
         // retry ladder hits this timeout on every cycle while the scale is
         // simply absent, and must not log/churn a teardown of nothing.
-        if (transport && (wasParked || transport->isConnected())) {
+        //
+        // isConnecting() is the third shape, and the one the previous two
+        // conditions between them missed: a connect started from SCAN discovery
+        // rather than the foreground path sets no m_directConnectInProgress, so
+        // wasParked is false, and it never reached Connected, so isConnected()
+        // is false — yet its controller is still held in Connecting and the
+        // platform still considers the device busy, so every retry in that
+        // window is rejected as a duplicate. Gating on how the attempt was
+        // STARTED rather than on what is still held is what left it out.
+        const bool holdingUnresolvedConnect = transport && transport->isConnecting();
+        if (transport && (wasParked || transport->isConnected() || holdingUnresolvedConnect)) {
             scaleWarn(wasParked
                 ? QStringLiteral("Scale connection timeout — tearing down parked direct-connect controller")
-                : QStringLiteral("Scale connection timeout — tearing down stuck connection setup"));
+                : holdingUnresolvedConnect
+                    ? QStringLiteral("Scale connection timeout — tearing down a connect still held in Connecting")
+                    : QStringLiteral("Scale connection timeout — tearing down stuck connection setup"));
             transport->disconnectFromDevice();
         }
     }

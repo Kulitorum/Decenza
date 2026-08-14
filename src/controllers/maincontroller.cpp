@@ -2764,15 +2764,15 @@ void MainController::sendMachineSettings(const QString& reason) {
         ? QStringLiteral("sendMachineSettings") : reason;
 
     // 2. Steam flow MMR
-    m_device->writeMMR(0x803828, m_settings->brew()->steamFlow(), mmrReason);
+    m_device->writeMMR(DE1::MMR::STEAM_FLOW, m_settings->brew()->steamFlow(), mmrReason);
 
     // 3. Flush flow MMR (value × 10)
     int flowValue = static_cast<int>(m_settings->brew()->flushFlow() * 10);
-    m_device->writeMMR(0x803840, flowValue, mmrReason);
+    m_device->writeMMR(DE1::MMR::FLUSH_FLOW_RATE, flowValue, mmrReason);
 
     // 4. Flush timeout MMR (value × 10)
     int secondsValue = static_cast<int>(m_settings->brew()->flushSeconds() * 10);
-    m_device->writeMMR(0x803848, secondsValue, mmrReason);
+    m_device->writeMMR(DE1::MMR::FLUSH_TIMEOUT, secondsValue, mmrReason);
 }
 
 void MainController::selectSteamPitcher(int index, double milkFallbackG) {
@@ -3604,7 +3604,7 @@ void MainController::startSteamHeating(const QString& reason) {
 
     // Steam flow rides along — it is part of the same steam spec.
     if (m_device && m_device->isConnected())
-        m_device->writeMMR(0x803828, m_settings->brew()->steamFlow(), tag);
+        m_device->writeMMR(DE1::MMR::STEAM_FLOW, m_settings->brew()->steamFlow(), tag);
 
     if (sent)
         qDebug() << "Started steam heating to" << steamTemp << "°C from" << tag;
@@ -3660,13 +3660,30 @@ void MainController::setSteamFlowImmediate(int flow) {
 
     m_settings->brew()->setSteamFlow(flow);
 
-    // Verify-and-retry as defensive insurance: a single MMR write should be
-    // enough (on-device testing showed zero retries needed across many slider
-    // drags), but steam flow is user-visible enough that we read the register
-    // back and retry on mismatch rather than relying on the write alone. One
-    // caller-side call (slider release, preset tap) stays one logical command.
-    m_device->writeMMRVerified(0x803828, flow,
-                               QStringLiteral("setSteamFlowImmediate"));
+    // Unverified, like the other two sites that write this register
+    // (sendMachineSettings and startSteamHeating). This used to be a
+    // writeMMRVerified, which made 0x803828 the one register whose assurance
+    // level depended on which code path last touched it — so whether the
+    // setting was checked was decided by how the user reached it, and that is
+    // not something a log or the machine's behaviour can tell you afterwards.
+    //
+    // Levelled DOWN rather than up, for three reasons. The verified site's own
+    // comment recorded on-device testing showing zero retries were ever needed
+    // across many slider drags, so it was insurance against something not
+    // observed. An MMR read is itself a write — sendMMRReadRequest() writes 20
+    // bytes to a005 (de1device.cpp:777-785) — so a read-back costs a second
+    // write plus a retry ladder of further a005 writes, on the link whose write
+    // failures would be the only reason to want it. And neither reference
+    // implementation verifies an MMR write at all (de1app's mmr_write,
+    // de1_comms.tcl:1086; decaid's _mmrWriteRawPermitted,
+    // unified_de1.mmr.dart:116), while both retry MMR reads — which is the
+    // asymmetry this protocol actually justifies.
+    //
+    // writeMMR's dedup cache (#773) now applies here, where writeMMRVerified's
+    // force=true bypassed it, so a slider dragged back to its current value no
+    // longer writes at all.
+    m_device->writeMMR(DE1::MMR::STEAM_FLOW, flow,
+                       QStringLiteral("setSteamFlowImmediate"));
 
     qDebug() << "Steam flow set to:" << flow;
 }
