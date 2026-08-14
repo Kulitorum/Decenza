@@ -1,7 +1,7 @@
 ## Purpose
 
 Governs what the app does when a BLE write fails: how long it keeps retrying, what happens
-to work queued behind the failure, how an upstream retry is paced against that queue, and
+to work belonging to a superseded operation, how an upstream retry is paced against it, and
 how a link that has stopped accepting writes is recognised while it still reports itself
 connected.
 
@@ -34,46 +34,64 @@ occupied and unable to become idle.
 - **THEN** the elapsed time from first attempt to abandonment is shorter than the period at
   which that write recurs, so the link is idle before the next one is issued
 
-### Requirement: Superseded and terminally-failed work is drained from the queue
+### Requirement: Superseded work is discarded, and only the superseded work
 
-When a multi-write operation is superseded by a newer one, or a write is abandoned after its
-retries, the system SHALL discard the pending writes belonging to the superseded or failed
-work rather than issuing them into the same link. Issuing them delays recovery, and in the
-supersede case they carry values the app no longer intends to send.
+When a multi-write operation is superseded by a newer one, the system SHALL discard the pending
+writes belonging to the superseded operation rather than issuing them into the same link. They
+carry values the app no longer intends to send, and issuing them delays the replacement.
+
+The discard SHALL be limited to the superseded operation's own writes. Superseding SHALL NOT be
+implemented by clearing the pending queue: unrelated pending work is not superseded by a new
+upload, and discarding it converts a targeted correction into an unbounded one.
+
+The system SHALL NOT discard pending writes merely because an unrelated write was abandoned
+after its retries. Work queued behind a failure is not itself known to be failing, and a link
+that has genuinely stopped accepting writes is recognised by the consecutive-failure rule below
+rather than by pre-emptively emptying the queue.
 
 #### Scenario: A profile upload supersedes an in-flight one
 
 - **WHEN** a profile upload begins while a previous upload's writes are still pending
 - **THEN** the previous upload's pending writes are discarded before the new one is issued
 
-#### Scenario: Writes queued behind an abandoned write
+#### Scenario: Unrelated pending work survives a supersede
+
+- **WHEN** a profile upload supersedes a previous one while writes unrelated to either are pending
+- **THEN** those unrelated writes are still issued
+
+#### Scenario: A write is abandoned with work queued behind it
 
 - **WHEN** a write is abandoned after its retries and further writes are queued behind it
-- **THEN** those writes are discarded rather than attempted
+- **THEN** those writes are still attempted
 
 #### Scenario: The discard is recorded
 
 - **WHEN** pending writes are discarded
 - **THEN** the number discarded is recorded
 
-### Requirement: Urgent state writes survive a queue drain
+### Requirement: A commanded stop is never discarded
 
-A drain SHALL NOT discard an urgent write that changes machine state. Stop and sleep requests
-are issued as urgent writes and are placed in the same pending queue when another write is
-already in flight, so an unqualified drain would discard a stop the user or stop-at-weight
-has already commanded.
+An urgent write that changes machine state SHALL be delivered regardless of any discard occurring
+around it. Stop and sleep requests are issued as urgent writes, and an urgent write is placed in
+the pending queue when another write is already in flight, so any discard that is not qualified
+by urgency could otherwise drop a stop the user or stop-at-weight has already commanded.
 
-#### Scenario: A stop is pending when the queue is drained
+This is stated as an invariant to be asserted rather than a priority mechanism to be built: the
+existing stop and sleep paths already clear before issuing, which leaves the urgent write to be
+sent directly rather than queued. The requirement exists so that a later change cannot quietly
+remove that ordering.
 
-- **WHEN** an urgent state-change write is pending and a drain occurs for any reason
+#### Scenario: A stop is pending when a discard occurs
+
+- **WHEN** an urgent state-change write is pending and a discard occurs for any reason
 - **THEN** that write is still delivered
 
 #### Scenario: Ordinary writes are discarded around it
 
-- **WHEN** a drain occurs with both ordinary and urgent state writes pending
+- **WHEN** a discard occurs with both ordinary and urgent state writes pending
 - **THEN** the ordinary writes are discarded and the urgent state write is not
 
-### Requirement: A drain invalidates any cache that would elide the re-send
+### Requirement: A discard invalidates any cache that would elide the re-send
 
 When pending writes are discarded, the system SHALL invalidate any record that would let a
 later identical write be skipped as unchanged. Without this, a discarded write is not delayed
@@ -81,35 +99,36 @@ but lost permanently, because the next attempt to send the same value is elided 
 
 #### Scenario: A discarded setting is re-sent later
 
-- **WHEN** a write carrying a machine setting is discarded by a drain, and the same setting is
+- **WHEN** a write carrying a machine setting is discarded, and the same setting is
   written again afterwards
 - **THEN** the later write is actually issued rather than skipped as unchanged
 
-### Requirement: An upstream retry waits for the queue to drain
+### Requirement: An upload retry never overlaps the attempt it is retrying
 
-When an operation composed of several writes fails and is retried, the system SHALL NOT begin
-the retry while writes from the previous attempt are still pending. A retry cadence faster
-than the queue's failure rate causes each attempt to be issued into a queue that has not
-drained.
+When an operation composed of several writes fails and is retried, a retry attempt SHALL NOT be
+issued while the previous attempt is still outstanding. A retry cadence faster than the previous
+attempt's failure rate causes each attempt to be issued into a queue holding the last one, so the
+queue grows with every retry instead of draining.
 
-The system SHALL bound this wait, so a queue that never drains cannot prevent the retry
-indefinitely.
+The system SHALL enforce this by tracking whether an attempt is outstanding, and SHALL schedule
+the next attempt only once the previous one has concluded. It SHALL NOT rely on a delay chosen to
+be longer than an attempt is expected to take.
 
-#### Scenario: Retry deferred while the previous attempt is outstanding
+#### Scenario: A retry becomes due while the previous attempt is outstanding
 
-- **WHEN** a profile upload fails and a retry is due while writes from the failed attempt are
-  still pending
-- **THEN** the retry does not begin until those writes have completed or been discarded
+- **WHEN** a profile upload attempt is still outstanding and a retry becomes due
+- **THEN** no second attempt is issued
 
-#### Scenario: Retry proceeds once the queue is clear
+#### Scenario: The retry follows the previous attempt's conclusion
 
-- **WHEN** the previous attempt's writes have all completed or been discarded
-- **THEN** the retry proceeds
+- **WHEN** an upload attempt concludes unsuccessfully
+- **THEN** the next attempt is scheduled from that point
 
-#### Scenario: A queue that never drains does not block the retry forever
+#### Scenario: A superseded operation abandons its retries
 
-- **WHEN** the pending writes neither complete nor are discarded within a bounded period
-- **THEN** the retry proceeds anyway
+- **WHEN** the operation being retried is superseded by a newer one
+- **THEN** the outstanding retry sequence is abandoned rather than continuing against the
+  superseded operation
 
 ### Requirement: Pending queue depth is observable
 
@@ -131,6 +150,11 @@ once the count passes a bound.
 This determination SHALL NOT rest on the reported controller state or on notification flow: a
 link in this condition reports itself connected and can continue delivering notifications, so
 both indicators look healthy while every command is discarded.
+
+Where the platform can be asked for the link's actual state, that answer MAY be used to
+corroborate the determination. An inconclusive answer SHALL change nothing — it is not evidence
+that the link is dead, and a possibly-live link must not be acted against on the strength of a
+failed query.
 
 #### Scenario: Writes fail repeatedly while the link reports connected
 

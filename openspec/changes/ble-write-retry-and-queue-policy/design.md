@@ -27,16 +27,37 @@ reconstructed later:
   write** after reconnecting. Its 3-consecutive-timeout detector calls `_declareLinkDead`
   directly and is not gated on the OS probe; the probe corroborates its other triggers.
 
-The one comparison that survives and is used here is narrow: de1app warns when its command
-queue passes 20 (`de1_comms.tcl:49`), and Decenza has no queue-depth signal at all. Everything
-else in this design is derived from Decenza's own measurements.
+A later systematic pass over the same two sources — axis by axis, with line citations — did find
+real agreement, and it is used in the Decisions below. Where the three agree, it is recorded as
+quorum; where they do not, the design says so and rests on Decenza's own measurements instead.
+The agreements are: supersede is per-kind and producer-side, never a blanket clear (2/2); an
+upload retry can never overlap its predecessor (2/2, by construction in both); and an MMR write
+is never verified by read-back (2/2 against — de1app `mmr_write` at `de1_comms.tcl:1086`, decaid
+`_mmrWriteRawPermitted` at `unified_de1.mmr.dart:116`; both *do* retry MMR **reads**). The
+non-agreements are the per-write retry budget (infinite / 5 / 0) and whether to drain on a
+terminal write failure (1-1, and the two situations are not comparable).
+
+de1app's queue-depth warning at 20 (`de1_comms.tcl:49`) stands as the one threshold precedent;
+Decenza has no queue-depth signal at all.
+
+**The retry-budget divergence is not a departure from a shared norm.** de1app can retry forever
+precisely *because* it has no write timeout, so a retry costs nothing until the BLE stack itself
+errors; decaid has a timeout and treats it as fatal to the whole operation. Decenza is the only
+one of the three with both a timeout and per-write retries, which is exactly how a worst case
+reaches 60.0 s against a 60 s keepalive. The occupancy defect is Decenza-specific, and the
+reference apps neither support nor contradict the chosen bound.
 
 **Three constraints shape the scope.**
 
 `writeUrgent()` prepends to `m_commandQueue` when a write is in flight
 (`bletransport.cpp:227-231`), and stop-at-weight and sleep route `REQUESTED_STATE` through it
-(`de1device.cpp:1186`, `:1235`). Any queue drain must therefore be selective, or it can discard
-a stop the user has already commanded.
+(`de1device.cpp:1186`, `:1235`). This reads as a hazard — a drain discarding a commanded stop —
+and an earlier revision of this design asserted it was one. Traced through, it is not: both of
+those paths call `clearCommandQueue()` *before* the urgent write (`de1device.cpp:1174`, `:1228`),
+and `clearQueue()` sets `m_writePending = false` (`bletransport.cpp:399`), so the urgent write
+that follows always takes the direct branch. A stop is never in the queue at the moment of a
+clear. The constraint that remains is narrower: a drain must not *start* discarding urgent
+entries, because `ensureChargerOn` on app suspend can leave one queued.
 
 The exhaustion signal is consumed elsewhere. `de1LinkFault("write-failed")` feeds the wedge
 detector and the scale connection-priority backoff, where a cascade counts as two faults
@@ -143,22 +164,64 @@ longer exists, and raises the rate at which a session-wide scale demotion fires.
 loop. **Alternative considered:** leaving it and filing a follow-up. Rejected — the coupling is
 created by this change.
 
-### Drain at the supersede point, with urgent writes carved out
+### Supersede by dropping the previous upload's writes, not by draining the queue
 
 `startProfileUploadTracking()` already detects the supersede (`de1device.cpp:1324-1326`) and
-does nothing to the queue; that is the narrowest place to fix the #1466 cascade. The drain must
-preserve urgent state writes (above) and must invalidate `m_lastMMRValues`, exactly as
-`clearCommandQueue()` already pairs them (`:1243-1261`) — otherwise a discarded MMR write is
-not delayed but permanently elided by the dedup cache. **Alternative considered:** draining on
-every terminal write failure. Kept in the spec, but the supersede point is the one with
-demonstrated harm and should land first.
+does nothing to the queue; that is the narrowest place to fix the #1466 cascade.
 
-### Gate the upload retry on `queueDrained`, with a backstop
+The *mechanism* was changed after reading both reference implementations, which agree with each
+other and against the earlier draft of this design. Supersede in de1app is per-kind,
+regex-matched on the queue entry's comment, and applied by the producer immediately before it
+enqueues the replacement — `remove_matching_ble_queue_entries` (`de1_comms.tcl:1423`), called at
+fourteen sites including exactly this case: `{^Espresso header:}` and `{^Espresso frame #}` at
+`:1487-88`. decaid reaches the same end a different way, holding `_desiredProfile` /
+`_lastPushedProfile` behind a `_generation` guard so a superseded upload is never enqueued at all
+(`workflow_device_sync.dart:113-127`). Neither ever clears the queue to supersede something.
+Decenza has only the blanket `clearQueue()`, which is why the first draft reached for it.
 
-The signal already exists (`bletransport.cpp:150`, `:743`, `:867`). A 1/2/4/8 s ladder against a
-drain that takes longer is the inversion that grows the queue. A bounded backstop keeps a queue
-that never drains from stalling the retry — and per CLAUDE.md that backstop is a timeout on a
-condition, not a timer used as a guard.
+So: drop the previous upload's pending writes, not everything pending. Pair it with
+`m_lastMMRValues` invalidation exactly as `clearCommandQueue()` already does (`:1243-1261`) —
+otherwise a discarded MMR write is not delayed but permanently elided by the dedup cache.
+
+**Alternative considered and now rejected: draining on every terminal write failure.** It has no
+quorum and no evidence. Decenza today does not drain — it calls `processCommandQueue()` and moves
+to the next command (`bletransport.cpp:148`, `:741`) — and de1app does not either, clearing only
+on connect and disconnect (`de1_comms.tcl:247-248`, `:629-630`). decaid *does* clear on every
+operation timeout, but its queue is the **platform** operation queue, where a stuck entry blocks
+every following operation; its own comment says so (`universal_ble_transport.dart:409-415`).
+Decenza's queue is app-level, like de1app's, so that reasoning does not carry across. Nothing in
+the corpus shows the writes queued behind an abandoned write making anything worse.
+
+### Urgent state writes: an invariant to pin, not a mechanism to build
+
+An earlier draft of this design claimed an unqualified drain could discard a commanded stop,
+because `writeUrgent()` prepends into `m_commandQueue` when a write is in flight
+(`bletransport.cpp:227-231`). **That overstated the hazard.** Every stop and sleep path calls
+`clearCommandQueue()` *first* (`de1device.cpp:1174`, `:1228`), and `clearQueue()` sets
+`m_writePending = false` (`bletransport.cpp:399`), so the urgent write that follows always takes
+the direct branch and is never in the queue at the moment of the clear. The only urgent write
+that can sit queued is `ensureChargerOn` on app suspend, which is not safety-critical.
+
+Neither reference has any priority concept at all — de1app's `de1_send_state` is a plain tail
+append (`de1_comms.tcl:1419`) and decaid's `clearQueue` is unconditional — so Decenza already
+protects a stop better than both. The requirement stays in the spec because it is a real
+invariant and a cheap test, but it is pinned by assertion, not by building a priority queue.
+
+### Gate the upload retry with an in-flight guard
+
+This is the best-supported item in the change: both references make an upload retry that overlaps
+its predecessor **structurally impossible**, and Decenza is the only one of the three where it can
+happen. In de1app the retry *is* the queue entry, re-run in place (`de1_comms.tcl:167-190`), so
+there is no independent retry timer to fire against a busy queue. In decaid an `_uploading` guard
+holds the drain loop, and the backoff timer is scheduled only after the previous
+`await setProfile(...)` has thrown (`workflow_device_sync.dart:113-116`, `:140-141`, `:177-184`).
+Decenza's 1/2/4/8 s ladder (`profilemanager.cpp:239-245`) is a free-running timer that checks
+nothing — that is the #1466 stacking.
+
+An in-flight guard is therefore the shape to copy, not the `queueDrained`-plus-backstop scheme
+the first draft specified. Both reach the same invariant; the guard reaches it with one concept
+instead of three, and without a timeout on a condition that would need its own justification
+under the no-timers-as-guards rule.
 
 ### Consecutive-failure counting, reported not acted on
 
@@ -167,6 +230,22 @@ where the risk lives, so this change stops at reporting. Note the corpus figure 
 the logs carry no success marker, so runs were computed resetting only at disconnects and
 session boundaries, which overestimates. That is an argument for a bound at the low end of the
 observed gap, and for instrumenting before acting.
+
+**What decaid does here, and what transfers.** Its equivalent detector is more developed than
+this one. Two independent signals feed `_declareLinkDead`: `_maxConsecutiveOpTimeouts = 3`
+consecutive GATT timeouts, which force a teardown even when the OS still reports the link
+connected; and receiving *our own advertisement* while believing we are connected, throttled to
+one probe per 5 s. Both route through an OS connection-state probe that declares the link dead
+**only** on an explicit disconnected/disconnecting answer — a probe error is inconclusive and must
+never tear down a possibly-live link (`universal_ble_transport.dart:466-483`). The action is to
+emit `disconnected` plus a best-effort OS disconnect that releases the GATT handle so it cannot
+block the next connect.
+
+Two things transfer: the probe as a confirming step before believing the link is dead, and the
+rule that an inconclusive probe changes nothing. The **threshold does not** — decaid counts
+operations that carry no per-write retries, whereas Decenza's unit is an *exhausted* write, so
+its 3 would be roughly 97 s here. Qt's `QLowEnergyController::state()` is a weaker probe than
+`UniversalBle.getConnectionState`, which is a further reason this change stops at reporting.
 
 **Relation to `de1-connection-health`.** That capability already owns the mirror case —
 notification liveness, where the link is connected and ACKing writes but has stopped delivering

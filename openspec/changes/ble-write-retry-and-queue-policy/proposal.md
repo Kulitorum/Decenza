@@ -83,14 +83,20 @@ fallback that fires when the adapter never changed state, and all 100 reported s
   the *rate* at which `de1LinkFault("write-failed")` fires rises correspondingly. In #1691 a
   single exhaustion already sets the app-run skip-HIGH latch, demoting every scale to
   BALANCED for the session, so getting this wrong has a real cost.
-- **Drain the queue when an upload supersedes an in-flight one or a write fails terminally** —
-  with an explicit carve-out for urgent state writes. `writeUrgent()` **prepends** to the same
-  queue when a write is in flight (`bletransport.cpp:227-231`), and stop-at-weight and sleep
-  both route `REQUESTED_STATE` through it (`de1device.cpp:1186`, `:1235`), so an unqualified
-  clear could discard a stop command. Pair any clear with `m_lastMMRValues` invalidation, as
+- **Discard the previous upload's pending writes when a new upload supersedes it** — that
+  operation's own writes, not the queue. Both reference implementations supersede per-kind and
+  producer-side and neither ever clears the queue to do it: de1app's
+  `remove_matching_ble_queue_entries` (`de1_comms.tcl:1423`) is called at 14 sites, including
+  `{^Espresso header:}` / `{^Espresso frame #}` at `:1487-88`; decaid never enqueues the
+  superseded upload at all. Pair the discard with `m_lastMMRValues` invalidation, as
   `clearCommandQueue()` already does, or the dedup cache elides the re-send and the values are
-  lost rather than delayed.
-- **Gate the profile-upload retry on the queue having drained** instead of a fixed timer.
+  lost rather than delayed. **Not** discarding on terminal write failure — see below.
+- **Make an upload retry unable to overlap its predecessor**, via an in-flight guard rather than
+  the 1/2/4/8 s timer. Both references make this structurally impossible: in de1app the retry
+  *is* the queue entry re-run in place (`de1_comms.tcl:167-190`), and in decaid the backoff timer
+  is scheduled only after the previous attempt has thrown (`workflow_device_sync.dart:113-116`,
+  `:177-184`). Decenza is the only one of the three where a retry can be issued against a queue
+  still holding the last attempt, which is the #1466 stacking.
 - **Record the pending-queue depth** when it passes a threshold.
 - **Count consecutive write failures on the DE1 link and report a link that has stopped
   accepting writes**, resetting on any success and on disconnect. Detection and logging only.
@@ -123,12 +129,12 @@ fallback that fires when the adapter never changed state, and all 100 reported s
 ## Impact
 
 **Code**
-- `src/ble/bletransport.{h,cpp}` — retry bound; queue clear with urgent carve-out; queue-depth
+- `src/ble/bletransport.{h,cpp}` — retry bound; selective discard; queue-depth
   reporting; consecutive-failure accounting at both exhaustion sites (`:138` write timeout and
   `:734` `CharacteristicWriteError`).
-- `src/ble/de1device.cpp` — clear the queue at the upload-supersede point (`:1324-1326`),
-  paired with `m_lastMMRValues` invalidation.
-- `src/controllers/profilemanager.cpp` — gate the retry on `queueDrained`.
+- `src/ble/de1device.cpp` — discard the previous upload's pending writes at the supersede point
+  (`:1324-1326`), paired with `m_lastMMRValues` invalidation.
+- `src/controllers/profilemanager.cpp` — in-flight guard on the upload retry.
 - `src/ble/transport/qtscalebletransport.cpp` — fault-cluster recalibration (`:391-407`);
   disconnect a `ConnectingState` controller before deleting it (`:149-167`).
 - `src/ble/blemanager.cpp` — gate `setAdapterPower()` on SDK; name the re-arm caller; widen the
@@ -150,11 +156,22 @@ a link that has stopped accepting commands says so in the log. Devices on API 33
 **What this does not do for #1810, the issue that prompted it**
 Stated plainly so nobody infers otherwise. The teardown gap fix addresses that reporter's
 literal symptom — a scale connect held ~30 s in `Connecting` while every retry was rejected
-as a duplicate. The retry bound and the adapter retirement help modestly. The queue-drain and
+as a duplicate. The retry bound and the adapter retirement help modestly. The supersede and
 upload-gating work almost certainly does nothing for them: their two largest failure clusters
 each had one dispatched profile upload in the preceding 120 s. At a 49% write-failure rate the
 machine will still be unpleasant to use after this change, and the cause of that rate is not
 identified here.
+
+**Dropped after comparing against the reference implementations**
+Two items from the first draft. **Draining on terminal write failure**: Decenza today continues
+to the next command (`bletransport.cpp:148`, `:741`), de1app clears only on connect/disconnect,
+and decaid's clear-on-timeout is about the *platform* operation queue, where a stuck entry blocks
+every following operation — a constraint Decenza's app-level queue does not have. No quorum, and
+no corpus evidence of harm. **A priority carve-out for urgent writes**: the hazard was
+overstated. Every stop and sleep path clears *before* issuing the urgent write, and the clear
+resets the in-flight flag, so the urgent write goes direct and is never queued at clear time.
+Neither reference has any priority concept, so Decenza already protects a stop better than both.
+The invariant stays in the spec, asserted by test rather than built.
 
 **Docs**
 Wiki manual: re-check connection-troubleshooting wording that tells users to toggle Bluetooth.
