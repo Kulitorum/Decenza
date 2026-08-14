@@ -287,6 +287,51 @@ private slots:
         f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150,
                           QStringLiteral("applyFlushSettings"));
     }
+    // An abandoned MMR write must not leave the dedup cache asserting the DE1
+    // holds a value it never received. Without this, the next write of the same
+    // value is elided as unchanged and the setting is unreachable for the rest
+    // of the connection — a permanent loss dressed as a transient one. That used
+    // to be caught for one register by read-back verification, which is gone.
+    void anAbandonedMmrWriteDropsItsDedupCacheEntry() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        device.writeMMR(DE1::MMR::STEAM_FLOW, 8, QStringLiteral("first"));
+        const qsizetype afterFirst = transport.writes.size();
+        QVERIFY(afterFirst > 0);
+
+        // Same value again is deduped while the cache still claims it landed.
+        device.writeMMR(DE1::MMR::STEAM_FLOW, 8, QStringLiteral("deduped"));
+        QCOMPARE(transport.writes.size(), afterFirst);
+
+        // The transport gives up on it.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("write ABANDONED for 0x803828"));
+        emit transport.writeAbandoned(DE1::Characteristic::WRITE_TO_MMR,
+                                      transport.writes.last().second);
+
+        // Now the same value is actually re-sent rather than skipped.
+        device.writeMMR(DE1::MMR::STEAM_FLOW, 8, QStringLiteral("after-abandon"));
+        QCOMPARE(transport.writes.size(), afterFirst + 1);
+    }
+
+    // A non-MMR abandonment must not disturb the cache.
+    void anAbandonedNonMmrWriteLeavesTheCacheAlone() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        device.writeMMR(DE1::MMR::STEAM_FLOW, 8, QStringLiteral("first"));
+        const qsizetype afterFirst = transport.writes.size();
+
+        emit transport.writeAbandoned(DE1::Characteristic::FRAME_WRITE,
+                                      QByteArray(20, 0));
+
+        device.writeMMR(DE1::MMR::STEAM_FLOW, 8, QStringLiteral("still-deduped"));
+        QCOMPARE(transport.writes.size(), afterFirst);
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_MMRWrite)

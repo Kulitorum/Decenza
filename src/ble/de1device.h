@@ -221,8 +221,6 @@ public slots:
     void clearCommandQueue();  // Clear all pending BLE commands (use when extraction starts)
 
     // Direct frame writing (for direct control mode)
-    void writeHeader(const QByteArray& headerData);
-    void writeFrame(const QByteArray& frameData);
 
     // Settings. `reason` is an optional caller tag that appears in the
     // [ShotSettings] write: / write skipped: log lines, so redundant calls
@@ -421,6 +419,11 @@ private:
                                     const QList<QByteArray>& frames);
     void onProfileUploadWriteComplete(const QBluetoothUuid& uuid,
                                       const QByteArray& data);
+
+    // Drop the dedup-cache entry for an MMR write that never landed, and name
+    // the register in the log. Both halves are load-bearing now that read-back
+    // verification is gone — see the implementation.
+    void onWriteAbandoned(const QBluetoothUuid& uuid, const QByteArray& data);
     void finishProfileUpload(bool success, const QString& reason = QString());
 
     // Withdraw an upload's own still-queued HEADER_WRITE/FRAME_WRITE commands
@@ -432,7 +435,7 @@ private:
     // Writes the profile's tank_desired_water_temperature (clamped 0-45 °C)
     // to TANK_TEMP_THRESHOLD as part of every profile upload, so the next
     // profile overrides or clears the previous one's preheat. Direct-control
-    // mode's raw writeHeader/writeFrame path does not pass through here and
+    // mode's raw header/frame write path does not pass through here and
     // leaves the previous profile's preheat active.
     void writeTankPreheatForProfile(const Profile& profile);
 

@@ -1088,11 +1088,24 @@ T.Page {
                     KeyNavigation.backtab: increaseTimeBtn.visible
                                            ? increaseTimeBtn
                                            : (steamPage.lastVisiblePresetPill() ?? steamingFlowSlider)
-                    // BLE write deferred to commit (PR #782 pattern). The single
-                    // commit-time MMR write is reliable because setSteamFlowImmediate
-                    // routes through writeMMRVerified — write, read-back, retry on
-                    // mismatch — so a single caller-side call is enough even when
-                    // the firmware's sample-tick loop misses the first write.
+                    // BLE write deferred to commit (PR #782 pattern): the drag
+                    // updates the local value and the pitcher record, and only
+                    // the commit writes MMR.
+                    //
+                    // This used to say the single commit-time write was
+                    // "reliable because setSteamFlowImmediate routes through
+                    // writeMMRVerified — write, read-back, retry on mismatch".
+                    // That mechanism is gone (it cost a second a005 write plus
+                    // a retry ladder on the link whose failures were the only
+                    // reason to want it, and neither de1app nor decaid verifies
+                    // an MMR write at all). What holds the single write up now
+                    // is narrower and worth stating plainly: on-device testing
+                    // across many slider drags recorded zero retries needed,
+                    // and a write that IS abandoned after its retries now drops
+                    // its dedup-cache entry (DE1Device::onWriteAbandoned), so
+                    // the next commit of the same value is actually re-sent
+                    // rather than skipped as unchanged. A lost write costs one
+                    // more commit, not a stuck setting.
                     onValueModified: function(newValue) {
                         steamingFlowSlider.value = newValue
                         steamPage.saveCurrentPitcher(steamPage.getCurrentPitcherDuration(), newValue)

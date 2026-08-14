@@ -510,7 +510,7 @@ private slots:
 
     // A supersede must leave the link clear before the replacement's header is
     // written, whether or not the previous tracker was still attached.
-    void asupersededUploadLeavesNoFramesQueued() {
+    void aSupersededUploadLeavesNoFramesQueued() {
         MockTransport transport;
         DE1Device device;
         device.setTransport(&transport);
@@ -525,10 +525,19 @@ private slots:
             DE1::Characteristic::SHOT_SETTINGS,
         };
 
+        const qsizetype writesBeforeSupersede = transport.writes.size();
         device.uploadProfile(makeSimpleProfile());
 
         QCOMPARE(transport.pendingQueued,
                  QList<QBluetoothUuid>({DE1::Characteristic::SHOT_SETTINGS}));
+
+        // The ordering, not just the outcome. Moving the discard to AFTER the
+        // replacement's frames are queued would leave pendingQueued identical
+        // while discarding the NEW upload's frames in production — so the
+        // outcome assertion above cannot see the catastrophic case. The discard
+        // must happen at the write count from before the second upload.
+        QCOMPARE(transport.discardQueuedCalls.size(), 1);
+        QCOMPARE(transport.writeCountAtDiscard.first(), writesBeforeSupersede);
 
         transport.ackAllWritesInOrder();
     }

@@ -87,6 +87,12 @@ struct CoreBluetoothScaleBleTransport::Impl {
     CBPeripheral*     periph = nullptr;
 
     bool connected = false;
+    // A connect has been handed to CoreBluetooth and has not resolved. Distinct
+    // from `connected`: between connectPeripheral: and didConnectPeripheral:
+    // both are false, yet the platform is holding the connection slot — and
+    // CoreBluetooth puts NO timeout on that wait, so it can be held
+    // indefinitely. See isConnecting().
+    bool pendingConnect = false;
     bool servicesDiscovered = false;  // Prevent re-discovery loops
     bool isValid = true;  // Set to false when transport is being destroyed
 
@@ -241,6 +247,7 @@ struct CoreBluetoothScaleBleTransport::Impl {
     d->periph = CB_RETAIN(peripheral);
     d->periph.delegate = d->del;
 
+    d->pendingConnect = true;
     [central connectPeripheral:d->periph options:nil];
 }
 
@@ -257,6 +264,7 @@ struct CoreBluetoothScaleBleTransport::Impl {
     // Notify Qt thread (don't capture ObjC pointers)
     QMetaObject::invokeMethod(d->q, [d]{
         if (!d->isValid) return;
+        d->pendingConnect = false;
         d->connected = true;
         d->log("Connected!");
         emit d->q->connected();
@@ -276,6 +284,7 @@ didDisconnectPeripheral:(CBPeripheral *)peripheral
     QString reason = error ? nsToQs(error.localizedDescription) : QString("disconnected");
     QMetaObject::invokeMethod(d->q, [d, reason]{
         if (!d->isValid) return;
+        d->pendingConnect = false;
         d->connected = false;
         d->clearCaches();
         d->log(QString("Disconnected: %1").arg(reason));
@@ -562,6 +571,26 @@ bool CoreBluetoothScaleBleTransport::isConnected() const {
 #endif
 }
 
+bool CoreBluetoothScaleBleTransport::isConnecting() const {
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
+    // Implemented rather than left on the base class's `return false`. The
+    // scale connection-timeout teardown gates on isConnected() || isConnecting()
+    // (blemanager.cpp), so inheriting the default would silently opt Apple
+    // platforms out of that fix — and the case is WORSE here than on Android:
+    // connectPeripheral: has no timeout of its own, so an unresolved attempt is
+    // held indefinitely rather than for ~30 s.
+    //
+    // There is no didFailToConnectPeripheral: handler on this delegate, so a
+    // connect that fails without ever disconnecting leaves this true until the
+    // next disconnectFromDevice(). That is the safe direction: it makes the
+    // timeout teardown fire, which issues cancelPeripheralConnection and clears
+    // the flag. It is not a substitute for handling that callback.
+    return m_impl && m_impl->pendingConnect;
+#else
+    return false;
+#endif
+}
+
 void CoreBluetoothScaleBleTransport::connectToDevice(const QString& address, const QString& name) {
 #if !defined(Q_OS_IOS) && !defined(Q_OS_MACOS)
     Q_UNUSED(address); Q_UNUSED(name);
@@ -592,6 +621,7 @@ void CoreBluetoothScaleBleTransport::connectToDevice(const QString& address, con
                 m_impl->periph = CB_RETAIN(p);
                 m_impl->periph.delegate = m_impl->del;
                 log(QString("Connecting via retrievePeripheralsWithIdentifiers"));
+                m_impl->pendingConnect = true;
                 [m_impl->mgr connectPeripheral:m_impl->periph options:nil];
                 return;
             }
@@ -641,6 +671,7 @@ void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
         m_impl->periph = nullptr;
     }
 
+    m_impl->pendingConnect = false;
     m_impl->connected = false;
     m_impl->clearCaches();
 #endif

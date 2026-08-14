@@ -125,6 +125,11 @@ private slots:
     // back into permanent occupancy, and nothing else in the suite would say
     // so. Verified to fail by restoring MAX_WRITE_RETRIES to 10.
     void writeRetryBudgetLeavesTheLinkIdleBetweenPeriodicWrites() {
+        // The shortest periodic BLE write in the app. Surveyed every
+        // setInterval() in maincontroller.cpp, de1device.cpp and src/core/ —
+        // BatteryManager's charger keepalive is the fastest recurring writer.
+        // Stated because this test silently goes vacuous if a faster one is
+        // added without revisiting the name.
         constexpr int kShortestPeriodicWriteMs = 60000;  // batterymanager.cpp:26
 
         constexpr int worstCaseMs =
@@ -193,8 +198,20 @@ private slots:
         transport.m_writePending = true;   // force the prepend branch
         transport.writeUrgent(DE1::Characteristic::REQUESTED_STATE,
                               QByteArray(1, static_cast<char>(DE1::State::Idle)));
-        transport.m_writePending = false;
         QCOMPARE(transport.m_commandQueue.size(), 2);
+        // Asserted before the discard: without this, the slot passes just as
+        // well if writeUrgent() appended instead of prepending, since only one
+        // entry survives either way.
+        QCOMPARE(transport.m_commandQueue.head().uuid, DE1::Characteristic::REQUESTED_STATE);
+
+        // Left in flight across the discard. clearQueue() cancels the in-flight
+        // write and counts it; discardQueued() must do neither — the write is on
+        // the wire or being retried, and cancelling it would desynchronise
+        // m_writePending / m_lastCommand / the timeout timer with no way to know
+        // whether it reached the peripheral. That divergence between two
+        // neighbouring functions is what drifts.
+        transport.m_lastCommand = []() {};
+        transport.m_writeTimeoutTimer.start();
 
         const qsizetype dropped = transport.discardQueued(
             {DE1::Characteristic::HEADER_WRITE, DE1::Characteristic::FRAME_WRITE});
@@ -202,6 +219,12 @@ private slots:
         QCOMPARE(dropped, 1);
         QCOMPARE(transport.m_commandQueue.size(), 1);
         QCOMPARE(transport.m_commandQueue.head().uuid, DE1::Characteristic::REQUESTED_STATE);
+        QVERIFY(transport.m_writePending);
+        QVERIFY(transport.m_lastCommand != nullptr);
+        QVERIFY(transport.m_writeTimeoutTimer.isActive());
+
+        transport.m_writePending = false;
+        transport.m_writeTimeoutTimer.stop();
     }
 
     // -- A link that has stopped accepting writes --
@@ -209,6 +232,44 @@ private slots:
     // init()'s failOnWarning is what makes the negative half of these
     // assertions real: a second report, or a report before the bound, fails the
     // test without any explicit check for it.
+
+    // The counter is reached from two exhaustion sites in production. Every
+    // other slot here calls noteWriteAbandoned() directly, so removing either
+    // call site would leave the whole detector dead with a green suite. This
+    // one drives the real write-timeout path: the handler is a lambda on
+    // m_writeTimeoutTimer and touches no service, so it runs headless.
+    void theWriteTimeoutPathFeedsTheConsecutiveFailureCounter() {
+        BleTransport transport;
+        QSignalSpy fault(&transport, &DE1Transport::de1LinkFault);
+        QSignalSpy abandoned(&transport, &DE1Transport::writeAbandoned);
+
+        const auto exhaustOneWrite = [&transport]() {
+            transport.m_writePending = true;
+            transport.m_lastCommand = []() {};
+            transport.m_writeRetryCount = BleTransport::MAX_WRITE_RETRIES;
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression("Write FAILED after 5 retries"));
+            // QTimer::timeout carries a QPrivateSignal, so it cannot be
+            // emitted from outside QTimer. Firing it through the meta-object
+            // reaches the same connected lambda without spinning an event loop
+            // (which would also fire the 50 ms command timer and make the rest
+            // of this file's queue assertions non-deterministic).
+            QMetaObject::invokeMethod(&transport.m_writeTimeoutTimer, "timeout");
+        };
+
+        exhaustOneWrite();
+        exhaustOneWrite();
+        QCOMPARE(transport.m_consecutiveWriteFailures, 2);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("DE1 link has stopped accepting writes: 3 consecutive"));
+        exhaustOneWrite();
+
+        // The fault feed and the counter must stay in step — they are read
+        // together by QtScaleBleTransport::onDe1LinkFault.
+        QCOMPARE(fault.count(), 3);
+        QCOMPARE(abandoned.count(), 3);
+    }
 
     void consecutiveAbandonedWritesReportOnceAtTheBound() {
         BleTransport transport;
@@ -223,6 +284,17 @@ private slots:
 
         // Still failing does not re-report — one episode, one line.
         transport.noteWriteAbandoned();
+        transport.noteWriteAbandoned();
+
+        // A recovery ends the episode, and a fresh one reports again. Without
+        // this, m_writeDeadLinkReported's reset is never exercised: a link that
+        // dies, recovers and dies again would go silent the second time, which
+        // is the opposite of what the member's comment claims.
+        transport.noteWriteSucceeded();
+        transport.noteWriteAbandoned();
+        transport.noteWriteAbandoned();
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("DE1 link has stopped accepting writes: 3 consecutive"));
         transport.noteWriteAbandoned();
     }
 
@@ -247,8 +319,12 @@ private slots:
 
         QCOMPARE(transport.m_consecutiveWriteFailures, 0);
         // And a link that already reported is allowed to report again on the
-        // next connection — the episode ended with the link.
+        // next connection — the episode ended with the link. (The latch is set
+        // true and cleared by a success in
+        // consecutiveAbandonedWritesReportOnceAtTheBound; here it can only have
+        // been false, so this pins the disconnect path's intent, not the reset.)
         QCOMPARE(transport.m_writeDeadLinkReported, false);
+        QCOMPARE(transport.m_queueDepthReported, false);
     }
 
     // -- Queue depth --
@@ -265,6 +341,25 @@ private slots:
 
         // Deeper still is the same episode, not a new one.
         transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
+        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
+
+        // Draining well clear of the threshold re-arms, and a second backlog
+        // reports again. The hysteresis branch is otherwise never exercised:
+        // during the fill it only ever writes false over false, so deleting it
+        // outright would not fail this test.
+        // Drain to one BELOW half: the re-arm is evaluated after the enqueue, so
+        // the write that re-arms must itself land at or under the half mark.
+        // Draining to exactly half leaves the next write at half+1 and the latch
+        // stays set — which is what this assertion originally got wrong.
+        while (transport.m_commandQueue.size() >= BleTransport::QUEUE_DEPTH_WARN / 2)
+            transport.m_commandQueue.dequeue();
+        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));  // re-arms
+        QCOMPARE(transport.m_queueDepthReported, false);
+
+        while (transport.m_commandQueue.size() < BleTransport::QUEUE_DEPTH_WARN - 1)
+            transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("BLE write queue is 20 deep"));
         transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
     }
 

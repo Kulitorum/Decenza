@@ -69,8 +69,14 @@ public:
     // queued to drop.
     QList<QList<QBluetoothUuid>> discardQueuedCalls;
 
+    // `writes` and `pendingQueued` are independent by construction, so a test
+    // asserting only the latter is blind to WHEN the discard happened. Recording
+    // the write count at each discard makes an ordering claim assertable.
+    QList<qsizetype> writeCountAtDiscard;
+
     qsizetype discardQueued(const QList<QBluetoothUuid>& uuids) override {
         discardQueuedCalls.append(uuids);
+        writeCountAtDiscard.append(writes.size());
         qsizetype dropped = 0;
         for (qsizetype i = pendingQueued.size() - 1; i >= 0; --i) {
             if (uuids.contains(pendingQueued.at(i))) {

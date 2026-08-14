@@ -416,7 +416,7 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     // on devices where the controller subsequently recovers (#1238: the P80X
     // emitted only one controller-error, 20.034s after the cascade). Transient
     // single-write retries that recover are not signaled at the source (see
-    // bletransport.cpp ~538), so capable hardware does not false-positive.
+    // bletransport.cpp:753-758), so capable hardware does not false-positive.
     //
     // COUPLED TO MAX_WRITE_RETRIES (bletransport.h). This comment used to read
     // "a 10-retry cascade — ~5s of sustained starvation". Both halves moved when
@@ -432,7 +432,10 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     //
     // KNOWN OVER-EAGER (not fixed here, deliberately): #1691 is a Windows 11
     // x86_64 desktop where a single MMR keepalive exhaustion latched skip-HIGH
-    // app-run-wide at t=4342.56, demoting every scale to BALANCED for the run.
+    // app-run-wide at t=4342.56, demoting every scale to BALANCED. NOT just for that
+    // run: latchScaleSkipHighPriority writes through to settings and is
+    // epoch-scoped (blemanager.cpp), so it persists across restarts until
+    // devices_reset_scale_priority clears it.
     // The latch is specified as the mitigation for dual-HIGH radio contention on
     // WEAK hardware, which a desktop is not. Narrowing this needs its own
     // evidence — tightening it blind risks re-breaking #1238, where the

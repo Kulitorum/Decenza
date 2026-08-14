@@ -142,8 +142,15 @@ BleTransport::BleTransport(QObject* parent)
                 // self-healing in seconds. Surfacing it queued stale "Connection
                 // Error" modals behind the screensaver (#1423). Persistent failures
                 // still reach the user via the reconnect path's own errors.
-                emit de1LinkFault(QStringLiteral("write-failed"));
+                // Count BEFORE the emit. de1LinkFault runs its consumers
+                // synchronously, and one of them reaching disconnect() would
+                // run noteWriteSucceeded() and zero the counter, so the
+                // increment below would restart the episode from 1 on exactly
+                // the links that fault hardest. Nothing here reads state the
+                // emit could invalidate, so the safe order is free.
                 noteWriteAbandoned();
+                emit writeAbandoned(m_lastWriteUuidFull, m_lastWriteData);
+                emit de1LinkFault(QStringLiteral("write-failed"));
                 m_lastCommand = nullptr;
                 m_writeRetryCount = 0;
                 processCommandQueue();  // Move on to next command
@@ -762,12 +769,15 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                                 }
                             });
                         } else {
-                            warn(QString("CharacteristicWriteError FAILED after %1 retries (uuid=%2)")
-                                .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
+                            warn(QString("CharacteristicWriteError FAILED after %1 retries (uuid=%2, %3 bytes)")
+                                .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid).arg(m_lastWriteData.size()));
                             // No user-facing errorOccurred here — same rationale as the
                             // write-timeout exhaustion path above (#1423).
-                            emit de1LinkFault(QStringLiteral("write-failed"));
+                            // Counted before the emit — see the write-timeout
+                            // path for why the order matters.
                             noteWriteAbandoned();
+                            emit writeAbandoned(m_lastWriteUuidFull, m_lastWriteData);
+                            emit de1LinkFault(QStringLiteral("write-failed"));
                             m_lastCommand = nullptr;
                             m_writeRetryCount = 0;
                             processCommandQueue();
@@ -1021,6 +1031,7 @@ void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteAr
     m_writePending = true;
     QString uuidShort = uuid.toString().mid(1, 8);
     m_lastWriteUuid = uuidShort;
+    m_lastWriteUuidFull = uuid;
     m_lastWriteData = data;
     m_writeTimeoutTimer.start();
     m_service->writeCharacteristic(m_characteristics[uuid], data);

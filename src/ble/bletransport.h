@@ -146,7 +146,11 @@ private:
     int m_writeRetryCount = 0;
 
     // Was 10. Measured across 283 retry cycles in the 26-log user-submitted
-    // corpus (#1176 … #1810); 12 of those logs show any retry activity at all.
+    // corpus (#1176 … #1810). 12 of those logs carry a "retrying 1/10" line; 14
+    // carry at least one exhaustion, and the two extra are head-trimmed captures
+    // whose opening retry lines are not present — which is also where the four
+    // unattributed exhaustions below come from. Both counts are real; they count
+    // different things.
     // Cycles are counted by their "retrying 1/10" line and their outcome by the
     // highest retry they reached:
     //
@@ -176,6 +180,15 @@ private:
     // history: at 260/283 cycles the failing-link case already dominates, so a
     // graduated budget would buy under a second and cost a second concept.
     //
+    // How to re-derive, since the point of the paragraph below is that these
+    // numbers must be reproducible: over the extracted corpus, count
+    // "retrying 1/10" lines for cycles started, per-N "retrying N/10" line
+    // counts for the distribution (recoveries at exactly N = count(N) -
+    // count(N+1)), and "FAILED after 10 retries" for exhaustions. Both
+    // exhaustion paths (write timeout, CharacteristicWriteError) share
+    // m_writeRetryCount and emit the same "retrying N/10" text, so a cycle may
+    // start on one and end on the other; they are deliberately counted together.
+    //
     // These figures replace an earlier set (434 cycles, 380 exhaustions, "43 of
     // 54 recoveries at a budget of 5") that were stated here as measurement and
     // did not survive re-derivation from the corpus. The QUALITATIVE conclusion
@@ -184,14 +197,26 @@ private:
     // as having been wrong rather than quietly swapped.
     //
     // Changing this REQUIRES re-deriving the DE1-fault-cluster weighting in
-    // QtScaleBleTransport::onDe1LinkFault — it treats a cascade as two faults on
-    // the reasoning that ten retries is ~5 s of sustained write starvation, which
-    // is false here, and shorter cascades also fire more often.
+    // QtScaleBleTransport::onDe1LinkFault, which treats a cascade as two faults
+    // and used to justify that by "ten retries is ~5 s of sustained write
+    // starvation". That was re-derived when this budget moved — see the
+    // COUPLED TO MAX_WRITE_RETRIES block there for the current durations. Do
+    // not restate them from here.
+    //
+    // (An earlier version of this comment added "and shorter cascades also fire
+    // more often". That is wrong, and the block it points at says so: the fault
+    // threshold is >=2 per 60 s and a cascade already counts 2, so an episode
+    // fires on its first cascade at any budget. What changed is that it is
+    // detected SOONER, not more often.)
     static constexpr int MAX_WRITE_RETRIES = 5;
     QTimer m_writeTimeoutTimer;
     static constexpr int WRITE_TIMEOUT_MS = 5000;
     static constexpr int WRITE_RETRY_DELAY_MS = 500;
     QString m_lastWriteUuid;
+    // The same characteristic in full. m_lastWriteUuid above is an
+    // eight-character abbreviation built for log lines; writeAbandoned()
+    // carries a real QBluetoothUuid so the device layer can dispatch on it.
+    QBluetoothUuid m_lastWriteUuidFull;
     QByteArray m_lastWriteData;
 
     // Consecutive writes abandoned after exhausting their retries, reset by any
@@ -200,7 +225,7 @@ private:
     // where every other indicator looks healthy: the controller says
     // ConnectedState and notifications can keep arriving, so neither
     // m_notificationLiveness below nor the wedge detector (which gates on
-    // !m_de1Connected, blemanager.cpp:356) can see it.
+    // !m_de1Connected in evaluateBleWedge, blemanager.cpp:380) can see it.
     //
     // Separation in the corpus is wide: nine logs peak at 1 abandoned write,
     // #1713 at 2, and the pathological ones sit at 7, 8, 11 and 89. The bound
@@ -212,8 +237,9 @@ private:
     // Reporting only. Nothing is torn down on this signal and no user-facing
     // error is raised; the point is to make the condition visible in a
     // submitted log before deciding what to do about it. (decaid does tear
-    // down on its equivalent detector — universal_ble_transport.dart:497 — at
-    // a threshold of 3 GATT timeouts. That number does not transfer: it counts
+    // down on its equivalent detector: _maxConsecutiveOpTimeouts = 3 at
+    // universal_ble_transport.dart:42, compared at :426, tearing down via
+    // _declareLinkDead at :491. That number does not transfer: it counts
     // operations carrying no per-write retries, whereas one unit here is an
     // already-exhausted write.)
     int m_consecutiveWriteFailures = 0;

@@ -1,3 +1,19 @@
+## REMOVED Requirements
+
+### Requirement: MMR write verification retries a missing read-back, not just a mismatched one
+
+**Reason**: `writeMMRVerified` and the whole read-back verification mechanism are removed by
+this change, so a requirement governing how its read-back retries has nothing left to govern.
+Leaving it in place would put a live requirement naming a function that no longer exists
+directly beside the new requirement saying read-back verification is removed rather than left
+available — and the next reader would resolve that contradiction by reintroducing the
+mechanism, which is exactly what the new requirement exists to prevent.
+
+**Migration**: None. No caller remains; the register that used the verified path
+(`0x803828`) is written unverified from every site, alongside every other MMR register. The
+one-shot MMR *read* retry mechanism (`m_pendingMMRReads`) is a separate capability, is
+untouched, and keeps its own requirements in this spec.
+
 ## ADDED Requirements
 
 ### Requirement: One MMR register is written at one assurance level

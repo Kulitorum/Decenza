@@ -124,6 +124,8 @@ void DE1Device::setTransport(DE1Transport* transport) {
                 this, &DE1Device::onTransportDisconnected);
         connect(m_transport, &DE1Transport::dataReceived,
                 this, &DE1Device::onTransportDataReceived);
+        connect(m_transport, &DE1Transport::writeAbandoned,
+                this, &DE1Device::onWriteAbandoned);
         connect(m_transport, &DE1Transport::writeComplete,
                 this, &DE1Device::onTransportWriteComplete);
         connect(m_transport, &DE1Transport::errorOccurred,
@@ -1276,11 +1278,49 @@ void DE1Device::writeTankPreheatForProfile(const Profile& profile) {
 // that here: record the expected leading bytes, collect them from each ACK,
 // and on completion verify the two lists match exactly.
 
+void DE1Device::onWriteAbandoned(const QBluetoothUuid& uuid, const QByteArray& data) {
+    if (uuid != DE1::Characteristic::WRITE_TO_MMR || data.size() < 4) return;
+
+    // m_lastMMRValues is recorded at DISPATCH (writeMMR, below), so it says
+    // "what we tried to send", not "what the DE1 has". Those are the same thing
+    // right up until a write is abandoned — and then the cache is a standing
+    // false claim: the next write of that same value is elided as unchanged
+    // (":1566"), so the setting becomes unreachable for the rest of the
+    // connection with nothing on screen to say so. Dropping the entry here
+    // turns a permanent loss back into a transient one.
+    //
+    // This matters more than it used to. Read-back verification used to catch
+    // exactly this case for the one register that had it and logged
+    // "verify FAILED for 0x803828 expected=N"; that is gone, and the retry
+    // budget is shorter, so abandonment is both more likely and no longer
+    // announced anywhere else.
+    const uint32_t address = (static_cast<uint32_t>(static_cast<uint8_t>(data[1])) << 16)
+                           | (static_cast<uint32_t>(static_cast<uint8_t>(data[2])) << 8)
+                           |  static_cast<uint32_t>(static_cast<uint8_t>(data[3]));
+
+    m_lastMMRValues.remove(address);
+
+    // The transport's own line can only say "20 bytes to a005". Name the
+    // register, because this is now the only record that a specific machine
+    // setting did not land, and these logs are read by users and their AI
+    // assistants who cannot decode an MMR payload from a byte count.
+    MMR_WARN(QStringLiteral("write ABANDONED for 0x%1 — the setting did not reach "
+                            "the machine. Cached value dropped so a later write of "
+                            "the same value is not skipped as unchanged.")
+                 .arg(address, 6, 16, QLatin1Char('0')));
+}
+
 qsizetype DE1Device::discardQueuedProfileWrites() {
     if (!m_transport) return 0;
 
-    // HEADER_WRITE and FRAME_WRITE carry profile frames and nothing else, so
-    // the characteristic alone identifies this operation's work. Deliberately
+    // HEADER_WRITE and FRAME_WRITE carry profile frames and nothing else, and
+    // uploadProfile() is now their only producer, so the characteristic alone
+    // identifies this operation's work. That was NOT true when this was
+    // written: writeHeader()/writeFrame() were public slots writing the same
+    // two characteristics outside any upload tracker, which would have made
+    // this function entitled to discard work it did not own. They had no
+    // callers anywhere and were deleted in the same change, so the invariant
+    // is structural rather than a coincidence of the current call graph. Deliberately
     // NOT the tank-preheat MMR write that uploadProfile() issues after the
     // frames: it goes to WRITE_TO_MMR alongside unrelated settings, and it is
     // idempotent — the next upload records its own value in m_lastMMRValues, so
@@ -1288,7 +1328,7 @@ qsizetype DE1Device::discardQueuedProfileWrites() {
     // final state.
     //
     // That is also why this needs no m_lastMMRValues invalidation, which
-    // clearCommandQueue() does pair with its clear (:1243-1261). The dedup
+    // clearCommandQueue() does pair with its clear (:1205-1226). The dedup
     // cache only covers MMR registers, and no MMR write is discarded here.
     const qsizetype dropped = m_transport->discardQueued(
         {DE1::Characteristic::HEADER_WRITE, DE1::Characteristic::FRAME_WRITE});
@@ -1424,7 +1464,7 @@ void DE1Device::finishProfileUpload(bool success, const QString& reason)
     // profilemanager.cpp:2176), and it arms the retry timer only from inside
     // the profileUploaded handler (:247) — so a retry cannot overlap the
     // ATTEMPT. What it can overlap is the attempt's WRITES. m_uploadTimeoutTimer
-    // is 10 s (:79) while a single timing-out write occupied the link far
+    // is 10 s (de1device.cpp:79) while a single timing-out write occupied the link far
     // longer than that, so the tracker gave up, released the gate, and the
     // retry was issued into a queue still holding every frame of the attempt
     // that had just been declared failed. Guarding harder upstream would not
@@ -1473,18 +1513,6 @@ void DE1Device::finishProfileUpload(bool success, const QString& reason)
             goToSleep();
         }
     }
-}
-
-void DE1Device::writeHeader(const QByteArray& headerData) {
-    if (!m_transport) return;
-    if (dropDeviceWriteIfFirmwareFlash("writeHeader")) return;
-    m_transport->write(DE1::Characteristic::HEADER_WRITE, headerData);
-}
-
-void DE1Device::writeFrame(const QByteArray& frameData) {
-    if (!m_transport) return;
-    if (dropDeviceWriteIfFirmwareFlash("writeFrame")) return;
-    m_transport->write(DE1::Characteristic::FRAME_WRITE, frameData);
 }
 
 QByteArray DE1Device::buildMMRPayload(uint32_t address, uint32_t value) {

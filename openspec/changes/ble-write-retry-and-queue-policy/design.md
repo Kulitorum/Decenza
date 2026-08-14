@@ -50,10 +50,10 @@ reference apps neither support nor contradict the chosen bound.
 **Three constraints shape the scope.**
 
 `writeUrgent()` prepends to `m_commandQueue` when a write is in flight
-(`bletransport.cpp:227-231`), and stop-at-weight and sleep route `REQUESTED_STATE` through it
+(`bletransport.cpp:229-232`), and stop-at-weight and sleep route `REQUESTED_STATE` through it
 (`de1device.cpp:1186`, `:1235`). This reads as a hazard — a drain discarding a commanded stop —
 and an earlier revision of this design asserted it was one. Traced through, it is not: both of
-those paths call `clearCommandQueue()` *before* the urgent write (`de1device.cpp:1174`, `:1228`),
+those paths call `clearCommandQueue()` *before* the urgent write (`stopOperationUrgent` calls `clearCommandQueue()` at `de1device.cpp:1137`; `goToSleep` clears the transport queue directly at `:1190`),
 and `clearQueue()` sets `m_writePending = false` (`bletransport.cpp:399`), so the urgent write
 that follows always takes the direct branch. A stop is never in the queue at the moment of a
 clear. The constraint that remains is narrower: a drain must not *start* discarding urgent
@@ -124,7 +124,7 @@ entirely Android-only and no existing test of the recovery path.
   notification (`de1device.cpp:777-785`). So "verify by read-back" does not add a read to a
   link carrying writes; it adds a **second write**, and `issueMMRReadWithRetry` adds a further
   retry ladder that issues more `a005` writes on timeout. Read-request traffic is already a
-  measurable share of the observed failures: of 384 exhaustions in the corpus, **55 are
+  measurable share of the observed failures: of 264 exhaustions in the corpus, **55 are
   `a005`** — MMR read requests failing as writes — against 91 for `a006` (the MMR writes
   themselves). Verification on a contended link therefore worsens the exact condition this
   change exists to reduce.
@@ -183,12 +183,12 @@ fourteen sites including exactly this case: `{^Espresso header:}` and `{^Espress
 Decenza has only the blanket `clearQueue()`, which is why the first draft reached for it.
 
 So: drop the previous upload's pending writes, not everything pending. Pair it with
-`m_lastMMRValues` invalidation exactly as `clearCommandQueue()` already does (`:1243-1261`) —
+`m_lastMMRValues` invalidation exactly as `clearCommandQueue()` already does (`:1205-1226`) —
 otherwise a discarded MMR write is not delayed but permanently elided by the dedup cache.
 
 **Alternative considered and now rejected: draining on every terminal write failure.** It has no
 quorum and no evidence. Decenza today does not drain — it calls `processCommandQueue()` and moves
-to the next command (`bletransport.cpp:148`, `:741`) — and de1app does not either, clearing only
+to the next command (`bletransport.cpp:149`, `:773`) — and de1app does not either, clearing only
 on connect and disconnect (`de1_comms.tcl:247-248`, `:629-630`). decaid *does* clear on every
 operation timeout, but its queue is the **platform** operation queue, where a stuck entry blocks
 every following operation; its own comment says so (`universal_ble_transport.dart:409-415`).
@@ -199,9 +199,9 @@ the corpus shows the writes queued behind an abandoned write making anything wor
 
 An earlier draft of this design claimed an unqualified drain could discard a commanded stop,
 because `writeUrgent()` prepends into `m_commandQueue` when a write is in flight
-(`bletransport.cpp:227-231`). **That overstated the hazard.** Every stop and sleep path calls
+(`bletransport.cpp:229-232`). **That overstated the hazard.** Every stop and sleep path calls
 `clearCommandQueue()` *first* (`de1device.cpp:1174`, `:1228`), and `clearQueue()` sets
-`m_writePending = false` (`bletransport.cpp:399`), so the urgent write that follows always takes
+`m_writePending = false` (`bletransport.cpp:402`), so the urgent write that follows always takes
 the direct branch and is never in the queue at the moment of the clear. The only urgent write
 that can sit queued is `ensureChargerOn` on app suspend, which is not safety-critical.
 

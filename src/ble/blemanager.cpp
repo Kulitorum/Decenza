@@ -263,8 +263,19 @@ int BLEManager::androidSdkInt()
         QJniEnvironment jniEnv;
         const jint v = QJniObject::getStaticField<jint>(
             "android/os/Build$VERSION", "SDK_INT");
-        if (jniEnv.checkAndClearExceptions() || v <= 0)
+        const bool threw = jniEnv.checkAndClearExceptions();
+        if (threw || v <= 0) {
+            // Logged here, once, rather than at each caller — and it keeps the
+            // exception-versus-bogus-value distinction that the callers' own
+            // messages used to carry. Without it the two are indistinguishable
+            // in a submitted log, which is the diagnostic that centralising
+            // this read would otherwise have cost.
+            BT_WARN_TAGGED("BLEManager", QStringLiteral(
+                "could not read Android SDK_INT (value=%1, jni_exception=%2) — "
+                "callers that gate on the API level will treat it as unknown")
+                    .arg(static_cast<int>(v)).arg(threw ? "yes" : "no"));
             return -1;
+        }
         return static_cast<int>(v);
     }();
     return cached;
@@ -445,7 +456,10 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
     const QDateTime now = QDateTime::currentDateTime();
     if (m_lastAdapterRecovery.isValid()
         && m_lastAdapterRecovery.msecsTo(now) < kAdapterRecoveryBackoffMs) {
-        BT_LOG_TAGGED("BLEManager", QStringLiteral("BLE stack still appears wedged (") + QStringLiteral(" ") + QString("%1").arg(reason) + QStringLiteral(" ") + QStringLiteral(") but within recovery backoff — not cycling adapter yet (#1309)"));
+        BT_LOG_TAGGED("BLEManager", QStringLiteral("BLE stack still appears wedged (") + reason + QStringLiteral(
+            ") but within recovery backoff — ") + (adapterRemedyAvailable
+                ? QStringLiteral("not cycling adapter yet")
+                : QStringLiteral("not re-arming reconnect yet")) + QStringLiteral(" (#1309)"));
         return;
     }
 
@@ -454,15 +468,28 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
         m_adapterRecoveryCount++;
         m_wedgeSince = QDateTime();
         m_lastDe1FaultTime = QDateTime();
+        // Two different reasons reach this branch and they must not share a
+        // sentence. On SDK >= 33 we know the remedy is a no-op. On an
+        // unreadable SDK we know nothing — and printing the "-1" sentinel into
+        // a claim about the user's Android version would state as fact
+        // something we failed to establish, in a log read by users and by their
+        // AI assistants. A device on API 28 whose JNI read failed would be told
+        // its OS blocks adapter control when the remedy would have worked.
+        const QString why = androidSdkInt() > 0
+            ? QStringLiteral("this Android version (SDK %1) ignores an app's request "
+                             "to turn the radio off and on, so the attempt would "
+                             "change nothing and then report success")
+                  .arg(androidSdkInt())
+            : QStringLiteral("this device's Android API level could not be read, so "
+                             "the power-cycle is skipped as a precaution rather than "
+                             "manipulating the radio on an unknown platform");
         BT_WARN_TAGGED("BLEManager", QStringLiteral(
             "BLE stack appears wedged (") + reason + QStringLiteral(
-            ") — NOT power-cycling the Bluetooth adapter: this Android version "
-            "(SDK ") + QString::number(androidSdkInt()) + QStringLiteral(
-            ") ignores an app's request to turn the radio off and on, so the "
-            "attempt would change nothing and then report success. Re-arming "
-            "the DE1 and scale reconnect paths directly instead. If this keeps "
-            "recurring, toggling Bluetooth off and on in system settings is "
-            "the equivalent action, and only you can perform it (#1309)."));
+            ") — NOT power-cycling the Bluetooth adapter: ") + why + QStringLiteral(
+            ". Re-arming the DE1 and scale reconnect paths directly instead. If "
+            "this keeps recurring, toggling Bluetooth off and on in system "
+            "settings is the equivalent action, and only you can perform it "
+            "(#1309)."));
         emit bleStackRecovered();      // the re-arm main.cpp listens for
         if (!m_savedScaleAddress.isEmpty())
             tryDirectConnectToScale();
