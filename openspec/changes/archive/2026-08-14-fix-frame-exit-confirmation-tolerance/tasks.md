@@ -23,4 +23,4 @@
 ## 5. Close out
 
 - [x] 5.1 Full test suite green via Qt Creator MCP.
-- [ ] 5.2 `openspec archive fix-frame-exit-confirmation-tolerance` as the last commit on the branch.
+- [x] 5.2 `openspec archive fix-frame-exit-confirmation-tolerance` as the last commit on the branch.
