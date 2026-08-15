@@ -4825,7 +4825,14 @@ private slots:
         // "celsiusTank" is deliberately distinct from "celsius" in C++ so the
         // two can carry different tolerances; the QML must still format it as a
         // temperature rather than falling through to the raw-token suffix.
-        for (const QString& u : { "celsius", "celsiusTank", "bar", "mlPerSec", "g", "ml" })
+        // QStringLiteral, not bare "…": a const QString& bound to a temporary
+        // built from a const char* is -Werror=range-loop-construct under GCC,
+        // which clang does not diagnose — so this compiled clean on macOS and
+        // broke the Linux release build. Every other range-for over strings in
+        // this tree already does it this way.
+        for (const QString& u : { QStringLiteral("celsius"), QStringLiteral("celsiusTank"),
+                                  QStringLiteral("bar"), QStringLiteral("mlPerSec"),
+                                  QStringLiteral("g"), QStringLiteral("ml") })
             QVERIFY2(qml.contains(QStringLiteral("\"%1\"").arg(u)),
                      qPrintable(QStringLiteral("unit token %1 is not formatted by the QML").arg(u)));
 
