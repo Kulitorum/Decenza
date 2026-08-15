@@ -138,6 +138,13 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
         const ShotAnalysis::AnalysisResult* analysisPtr = nullptr;
         if (record.cachedAnalysis.has_value()) {
             analysisPtr = &record.cachedAnalysis.value();
+            // Cached beside the analysis, because re-deriving it here means
+            // redoing the AnalysisInputs walk the cache exists to skip. This
+            // used to be computed ONLY in the else branch below, which the
+            // production path never takes — loadShotRecordStatic always
+            // caches — so the "Based on X" line was dead everywhere except in
+            // tests that build a ShotRecord by hand.
+            p.profileKbDerivedFrom = record.cachedKbDerivedFrom;
         } else {
             const AnalysisInputs inputs = prepareAnalysisInputs(record.profileKbId, record.profileJson);
             // Off AnalysisInputs, not the persisted id — the id holds a TITLE

@@ -768,7 +768,14 @@ T.Page {
             id: src.id, uuid: src.uuid, timestamp: src.timestamp,
             timestampIso: src.timestampIso, dateTime: src.dateTime,
             profileName: src.profileName, profileKbId: src.profileKbId,
+            profileKbDerivedFrom: src.profileKbDerivedFrom,
             profileJson: src.profileJson, profileNotes: src.profileNotes,
+            // Read by the recipe card and the steam/water summaries at the top
+            // of this file. Missing from this whitelist until now, so the first
+            // autosave silently emptied them: the recipe card vanished and the
+            // "no recipe" prompts (which gate on recipeId <= 0) took its place.
+            recipeId: src.recipeId,
+            steamJson: src.steamJson, hotWaterJson: src.hotWaterJson,
             beanNotes: src.beanNotes,
             temperatureOverrideC: src.temperatureOverrideC,
             targetWeightG: src.targetWeightG,
@@ -1196,12 +1203,16 @@ T.Page {
                         accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
                         accessibleItem: headerSparkle
                         onAccessibleClicked: {
-                            // openFor() over setting the properties by hand: it is
-                            // the one place that knows every field the dialog needs,
-                            // so a new one (candidateNames) reaches all FIVE call sites
-                            // — the two RecipeWizardPage tiles got it without being
-                            // edited, which is the point.
-                            shotKnowledgeDialog.openFor(postShotReviewPage.editShotData.profileName || "")
+                            // openForShot(), not openFor(): the dial-in difference
+                            // block must compare against the profile this shot was
+                            // PULLED with. Editing the catalog profile afterwards
+                            // must not rewrite what an old shot appears to have
+                            // been brewed with. Everything else the dialog needs
+                            // still comes from the one function that knows every
+                            // field — hand-setting properties leaves them stale.
+                            shotKnowledgeDialog.openForShot(
+                                postShotReviewPage.editShotData.profileName || "",
+                                postShotReviewPage.editShotData.profileJson || "")
                         }
                     }
                 }

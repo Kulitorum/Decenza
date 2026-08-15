@@ -220,6 +220,16 @@ struct ShotRecord {
     // this is structurally safe — but the rule is documented here so
     // future callers don't introduce a stale-cache bug.
     std::optional<ShotAnalysis::AnalysisResult> cachedAnalysis;
+
+    // Canonical KB entry name this shot's profile was resolved to BY SHAPE,
+    // empty for every other resolution. Populated beside cachedAnalysis and
+    // for the same reason: it is derived from the same AnalysisInputs walk,
+    // and the fast path in convertShotRecord has no way to re-derive it
+    // without redoing that walk — which is the whole cost the cache exists to
+    // avoid. Set it wherever cachedAnalysis is set; a cache holding one and
+    // not the other silently drops the "Based on X" line in production while
+    // every test that constructs a ShotRecord by hand still sees it.
+    QString cachedKbDerivedFrom;
 };
 
 // Grinder settings context from shot history (shared by MCP and in-app AI)

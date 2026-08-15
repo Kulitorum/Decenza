@@ -11,6 +11,8 @@
 #include <QTextStream>
 #include <QRegularExpression>
 #include <QDebug>
+#include <QHash>
+#include <QSet>
 #include <cmath>
 
 // Convert a JSON value that may be string or number to double (de1app encodes
@@ -1736,67 +1738,294 @@ QString Profile::shapeSignature() const
     return parts.join(QLatin1Char('~'));
 }
 
-QString Profile::frameDiffReport(const Profile& a, const Profile& b)
+QVector<ProfileFieldDelta> Profile::fieldDeltas(const Profile& a, const Profile& b)
 {
-    QString report;
+    QVector<ProfileFieldDelta> out;
 
-    // Header-level mismatches print even when one side has no frames at all —
+    // Unit tokens, not suffixes: the suffix is user-visible text, and the
+    // temperature one depends on a per-user setting. "s" and "count" mark rows
+    // that never reach a user today.
+    static const QString kC     = QStringLiteral("celsius");
+    static const QString kBar   = QStringLiteral("bar");
+    static const QString kMls   = QStringLiteral("mlPerSec");
+    static const QString kG     = QStringLiteral("g");
+    static const QString kMl    = QStringLiteral("ml");
+    static const QString kSec   = QStringLiteral("s");
+    static const QString kTank  = QStringLiteral("celsiusTank");
+    static const QString kCount = QStringLiteral("count");
+
+    // Tolerance per unit, derived from ProfileJson's serialization precision:
+    // half the last decimal place that survives a write. A round-trip therefore
+    // cannot manufacture a difference, and one editor step (0.1 g of yield,
+    // 0.01 bar of pressure) always exceeds it. NOT a tuned number — change
+    // ProfileJson and change this, together.
+    // kTank is a temperature too, but ProfileJson writes the tank target at ONE
+    // decimal while frame/espresso temperatures get two, so it needs a token of
+    // its OWN to keep "half the last surviving decimal" true of both. It cannot
+    // just carry a different tolerance under the same "celsius" string: these
+    // are compared by VALUE, so a token equal to kC would loosen every frame
+    // temperature to 0.05 as well. The QML formats both as temperatures.
+    auto toleranceFor = [](const QString& unit) {
+        if (unit == kG || unit == kMl || unit == kTank) return 0.05;  // ProfileJson 1 decimal
+        if (unit == kCount)                            return 0.5;   // integer-valued rows
+        return 0.005;                                                // ProfileJson 2 decimals
+    };
+
+    // Both audiences read this one walk, so the ORDER here is the order
+    // frameDiffReport() prints. A row moved is a changed report.
+    auto num = [&out, &toleranceFor](const QString& kind, const QString& unit, double va, double vb,
+                      bool dev, bool dialIn, int frame = -1,
+                      const QString& frameName = QString()) {
+        const double tol = toleranceFor(unit);
+        if (qAbs(va - vb) <= tol) return;
+        ProfileFieldDelta d;
+        d.kind = kind;
+        d.unit = unit;
+        d.tolerance = tol;
+        d.frameIndex = frame;
+        d.frameName = frameName;
+        d.numeric = true;
+        d.oldValue = va;
+        d.newValue = vb;
+        d.inDeveloperReport = dev;
+        d.inDialIn = dialIn;
+        out.append(d);
+    };
+    auto str = [&out](const QString& kind, const QString& va, const QString& vb,
+                      bool dev, bool dialIn, int frame = -1,
+                      const QString& frameName = QString()) {
+        if (va == vb) return;
+        ProfileFieldDelta d;
+        d.kind = kind;
+        d.frameIndex = frame;
+        d.frameName = frameName;
+        d.numeric = false;
+        d.oldText = va;
+        d.newText = vb;
+        d.inDeveloperReport = dev;
+        d.inDialIn = dialIn;
+        out.append(d);
+    };
+
+    // Header-level. These print even when one side has no frames at all —
     // otherwise a simple-profile diff renders as an empty body.
-    if (a.steps().size() != b.steps().size())
-        report += QString("  step count: A=%1 B=%2\n")
-                      .arg(a.steps().size()).arg(b.steps().size());
-    if (a.preinfuseFrameCount() != b.preinfuseFrameCount())
-        report += QString("  preinfuseFrameCount: A=%1 B=%2\n")
-                      .arg(a.preinfuseFrameCount()).arg(b.preinfuseFrameCount());
+    num(QStringLiteral("step count"), kCount,
+        double(a.steps().size()), double(b.steps().size()), true, false);
+    num(QStringLiteral("preinfuseFrameCount"), kCount,
+        double(a.preinfuseFrameCount()), double(b.preinfuseFrameCount()), true, false);
+
+    // Profile-level dial-in values. Deliberately absent from the developer
+    // report: adding them would widen what the TCL parity gate rejects, and a
+    // yield or clamp difference is not an import defect.
+    num(QStringLiteral("targetWeight"),    kG,   a.targetWeight(),     b.targetWeight(),     false, true);
+    num(QStringLiteral("targetVolume"),    kMl,  a.targetVolume(),     b.targetVolume(),     false, true);
+    num(QStringLiteral("maximumPressure"), kBar, a.maximumPressure(),  b.maximumPressure(),  false, true);
+    num(QStringLiteral("maximumFlow"),     kMls, a.maximumFlow(),      b.maximumFlow(),      false, true);
+    num(QStringLiteral("minimumPressure"), kBar, a.minimumPressure(),  b.minimumPressure(),  false, true);
+    num(QStringLiteral("tankTemperature"), kTank, a.tankDesiredWaterTemperature(),
+                                                 b.tankDesiredWaterTemperature(),            false, true);
+
+    // The espresso temperature is an AUTHORED value, not one derived from the
+    // frames: profile.cpp's fromJson reconciliation keeps the top-level scalar
+    // authoritative when the author set it, precisely because it may
+    // legitimately differ from steps[0] — a cooler group preheat paired with a
+    // hotter preinfusion ramp, as on the D-Flow / A-Flow built-ins (PR #961).
+    //
+    // This comment previously claimed the opposite and omitted the row on that
+    // basis, which meant a D-Flow copy whose only change was the group preheat
+    // rendered as "Unchanged copy of D-Flow" — a false statement, not merely a
+    // missing row.
+    //
+    // Skipped when EITHER side had the value repaired by fromJson: a healed
+    // value was derived from frames rather than authored, so a difference
+    // against it describes our repair, not the user's edit.
+    if (!a.espressoTemperatureHealed() && !b.espressoTemperatureHealed())
+        num(QStringLiteral("espressoTemperature"), kC,
+            a.espressoTemperature(), b.espressoTemperature(), false, true);
+
+    // Dose, but only when both sides carry one. hasRecommendedDose() false means
+    // the profile declines to recommend, and comparing against the placeholder
+    // would report a dose the author never stated.
+    if (a.hasRecommendedDose() && b.hasRecommendedDose())
+        num(QStringLiteral("recommendedDose"), kG,
+            a.recommendedDose(), b.recommendedDose(), false, true);
 
     const qsizetype n = qMin(a.steps().size(), b.steps().size());
     for (qsizetype i = 0; i < n; ++i) {
         const ProfileFrame& fa = a.steps()[i];
         const ProfileFrame& fb = b.steps()[i];
-        const QString p = QString("  FRAME[%1] ").arg(i);
+        const int idx = int(i);
+        const QString& fname = fa.name;
 
-        auto chkS = [&](const QString& lbl, const QString& va, const QString& vb) {
-            if (va != vb) report += p + lbl + ": A=" + va + " B=" + vb + "\n";
-        };
-        auto chkF = [&](const QString& lbl, double va, double vb) {
-            if (qAbs(va - vb) > 0.1)
-                report += p + lbl + ": A=" + QString::number(va) + " B=" + QString::number(vb) + "\n";
-        };
+        // Shape fields: developer-only, and they cannot differ at all once the
+        // dial-in block's shape gate is met, so a dial-in row would be dead.
+        str(QStringLiteral("pump"),       fa.pump,       fb.pump,       true, false, idx, fname);
+        str(QStringLiteral("sensor"),     fa.sensor,     fb.sensor,     true, false, idx, fname);
+        str(QStringLiteral("transition"), fa.transition, fb.transition, true, false, idx, fname);
+        num(QStringLiteral("exitIf"),     kCount, double(fa.exitIf), double(fb.exitIf), true, false, idx, fname);
+        if (fa.exitIf)
+            str(QStringLiteral("exitType"), fa.exitType, fb.exitType, true, false, idx, fname);
 
-        chkS("pump", fa.pump, fb.pump);
-        chkS("sensor", fa.sensor, fb.sensor);
-        chkS("transition", fa.transition, fb.transition);
-        chkS("popup", fa.popup, fb.popup);
-        if (fa.exitIf != fb.exitIf)
-            report += p + "exitIf: A=" + QString::number(fa.exitIf) + " B=" + QString::number(fb.exitIf) + "\n";
-        if (fa.exitIf) chkS("exitType", fa.exitType, fb.exitType);
+        // popup is NOT a shape field — shapeSignature() does not key on it, so
+        // two same-shape profiles CAN differ here. It is excluded for its own
+        // reason: a reworded prompt is not a dialled value, and showing it would
+        // put editorial noise beside the numbers that change the shot.
+        str(QStringLiteral("popup"), fa.popup, fb.popup, true, false, idx, fname);
 
-        chkF("temperature", fa.temperature, fb.temperature);
-        // Same asymmetry as functionallyEqual(): the inactive axis carries a
-        // de1app default our writer omits, so it only counts when both sides set it.
+        num(QStringLiteral("temperature"), kC, fa.temperature, fb.temperature, true, true, idx, fname);
+
+        // The ACTIVE axis is what the machine applies, so it is the one a user
+        // is shown. The inactive one stays developer-only and keeps
+        // functionallyEqual()'s asymmetry: it carries a de1app default our
+        // writer omits, so it only counts when both sides set it.
         if (fa.pump == "pressure") {
-            chkF("pressure", fa.pressure, fb.pressure);
-            if (fa.flow > 0.1 && fb.flow > 0.1) chkF("flow", fa.flow, fb.flow);
+            num(QStringLiteral("pressure"), kBar, fa.pressure, fb.pressure, true, true, idx, fname);
+            if (fa.flow > 0.1 && fb.flow > 0.1)
+                num(QStringLiteral("flow"), kMls, fa.flow, fb.flow, true, false, idx, fname);
         } else {
-            chkF("flow", fa.flow, fb.flow);
-            if (fa.pressure > 0.1 && fb.pressure > 0.1) chkF("pressure", fa.pressure, fb.pressure);
+            num(QStringLiteral("flow"), kMls, fa.flow, fb.flow, true, true, idx, fname);
+            if (fa.pressure > 0.1 && fb.pressure > 0.1)
+                num(QStringLiteral("pressure"), kBar, fa.pressure, fb.pressure, true, false, idx, fname);
         }
-        chkF("seconds", fa.seconds, fb.seconds);
-        chkF("volume",  fa.volume,  fb.volume);
+
+        num(QStringLiteral("seconds"), kSec, fa.seconds, fb.seconds, true, false, idx, fname);
+        num(QStringLiteral("volume"),  kMl,  fa.volume,  fb.volume,  true, true,  idx, fname);
 
         // Only the active exit threshold; the other three are noise from de1app TCL.
         if (fa.exitIf) {
-            if      (fa.exitType == "pressure_over")  chkF("exitPressureOver",  fa.exitPressureOver,  fb.exitPressureOver);
-            else if (fa.exitType == "pressure_under") chkF("exitPressureUnder", fa.exitPressureUnder, fb.exitPressureUnder);
-            else if (fa.exitType == "flow_over")      chkF("exitFlowOver",      fa.exitFlowOver,      fb.exitFlowOver);
-            else if (fa.exitType == "flow_under")     chkF("exitFlowUnder",     fa.exitFlowUnder,     fb.exitFlowUnder);
+            if      (fa.exitType == "pressure_over")
+                num(QStringLiteral("exitPressureOver"), kBar, fa.exitPressureOver,  fb.exitPressureOver,  true, true, idx, fname);
+            else if (fa.exitType == "pressure_under")
+                num(QStringLiteral("exitPressureUnder"), kBar, fa.exitPressureUnder, fb.exitPressureUnder, true, true, idx, fname);
+            else if (fa.exitType == "flow_over")
+                num(QStringLiteral("exitFlowOver"), kMls, fa.exitFlowOver, fb.exitFlowOver, true, true, idx, fname);
+            else if (fa.exitType == "flow_under")
+                num(QStringLiteral("exitFlowUnder"), kMls, fa.exitFlowUnder, fb.exitFlowUnder, true, true, idx, fname);
         }
 
-        chkF("exitWeight",             fa.exitWeight,             fb.exitWeight);
-        chkF("maxFlowOrPressure",      fa.maxFlowOrPressure,      fb.maxFlowOrPressure);
-        chkF("maxFlowOrPressureRange", fa.maxFlowOrPressureRange, fb.maxFlowOrPressureRange);
+        num(QStringLiteral("exitWeight"), kG, fa.exitWeight, fb.exitWeight, true, true, idx, fname);
+        // A max FLOW on a pressure-driven frame, a max PRESSURE on a flow-driven
+        // one. Only this walk knows which, so the unit is decided here — and it
+        // is why dialInDeltas() must group on (kind, unit) and not kind alone.
+        num(QStringLiteral("maxFlowOrPressure"),
+            fa.pump == "pressure" ? kMls : kBar,
+            fa.maxFlowOrPressure, fb.maxFlowOrPressure, true, true, idx, fname);
+        // The limiter's P/I control range is a loop constant, not a dialled
+        // value — dev-only. It takes the LIMITER's unit rather than kCount:
+        // kCount's 0.5 tolerance is for genuinely integral rows, and this range
+        // is continuous (shipped profiles carry 0.2, 0.9, 1.0, 1.5, 2.5, 3.0,
+        // 3.5). Tagging it kCount stopped emitting differences in (0.1, 0.5],
+        // which never then reached frameDiffReport's own 0.1 re-filter — quietly
+        // loosening the TCL import parity gate below what main compared at, and
+        // falsifying "empty exactly when functionallyEqual() is true".
+        num(QStringLiteral("maxFlowOrPressureRange"),
+            fa.pump == "pressure" ? kMls : kBar,
+            fa.maxFlowOrPressureRange, fb.maxFlowOrPressureRange, true, false, idx, fname);
+
+        // Dial-in only, and LAST in the frame's group so the developer report's
+        // field order is untouched. A renamed frame is a real signal to a user
+        // and is not a portability defect, so it must not reach the TCL gate.
+        str(QStringLiteral("name"), fa.name, fb.name, false, true, idx, fname);
     }
 
+    // Frame fields deliberately absent from this walk, so "every field is
+    // accounted for" is a checked claim rather than an assumption: `moving`,
+    // `previousPressure`, `previousFlow` and `previousTemperature` are Direct
+    // Setpoint Control state that no writer serializes (the authored step keys
+    // are exit/flow/limiter/name/popup/pressure/pump/seconds/sensor/temperature/
+    // transition/volume/weight), so two loaded profiles can never differ on
+    // them. The simple-editor mirrors (preinfusion*, espresso*, flowProfile*)
+    // are omitted because for a 2a/2b profile they restate the frames this walk
+    // already covers, and the limiter RANGES are control-loop constants.
+    return out;
+}
+
+QVector<ProfileFieldDelta> Profile::dialInDeltas(const Profile& base, const Profile& user)
+{
+    const QVector<ProfileFieldDelta> all = fieldDeltas(base, user);
+    const qsizetype frames = qMin(base.steps().size(), user.steps().size());
+
+    QVector<ProfileFieldDelta> rows;
+    for (const ProfileFieldDelta& d : all)
+        if (d.inDialIn) rows.append(d);
+
+    if (frames < 2) return rows;
+
+    // Collapse a per-frame field that changed identically on EVERY frame into
+    // one frame-less row. Requires all `frames` occurrences, not merely more
+    // than one: a field that changed on two frames of five is genuinely two
+    // edits and reads wrong without its frame numbers.
+    //
+    // Grouped on (kind, UNIT), not kind alone. maxFlowOrPressure is a max flow
+    // on a pressure-driven frame and a max pressure on a flow-driven one, and 69
+    // of the 100 bundled profiles are mixed-pump — grouping on kind alone
+    // collapsed two physically different quantities into one row wearing the
+    // first frame's unit.
+    const auto groupKey = [](const ProfileFieldDelta& d) {
+        return d.kind + QLatin1Char('\x1f') + d.unit;
+    };
+
+    QHash<QString, QVector<qsizetype>> byKind;   // (kind,unit) -> indices into rows
+    for (qsizetype i = 0; i < rows.size(); ++i)
+        if (rows[i].frameIndex >= 0) byKind[groupKey(rows[i])].append(i);
+
+    QSet<qsizetype> dropped;
+    QHash<QString, ProfileFieldDelta> collapsed;
+    for (auto it = byKind.cbegin(); it != byKind.cend(); ++it) {
+        const QVector<qsizetype>& idxs = it.value();
+        if (idxs.size() != frames) continue;
+
+        const ProfileFieldDelta& first = rows[idxs.first()];
+        bool identical = true;
+        for (qsizetype i : idxs) {
+            const ProfileFieldDelta& d = rows[i];
+            identical = first.numeric
+                ? (qAbs(d.oldValue - first.oldValue) <= first.tolerance
+                   && qAbs(d.newValue - first.newValue) <= first.tolerance)
+                : (d.oldText == first.oldText && d.newText == first.newText);
+            if (!identical) break;
+        }
+        if (!identical) continue;
+
+        ProfileFieldDelta one = first;
+        one.frameIndex = -1;
+        one.frameName.clear();
+        collapsed.insert(it.key(), one);
+        for (qsizetype i : idxs) dropped.insert(i);
+    }
+
+    if (dropped.isEmpty()) return rows;
+
+    // Rebuild in the original order, putting each collapsed row where its first
+    // occurrence was, so the result still reads front-to-back down the profile.
+    QVector<ProfileFieldDelta> out;
+    out.reserve(rows.size());
+    for (qsizetype i = 0; i < rows.size(); ++i) {
+        if (!dropped.contains(i)) { out.append(rows[i]); continue; }
+        const QString key = groupKey(rows[i]);
+        if (byKind.value(key).first() == i) out.append(collapsed.value(key));
+    }
+    return out;
+}
+
+QString Profile::frameDiffReport(const Profile& a, const Profile& b)
+{
+    QString report;
+    for (const ProfileFieldDelta& d : fieldDeltas(a, b)) {
+        if (!d.inDeveloperReport) continue;
+        // The report's OWN tolerance, deliberately looser than the emitting
+        // one. It absorbs TCL-vs-JSON serialization noise for an import-parity
+        // check; the dial-in block needs the tight tolerance because one editor
+        // step of yield is 0.1 g. Re-filtering here is what keeps this output
+        // byte-identical to the hand-written version it replaced.
+        if (d.numeric && qAbs(d.oldValue - d.newValue) <= 0.1) continue;
+        const QString prefix = d.frameIndex >= 0
+            ? QStringLiteral("  FRAME[%1] ").arg(d.frameIndex)
+            : QStringLiteral("  ");
+        const QString va = d.numeric ? QString::number(d.oldValue) : d.oldText;
+        const QString vb = d.numeric ? QString::number(d.newValue) : d.newText;
+        report += prefix + d.kind + ": A=" + va + " B=" + vb + "\n";
+    }
     return report;
 }
 

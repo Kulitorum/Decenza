@@ -4740,6 +4740,233 @@ private slots:
         QVERIFY(!f.profileManager.deleteProfile(builtInFilename));
         QCOMPARE(deletedSpy.count(), 0);
     }
+
+    // === Dial-in difference block (change: summarize-profile-changes-from-builtin) ===
+    //
+    // The QML-facing half. Base selection itself is covered in tst_shotsummarizer;
+    // these assert the three outcomes a surface has to tell apart, and the rule
+    // that a shot is compared against the profile IT was pulled with.
+
+    // A retitled copy of a bundled profile, with `edit` applied to its JSON,
+    // written into the user store and picked up by the catalog scan.
+    static QJsonObject bundledJsonRetitled(const QString& file, const QString& title)
+    {
+        QFile f(QStringLiteral(":/profiles/") + file);
+        if (!f.open(QIODevice::ReadOnly)) return {};
+        QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+        o[QStringLiteral("title")] = title;
+        o[QStringLiteral("read_only")] = 0;
+        return o;
+    }
+
+    static void setTempOnEveryStep(QJsonObject& o, const QString& temp)
+    {
+        QJsonArray steps = o[QStringLiteral("steps")].toArray();
+        for (int i = 0; i < steps.size(); ++i) {
+            QJsonObject st = steps[i].toObject();
+            st[QStringLiteral("temperature")] = temp;
+            steps[i] = st;
+        }
+        o[QStringLiteral("steps")] = steps;
+    }
+
+    static void writeUserProfile(McpTestFixture& f, const QString& fileName,
+                                 const QJsonObject& json)
+    {
+        QFile out(f.profileManager.userProfilesPath() + "/" + fileName + ".json");
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        out.write(QJsonDocument(json).toJson());
+        out.close();
+        f.profileManager.refreshProfiles();
+    }
+
+    // Every dial-in `kind` and `unit` C++ can emit must be handled by the QML.
+    //
+    // The two lists are produced at different sites in different languages with
+    // nothing connecting them, which is exactly the drift the centralization
+    // rule targets, and the project already gates the same shape elsewhere
+    // (tst_customwidgethtml::everyCatalogActionHasADispatchArm). Without this,
+    // adding a dial-in field ships a raw identifier as a label, or a bare
+    // unitless number, to a user — and both look finished, so nobody reports it.
+    void profileDialInDiff_everyKindAndUnitIsHandledByTheQml()
+    {
+        QDir qmlDir(QCoreApplication::applicationDirPath() + "/../../../../qml");
+        if (!qmlDir.exists())
+            qmlDir.setPath(QString(SRCDIR) + "/../qml");
+        if (!qmlDir.exists())
+            QSKIP("QML directory not found — run from source tree");
+
+        QFile block(qmlDir.absolutePath() + "/components/ProfileDialInDiffBlock.qml");
+        QVERIFY2(block.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "ProfileDialInDiffBlock.qml missing");
+        const QString qml = QString::fromUtf8(block.readAll());
+
+        // Hardcoded rather than scraped from C++: the point is that adding a
+        // field fails HERE until someone updates the QML too.
+        const QStringList kinds{
+            QStringLiteral("targetWeight"),    QStringLiteral("targetVolume"),
+            QStringLiteral("maximumPressure"), QStringLiteral("maximumFlow"),
+            QStringLiteral("minimumPressure"), QStringLiteral("tankTemperature"),
+            QStringLiteral("espressoTemperature"), QStringLiteral("recommendedDose"),
+            QStringLiteral("temperature"),     QStringLiteral("pressure"),
+            QStringLiteral("flow"),            QStringLiteral("volume"),
+            QStringLiteral("exitPressureOver"), QStringLiteral("exitPressureUnder"),
+            QStringLiteral("exitFlowOver"),    QStringLiteral("exitFlowUnder"),
+            QStringLiteral("exitWeight"),      QStringLiteral("maxFlowOrPressure"),
+            QStringLiteral("name"),
+        };
+        QStringList missing;
+        for (const QString& k : kinds)
+            if (!qml.contains(QStringLiteral("\"%1\":").arg(k))) missing << k;
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral("dial-in kinds with no label in the QML: %1")
+                                .arg(missing.join(QStringLiteral(", ")))));
+
+        // "celsiusTank" is deliberately distinct from "celsius" in C++ so the
+        // two can carry different tolerances; the QML must still format it as a
+        // temperature rather than falling through to the raw-token suffix.
+        for (const QString& u : { "celsius", "celsiusTank", "bar", "mlPerSec", "g", "ml" })
+            QVERIFY2(qml.contains(QStringLiteral("\"%1\"").arg(u)),
+                     qPrintable(QStringLiteral("unit token %1 is not formatted by the QML").arg(u)));
+
+        // And the fallback stays honest: an unmapped token must reach the user
+        // as a visible token, never as a bare number that looks finished.
+        QVERIFY2(qml.contains(QStringLiteral("suffix = \" \" + row.unit")),
+                 "the unmapped-unit fallback must append the raw token");
+
+        // Display precision has to reach at least as fine as the tolerance the
+        // row was EMITTED at, or the block renders a real change as two
+        // identical numbers. celsius, bar and mlPerSec are compared at 0.005
+        // (ProfileJson writes them at two decimals and the editor steps them at
+        // 0.01), so the QML must be willing to spend a second decimal on them.
+        const qsizetype fine = qml.indexOf(QStringLiteral("function maxDecimalsFor"));
+        QVERIFY2(fine >= 0, "the block must pick its decimals from the row's unit");
+        const QString fineBody = qml.mid(fine, 400);
+        for (const QString& u : { QStringLiteral("celsius"), QStringLiteral("bar"),
+                                  QStringLiteral("mlPerSec") })
+            QVERIFY2(fineBody.contains(QStringLiteral("\"%1\"").arg(u)),
+                     qPrintable(QStringLiteral("unit %1 is compared at 0.005 but is not granted "
+                                               "two decimals of display").arg(u)));
+    }
+
+    // The lookup order in loadProfileByFilename is what makes an IN-PLACE edit of
+    // a built-in work at all: the edit lands in the user folder under the
+    // built-in's own filename, refreshProfiles() keeps the built-in catalog
+    // entry, and only user-folder-before-:/profiles makes the diff read the
+    // user's bytes. Reverse the list and every in-place edit reports "unchanged".
+    void profileDialInDiff_readsTheUserCopyThatShadowsABuiltIn()
+    {
+        McpTestFixture f;
+        QJsonObject json = bundledJsonRetitled(
+            QStringLiteral("hybrid_pour_over_espresso.json"),
+            QStringLiteral("Hybrid pour over espresso"));   // title UNCHANGED
+        QVERIFY(!json.isEmpty());
+        setTempOnEveryStep(json, QStringLiteral("95.00"));
+        writeUserProfile(f, QStringLiteral("hybrid_pour_over_espresso"), json);
+
+        const QVariantMap diff =
+            f.profileManager.profileDialInDiff(QStringLiteral("Hybrid pour over espresso"));
+        QVERIFY2(diff.value(QStringLiteral("hasBase")).toBool(),
+                 "an in-place edit of a built-in must still find its base");
+        QVERIFY2(!diff.value(QStringLiteral("unchanged")).toBool(),
+                 "the shadowing user copy must be what gets compared");
+        const QVariantList rows = diff.value(QStringLiteral("rows")).toList();
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("kind")).toString(),
+                 QStringLiteral("temperature"));
+    }
+
+    void profileDialInDiff_namesTheBundledBaseAndListsTheEdit()
+    {
+        McpTestFixture f;
+        QJsonObject json = bundledJsonRetitled(
+            QStringLiteral("preinfuse_then_45ml_of_water.json"),
+            QStringLiteral("Zzz Morning Variant"));
+        QVERIFY(!json.isEmpty());
+        setTempOnEveryStep(json, QStringLiteral("89.00"));
+        writeUserProfile(f, QStringLiteral("zzz_morning_variant"), json);
+
+        const QVariantMap diff =
+            f.profileManager.profileDialInDiff(QStringLiteral("Zzz Morning Variant"));
+        QVERIFY(diff.value(QStringLiteral("hasBase")).toBool());
+        QCOMPARE(diff.value(QStringLiteral("baseTitle")).toString(),
+                 QStringLiteral("Preinfuse then 45ml of water"));
+        QVERIFY(!diff.value(QStringLiteral("unchanged")).toBool());
+
+        const QVariantList rows = diff.value(QStringLiteral("rows")).toList();
+        QCOMPARE(rows.size(), 1);
+        const QVariantMap row = rows.first().toMap();
+        QCOMPARE(row.value(QStringLiteral("kind")).toString(), QStringLiteral("temperature"));
+        QCOMPARE(row.value(QStringLiteral("oldValue")).toDouble(), 90.0);
+        QCOMPARE(row.value(QStringLiteral("newValue")).toDouble(), 89.0);
+    }
+
+    // "Unchanged copy" must be distinguishable from "no base at all" — one says
+    // the knowledge applies without qualification, the other says nothing can be
+    // said. A single boolean conflating them would make the surface silent in
+    // the case that most deserves a sentence.
+    void profileDialInDiff_aRenamedCopyReportsUnchangedRatherThanNoBase()
+    {
+        McpTestFixture f;
+        const QJsonObject json = bundledJsonRetitled(
+            QStringLiteral("preinfuse_then_45ml_of_water.json"),
+            QStringLiteral("Zzz Renamed Untouched"));
+        QVERIFY(!json.isEmpty());
+        writeUserProfile(f, QStringLiteral("zzz_renamed_untouched"), json);
+
+        const QVariantMap diff =
+            f.profileManager.profileDialInDiff(QStringLiteral("Zzz Renamed Untouched"));
+        QVERIFY(diff.value(QStringLiteral("hasBase")).toBool());
+        QVERIFY(diff.value(QStringLiteral("unchanged")).toBool());
+        QVERIFY(diff.value(QStringLiteral("rows")).toList().isEmpty());
+    }
+
+    void profileDialInDiff_aTitleTheCatalogDoesNotHoldHasNoBase()
+    {
+        McpTestFixture f;
+        const QVariantMap diff =
+            f.profileManager.profileDialInDiff(QStringLiteral("Zzz Not Installed"));
+        QVERIFY(!diff.value(QStringLiteral("hasBase")).toBool());
+        QVERIFY(diff.value(QStringLiteral("rows")).toList().isEmpty());
+    }
+
+    // Unparseable JSON is "cannot be compared", not an error to announce: the
+    // shot loader already warns where such a row is READ, and warning again on
+    // every dialog open would double-report one defect. QTest::failOnWarning is
+    // active, so a warning here fails this test.
+    void profileDialInDiffForJson_unparseableJsonIsQuietlyNoBase()
+    {
+        McpTestFixture f;
+        const QVariantMap diff =
+            f.profileManager.profileDialInDiffForJson(QStringLiteral("{not json"));
+        QVERIFY(!diff.value(QStringLiteral("hasBase")).toBool());
+    }
+
+    // A shot must report the profile it was PULLED with. Editing the catalog
+    // copy afterwards must not rewrite what the shot's block says — this is the
+    // whole reason the JSON entry point exists rather than a flag on the other.
+    void profileDialInDiffForJson_readsTheShotsProfileNotTheCatalogs()
+    {
+        McpTestFixture f;
+        QJsonObject catalogJson = bundledJsonRetitled(
+            QStringLiteral("preinfuse_then_45ml_of_water.json"),
+            QStringLiteral("Zzz Drifted"));
+        QVERIFY(!catalogJson.isEmpty());
+        setTempOnEveryStep(catalogJson, QStringLiteral("85.00"));   // edited since
+        writeUserProfile(f, QStringLiteral("zzz_drifted"), catalogJson);
+
+        QJsonObject shotJson = bundledJsonRetitled(
+            QStringLiteral("preinfuse_then_45ml_of_water.json"),
+            QStringLiteral("Zzz Drifted"));
+        setTempOnEveryStep(shotJson, QStringLiteral("93.00"));      // as pulled
+
+        const QVariantMap diff = f.profileManager.profileDialInDiffForJson(
+            QString::fromUtf8(QJsonDocument(shotJson).toJson()));
+        QVERIFY(diff.value(QStringLiteral("hasBase")).toBool());
+        const QVariantList rows = diff.value(QStringLiteral("rows")).toList();
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("newValue")).toDouble(), 93.0);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ProfileManager)
