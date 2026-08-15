@@ -2,8 +2,12 @@
 
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
-class Profile;
+// For ProfileFieldDelta, which DialInComparison carries by value. The TU-split
+// note below is about the .cpp's link closure, not this header — every file that
+// includes this one already has Profile in scope.
+#include "profile/profile.h"
 
 // Resolves a profile to KB entries by its SHAPE, for profiles whose TITLE
 // resolves to nothing (change: resolve-profile-kb-by-shape).
@@ -31,6 +35,24 @@ class Profile;
 // regression corpus gates the title steps but not this one. Widening it would
 // mean giving that tool the Profile closure — see the note above.
 namespace ProfileShapeIndex {
+
+// One bundled profile that landed in a shape bucket: where to load it from, and
+// which KB entry its own title resolves to.
+//
+// A PAIR, not just a path, because the two consumers ask different questions of
+// it. Resolution wants the ids; the dial-in difference block wants the FILE, and
+// wants to filter files by id — one KB entry can be authored against several
+// bundled profiles (gentle-flat-long-preinfusion-family has four), so an id does
+// not name a file and a "distance to an entry" is not defined.
+struct BundledMatch {
+    QString resourcePath;
+    QString kbId;
+};
+
+// The bundled profiles whose shape equals `p`'s, ordered by resource path so the
+// answer never depends on directory enumeration order. Empty when the profile
+// matches nothing, which is the ordinary outcome.
+QVector<BundledMatch> bundledProfilesForShape(const Profile& p);
 
 // KB ids whose shipped profile has the same shape as `p`. Empty when the
 // profile matches nothing, which is the ordinary outcome and means "stay
@@ -96,6 +118,39 @@ struct KbResolution {
         return origin == Origin::Title ? ids.first() : QString();
     }
 };
+
+// The bundled profile a dial-in difference block compares `p` against, and the
+// differences themselves. `base` is empty exactly when no block may be shown.
+//
+// One computation, not two: the base is chosen by which candidate `p` differs
+// from on the FEWEST dial-in fields, so the winner's difference list is the same
+// list that selected it. A separate scoring pass could disagree with the list it
+// was scoring; this cannot.
+struct DialInComparison {
+    QString baseResourcePath;   // empty when there is no base
+    QString baseTitle;          // the bundled profile's own title
+    QString baseKbId;
+    QVector<ProfileFieldDelta> deltas;   // empty AND a base set == unchanged copy
+
+    bool hasBase() const { return !baseResourcePath.isEmpty(); }
+};
+
+// Compare `p` against the bundled profile its knowledge was authored against.
+//
+// Gated on SHAPE equality however the KB id was reached, so a profile that
+// merely shares a name with a documented one does not get diffed against it —
+// that comparison would be unbounded and would falsely present the profile as a
+// modified copy. `resolution` is `p`'s own resolution, whose ORIGIN chooses the
+// candidate list:
+//   - Title: only bundled profiles carrying the resolved id, because that is the
+//     entry whose prose is on screen.
+//   - Shape: the whole bucket, since the shape is all that was established.
+// Both then converge on fewest-differences, abstaining unless one candidate is
+// strictly nearest.
+//
+// A bundled profile compared with itself yields no base: there is nothing to
+// tell the user about a profile that IS the documentation.
+DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& resolution);
 
 // Resolve `p` to KB entries: the existing TITLE steps first (exact alias →
 // recipe-alias longest-boundary-prefix → editor-type default), unchanged and

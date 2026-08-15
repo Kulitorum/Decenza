@@ -432,12 +432,16 @@ T.Page {
                         accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
                         accessibleItem: headerSparkle
                         onAccessibleClicked: {
-                            // openFor() over setting the properties by hand: it is
-                            // the one place that knows every field the dialog needs,
-                            // so a new one (candidateNames) reaches all FIVE call sites
-                            // — the two RecipeWizardPage tiles got it without being
-                            // edited, which is the point.
-                            shotKnowledgeDialog.openFor(shotDetailPage.shotData.profileName || "")
+                            // openForShot(), not openFor(): the dial-in difference
+                            // block must compare against the profile this shot was
+                            // PULLED with. Editing the catalog profile afterwards
+                            // must not rewrite what an old shot appears to have
+                            // been brewed with. Everything else the dialog needs
+                            // still comes from the one function that knows every
+                            // field — hand-setting properties leaves them stale.
+                            shotKnowledgeDialog.openForShot(
+                                shotDetailPage.shotData.profileName || "",
+                                shotDetailPage.shotData.profileJson || "")
                         }
                     }
                 }

@@ -1362,6 +1362,7 @@ set(QML_FILES
     qml/components/SteamPlanText.qml
     qml/components/ProfileGraph.qml
     qml/components/ProfilePreviewPopup.qml
+    qml/components/ProfileDialInDiffBlock.qml
     qml/components/ProfileInfoButton.qml
     qml/components/BottomBar.qml
     qml/components/BottomBarSubtitle.qml

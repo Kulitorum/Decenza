@@ -36,6 +36,55 @@ double profileJsonToDouble(const QJsonValue& val, double defaultVal = 0.0);
 // definition for why a silent default is dangerous there.
 bool profileJsonToBool(const QJsonValue& val, bool defaultVal = false, bool* ok = nullptr);
 
+// One field on which two profiles disagree, produced by Profile::fieldDeltas().
+//
+// TWO AUDIENCES, ONE WALK. The developer-facing frameDiffReport() (the TCL
+// import parity gate, profile_sync) and the user-facing dial-in block want
+// overlapping but different field sets, and the overlap is where the subtle
+// rules live: which setpoint axis is active, which of the four exit thresholds
+// counts. Those rules had already been three hand-maintained copies once; a
+// second walk here would be the fourth. So one traversal emits every row and
+// each row declares who it is for.
+struct ProfileFieldDelta {
+    // Stable identifier. For a row in the developer report this IS the label
+    // that report prints, which is what keeps its text byte-identical to the
+    // hand-written version it replaced. QML switches on it to build a
+    // translated label for the user-facing rows.
+    QString kind;
+
+    // Index of the frame this row is about, or -1 for a profile-level row and
+    // for a row the dial-in filter collapsed across every frame.
+    int frameIndex = -1;
+
+    // The frame's display name in the BASE profile, empty when frameIndex < 0.
+    // Carried so a surface can say "Pouring" instead of "frame 3".
+    QString frameName;
+
+    // Unit token for a numeric row: "celsius", "bar", "mlPerSec", "g", "ml".
+    // Empty for a string row.
+    //
+    // Set HERE rather than inferred by the surface, because one row cannot be
+    // inferred at all: the frame limiter is a max FLOW on a pressure-driven
+    // frame and a max PRESSURE on a flow-driven one, and only this walk knows
+    // which. A token, not a suffix — the suffix is user-visible text and the
+    // temperature one depends on a user setting.
+    QString unit;
+
+    // numeric rows carry oldValue/newValue; the rest carry oldText/newText.
+    bool numeric = true;
+    double oldValue = 0.0;
+    double newValue = 0.0;
+    QString oldText;
+    QString newText;
+
+    // Who this row is for. A row can be in both, in either, or (for the frame
+    // display name) in only the user-facing one — adding it to the developer
+    // report would make a renamed frame fail the TCL parity gate, which is not
+    // a portability defect.
+    bool inDeveloperReport = false;
+    bool inDialIn = false;
+};
+
 class Profile {
 public:
     // Execution modes
@@ -441,6 +490,26 @@ public:
     // profile_sync and in tst_tclimport, and a rule added to one of them did not
     // reach the other.
     static QString frameDiffReport(const Profile& a, const Profile& b);
+
+    // Every field on which `a` and `b` disagree, both audiences, in a fixed
+    // order: profile-level rows first, then each frame's rows in frame order.
+    // Doubles compare at a 0.1 tolerance, the same one frameDiffReport() has
+    // always used.
+    //
+    // Frames are walked to min(a.steps(), b.steps()); a differing step count is
+    // reported as its own row rather than by inventing rows for frames one side
+    // does not have.
+    static QVector<ProfileFieldDelta> fieldDeltas(const Profile& a, const Profile& b);
+
+    // The user-facing subset: `base` is the bundled profile a knowledge entry
+    // was authored against, `user` the profile being looked at, so oldValue is
+    // what the documentation describes and newValue is what will actually brew.
+    //
+    // Filters fieldDeltas() to the dial-in rows and then COLLAPSES a row that
+    // changed identically on every frame into a single frameIndex == -1 row —
+    // raising a three-frame profile's temperature is one edit, and listing it
+    // three times is both longer and less true.
+    static QVector<ProfileFieldDelta> dialInDeltas(const Profile& base, const Profile& user);
 
     // Canonical profile-title → base filename mapping (no extension). Accents
     // are decomposed and stripped, every other non-alphanumeric becomes '_',

@@ -18,6 +18,8 @@
 // healthy shot still surfaces the normal observations.
 
 #include <QtTest>
+#include <QFileInfo>
+#include <functional>
 
 #include <QVariantMap>
 #include <QVariantList>
@@ -2227,6 +2229,20 @@ private slots:
         QVERIFY2(got.contains(ownId),
                  qPrintable(QStringLiteral("%1 (%2) did not find itself; got [%3]")
                                 .arg(p.title(), ownId, got.join(QStringLiteral(", ")))));
+
+        // The bucket must also name the FILE, not only the entry. The dial-in
+        // difference block compares against a bundled profile's values, so a
+        // bucket that resolves an id but cannot say which file backs it leaves
+        // that block with nothing to diff against. Basenames because the index
+        // reads `:/profiles` while this test enumerates the source tree.
+        QStringList bundledNames;
+        for (const ProfileShapeIndex::BundledMatch& m :
+             ProfileShapeIndex::bundledProfilesForShape(p))
+            bundledNames << QFileInfo(m.resourcePath).fileName();
+        QVERIFY2(bundledNames.contains(QFileInfo(filePath).fileName()),
+                 qPrintable(QStringLiteral("%1 is absent from its own bucket's files; got [%2]")
+                                .arg(QFileInfo(filePath).fileName(),
+                                     bundledNames.join(QStringLiteral(", ")))));
     }
 
     // A candidate set that varied with enumeration order would be an
@@ -2266,6 +2282,208 @@ private slots:
     {
         const Profile empty;
         QVERIFY(ProfileShapeIndex::candidatesForShape(empty).isEmpty());
+        QVERIFY(ProfileShapeIndex::bundledProfilesForShape(empty).isEmpty());
+    }
+
+    // A bucket's FILES, on the smaller of the two real collisions. Sorted for
+    // the same reason the id list is: a caller picks a base from this list, and
+    // an enumeration-order-dependent list is an enumeration-order-dependent
+    // attribution shown to the user.
+    void shapeIndex_bundledFilesCoverTheWholeBucketAndAreSorted()
+    {
+        QFile f(shippedProfileDir().filePath(QStringLiteral("d_flow_default.json")));
+        QVERIFY2(f.open(QIODevice::ReadOnly), "fixture profile missing");
+        const Profile p = Profile::fromJson(QJsonDocument::fromJson(f.readAll()));
+
+        const QVector<ProfileShapeIndex::BundledMatch> got =
+            ProfileShapeIndex::bundledProfilesForShape(p);
+
+        QStringList names, ids;
+        for (const ProfileShapeIndex::BundledMatch& m : got) {
+            names << QFileInfo(m.resourcePath).fileName();
+            ids << m.kbId;
+        }
+        QCOMPARE(names, (QStringList{ QStringLiteral("d_flow_default.json"),
+                                      QStringLiteral("d_flow_la_pavoni.json") }));
+        QCOMPARE(ids, (QStringList{ QStringLiteral("d-flow"),
+                                    QStringLiteral("d-flow-la-pavoni-variant") }));
+
+        QStringList sortedPaths;
+        for (const ProfileShapeIndex::BundledMatch& m : got) sortedPaths << m.resourcePath;
+        QStringList expectSorted = sortedPaths;
+        expectSorted.sort();
+        QCOMPARE(sortedPaths, expectSorted);
+    }
+
+    // === Dial-in base selection (change: summarize-profile-changes-from-builtin) ===
+    //
+    // Fixtures are the REAL colliding bucket — hybrid_pour_over_espresso and
+    // preinfuse_then_45ml_of_water — because a synthetic pair would not exercise
+    // the index, and because both are `type: flow`, so a retitled copy misses
+    // every title step (the editor-type default covers only dflow/aflow) and
+    // genuinely reaches the shape step this feature is built on.
+
+    // Load a shipped profile, edit its JSON, hand back the Profile.
+    static Profile shippedProfileEdited(const QString& file,
+                                        const std::function<void(QJsonObject&)>& edit)
+    {
+        QFile f(shippedProfileDir().filePath(file));
+        if (!f.open(QIODevice::ReadOnly)) return Profile();
+        QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+        edit(obj);
+        return Profile::fromJson(QJsonDocument(obj));
+    }
+
+    // Set one key on every step.
+    static void setOnEveryStep(QJsonObject& obj, const QString& key, const QJsonValue& v)
+    {
+        QJsonArray steps = obj[QStringLiteral("steps")].toArray();
+        for (int i = 0; i < steps.size(); ++i) {
+            QJsonObject st = steps[i].toObject();
+            st[key] = v;
+            steps[i] = st;
+        }
+        obj[QStringLiteral("steps")] = steps;
+    }
+
+    static void setOnStep(QJsonObject& obj, int index, const QString& key, const QJsonValue& v)
+    {
+        QJsonArray steps = obj[QStringLiteral("steps")].toArray();
+        QJsonObject st = steps[index].toObject();
+        st[key] = v;
+        steps[index] = st;
+        obj[QStringLiteral("steps")] = steps;
+    }
+
+    // A re-tuned copy picks the profile it was copied FROM, not its bucket-mate.
+    // This is the whole point of selection: the shape alone cannot tell them
+    // apart, and the dial-in values can.
+    void dialInBase_aRetunedCopyPicksTheProfileItCameFrom()
+    {
+        const Profile user = shippedProfileEdited(
+            QStringLiteral("preinfuse_then_45ml_of_water.json"), [](QJsonObject& o) {
+                o[QStringLiteral("title")] = QStringLiteral("Zzz My Own Thing");
+                setOnEveryStep(o, QStringLiteral("temperature"), QStringLiteral("89.00"));
+            });
+        QVERIFY(user.isValid());
+
+        const KbResolution res = resolveProfileKb(user);
+        QCOMPARE(res.origin, KbResolution::Origin::Shape);
+        QVERIFY2(res.ids.size() > 1, "fixture precondition: this shape must be ambiguous");
+
+        const DialInComparison cmp = compareWithBundledBase(user, res);
+        QVERIFY(cmp.hasBase());
+        QCOMPARE(cmp.baseKbId, QStringLiteral("preinfuse-then-45ml-of-water"));
+        QCOMPARE(cmp.deltas.size(), 1);
+        QCOMPARE(cmp.deltas.first().kind, QStringLiteral("temperature"));
+        // Collapsed: one edit, not three frames' worth.
+        QCOMPARE(cmp.deltas.first().frameIndex, -1);
+    }
+
+    // Equidistant means no base. Naming one here would be a coin flip presented
+    // to the user as a fact, which is the failure the whole gate exists to
+    // prevent — the six fields below are exactly the ones on which the two
+    // bundled profiles disagree, and this fixture differs from both on all six.
+    void dialInBase_anEquidistantProfileGetsNoBase()
+    {
+        const Profile user = shippedProfileEdited(
+            QStringLiteral("hybrid_pour_over_espresso.json"), [](QJsonObject& o) {
+                o[QStringLiteral("title")] = QStringLiteral("Zzz Equidistant Fixture");
+                o[QStringLiteral("target_volume")] = QStringLiteral("18.0");   // 0 vs 36
+                setOnEveryStep(o, QStringLiteral("temperature"), QStringLiteral("95.00")); // 92 vs 90
+                setOnStep(o, 0, QStringLiteral("flow"), QStringLiteral("5.00"));  // 2.00 vs 8.00
+                setOnStep(o, 1, QStringLiteral("flow"), QStringLiteral("2.50"));  // 2.20 vs 2.00
+                setOnStep(o, 2, QStringLiteral("flow"), QStringLiteral("1.40"));  // 1.80 vs 1.00
+                QJsonArray steps = o[QStringLiteral("steps")].toArray();
+                QJsonObject f0 = steps[0].toObject();
+                QJsonObject exit = f0[QStringLiteral("exit")].toObject();
+                exit[QStringLiteral("value")] = QStringLiteral("2.50");           // 1.50 vs 4.00
+                f0[QStringLiteral("exit")] = exit;
+                steps[0] = f0;
+                o[QStringLiteral("steps")] = steps;
+            });
+        QVERIFY(user.isValid());
+
+        const KbResolution res = resolveProfileKb(user);
+        QCOMPARE(res.origin, KbResolution::Origin::Shape);
+
+        // Precondition: genuinely equidistant. Asserted rather than assumed —
+        // if a bundled profile is retuned later this must fail loudly rather
+        // than quietly stop testing the tie path.
+        const Profile hybrid =
+            Profile::loadFromFile(QStringLiteral(":/profiles/hybrid_pour_over_espresso.json"));
+        const Profile preinf =
+            Profile::loadFromFile(QStringLiteral(":/profiles/preinfuse_then_45ml_of_water.json"));
+        QCOMPARE(Profile::dialInDeltas(hybrid, user).size(),
+                 Profile::dialInDeltas(preinf, user).size());
+
+        QVERIFY(!compareWithBundledBase(user, res).hasBase());
+    }
+
+    // The title path: an in-place edit of a bundled profile keeps its name, so it
+    // never reaches the shape step — yet it is the larger population and must
+    // still get its differences.
+    void dialInBase_aTitleResolvedInPlaceEditStillGetsItsBase()
+    {
+        const Profile user = shippedProfileEdited(
+            QStringLiteral("hybrid_pour_over_espresso.json"), [](QJsonObject& o) {
+                setOnEveryStep(o, QStringLiteral("temperature"), QStringLiteral("94.00"));
+            });
+        QVERIFY(user.isValid());
+
+        const KbResolution res = resolveProfileKb(user);
+        QCOMPARE(res.origin, KbResolution::Origin::Title);
+
+        const DialInComparison cmp = compareWithBundledBase(user, res);
+        QVERIFY(cmp.hasBase());
+        QCOMPARE(cmp.baseTitle, QStringLiteral("Hybrid pour over espresso"));
+        QCOMPARE(cmp.deltas.size(), 1);
+        QCOMPARE(cmp.deltas.first().kind, QStringLiteral("temperature"));
+    }
+
+    // A title match says nothing about frame structure. Diffing a differently
+    // shaped profile against its namesake would render "frame 4 does not exist"
+    // noise and falsely present it as a modified copy.
+    void dialInBase_aTitleMatchOfADifferentShapeGetsNoBase()
+    {
+        const Profile user = shippedProfileEdited(
+            QStringLiteral("hybrid_pour_over_espresso.json"), [](QJsonObject& o) {
+                QJsonArray steps = o[QStringLiteral("steps")].toArray();
+                steps.removeLast();                       // structural edit
+                o[QStringLiteral("steps")] = steps;
+            });
+        QVERIFY(user.isValid());
+
+        const KbResolution res = resolveProfileKb(user);
+        QCOMPARE(res.origin, KbResolution::Origin::Title);
+        QVERIFY(!compareWithBundledBase(user, res).hasBase());
+    }
+
+    // A bundled profile IS the documentation. "An unchanged copy of yourself" is
+    // not a thing to tell anyone.
+    void dialInBase_aBundledProfileComparedWithItselfGetsNoBase()
+    {
+        const Profile self =
+            Profile::loadFromFile(QStringLiteral(":/profiles/hybrid_pour_over_espresso.json"));
+        QVERIFY(self.isValid());
+        QVERIFY(!compareWithBundledBase(self, resolveProfileKb(self)).hasBase());
+    }
+
+    // A renamed but otherwise untouched copy DOES get a base, with no deltas —
+    // the "unchanged copy of X" case, which must be distinguishable from having
+    // no base at all.
+    void dialInBase_aRenamedUntouchedCopyHasABaseAndNoDeltas()
+    {
+        const Profile user = shippedProfileEdited(
+            QStringLiteral("preinfuse_then_45ml_of_water.json"), [](QJsonObject& o) {
+                o[QStringLiteral("title")] = QStringLiteral("Zzz Renamed Only");
+            });
+        QVERIFY(user.isValid());
+
+        const DialInComparison cmp = compareWithBundledBase(user, resolveProfileKb(user));
+        QVERIFY(cmp.hasBase());
+        QCOMPARE(cmp.baseKbId, QStringLiteral("preinfuse-then-45ml-of-water"));
+        QVERIFY(cmp.deltas.isEmpty());
     }
 
     // === Candidate-set transfer rules (group 4) ===

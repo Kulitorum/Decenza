@@ -339,6 +339,34 @@ public:
     // Takes a title because that is what a shot record stores. A profile the
     // user has since deleted is not in the catalog and returns empty.
     Q_INVOKABLE QString profileKbDerivedFrom(const QString& profileTitle) const;
+
+    // The dial-in differences between a profile and the bundled profile whose
+    // knowledge is being shown for it (change: summarize-profile-changes-from-builtin).
+    //
+    // Keys: hasBase (bool), baseTitle, baseKbId, unchanged (bool), rows
+    // (QVariantList of { kind, frameIndex, frameName, numeric, oldValue,
+    // newValue, oldText, newText }).
+    //
+    // Three outcomes the surface must tell apart, and they are NOT the same:
+    //   hasBase false            - no comparison was possible; show nothing.
+    //   hasBase true, unchanged  - a copy of the bundled profile with nothing
+    //                              dialled differently; say so, because it
+    //                              means the knowledge applies unqualified.
+    //   hasBase true, rows       - the differences.
+    //
+    // No user-visible text here. `kind` is a stable identifier QML turns into a
+    // translated label; values are raw, so QML can apply the user's temperature
+    // unit through the display helper the rest of the app uses.
+    Q_INVOKABLE QVariantMap profileDialInDiff(const QString& profileTitle) const;
+
+    // Same, for a profile stored with a SHOT rather than one in the catalog.
+    //
+    // A separate entry point rather than a flag because the source genuinely
+    // differs: a shot must be compared against the profile it was pulled with,
+    // not against whatever that catalog entry has been edited into since.
+    // Unparseable JSON yields hasBase false, the same as any other profile that
+    // cannot be compared.
+    Q_INVOKABLE QVariantMap profileDialInDiffForJson(const QString& profileJson) const;
     Q_INVOKABLE bool deleteProfile(const QString& filename);
     Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const;
 
@@ -550,6 +578,20 @@ private:
     // no profile has that title, and also when two do and disagree about their
     // KB resolution — see the definition for why picking one is wrong.
     const ProfileInfo* findProfileByTitleForKb(const QString& profileTitle) const;
+
+    // The non-consuming half of the four-step profile lookup: SAF storage, user
+    // folder, downloaded folder, `:/profiles`. Returns an invalid Profile when
+    // the filename is in none of them.
+    //
+    // loadProfile() deliberately does NOT use this and keeps its own copy of the
+    // walk: its step 1 reads m_profileJsonCache with take(), which CONSUMES the
+    // startup cache entry, and it tracks an Origin the callers here have no use
+    // for. A shared helper would either consume that cache on a read-only query
+    // or need a flag that makes it two functions wearing one name.
+    Profile loadProfileByFilename(const QString& filename, bool* found = nullptr) const;
+
+    // Shared body of the two profileDialInDiff* invokables.
+    static QVariantMap dialInDiffFor(const Profile& p);
 
     static ProfileManager *s_qmlInstance;
 

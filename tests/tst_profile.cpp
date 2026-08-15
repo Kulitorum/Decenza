@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <functional>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -1955,6 +1956,150 @@ private slots:
         // Empty-step guard, the same one shapeSignature() applies.
         const Profile empty;
         QVERIFY(!Profile::functionallyEqual(empty, empty));
+    }
+
+    // === Profile field deltas (change: summarize-profile-changes-from-builtin) ===
+    //
+    // One traversal now feeds two audiences: the developer report that gates
+    // TCL import parity, and the user-facing dial-in block. These assert the
+    // boundary between them, because the compiler cannot.
+
+    // Mutate one frame of a fixture and hand back the profile.
+    static Profile withFrame(Profile p, int index,
+                             const std::function<void(ProfileFrame&)>& edit)
+    {
+        QList<ProfileFrame> steps = p.steps();
+        edit(steps[index]);
+        p.setSteps(steps);
+        return p;
+    }
+
+    // The developer report's TEXT, not merely its emptiness. tst_tclimport
+    // asserts only that it comes back empty, which catches a field appearing or
+    // vanishing but says nothing about how a difference renders — so a format
+    // change would pass every gate while breaking profile_sync's output.
+    void frameDiffReport_renderedTextIsPinned()
+    {
+        const Profile a = makeShapeProfile();
+        Profile b = withFrame(makeShapeProfile(), 0, [](ProfileFrame& f) {
+            f.flow = 2.5;
+            f.exitPressureOver = 6.0;
+        });
+        b = withFrame(b, 1, [](ProfileFrame& f) { f.temperature = 88.0; });
+
+        QCOMPARE(Profile::frameDiffReport(a, b),
+                 QStringLiteral("  FRAME[0] flow: A=4 B=2.5\n"
+                                "  FRAME[0] exitPressureOver: A=4 B=6\n"
+                                "  FRAME[1] temperature: A=92 B=88\n"));
+    }
+
+    // Frame 0 is flow-driven, so its pressure value is one the machine never
+    // applies. The parity gate still wants it; a user must not be shown it.
+    void dialInDeltas_theInactiveAxisIsDeveloperOnly()
+    {
+        const Profile base = makeShapeProfile();
+        const Profile user = withFrame(makeShapeProfile(), 0,
+                                       [](ProfileFrame& f) { f.pressure = 6.0; });
+
+        QVERIFY(Profile::frameDiffReport(base, user).contains(QStringLiteral("FRAME[0] pressure")));
+        QVERIFY(Profile::dialInDeltas(base, user).isEmpty());
+    }
+
+    // Frame 0 exits on pressure_over. de1app TCL leaves the other three
+    // thresholds carrying junk, so only the matching one may be reported.
+    void dialInDeltas_onlyTheMatchingExitThresholdIsReported()
+    {
+        const Profile base = makeShapeProfile();
+        const Profile user = withFrame(makeShapeProfile(), 0, [](ProfileFrame& f) {
+            f.exitPressureOver = 6.0;
+            f.exitFlowUnder = 1.5;
+        });
+
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(base, user);
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().kind, QStringLiteral("exitPressureOver"));
+        QCOMPARE(rows.first().oldValue, 4.0);
+        QCOMPARE(rows.first().newValue, 6.0);
+    }
+
+    // A renamed frame is a real signal to a user and is NOT an import defect,
+    // so it must reach the dial-in rows and must not reach the parity gate.
+    void dialInDeltas_aRenamedFrameIsUserFacingOnly()
+    {
+        const Profile base = makeShapeProfile();
+        const Profile user = withFrame(makeShapeProfile(), 1, [](ProfileFrame& f) {
+            f.name = QStringLiteral("pour");
+        });
+
+        QVERIFY(Profile::frameDiffReport(base, user).isEmpty());
+
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(base, user);
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().kind, QStringLiteral("name"));
+        QVERIFY(!rows.first().numeric);
+        QCOMPARE(rows.first().oldText, QStringLiteral("hold"));
+        QCOMPARE(rows.first().newText, QStringLiteral("pour"));
+        QCOMPARE(rows.first().frameIndex, 1);
+    }
+
+    // Shape fields cannot differ once the block's shape gate is met, so a
+    // dial-in row for one would be dead code that only ever misleads.
+    void dialInDeltas_shapeFieldsNeverReachTheUser()
+    {
+        const Profile base = makeShapeProfile();
+        const Profile user = withFrame(makeShapeProfile(), 0,
+                                       [](ProfileFrame& f) { f.seconds = 18.0; });
+
+        QVERIFY(Profile::frameDiffReport(base, user).contains(QStringLiteral("seconds")));
+        QVERIFY(Profile::dialInDeltas(base, user).isEmpty());
+    }
+
+    // Profile-level dial-in values are user-facing only: widening the parity
+    // gate to a yield difference would reject imports that are perfectly
+    // portable.
+    void dialInDeltas_profileLevelValuesAreUserFacingOnly()
+    {
+        const Profile base = makeShapeProfile();
+        Profile user = makeShapeProfile();
+        user.setTargetWeight(base.targetWeight() + 6.0);
+
+        QVERIFY(Profile::frameDiffReport(base, user).isEmpty());
+
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(base, user);
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().kind, QStringLiteral("targetWeight"));
+        QCOMPARE(rows.first().frameIndex, -1);
+    }
+
+    // Raising a two-frame profile's temperature is ONE edit. Reporting it once
+    // per frame is longer and less true.
+    void dialInDeltas_aChangeOnEveryFrameCollapsesToOneRow()
+    {
+        const Profile base = makeShapeProfile();
+        const Profile user = makeShapeProfile(/*temp=*/88.0);
+
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(base, user);
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().kind, QStringLiteral("temperature"));
+        QCOMPARE(rows.first().frameIndex, -1);
+        QVERIFY(rows.first().frameName.isEmpty());
+        QCOMPARE(rows.first().oldValue, 92.0);
+        QCOMPARE(rows.first().newValue, 88.0);
+    }
+
+    // ...but a change on SOME frames is genuinely several edits and keeps its
+    // frame numbers. This is the boundary the collapse rule must not cross.
+    void dialInDeltas_aChangeOnSomeFramesKeepsItsFrameNumbers()
+    {
+        const Profile base = makeShapeProfile();
+        const Profile user = withFrame(makeShapeProfile(), 1,
+                                       [](ProfileFrame& f) { f.temperature = 88.0; });
+
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(base, user);
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().kind, QStringLiteral("temperature"));
+        QCOMPARE(rows.first().frameIndex, 1);
+        QCOMPARE(rows.first().frameName, QStringLiteral("hold"));
     }
 
 };

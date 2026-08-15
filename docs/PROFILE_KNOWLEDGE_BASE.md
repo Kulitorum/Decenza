@@ -154,6 +154,55 @@ profile data. Once it did not have that evidence — see the note under
 [Londinium](#londinium) — and the fix was in the knowledge source, not in the
 transfer rules.
 
+### The dial-in difference block
+
+The knowledge prose describes the **bundled** profile: its temperature, its
+yield, its pressure targets. A user reading it against a re-tuned copy cannot
+otherwise tell which of those numbers still describe what they are about to
+brew. So the knowledge dialog opens with *"Your changes from ‹profile›"* — one
+row per dial-in value that differs.
+
+Three rules decide whether it appears at all
+(`compareWithBundledBase()`, `src/ai/profileshapeindex.h`):
+
+1. **Shape equality is the gate, not resolution origin.** A title-resolved
+   profile gets the block too, whenever it is the same shape as the bundled
+   profile its entry was authored against — that is the larger population, a
+   user editing a bundled profile's temperature in place and keeping the name.
+   A title match of a *different* shape gets nothing: a title says nothing
+   about frame structure, and diffing there would render "frame 4 does not
+   exist" noise while falsely presenting the profile as a modified copy.
+2. **The base is a bundled FILE, never a KB id.** One entry can be authored
+   against several bundled profiles — `gentle-flat-long-preinfusion-family` has
+   four — so "distance to an entry" is not defined.
+3. **Fewest differing dial-in fields wins; a tie shows nothing.** Nearness is
+   *not* how far apart the values are: a magnitude comparison would need a
+   weighting between bar, mL/s, °C and grams that nothing in the domain
+   supplies, and that weighting would silently decide the outcome. Counting
+   needs no weighting, and the winner's difference list is the same list that
+   selected it — the selection and the thing selected cannot disagree, because
+   they are one computation.
+
+The compared fields are exactly the ones the shape ignores: target weight,
+target volume, maximum pressure and flow at profile level; per frame the
+temperature, the **active** setpoint, the **matching** exit threshold, the exit
+weight, the volume cap, the limiter value and the step name. The inactive axis
+is excluded because the machine never applies it, the limiter *range* because it
+is a control-loop constant, and every shape field because it cannot differ once
+the gate is met. One field that changed identically on every frame collapses to
+a single row — raising a three-frame profile's temperature is one edit.
+
+An empty difference list with a base selected is **not** the same as no base:
+it means the profile is an unchanged copy, which the surface states, because it
+tells the reader the knowledge applies without qualification.
+
+`Profile::fieldDeltas()` is one traversal serving two audiences — this block and
+`frameDiffReport()`, the developer text behind `profile_sync` and the TCL import
+parity gate. Each row declares which it belongs to. They differ deliberately in
+two places: the inactive axis and the profile-level values are developer-only or
+user-only respectively, and a renamed frame reaches the user but not the parity
+gate, since a rename is not a portability defect.
+
 ## The 4 Mother Categories
 
 All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`

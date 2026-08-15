@@ -1117,6 +1117,79 @@ QString ProfileManager::profileKbDerivedFrom(const QString& profileTitle) const 
     return found ? found->kbDerivedFrom : QString();
 }
 
+QVariantMap ProfileManager::dialInDiffFor(const Profile& p) {
+    QVariantMap out;
+    out[QStringLiteral("hasBase")] = false;
+    out[QStringLiteral("unchanged")] = false;
+    out[QStringLiteral("rows")] = QVariantList();
+    if (!p.isValid()) return out;
+
+    const DialInComparison cmp = compareWithBundledBase(p, resolveProfileKb(p));
+    if (!cmp.hasBase()) return out;
+
+    QVariantList rows;
+    rows.reserve(cmp.deltas.size());
+    for (const ProfileFieldDelta& d : cmp.deltas) {
+        rows.append(QVariantMap{
+            { QStringLiteral("kind"),       d.kind },
+            { QStringLiteral("unit"),       d.unit },
+            { QStringLiteral("frameIndex"), d.frameIndex },
+            { QStringLiteral("frameName"),  d.frameName },
+            { QStringLiteral("numeric"),    d.numeric },
+            { QStringLiteral("oldValue"),   d.oldValue },
+            { QStringLiteral("newValue"),   d.newValue },
+            { QStringLiteral("oldText"),    d.oldText },
+            { QStringLiteral("newText"),    d.newText },
+        });
+    }
+
+    out[QStringLiteral("hasBase")]   = true;
+    out[QStringLiteral("baseTitle")] = cmp.baseTitle;
+    out[QStringLiteral("baseKbId")]  = cmp.baseKbId;
+    out[QStringLiteral("unchanged")] = rows.isEmpty();
+    out[QStringLiteral("rows")]      = rows;
+    return out;
+}
+
+QVariantMap ProfileManager::profileDialInDiff(const QString& profileTitle) const {
+    // Through findProfileByTitleForKb rather than a bare title scan, so this
+    // answers from the same catalog entry the sparkle and the "Based on X" line
+    // do. Two same-titled profiles that disagree return nothing there, and
+    // showing a difference block for one of them would contradict that.
+    const ProfileInfo* found = findProfileByTitleForKb(profileTitle);
+    if (!found) return dialInDiffFor(Profile());
+
+    // NOT MEASURED, and deliberately not given a number here. The work is one
+    // Profile load from disk plus one to four from the (in-memory) resource
+    // system, each followed by a linear field walk — bounded by the shape
+    // bucket, whose largest member over the shipped set is two. It runs on
+    // knowledge-dialog OPEN, a discrete user action, and the dialog assigns it
+    // to a plain property rather than binding it, so it evaluates once per open
+    // and never re-evaluates on an unrelated change. That is what makes it an
+    // acceptable inline read; a stopwatch figure would not change the decision,
+    // and inventing one would be worse than admitting there isn't one.
+    //
+    // A cold shape index adds the 48 ms documented in profileshapeindex.cpp —
+    // that one IS measured, and the catalog scan normally pays it first.
+    return dialInDiffFor(loadProfileByFilename(found->filename));
+}
+
+QVariantMap ProfileManager::profileDialInDiffForJson(const QString& profileJson) const {
+    // Parsed here rather than through Profile::loadFromJsonString, which warns.
+    // A shot row with unreadable profile JSON is already reported where it is
+    // READ (shothistorystorage_internal.cpp warns, and the shot-detail page
+    // parses the same string for its own header). Warning again here would
+    // re-report one defect on every knowledge-dialog open, for a user who can
+    // do nothing about it, and this path has a perfectly good answer for the
+    // case: nothing can be compared, so there is no base.
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError)
+        return dialInDiffFor(Profile());
+
+    return dialInDiffFor(Profile::fromJson(doc));
+}
+
 bool ProfileManager::profileExists(const QString& filename) const {
     if (m_availableProfiles.contains(filename))
         return true;
@@ -1312,46 +1385,39 @@ bool ProfileManager::resetProfileToDefault(const QString& filename) {
     return true;
 }
 
-QVariantMap ProfileManager::getProfileByFilename(const QString& filename) const {
-    Profile profile;
-    bool found = false;
-
-    // 1. Check ProfileStorage first (SAF folder on Android)
+Profile ProfileManager::loadProfileByFilename(const QString& filename, bool* found) const {
+    if (found) *found = true;
+    // 1. ProfileStorage (SAF folder on Android). Reads WITHOUT consuming
+    //    m_profileJsonCache — see the declaration for why loadProfile() keeps
+    //    its own walk instead of calling this.
     if (m_profileStorage && m_profileStorage->isConfigured()) {
-        QString jsonContent = m_profileStorage->readProfile(filename);
-        if (!jsonContent.isEmpty()) {
-            profile = Profile::loadFromJsonString(jsonContent);
-            found = true;
-        }
+        const QString jsonContent = m_profileStorage->readProfile(filename);
+        if (!jsonContent.isEmpty())
+            return Profile::loadFromJsonString(jsonContent);
     }
 
-    // 2. Check user profiles (local fallback)
-    if (!found) {
-        QString path = userProfilesPath() + "/" + filename + ".json";
-        if (QFile::exists(path)) {
-            profile = Profile::loadFromFile(path);
-            found = true;
-        }
-    }
+    // 2-4. User folder, downloaded folder, built-ins, in precedence order: a
+    //      local copy shadows the bundled one of the same name.
+    const QStringList paths{
+        userProfilesPath() + "/" + filename + ".json",
+        downloadedProfilesPath() + "/" + filename + ".json",
+        ":/profiles/" + filename + ".json",
+    };
+    for (const QString& path : paths)
+        if (QFile::exists(path))
+            return Profile::loadFromFile(path);
 
-    // 3. Check downloaded profiles (local fallback)
-    if (!found) {
-        QString path = downloadedProfilesPath() + "/" + filename + ".json";
-        if (QFile::exists(path)) {
-            profile = Profile::loadFromFile(path);
-            found = true;
-        }
-    }
+    if (found) *found = false;
+    return Profile();   // invalid: no steps
+}
 
-    // 4. Check built-in profiles
-    if (!found) {
-        QString path = ":/profiles/" + filename + ".json";
-        if (QFile::exists(path)) {
-            profile = Profile::loadFromFile(path);
-            found = true;
-        }
-    }
-
+QVariantMap ProfileManager::getProfileByFilename(const QString& filename) const {
+    // `found`, not isValid(): a file that exists but parses to a step-less
+    // profile still returned a (partly empty) map before this helper existed,
+    // and some caller may rely on that. Extracting the lookup must not quietly
+    // change what a malformed profile does.
+    bool found = false;
+    Profile profile = loadProfileByFilename(filename, &found);
     if (!found) {
         return QVariantMap();  // Return empty map if not found
     }
