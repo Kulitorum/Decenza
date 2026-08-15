@@ -67,6 +67,16 @@ The order-dependent greedy `startsWith`/`contains` fallback historically removed
 - **WHEN** a shot record persisted with the legacy normalized-title kbId `"d-flow / q - jeff"` is resolved through `resolveKbInput`
 - **THEN** it resolves to the D-Flow-Q variant `id` via the same shared recipe-prefix step, so band/UGS/analysisFlags recompute correctly on load
 
+## REMOVED Requirements
+
+### Requirement: A corpus resolution test SHALL be a hard gate
+
+**Reason**: renamed and widened. The requirement named a specific test FILE (`tst_kb_resolution`) as the gate, and that file has never existed in this repository — so the stated hard gate was not enforced by anything. It is replaced by an obligation on the corpus OUTCOME plus direct identity assertions, which an existing test file already carries, so the requirement can be satisfied without inventing a file whose absence nobody noticed.
+
+**Migration**: superseded by "A corpus resolution gate SHALL be a hard merge gate, asserting outcomes as well as identity" in the ADDED section below.
+
+## ADDED Requirements
+
 ### Requirement: A corpus resolution gate SHALL be a hard merge gate, asserting outcomes as well as identity
 
 Resolution SHALL be gated by the shot corpus, which runs the real analysis pipeline over stored shots and
@@ -108,7 +118,6 @@ Both gates SHALL be part of the suite that gates merge.
 - **THEN** it SHALL resolve to its correct canonical entry, and a regression to the band-less default SHALL
   fail
 
-## ADDED Requirements
 
 ### Requirement: A shape-based resolution step SHALL follow the title steps and SHALL resolve to a candidate set
 

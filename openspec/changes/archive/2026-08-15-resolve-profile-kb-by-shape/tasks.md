@@ -191,7 +191,7 @@ data fix the shape matcher exposed; the second is the surfacing rule the first o
 ## 8. Gates and documentation
 
 - [x] 8.1 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) and the qmllint gate; both green.
-- [ ] 8.2 Note in the PR that `tst_kb_resolution` — named as a hard gate by the pre-change spec — never
+- [x] 8.2 Note in the PR that `tst_kb_resolution` — named as a hard gate by the pre-change spec — never
       existed; the delta replaces that requirement with the corpus-outcome gate plus identity assertions in
       an existing file.
 - [x] 8.3 Update `docs/SHOT_REVIEW.md`: the badge row is no longer KB-gated, and the "Shot Summary chip
@@ -209,5 +209,5 @@ data fix the shape matcher exposed; the second is the surfacing rule the first o
       X", and that the app uses the matched profile's knowledge to avoid flagging expected behaviour.
       Added as `### Profile Knowledge` under section 6, committed in the wiki clone; the push is a public
       publication and is left for the maintainer to trigger.
-- [ ] 8.7 Archive this change with `openspec archive resolve-profile-kb-by-shape` as the last commit on the
+- [x] 8.7 Archive this change with `openspec archive resolve-profile-kb-by-shape` as the last commit on the
       branch, before merge.
