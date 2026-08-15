@@ -18,8 +18,19 @@ ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson)
 
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8(), &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject())
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        // Loud, because this is the one path where the stale-id fallback below
+        // is completely uninspectable: an unparseable profile yields an empty
+        // title, so the fallback's own log line (which requires a title) never
+        // fires. Without this the shot silently analyses against whatever the
+        // persisted id happened to be, with nothing recording that its own
+        // profile could not be read.
+        qWarning() << "profileFrameInfoFromJson: stored profile JSON unparseable ("
+                   << parseError.errorString()
+                   << ") - shape resolution disabled for this shot; falling back"
+                   << "to the persisted kbId";
         return {};
+    }
 
     const Profile profile = Profile::fromJson(doc);
     ProfileFrameInfo info;
@@ -72,9 +83,10 @@ AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
     // facts reaching a shot — arriving through the change's own code. A
     // profile with no frames has no identity to resolve and no shape to match,
     // so it resolves to nothing.
-    const KbResolution resolution = frameInfo.profile.steps().isEmpty()
-        ? KbResolution{}
-        : resolveProfileKb(frameInfo.profile);
+    const KbResolution resolution =
+        (!frameInfo.profile || frameInfo.profile->steps().isEmpty())
+            ? KbResolution{}
+            : resolveProfileKb(*frameInfo.profile);
 
     // Same observability as before for the stale-id fallback: a non-empty
     // title that fails to re-resolve while a stale stored id survives means we
@@ -84,6 +96,19 @@ AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
         qDebug() << "prepareAnalysisInputs: fresh re-resolve missed for title="
                  << frameInfo.profileTitle
                  << "— falling back to stored kbId=" << profileKbId;
+    }
+
+    // A fresh SHAPE match that contradicts the recorded id is worth a line.
+    // The fresh resolution wins deliberately — a persisted id that no longer
+    // resolves is a fossil of an older KB, and re-resolving from the shot's
+    // own profile is the whole point of this path — but the shot's analysis
+    // then changes from what it was, and this is the only place that knows.
+    if (resolution.origin == KbResolution::Origin::Shape
+        && !profileKbId.isEmpty() && !resolution.ids.contains(profileKbId)) {
+        qInfo() << "prepareAnalysisInputs: shape match" << resolution.ids
+                << "disagrees with the recorded kbId" << profileKbId
+                << "for title" << frameInfo.profileTitle
+                << "- using the shape match; the recorded id is being ignored";
     }
 
     // Fall back to the stored id when nothing re-resolves, preserving the
@@ -106,11 +131,16 @@ AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
     // Identity is a stricter claim than analysis: it needs exactly one
     // candidate. An ambiguous shape still suppresses false positives; it just
     // does not get to say WHICH profile it came from.
-    if (resolution.hasIdentity()) {
-        inputs.identityKbId = resolution.ids.first();
+    //
+    // One condition covers both sources of a single candidate — a unique
+    // resolution and the stored-id fallback — because `ids` IS the resolution
+    // when it resolved and the fallback when it did not. `identityFromShape`
+    // then reads off the origin, which is None on the fallback path, so a
+    // stored id is correctly reported as a recorded identity rather than an
+    // inference.
+    if (ids.size() == 1) {
+        inputs.identityKbId = ids.first();
         inputs.identityFromShape = (resolution.origin == KbResolution::Origin::Shape);
-    } else if (resolution.isEmpty() && ids.size() == 1) {
-        inputs.identityKbId = ids.first();   // stored-id fallback path
     }
     return inputs;
 }

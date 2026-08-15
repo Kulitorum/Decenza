@@ -168,7 +168,13 @@ data fix the shape matcher exposed; the second is the surfacing rule the first o
       claim that LRv2 had "different fill/infuse behavior and higher frame temperatures" is disproved
       by the files (both run 89/89/88.5/88.5/88/88/88). LRv2 now resolves to `londinium` and carries
       the cited pressure-peak band it was always entitled to.
-- [x] 7b.2 Split LRv3 into its own `damians-lrv3` entry: eight frames, 90 °C, a 9-bar hold before the
+- [x] 7b.2 Split LRv3 into its own entry, KEEPING the existing `damians-lr-v2-v3` id. The id
+      now names a profile the entry no longer covers, which is deliberate: it is the persisted
+      `profile_kb_id` on every existing shot and the dial-in grouping key, so renaming it strands
+      those rows (the retired id resolves to nothing) and no alias can heal them, a persisted
+      `damians-lr-v2-v3` being ambiguous between the two entries it used to span. It is also what
+      `openspec/specs/dialing-context-payload/spec.md` requires. Original wording: "Split LRv3 into
+      its own `damians-lrv3` entry": eight frames, 90 °C, a 9-bar hold before the
       decline, no flow-control step. It keeps no band, per the existing rationale. The id rename is
       deliberate — a legacy persisted `damians-lr-v2-v3` on an LRv2 shot would otherwise resolve to an
       LRv3-only entry and inherit wrong facts; unresolvable-then-healed by re-resolution beats

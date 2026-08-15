@@ -2284,18 +2284,11 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.yieldAnchorValue = metadata.yieldAnchorValue;
 
     if (profile) {
-        // Persist the resolved identity, which may now come from the profile's
-        // SHAPE when its title resolves to nothing (change:
-        // resolve-profile-kb-by-shape). Title steps still run first and win.
-        //
-        // An AMBIGUOUS shape stores nothing: profile_kb_id is a single-id
-        // column by contract, and picking one of several equally-matching
-        // entries would persist an identity claim the resolution never made.
-        // Nothing is lost by that — every read path re-resolves from the
-        // shot's own profileJson via prepareAnalysisInputs, so the candidate
-        // set is rebuilt on load and the suppression flags still transfer.
-        const KbResolution resolution = resolveProfileKb(*profile);
-        data.profileKbId = resolution.hasIdentity() ? resolution.ids.first() : QString();
+        // A TITLE resolution only — see KbResolution::persistableId() for why a
+        // shape match must not be written to this column. Nothing regresses
+        // relative to main: a title-unresolvable profile stored an empty id
+        // there too, and the shape facts still reach the shot on load.
+        data.profileKbId = resolveProfileKb(*profile).persistableId();
     }
 
     // Compute conductance derivative (post-shot Gaussian smoothing) before compression

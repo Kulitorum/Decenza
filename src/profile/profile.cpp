@@ -1707,7 +1707,7 @@ QString Profile::shapeSignature() const
 
     // Canonical and order-fixed. The exact text is an implementation detail —
     // nothing persists it, nothing parses it back — but it must be STABLE
-    // within a build, because equality of these strings IS sameShape(). A
+    // within a build, because equality of these strings IS "same shape". A
     // field reordered here silently regroups every profile.
     QStringList parts;
     parts.reserve(m_steps.size() + 1);
@@ -1728,22 +1728,12 @@ QString Profile::shapeSignature() const
                           f.sensor.toLower(),
                           f.transition.toLower(),
                           exitPart,
-                          // Rounded, not truncated — see sameShape()'s header
-                          // comment for why this is rounding and not a
+                          // Rounded, not truncated — see this function's
+                          // header comment for why it is rounding and not a
                           // tolerance, and where that distinction bites.
                           QString::number(std::round(f.seconds * 10.0) / 10.0, 'f', 1));
     }
     return parts.join(QLatin1Char('~'));
-}
-
-bool Profile::sameShape(const Profile& a, const Profile& b)
-{
-    // Empty-step profiles have no shape to compare; matching them would make
-    // every malformed profile a relative of every other. Mirrors
-    // functionallyEqual()'s same guard.
-    const QString sa = a.shapeSignature();
-    if (sa.isEmpty()) return false;
-    return sa == b.shapeSignature();
 }
 
 QString Profile::frameDiffReport(const Profile& a, const Profile& b)

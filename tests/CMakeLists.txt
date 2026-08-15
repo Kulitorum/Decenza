@@ -135,6 +135,14 @@ set(ANALYSIS_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
+    # Shape-based KB resolution (change: resolve-profile-kb-by-shape). It sat
+    # in its own narrow decenza_shapelib until shotsummarizer.cpp itself began
+    # calling resolveProfileKb — and shotsummarizer.cpp is compiled HERE, so
+    # the narrow library would have had to be linked by everything that links
+    # this one, which is the fan-out the narrow library existed to avoid, plus
+    # a circular dependency (shapelib linked testlib). One TU, compiled once,
+    # in the library its caller already lives in.
+    ${CMAKE_SOURCE_DIR}/src/ai/profileshapeindex.cpp
 )
 
 set(SIMULATOR_SOURCES
@@ -294,26 +302,6 @@ endif()
 # Tests that link this still need version_code.cpp and, if they touch the KB
 # loaders, the ai.qrc resource — neither belongs in a shared static lib.
 # ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# decenza_shapelib: KB resolution by profile SHAPE (change:
-# resolve-profile-kb-by-shape). ONE translation unit, deliberately its own
-# library rather than a copy in each consumer.
-#
-# Two libraries need it and neither contains the other: decenza_profilelib
-# (ProfileManager's catalog scan resolves each profile) and decenza_shotlib
-# (prepareAnalysisInputs resolves the shot's stored profile). Listing the
-# source in both would duplicate the TU — which scripts/check_test_source_
-# duplication.py rejects — and duplicate the symbol for any target linking
-# both. Putting it in the universally-linked decenza_testlib would hand it to
-# ~60 binaries that never resolve a profile.
-# ---------------------------------------------------------------------------
-add_library(decenza_shapelib STATIC
-    ${CMAKE_SOURCE_DIR}/src/ai/profileshapeindex.cpp
-)
-set_target_properties(decenza_shapelib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
-target_compile_definitions(decenza_shapelib PUBLIC DECENZA_TESTING)
-target_link_libraries(decenza_shapelib PUBLIC decenza_testlib)
-
 find_package(Qt6 REQUIRED COMPONENTS Quick)
 add_library(decenza_shotlib STATIC
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
@@ -329,7 +317,6 @@ set_target_properties(decenza_shotlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX 
 target_compile_definitions(decenza_shotlib PUBLIC DECENZA_TESTING)
 target_link_libraries(decenza_shotlib PUBLIC
     decenza_testlib
-    decenza_shapelib
     Qt6::Quick
 )
 # ${CMAKE_BINARY_DIR} for the generated version.h, which visualizeruploader.cpp
@@ -999,9 +986,10 @@ set_target_properties(decenza_profilelib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREF
 # <MQTTAsync.h>. Every one of the nine consumers already linked paho, so this
 # requirement was invisible while the sources were pasted into them; hoisting
 # them into a library is what surfaced it.
-# decenza_shapelib: ProfileManager's catalog scan resolves each profile by
-# shape when its title misses.
-target_link_libraries(decenza_profilelib PUBLIC decenza_testlib decenza_shapelib paho-mqtt3a-static)
+# ProfileManager's catalog scan resolves each profile by shape when its title
+# misses; profileshapeindex.cpp is compiled into decenza_testlib, so that
+# comes with the testlib link.
+target_link_libraries(decenza_profilelib PUBLIC decenza_testlib paho-mqtt3a-static)
 
 # --- The rest of the narrow libraries, same rule: consumer set no wider than
 # the targets that need the sources. Each replaced a source list pasted into

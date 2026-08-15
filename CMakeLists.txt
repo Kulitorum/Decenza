@@ -1402,6 +1402,7 @@ set(QML_FILES
     qml/components/DrinkType.qml
     qml/components/SteamLabels.qml
     qml/components/ProfileKnowledgeDialog.qml
+    qml/components/KbDerivedFromLabel.qml
     qml/components/BeanThumbnail.qml
     qml/components/BackgroundSurface.qml
     qml/components/LastShotChartRenderer.qml

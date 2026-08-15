@@ -406,24 +406,30 @@ public:
     // It is also inherently PAIRWISE — its inactive-axis rule reads both
     // frames at once (skip when EITHER side is zero, because de1app writes a
     // default our writer omits) — so it cannot be expressed as a per-frame
-    // signature and the two do not share a traversal. They share only the
-    // 0.1 tolerance convention. Exact equality implies same shape; the
-    // converse does not hold.
-    QString shapeSignature() const;
-
-    // Same shape? Defined as signature equality so that the predicate and the
-    // string used to index profiles by shape cannot drift apart — there is
-    // exactly one definition of "shape" and this is it.
+    // signature and the two do not share a traversal. Nor do they share the
+    // 0.1 convention: functionallyEqual compares durations with a ±0.1 s
+    // TOLERANCE, this signature ROUNDS them to 0.1 s. Neither predicate
+    // implies the other. functionallyEqual does not imply same shape — it
+    // never compares beverage type, which the signature includes, and two
+    // frames 0.02 s apart can straddle a rounding bucket. What does hold:
+    // literal equality of every frame field the signature reads implies the
+    // same signature, by construction.
     //
-    // Duration caveat, stated because it is a real edge: seconds are ROUNDED
-    // to the nearest 0.1 s for the signature rather than compared with a
-    // ±0.1 s tolerance. Those differ at bucket boundaries — 2.04 s and 2.06 s
-    // are 0.02 s apart but round to 2.0 and 2.1. Tolerance is not transitive
-    // and so cannot produce a stable grouping key; rounding can. Profile
-    // durations are authored as whole or half seconds, so the boundary is not
-    // reachable in practice from the shipped set, but a generated profile
+    // Duration caveat, stated because it is a real edge: rounding and a
+    // tolerance differ at bucket boundaries — 2.04 s and 2.06 s are 0.02 s
+    // apart but round to 2.0 and 2.1. A tolerance is not transitive and so
+    // cannot produce a stable grouping key; rounding can, which is why this
+    // rounds. Profile durations are authored as whole or half seconds, so the
+    // boundary is not reachable from the shipped set, but a generated profile
     // could sit on one.
-    static bool sameShape(const Profile& a, const Profile& b);
+    //
+    // EMPTY for a profile with no frames — no frames, no shape. Callers must
+    // treat an empty signature as "matches nothing", never as a value two
+    // frameless profiles have in common; ProfileShapeIndex does this at both
+    // its entry points. There is deliberately no sameShape(a, b) helper: it
+    // existed, had no production caller, and its tests only re-asserted that
+    // string comparison is reflexive and symmetric.
+    QString shapeSignature() const;
 
     // Human-readable account of WHY functionallyEqual() said no: one line per
     // differing field, labelled with the frame index. Empty exactly when

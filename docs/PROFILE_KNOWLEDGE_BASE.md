@@ -121,7 +121,31 @@ on one member's say-so would hide a genuinely faulty shot, so the errors swap
 places and the conservative direction reverses.
 
 A new flag must be classified explicitly to get the union; omission means
-unanimity.
+unanimity — and `tst_shotsummarizer::everyShippedAnalysisFlagIsAKnownFlag`
+fails the build on a flag the classification does not know, so a typo cannot
+become a silent no-op.
+
+### What a shape match may NOT do
+
+A shape match never reaches the shot's persisted `profile_kb_id`. Only a title
+resolution does (`KbResolution::persistableId()`).
+
+That column is not merely an analysis key — it is the grouping key for dial-in
+history (`WHERE profile_kb_id = ?` in `dialing_blocks.cpp`). Shape equivalence
+deliberately ignores temperature, setpoints, volume and exit thresholds, which
+is exactly what makes it safe for transferring suppression facts and exactly
+what makes it wrong as an identity: persisting one would merge a user's 6-bar
+variant into the documented 9-bar profile's `dialInSessions`, and the advisor
+would compute grind advice across two profiles that are not the same coffee.
+
+Shape answers *"does this curve shape mean the finding is by design?"*. It does
+not answer *"is this the same profile?"*. Nothing is lost by the restriction:
+every analysis path re-resolves from the shot's own stored profile JSON on
+load, so the facts still arrive; and the per-shot derivation label rides on
+`ShotProjection::profileKbDerivedFrom`, computed from that same resolution
+rather than looked up in the live catalog — so a shot keeps naming the entry
+its badges were actually computed under even after the user edits or deletes
+the profile.
 
 **Shape equivalence also checks the KB against itself.** A shape bucket whose
 members resolve to *different* entries is a claim that two structurally
@@ -333,6 +357,21 @@ All ship with the generic note *"A-Flow: an alternative profile for D-Flow"* `[S
 > and its cost was concrete: a candidate set spanning both entries read the
 > duplication as disagreement and withheld the band from every shape match on
 > the pair. `[SRC:maintainer]`
+>
+> **Why the LRv3 entry's id still reads `damians-lr-v2-v3`.** That entry now
+> covers LRv3 alone, so the id names a profile it no longer holds — and it is
+> deliberately not renamed. The id is the persisted `profile_kb_id` column on
+> every shot already taken and the grouping key for dial-in history
+> (`WHERE profile_kb_id = ?`). Renaming strands those rows: the retired id
+> resolves to nothing, so their shots drop out of dial-in entirely. No alias
+> can heal them either, because a persisted `damians-lr-v2-v3` is genuinely
+> ambiguous between the two entries it used to span. Analysis is unaffected
+> either way — `prepareAnalysisInputs` re-resolves each shot from its own
+> stored profile JSON, so an LRv2 shot gets this section's facts regardless of
+> what its id column says. Ids are internal; `displayName` and `alsoMatches`
+> carry what a reader needs. `openspec/specs/dialing-context-payload/spec.md`
+> requires these ids to stay stable, and this is why that requirement is worth
+> keeping rather than amending.
 
 - **UGS**: 0 (canonical, Londinium / LRv3 — same fine grind as Cremina) `[SRC:ugs-chart]`
 - **Category**: Lever `[SRC:medium]`

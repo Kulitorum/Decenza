@@ -1806,7 +1806,7 @@ private slots:
 
     // === Profile shape (capability: profile-shape-equivalence) ===
     //
-    // shapeSignature()/sameShape() decide whether a user's re-tuned copy of a
+    // shapeSignature() decides whether a user's re-tuned copy of a
     // documented profile is still the same extraction SHAPE, which is what
     // lets the KB's suppression flags (flow_trend_ok, channeling_expected)
     // reach it. Getting this wrong in the loose direction tells a user their
@@ -1880,9 +1880,7 @@ private slots:
     void shape_dialInVariablesDoNotChangeTheShape() {
         QFETCH(Profile, variant);
         const Profile base = makeShapeProfile();
-        QVERIFY2(Profile::sameShape(base, variant),
-                 qPrintable(QStringLiteral("base=%1\nvariant=%2")
-                                .arg(base.shapeSignature(), variant.shapeSignature())));
+        QCOMPARE(variant.shapeSignature(), base.shapeSignature());
     }
 
     // The strict direction: anything that changes what the curve DOES is a
@@ -1910,7 +1908,7 @@ private slots:
     void shape_structuralEditsChangeTheShape() {
         QFETCH(Profile, variant);
         const Profile base = makeShapeProfile();
-        QVERIFY2(!Profile::sameShape(base, variant),
+        QVERIFY2(variant.shapeSignature() != base.shapeSignature(),
                  qPrintable(QStringLiteral("both signed as %1").arg(base.shapeSignature())));
     }
 
@@ -1921,25 +1919,22 @@ private slots:
     void shape_frameDurationsArePartOfTheShape() {
         const Profile base = makeShapeProfile();
         const Profile longer = makeShapeProfile(92.0, 9.0, 4.0, /*seconds0=*/14.0);
-        QVERIFY(!Profile::sameShape(base, longer));
+        QVERIFY(longer.shapeSignature() != base.shapeSignature());
 
         // ...but serialization rounding must not split a profile from itself.
         const Profile jittered = makeShapeProfile(92.0, 9.0, 4.0, /*seconds0=*/10.03);
-        QVERIFY2(Profile::sameShape(base, jittered),
-                 qPrintable(QStringLiteral("%1 vs %2")
-                                .arg(base.shapeSignature(), jittered.shapeSignature())));
+        QCOMPARE(jittered.shapeSignature(), base.shapeSignature());
     }
 
-    void shape_comparisonIsSymmetricAndSelfConsistent() {
-        const Profile a = makeShapeProfile();
-        const Profile b = makeShapeProfile(/*temp=*/85.0);
-        QCOMPARE(Profile::sameShape(a, b), Profile::sameShape(b, a));
-        QVERIFY(Profile::sameShape(a, a));
-        // A profile with no frames has no shape — otherwise every malformed
-        // profile would be a relative of every other.
+    // A frameless profile signs as EMPTY, which every caller must read as
+    // "matches nothing" rather than as a value two frameless profiles share.
+    // This is the whole of what the deleted sameShape() helper enforced that
+    // string comparison does not; symmetry and reflexivity were never worth
+    // asserting about operator==.
+    void shape_aFramelessProfileHasNoSignature() {
         const Profile empty;
-        QVERIFY(!Profile::sameShape(empty, empty));
-        QVERIFY(!Profile::sameShape(a, empty));
+        QVERIFY(empty.shapeSignature().isEmpty());
+        QVERIFY(!makeShapeProfile().shapeSignature().isEmpty());
     }
 
     // functionallyEqual() is the STRICTER import-de-duplication predicate and
@@ -1955,9 +1950,9 @@ private slots:
         // point (a re-tuned profile still matches) would be lost.
         const Profile retuned = makeShapeProfile(/*temp=*/88.0);
         QVERIFY(!Profile::functionallyEqual(base, retuned));
-        QVERIFY(Profile::sameShape(base, retuned));
+        QCOMPARE(retuned.shapeSignature(), base.shapeSignature());
 
-        // Empty-step guard, shared with sameShape().
+        // Empty-step guard, the same one shapeSignature() applies.
         const Profile empty;
         QVERIFY(!Profile::functionallyEqual(empty, empty));
     }

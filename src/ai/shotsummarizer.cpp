@@ -2,6 +2,7 @@
 #include "shotanalysis.h"
 #include "../history/shothistory_types.h"  // HistoryPhaseMarker — passed to ShotAnalysis::analyzeShot
 #include "../profile/profile.h"
+#include "profileshapeindex.h"   // resolveProfileKb — title steps, then shape
 #include "dialing_blocks.h"   // shared buildCurrentBeanBlock — single source of truth for currentBean
 
 #include <cmath>
@@ -134,25 +135,26 @@ void ShotSummarizer::runShotAnalysisAndPopulate(ShotSummary& summary,
     const QVector<QPointF>& pressureGoal,
     const QVector<QPointF>& flowGoal,
     const QStringList& analysisFlags,
+    const QStringList& kbIds,
     double firstFrameSeconds,
     double targetWeightG,
     int frameCount) const
 {
-    // profileKbResolved gates grind Arm 1. matchProfileKey returns empty
-    // when the profile title and editor type both fail to resolve via
-    // KB alias / #1198 prefix / editor-type default — that's the "we
-    // have no profile context" signal Arm 1 needs to skip on. The kbId
-    // stored on ShotSummary is the resolved id (empty when unresolved),
-    // so we can read the bit directly. See openspec change
-    // skip-grind-arm1-when-kb-unresolved.
-    const bool profileKbResolved = !summary.profileKbId.isEmpty();
+    // profileKbResolved gates grind Arm 1: "do we have any profile context at
+    // all". Read off the caller's resolved set, NOT off summary.profileKbId —
+    // that column is a title resolution only, so a shape-resolved shot carries
+    // an empty id while having full context, and deriving the bit here would
+    // skip Arm 1 on exactly the shots the shape work exists to serve. See
+    // openspec changes skip-grind-arm1-when-kb-unresolved and
+    // resolve-profile-kb-by-shape.
+    const bool profileKbResolved = !kbIds.isEmpty();
     const ShotAnalysis::AnalysisResult analysis = ShotAnalysis::analyzeShot(
         pressure, flow, weight,
         conductanceDerivative, markers,
         summary.beverageType, summary.totalDuration,
         pressureGoal, flowGoal, analysisFlags,
         firstFrameSeconds, targetWeightG, summary.finalWeight,
-        frameCount, expertBandForKbId(summary.profileKbId),
+        frameCount, expertBandForKbIds(kbIds),
         profileKbResolved);
     summary.summaryLines = analysis.lines;
     summary.pourTruncatedDetected = analysis.detectors.pourTruncated;
@@ -333,23 +335,37 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     // Slow path: shotData not produced by convertShotRecord (imported shots,
     // direct test callers) has empty summaryLines and needs the full analysis
     // pipeline. Delegate detector orchestration to runShotAnalysisAndPopulate,
-    // the same helper summarize() uses on the live path — see summarize() for
-    // rationale. historyMarkers was already populated alongside the
-    // PhaseSummary list above (single pass).
-    const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
-
-    // First-frame seconds reuses the profileDoc parsed at the top of this
-    // function — Profile::fromJson normalizes both modern and legacy shapes,
-    // so skip-first-frame detection stays accurate on legacy shots whose
-    // first frame was configured > 2 s.
+    // which is this helper's only caller. historyMarkers was already populated
+    // alongside the PhaseSummary list above (single pass).
+    //
+    // One Profile parse serves three consumers: the KB resolution, the
+    // first-frame duration and the frame count. Profile::fromJson normalizes
+    // both modern and legacy shapes, so skip-first-frame detection stays
+    // accurate on legacy shots whose first frame was configured > 2 s.
     double firstFrameSeconds = -1.0;
     int frameCount = -1;
+    QStringList kbIds;
     if (profileDoc.isObject()) {
         const Profile p = Profile::fromJson(profileDoc);
-        if (!p.steps().isEmpty())
-            firstFrameSeconds = p.steps().first().seconds;
         frameCount = static_cast<int>(p.steps().size());
+        // Both of these need frames, and for the same reason the guard is
+        // load-bearing rather than defensive: a default-constructed Profile is
+        // titled "Default", which is a REAL shipped profile carrying
+        // flow_trend_ok, so resolving one would hand an unparseable shot
+        // another profile's suppression flags. The resolution itself is the
+        // one the storage layer runs (prepareAnalysisInputs): title steps
+        // first, then SHAPE.
+        if (!p.steps().isEmpty()) {
+            firstFrameSeconds = p.steps().first().seconds;
+            kbIds = resolveProfileKb(p).ids;
+        }
     }
+    // Fall back to the persisted id when the shot has no usable profile JSON,
+    // which is every row saved before profile_json was stored.
+    if (kbIds.isEmpty() && !summary.profileKbId.isEmpty())
+        kbIds << summary.profileKbId;
+
+    const QStringList analysisFlags = getAnalysisFlags(kbIds);
 
     const QVector<QPointF> derivCurve = variantListToPoints(shotData.conductanceDerivative);
 
@@ -362,7 +378,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
         summary.pressureCurve, summary.flowCurve, summary.weightCurve,
         derivCurve, historyMarkers,
         summary.pressureGoalCurve, summary.flowGoalCurve, analysisFlags,
-        firstFrameSeconds, targetWeightG, frameCount);
+        kbIds, firstFrameSeconds, targetWeightG, frameCount);
 
     return summary;
 }

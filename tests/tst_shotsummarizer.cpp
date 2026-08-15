@@ -1950,20 +1950,37 @@ private slots:
         }
     }
 
-    // Corpus coverage: every shipped profile resolves to exactly one entry.
-    // This is the obligation the profile-knowledge-base spec states, and it
-    // can genuinely fail — a shipped profile renamed without its KB alias
-    // being updated drops to unresolved, silently losing that entry's
-    // suppression flags for every shot taken on it. That is the same defect
-    // class as the '_cris' case, arriving by a different route.
-    void everyShippedProfileResolvesToExactlyOneEntry()
+    // The shipped profile set as a MAINTAINER edits it, read from the source
+    // tree via DECENZA_SOURCE_DIR (defined for every test target — see
+    // add_decenza_test in tests/CMakeLists.txt).
+    //
+    // This binary now links profiles.qrc too — ProfileShapeIndex reads
+    // `:/profiles`, so the 494 KB an earlier comment here argued against is
+    // already compiled in. The slots below still read the source tree anyway:
+    // they assert against the files a maintainer edits, so a profile renamed on
+    // disk fails here even if the qrc list was not updated in the same commit.
+    //
+    // One definition, because six slots reach for this directory and a path
+    // written out six times is six chances for one of them to point elsewhere.
+    static QDir shippedProfileDir()
     {
-        // Read from the source tree, not `:/profiles` — this binary links
-        // ai.qrc but not profiles.qrc, and compiling a second copy of 494 KB
-        // of profiles into it to satisfy one test is the wrong trade.
-        // DECENZA_SOURCE_DIR is defined for every test target for exactly
-        // this (see add_decenza_test in tests/CMakeLists.txt).
-        QDir dir(QStringLiteral(DECENZA_SOURCE_DIR "/resources/profiles"));
+        return QDir(QStringLiteral(DECENZA_SOURCE_DIR "/resources/profiles"));
+    }
+
+    // Corpus coverage: every shipped profile resolves to a KB entry. It can
+    // genuinely fail — a shipped profile renamed without its KB alias being
+    // updated drops to unresolved, silently losing that entry's suppression
+    // flags for every shot taken on it, the same defect class as the '_cris'
+    // case by a different route.
+    //
+    // "to a KB entry", not "to exactly one": computeProfileKbId returns a
+    // single QString, so multiplicity is impossible by the return type and the
+    // old name (…ResolvesToExactlyOneEntry) promised an assertion the body
+    // could not make. Uniqueness across the alias set is what
+    // recipePrefix_longestAliasWinsAcrossBoundary covers.
+    void everyShippedProfileResolvesToAKbEntry()
+    {
+        const QDir dir = shippedProfileDir();
         const QStringList files = dir.entryList({ QStringLiteral("*.json") }, QDir::Files);
         QVERIFY2(files.size() > 50,
                  qPrintable(QStringLiteral("expected the shipped profile set, found %1 files")
@@ -1997,9 +2014,10 @@ private slots:
     // Lives here rather than in tst_builtinprofileformat, whose subject is the
     // shipped profile set: these slots need the KB resource (:/ai) to resolve
     // ids, and this is the binary that links ai.qrc. Putting them there meant
-    // "Failed to load profile knowledge resource" and four vacuous zeros. The
-    // profile FILES are read from the source tree, so no profiles.qrc is
-    // needed on either side.
+    // "Failed to load profile knowledge resource" and four vacuous zeros.
+    // (This binary links profiles.qrc as well, since ProfileShapeIndex reads
+    // `:/profiles`; the slots below still read the FILES from the source tree
+    // so they assert against what a maintainer edits.)
     //
     // Every figure in that change's design.md was first derived from a Python
     // proxy reading raw JSON fields. `Profile::fromJson` NORMALIZES — simple
@@ -2018,7 +2036,7 @@ private slots:
     static QMap<QString, QSet<QString>> shippedShapeBuckets(bool dropSeconds = false)
     {
         QMap<QString, QSet<QString>> buckets;
-        QDir dir(QStringLiteral(DECENZA_SOURCE_DIR "/resources/profiles"));
+        const QDir dir = shippedProfileDir();
         const QStringList files = dir.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name);
         for (const QString& name : files) {
             QFile f(dir.filePath(name));
@@ -2040,9 +2058,13 @@ private slots:
         return buckets;
     }
 
-    // Every shipped profile must land in a bucket containing its own KB id —
-    // i.e. no profile fails to match itself through the real parse path.
-    void shippedProfilesMatchThemselvesByShape()
+    // Population smoke check: enough shipped profiles resolve to a KB id for
+    // the index to be worth building at all. It does NOT assert that a profile
+    // finds itself — that is shapeIndex_shippedProfileFindsItsOwnEntry below,
+    // which is strictly stronger. Named accordingly, after the old name
+    // (shippedProfilesMatchThemselvesByShape) was found to describe the
+    // stronger test rather than this one.
+    void shippedProfileSetIsLargeEnoughToIndex()
     {
         const QMap<QString, QSet<QString>> buckets = shippedShapeBuckets();
         int mapped = 0;
@@ -2067,7 +2089,7 @@ private slots:
     // The entries were merged (LRv2 now resolves to `londinium`, which carries
     // the cited pressure-peak band it was always entitled to) and LRv3 — a
     // genuinely different profile, eight frames at 90C with a 9-bar hold —
-    // was split out to `damians-lrv3`. So this bucket does not reappear by
+    // was split out to `damians-lr-v2-v3`. So this bucket does not reappear by
     // widening the shape key; it disappeared because the KB stopped saying
     // one thing twice.
     void shippedShapeCollisionsAreExactlyTheKnownTwo()
@@ -2182,7 +2204,7 @@ private slots:
     void shapeIndex_shippedProfileFindsItsOwnEntry_data()
     {
         QTest::addColumn<QString>("filePath");
-        QDir dir(QStringLiteral(DECENZA_SOURCE_DIR "/resources/profiles"));
+        const QDir dir = shippedProfileDir();
         const QStringList files =
             dir.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name);
         QVERIFY(files.size() > 50);
@@ -2212,12 +2234,19 @@ private slots:
     // standing prohibition on non-deterministic matching rules out.
     void shapeIndex_resultIsOrderIndependentAndStable()
     {
-        QFile f(QStringLiteral(DECENZA_SOURCE_DIR "/resources/profiles/blooming_espresso.json"));
+        // d_flow_default, deliberately: its bucket has TWO members, so the
+        // sorted-order assertion below can actually fail. A singleton bucket
+        // is trivially sorted and would make that check decorative — which is
+        // what this test did when it used blooming_espresso.
+        QFile f(shippedProfileDir().filePath(QStringLiteral("d_flow_default.json")));
         QVERIFY2(f.open(QIODevice::ReadOnly), "fixture profile missing");
         const Profile p = Profile::fromJson(QJsonDocument::fromJson(f.readAll()));
 
         const QStringList first = ProfileShapeIndex::candidatesForShape(p);
-        QVERIFY2(!first.isEmpty(), "shipped profile matched no shape — index did not build");
+        QVERIFY2(first.size() > 1,
+                 qPrintable(QStringLiteral("fixture precondition: d_flow_default must sit in a "
+                                           "multi-member bucket, got [%1]")
+                                .arg(first.join(QStringLiteral(", ")))));
 
         // Rebuild from scratch and compare. Same input, same answer, and the
         // list is sorted rather than insertion-ordered.
@@ -2286,26 +2315,6 @@ private slots:
                  "a disputed physics-detector flag must NOT apply — it would hide a real fault");
     }
 
-    // An unlisted flag must default to unanimity, so a newly authored flag
-    // cannot inherit the union by omission. Asserted through a bucket that
-    // agrees on nothing else: if the default were union, the non-shared flag
-    // would leak through.
-    void candidateSet_unclassifiedFlagDefaultsToUnanimity()
-    {
-        const QStringList mixed{ QStringLiteral("turbo-shot"),
-                                 QStringLiteral("blooming-espresso") };
-        const QStringList got = ShotSummarizer::getAnalysisFlags(mixed);
-        for (const QString& f : got) {
-            const bool unionFlag = (f == QStringLiteral("flow_trend_ok")
-                                    || f == QStringLiteral("channeling_expected"));
-            if (unionFlag) continue;
-            // Anything else that survived must be carried by BOTH.
-            QVERIFY2(ShotSummarizer::getAnalysisFlags(mixed.at(0)).contains(f)
-                         && ShotSummarizer::getAnalysisFlags(mixed.at(1)).contains(f),
-                     qPrintable(QStringLiteral("flag '%1' transferred without unanimity").arg(f)));
-        }
-    }
-
     // A disputed band is withheld. Two of the three real buckets disagree:
     // d-flow has no band, d-flow-la-pavoni-variant cites 6-9 bar.
     void candidateSet_disputedExpertBandIsWithheld()
@@ -2319,12 +2328,43 @@ private slots:
                  "a disputed band must be withheld, not guessed in either direction");
     }
 
-    // Agreement transfers. Both members lack a band -> absence is the agreed
-    // answer, and absence is already a strict no-op in the cascade.
+    // Agreement TRANSFERS a value — the branch the disputed test above cannot
+    // reach, and the one that carries a real number onto a shape-matched shot.
+    //
+    // Constructed, not a shipped bucket: of the two real multi-entry buckets
+    // one disputes (d-flow) and the other has no band on either member, so
+    // neither exercises this. `londinium` is paired with itself-by-alias so the
+    // band is identical by construction; what is under test is that agreement
+    // yields the value rather than nullopt.
+    //
+    // The `key` lambda in expertBandForKbIds deliberately excludes src and
+    // confidence, so two entries citing one band from different sources still
+    // agree. That exclusion had no assertion until this one.
+    void candidateSet_agreedBandTransfersItsValue()
+    {
+        const QStringList agreed{ QStringLiteral("londinium"),
+                                  QStringLiteral("londinium") };
+        const auto single = ShotSummarizer::expertBandForKbId(QStringLiteral("londinium"));
+        QVERIFY2(single.has_value(), "fixture precondition: londinium must carry a band");
+
+        const auto set = ShotSummarizer::expertBandForKbIds(agreed);
+        QVERIFY2(set.has_value(), "an agreed band must transfer, not be withheld");
+        QCOMPARE(set->axis, single->axis);
+        QCOMPARE(set->lo, single->lo);
+        QCOMPARE(set->hi, single->hi);
+    }
+
+    // Absence is also an agreement, and must stay absent rather than becoming
+    // a withheld-because-disputed nullopt by a different route. Weak on its
+    // own — both the correct rule and an "always withhold" bug return nullopt
+    // here — so it is paired with the transfer test above, which that bug
+    // would fail.
     void candidateSet_agreedAbsentBandStaysAbsent()
     {
         const QStringList bucket{ QStringLiteral("gentle-flat-long-preinfusion-family"),
                                   QStringLiteral("preinfuse-then-45ml-of-water") };
+        QVERIFY(!ShotSummarizer::expertBandForKbId(bucket.at(0)).has_value());
+        QVERIFY(!ShotSummarizer::expertBandForKbId(bucket.at(1)).has_value());
         QVERIFY(!ShotSummarizer::expertBandForKbIds(bucket).has_value());
     }
 
@@ -2339,12 +2379,12 @@ private slots:
         QVERIFY2(std::isnan(ShotSummarizer::ugsForKbIds(disputed)),
                  "a disputed UGS must be withheld");
 
-        // ...but an AGREED value transfers. damians-lrv3 and londinium are
+        // ...but an AGREED value transfers. damians-lr-v2-v3 and londinium are
         // both 0.0. NOT a shipped shape bucket — LRv3 has eight frames to
         // Londinium's seven — so this set is constructed to exercise the
         // agreement branch, which the two real buckets cannot: d-flow's
         // disputes above, and the gentle-flat pair carries no UGS at all.
-        const QStringList agreed{ QStringLiteral("damians-lrv3"),
+        const QStringList agreed{ QStringLiteral("damians-lr-v2-v3"),
                                   QStringLiteral("londinium") };
         QCOMPARE(ShotSummarizer::ugsForKbIds(agreed),
                  ShotSummarizer::ugsForKbId(agreed.at(0)));
@@ -2374,7 +2414,7 @@ private slots:
 
     static Profile loadShipped(const QString& file)
     {
-        QFile f(QStringLiteral(DECENZA_SOURCE_DIR "/resources/profiles/") + file);
+        QFile f(shippedProfileDir().filePath(file));
         if (!f.open(QIODevice::ReadOnly)) return {};
         return Profile::fromJson(QJsonDocument::fromJson(f.readAll()));
     }
@@ -2505,7 +2545,7 @@ private slots:
 
     static QString shippedProfileJson(const QString& file, const QString& retitleTo = QString())
     {
-        QFile f(QStringLiteral(DECENZA_SOURCE_DIR "/resources/profiles/") + file);
+        QFile f(shippedProfileDir().filePath(file));
         if (!f.open(QIODevice::ReadOnly)) return {};
         QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
         if (!retitleTo.isEmpty()) o[QStringLiteral("title")] = retitleTo;
@@ -2532,6 +2572,115 @@ private slots:
         QCOMPARE(inputs.identityKbId, QStringLiteral("blooming-espresso"));
         QVERIFY2(inputs.identityFromShape,
                  "a shape match must be marked as inferred, not presented as the profile's own name");
+    }
+
+    // The rule that decides what reaches the `profile_kb_id` COLUMN, which is
+    // the dial-in grouping key (`WHERE profile_kb_id = ?`) and not merely an
+    // analysis key. A shape match must never be written there: shape ignores
+    // temperature and setpoints, so persisting one merges a user's re-tuned
+    // variant into the documented profile's dial-in history.
+    //
+    // Pinned here rather than through saveShot(), which no test can reach
+    // without a ~50-field ShotSaveData fixture that does not exist in this
+    // tree. That leaves the CALL genuinely uncovered — see the note in the
+    // change's tasks.md — but the rule itself cannot drift unnoticed.
+    void persistableId_onlyATitleResolutionReachesTheColumn()
+    {
+        const KbResolution byTitle{ { QStringLiteral("blooming-espresso") },
+                                    KbResolution::Origin::Title };
+        QCOMPARE(byTitle.persistableId(), QStringLiteral("blooming-espresso"));
+
+        const KbResolution uniqueShape{ { QStringLiteral("blooming-espresso") },
+                                        KbResolution::Origin::Shape };
+        QVERIFY2(uniqueShape.persistableId().isEmpty(),
+                 "a UNIQUE shape match is still an inference, not a recorded identity - "
+                 "persisting it would regroup dial-in history");
+
+        const KbResolution ambiguousShape{ { QStringLiteral("d-flow"),
+                                             QStringLiteral("d-flow-la-pavoni-variant") },
+                                           KbResolution::Origin::Shape };
+        QVERIFY(ambiguousShape.persistableId().isEmpty());
+
+        QVERIFY(KbResolution{}.persistableId().isEmpty());
+    }
+
+    // The stored-id fallback branch, which every one of the tests around it
+    // leaves unexercised by passing an empty persisted id. It is the path for
+    // every legacy row whose profile_json is absent or unparseable, and it is
+    // what preserves pre-change behaviour for them.
+    void prepareAnalysisInputs_unparseableJsonFallsBackToTheStoredId()
+    {
+        for (const QString& json : { QString(), QStringLiteral("{ not json") }) {
+            if (!json.isEmpty())
+                QTest::ignoreMessage(QtWarningMsg,
+                                     QRegularExpression(QStringLiteral("stored profile JSON unparseable")));
+            const auto inputs = decenza::storage::detail::prepareAnalysisInputs(
+                QStringLiteral("blooming-espresso"), json);
+
+            QVERIFY2(inputs.profileKbResolved,
+                     "a legacy row with a stored id still has profile context");
+            QCOMPARE(inputs.analysisFlags,
+                     ShotSummarizer::getAnalysisFlags(QStringLiteral("blooming-espresso")));
+            QCOMPARE(inputs.identityKbId, QStringLiteral("blooming-espresso"));
+            QVERIFY2(!inputs.identityFromShape,
+                     "a stored id is a recorded identity, not a shape inference");
+        }
+    }
+
+    // The "Default" trap, asserted rather than left to the comment that
+    // documents it. A default-constructed Profile is titled "Default", which
+    // is a REAL shipped profile whose KB entry carries flow_trend_ok — so an
+    // unreadable shot with NO stored id must resolve to nothing rather than
+    // inherit that entry's suppression.
+    void prepareAnalysisInputs_unparseableJsonNeverInheritsTheDefaultEntry()
+    {
+        QVERIFY2(ShotSummarizer::getAnalysisFlags(QStringLiteral("default"))
+                     .contains(QStringLiteral("flow_trend_ok")),
+                 "fixture precondition: the 'default' KB entry must carry flow_trend_ok, "
+                 "otherwise this test cannot fail");
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("stored profile JSON unparseable")));
+        const auto inputs = decenza::storage::detail::prepareAnalysisInputs(
+            QString(), QStringLiteral("{ not json"));
+        QVERIFY2(inputs.analysisFlags.isEmpty(),
+                 qPrintable(QStringLiteral("an unreadable profile inherited flags [%1]")
+                                .arg(inputs.analysisFlags.join(QStringLiteral(", ")))));
+        QVERIFY(!inputs.profileKbResolved);
+        QVERIFY(inputs.identityKbId.isEmpty());
+    }
+
+    // Every analysisFlags value in the shipped KB must be one the transfer
+    // rules classify. A misspelled flag is otherwise a silent no-op: no
+    // consumer matches it, and getAnalysisFlags(QStringList) additionally
+    // defaults it to unanimity, so it would neither suppress nor complain.
+    void everyShippedAnalysisFlagIsAKnownFlag()
+    {
+        static const QSet<QString> known{
+            QStringLiteral("flow_trend_ok"),        // union
+            QStringLiteral("channeling_expected"),  // union
+            QStringLiteral("grind_check_skip"),     // unanimity
+        };
+
+        QFile f(QStringLiteral(":/ai/profile_knowledge.json"));
+        QVERIFY2(f.open(QIODevice::ReadOnly), "KB resource missing");
+        const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
+        const QJsonArray entries = root.value(QStringLiteral("profiles")).toArray();
+        QVERIFY2(!entries.isEmpty(), "fixture precondition: the KB must have entries");
+
+        int seen = 0;
+        for (const QJsonValue& e : entries) {
+            const QString id = e.toObject().value(QStringLiteral("id")).toString();
+            for (const QJsonValue& fl : e.toObject().value(QStringLiteral("analysisFlags")).toArray()) {
+                ++seen;
+                QVERIFY2(known.contains(fl.toString()),
+                         qPrintable(QStringLiteral("entry '%1' carries unknown analysisFlag '%2' - "
+                                                   "add it to the transfer classification in "
+                                                   "shotsummarizer_kb.cpp, or fix the typo")
+                                        .arg(id, fl.toString())));
+            }
+        }
+        QVERIFY2(seen > 0, "fixture precondition: some entry must carry an analysisFlag");
     }
 
     // Nothing about a title-resolvable profile may change.
@@ -2589,6 +2738,12 @@ private slots:
 
         for (const QString& json : { QString(), QStringLiteral("not json at all"),
                                      QStringLiteral("{}") }) {
+            // The unparseable case now reports itself (a legacy row whose own
+            // profile cannot be read is otherwise uninspectable). Declared
+            // rather than tolerated, so the warning is part of the assertion.
+            if (json == QStringLiteral("not json at all"))
+                QTest::ignoreMessage(QtWarningMsg,
+                                     QRegularExpression(QStringLiteral("stored profile JSON unparseable")));
             const auto inputs = decenza::storage::detail::prepareAnalysisInputs(QString(), json);
             QVERIFY2(!inputs.profileKbResolved, qPrintable(QStringLiteral("resolved for %1").arg(json)));
             QVERIFY2(inputs.identityKbId.isEmpty(),

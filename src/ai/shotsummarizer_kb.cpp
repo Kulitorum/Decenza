@@ -29,6 +29,7 @@
 #include <QTextStream>
 #include <QStringList>
 #include <QSet>
+#include <QHash>
 #include <QMap>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -369,11 +370,18 @@ QString ShotSummarizer::recipePrefixResolve(const QString& normalizedKey)
         // profiles the widened rule changes 0 resolutions, and across the
         // full alias set it introduces 0 cases where one entry's alias
         // becomes a boundary-prefix of another's on a newly-admitted
-        // character (tst_kb_resolution pins both).
+        // character. Both are pinned by
+        // tst_shotsummarizer::recipePrefix_longestAliasWinsAcrossBoundary and
+        // ::everyShippedProfileResolvesToAKbEntry. (An earlier version
+        // of this comment cited a `tst_kb_resolution` binary; no such target
+        // has ever existed in this repository.)
         //
         // isLetter() is Unicode-aware, so a CJK or Cyrillic character
-        // following an alias blocks exactly as an ASCII letter does. The
-        // old enumeration admitted those as boundaries by omission.
+        // following an alias blocks exactly as an ASCII letter does. The old
+        // enumeration blocked them too, but only by accident: it was a
+        // WHITELIST (/ - space ASCII-digit) that matched on a hit, so a
+        // non-Latin letter fell through and the alias did not match. Same
+        // outcome, now stated as the intent rather than reached by omission.
         if (!sep.isLetter()) return ra.id;   // longest-first ⇒ first hit is longest
     }
     return QString();
@@ -521,30 +529,30 @@ QStringList ShotSummarizer::getAnalysisFlags(const QStringList& kbIds)
 
     loadProfileKnowledge();
 
-    // Collect each candidate's flags, then apply the per-flag rule. Iterating
-    // the UNION of all flags seen (not one candidate's list) so a flag present
-    // on only some candidates is still considered rather than silently missed.
-    QList<QSet<QString>> perCandidate;
-    QSet<QString> seen;
+    // How many candidates carry each flag. Keyed by the UNION of all flags
+    // seen (not by one candidate's list) so a flag present on only some
+    // candidates is still considered rather than silently missed — a flag with
+    // no entry here was carried by nobody and cannot transfer either way.
+    //
+    // Counted per candidate through a SET, so a KB entry that happens to list
+    // one flag twice still counts once and cannot fake unanimity on its own.
+    QHash<QString, qsizetype> holders;
     for (const QString& id : kbIds) {
-        const QStringList fl = getAnalysisFlags(id);
-        const QSet<QString> asSet(fl.begin(), fl.end());
-        perCandidate.append(asSet);
-        seen.unite(asSet);
+        const QStringList flags = getAnalysisFlags(id);
+        const QSet<QString> distinct(flags.begin(), flags.end());
+        for (const QString& flag : distinct) ++holders[flag];
     }
 
     QStringList out;
-    for (const QString& flag : std::as_const(seen)) {
-        int holders = 0;
-        for (const QSet<QString>& c : std::as_const(perCandidate))
-            if (c.contains(flag)) ++holders;
-
-        const bool transfers = flagTransfersAsUnion(flag)
-            ? (holders > 0)                       // union: any candidate suffices
-            : (holders == perCandidate.size());   // unanimity: all must carry it
-        if (transfers) out.append(flag);
+    for (auto it = holders.cbegin(); it != holders.cend(); ++it) {
+        // Having a row here already means at least one candidate carries the
+        // flag, which IS the union test; unanimity additionally requires all
+        // of them to.
+        const bool transfers = flagTransfersAsUnion(it.key())
+                               || it.value() == kbIds.size();
+        if (transfers) out.append(it.key());
     }
-    // Sorted so the result never depends on QSet iteration order — analysis
+    // Sorted so the result never depends on QHash iteration order — analysis
     // inputs feed a cascade whose output is compared across runs.
     out.sort();
     return out;

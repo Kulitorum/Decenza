@@ -1151,27 +1151,14 @@ T.Page {
                             onSummaryRequested: reviewAnalysisDialog.open()
                         }
 
-                        // "Based on X" when this shot's profile reached its
-                        // knowledge by SHAPE rather than by name — the user is
-                        // entitled to know the relationship was inferred from
-                        // the profile's structure. Empty (hidden) for a title
-                        // match, no match, or an ambiguous shape.
-                        Text {
-                            visible: text.length > 0
-                            text: {
-                                var from = ProfileManager.profileKbDerivedFrom(
-                                    postShotReviewPage.editShotData.profileName || "")
-                                return from ? TranslationManager.translate(
-                                                  "profileselector.based_on", "Based on %1").arg(from)
-                                            : ""
-                            }
-                            color: Theme.textSecondaryColor
-                            font: Theme.captionFont
-                            elide: Text.ElideRight
+                        // The SHOT's own derivation, recorded when its analysis
+                        // ran — not ProfileManager's, which answers for whatever
+                        // profile currently bears this title and diverges the
+                        // moment the user edits or deletes it. The badges beside
+                        // this line were computed under the entry named here.
+                        KbDerivedFromLabel {
+                            derivedFrom: postShotReviewPage.editShotData.profileKbDerivedFrom || ""
                             Layout.maximumWidth: postShotReviewPage.width * 0.3
-                            Accessible.role: Accessible.StaticText
-                            Accessible.name: text
-                            Accessible.ignored: !visible
                         }
 
                         ShotAnalysisDialog {
@@ -1211,7 +1198,9 @@ T.Page {
                         onAccessibleClicked: {
                             // openFor() over setting the properties by hand: it is
                             // the one place that knows every field the dialog needs,
-                            // so a new one (candidateNames) reaches all three callers.
+                            // so a new one (candidateNames) reaches all FIVE call sites
+                            // — the two RecipeWizardPage tiles got it without being
+                            // edited, which is the point.
                             shotKnowledgeDialog.openFor(postShotReviewPage.editShotData.profileName || "")
                         }
                     }

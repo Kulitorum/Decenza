@@ -376,11 +376,16 @@ public:
     // A band is an assertive claim about a NUMBER on a specific axis, so it
     // transfers only when every candidate agrees; a disputed band yields
     // std::nullopt, which the cascade already treats as a strict no-op.
-    // Measured on the shipped set: of the three shape buckets holding more
-    // than one entry, TWO disagree on the band (d-flow has none while
-    // d-flow-la-pavoni-variant cites 6–9 bar; londinium cites 8–9 bar while
-    // damians-lr-v2-v3 has none). Guessing either way would invent a band or
-    // drop a real one.
+    // Measured on the shipped set as of this change: of the TWO shape buckets
+    // holding more than one entry, ONE disagrees on the band — d-flow has none
+    // while d-flow-la-pavoni-variant cites 6–9 bar. The other
+    // ({gentle-flat-long-preinfusion-family, preinfuse-then-45ml-of-water})
+    // agrees, both having no band at all. Guessing either way would invent a
+    // band or drop a real one. Both numbers are pinned by
+    // tst_shotsummarizer::collidingBucketsDisagreeOnAssertiveFactsButAgreeOnSuppression;
+    // they moved during this change (from 3 buckets / 2 disagreements) when
+    // the LRv2 entry was merged into londinium, so re-derive them from that
+    // test rather than trusting this sentence.
     static std::optional<ShotAnalysis::ExpertBand>
     expertBandForKbIds(const QStringList& kbIds);
 
@@ -447,6 +452,14 @@ private:
         const QVector<QPointF>& pressureGoal,
         const QVector<QPointF>& flowGoal,
         const QStringList& analysisFlags,
+        // The resolved KB candidate set for this shot, from resolveProfileKb()
+        // on the shot's OWN stored profile. Passed in rather than derived here
+        // from summary.profileKbId: since change resolve-profile-kb-by-shape
+        // the persisted column holds a TITLE resolution only, so deriving the
+        // Arm 1 gate and the expert band from it would disagree with the
+        // analysisFlags the caller computed from the shape-resolved set — the
+        // same shot analysed two ways. Empty means genuinely no context.
+        const QStringList& kbIds,
         double firstFrameSeconds,
         double targetWeightG,
         int frameCount) const;

@@ -41,12 +41,6 @@ struct ProfileInfo {
     // — there is no single profile to name then, and the analysis facts still
     // transfer without the identity claim.
     QString kbDerivedFrom;
-    // The resolved KB entry id, or empty when the resolution produced no
-    // single identity. Stored so the knowledge CONTENT lookup and the
-    // knowledge INDICATOR derive from one resolution: they were two
-    // independent title-only calls, so widening one without the other lights a
-    // sparkle that opens an empty dialog.
-    QString kbId;
     // Every candidate the resolution produced — one id for a title match or a
     // unique shape match, SEVERAL when the shape matched more than one
     // documented profile.
@@ -552,6 +546,11 @@ signals:
     void autoLoadStaleCleared();
 
 private:
+    // Catalog lookup by title for the three KB surfaces. Returns nullptr when
+    // no profile has that title, and also when two do and disagree about their
+    // KB resolution — see the definition for why picking one is wrong.
+    const ProfileInfo* findProfileByTitleForKb(const QString& profileTitle) const;
+
     static ProfileManager *s_qmlInstance;
 
     // Current profile's frames with every temperature shifted so the reference

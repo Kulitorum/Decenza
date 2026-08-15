@@ -765,6 +765,30 @@ void ProfileManager::applyRecommendedDoseIfProfileOwnsIt() {
 
 // === Profile catalog ===
 
+// The ONE ProfileInfo -> QVariantMap projection every catalog accessor returns.
+//
+// There were six hand-written copies of this. Adding one field meant six
+// identical edits, and they had already drifted: the allProfilesList copy
+// emitted espressoTemperature and targetWeight while the other five did not,
+// so which fields a QML consumer could read depended on which accessor it had
+// happened to call. Nothing failed, because no screen read both. The two extra
+// fields are included here for everyone — a consumer that ignores them is
+// unaffected, and the alternative is keeping the drift as a feature.
+static QVariantMap profileInfoToVariantMap(const ProfileInfo& info)
+{
+    QVariantMap profile;
+    profile["name"] = info.filename;
+    profile["title"] = info.title;
+    profile["beverageType"] = info.beverageType;
+    profile["espressoTemperature"] = info.espressoTemperature;
+    profile["targetWeight"] = info.targetWeight;
+    profile["source"] = static_cast<int>(info.source);
+    profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
+    profile["kbDerivedFrom"] = info.kbDerivedFrom;
+    profile["readOnly"] = info.readOnly;
+    return profile;
+}
+
 QVariantList ProfileManager::availableProfiles() const {
     QVariantList result;
     for (const ProfileInfo& info : m_allProfiles) {
@@ -807,16 +831,7 @@ QVariantList ProfileManager::selectedProfiles() const {
         }
 
         if (include) {
-            QVariantMap profile;
-            profile["name"] = info.filename;
-            profile["title"] = info.title;
-            profile["beverageType"] = info.beverageType;
-            profile["source"] = static_cast<int>(info.source);
-
-            profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
-            profile["kbDerivedFrom"] = info.kbDerivedFrom;
-            profile["readOnly"] = info.readOnly;
-            result.append(profile);
+            result.append(profileInfoToVariantMap(info));
         }
     }
 
@@ -834,16 +849,7 @@ QVariantList ProfileManager::allBuiltInProfiles() const {
 
     for (const ProfileInfo& info : m_allProfiles) {
         if (info.source == ProfileSource::BuiltIn) {
-            QVariantMap profile;
-            profile["name"] = info.filename;
-            profile["title"] = info.title;
-            profile["beverageType"] = info.beverageType;
-            profile["source"] = static_cast<int>(info.source);
-
-            profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
-            profile["kbDerivedFrom"] = info.kbDerivedFrom;
-            profile["readOnly"] = info.readOnly;
-            result.append(profile);
+            result.append(profileInfoToVariantMap(info));
         }
     }
 
@@ -862,16 +868,7 @@ QVariantList ProfileManager::cleaningProfiles() const {
     for (const ProfileInfo& info : m_allProfiles) {
         // Include both cleaning and descale profiles in this category
         if (info.beverageType == "cleaning" || info.beverageType == "descale") {
-            QVariantMap profile;
-            profile["name"] = info.filename;
-            profile["title"] = info.title;
-            profile["beverageType"] = info.beverageType;
-            profile["source"] = static_cast<int>(info.source);
-
-            profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
-            profile["kbDerivedFrom"] = info.kbDerivedFrom;
-            profile["readOnly"] = info.readOnly;
-            result.append(profile);
+            result.append(profileInfoToVariantMap(info));
         }
     }
 
@@ -889,16 +886,7 @@ QVariantList ProfileManager::downloadedProfiles() const {
 
     for (const ProfileInfo& info : m_allProfiles) {
         if (info.source == ProfileSource::Downloaded) {
-            QVariantMap profile;
-            profile["name"] = info.filename;
-            profile["title"] = info.title;
-            profile["beverageType"] = info.beverageType;
-            profile["source"] = static_cast<int>(info.source);
-
-            profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
-            profile["kbDerivedFrom"] = info.kbDerivedFrom;
-            profile["readOnly"] = info.readOnly;
-            result.append(profile);
+            result.append(profileInfoToVariantMap(info));
         }
     }
 
@@ -916,16 +904,7 @@ QVariantList ProfileManager::userCreatedProfiles() const {
 
     for (const ProfileInfo& info : m_allProfiles) {
         if (info.source == ProfileSource::UserCreated) {
-            QVariantMap profile;
-            profile["name"] = info.filename;
-            profile["title"] = info.title;
-            profile["beverageType"] = info.beverageType;
-            profile["source"] = static_cast<int>(info.source);
-
-            profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
-            profile["kbDerivedFrom"] = info.kbDerivedFrom;
-            profile["readOnly"] = info.readOnly;
-            result.append(profile);
+            result.append(profileInfoToVariantMap(info));
         }
     }
 
@@ -942,17 +921,7 @@ QVariantList ProfileManager::allProfilesList() const {
     QVariantList result;
 
     for (const ProfileInfo& info : m_allProfiles) {
-        QVariantMap profile;
-        profile["name"] = info.filename;
-        profile["title"] = info.title;
-        profile["beverageType"] = info.beverageType;
-        profile["espressoTemperature"] = info.espressoTemperature;
-        profile["targetWeight"] = info.targetWeight;
-        profile["source"] = static_cast<int>(info.source);
-        profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
-            profile["kbDerivedFrom"] = info.kbDerivedFrom;
-        profile["readOnly"] = info.readOnly;
-        result.append(profile);
+        result.append(profileInfoToVariantMap(info));
     }
 
     // Sort by title alphabetically (case-insensitive)
@@ -1069,8 +1038,8 @@ QString ProfileManager::profileKnowledgeContent(const QString& profileTitle) con
     // would redo only the title half, so a shape-resolved profile would show a
     // lit knowledge indicator and then an empty dialog. The indicator and this
     // lookup must agree, and they agree by reading the same resolution.
-    for (const ProfileInfo& info : m_allProfiles) {
-        if (info.title != profileTitle) continue;
+    if (const ProfileInfo* found = findProfileByTitleForKb(profileTitle)) {
+        const ProfileInfo& info = *found;
         if (info.kbIds.isEmpty()) return QString();
         if (info.kbIds.size() == 1)
             return ShotSummarizer::profileKnowledgeForKbId(info.kbIds.first());
@@ -1101,32 +1070,51 @@ QString ProfileManager::profileKnowledgeContent(const QString& profileTitle) con
     return ShotSummarizer::findProfileSection(profileTitle);
 }
 
+// Catalog lookup by TITLE, for the three KB surfaces that only have a title to
+// go on (a shot's stored profile name, a selector delegate's display title).
+//
+// Title is not a key: refreshProfiles de-duplicates by FILENAME, so a
+// downloaded copy and a user "Save As" can legitimately share one. Returning
+// the first hit would let the sparkle, the "Based on X" line and the dialog
+// body each answer from whichever entry the scan happened to reach first —
+// and those three sit next to each other on the same screen. When two entries
+// with one title disagree about their KB resolution there is no right answer,
+// so say so and return none rather than pick.
+const ProfileInfo* ProfileManager::findProfileByTitleForKb(const QString& profileTitle) const
+{
+    const ProfileInfo* hit = nullptr;
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.title != profileTitle) continue;
+        if (!hit) { hit = &info; continue; }
+        if (hit->kbIds != info.kbIds || hit->kbDerivedFrom != info.kbDerivedFrom) {
+            qWarning() << "ProfileManager: profiles" << hit->filename << "and"
+                       << info.filename << "share the title" << profileTitle
+                       << "but resolve to different KB entries - showing neither";
+            return nullptr;
+        }
+    }
+    return hit;
+}
+
 bool ProfileManager::profileHasKnowledge(const QString& profileTitle) const {
     return !profileKnowledgeContent(profileTitle).isEmpty();
 }
 
 QStringList ProfileManager::profileKbCandidateNames(const QString& profileTitle) const {
-    for (const ProfileInfo& info : m_allProfiles) {
-        if (info.title != profileTitle) continue;
-        // Single match: the dialog is already titled with the profile, so
-        // naming one entry beside it would be noise. Only ambiguity needs
-        // explaining.
-        if (info.kbIds.size() < 2) return {};
-        QStringList names;
-        names.reserve(info.kbIds.size());
-        for (const QString& id : info.kbIds)
-            names << ShotSummarizer::canonicalNameForKbId(id);
-        return names;
-    }
-    return {};
+    const ProfileInfo* found = findProfileByTitleForKb(profileTitle);
+    // Single match: the dialog is already titled with the profile, so naming
+    // one entry beside it would be noise. Only ambiguity needs explaining.
+    if (!found || found->kbIds.size() < 2) return {};
+    QStringList names;
+    names.reserve(found->kbIds.size());
+    for (const QString& id : found->kbIds)
+        names << ShotSummarizer::canonicalNameForKbId(id);
+    return names;
 }
 
 QString ProfileManager::profileKbDerivedFrom(const QString& profileTitle) const {
-    for (const ProfileInfo& info : m_allProfiles) {
-        if (info.title == profileTitle)
-            return info.kbDerivedFrom;
-    }
-    return QString();
+    const ProfileInfo* found = findProfileByTitleForKb(profileTitle);
+    return found ? found->kbDerivedFrom : QString();
 }
 
 bool ProfileManager::profileExists(const QString& filename) const {
@@ -1952,14 +1940,20 @@ void ProfileManager::refreshProfiles() {
 
     // Helper to extract profile metadata from a JSON object
     // Named rather than a tuple: this carried seven positional fields
-    // destructured at four call sites, and the shape-resolution work needed a
-    // ninth. A nine-element structured binding is unreadable and mis-orders
-    // silently, so it is a struct.
+    // destructured at four call sites, and the shape-resolution work needed
+    // two more. A nine-element structured binding is unreadable and mis-orders
+    // silently, so it is a struct — and for the same reason it is populated by
+    // NAME below rather than by a positional brace-literal, which would have
+    // reintroduced exactly the hazard (two adjacent QStrings and two adjacent
+    // doubles, each pair silently swappable).
     struct ProfileMeta {
         QString title;
         QString beverageType;
         bool    hasKnowledgeBase = false;
-        QString editorType;
+        // "advanced" is the editor a profile with no recognisable type falls
+        // back to, and it is what the unreadable-file case below wants, so it
+        // is the member's default rather than a literal repeated at that site.
+        QString editorType = QStringLiteral("advanced");
         bool    readOnly = false;
         double  espressoTemperature = 0;
         double  targetWeight = 0;
@@ -1967,72 +1961,73 @@ void ProfileManager::refreshProfiles() {
         // for a title match, a miss, or an ambiguous shape. See
         // ProfileInfo::kbDerivedFrom.
         QString kbDerivedFrom;
-        QString kbId;
         QStringList kbIds;
     };
 
     auto extractProfileMeta = [](const QJsonObject& obj) -> ProfileMeta {
-        QString title = obj["title"].toString();
+        ProfileMeta meta;
+        meta.title = obj["title"].toString();
+        meta.beverageType = obj["beverage_type"].toString();
+        meta.readOnly = (obj["read_only"].toInt(0) == 1);
+        // Tolerant parse: Visualizer-format profile JSON stores these as
+        // STRINGS — a raw toDouble() would cache 0 ("unstated") for them.
+        meta.espressoTemperature = profileJsonToDouble(obj["espresso_temperature"]);
+        meta.targetWeight = profileJsonToDouble(obj["target_weight"]);
 
         // Derive editor type from title + profileType (matching Profile::editorType())
-        QString editorType;
-        QString t = title.startsWith(QLatin1Char('*')) ? title.mid(1) : title;
+        const QString t = meta.title.startsWith(QLatin1Char('*'))
+                              ? meta.title.mid(1) : meta.title;
         if (t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
-            editorType = QStringLiteral("dflow");
+            meta.editorType = QStringLiteral("dflow");
         else if (t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
-            editorType = QStringLiteral("aflow");
+            meta.editorType = QStringLiteral("aflow");
         else {
             QString profileType = obj["legacy_profile_type"].toString();
             if (profileType.isEmpty()) profileType = obj["profile_type"].toString();
             if (profileType == QLatin1String("settings_2a"))
-                editorType = QStringLiteral("pressure");
+                meta.editorType = QStringLiteral("pressure");
             else if (profileType == QLatin1String("settings_2b"))
-                editorType = QStringLiteral("flow");
+                meta.editorType = QStringLiteral("flow");
             else
-                editorType = QStringLiteral("advanced");
+                meta.editorType = QStringLiteral("advanced");
         }
 
         // Title resolution first — cheap, and the answer for every built-in
         // and every profile whose name still carries its origin.
-        QString kbId = ShotSummarizer::computeProfileKbId(title, editorType);
-        QString derivedFrom;
+        const QString titleKbId =
+            ShotSummarizer::computeProfileKbId(meta.title, meta.editorType);
 
         // Only a title MISS pays for shape resolution, which needs a full
         // Profile::fromJson rather than the handful of fields read above. The
         // catalog scan visits every profile, so making this unconditional
         // would add that parse to all of them for the benefit of a few.
-        QStringList kbIds;
-        if (!kbId.isEmpty()) {
-            kbIds << kbId;
+        if (!titleKbId.isEmpty()) {
+            meta.kbIds << titleKbId;
         } else {
             const Profile parsed = Profile::fromJson(QJsonDocument(obj));
             if (!parsed.steps().isEmpty()) {
                 const KbResolution r = resolveProfileKb(parsed);
-                kbIds = r.ids;
+                meta.kbIds = r.ids;
                 // IDENTITY is the stricter claim and needs a single candidate.
                 // An ambiguous shape still lends its suppression flags to the
                 // analysis — so the whole SET is kept, and the indicator is
                 // driven by that — but there is no one entry to name, so
-                // nothing is put in kbId or kbDerivedFrom.
-                if (r.hasIdentity()) {
-                    kbId = r.ids.first();
-                    if (r.origin == KbResolution::Origin::Shape)
-                        derivedFrom = ShotSummarizer::canonicalNameForKbId(kbId);
-                }
+                // kbDerivedFrom stays empty.
+                if (r.hasIdentity() && r.origin == KbResolution::Origin::Shape)
+                    meta.kbDerivedFrom =
+                        ShotSummarizer::canonicalNameForKbId(r.ids.first());
             }
         }
         // The indicator means "the badges and summary were shaped by KB
         // knowledge", which an ambiguous match does as much as a unique one.
-        // Derived from the same set the content lookup uses, so the two cannot
-        // disagree about whether there is anything to show.
-        const bool hasKb = !kbIds.isEmpty();
-
-        bool readOnly = (obj["read_only"].toInt(0) == 1);
-        // Tolerant parse: Visualizer-format profile JSON stores these as
-        // STRINGS — a raw toDouble() would cache 0 ("unstated") for them.
-        return {title, obj["beverage_type"].toString(), hasKb, editorType, readOnly,
-                profileJsonToDouble(obj["espresso_temperature"]),
-                profileJsonToDouble(obj["target_weight"]), derivedFrom, kbId, kbIds};
+        // Derived from the same set the content lookup uses, so the two agree
+        // about whether there is anything to show — as long as every entry in
+        // the KB actually carries prose, since profileKnowledgeContent() drops
+        // a candidate whose body is empty. All 47 shipped entries do (checked);
+        // this is a data property, not a structural guarantee, so an entry
+        // added with an empty body would light a sparkle over an empty dialog.
+        meta.hasKnowledgeBase = !meta.kbIds.isEmpty();
+        return meta;
     };
 
     // Helper to load profile metadata from file path
@@ -2042,13 +2037,38 @@ void ProfileManager::refreshProfiles() {
             QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
             return extractProfileMeta(doc.object());
         }
-        return ProfileMeta{ QString(), QString(), false, QStringLiteral("advanced"), false, 0, 0, QString(), QString(), QStringList() };
+        return {};   // unreadable file: every field at its default
     };
 
     // Helper to load profile metadata from JSON string
     auto loadProfileMetaFromJson = [&extractProfileMeta](const QString& jsonContent) -> ProfileMeta {
         QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
         return extractProfileMeta(doc.object());
+    };
+
+    // The ONE ProfileMeta -> ProfileInfo projection the four scan passes below
+    // share. It was written out four times, and this change had to add the two
+    // shape fields to each of them by hand — the fourth copy was one edit away
+    // from silently shipping without kbIds, which reads as "this profile has
+    // no knowledge" rather than as a missing assignment. Only `source` and the
+    // built-in read-only override actually differ between the passes, so those
+    // are the parameters and everything else is written once.
+    auto makeProfileInfo = [](const QString& name, const ProfileMeta& meta,
+                              ProfileSource source) {
+        ProfileInfo info;
+        info.filename = name;
+        info.title = meta.title.isEmpty() ? name : meta.title;
+        info.beverageType = meta.beverageType;
+        info.editorType = meta.editorType;
+        info.espressoTemperature = meta.espressoTemperature;
+        info.targetWeight = meta.targetWeight;
+        info.source = source;
+        info.hasKnowledgeBase = meta.hasKnowledgeBase;
+        info.kbDerivedFrom = meta.kbDerivedFrom;
+        info.kbIds = meta.kbIds;
+        // Built-in profiles are always read-only, whatever their file says.
+        info.readOnly = (source == ProfileSource::BuiltIn) ? true : meta.readOnly;
+        return info;
     };
 
     QStringList filters;
@@ -2061,20 +2081,7 @@ void ProfileManager::refreshProfiles() {
         QString name = file.left(file.length() - 5);  // Remove .json
         const ProfileMeta meta = loadProfileMeta(":/profiles/" + file);
 
-        ProfileInfo info;
-        info.filename = name;
-        info.title = meta.title.isEmpty() ? name : meta.title;
-        info.beverageType = meta.beverageType;
-        info.editorType = meta.editorType;
-        info.espressoTemperature = meta.espressoTemperature;
-        info.targetWeight = meta.targetWeight;
-        info.source = ProfileSource::BuiltIn;
-
-        info.hasKnowledgeBase = meta.hasKnowledgeBase;
-            info.kbDerivedFrom = meta.kbDerivedFrom;
-            info.kbId = meta.kbId;
-            info.kbIds = meta.kbIds;
-        info.readOnly = true;  // Built-in profiles are always read-only
+        const ProfileInfo info = makeProfileInfo(name, meta, ProfileSource::BuiltIn);
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
@@ -2097,20 +2104,8 @@ void ProfileManager::refreshProfiles() {
 
             const ProfileMeta meta = loadProfileMetaFromJson(jsonContent);
 
-            ProfileInfo info;
-            info.filename = name;
-            info.title = meta.title.isEmpty() ? name : meta.title;
-            info.beverageType = meta.beverageType;
-            info.editorType = meta.editorType;
-            info.espressoTemperature = meta.espressoTemperature;
-            info.targetWeight = meta.targetWeight;
-            info.source = ProfileSource::UserCreated;
-    
-            info.hasKnowledgeBase = meta.hasKnowledgeBase;
-            info.kbDerivedFrom = meta.kbDerivedFrom;
-            info.kbId = meta.kbId;
-            info.kbIds = meta.kbIds;
-            info.readOnly = meta.readOnly;
+            const ProfileInfo info =
+                makeProfileInfo(name, meta, ProfileSource::UserCreated);
 
             if (m_availableProfiles.contains(name)) {
                 // Override built-in entry so list matches what loadProfile() actually loads
@@ -2139,20 +2134,7 @@ void ProfileManager::refreshProfiles() {
 
         const ProfileMeta meta = loadProfileMeta(downloadedDir.filePath(file));
 
-        ProfileInfo info;
-        info.filename = name;
-        info.title = meta.title.isEmpty() ? name : meta.title;
-        info.beverageType = meta.beverageType;
-        info.editorType = meta.editorType;
-        info.espressoTemperature = meta.espressoTemperature;
-        info.targetWeight = meta.targetWeight;
-        info.source = ProfileSource::Downloaded;
-
-        info.hasKnowledgeBase = meta.hasKnowledgeBase;
-            info.kbDerivedFrom = meta.kbDerivedFrom;
-            info.kbId = meta.kbId;
-            info.kbIds = meta.kbIds;
-        info.readOnly = meta.readOnly;
+        const ProfileInfo info = makeProfileInfo(name, meta, ProfileSource::Downloaded);
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
@@ -2170,20 +2152,7 @@ void ProfileManager::refreshProfiles() {
 
         const ProfileMeta meta = loadProfileMeta(userDir.filePath(file));
 
-        ProfileInfo info;
-        info.filename = name;
-        info.title = meta.title.isEmpty() ? name : meta.title;
-        info.beverageType = meta.beverageType;
-        info.editorType = meta.editorType;
-        info.espressoTemperature = meta.espressoTemperature;
-        info.targetWeight = meta.targetWeight;
-        info.source = ProfileSource::UserCreated;
-
-        info.hasKnowledgeBase = meta.hasKnowledgeBase;
-            info.kbDerivedFrom = meta.kbDerivedFrom;
-            info.kbId = meta.kbId;
-            info.kbIds = meta.kbIds;
-        info.readOnly = meta.readOnly;
+        const ProfileInfo info = makeProfileInfo(name, meta, ProfileSource::UserCreated);
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);

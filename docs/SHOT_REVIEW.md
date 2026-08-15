@@ -181,13 +181,18 @@ depend on profile shape. The result
 projects through the existing `grindCoverage="notAnalyzable"` path when
 Arm 2 also has no data, or `"verified"` when it does. `skipped` stays
 `false`, distinct from the `grind_check_skip` flag's `"skipped"`
-coverage. All three production call sites read `AnalysisInputs::profileKbResolved`
+coverage. All three storage-layer call sites read `AnalysisInputs::profileKbResolved`
 (`prepareAnalysisInputs`), which is `true` for ANY non-empty candidate set.
 They previously each derived it by hand from `!profileKbId.isEmpty()` on the
-persisted column, which is wrong twice over since
-`resolve-profile-kb-by-shape`: the pipeline re-resolves on every load, and an
-ambiguous shape match resolves to a candidate *set* that establishes no
-identity and therefore persists no id — full KB context, empty column. The
+persisted column, which is wrong since `resolve-profile-kb-by-shape`: the
+pipeline re-resolves on every load, and only a TITLE resolution is written to
+that column, so every shape-resolved shot has full KB context and an empty
+column. A fourth site, `ShotSummarizer::runShotAnalysisAndPopulate` (the
+`summarizeFromHistory` slow path for imported shots), sits in the AI module and
+cannot reach `AnalysisInputs`; it takes the resolved id set as a parameter from
+its caller instead. Both routes derive the bit from a resolution rather than
+from the column — that is the property that matters, and neither derives it
+locally. The
 question Arm 1's gate asks ("is this flow goal a real target or a safety
 limiter?") is structural, and a shape match answers it as well as a name does. Direct test callers
 default to `profileKbResolved = true`, preserving the pre-change
@@ -456,8 +461,17 @@ the "Shot Summary" chip is always reachable. It used to be hidden unless a
 quality flag fired or the shot carried a `profileKbId`, which in practice hid
 it only on a *clean* shot — the case with the least other information — while
 the dialog's contents come from the shot's own curves and never needed the KB
-at all. The individual chips keep their own conditions (each flag chip on its
-flag; the clean-extraction chip when none fired).
+at all. The individual chips keep their own conditions: each flag chip on its
+flag, and the clean-extraction chip when none fired **and**
+`verdictCategory !== "insufficientData"`.
+
+That second term is load-bearing. `analyzeShot` short-circuits on
+`pressure.size() < 10` and returns with every detector `false`, so the four
+booleans alone cannot distinguish "nothing was wrong" from "nothing was
+checked" — without it an aborted or curve-less shot claims a clean extraction
+the app never established. (An empty `verdictCategory` still shows the chip:
+that is a legacy row with no serialized analysis, whose behaviour predates
+`detectorResults` and must not change.)
 
 The "Shot Summary" chip at the end of the badge row opens
 `qml/components/ShotAnalysisDialog.qml` — a non-AI, non-modal-blocking

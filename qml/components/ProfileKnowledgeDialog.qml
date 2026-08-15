@@ -6,7 +6,10 @@ import Decenza
 // the profile's KB entry (dial-in expectations, flavor notes, cross-profile
 // grind guidance). ONE implementation shared by the profile selector, the
 // shot detail / post-shot review pages, and the recipe wizard's profile
-// tiles — call openFor(title), or set profileTitle/content and open().
+// tiles — always call openFor(title). Setting profileTitle/content by hand
+// and calling open() still works but silently leaves candidateNames stale, so
+// an ambiguous shape match would not announce itself; openFor is the only
+// entry point that knows every field.
 DecenzaDialog {
     id: knowledgeDialog
     anchors.centerIn: parent

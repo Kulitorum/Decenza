@@ -1427,8 +1427,11 @@ private slots:
                 int depth = 0;
                 for (qsizetype j = i; j < lines.size(); ++j) {
                     const QString& l = lines[j];
-                    if (l.contains(QStringLiteral("//")) ? false
-                                                         : kbIdRe.match(l).hasMatch()) {
+                    // A commented-out line is not a binding. Crude but
+                    // sufficient: the flagged shape never carries a trailing
+                    // comment on the same line.
+                    if (!l.contains(QStringLiteral("//"))
+                        && kbIdRe.match(l).hasMatch()) {
                         violations << QStringLiteral("%1:%2: visible gated on profileKbId")
                                           .arg(relPath).arg(j + 1);
                     }

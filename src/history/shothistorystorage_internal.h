@@ -8,6 +8,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <optional>
+
 #include "../ai/shotanalysis.h"  // ShotAnalysis::ExpertBand
 #include "../profile/profile.h" // ProfileFrameInfo::profile
 #include "../ai/profileshapeindex.h" // KbResolution
@@ -29,9 +31,16 @@ struct ProfileFrameInfo {
     QString editorType;
     // The parsed profile itself, so callers needing SHAPE resolution reuse
     // this parse rather than doing a second Profile::fromJson on the same
-    // JSON. Default-constructed (no steps) when the JSON was absent or
-    // unparseable, which every consumer already treats as "no context".
-    Profile profile;
+    // JSON.
+    //
+    // std::optional rather than a default-constructed Profile, because a
+    // default-constructed Profile is NOT a neutral value here: it is titled
+    // "Default", which is a real shipped profile with a real KB entry
+    // carrying flow_trend_ok. A caller that forgot to check would hand an
+    // unreadable shot another profile's suppression flags. Absent has to be
+    // unrepresentable as a profile, not merely conventionally distinguishable
+    // from one.
+    std::optional<Profile> profile;
 };
 
 ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson);

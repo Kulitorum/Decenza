@@ -16,8 +16,11 @@ class Profile;
 // suppresses: it gets told a by-design curve is a fault.
 //
 // WHY ITS OWN TU, not shotsummarizer_kb.cpp: that file exists to be a lean
-// KB-data layer over `:/ai/*` + QString, so offline consumers (shot_eval,
-// tst_shotrecord_cache) can link a small closure. Shape resolution needs
+// KB-data layer over `:/ai/*` + QString, so the offline consumer that needs
+// it — shot_eval, whose CMake source list deliberately excludes profile*.cpp
+// — can link a small closure. (Only shot_eval: every tst_* binary reaches
+// decenza_testlib, which compiles the whole Profile and BLE closure anyway,
+// so this split buys them nothing.) Shape resolution needs
 // Profile, which reaches Qt Bluetooth through profileframe.cpp's use of
 // DE1::FrameFlag. Putting the index there would drag ~4,900 lines and a
 // Bluetooth dependency into a curve-eval CLI. Keeping it separate costs
@@ -34,7 +37,9 @@ namespace ProfileShapeIndex {
 // unresolved" exactly as today.
 //
 // Returns a SET, not a winner: several shipped profiles can share one shape
-// (measured: 3 such buckets over the shipped set), and picking one of them
+// (measured: 2 such buckets over the shipped set, pinned by
+// tst_shotsummarizer::shippedShapeCollisionsAreExactlyTheKnownTwo), and
+// picking one of them
 // would assert an identity the shape never established. Callers apply per-fact
 // transfer rules to the set — see the profile-knowledge-base capability.
 //
@@ -69,6 +74,27 @@ struct KbResolution {
     // positive can be suppressed without claiming to know which profile the
     // shot's was derived from.
     bool hasIdentity() const { return ids.size() == 1; }
+
+    // What may be written to the shot's `profile_kb_id` column — a TITLE
+    // resolution only, empty for everything else.
+    //
+    // That column is not merely an analysis key: it is the grouping key for
+    // dial-in history (`WHERE profile_kb_id = ?`). Shape equivalence
+    // deliberately ignores temperature, pressure/flow setpoints, volume and
+    // exit thresholds, which is exactly what makes it safe for transferring
+    // suppression FACTS and exactly what makes it wrong as an identity —
+    // persisting one would merge a user's 6-bar variant into the documented
+    // 9-bar profile's dialInSessions and have the advisor compute grind advice
+    // across two different coffees.
+    //
+    // Nothing is lost by withholding it: every analysis path re-resolves from
+    // the shot's own profileJson via prepareAnalysisInputs, so the shape facts
+    // still reach the shot. A method rather than an inline ternary at the one
+    // call site, so the rule has a name and a test.
+    QString persistableId() const
+    {
+        return origin == Origin::Title ? ids.first() : QString();
+    }
 };
 
 // Resolve `p` to KB entries: the existing TITLE steps first (exact alias →

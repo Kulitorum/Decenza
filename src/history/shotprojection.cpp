@@ -65,6 +65,7 @@ QVariantMap ShotProjection::toVariantMap() const
         m["stoppedBy"] = stoppedBy;
     m["profileJson"] = profileJson;
     m["profileKbId"] = profileKbId;
+    m["profileKbDerivedFrom"] = profileKbDerivedFrom;
     // Sparse-emit: "" means unlinked (the common case) — omit rather than
     // surface an empty field to QML/MCP consumers.
     if (!beanBaseJson.isEmpty())
@@ -213,6 +214,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.stoppedBy = m.value("stoppedBy").toString();
     p.profileJson = m.value("profileJson").toString();
     p.profileKbId = m.value("profileKbId").toString();
+    p.profileKbDerivedFrom = m.value("profileKbDerivedFrom").toString();
     p.beanBaseJson = m.value("beanBaseJson").toString();
     p.bagId = m.value("bagId", -1).toLongLong();
     p.frozenDate = m.value("frozenDate").toString();

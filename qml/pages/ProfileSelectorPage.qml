@@ -462,30 +462,13 @@ T.Page {
                                     }
                                 }
 
-                                // "Based on X" — shown only when this profile
-                                // reached its knowledge by SHAPE rather than by
-                                // name, so the user can tell the relationship
-                                // was inferred from the profile's structure and
-                                // not read off its title. Empty (hence hidden)
-                                // for a title match, for no match, and for a
-                                // shape that matched several entries at once.
-                                Text {
-                                    id: kbDerivedLabel
-                                    visible: text.length > 0
-                                    text: {
-                                        var from = profileDelegate.modelData.kbDerivedFrom
-                                        return from ? TranslationManager.translate(
-                                                          "profileselector.based_on", "Based on %1").arg(from)
-                                                    : ""
-                                    }
-                                    color: Theme.textSecondaryColor
-                                    font: Theme.captionFont
-                                    elide: Text.ElideRight
+                                // This CATALOG entry's derivation — the profile
+                                // as it exists right now, which is the right
+                                // subject on a selector row.
+                                KbDerivedFromLabel {
+                                    derivedFrom: profileDelegate.modelData.kbDerivedFrom || ""
                                     Layout.maximumWidth: profileDelegate.width * 0.3
                                     Layout.alignment: Qt.AlignVCenter
-                                    Accessible.role: Accessible.StaticText
-                                    Accessible.name: text
-                                    Accessible.ignored: !visible
                                 }
 
                                 Image {
@@ -517,7 +500,8 @@ T.Page {
                                             // openFor() over setting the properties by hand: it
                                             // is the one place that knows every field the dialog
                                             // needs, so a new one (candidateNames) reaches all
-                                            // three callers.
+                                            // FIVE call sites — the two RecipeWizardPage tiles
+                                            // got it without being edited, which is the point.
                                             knowledgeDialog.openFor(profileDelegate.modelData.title)
                                         }
                                     }
