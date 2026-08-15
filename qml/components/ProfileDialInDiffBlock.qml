@@ -82,20 +82,31 @@ Column {
         return (unit === "celsius" || unit === "bar" || unit === "mlPerSec") ? 2 : 1
     }
 
-    // Trailing zeros are noise on the common case ("9 bar", not "9.00 bar"),
-    // so start at one decimal and only spend more when one decimal would make
-    // the two sides look the same.
+    // The decimal count BOTH sides render at. Two rules, in order.
+    //
+    // First, spend enough to keep the two sides distinguishable: a row exists
+    // because the values differ, so rendering them identically states a change
+    // and shows none.
+    //
+    // Then give back what BOTH sides can spare. Trimming each side on its own
+    // would undo half the first decision — "2.00 → 2.02" would print as
+    // "2 → 2.02", leaving the reader to guess whether the left side is exactly
+    // 2 or a rounded 1.996. Dropping a place only when neither side is using
+    // it keeps the pair symmetric and still spells the common case "36 → 41"
+    // rather than "36.0 → 41.0". It cannot merge the two: they were distinct
+    // at this count, and both lose the same trailing zero.
     function decimalsFor(row) {
         if (!row.numeric) return 0
         var max = maxDecimalsFor(row.unit)
-        for (var d = 1; d < max; d++)
-            if (row.oldValue.toFixed(d) !== row.newValue.toFixed(d)) return d
-        return max
-    }
-
-    function trimZeros(text) {
-        if (text.indexOf(".") < 0) return text
-        return text.replace(/0+$/, "").replace(/\.$/, "")
+        var d = max
+        for (var i = 1; i < max; i++) {
+            if (row.oldValue.toFixed(i) !== row.newValue.toFixed(i)) { d = i; break }
+        }
+        while (d > 0
+               && row.oldValue.toFixed(d).slice(-1) === "0"
+               && row.newValue.toFixed(d).slice(-1) === "0")
+            d--
+        return d
     }
 
     function formatNumber(row, value, decimals) {
@@ -118,7 +129,7 @@ Column {
         // tokens this does not map ("s", "count"); both are developer-only
         // today, and promoting one to dial-in is a one-word edit.
         else if (row.unit && row.unit.length > 0) suffix = " " + row.unit
-        return trimZeros(value.toFixed(decimals)) + suffix
+        return value.toFixed(decimals) + suffix
     }
 
     function changeText(row) {
