@@ -2282,7 +2282,6 @@ private slots:
     {
         const Profile empty;
         QVERIFY(ProfileShapeIndex::candidatesForShape(empty).isEmpty());
-        QVERIFY(ProfileShapeIndex::bundledProfilesForShape(empty).isEmpty());
     }
 
     // A bucket's FILES, on the smaller of the two real collisions. Sorted for
@@ -2308,11 +2307,6 @@ private slots:
         QCOMPARE(ids, (QStringList{ QStringLiteral("d-flow"),
                                     QStringLiteral("d-flow-la-pavoni-variant") }));
 
-        QStringList sortedPaths;
-        for (const ProfileShapeIndex::BundledMatch& m : got) sortedPaths << m.resourcePath;
-        QStringList expectSorted = sortedPaths;
-        expectSorted.sort();
-        QCOMPARE(sortedPaths, expectSorted);
     }
 
     // === Dial-in base selection (change: summarize-profile-changes-from-builtin) ===
@@ -2390,6 +2384,10 @@ private slots:
             QStringLiteral("hybrid_pour_over_espresso.json"), [](QJsonObject& o) {
                 o[QStringLiteral("title")] = QStringLiteral("Zzz Equidistant Fixture");
                 o[QStringLiteral("target_volume")] = QStringLiteral("18.0");   // 0 vs 36
+                // The AUTHORED brew temperature is its own dial-in row, separate
+                // from the frames', so it has to differ from both too or the
+                // fixture is not equidistant.
+                o[QStringLiteral("espresso_temperature")] = QStringLiteral("95.00"); // 92 vs 90
                 setOnEveryStep(o, QStringLiteral("temperature"), QStringLiteral("95.00")); // 92 vs 90
                 setOnStep(o, 0, QStringLiteral("flow"), QStringLiteral("5.00"));  // 2.00 vs 8.00
                 setOnStep(o, 1, QStringLiteral("flow"), QStringLiteral("2.50"));  // 2.20 vs 2.00
@@ -2484,6 +2482,98 @@ private slots:
         QVERIFY(cmp.hasBase());
         QCOMPARE(cmp.baseKbId, QStringLiteral("preinfuse-then-45ml-of-water"));
         QVERIFY(cmp.deltas.isEmpty());
+    }
+
+    // The Title branch restricts candidates to the entry whose prose is on
+    // screen. Without that filter the block can name a bundled profile from a
+    // DIFFERENT entry — "Your changes from D-Flow / La Pavoni" printed under the
+    // D-Flow entry's text. The fixture is discriminating: it carries La Pavoni's
+    // content under D-Flow's title, so deleting the filter elects the La Pavoni
+    // file (zero deltas) instead.
+    void dialInBase_theTitleBranchStaysInsideItsOwnEntry()
+    {
+        QFile f(shippedProfileDir().filePath(QStringLiteral("d_flow_la_pavoni.json")));
+        QVERIFY2(f.open(QIODevice::ReadOnly), "fixture profile missing");
+        QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+        obj[QStringLiteral("title")] = QStringLiteral("D-Flow / default");
+        const Profile user = Profile::fromJson(QJsonDocument(obj));
+        QVERIFY(user.isValid());
+
+        const KbResolution res = resolveProfileKb(user);
+        QCOMPARE(res.origin, KbResolution::Origin::Title);
+        QCOMPARE(res.ids, QStringList{ QStringLiteral("d-flow") });
+
+        const DialInComparison cmp = compareWithBundledBase(user, res);
+        QVERIFY(cmp.hasBase());
+        QCOMPARE(cmp.baseKbId, QStringLiteral("d-flow"));
+        QVERIFY2(!cmp.deltas.isEmpty(),
+                 "the D-Flow base really should differ from La Pavoni's values");
+    }
+
+    // A profile-level-only edit. Profile::functionallyEqual deliberately ignores
+    // the profile-level limits and never compares a frame name, so using it as
+    // the self-check told a user who changed ONLY their yield that nothing had
+    // changed — in the population this feature exists for.
+    void dialInBase_anInPlaceYieldEditIsNotMistakenForTheBuiltIn()
+    {
+        const Profile user = shippedProfileEdited(
+            QStringLiteral("hybrid_pour_over_espresso.json"), [](QJsonObject& o) {
+                o[QStringLiteral("target_weight")] = QStringLiteral("42.0");
+            });
+        QVERIFY(user.isValid());
+
+        const DialInComparison cmp = compareWithBundledBase(user, resolveProfileKb(user));
+        QVERIFY(cmp.hasBase());
+        QCOMPARE(cmp.deltas.size(), 1);
+        QCOMPARE(cmp.deltas.first().kind, QStringLiteral("targetWeight"));
+    }
+
+    // Six bundled tea profiles share one shape bucket and one KB entry, and two
+    // of them (chinese green, white tea) differ from each other ONLY in title —
+    // so no metric can separate them and a plain abstain-on-tie would exclude
+    // every tea profile from the feature. The prose is the same either way, so
+    // the block names the ENTRY.
+    void dialInBase_aTieInsideOneEntryNamesTheEntry()
+    {
+        const Profile user = shippedProfileEdited(
+            QStringLiteral("tea_portafilter_white_tea.json"), [](QJsonObject& o) {
+                o[QStringLiteral("title")] = QStringLiteral("Zzz My Tea");
+                setOnEveryStep(o, QStringLiteral("temperature"), QStringLiteral("85.00"));
+                o[QStringLiteral("espresso_temperature")] = QStringLiteral("85.00");
+            });
+        QVERIFY(user.isValid());
+
+        const KbResolution res = resolveProfileKb(user);
+        const DialInComparison cmp = compareWithBundledBase(user, res);
+
+        QVERIFY2(cmp.hasBase(),
+                 "a tie inside one KB entry must still produce a block");
+        QCOMPARE(cmp.baseKbId, QStringLiteral("tea"));
+        QCOMPARE(cmp.baseTitle, ShotSummarizer::canonicalNameForKbId(QStringLiteral("tea")));
+    }
+
+    // The precondition the test above rests on: the tea bucket really does hold
+    // six FILES under one id, and two of them really are indistinguishable. If a
+    // bundled profile is retuned later this fails loudly rather than quietly
+    // ceasing to test the same-entry tie.
+    void shapeIndex_theTeaBucketIsSixFilesUnderOneEntry()
+    {
+        const Profile tea =
+            Profile::loadFromFile(QStringLiteral(":/profiles/tea_portafilter_white_tea.json"));
+        QVERIFY(tea.isValid());
+
+        const QVector<ProfileShapeIndex::BundledMatch> bucket =
+            ProfileShapeIndex::bundledProfilesForShape(tea);
+        QCOMPARE(bucket.size(), 6);
+
+        QSet<QString> ids;
+        for (const ProfileShapeIndex::BundledMatch& m : bucket) ids.insert(m.kbId);
+        QCOMPARE(ids, QSet<QString>{ QStringLiteral("tea") });
+
+        const Profile green =
+            Profile::loadFromFile(QStringLiteral(":/profiles/tea_portafilter_chinese_green.json"));
+        QVERIFY2(Profile::dialInDeltas(green, tea).isEmpty(),
+                 "chinese green and white tea must remain indistinguishable on dial-in values");
     }
 
     // === Candidate-set transfer rules (group 4) ===

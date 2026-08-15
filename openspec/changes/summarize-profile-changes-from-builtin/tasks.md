@@ -67,10 +67,17 @@
 
 ## 6. Gates and documentation
 
+- [x] 6.0 Five-agent review pass; fix every confirmed finding. Six defects producing wrong output were
+      found and fixed: the self-check using a predicate blind to five dial-in fields, a tolerance that
+      swallowed one editor step of yield, a missing authored brew-temperature row, a collapse that merged
+      rows across differing units, a load failure that could turn a tie into a false win, and a
+      same-entry tie that excluded every tea profile. Plus a C++/QML drift gate, four duplicate
+      translation keys, an inverted accessible name, and eleven comment inaccuracies.
+
 - [x] 6.1 Build all through the Qt Creator MCP, including `qmllint_check`, and clear every new diagnostic.
 - [x] 6.2 Run the full test suite through the Qt Creator MCP; zero failures and zero warnings.
 - [x] 6.3 Update `docs/PROFILE_KNOWLEDGE_BASE.md` with the block, the shape gate, and the tie rule.
 - [x] 6.4 Add a short entry to the wiki manual's profile section — what the block is, where it appears, and
       the one non-obvious rule (it only appears when the frame structure matches). Three to five sentences.
-- [ ] 6.5 Archive this change with `openspec archive summarize-profile-changes-from-builtin` as the last
+- [ ] 6.6 Archive this change with `openspec archive summarize-profile-changes-from-builtin` as the last
       commit on the branch, before merge.

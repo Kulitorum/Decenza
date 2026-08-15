@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QHash>
+#include <QSet>
 #include <QJsonDocument>
 #include <QMutex>
 #include <QMutexLocker>
@@ -34,8 +35,11 @@ QMutex s_mutex;
 // profile with no KB entry has no facts to lend, so indexing it would only
 // create buckets that can never transfer anything.
 //
-// Cost: one-time per process, and paid only by a profile that failed title
-// resolution — a title-resolvable profile never reaches this at all.
+// Cost: one-time per process, paid by the first profile that reaches EITHER
+// shape resolution or the dial-in difference block. It is no longer only the
+// title-resolution failures: compareWithBundledBase() looks the shape up before
+// it branches on origin, so a title-resolved profile builds the index too — and
+// that is the population the difference block targets.
 //
 // MEASURED, 2023 MacBook Pro, DEBUG build with ASan+UBSan, 100 shipped
 // profiles through Profile::fromJson: 48 ms, yielding 85 shapes. Release is
@@ -43,7 +47,7 @@ QMutex s_mutex;
 // here, so treat 48 ms as the pessimistic bound rather than the typical one.
 // A warm lookup afterwards is a hash probe.
 //
-// Where that lands, all three callers:
+// Where that lands, all FOUR callers:
 //   - shot SAVE (main thread, machine idle after the shot),
 //   - shot LOAD (background DB thread),
 //   - the profile CATALOG SCAN, ProfileManager::refreshProfiles() — main
@@ -53,6 +57,12 @@ QMutex s_mutex;
 //     per-profile Profile::fromJson. It is a discrete user action rather than
 //     a repeating binding, and it is paid once per process, which is why it is
 //     accepted rather than threaded.
+//   - the DIAL-IN DIFFERENCE BLOCK, on knowledge-dialog open (main thread).
+//     In practice the catalog scan has already paid for it by then — the dialog
+//     is reached from a profile list or a shot page, both of which follow a
+//     scan — but a cold index CAN land here, and this is the one place where a
+//     user is waiting on a dialog rather than on a page they already asked to
+//     rebuild.
 // It must NOT be called from a QML binding or anything per-sample.
 //
 // Caller must hold s_mutex. The lock deliberately covers the READS in
@@ -102,6 +112,21 @@ void loadIndexLocked()
         }
         const Profile p = Profile::fromJson(doc);
         ++parsed;
+
+        // isValid() is a STRICTER bar than "parsed": it also rejects an
+        // unsupported step key and a malformed value. Checked here so the index
+        // never hands out a candidate the comparator would then reject — the
+        // divergence was real, because a shipped profile carrying a step key the
+        // parser does not know indexed cleanly with no warning anywhere, and
+        // then failed at compare time where the only report of it lived.
+        if (!p.isValid()) {
+            qWarning().nospace()
+                << "ProfileShapeIndex: shipped profile '" << name
+                << "' is not valid (" << p.validationErrors().join(QStringLiteral("; "))
+                << ") - excluded from the shape index";
+            ++unreadable;
+            continue;
+        }
 
         const QString sig = p.shapeSignature();
         if (sig.isEmpty()) continue;   // no frames: nothing to match on
@@ -239,42 +264,72 @@ DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& re
     QString bestPath, bestTitle, bestId;
     QVector<ProfileFieldDelta> bestDeltas;
     qsizetype bestCount = -1;
-    bool tied = false;
+    QStringList tiedIds;        // kb ids of every candidate level with the best
 
     for (const BundledMatch& m : candidates) {
         const Profile bundled = Profile::loadFromFile(m.resourcePath);
         if (!bundled.isValid()) {
-            // Unreadable here means the same packaging defect loadIndexLocked()
-            // already warns about per file; it cannot be a data outcome, and it
-            // must not silently promote a worse candidate to winner.
+            // The index now refuses an invalid profile at build time, so this is
+            // unreachable short of the resource system changing under us. It must
+            // ABSTAIN rather than skip: a candidate we cannot read makes the set
+            // incomplete, and an incomplete set cannot establish "strictly
+            // nearest". Skipping instead would promote a worse candidate to
+            // winner and could turn a genuine tie into a confident wrong answer.
             qWarning().nospace()
                 << "ProfileShapeIndex: bundled base '" << m.resourcePath
-                << "' did not load; it cannot be compared against";
-            continue;
-        }
-
-        // A profile compared with itself is the documentation, not a copy of it.
-        if (Profile::functionallyEqual(bundled, p) && bundled.title() == p.title())
+                << "' did not load; the candidate set is incomplete, so no base "
+                << "can be established";
             return {};
+        }
 
         QVector<ProfileFieldDelta> deltas = Profile::dialInDeltas(bundled, p);
         const qsizetype count = deltas.size();
         if (bestCount < 0 || count < bestCount) {
             bestCount = count;
-            tied = false;
+            tiedIds = QStringList{ m.kbId };
             bestPath = m.resourcePath;
             bestTitle = bundled.title();
             bestId = m.kbId;
             bestDeltas = std::move(deltas);
         } else if (count == bestCount) {
-            tied = true;
+            tiedIds.append(m.kbId);
         }
     }
 
-    // No strictly-fewest means no base. Naming one would assert a relationship
-    // the comparison did not establish, which is the false attribution this
-    // whole gate exists to avoid.
-    if (bestCount < 0 || tied) return {};
+    if (bestCount < 0) return {};
+
+    // A profile compared with itself is the documentation, not a copy of it.
+    //
+    // Gated on the DELTAS, not on Profile::functionallyEqual(). That predicate
+    // deliberately ignores profile-level limits (its own comment says so) and
+    // never compares a frame's display name — which is five of the fields this
+    // block exists to show. Using it meant a user who changed only the yield, a
+    // pressure/flow limit, or a step name was told nothing at all, in exactly
+    // the population the feature targets. Asking "did anything dial-in differ,
+    // and is this still the same title" keeps the self-check consistent with the
+    // list it is guarding.
+    if (bestDeltas.isEmpty() && bestTitle == p.title()) return {};
+
+    if (tiedIds.size() > 1) {
+        // Several candidates are equally near. Whether that is fatal depends on
+        // whether they describe the same KNOWLEDGE.
+        //
+        // Across entries it is: naming one asserts a relationship the comparison
+        // did not establish, so abstain.
+        //
+        // Within ONE entry it is not, and abstaining there costs real coverage.
+        // The tea_portafilter set is six bundled profiles in one shape bucket
+        // all resolving to `tea`, and two of them (chinese green, white tea)
+        // differ from each other only in title — no metric can separate them,
+        // and abstaining would silently exclude every tea profile from the
+        // feature. The prose on screen is the same either way, so the honest
+        // move is to name the ENTRY rather than pick one of its files.
+        const QSet<QString> distinct(tiedIds.cbegin(), tiedIds.cend());
+        if (distinct.size() > 1) return {};
+
+        const QString canonical = ShotSummarizer::canonicalNameForKbId(bestId);
+        if (!canonical.isEmpty()) bestTitle = canonical;
+    }
 
     out.baseResourcePath = bestPath;
     out.baseTitle = bestTitle;

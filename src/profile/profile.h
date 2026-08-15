@@ -56,12 +56,14 @@ struct ProfileFieldDelta {
     // for a row the dial-in filter collapsed across every frame.
     int frameIndex = -1;
 
-    // The frame's display name in the BASE profile, empty when frameIndex < 0.
-    // Carried so a surface can say "Pouring" instead of "frame 3".
+    // The frame's display name in profile `a` — the BASE, for dialInDeltas().
+    // Empty when frameIndex < 0. Carried so a surface can say "Pouring" instead
+    // of "frame 3".
     QString frameName;
 
-    // Unit token for a numeric row: "celsius", "bar", "mlPerSec", "g", "ml".
-    // Empty for a string row.
+    // Unit token for a numeric row: "celsius", "bar", "mlPerSec", "g", "ml",
+    // plus "s" and "count" which are developer-only today. Empty for a string
+    // row.
     //
     // Set HERE rather than inferred by the surface, because one row cannot be
     // inferred at all: the frame limiter is a max FLOW on a pressure-driven
@@ -70,8 +72,24 @@ struct ProfileFieldDelta {
     // temperature one depends on a user setting.
     QString unit;
 
+    // How far apart two values must be to count as different, derived from the
+    // field's SERIALIZATION precision (ProfileJson) rather than picked: half of
+    // the last decimal place that survives a write, so a round-trip cannot
+    // manufacture a difference and one editor step always shows.
+    //
+    // This is deliberately TIGHTER than the flat 0.1 frameDiffReport() has
+    // always applied. That 0.1 is right for an import-parity check absorbing
+    // TCL-vs-JSON noise, and wrong for a user-facing diff: target weight's
+    // editor step IS 0.1 g, so a 36.0 -> 36.1 g edit landed exactly on the
+    // boundary and was reported as "unchanged". Rows are emitted at this
+    // tolerance and frameDiffReport() re-filters at its own 0.1, which is what
+    // keeps its output byte-identical while the dial-in block gets the truth.
+    double tolerance = 0.1;
+
     // numeric rows carry oldValue/newValue; the rest carry oldText/newText.
-    bool numeric = true;
+    // Defaults to the string branch: a delta that somehow skipped the emitters
+    // then renders as missing rather than as a real value of zero.
+    bool numeric = false;
     double oldValue = 0.0;
     double newValue = 0.0;
     QString oldText;

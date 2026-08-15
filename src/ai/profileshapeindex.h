@@ -28,8 +28,9 @@
 // Profile, which reaches Qt Bluetooth through profileframe.cpp's use of
 // DE1::FrameFlag. Putting the index there would drag ~4,900 lines and a
 // Bluetooth dependency into a curve-eval CLI. Keeping it separate costs
-// nothing: the callers that need shape resolution (shot save, shot load,
-// the profile catalog scan) all already have a Profile in hand.
+// nothing: the callers that need shape resolution (shot save, shot load, the
+// profile catalog scan, and the dial-in difference block) all already have a
+// Profile in hand.
 //
 // Consequence worth knowing: shot_eval does NOT do shape resolution, so the
 // regression corpus gates the title steps but not this one. Widening it would
@@ -156,6 +157,8 @@ DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& re
 // recipe-alias longest-boundary-prefix → editor-type default), unchanged and
 // always winning; the SHAPE step only when those all miss.
 //
-// A title-resolvable profile never touches the shape index, so it pays
-// nothing for this and its resolution is byte-identical to before.
+// A title-resolvable profile never touches the shape index DURING RESOLUTION,
+// so it pays nothing here and its resolution is byte-identical to before. It
+// may still reach the index afterwards through compareWithBundledBase(), which
+// asks a different question for a different reason.
 KbResolution resolveProfileKb(const Profile& p);

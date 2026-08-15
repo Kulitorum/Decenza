@@ -183,7 +183,7 @@ Three rules decide whether it appears at all
    selected it — the selection and the thing selected cannot disagree, because
    they are one computation.
 
-The compared fields are exactly the ones the shape ignores: target weight,
+The compared fields are the dialled ones among those the shape ignores: target weight,
 target volume, maximum pressure and flow at profile level; per frame the
 temperature, the **active** setpoint, the **matching** exit threshold, the exit
 weight, the volume cap, the limiter value and the step name. The inactive axis
@@ -199,9 +199,9 @@ tells the reader the knowledge applies without qualification.
 `Profile::fieldDeltas()` is one traversal serving two audiences — this block and
 `frameDiffReport()`, the developer text behind `profile_sync` and the TCL import
 parity gate. Each row declares which it belongs to. They differ deliberately in
-two places: the inactive axis and the profile-level values are developer-only or
-user-only respectively, and a renamed frame reaches the user but not the parity
-gate, since a rename is not a portability defect.
+three places: the inactive axis and the frame popup text are developer-only, the
+profile-level values are user-only, and a renamed frame reaches the user but not
+the parity gate, since a rename is not a portability defect.
 
 ## The 4 Mother Categories
 

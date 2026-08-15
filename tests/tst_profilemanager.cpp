@@ -4780,6 +4780,85 @@ private slots:
         f.profileManager.refreshProfiles();
     }
 
+    // Every dial-in `kind` and `unit` C++ can emit must be handled by the QML.
+    //
+    // The two lists are produced at different sites in different languages with
+    // nothing connecting them, which is exactly the drift the centralization
+    // rule targets, and the project already gates the same shape elsewhere
+    // (tst_customwidgethtml::everyCatalogActionHasADispatchArm). Without this,
+    // adding a dial-in field ships a raw identifier as a label, or a bare
+    // unitless number, to a user — and both look finished, so nobody reports it.
+    void profileDialInDiff_everyKindAndUnitIsHandledByTheQml()
+    {
+        QDir qmlDir(QCoreApplication::applicationDirPath() + "/../../../../qml");
+        if (!qmlDir.exists())
+            qmlDir.setPath(QString(SRCDIR) + "/../qml");
+        if (!qmlDir.exists())
+            QSKIP("QML directory not found — run from source tree");
+
+        QFile block(qmlDir.absolutePath() + "/components/ProfileDialInDiffBlock.qml");
+        QVERIFY2(block.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "ProfileDialInDiffBlock.qml missing");
+        const QString qml = QString::fromUtf8(block.readAll());
+
+        // Hardcoded rather than scraped from C++: the point is that adding a
+        // field fails HERE until someone updates the QML too.
+        const QStringList kinds{
+            QStringLiteral("targetWeight"),    QStringLiteral("targetVolume"),
+            QStringLiteral("maximumPressure"), QStringLiteral("maximumFlow"),
+            QStringLiteral("minimumPressure"), QStringLiteral("tankTemperature"),
+            QStringLiteral("espressoTemperature"), QStringLiteral("recommendedDose"),
+            QStringLiteral("temperature"),     QStringLiteral("pressure"),
+            QStringLiteral("flow"),            QStringLiteral("volume"),
+            QStringLiteral("exitPressureOver"), QStringLiteral("exitPressureUnder"),
+            QStringLiteral("exitFlowOver"),    QStringLiteral("exitFlowUnder"),
+            QStringLiteral("exitWeight"),      QStringLiteral("maxFlowOrPressure"),
+            QStringLiteral("name"),
+        };
+        QStringList missing;
+        for (const QString& k : kinds)
+            if (!qml.contains(QStringLiteral("\"%1\":").arg(k))) missing << k;
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral("dial-in kinds with no label in the QML: %1")
+                                .arg(missing.join(QStringLiteral(", ")))));
+
+        for (const QString& u : { "celsius", "bar", "mlPerSec", "g", "ml" })
+            QVERIFY2(qml.contains(QStringLiteral("\"%1\"").arg(u)),
+                     qPrintable(QStringLiteral("unit token %1 is not formatted by the QML").arg(u)));
+
+        // And the fallback stays honest: an unmapped token must reach the user
+        // as a visible token, never as a bare number that looks finished.
+        QVERIFY2(qml.contains(QStringLiteral("suffix = \" \" + row.unit")),
+                 "the unmapped-unit fallback must append the raw token");
+    }
+
+    // The lookup order in loadProfileByFilename is what makes an IN-PLACE edit of
+    // a built-in work at all: the edit lands in the user folder under the
+    // built-in's own filename, refreshProfiles() keeps the built-in catalog
+    // entry, and only user-folder-before-:/profiles makes the diff read the
+    // user's bytes. Reverse the list and every in-place edit reports "unchanged".
+    void profileDialInDiff_readsTheUserCopyThatShadowsABuiltIn()
+    {
+        McpTestFixture f;
+        QJsonObject json = bundledJsonRetitled(
+            QStringLiteral("hybrid_pour_over_espresso.json"),
+            QStringLiteral("Hybrid pour over espresso"));   // title UNCHANGED
+        QVERIFY(!json.isEmpty());
+        setTempOnEveryStep(json, QStringLiteral("95.00"));
+        writeUserProfile(f, QStringLiteral("hybrid_pour_over_espresso"), json);
+
+        const QVariantMap diff =
+            f.profileManager.profileDialInDiff(QStringLiteral("Hybrid pour over espresso"));
+        QVERIFY2(diff.value(QStringLiteral("hasBase")).toBool(),
+                 "an in-place edit of a built-in must still find its base");
+        QVERIFY2(!diff.value(QStringLiteral("unchanged")).toBool(),
+                 "the shadowing user copy must be what gets compared");
+        const QVariantList rows = diff.value(QStringLiteral("rows")).toList();
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("kind")).toString(),
+                 QStringLiteral("temperature"));
+    }
+
     void profileDialInDiff_namesTheBundledBaseAndListsTheEdit()
     {
         McpTestFixture f;

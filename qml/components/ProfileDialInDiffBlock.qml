@@ -41,6 +41,10 @@ Column {
             "targetVolume":      TranslationManager.translate("profilediff.field.targetVolume", "Target volume"),
             "maximumPressure":   TranslationManager.translate("profilediff.field.maximumPressure", "Pressure limit"),
             "maximumFlow":       TranslationManager.translate("profilediff.field.maximumFlow", "Flow limit"),
+            "minimumPressure":   TranslationManager.translate("profilediff.field.minimumPressure", "Minimum pressure"),
+            "tankTemperature":   TranslationManager.translate("profilediff.field.tankTemperature", "Tank preheat"),
+            "espressoTemperature": TranslationManager.translate("profilediff.field.espressoTemperature", "Brew temperature"),
+            "recommendedDose":   TranslationManager.translate("profilediff.field.recommendedDose", "Dose"),
             "temperature":       TranslationManager.translate("profilediff.field.temperature", "Temperature"),
             "pressure":          TranslationManager.translate("profilediff.field.pressure", "Pressure"),
             "flow":              TranslationManager.translate("profilediff.field.flow", "Flow"),
@@ -69,10 +73,17 @@ Column {
         if (row.unit === "celsius")
             return Theme.cToDisplay(value).toFixed(1) + Theme.tempUnitSuffix()
         var suffix = ""
-        if (row.unit === "bar") suffix = " " + TranslationManager.translate("common.unit.bar", "bar")
-        else if (row.unit === "mlPerSec") suffix = " " + TranslationManager.translate("common.unit.mlPerSec", "mL/s")
-        else if (row.unit === "g") suffix = " " + TranslationManager.translate("common.unit.gram", "g")
+        if (row.unit === "bar") suffix = " " + TranslationManager.translate("espresso.unit.bar", "bar")
+        else if (row.unit === "mlPerSec") suffix = " " + TranslationManager.translate("espresso.unit.flowRate", "mL/s")
+        else if (row.unit === "g") suffix = " " + TranslationManager.translate("common.unit.grams", "g")
         else if (row.unit === "ml") suffix = " " + TranslationManager.translate("common.unit.ml", "mL")
+        // An unmapped token appends the RAW token rather than nothing. A bare
+        // unitless number is not "ugly but truthful" the way an unmapped label
+        // is — "25 → 30" with no unit is simply wrong for a duration or a mass,
+        // and it looks finished, so nobody reports it. C++ can already mint two
+        // tokens this does not map ("s", "count"); both are developer-only
+        // today, and promoting one to dial-in is a one-word edit.
+        else if (row.unit && row.unit.length > 0) suffix = " " + row.unit
         // One decimal, then drop a trailing ".0" — dial-in values are authored
         // at one decimal and "9 bar" reads better than "9.0 bar".
         var text = value.toFixed(1).replace(/\.0$/, "")
@@ -100,8 +111,15 @@ Column {
     }
 
     Accessible.role: Accessible.Grouping
-    Accessible.name: TranslationManager.translate("profilediff.heading",
-                         "Your changes from %1").arg(root.baseTitle)
+    // Same ternary as the visible heading below. It used to be unconditionally
+    // "Your changes from X" while the screen said "Unchanged copy of X" — the
+    // two states the design calls load-bearing, told to a screen-reader user in
+    // reverse.
+    Accessible.name: root.unchanged
+        ? TranslationManager.translate("profilediff.unchanged",
+              "Unchanged copy of %1").arg(root.baseTitle)
+        : TranslationManager.translate("profilediff.heading",
+              "Your changes from %1").arg(root.baseTitle)
     Accessible.description: root.accessibleSummary
 
     Rectangle {
@@ -138,13 +156,15 @@ Column {
                 delegate: Item {
                     id: diffRow
 
-                    // `pragma ComponentBehavior: Bound` above is what lets this
-                    // delegate reach `root` and `blockContent`, the outer ids —
-                    // and it stops model roles arriving as context properties, so
-                    // every role the delegate reads must be declared required in
-                    // the same edit (QML_GOTCHAS.md). `modelData` is the only one
-                    // read here; `index` is deliberately not declared because
-                    // nothing uses it.
+                    // `pragma ComponentBehavior: Bound` binds this delegate to
+                    // its DEFINING context, so `root` and `blockContent` resolve
+                    // statically rather than through a runtime scope walk. It
+                    // does not grant access to outer ids — a delegate can reach
+                    // them either way — and reading it that way is the
+                    // QML_GOTCHAS.md trap in reverse. What it does change is
+                    // that model roles stop arriving as context properties, so
+                    // every role read here must be `required`. `modelData` is
+                    // the only one read; `index` is deliberately not declared.
                     required property var modelData
 
                     width: blockContent.width

@@ -343,9 +343,12 @@ public:
     // The dial-in differences between a profile and the bundled profile whose
     // knowledge is being shown for it (change: summarize-profile-changes-from-builtin).
     //
-    // Keys: hasBase (bool), baseTitle, baseKbId, unchanged (bool), rows
-    // (QVariantList of { kind, frameIndex, frameName, numeric, oldValue,
-    // newValue, oldText, newText }).
+    // Keys: hasBase (bool), unchanged (bool), rows (QVariantList), and — only
+    // when hasBase is true — baseTitle and baseKbId. Each row carries
+    // { kind, unit, frameIndex, frameName, numeric, oldValue, newValue,
+    // oldText, newText }; `unit` is the token the surface turns into a suffix
+    // and is NOT inferable downstream (the frame limiter is a max flow on a
+    // pressure frame and a max pressure on a flow frame).
     //
     // Three outcomes the surface must tell apart, and they are NOT the same:
     //   hasBase false            - no comparison was possible; show nothing.

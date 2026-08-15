@@ -54,9 +54,14 @@ DecenzaDialog {
         profileTitle = title
         candidateNames = ProfileManager.profileKbCandidateNames(title)
         content = ProfileManager.profileKnowledgeContent(title)
+        // No stored profile JSON (a legacy row predating profile_json) means
+        // there is nothing to compare. Falling back to the catalog profile of
+        // the same name would silently describe a profile as it stands NOW on a
+        // page describing a past shot — the exact substitution this function
+        // exists to prevent, done invisibly. Show nothing instead.
         dialInDiff = profileJson && profileJson.length > 0
             ? ProfileManager.profileDialInDiffForJson(profileJson)
-            : ProfileManager.profileDialInDiff(title)
+            : ({})
         open()
     }
 

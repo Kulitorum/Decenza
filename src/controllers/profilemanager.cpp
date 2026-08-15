@@ -1159,10 +1159,25 @@ QVariantMap ProfileManager::profileDialInDiff(const QString& profileTitle) const
     const ProfileInfo* found = findProfileByTitleForKb(profileTitle);
     if (!found) return dialInDiffFor(Profile());
 
+    // The catalog says this profile exists, so a lookup that finds no file is a
+    // catalog/disk divergence — refreshProfiles() built that entry FROM a file.
+    // Nobody else reports it: loadProfileByFilename only reaches the warning
+    // paths in Profile::loadFromFile behind a QFile::exists() guard, so the
+    // "entry with no file anywhere" case is silent everywhere else.
+    bool onDisk = false;
+    const Profile catalogProfile = loadProfileByFilename(found->filename, &onDisk);
+    if (!onDisk)
+        qWarning() << "ProfileManager: catalog holds" << found->filename
+                   << "but no copy exists in storage, the user folder, the downloaded"
+                   << "folder or :/profiles - the profile catalog is stale";
+
     // NOT MEASURED, and deliberately not given a number here. The work is one
-    // Profile load from disk plus one to four from the (in-memory) resource
+    // Profile load from disk plus up to SIX from the (in-memory) resource
     // system, each followed by a linear field walk — bounded by the shape
-    // bucket, whose largest member over the shipped set is two. It runs on
+    // bucket. Six is the tea_portafilter bucket, measured by counting FILES per
+    // bucket; an earlier draft said "two", which came from
+    // shippedShapeCollisionsAreExactlyTheKnownTwo and counts distinct KB IDS
+    // per bucket, a different quantity that says nothing about file count. It runs on
     // knowledge-dialog OPEN, a discrete user action, and the dialog assigns it
     // to a plain property rather than binding it, so it evaluates once per open
     // and never re-evaluates on an unrelated change. That is what makes it an
@@ -1171,20 +1186,24 @@ QVariantMap ProfileManager::profileDialInDiff(const QString& profileTitle) const
     //
     // A cold shape index adds the 48 ms documented in profileshapeindex.cpp —
     // that one IS measured, and the catalog scan normally pays it first.
-    return dialInDiffFor(loadProfileByFilename(found->filename));
+    return dialInDiffFor(catalogProfile);
 }
 
 QVariantMap ProfileManager::profileDialInDiffForJson(const QString& profileJson) const {
     // Parsed here rather than through Profile::loadFromJsonString, which warns.
     // A shot row with unreadable profile JSON is already reported where it is
-    // READ (shothistorystorage_internal.cpp warns, and the shot-detail page
-    // parses the same string for its own header). Warning again here would
+    // READ: profileFrameInfoFromJson in shothistorystorage_internal.cpp warns,
+    // on the unconditional shot-load path. (The shot pages parse the same string
+    // too, but inside a try/catch that returns defaults silently, so they are
+    // not a reporting site and are not evidence.) Warning again here would
     // re-report one defect on every knowledge-dialog open, for a user who can
     // do nothing about it, and this path has a perfectly good answer for the
     // case: nothing can be compared, so there is no base.
+    // `|| !isObject()` matches how the owning reader defines "unparseable", so
+    // the two cannot drift into disagreeing about what the word means.
     QJsonParseError err{};
     const QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8(), &err);
-    if (err.error != QJsonParseError::NoError)
+    if (err.error != QJsonParseError::NoError || !doc.isObject())
         return dialInDiffFor(Profile());
 
     return dialInDiffFor(Profile::fromJson(doc));

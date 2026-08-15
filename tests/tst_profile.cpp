@@ -2047,10 +2047,20 @@ private slots:
     void dialInDeltas_shapeFieldsNeverReachTheUser()
     {
         const Profile base = makeShapeProfile();
-        const Profile user = withFrame(makeShapeProfile(), 0,
-                                       [](ProfileFrame& f) { f.seconds = 18.0; });
+        // seconds IS a shape field, so under the gate it cannot differ at all.
+        // popup and the limiter RANGE are the dev-only fields that genuinely
+        // CAN differ between two same-shape profiles, so they are the ones this
+        // assertion has to cover to mean anything.
+        const Profile user = withFrame(makeShapeProfile(), 0, [](ProfileFrame& f) {
+            f.seconds = 18.0;
+            f.popup = QStringLiteral("swirl now");
+            f.maxFlowOrPressureRange = 1.4;
+        });
 
-        QVERIFY(Profile::frameDiffReport(base, user).contains(QStringLiteral("seconds")));
+        const QString report = Profile::frameDiffReport(base, user);
+        QVERIFY(report.contains(QStringLiteral("seconds")));
+        QVERIFY(report.contains(QStringLiteral("popup")));
+        QVERIFY(report.contains(QStringLiteral("maxFlowOrPressureRange")));
         QVERIFY(Profile::dialInDeltas(base, user).isEmpty());
     }
 
@@ -2100,6 +2110,125 @@ private slots:
         QCOMPARE(rows.first().kind, QStringLiteral("temperature"));
         QCOMPARE(rows.first().frameIndex, 1);
         QCOMPARE(rows.first().frameName, QStringLiteral("hold"));
+    }
+
+    // A yield change of one editor step (0.1 g) must be REPORTED. The inherited
+    // 0.1 tolerance was `<=`, so 36.0 -> 36.1 g landed exactly on the boundary,
+    // was dropped, and — because "unchanged" is "no rows" — rendered as
+    // "Unchanged copy of X" for a profile the user had just changed.
+    void dialInDeltas_oneEditorStepOfYieldIsReported()
+    {
+        const Profile base = makeShapeProfile();
+        Profile user = makeShapeProfile();
+        user.setTargetWeight(base.targetWeight() + 0.1);
+
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(base, user);
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().kind, QStringLiteral("targetWeight"));
+    }
+
+    // ...while the developer report keeps its looser 0.1, because that one
+    // absorbs TCL-vs-JSON serialization noise for an import-parity check. The
+    // two tolerances must not collapse into one.
+    void frameDiffReport_keepsItsLooserToleranceWhileDialInTightens()
+    {
+        const Profile base = makeShapeProfile();
+        const Profile user = withFrame(makeShapeProfile(), 0,
+                                       [](ProfileFrame& f) { f.flow += 0.05; });
+
+        QVERIFY(Profile::frameDiffReport(base, user).isEmpty());
+
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(base, user);
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().kind, QStringLiteral("flow"));
+    }
+
+    // The espresso temperature is AUTHORED, not derived from the frames — the
+    // top-level scalar stays authoritative and may legitimately differ from
+    // steps[0] (PR #961, the D-Flow/A-Flow built-ins). Omitting it made a copy
+    // whose only change was the group preheat render as "unchanged".
+    void dialInDeltas_theAuthoredBrewTemperatureIsItsOwnRow()
+    {
+        const Profile base = makeShapeProfile();
+        Profile user = makeShapeProfile();
+        user.setEspressoTemperature(base.espressoTemperature() - 3.0);
+
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(base, user);
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().kind, QStringLiteral("espressoTemperature"));
+        QCOMPARE(rows.first().unit, QStringLiteral("celsius"));
+        QCOMPARE(rows.first().frameIndex, -1);
+    }
+
+    // The limiter is a max FLOW on a pressure-driven frame and a max PRESSURE on
+    // a flow-driven one. The fixture is mixed-pump (frame 0 flow, frame 1
+    // pressure), as are 69 of the 100 bundled profiles, so collapsing on `kind`
+    // alone merged two physically different quantities into one row wearing the
+    // first frame's unit.
+    void dialInDeltas_theLimiterDoesNotCollapseAcrossPumpModes()
+    {
+        Profile base = makeShapeProfile();
+        Profile user = makeShapeProfile();
+        for (Profile* p : { &base, &user }) {
+            QList<ProfileFrame> steps = p->steps();
+            for (ProfileFrame& f : steps)
+                f.maxFlowOrPressure = (p == &base) ? 2.0 : 3.0;
+            p->setSteps(steps);
+        }
+
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(base, user);
+        // Two rows, one per pump mode, each keeping its frame number and its own
+        // unit — never one collapsed row.
+        QCOMPARE(rows.size(), 2);
+        for (const ProfileFieldDelta& d : rows)
+            QCOMPARE(d.kind, QStringLiteral("maxFlowOrPressure"));
+        QVERIFY(rows.at(0).unit != rows.at(1).unit);
+        QVERIFY(rows.at(0).frameIndex >= 0 && rows.at(1).frameIndex >= 0);
+    }
+
+    // `unit` is the one field a surface cannot infer, and nothing asserted it.
+    // Transposing two of the profile-level lines, or flipping the limiter's
+    // ternary, is a one-character defect that renders a flow limit as bar.
+    void dialInDeltas_everyRowCarriesTheRightUnit_data()
+    {
+        QTest::addColumn<QString>("kind");
+        QTest::addColumn<QString>("unit");
+        QTest::addColumn<Profile>("user");
+
+        auto tweak = [](const std::function<void(Profile&)>& edit) {
+            Profile p = makeShapeProfile();
+            edit(p);
+            return p;
+        };
+
+        QTest::newRow("targetWeight") << "targetWeight" << "g"
+            << tweak([](Profile& p) { p.setTargetWeight(p.targetWeight() + 5); });
+        QTest::newRow("targetVolume") << "targetVolume" << "ml"
+            << tweak([](Profile& p) { p.setTargetVolume(p.targetVolume() + 5); });
+        QTest::newRow("maximumPressure") << "maximumPressure" << "bar"
+            << tweak([](Profile& p) { p.setMaximumPressure(p.maximumPressure() + 1); });
+        QTest::newRow("maximumFlow") << "maximumFlow" << "mlPerSec"
+            << tweak([](Profile& p) { p.setMaximumFlow(p.maximumFlow() + 1); });
+        QTest::newRow("brewTemperature") << "espressoTemperature" << "celsius"
+            << tweak([](Profile& p) { p.setEspressoTemperature(p.espressoTemperature() - 2); });
+        // Frame 0 is flow-driven, so ITS limiter caps pressure.
+        QTest::newRow("limiterOnFlowFrame") << "maxFlowOrPressure" << "bar"
+            << withFrame(makeShapeProfile(), 0, [](ProfileFrame& f) { f.maxFlowOrPressure = 7.0; });
+        // Frame 1 is pressure-driven, so ITS limiter caps flow.
+        QTest::newRow("limiterOnPressureFrame") << "maxFlowOrPressure" << "mlPerSec"
+            << withFrame(makeShapeProfile(), 1, [](ProfileFrame& f) { f.maxFlowOrPressure = 7.0; });
+    }
+
+    void dialInDeltas_everyRowCarriesTheRightUnit()
+    {
+        QFETCH(QString, kind);
+        QFETCH(QString, unit);
+        QFETCH(Profile, user);
+
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(makeShapeProfile(), user);
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().kind, kind);
+        QCOMPARE(rows.first().unit, unit);
     }
 
 };

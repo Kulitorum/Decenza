@@ -48,7 +48,8 @@ by construction, so only dial-in values can appear in the block.
 
 The fields compared SHALL be exactly those the shape deliberately ignores, and no others:
 
-- target weight, target volume, maximum pressure and maximum flow, at the profile level;
+- target weight, target volume, maximum pressure, minimum pressure, maximum flow, tank preheat
+  temperature, brew temperature and recommended dose, at the profile level;
 - for each frame in order: its temperature; its active setpoint; its active exit threshold; its exit weight;
   its volume cap; its flow-or-pressure limiter value; and its display name.
 
@@ -59,12 +60,20 @@ cannot feel. A frame's **active exit threshold** SHALL likewise be the single th
 exit condition type, and SHALL NOT be compared at all for a frame with no exit condition.
 
 Frame popup text, the limiter's control range, profile notes, author, and every field that constitutes the
-shape SHALL NOT appear in the block. The shape fields cannot differ once the gate is met; the limiter range is
+shape SHALL NOT appear in the block. Frame popup text is excluded on its own ground — it is not part of the
+shape and two same-shape profiles may differ in it, but a reworded prompt is not a dialled value. Direct
+Setpoint Control frame state is not compared because no writer serializes it, so two loaded profiles cannot
+differ on it. The simple-editor scalars are not compared because for the profiles that have them they
+restate the frames already compared. The shape fields cannot differ once the gate is met; the limiter range is
 a control-loop constant rather than a dialled value; the rest are not dial-in values.
 
 Where one field changes identically on every frame, it SHALL be reported once without a frame number rather
 than once per frame. A user who raised the brew temperature of a three-frame profile made one change, and
 reading it as three is both longer and less true.
+
+Two values SHALL count as different only when they differ by more than half of the last decimal place their
+serialized form preserves, so that a save-and-reload cannot manufacture a difference and one step of an
+editor control is always reported.
 
 Values SHALL be shown with their units, and temperatures SHALL follow the unit the user has configured for
 temperature display.
@@ -103,8 +112,14 @@ Where more than one bundled profile is the same shape as the user's profile, the
 against the **nearest** of them. Nearness SHALL be the count of dial-in fields on which the user's profile
 differs from the candidate: the candidate the user differs from on strictly the fewest fields is the nearest.
 
-If no single candidate has strictly the fewest, no block SHALL be shown. Naming a base in that case would
-assert a relationship the comparison did not establish.
+If no single candidate has strictly the fewest, the outcome SHALL depend on whether the tied candidates
+describe the same knowledge entry. Across entries, no block SHALL be shown — naming one would assert a
+relationship the comparison did not establish. Within a single entry, the block SHALL be shown and SHALL
+name the ENTRY rather than any one of its bundled profiles, because the knowledge presented is the same
+whichever was chosen and abstaining would exclude profiles the comparison can describe perfectly well.
+
+A candidate that cannot be loaded SHALL cause the comparison to abstain rather than be skipped: an
+incomplete candidate set cannot establish that any member is strictly nearest.
 
 Nearness SHALL NOT be defined by how far apart the values are. A magnitude comparison would need a weighting
 between bar, millilitres per second, degrees and grams that nothing in the domain supplies, and that
@@ -125,9 +140,18 @@ that the shape matched more than one profile, so the chosen base does not read a
 - **THEN** it SHALL name the first bundled profile
 - **AND** it SHALL list the user's differences from that profile
 
-#### Scenario: A tie produces no block
+#### Scenario: A tie within one knowledge entry names the entry
+
+- **GIVEN** a user profile the same shape as several bundled profiles that all resolve to one knowledge entry
+- **AND** it differs from more than one of them on the same number of dial-in fields
+- **WHEN** the block is produced
+- **THEN** it SHALL be shown
+- **AND** it SHALL name the knowledge entry rather than any one bundled profile
+
+#### Scenario: A tie across entries produces no block
 
 - **GIVEN** a user profile the same shape as two bundled profiles
+- **AND** the two resolve to different knowledge entries
 - **AND** it differs from each on the same number of dial-in fields
 - **WHEN** the knowledge entry is opened
 - **THEN** no block SHALL be shown
