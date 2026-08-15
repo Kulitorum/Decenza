@@ -2,6 +2,7 @@
 
 #include "ai/shotsummarizer.h"
 #include "profile/profile.h"
+#include "ai/profileshapeindex.h"
 
 #include <QDebug>
 #include <QJsonDocument>
@@ -17,8 +18,19 @@ ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson)
 
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8(), &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject())
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        // Loud, because this is the one path where the stale-id fallback below
+        // is completely uninspectable: an unparseable profile yields an empty
+        // title, so the fallback's own log line (which requires a title) never
+        // fires. Without this the shot silently analyses against whatever the
+        // persisted id happened to be, with nothing recording that its own
+        // profile could not be read.
+        qWarning() << "profileFrameInfoFromJson: stored profile JSON unparseable ("
+                   << parseError.errorString()
+                   << ") - shape resolution disabled for this shot; falling back"
+                   << "to the persisted kbId";
         return {};
+    }
 
     const Profile profile = Profile::fromJson(doc);
     ProfileFrameInfo info;
@@ -27,6 +39,7 @@ ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson)
         info.firstFrameSeconds = profile.steps().first().seconds;
     info.profileTitle = profile.title();
     info.editorType = profile.editorType();
+    info.profile = profile;
     return info;
 }
 
@@ -34,37 +47,101 @@ AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
                                      const QString& profileJson)
 {
     AnalysisInputs inputs;
-    // analysisFlags / UGS keep using the persisted profileKbId — unchanged
-    // pre-existing behavior, out of this change's scope.
-    inputs.analysisFlags = ShotSummarizer::getAnalysisFlags(profileKbId);
 
     const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(profileJson);
     inputs.firstFrameSeconds = frameInfo.firstFrameSeconds;
     inputs.frameCount = frameInfo.frameCount;
 
-    // Expert band: re-resolve canonical identity from the CURRENT KB by
-    // title+editorType — mirrors the save-time computeProfileKbId() call
-    // but run now, so a shot saved before a KB reorganization
-    // (#1160/#1175) whose persisted profileKbId is stale (e.g. a
-    // "D-Flow / Q" shot stored as "d-flow / default") still resolves to
-    // the correct band. Restores the D7/D14 retroactive-recompute
-    // promise. Falls back to the stored kbId if the title doesn't
-    // resolve; an absent band stays a strict no-op as before.
-    const QString freshKbId = ShotSummarizer::computeProfileKbId(
-        frameInfo.profileTitle, frameInfo.editorType);
-    // Observability for the silent-degrade case: a non-empty title that
-    // fails to re-resolve while a stale stored kbId survives means we fall
-    // back to the *stale* id — silently reinstating the very bug D14a
-    // targets. That path must be visible (the A6 shadow-validation run is
-    // how a stale-band slip would otherwise go undetected).
-    if (freshKbId.isEmpty() && !frameInfo.profileTitle.isEmpty()
+    // Resolve the KB from the shot's OWN stored profile, not from the
+    // persisted id. Two reasons, one old and one new:
+    //
+    //  - Old (#1160/#1175): a shot saved before a KB reorganization carries a
+    //    stale profileKbId, so re-resolving now restores the retroactive
+    //    recompute promise.
+    //  - New (resolve-profile-kb-by-shape): a profile whose TITLE resolves to
+    //    nothing may still be a re-tuned copy of a documented one, recognisable
+    //    by its frame structure. Its persisted id is empty and always will be,
+    //    so anything reading the id sees "no context" for a profile we can in
+    //    fact say a great deal about.
+    //
+    // Title steps run first inside resolveProfileKb and always win, so a
+    // title-resolvable profile is unaffected by any of this.
+    //
+    // Gated on the profile having actually parsed, and this gate is
+    // load-bearing rather than defensive.
+    //
+    // `Profile` default-constructs with the title "Default" — not an empty
+    // string — and "Default" is a REAL shipped profile (resources/profiles/
+    // default.json) with a real KB entry carrying flow_trend_ok and a UGS of
+    // 0.75. So a shot whose profileJson is absent or unparseable (older rows,
+    // imports, a failed parse) would resolve to that entry and silently
+    // inherit its suppression: a genuine flow-trend finding on an unrelated
+    // shot, discarded because a default-constructed object happened to share
+    // a name with a documented profile.
+    //
+    // That is precisely the failure this change exists to prevent — wrong
+    // facts reaching a shot — arriving through the change's own code. A
+    // profile with no frames has no identity to resolve and no shape to match,
+    // so it resolves to nothing.
+    const KbResolution resolution =
+        (!frameInfo.profile || frameInfo.profile->steps().isEmpty())
+            ? KbResolution{}
+            : resolveProfileKb(*frameInfo.profile);
+
+    // Same observability as before for the stale-id fallback: a non-empty
+    // title that fails to re-resolve while a stale stored id survives means we
+    // fall back to the STALE id, silently reinstating the bug D14a targets.
+    if (resolution.isEmpty() && !frameInfo.profileTitle.isEmpty()
         && !profileKbId.isEmpty()) {
-        qDebug() << "prepareAnalysisInputs: expert-band fresh re-resolve "
-                    "missed for title=" << frameInfo.profileTitle
+        qDebug() << "prepareAnalysisInputs: fresh re-resolve missed for title="
+                 << frameInfo.profileTitle
                  << "— falling back to stored kbId=" << profileKbId;
     }
-    inputs.expertBand = ShotSummarizer::expertBandForKbId(
-        !freshKbId.isEmpty() ? freshKbId : profileKbId);
+
+    // A fresh SHAPE match that contradicts the recorded id is worth a line.
+    // The fresh resolution wins deliberately — a persisted id that no longer
+    // resolves is a fossil of an older KB, and re-resolving from the shot's
+    // own profile is the whole point of this path — but the shot's analysis
+    // then changes from what it was, and this is the only place that knows.
+    if (resolution.origin == KbResolution::Origin::Shape
+        && !profileKbId.isEmpty() && !resolution.ids.contains(profileKbId)) {
+        qInfo() << "prepareAnalysisInputs: shape match" << resolution.ids
+                << "disagrees with the recorded kbId" << profileKbId
+                << "for title" << frameInfo.profileTitle
+                << "- using the shape match; the recorded id is being ignored";
+    }
+
+    // Fall back to the stored id when nothing re-resolves, preserving the
+    // pre-existing behaviour for rows whose profileJson is absent or
+    // unparseable (older shots, imports).
+    const QStringList ids = resolution.isEmpty()
+        ? (profileKbId.isEmpty() ? QStringList{} : QStringList{ profileKbId })
+        : resolution.ids;
+
+    // Per-fact transfer rules live in the accessors, never here — see the
+    // block above ShotSummarizer::getAnalysisFlags(QStringList).
+    inputs.analysisFlags = ShotSummarizer::getAnalysisFlags(ids);
+    inputs.expertBand    = ShotSummarizer::expertBandForKbIds(ids);
+
+    // Arm 1's gate asks "is this flow goal a real target or a safety limiter" —
+    // a structural question, which a shape match answers as well as a title
+    // match does. Any non-empty candidate set means we have that context.
+    inputs.profileKbResolved = !ids.isEmpty();
+
+    // Identity is a stricter claim than analysis: it needs exactly one
+    // candidate. An ambiguous shape still suppresses false positives; it just
+    // does not get to say WHICH profile it came from.
+    //
+    // One condition covers both sources of a single candidate — a unique
+    // resolution and the stored-id fallback — because `ids` IS the resolution
+    // when it resolved and the fallback when it did not. `identityFromShape`
+    // then reads off the origin, which is None on the fallback path, so a
+    // stored id is correctly reported as a recorded identity rather than an
+    // inference.
+    if (ids.size() == 1) {
+        inputs.identityKbId = ids.first();
+        inputs.identityFromShape = (resolution.origin == KbResolution::Origin::Shape);
+    }
     return inputs;
 }
 

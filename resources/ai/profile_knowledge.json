@@ -19,7 +19,7 @@
       "ugs": {
         "value": 0.5,
         "inferred": false,
-        "note": "Grind center for \"D-Flow / default\"; D-Flow is the editor, not a profile. D-Flow / Q and D-Flow / La Pavoni split to their own sections (~1.0); Damian's LRv2/LRv3 to theirs (0)."
+        "note": "Grind center for \"D-Flow / default\"; D-Flow is the editor, not a profile. D-Flow / Q and D-Flow / La Pavoni split to their own sections (~1.0); Damian's LRv3 to its own (0); Damian's LRv2 is the Londinium profile under its original name and sits in that section (0)."
       },
       "analysisFlags": [
         "flow_trend_ok"
@@ -86,21 +86,20 @@
       "roastAffinity": [
         "dark"
       ],
-      "displayName": "Damian's LRv2 / LRv3",
+      "displayName": "Damian's LRv3",
       "alsoMatches": [
-        "Damian's LRv2",
-        "Damian's LRv3"
+        "Londinium / LRv3"
       ],
       "ugs": {
         "value": 0.0,
         "inferred": false,
-        "note": "Londinium / LRv3 chart position; LRv2 trends slightly coarser than LRv3."
+        "note": "Same fine grind as Londinium / Cremina (UGS 0), not D-Flow / default's 0.5."
       },
       "analysisFlags": [
         "flow_trend_ok"
       ],
       "family": "lever-decline",
-      "prose": "Standalone lever-style Londinium R simulations by Damian Brakel. NOT created with the D-Flow editor (titles do not start with \"D-Flow/\"), and distinct profiles from each other (LRv2 ≠ LRv3). They independently produce the same lever-decline shape as D-Flow-titled profiles, so the D-Flow DO-NOT-flag list applies behaviorally. Finer grind requirement than D-Flow / default: these sit at the same fine grind as Londinium / Cremina (UGS 0), not at default's 0.5. LRv2: Londinium R simulation tweaked for coarser grind and faster pour; if the puck erodes too fast it switches from pressure to flow control at 2.5 ml/s (prevents gushing); 89°C; 18g→36g (1:2); \"milkshake with extra syrup,\" rich thick chocolatey — great for milk and dark roasts. LRv3: pure lever decline with an added 9 bar hold step after the pressure rise (waits until flow exceeds 1.9 ml/s before declining); more sustained peak gives richer body vs LRv2; 90°C; does NOT switch to flow control; 18g→36g. DO NOT flag the LRv2 flow-control safety step or the LRv3 9-bar hold, or declining pressure — all are intentional."
+      "prose": "Standalone lever-style Londinium R simulation by Damian Brakel, third edition. NOT created with the D-Flow editor (the title does not start with \"D-Flow/\"), but it independently produces the same lever-decline shape, so the D-Flow DO-NOT-flag list applies behaviorally. Finer grind requirement than D-Flow / default: sits at the same fine grind as Londinium / Cremina (UGS 0), not at default's 0.5. Pure lever decline with an added 9 bar hold step after the pressure rise (waits until flow exceeds 1.9 ml/s before declining), then a smooth decline to 5.5 bar; the more sustained peak gives richer body than LRv2. 90°C; does NOT switch to flow control; 18g→36g. Distinct from LRv2 in structure, not just in tuning: eight frames against LRv2's seven, a higher frame temperature (90°C vs 89°C), and no flow-control safety step. That is why it has its own section and does NOT carry the cited Londinium pressure-peak band — its 9-bar hold followed by a decline to 5.5 bar is a different pressure story from Londinium's 9→8 bar taper. LRv2 is NOT covered here: it is byte-identical in extraction to the shipped Londonium profile and is documented in the `Londinium` section. DO NOT flag the 9 bar hold or the declining pressure — both are intentional."
     },
     {
       "id": "a-flow",
@@ -249,12 +248,12 @@
       "displayName": "Londinium",
       "alsoMatches": [
         "Londonium",
-        "Londinium / LRv3"
+        "Damian's LRv2"
       ],
       "ugs": {
         "value": 0.0,
         "inferred": false,
-        "note": "Londinium / LRv3 — same fine grind as Cremina."
+        "note": "Londinium chart position — same fine grind as Cremina. Covers Damian's LRv2, which is the same profile under its original name."
       },
       "analysisFlags": [
         "flow_trend_ok"
@@ -268,9 +267,9 @@
         "src": "https://decentespresso.com/first_decent_espresso",
         "confidence": "medium",
         "proseRestatesBand": "Reviewed: the 9 bar declining curve (9→8 bar) and the cited Decent dial-in ('too fine: pressure over 9 bar') describe physical and cited behavior, not the 8–9 expert band. The lo=8 D9 hit also fires on '...flow exceeds 2.8 ml/s' — the regex word boundary matches the '8' in '2.8 ml/s' — but that phrase is the profile's max-flow safety threshold, likewise profile behavior and not a band copy.",
-        "rationale": "Phase C — Londinium (the standalone `## Londinium` section). Damian's LRv2/LRv3 never pick up this band because they resolve to their OWN canonical KB section (`Damian's LRv2 / LRv3`) which has no kBands row — NOT because of the `## Londinium` Note (that Note is LLM-only prose, inert for C++ key resolution). Guarded by tst_dialing_blocks::expertBand_londinium_resolvesAndDoesNotCatchDamianLR. Cited band: the official Decent dial-in guide — \"9 bar peak with gradual decline; too fine: pressure over 9 bar; too coarse: pressure crash\" [SRC:decent-guide]. Non-adaptive (unlike Adaptive v2, which was gate-failed and left absent — its KB section forbids flagging its by-design variable pressure). The 3-bar soak is intentional pre-infusion; the pour-window peak measure excludes it (the peak is the ~9-bar extraction). Gate: 20-shot / 5-user community population clusters at the cited target (extraction-peak median 9.0, mode 9) and band [8,9] partitions verbatim onto the guide — SILENT 8–9 (on target), FIRE >9 (cited \"too fine: pressure over 9 bar\"), FIRE <8 (cited \"too coarse: pressure crash\"). Confidence `medium` (Phase-C contextual tail; same rung as A-Flow's editor guidance)."
+        "rationale": "Phase C — Londinium (the standalone `## Londinium` section), which also covers Damian's LRv2: the shipped londonium.json and damian_s_lrv2.json are byte-identical across all seven frames (pump, sensor, transition, temperature, pressure and exit), differing only in title, reference_file, notes, target_weight (42 vs 36), the hidden flag, and one `popup: \"$weight\"` on frame 3. Londonium's own notes say so verbatim: \"This is identical to the LRv2 profile, but renamed to be easier to understand.\" So LRv2 carries this band because it IS the profile the band was cited for. This reverses an earlier split that rested on a claim the profile files disprove — the previous prose asserted LRv2 had \"different fill/infuse behavior and higher frame temperatures\", when both profiles run 89/89/88.5/88.5/88/88/88. Damian's LRv3 still does NOT pick up this band: it is a genuinely different profile (eight frames, 90°C, a 9-bar hold before declining to 5.5 bar) and resolves to its own `damians-lr-v2-v3` section, which has no kBands row. Guarded by tst_dialing_blocks::expertBand_londinium_resolvesAndDoesNotCatchDamianLRv3. Cited band: the official Decent dial-in guide — \"9 bar peak with gradual decline; too fine: pressure over 9 bar; too coarse: pressure crash\" [SRC:decent-guide]. Non-adaptive (unlike Adaptive v2, which was gate-failed and left absent — its KB section forbids flagging its by-design variable pressure). The 3-bar soak is intentional pre-infusion; the pour-window peak measure excludes it (the peak is the ~9-bar extraction). Gate: 20-shot / 5-user community population clusters at the cited target (extraction-peak median 9.0, mode 9) and band [8,9] partitions verbatim onto the guide — SILENT 8–9 (on target), FIRE >9 (cited \"too fine: pressure over 9 bar\"), FIRE <8 (cited \"too coarse: pressure crash\"). Confidence `medium` (Phase-C contextual tail; same rung as A-Flow's editor guidance)."
       },
-      "prose": "The standalone Londinium profile. (Damian's LRv2/LRv3 are separate standalone profiles with different fill/infuse behavior and higher frame temperatures — LRv2 89°C, LRv3 90°C vs 88–89°C here — covered in their own section.) Fast fill at 2 bar, then a spring-lever soak at ~3 bar until dripping appears, then 9 bar declining pressure; if the puck erodes too fast (flow exceeds 2.8 ml/s) it switches to flow control at 2.5 ml/s to prevent gushing. Expected curves: 3 bar hold during the soak/dripping phase, then a 9 bar peak with gradual decline; pressure stays high (9→8 bar) because flow is held constant; flow relatively constant throughout. Temperature 88–89°C. Grind fine (same as Cremina, finer than E61/80s). Highest extraction of the dark-roast profiles — most full-bodied cup; dark chocolate, smooth, rich and bold. Roast: excellent dark, good medium-dark, struggles with light. Dial-in target: 30–35s, 9 bar peak with gradual decline, consistent flow. Too coarse: pressure crash, max-flow safety step triggers. Too fine: pressure over 9 bar, reduced flow, longer shots. DO NOT flag the 3 bar soak phase as \"low pressure\" — it's intentional pre-infusion."
+      "prose": "The standalone Londinium profile, and Damian's LRv2 — the same profile under its original name (Londonium's own notes: \"This is identical to the LRv2 profile, but renamed to be easier to understand\"; the two shipped files differ only in title, notes, target weight and a frame popup). Damian's LRv3 is a genuinely different profile — eight frames, 90°C, a 9-bar hold before the decline — and is covered in its own section. Fast fill at 2 bar, then a spring-lever soak at ~3 bar until dripping appears, then 9 bar declining pressure; if the puck erodes too fast (flow exceeds 2.8 ml/s) it switches to flow control at 2.5 ml/s to prevent gushing. Expected curves: 3 bar hold during the soak/dripping phase, then a 9 bar peak with gradual decline; pressure stays high (9→8 bar) because flow is held constant; flow relatively constant throughout. Temperature 88–89°C. Grind fine (same as Cremina, finer than E61/80s). Highest extraction of the dark-roast profiles — most full-bodied cup; dark chocolate, smooth, rich and bold; \"milkshake with extra syrup\" in Damian Brakel's words, great for milk drinks. Roast: excellent dark, good medium-dark, struggles with light. Dial-in target: 30–35s, 9 bar peak with gradual decline, consistent flow. Too coarse: pressure crash, max-flow safety step triggers. Too fine: pressure over 9 bar, reduced flow, longer shots. DO NOT flag the 3 bar soak phase as \"low pressure\" — it's intentional pre-infusion, and DO NOT flag the flow-control safety step."
     },
     {
       "id": "turbo-shot",

@@ -2,7 +2,6 @@
 
 ## Purpose
 The single source of truth for post-shot analysis: `ShotAnalysis::analyzeShot` runs exactly once per shot across the save, recompute-on-load, and detail-load paths, producing the `DetectorResults` that the Shot Summary dialog's prose (`summaryLines`), the AI advisor's historical-shot summarization, the four quality-badge booleans, and the profile-aware expert-band deviation check all derive from via documented, single-place projections. Covers the caching/dedup contracts that keep those consumers from re-running the cascade, and the detector-specific gating (grind coverage, skip-first-frame, channeling severity) that feeds it.
-
 ## Requirements
 ### Requirement: Shot Summary dialog SHALL render `shotData.summaryLines` with an empty fallback
 
@@ -671,4 +670,37 @@ The `QualityBadges` affordance that emits `summaryRequested()` SHALL present a s
 
 - **WHEN** a flow-mode phase is followed by a marker with `transitionReason = "time"`
 - **THEN** the full window SHALL be used for flow-vs-goal averaging
+
+### Requirement: The Shot Summary affordance SHALL be reachable for every shot
+
+The affordance that opens the Shot Summary dialog SHALL be present on the post-shot review page and the shot
+detail page for every shot, regardless of whether the shot's profile resolved to a KB entry and regardless
+of whether any quality badge fired. Its visibility SHALL NOT be conditioned on KB resolution.
+
+This follows from what the dialog contains: its lines are computed from the shot's own captured curves and
+do not depend on the KB. Hiding the affordance on an unresolved shot withholds the analysis precisely where
+the analysis is weakest and where the user has least other information.
+
+The existing badge chips SHALL be unaffected: the flag chips SHALL continue to appear only when their flag
+fired, and the clean-extraction chip SHALL continue to appear only when no flag fired.
+
+#### Scenario: Clean shot on an unresolved profile still offers the summary
+
+- **GIVEN** a shot whose profile resolves to no KB entry and on which no quality-badge flag fired
+- **WHEN** the post-shot review page or the shot detail page is shown
+- **THEN** the Shot Summary affordance SHALL be present and SHALL open the dialog
+
+#### Scenario: Badge chips keep their own conditions
+
+- **GIVEN** any shot
+- **WHEN** its badge row is shown
+- **THEN** each flag chip SHALL appear only if its flag fired, and the clean-extraction chip SHALL appear
+  only if no flag fired
+
+#### Scenario: The affordance tint is unchanged
+
+- **GIVEN** a shot whose recomputed verdict category is exactly `clean`
+- **WHEN** the affordance is shown
+- **THEN** it SHALL be untinted, per the existing affordance-tint requirement, which this requirement does
+  not modify
 

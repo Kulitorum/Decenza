@@ -8,7 +8,11 @@
 #include <QString>
 #include <QStringList>
 
+#include <optional>
+
 #include "../ai/shotanalysis.h"  // ShotAnalysis::ExpertBand
+#include "../profile/profile.h" // ProfileFrameInfo::profile
+#include "../ai/profileshapeindex.h" // KbResolution
 
 namespace decenza::storage::detail {
 
@@ -25,6 +29,18 @@ struct ProfileFrameInfo {
     // reorganization — #1160/#1175). Same parse as frameCount.
     QString profileTitle;
     QString editorType;
+    // The parsed profile itself, so callers needing SHAPE resolution reuse
+    // this parse rather than doing a second Profile::fromJson on the same
+    // JSON.
+    //
+    // std::optional rather than a default-constructed Profile, because a
+    // default-constructed Profile is NOT a neutral value here: it is titled
+    // "Default", which is a real shipped profile with a real KB entry
+    // carrying flow_trend_ok. A caller that forgot to check would hand an
+    // unreadable shot another profile's suppression flags. Absent has to be
+    // unrepresentable as a profile, not merely conventionally distinguishable
+    // from one.
+    std::optional<Profile> profile;
 };
 
 ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson);
@@ -44,6 +60,30 @@ struct AnalysisInputs {
     double firstFrameSeconds = -1.0;
     int frameCount = -1;
     std::optional<ShotAnalysis::ExpertBand> expertBand;  // cited per-profile band (D14); nullopt → no-op
+
+    // Gates grind Arm 1 (openspec: skip-grind-arm1-when-kb-unresolved).
+    //
+    // Callers MUST read this rather than deriving it from the persisted
+    // profileKbId, which both call sites used to do. That derivation is now
+    // wrong: a profile can resolve by SHAPE with no persisted id at all
+    // (change: resolve-profile-kb-by-shape), and a shape-resolved profile has
+    // exactly the context Arm 1 needs — the question Arm 1 asks is whether the
+    // flow goal is a real target or a safety limiter, which is a structural
+    // question the shape answers directly.
+    bool profileKbResolved = false;
+
+    // The KB entry to NAME when a surface shows the user which profile's
+    // knowledge was used. Empty when nothing resolved, and also empty when the
+    // shape matched several entries at once — there is no single profile to
+    // name then, and naming an arbitrary one asserts an identity the
+    // resolution never established. Analysis facts above still transfer in
+    // that case; only the claim about identity is withheld.
+    QString identityKbId;
+
+    // True when `identityKbId` came from the shape step rather than the title,
+    // so a surface can present it as a derivation ("Based on X") rather than
+    // as something the profile's own name asserted.
+    bool identityFromShape = false;
 };
 
 AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,

@@ -462,6 +462,15 @@ T.Page {
                                     }
                                 }
 
+                                // This CATALOG entry's derivation — the profile
+                                // as it exists right now, which is the right
+                                // subject on a selector row.
+                                KbDerivedFromLabel {
+                                    derivedFrom: profileDelegate.modelData.kbDerivedFrom || ""
+                                    Layout.maximumWidth: profileDelegate.width * 0.3
+                                    Layout.alignment: Qt.AlignVCenter
+                                }
+
                                 Image {
                                     id: sparkleIcon
                                     visible: profileDelegate.modelData.hasKnowledgeBase === true
@@ -488,9 +497,12 @@ T.Page {
                                         accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
                                         accessibleItem: sparkleIcon
                                         onAccessibleClicked: {
-                                            knowledgeDialog.profileTitle = profileDelegate.modelData.title
-                                            knowledgeDialog.content = ProfileManager.profileKnowledgeContent(profileDelegate.modelData.title)
-                                            knowledgeDialog.open()
+                                            // openFor() over setting the properties by hand: it
+                                            // is the one place that knows every field the dialog
+                                            // needs, so a new one (candidateNames) reaches all
+                                            // FIVE call sites — the two RecipeWizardPage tiles
+                                            // got it without being edited, which is the point.
+                                            knowledgeDialog.openFor(profileDelegate.modelData.title)
                                         }
                                     }
                                 }

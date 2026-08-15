@@ -135,6 +135,14 @@ set(ANALYSIS_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
+    # Shape-based KB resolution (change: resolve-profile-kb-by-shape). It sat
+    # in its own narrow decenza_shapelib until shotsummarizer.cpp itself began
+    # calling resolveProfileKb — and shotsummarizer.cpp is compiled HERE, so
+    # the narrow library would have had to be linked by everything that links
+    # this one, which is the fan-out the narrow library existed to avoid, plus
+    # a circular dependency (shapelib linked testlib). One TU, compiled once,
+    # in the library its caller already lives in.
+    ${CMAKE_SOURCE_DIR}/src/ai/profileshapeindex.cpp
 )
 
 set(SIMULATOR_SOURCES
@@ -978,6 +986,9 @@ set_target_properties(decenza_profilelib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREF
 # <MQTTAsync.h>. Every one of the nine consumers already linked paho, so this
 # requirement was invisible while the sources were pasted into them; hoisting
 # them into a library is what surfaced it.
+# ProfileManager's catalog scan resolves each profile by shape when its title
+# misses; profileshapeindex.cpp is compiled into decenza_testlib, so that
+# comes with the testlib link.
 target_link_libraries(decenza_profilelib PUBLIC decenza_testlib paho-mqtt3a-static)
 
 # --- The rest of the narrow libraries, same rule: consumer set no wider than
@@ -1452,6 +1463,19 @@ target_sources(tst_tclimport PRIVATE ${PROFILES_QRC})
 # the built-in resource it warns, and QTest::failOnWarning turns that into a
 # failure unrelated to anything under test.
 target_sources(tst_recipeeditorapppath PRIVATE ${PROFILES_QRC})
+# ProfileShapeIndex builds its shape index from :/profiles/*.json, so the shape
+# resolution tests need the built-ins present. Attached here rather than at the
+# target's own definition because PROFILES_QRC is declared further down this
+# file than tst_shotsummarizer is defined.
+target_sources(tst_shotsummarizer PRIVATE ${PROFILES_QRC})
+# ProfileManager's catalog scan resolves each profile against the KB, so the
+# knowledge resource has to be present or every lookup silently returns empty
+# and a KB-dependent assertion fails for a reason that looks like a logic bug.
+# That has now cost two debugging rounds in this change; the binary carrying
+# ProfileManager should simply have the data ProfileManager reads.
+qt_add_resources(TST_PROFILEMANAGER_AI_RESOURCES
+    ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
+target_sources(tst_profilemanager PRIVATE ${TST_PROFILEMANAGER_AI_RESOURCES})
 
 # --- MCP tool tests (ProfileManager + MockTransport) ---
 

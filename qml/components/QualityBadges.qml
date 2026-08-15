@@ -193,8 +193,17 @@ Item {
         }
 
         // Clean extraction badge (green) — only shown when no flags are set
+        // AND the shot was actually analysed. analyzeShot short-circuits on
+        // pressure.size() < 10 (shotanalysis.cpp:755) leaving every detector
+        // false and stamping verdictCategory "insufficientData", so the four
+        // booleans alone cannot tell "nothing was wrong" from "nothing was
+        // checked" — an aborted or curve-less shot would claim a clean
+        // extraction the app never established. Empty string still shows the
+        // chip: that is a legacy/no-serialized-analysis shot, which behaved
+        // this way before detectorResults existed and must stay byte-identical.
         Rectangle {
             visible: !root.channelingDetected && !root.grindIssueDetected && !root.skipFirstFrameDetected && !root.pourTruncatedDetected
+                     && root.verdictCategory !== "insufficientData"
             width: cleanRow.width + Theme.spacingMedium * 2
             height: Theme.scaled(28)
             radius: Theme.scaled(14)

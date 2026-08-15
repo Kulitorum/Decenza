@@ -2,6 +2,7 @@
 #include "shothistorystorage.h"
 #include "core/appsettings.h"
 #include "shothistorystorage_internal.h"
+#include "ai/profileshapeindex.h"
 #include "machine/sawlogging.h"   // SAW_WARN_STDERR: the basket-seed query is a [SAW] line
 #include "coffeebagstorage.h"
 #include "equipmentstorage.h"
@@ -2283,7 +2284,11 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.yieldAnchorValue = metadata.yieldAnchorValue;
 
     if (profile) {
-        data.profileKbId = ShotSummarizer::computeProfileKbId(profile->title(), profile->editorType());
+        // A TITLE resolution only — see KbResolution::persistableId() for why a
+        // shape match must not be written to this column. Nothing regresses
+        // relative to main: a title-unresolvable profile stored an empty id
+        // there too, and the shape facts still reach the shot on load.
+        data.profileKbId = resolveProfileKb(*profile).persistableId();
     }
 
     // Compute conductance derivative (post-shot Gaussian smoothing) before compression
@@ -2325,12 +2330,13 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // full mapping table and decenza::deriveBadgesFromAnalysis (in
         // history/shotbadgeprojection.h) for the projection rules.
         const AnalysisInputs inputs = prepareAnalysisInputs(data.profileKbId, data.profileJson);
-        // KB-resolved bit gates grind Arm 1 — see openspec change
-        // skip-grind-arm1-when-kb-unresolved. data.profileKbId is empty
-        // when ShotSummarizer::matchProfileKey returned no hit (no exact
-        // alias, no #1198 prefix, no editor-type default), which is the
-        // signal "we have no profile context for Arm 1 to be meaningful".
-        const bool profileKbResolved = !data.profileKbId.isEmpty();
+        // Read the gate off AnalysisInputs rather than deriving it from the
+        // persisted id. The id is empty for a profile that resolved by SHAPE
+        // (change: resolve-profile-kb-by-shape) — a re-tuned copy of a
+        // documented profile, for which Arm 1's structural question is
+        // answerable. Deriving from the id would gate Arm 1 off for exactly
+        // the profiles this change exists to serve.
+        const bool profileKbResolved = inputs.profileKbResolved;
         const auto analysis = ShotAnalysis::analyzeShot(
             tmpRecord.pressure, shotData->flowData(),
             shotData->cumulativeWeightData(),
@@ -3426,13 +3432,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // helper interprets as "all badges false."
     {
         const AnalysisInputs inputs = prepareAnalysisInputs(record.profileKbId, record.profileJson);
-        // KB-resolved bit gates grind Arm 1 — see openspec change
-        // skip-grind-arm1-when-kb-unresolved. record.profileKbId can be
-        // empty either because the saved row predates KB resolution or
-        // because matchProfileKey returned no hit at save time; in both
-        // cases the right answer at recompute-on-load is "we have no
-        // profile context for Arm 1".
-        const bool profileKbResolved = !record.profileKbId.isEmpty();
+        // Same as the save path: the gate comes from AnalysisInputs, which
+        // re-resolves from the shot's own stored profile (by title, then by
+        // shape). An empty persisted id no longer means "no context" — it is
+        // also what every shape-resolved profile carries.
+        const bool profileKbResolved = inputs.profileKbResolved;
         auto analysis = ShotAnalysis::analyzeShot(
             record.pressure, record.flow, record.weight,
             record.conductanceDerivative,

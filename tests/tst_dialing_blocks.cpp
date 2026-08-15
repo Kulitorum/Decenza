@@ -2720,11 +2720,23 @@ private slots:
             ShotSummarizer::computeProfileKbId(QStringLiteral("Damian's LRv2"),
                                                QStringLiteral("dflow"));
         QVERIFY(!kbLrv2.isEmpty());
-        // #1160 review: LRv2 and LRv3 must resolve to the SAME section via
-        // real Also-matches keys, not a fragile length>=4 fuzzy-substring
-        // fallback on the bare "lrv3" title-split token.
+        // LRv2 and LRv3 land on DIFFERENT sections, and both by real
+        // Also-matches keys rather than a fuzzy substring fallback on the bare
+        // "lrv3" title token — which is what #1160 was guarding against, and
+        // is still what this asserts.
+        //
+        // They used to share a section. They are not the same profile: LRv2 is
+        // byte-identical in extraction to the shipped Londonium profile (its
+        // notes say so) and belongs to the `londinium` entry; LRv3 has eight
+        // frames to their seven, 90C, and a 9-bar hold. Same UGS, different
+        // sections — which is exactly why this pins the NAMES and the UGS
+        // separately rather than treating one as evidence of the other.
+        QCOMPARE(ShotSummarizer::canonicalNameForKbId(kbLrv2),
+                 QStringLiteral("Londinium"));
         QCOMPARE(ShotSummarizer::canonicalNameForKbId(kbLrv3),
-                 ShotSummarizer::canonicalNameForKbId(kbLrv2));
+                 QStringLiteral("Damian's LRv3"));
+        QVERIFY(qFuzzyCompare(ShotSummarizer::ugsForKbId(kbLrv2) + 1.0,
+                              ugsLrv3 + 1.0));
         QVERIFY(ShotSummarizer::getAnalysisFlags(kbBase)
                 .contains(QStringLiteral("flow_trend_ok")));
         QVERIFY(ShotSummarizer::getAnalysisFlags(kbQ)
@@ -2965,32 +2977,43 @@ private slots:
     // (`Damian's LRv2 / LRv3`) absent from kBands — NOT because of the
     // `## Londinium` Note (inert LLM prose). Guards a key typo /
     // `## Londinium` rename and the Damian-LR separation in one shot.
-    void expertBand_londinium_resolvesAndDoesNotCatchDamianLR()
+    void expertBand_londinium_resolvesAndDoesNotCatchDamianLRv3()
     {
-
-        const auto band = ShotSummarizer::expertBandForKbId(
-            ShotSummarizer::computeProfileKbId(QStringLiteral("Londinium"),
-                                               QStringLiteral("advanced")));
-        QVERIFY2(band.has_value(),
-                 "Londinium must resolve to the decent-guide band");
-        QCOMPARE(band->axis, ExpertBand::Axis::PressurePeak);
-        QCOMPARE(*band->lo, 8.0);
-        QCOMPARE(*band->hi, 9.0);
-        QCOMPARE(band->src,
-                 QStringLiteral("https://decentespresso.com/first_decent_espresso"));
-        QCOMPARE(band->confidence, QStringLiteral("medium"));
-
-        // Damian's LRv2/LRv3 are D-Flow-family variants, NOT the standalone
-        // Londinium — they must not pick up this band.
-        for (const QString& lr : { QStringLiteral("Damian's LRv2"),
-                                    QStringLiteral("Damian's LRv3") }) {
-            const auto v = ShotSummarizer::expertBandForKbId(
-                ShotSummarizer::computeProfileKbId(lr, QStringLiteral("dflow")));
-            QVERIFY2(!v.has_value() ||
-                     v->src != QStringLiteral("https://decentespresso.com/first_decent_espresso"),
-                     qPrintable(lr + " must NOT resolve to the standalone "
-                                     "Londinium band"));
+        // Londinium, Londonium and Damian's LRv2 are ONE profile under three
+        // names — londonium.json and damian_s_lrv2.json are byte-identical
+        // across all seven frames, and Londonium's own notes say so. All three
+        // therefore carry the cited decent-guide band.
+        //
+        // This test previously asserted the opposite for LRv2, on the strength
+        // of a KB claim ("different fill/infuse behavior and higher frame
+        // temperatures") that the shipped files disprove: both run
+        // 89/89/88.5/88.5/88/88/88. The entries were merged; this is the
+        // corrected pin.
+        for (const QString& title : { QStringLiteral("Londinium"),
+                                      QStringLiteral("Londonium"),
+                                      QStringLiteral("Damian's LRv2") }) {
+            const auto band = ShotSummarizer::expertBandForKbId(
+                ShotSummarizer::computeProfileKbId(title, QStringLiteral("advanced")));
+            QVERIFY2(band.has_value(),
+                     qPrintable(title + " must resolve to the decent-guide band"));
+            QCOMPARE(band->axis, ExpertBand::Axis::PressurePeak);
+            QCOMPARE(*band->lo, 8.0);
+            QCOMPARE(*band->hi, 9.0);
+            QCOMPARE(band->src,
+                     QStringLiteral("https://decentespresso.com/first_decent_espresso"));
+            QCOMPARE(band->confidence, QStringLiteral("medium"));
         }
+
+        // Damian's LRv3 IS a different profile — eight frames against seven,
+        // 90C, a 9-bar hold before declining to 5.5 bar, and no flow-control
+        // safety step. Its pressure story is not Londinium's 9->8 taper, so it
+        // must not pick up this band.
+        const auto v3 = ShotSummarizer::expertBandForKbId(
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Damian's LRv3"),
+                                               QStringLiteral("advanced")));
+        QVERIFY2(!v3.has_value() ||
+                 v3->src != QStringLiteral("https://decentespresso.com/first_decent_espresso"),
+                 "Damian's LRv3 must NOT resolve to the Londinium band");
     }
 
     // Phase C — Adaptive v2: Decent authored the profile, so decent-guide
@@ -3206,10 +3229,20 @@ private slots:
         QVERIFY2(!idLaPavoni.isEmpty() && idLaPavoni != idDefault,
                  "#1175 split: D-Flow / La Pavoni must resolve to its OWN id, "
                  "distinct from D-Flow / default");
-        QVERIFY2(!idLondinium.isEmpty() && !idLRv2.isEmpty()
-                     && idLRv2 != idLondinium,
-                 "Damian's LRv2 must NOT collapse into the standalone "
-                 "Londinium entry");
+        // Reversed deliberately. This once asserted the opposite, on the
+        // strength of a KB claim the shipped files disprove: londonium.json
+        // and damian_s_lrv2.json are byte-identical across all seven frames,
+        // and Londonium's notes read "This is identical to the LRv2 profile,
+        // but renamed to be easier to understand." One profile, one entry.
+        QVERIFY2(!idLondinium.isEmpty() && idLRv2 == idLondinium,
+                 "Damian's LRv2 IS the Londonium profile and must resolve to "
+                 "the same entry");
+        // LRv3 is the one that genuinely differs — eight frames, 90C, a 9-bar
+        // hold — and keeps its own id.
+        const QString idLRv3 = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("Damian's LRv3"), QStringLiteral("dflow"));
+        QVERIFY2(!idLRv3.isEmpty() && idLRv3 != idLondinium,
+                 "Damian's LRv3 must keep its OWN id, distinct from Londinium");
     }
 
     // -------------------------------------------------------------------
@@ -3429,13 +3462,17 @@ private slots:
             { "D-Flow / Q", "dflow", 1.0, true, { "flow_trend_ok" }, true },
             // D-Flow / La Pavoni: strictly coarser than base (1.0 > 0.5).
             { "D-Flow / La Pavoni", "dflow", 1.0, true, { "flow_trend_ok" }, true },
-            // Damian's LRv2 / LRv3: shared section, no band.
-            { "Damian's LRv2", "dflow", 0.0, false, { "flow_trend_ok" }, false },
+            // Damian's LRv2 IS the Londonium profile (byte-identical frames)
+            // and resolves to `londinium`, band and all. LRv3 is genuinely
+            // different (eight frames, 90C, 9-bar hold) and keeps its own
+            // band-free section. Same UGS, opposite band answers — which is
+            // the point of listing both rows.
+            { "Damian's LRv2", "dflow", 0.0, false, { "flow_trend_ok" }, true },
             { "Damian's LRv3", "dflow", 0.0, false, { "flow_trend_ok" }, false },
             // A-Flow / default-medium: cited band, matches
             // expertBand_aflow_resolvesFromTitle.
             { "A-Flow / default-medium", "aflow", 1.5, false, { "flow_trend_ok" }, true },
-            // Londinium: matches expertBand_londinium_resolvesAndDoesNotCatchDamianLR.
+            // Londinium: matches expertBand_londinium_resolvesAndDoesNotCatchDamianLRv3.
             { "Londinium", "advanced", 0.0, false, { "flow_trend_ok" }, true },
             // Adaptive v2: matches expertBand_adaptiveV2_resolvesAndDoesNotCatchGagne.
             { "Adaptive v2", "advanced", 1.25, false, {}, true },

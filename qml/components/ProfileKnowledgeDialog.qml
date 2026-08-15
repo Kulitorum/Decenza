@@ -6,7 +6,10 @@ import Decenza
 // the profile's KB entry (dial-in expectations, flavor notes, cross-profile
 // grind guidance). ONE implementation shared by the profile selector, the
 // shot detail / post-shot review pages, and the recipe wizard's profile
-// tiles — call openFor(title), or set profileTitle/content and open().
+// tiles — always call openFor(title). Setting profileTitle/content by hand
+// and calling open() still works but silently leaves candidateNames stale, so
+// an ambiguous shape match would not announce itself; openFor is the only
+// entry point that knows every field.
 DecenzaDialog {
     id: knowledgeDialog
     anchors.centerIn: parent
@@ -18,8 +21,15 @@ DecenzaDialog {
     property string profileTitle: ""
     property string content: ""
 
+    // Canonical names of the KB entries being shown, but only when there is
+    // more than one — i.e. the profile's frame structure matched several
+    // documented profiles and no single identity was established. Empty for
+    // the ordinary single-entry case.
+    property var candidateNames: []
+
     function openFor(title) {
         profileTitle = title
+        candidateNames = ProfileManager.profileKbCandidateNames(title)
         content = ProfileManager.profileKnowledgeContent(title)
         open()
     }
@@ -73,11 +83,35 @@ DecenzaDialog {
                 }
             }
 
-            Text {
-                text: knowledgeDialog.profileTitle
-                font: Theme.titleFont
-                color: Theme.textColor
+            Column {
+                spacing: Theme.scaled(2)
                 anchors.verticalCenter: parent.verticalCenter
+
+                Text {
+                    text: knowledgeDialog.profileTitle
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                }
+
+                // Ambiguous match: say so, and say which profiles the badges
+                // were reasoned from. Without this the dialog would present
+                // two entries as though they described one profile.
+                Text {
+                    visible: text.length > 0
+                    text: knowledgeDialog.candidateNames.length > 1
+                        ? TranslationManager.translate(
+                              "profileselector.kb_matches_several",
+                              "Same frame structure as %1 — showing all")
+                              .arg(knowledgeDialog.candidateNames.join(", "))
+                        : ""
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    width: knowledgeDialog.width - Theme.scaled(80)
+                    wrapMode: Text.WordWrap
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                    Accessible.ignored: !visible
+                }
             }
         }
 

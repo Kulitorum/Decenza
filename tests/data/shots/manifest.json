@@ -74,6 +74,15 @@
       }
     },
     {
+      "file": "blooming_choker_renamed_profile.json",
+      "description": "Resolution regression guard (change: resolve-profile-kb-by-shape). Byte-identical to blooming_choker.json except the profile title, renamed 'Blooming Espresso' → 'Blooming Espresso_cris' — the real shape of a user renaming a shipped profile. The expectations below are COPIED from that fixture and hold only while the title still resolves to blooming-espresso and its channeling_expected flag transfers: lose the resolution and channeling fires, so channeling:'None' fails. This asserts the outcome the capability exists to protect — do not report a by-design behaviour as a fault — as a finding the user would have seen, not as an identifier. It failed before the boundary rule became 'any character that is not a letter'; '_' was absent from the old enumerated separator set, which is how the live case reached a user.",
+      "expect": {
+        "channeling": "None",
+        "grindIssue": true,
+        "pourTruncated": false
+      }
+    },
+    {
       "file": "blooming_aborted.json",
       "description": "Blooming Espresso, 63s / 0g yield. Baseline detector flagged Sustained because of the fill→bloom transition spike; mode-aware + channeling_expected correctly downgrade to Transient.",
       "expect": {

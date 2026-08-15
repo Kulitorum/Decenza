@@ -764,6 +764,7 @@ set(SOURCES
     src/ai/shotanalysis.cpp
     src/ai/shotsummarizer.cpp
     src/ai/shotsummarizer_kb.cpp
+    src/ai/profileshapeindex.cpp
     src/history/shothistorystorage.cpp
     src/history/shothistorystorage_internal.cpp
     src/history/shothistorystorage_serialize.cpp
@@ -1401,6 +1402,7 @@ set(QML_FILES
     qml/components/DrinkType.qml
     qml/components/SteamLabels.qml
     qml/components/ProfileKnowledgeDialog.qml
+    qml/components/KbDerivedFromLabel.qml
     qml/components/BeanThumbnail.qml
     qml/components/BackgroundSurface.qml
     qml/components/LastShotChartRenderer.qml

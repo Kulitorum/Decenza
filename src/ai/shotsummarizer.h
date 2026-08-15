@@ -274,6 +274,38 @@ public:
     // in profile_knowledge.md and control which checks analyzeShot() suppresses.
     static QStringList getAnalysisFlags(const QString& kbId);
 
+    // === Candidate-set accessors (change: resolve-profile-kb-by-shape) ===
+    //
+    // A profile resolved by SHAPE rather than by title can match several KB
+    // entries at once — several shipped profiles share one extraction shape.
+    // Collapsing that to a winner would assert an identity the shape never
+    // established, so the set is carried through and each fact transfers under
+    // its own rule, chosen by which error it risks:
+    //
+    //   - A suppression flag that silences a SHAPE-DERIVED diagnosis takes the
+    //     UNION. The flag says "this curve behaviour is by design for this
+    //     structure"; the structure is shared by construction. Failing to
+    //     apply it produces a WRONG finding — telling a user a deliberate
+    //     curve is a fault — while over-applying it produces at most a missing
+    //     one. Missing beats wrong.
+    //   - A suppression flag that disables a detector reading PHYSICS rather
+    //     than shape requires UNANIMITY. Applying it on one member's say-so
+    //     would silence findings that hold on any profile, hiding a genuinely
+    //     faulty shot. Here wrong and missing swap places.
+    //   - Assertive per-profile facts (expert band, UGS) require UNANIMITY and
+    //     are withheld otherwise. They are claims about specific NUMBERS,
+    //     which a re-tuned derivative may have moved. Withholding is a strict
+    //     no-op, indistinguishable from the fact's absence.
+    //
+    // Anything not classified defaults to unanimity — the union is a narrow
+    // exception, never what a newly-added fact inherits by omission.
+    //
+    // A single-member set makes all three rules degenerate to the plain
+    // single-id lookup, so a unique shape match behaves exactly like a title
+    // match for every consumer.
+    static QStringList getAnalysisFlags(const QStringList& kbIds);
+    static double ugsForKbIds(const QStringList& kbIds);
+
     // Cross-cutting reference content (entries with skipCatalog:true in
     // profile_knowledge.json) — injected into the espresso system prompt
     // and per-profile MCP payloads (filter/pour-over beverage types
@@ -340,6 +372,23 @@ public:
     static std::optional<ShotAnalysis::ExpertBand>
     expertBandForKbId(const QString& kbId);
 
+    // Candidate-set form — see the block above getAnalysisFlags(QStringList).
+    // A band is an assertive claim about a NUMBER on a specific axis, so it
+    // transfers only when every candidate agrees; a disputed band yields
+    // std::nullopt, which the cascade already treats as a strict no-op.
+    // Measured on the shipped set as of this change: of the TWO shape buckets
+    // holding more than one entry, ONE disagrees on the band — d-flow has none
+    // while d-flow-la-pavoni-variant cites 6–9 bar. The other
+    // ({gentle-flat-long-preinfusion-family, preinfuse-then-45ml-of-water})
+    // agrees, both having no band at all. Guessing either way would invent a
+    // band or drop a real one. Both numbers are pinned by
+    // tst_shotsummarizer::collidingBucketsDisagreeOnAssertiveFactsButAgreeOnSuppression;
+    // they moved during this change (from 3 buckets / 2 disagreements) when
+    // the LRv2 entry was merged into londinium, so re-derive them from that
+    // test rather than trusting this sentence.
+    static std::optional<ShotAnalysis::ExpertBand>
+    expertBandForKbIds(const QStringList& kbIds);
+
 private:
     // Render the prose body (## Shot Summary, ## Phase Data, ## Tasting
     // Feedback, ## Detector Observations) the legacy buildUserPrompt
@@ -403,6 +452,14 @@ private:
         const QVector<QPointF>& pressureGoal,
         const QVector<QPointF>& flowGoal,
         const QStringList& analysisFlags,
+        // The resolved KB candidate set for this shot, from resolveProfileKb()
+        // on the shot's OWN stored profile. Passed in rather than derived here
+        // from summary.profileKbId: since change resolve-profile-kb-by-shape
+        // the persisted column holds a TITLE resolution only, so deriving the
+        // Arm 1 gate and the expert band from it would disagree with the
+        // analysisFlags the caller computed from the shape-resolved set — the
+        // same shot analysed two ways. Empty means genuinely no context.
+        const QStringList& kbIds,
         double firstFrameSeconds,
         double targetWeightG,
         int frameCount) const;
@@ -459,8 +516,10 @@ private:
     // Deterministic recipe-alias longest-boundary-prefix resolution
     // (#1198, D1–D5). `normalizedKey` is already normalizeProfileKey'd.
     // Returns the longest recipe alias's id that the key extends across a
-    // separator boundary ( / - space ASCII-digit ), else "". Prefix only,
-    // never substring; editors excluded as anchors.
+    // boundary, else "". Prefix only, never substring; editors excluded as
+    // anchors. The boundary rule itself is defined once, at the definition
+    // in shotsummarizer_kb.cpp — deliberately not restated here, because
+    // the copy that used to live in this comment went stale against it.
     static QString recipePrefixResolve(const QString& normalizedKey);
     // Resolve any caller kbId (a current `id` OR a legacy normalized
     // title/alias persisted on old shot records, D14a) to a canonical

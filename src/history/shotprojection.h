@@ -86,6 +86,7 @@ class ShotProjection {
     Q_PROPERTY(QString stoppedBy MEMBER stoppedBy)
     Q_PROPERTY(QString profileJson MEMBER profileJson)
     Q_PROPERTY(QString profileKbId MEMBER profileKbId)
+    Q_PROPERTY(QString profileKbDerivedFrom MEMBER profileKbDerivedFrom)
     Q_PROPERTY(QString beanBaseJson MEMBER beanBaseJson)
     // Coffee bag snapshot (bean-bag-inventory): the bag this shot was pulled
     // with and the beans' freeze lifecycle at shot time (ISO dates, "" = unset).
@@ -193,6 +194,16 @@ public:
     QString stoppedBy;  // #1161: "weight"|"volume"|"manual"|"profileEnd"|""
     QString profileJson;
     QString profileKbId;
+    // Canonical display name of the KB entry THIS SHOT's analysis was resolved
+    // to by SHAPE. Empty for a title match (its own name said so, nothing to
+    // explain), a miss, or an ambiguous shape (no single entry to name).
+    //
+    // Derived at load, never persisted. Distinct from the catalog's
+    // ProfileInfo::kbDerivedFrom, which answers the same question about
+    // whatever profile currently bears this shot's title — the two diverge the
+    // moment the user edits or deletes that profile, and only this one names
+    // the entry the shot's badges were actually computed under.
+    QString profileKbDerivedFrom;
     // Compact-JSON linked-bean snapshot ("" = unlinked) — Visualizer canonical
     // or Bean Base sourced; see ShotRecord::beanBaseJson.
     QString beanBaseJson;
