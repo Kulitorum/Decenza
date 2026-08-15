@@ -2538,8 +2538,10 @@ private slots:
     // The tie is answered only when answering it says something true: the tied
     // candidates must agree on the VALUES, not merely on how many fields
     // differ. Two of the six (chinese green, white tea) are identical on every
-    // dial-in field, so a renamed copy of either ties at zero against both and
-    // the entry can be named without picking one.
+    // dial-in field, so a copy that is renamed and given ONE dial-in change
+    // ties at that one row against both of them, with the same before and
+    // after values either way — and the entry can be named without picking
+    // one of the two.
     void dialInBase_aTieOnEquivalentValuesNamesTheEntry()
     {
         const Profile user = shippedProfileEdited(
@@ -2581,6 +2583,29 @@ private slots:
                 o[QStringLiteral("espresso_temperature")] = QStringLiteral("85.00");
             });
         QVERIFY(user.isValid());
+
+        // The tie itself, pinned here rather than asserted in a comment. Every
+        // bucket member must produce the SAME number of rows (or there is no
+        // tie to abstain over) while disagreeing on the values (or abstaining
+        // would be wrong). Two comments in this change previously stated that
+        // count from memory and both were wrong; this reads it from the code.
+        const QVector<ProfileShapeIndex::BundledMatch> bucket =
+            ProfileShapeIndex::bundledProfilesForShape(user);
+        QCOMPARE(bucket.size(), 6);
+        qsizetype tiedCount = -1;
+        QSet<QString> distinctBefores;
+        for (const ProfileShapeIndex::BundledMatch& m : bucket) {
+            const Profile bundled = Profile::loadFromFile(m.resourcePath);
+            QVERIFY(bundled.isValid());
+            const QVector<ProfileFieldDelta> d = Profile::dialInDeltas(bundled, user);
+            if (tiedCount < 0) tiedCount = d.size();
+            QCOMPARE(d.size(), tiedCount);
+            QVERIFY(!d.isEmpty());
+            distinctBefores.insert(QString::number(d.first().oldValue));
+        }
+        QVERIFY2(distinctBefores.size() > 1,
+                 "fixture precondition: the tied candidates must disagree on the values, "
+                 "or there is nothing for the equivalent-deltas rule to reject");
 
         const DialInComparison cmp = compareWithBundledBase(user, resolveProfileKb(user));
 

@@ -179,8 +179,9 @@ Three rules decide whether it appears at all
    tied candidates would say the same thing — same KB id *and* equivalent
    difference lists — and is then named for the entry rather than for an
    arbitrary member of it. Same entry but different numbers still shows
-   nothing: the six `tea_portafilter_*` profiles all tie at one row while each
-   states a different brew temperature, so no single "before" column is true.
+   nothing: the six `tea_portafilter_*` profiles all tie on the same number of
+   rows against a copy at a temperature none of them ships, while each states a
+   different brew temperature — so no single "before" column is true.
    Nearness is
    *not* how far apart the values are: a magnitude comparison would need a
    weighting between bar, mL/s, °C and grams that nothing in the domain

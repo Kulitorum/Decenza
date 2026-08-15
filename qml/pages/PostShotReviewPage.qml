@@ -768,7 +768,14 @@ T.Page {
             id: src.id, uuid: src.uuid, timestamp: src.timestamp,
             timestampIso: src.timestampIso, dateTime: src.dateTime,
             profileName: src.profileName, profileKbId: src.profileKbId,
+            profileKbDerivedFrom: src.profileKbDerivedFrom,
             profileJson: src.profileJson, profileNotes: src.profileNotes,
+            // Read by the recipe card and the steam/water summaries at the top
+            // of this file. Missing from this whitelist until now, so the first
+            // autosave silently emptied them: the recipe card vanished and the
+            // "no recipe" prompts (which gate on recipeId <= 0) took its place.
+            recipeId: src.recipeId,
+            steamJson: src.steamJson, hotWaterJson: src.hotWaterJson,
             beanNotes: src.beanNotes,
             temperatureOverrideC: src.temperatureOverrideC,
             targetWeightG: src.targetWeightG,

@@ -4833,6 +4833,20 @@ private slots:
         // as a visible token, never as a bare number that looks finished.
         QVERIFY2(qml.contains(QStringLiteral("suffix = \" \" + row.unit")),
                  "the unmapped-unit fallback must append the raw token");
+
+        // Display precision has to reach at least as fine as the tolerance the
+        // row was EMITTED at, or the block renders a real change as two
+        // identical numbers. celsius, bar and mlPerSec are compared at 0.005
+        // (ProfileJson writes them at two decimals and the editor steps them at
+        // 0.01), so the QML must be willing to spend a second decimal on them.
+        const qsizetype fine = qml.indexOf(QStringLiteral("function maxDecimalsFor"));
+        QVERIFY2(fine >= 0, "the block must pick its decimals from the row's unit");
+        const QString fineBody = qml.mid(fine, 400);
+        for (const QString& u : { QStringLiteral("celsius"), QStringLiteral("bar"),
+                                  QStringLiteral("mlPerSec") })
+            QVERIFY2(fineBody.contains(QStringLiteral("\"%1\"").arg(u)),
+                     qPrintable(QStringLiteral("unit %1 is compared at 0.005 but is not granted "
+                                               "two decimals of display").arg(u)));
     }
 
     // The lookup order in loadProfileByFilename is what makes an IN-PLACE edit of

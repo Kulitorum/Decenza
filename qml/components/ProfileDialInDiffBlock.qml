@@ -69,13 +69,43 @@ Column {
         return step + " · " + base
     }
 
-    function formatNumber(row, value) {
+    // How many decimals a unit is AUTHORED at, which is also how many
+    // ProfileJson writes and therefore how finely C++ compared. Displaying
+    // fewer than this can render a real difference as two identical numbers:
+    // pressure, flow and the limiter are 0.01-stepped in the profile editor
+    // and emitted at a 0.005 tolerance, so a 9.00 -> 8.98 edit shown at one
+    // decimal reads "9 bar -> 9 bar" — a row asserting a change while showing
+    // none, which looks like a bug in this block rather than a fine edit.
+    function maxDecimalsFor(unit) {
+        // celsiusTank, g and ml are written at one decimal, so one is already
+        // the full authored precision for them.
+        return (unit === "celsius" || unit === "bar" || unit === "mlPerSec") ? 2 : 1
+    }
+
+    // Trailing zeros are noise on the common case ("9 bar", not "9.00 bar"),
+    // so start at one decimal and only spend more when one decimal would make
+    // the two sides look the same.
+    function decimalsFor(row) {
+        if (!row.numeric) return 0
+        var max = maxDecimalsFor(row.unit)
+        for (var d = 1; d < max; d++)
+            if (row.oldValue.toFixed(d) !== row.newValue.toFixed(d)) return d
+        return max
+    }
+
+    function trimZeros(text) {
+        if (text.indexOf(".") < 0) return text
+        return text.replace(/0+$/, "").replace(/\.$/, "")
+    }
+
+    function formatNumber(row, value, decimals) {
         // "celsiusTank" is celsius that C++ compares at a looser tolerance
         // (ProfileJson writes the tank target at one decimal, not two). It is
         // a separate token there ONLY so the tolerance can differ; it displays
-        // exactly like any other temperature.
+        // exactly like any other temperature, through the same Theme helper
+        // every other temperature in the app goes through.
         if (row.unit === "celsius" || row.unit === "celsiusTank")
-            return Theme.cToDisplay(value).toFixed(1) + Theme.tempUnitSuffix()
+            return Theme.formatTemperature(value, decimals)
         var suffix = ""
         if (row.unit === "bar") suffix = " " + TranslationManager.translate("espresso.unit.bar", "bar")
         else if (row.unit === "mlPerSec") suffix = " " + TranslationManager.translate("espresso.unit.flowRate", "mL/s")
@@ -88,16 +118,14 @@ Column {
         // tokens this does not map ("s", "count"); both are developer-only
         // today, and promoting one to dial-in is a one-word edit.
         else if (row.unit && row.unit.length > 0) suffix = " " + row.unit
-        // One decimal, then drop a trailing ".0" — dial-in values are authored
-        // at one decimal and "9 bar" reads better than "9.0 bar".
-        var text = value.toFixed(1).replace(/\.0$/, "")
-        return text + suffix
+        return trimZeros(value.toFixed(decimals)) + suffix
     }
 
     function changeText(row) {
         if (!row.numeric)
             return (row.oldText || "—") + " → " + (row.newText || "—")
-        return formatNumber(row, row.oldValue) + " → " + formatNumber(row, row.newValue)
+        var d = decimalsFor(row)
+        return formatNumber(row, row.oldValue, d) + " → " + formatNumber(row, row.newValue, d)
     }
 
     // Whole-block accessible summary. Individual rows are static text a screen

@@ -292,10 +292,12 @@ DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& re
     //
     // EVERY candidate level with the best count is kept, not just the first.
     // The tie is on the delta COUNT, and equal counts do not imply equal
-    // content: six tea profiles all differ from an 85 degree copy on the same
-    // seven frames, but each states a different "before" value. Keeping only the
-    // first one's list showed the user numbers from a profile they had never
-    // brewed.
+    // content: the six bundled tea profiles all differ from an 85 degree copy
+    // on the same NUMBER of fields, while each states a different "before"
+    // value. (The count itself is pinned by the test, not asserted here — an
+    // unverified figure in a comment is how the last three defects in this
+    // file got written.) Keeping only the first one's list showed the user
+    // numbers from a profile they had never brewed.
     struct Scored {
         QString path;
         QString title;
@@ -380,14 +382,19 @@ DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& re
         for (const Scored& s : best)
             if (!sameDeltas(s.deltas, winner->deltas)) return {};
 
+        // An entry-level answer needs an entry NAME. Falling through without
+        // one would drop to the single-winner path below and label the block
+        // with winner->title — the first tied candidate's own bundled title,
+        // chosen by iteration order, which is exactly the arbitrary pick the
+        // two conditions above exist to prevent. Abstain instead.
         const QString canonical = ShotSummarizer::canonicalNameForKbId(winner->kbId);
-        if (!canonical.isEmpty()) {
-            out.baseResourcePath = winner->path;
-            out.baseTitle = canonical;
-            out.baseKbId = winner->kbId;
-            out.deltas = winner->deltas;
-            return out;
-        }
+        if (canonical.isEmpty()) return {};
+
+        out.baseResourcePath = winner->path;
+        out.baseTitle = canonical;
+        out.baseKbId = winner->kbId;
+        out.deltas = winner->deltas;
+        return out;
     }
 
     out.baseResourcePath = winner->path;

@@ -106,7 +106,7 @@ temperature display.
 - **WHEN** the block is produced
 - **THEN** that rename SHALL be listed
 
-### Requirement: When several bundled profiles share the shape, the block SHALL target the nearest and SHALL abstain on a tie
+### Requirement: When several bundled profiles share the shape, the block SHALL target the nearest and SHALL abstain on a tie unless the tied candidates agree
 
 Where more than one bundled profile is the same shape as the user's profile, the block SHALL be produced
 against the **nearest** of them. Nearness SHALL be the count of dial-in fields on which the user's profile

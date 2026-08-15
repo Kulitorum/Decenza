@@ -20,8 +20,9 @@ is the one thing the app already knows and does not say.
   larger population: a user who edits a bundled profile's temperature in place and keeps its name never
   reaches the shape step, yet their change is exactly as worth showing.
 - When a shape matches **several** built-ins, the block targets the **nearest** one, chosen by counting the
-  dial-in fields on which each candidate is closer. A tie shows no block — that is the case where naming a
-  base would be a coin flip.
+  dial-in fields on which each candidate is closer. A tie shows no block unless every tied candidate would
+  say the same thing — same knowledge entry, equivalent difference list — in which case the block names the
+  entry. Anything else is the case where naming a base would be a coin flip.
 - The block is computed against the correct source per surface: the **live catalog profile** on the profile
   selector, and the **shot's own stored profile JSON** on the shot detail and post-shot review pages, so a
   shot never reports differences that only exist because the catalog file was edited after it was pulled.
