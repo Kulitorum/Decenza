@@ -294,6 +294,26 @@ endif()
 # Tests that link this still need version_code.cpp and, if they touch the KB
 # loaders, the ai.qrc resource — neither belongs in a shared static lib.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# decenza_shapelib: KB resolution by profile SHAPE (change:
+# resolve-profile-kb-by-shape). ONE translation unit, deliberately its own
+# library rather than a copy in each consumer.
+#
+# Two libraries need it and neither contains the other: decenza_profilelib
+# (ProfileManager's catalog scan resolves each profile) and decenza_shotlib
+# (prepareAnalysisInputs resolves the shot's stored profile). Listing the
+# source in both would duplicate the TU — which scripts/check_test_source_
+# duplication.py rejects — and duplicate the symbol for any target linking
+# both. Putting it in the universally-linked decenza_testlib would hand it to
+# ~60 binaries that never resolve a profile.
+# ---------------------------------------------------------------------------
+add_library(decenza_shapelib STATIC
+    ${CMAKE_SOURCE_DIR}/src/ai/profileshapeindex.cpp
+)
+set_target_properties(decenza_shapelib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_compile_definitions(decenza_shapelib PUBLIC DECENZA_TESTING)
+target_link_libraries(decenza_shapelib PUBLIC decenza_testlib)
+
 find_package(Qt6 REQUIRED COMPONENTS Quick)
 add_library(decenza_shotlib STATIC
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
@@ -309,6 +329,7 @@ set_target_properties(decenza_shotlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX 
 target_compile_definitions(decenza_shotlib PUBLIC DECENZA_TESTING)
 target_link_libraries(decenza_shotlib PUBLIC
     decenza_testlib
+    decenza_shapelib
     Qt6::Quick
 )
 # ${CMAKE_BINARY_DIR} for the generated version.h, which visualizeruploader.cpp
@@ -978,7 +999,9 @@ set_target_properties(decenza_profilelib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREF
 # <MQTTAsync.h>. Every one of the nine consumers already linked paho, so this
 # requirement was invisible while the sources were pasted into them; hoisting
 # them into a library is what surfaced it.
-target_link_libraries(decenza_profilelib PUBLIC decenza_testlib paho-mqtt3a-static)
+# decenza_shapelib: ProfileManager's catalog scan resolves each profile by
+# shape when its title misses.
+target_link_libraries(decenza_profilelib PUBLIC decenza_testlib decenza_shapelib paho-mqtt3a-static)
 
 # --- The rest of the narrow libraries, same rule: consumer set no wider than
 # the targets that need the sources. Each replaced a source list pasted into
@@ -1452,6 +1475,19 @@ target_sources(tst_tclimport PRIVATE ${PROFILES_QRC})
 # the built-in resource it warns, and QTest::failOnWarning turns that into a
 # failure unrelated to anything under test.
 target_sources(tst_recipeeditorapppath PRIVATE ${PROFILES_QRC})
+# ProfileShapeIndex builds its shape index from :/profiles/*.json, so the shape
+# resolution tests need the built-ins present. Attached here rather than at the
+# target's own definition because PROFILES_QRC is declared further down this
+# file than tst_shotsummarizer is defined.
+target_sources(tst_shotsummarizer PRIVATE ${PROFILES_QRC})
+# ProfileManager's catalog scan resolves each profile against the KB, so the
+# knowledge resource has to be present or every lookup silently returns empty
+# and a KB-dependent assertion fails for a reason that looks like a logic bug.
+# That has now cost two debugging rounds in this change; the binary carrying
+# ProfileManager should simply have the data ProfileManager reads.
+qt_add_resources(TST_PROFILEMANAGER_AI_RESOURCES
+    ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
+target_sources(tst_profilemanager PRIVATE ${TST_PROFILEMANAGER_AI_RESOURCES})
 
 # --- MCP tool tests (ProfileManager + MockTransport) ---
 

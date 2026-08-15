@@ -139,9 +139,12 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             analysisPtr = &record.cachedAnalysis.value();
         } else {
             const AnalysisInputs inputs = prepareAnalysisInputs(record.profileKbId, record.profileJson);
-            // KB-resolved bit gates grind Arm 1 — see openspec change
-            // skip-grind-arm1-when-kb-unresolved.
-            const bool profileKbResolved = !record.profileKbId.isEmpty();
+            // Off AnalysisInputs, not the persisted id — the id is empty for
+            // any shape-resolved profile. Third of the three sites that
+            // derived this by hand; all three now read the one field, so a
+            // future change to what "resolved" means cannot reach two of them
+            // and miss the last.
+            const bool profileKbResolved = inputs.profileKbResolved;
             analysisOwned = ShotAnalysis::analyzeShot(
                 record.pressure, record.flow, record.weight,
                 record.conductanceDerivative,

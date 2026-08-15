@@ -1317,6 +1317,138 @@ private slots:
         }
     }
 
+    // === Knowledge indicator follows the CANDIDATE SET, not the identity ===
+
+    void ambiguousShapeMatchStillOffersItsKnowledge() {
+        // A profile whose frame structure matches several documented profiles
+        // has no single identity — but its badges and summary are still shaped
+        // by what those entries agree on (union suppression, unanimous facts).
+        // So the indicator must light and the dialog must show all of them.
+        //
+        // The failure this prevents is silent and one-directional: findings
+        // suppressed by KB knowledge, with nothing on screen saying knowledge
+        // was involved. That is worse than a dark sparkle over nothing, which
+        // at least matches what the user is told.
+        McpTestFixture f;
+
+        // D-Flow / default shares its shape with D-Flow / La Pavoni, so a
+        // renamed copy resolves to both. Pinned in tst_shotsummarizer as
+        // resolveProfileKb_ambiguousShapeWithholdsIdentityButNotAnalysis.
+        QFile src(QStringLiteral(":/profiles/d_flow_default.json"));
+        QVERIFY(src.open(QIODevice::ReadOnly));
+        QJsonObject obj = QJsonDocument::fromJson(src.readAll()).object();
+        const QString renamed = QStringLiteral("Zzz Renamed Copy");
+        obj[QStringLiteral("title")] = renamed;
+        obj.remove(QStringLiteral("read_only"));
+
+        // userProfilesPath(), not profilesPath() — the catalog scan reads the
+        // user/ and downloaded/ subdirectories, so a file dropped in the base
+        // directory is never seen and the resolution comes back empty.
+        const QString dir = f.profileManager.userProfilesPath();
+        QVERIFY(QDir().mkpath(dir));
+        QFile out(dir + QStringLiteral("/zzz_renamed_copy.json"));
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        out.write(QJsonDocument(obj).toJson());
+        out.close();
+        f.profileManager.refreshProfiles();
+
+        const QStringList names = f.profileManager.profileKbCandidateNames(renamed);
+        QVERIFY2(names.size() > 1,
+                 qPrintable(QStringLiteral("expected an ambiguous match, got: %1")
+                                .arg(names.join(QLatin1Char(',')))));
+
+        QVERIFY2(f.profileManager.profileHasKnowledge(renamed),
+                 "an ambiguous match must still light the indicator");
+
+        // Every named entry's body is present — not one member standing in for
+        // the set.
+        const QString content = f.profileManager.profileKnowledgeContent(renamed);
+        QVERIFY(!content.isEmpty());
+        for (const QString& n : names)
+            QVERIFY2(content.contains(n),
+                     qPrintable(QStringLiteral("dialog body omits candidate %1").arg(n)));
+
+        // ...but no identity is claimed: nothing to put after "Based on".
+        QVERIFY2(f.profileManager.profileKbDerivedFrom(renamed).isEmpty(),
+                 "an ambiguous match must not name a single source");
+    }
+
+    // === QML guard: no visibility gated on a shot's persisted profileKbId ===
+
+    void noQmlVisibilityGatedOnPersistedProfileKbId() {
+        // `shotData.profileKbId` is the column written at save time. It is the
+        // wrong input for any "do we know something about this profile" gate,
+        // and was wrong at two sites before resolve-profile-kb-by-shape:
+        //
+        //  - the QualityBadges row, where it hid the Shot Summary chip on a
+        //    clean shot, i.e. the affordance opening an analysis computed
+        //    entirely from the shot's own curves;
+        //  - the KB sparkle, which then disagreed with the dialog it opens,
+        //    since profileKnowledgeContent() resolves through the catalog.
+        //
+        // The column is empty for every row saved before that change and for
+        // any profile whose shape matched several KB entries (a candidate set
+        // establishes no identity, so nothing is persisted), and it says
+        // nothing about whether the profile is still in the catalog. Ask
+        // ProfileManager instead — profileHasKnowledge() / the catalog's
+        // hasKnowledgeBase — so the indicator and its dialog cannot disagree.
+        //
+        // Reading the field for other purposes is fine; only a visibility
+        // binding is flagged.
+        QDir qmlDir(QCoreApplication::applicationDirPath() + "/../../../../qml");
+        if (!qmlDir.exists())
+            qmlDir.setPath(QString(SRCDIR) + "/../qml");
+        if (!qmlDir.exists())
+            QSKIP("QML directory not found — run from source tree");
+
+        static const QRegularExpression visibleRe(
+            QStringLiteral("^\\s*visible\\s*:"));
+        static const QRegularExpression kbIdRe(QStringLiteral("\\bprofileKbId\\b"));
+
+        QStringList violations;
+        QDirIterator it(qmlDir.absolutePath(), {"*.qml"}, QDir::Files,
+                        QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QString filePath = it.next();
+            QFile file(filePath);
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+                continue;
+            QStringList lines;
+            while (!file.atEnd())
+                lines.append(QString::fromUtf8(file.readLine()));
+            const QString relPath = qmlDir.relativeFilePath(filePath);
+
+            for (qsizetype i = 0; i < lines.size(); ++i) {
+                if (!visibleRe.match(lines[i]).hasMatch())
+                    continue;
+                // A visible binding may wrap; scan it to its last line. Cheap
+                // approximation of "the binding": keep going while the line
+                // does not close its parenthesis balance.
+                int depth = 0;
+                for (qsizetype j = i; j < lines.size(); ++j) {
+                    const QString& l = lines[j];
+                    if (l.contains(QStringLiteral("//")) ? false
+                                                         : kbIdRe.match(l).hasMatch()) {
+                        violations << QStringLiteral("%1:%2: visible gated on profileKbId")
+                                          .arg(relPath).arg(j + 1);
+                    }
+                    for (const QChar c : l) {
+                        if (c == u'(') ++depth;
+                        else if (c == u')') --depth;
+                    }
+                    if (depth <= 0) break;
+                }
+            }
+        }
+
+        if (!violations.isEmpty()) {
+            QFAIL(qPrintable(QStringLiteral("Visibility gated on the persisted "
+                                            "profileKbId in %1 place(s):\n  %2")
+                                 .arg(violations.size())
+                                 .arg(violations.join(QStringLiteral("\n  ")))));
+        }
+    }
+
     // === MCP resource: decenza://profiles/active ===
 
     void mcpResourceActiveProfileReturnsFilenameAndTitle() {

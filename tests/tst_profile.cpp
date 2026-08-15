@@ -1804,6 +1804,164 @@ private slots:
         QCOMPARE(parsed.popup, original.popup);
     }
 
+    // === Profile shape (capability: profile-shape-equivalence) ===
+    //
+    // shapeSignature()/sameShape() decide whether a user's re-tuned copy of a
+    // documented profile is still the same extraction SHAPE, which is what
+    // lets the KB's suppression flags (flow_trend_ok, channeling_expected)
+    // reach it. Getting this wrong in the loose direction tells a user their
+    // by-design curve is a fault; in the strict direction it silently drops
+    // the flags. Both failures are silent in production, so they are pinned
+    // here.
+
+    // Two frames: a flow preinfusion with a pressure-over exit, then a
+    // pressure hold. Every magnitude is a named argument so a test can move
+    // exactly one and assert the consequence.
+    static Profile makeShapeProfile(double temp = 92.0,
+                                    double pressure = 9.0,
+                                    double flow = 4.0,
+                                    double seconds0 = 10.0,
+                                    double exitWeight = 0.0,
+                                    double volume = 100.0,
+                                    const QString& pump0 = QStringLiteral("flow"),
+                                    const QString& transition1 = QStringLiteral("smooth"),
+                                    bool exitIf0 = true,
+                                    int frames = 2,
+                                    const QString& beverage = QStringLiteral("espresso"))
+    {
+        Profile p;
+        p.setTitle(QStringLiteral("Shape Fixture"));
+        p.setBeverageType(beverage);
+        QList<ProfileFrame> steps;
+        ProfileFrame f0;
+        f0.name = QStringLiteral("preinfusion");
+        f0.pump = pump0;
+        f0.sensor = QStringLiteral("coffee");
+        f0.transition = QStringLiteral("fast");
+        f0.temperature = temp;
+        f0.flow = flow;
+        f0.pressure = pressure;
+        f0.seconds = seconds0;
+        f0.volume = volume;
+        f0.exitWeight = exitWeight;
+        f0.exitIf = exitIf0;
+        f0.exitType = QStringLiteral("pressure_over");
+        f0.exitPressureOver = 4.0;
+        steps << f0;
+        if (frames > 1) {
+            ProfileFrame f1;
+            f1.name = QStringLiteral("hold");
+            f1.pump = QStringLiteral("pressure");
+            f1.sensor = QStringLiteral("coffee");
+            f1.transition = transition1;
+            f1.temperature = temp;
+            f1.pressure = pressure;
+            f1.seconds = 25.0;
+            f1.volume = volume;
+            steps << f1;
+        }
+        p.setSteps(steps);
+        return p;
+    }
+
+    // The case the capability exists for: a user copies a documented profile
+    // and changes only what dialling in changes.
+    void shape_dialInVariablesDoNotChangeTheShape_data() {
+        QTest::addColumn<Profile>("variant");
+
+        QTest::newRow("temperature")  << makeShapeProfile(/*temp=*/88.0);
+        QTest::newRow("pressure")     << makeShapeProfile(92.0, /*pressure=*/6.0);
+        QTest::newRow("flow")         << makeShapeProfile(92.0, 9.0, /*flow=*/2.0);
+        QTest::newRow("exit weight")  << makeShapeProfile(92.0, 9.0, 4.0, 10.0, /*exitWeight=*/36.0);
+        QTest::newRow("volume")       << makeShapeProfile(92.0, 9.0, 4.0, 10.0, 0.0, /*volume=*/50.0);
+        QTest::newRow("all at once")  << makeShapeProfile(84.0, 6.0, 1.5, 10.0, 40.0, 20.0);
+    }
+
+    void shape_dialInVariablesDoNotChangeTheShape() {
+        QFETCH(Profile, variant);
+        const Profile base = makeShapeProfile();
+        QVERIFY2(Profile::sameShape(base, variant),
+                 qPrintable(QStringLiteral("base=%1\nvariant=%2")
+                                .arg(base.shapeSignature(), variant.shapeSignature())));
+    }
+
+    // The strict direction: anything that changes what the curve DOES is a
+    // different shape, at any magnitude.
+    void shape_structuralEditsChangeTheShape_data() {
+        QTest::addColumn<Profile>("variant");
+
+        QTest::newRow("frame removed")
+            << makeShapeProfile(92.0, 9.0, 4.0, 10.0, 0.0, 100.0,
+                                QStringLiteral("flow"), QStringLiteral("smooth"), true, /*frames=*/1);
+        QTest::newRow("pump mode")
+            << makeShapeProfile(92.0, 9.0, 4.0, 10.0, 0.0, 100.0, /*pump0=*/QStringLiteral("pressure"));
+        QTest::newRow("transition")
+            << makeShapeProfile(92.0, 9.0, 4.0, 10.0, 0.0, 100.0,
+                                QStringLiteral("flow"), /*transition1=*/QStringLiteral("fast"));
+        QTest::newRow("exit removed")
+            << makeShapeProfile(92.0, 9.0, 4.0, 10.0, 0.0, 100.0,
+                                QStringLiteral("flow"), QStringLiteral("smooth"), /*exitIf0=*/false);
+        QTest::newRow("beverage type")
+            << makeShapeProfile(92.0, 9.0, 4.0, 10.0, 0.0, 100.0,
+                                QStringLiteral("flow"), QStringLiteral("smooth"), true, 2,
+                                /*beverage=*/QStringLiteral("filter"));
+    }
+
+    void shape_structuralEditsChangeTheShape() {
+        QFETCH(Profile, variant);
+        const Profile base = makeShapeProfile();
+        QVERIFY2(!Profile::sameShape(base, variant),
+                 qPrintable(QStringLiteral("both signed as %1").arg(base.shapeSignature())));
+    }
+
+    // Frame durations ARE part of the shape. Measured justification: dropping
+    // them from the key puts 23 of 95 shipped profiles into ambiguous buckets
+    // instead of 6, collapsing D-Flow/Q and D-Flow/La-Pavoni into D-Flow —
+    // exactly the separation #1198 exists to protect.
+    void shape_frameDurationsArePartOfTheShape() {
+        const Profile base = makeShapeProfile();
+        const Profile longer = makeShapeProfile(92.0, 9.0, 4.0, /*seconds0=*/14.0);
+        QVERIFY(!Profile::sameShape(base, longer));
+
+        // ...but serialization rounding must not split a profile from itself.
+        const Profile jittered = makeShapeProfile(92.0, 9.0, 4.0, /*seconds0=*/10.03);
+        QVERIFY2(Profile::sameShape(base, jittered),
+                 qPrintable(QStringLiteral("%1 vs %2")
+                                .arg(base.shapeSignature(), jittered.shapeSignature())));
+    }
+
+    void shape_comparisonIsSymmetricAndSelfConsistent() {
+        const Profile a = makeShapeProfile();
+        const Profile b = makeShapeProfile(/*temp=*/85.0);
+        QCOMPARE(Profile::sameShape(a, b), Profile::sameShape(b, a));
+        QVERIFY(Profile::sameShape(a, a));
+        // A profile with no frames has no shape — otherwise every malformed
+        // profile would be a relative of every other.
+        const Profile empty;
+        QVERIFY(!Profile::sameShape(empty, empty));
+        QVERIFY(!Profile::sameShape(a, empty));
+    }
+
+    // functionallyEqual() is the STRICTER import-de-duplication predicate and
+    // this change must not have moved it. It had no test at all before this
+    // one, so these also serve as its first pin — including the two
+    // subtleties its implementation depends on.
+    void functionallyEqual_unchangedByShapeWork() {
+        const Profile base = makeShapeProfile();
+        QVERIFY(Profile::functionallyEqual(base, makeShapeProfile()));
+
+        // Exact equality implies same shape. The converse must NOT hold —
+        // if it did, shape would have collapsed into equality and the whole
+        // point (a re-tuned profile still matches) would be lost.
+        const Profile retuned = makeShapeProfile(/*temp=*/88.0);
+        QVERIFY(!Profile::functionallyEqual(base, retuned));
+        QVERIFY(Profile::sameShape(base, retuned));
+
+        // Empty-step guard, shared with sameShape().
+        const Profile empty;
+        QVERIFY(!Profile::functionallyEqual(empty, empty));
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_Profile)

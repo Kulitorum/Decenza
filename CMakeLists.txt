@@ -764,6 +764,7 @@ set(SOURCES
     src/ai/shotanalysis.cpp
     src/ai/shotsummarizer.cpp
     src/ai/shotsummarizer_kb.cpp
+    src/ai/profileshapeindex.cpp
     src/history/shothistorystorage.cpp
     src/history/shothistorystorage_internal.cpp
     src/history/shothistorystorage_serialize.cpp

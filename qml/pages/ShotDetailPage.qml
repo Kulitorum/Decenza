@@ -365,11 +365,17 @@ T.Page {
                         }
 
                         QualityBadges {
-                            visible: !!(shotDetailPage.shotData.profileKbId
-                                        || shotDetailPage.shotData.channelingDetected
-                                        || shotDetailPage.shotData.grindIssueDetected
-                                        || shotDetailPage.shotData.skipFirstFrameDetected
-                                        || shotDetailPage.shotData.pourTruncatedDetected)
+                            // No `visible` gate. The row used to be hidden unless a flag
+                            // fired OR the shot carried a profileKbId — which in practice
+                            // gated only the CLEAN shot, and with it the Shot Summary chip,
+                            // the one affordance that opens the analysis. The dialog's lines
+                            // come from analyzeShot() over this shot's own curves; the KB
+                            // contributes suppressions, not content, so an unresolved profile
+                            // has MORE to report, not less. The id was the wrong proxy by
+                            // then anyway — it is the persisted column, while the pipeline
+                            // re-resolves on every load, and an ambiguous shape resolves to a
+                            // candidate set that persists nothing. Chip conditions live
+                            // inside QualityBadges and are untouched.
                             Layout.fillWidth: false
                             Layout.maximumWidth: shotDetailPage.width * 0.5
                             channelingDetected: shotDetailPage.shotData.channelingDetected ?? false
@@ -379,6 +385,29 @@ T.Page {
                             verdictCategory: (shotDetailPage.shotData && shotDetailPage.shotData.detectorResults)
                                 ? (shotDetailPage.shotData.detectorResults.verdictCategory ?? "") : ""
                             onSummaryRequested: detailAnalysisDialog.open()
+                        }
+
+                        // "Based on X" when this shot's profile reached its
+                        // knowledge by SHAPE rather than by name — the user is
+                        // entitled to know the relationship was inferred from
+                        // the profile's structure. Empty (hidden) for a title
+                        // match, no match, or an ambiguous shape.
+                        Text {
+                            visible: text.length > 0
+                            text: {
+                                var from = ProfileManager.profileKbDerivedFrom(
+                                    shotDetailPage.shotData.profileName || "")
+                                return from ? TranslationManager.translate(
+                                                  "profileselector.based_on", "Based on %1").arg(from)
+                                            : ""
+                            }
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                            elide: Text.ElideRight
+                            Layout.maximumWidth: shotDetailPage.width * 0.3
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                            Accessible.ignored: !visible
                         }
 
                         ShotAnalysisDialog {
@@ -391,7 +420,8 @@ T.Page {
                 // KB sparkle button — opens the profile knowledge base
                 Image {
                     id: headerSparkle
-                    visible: !!(shotDetailPage.shotData.profileKbId)
+                    visible: ProfileManager.profileHasKnowledge(
+                                 shotDetailPage.shotData.profileName || "")
                     source: "qrc:/icons/sparkle.svg"
                     sourceSize.width: Theme.scaled(18)
                     sourceSize.height: Theme.scaled(18)
@@ -415,9 +445,10 @@ T.Page {
                         accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
                         accessibleItem: headerSparkle
                         onAccessibleClicked: {
-                            shotKnowledgeDialog.profileTitle = shotDetailPage.shotData.profileName || ""
-                            shotKnowledgeDialog.content = ProfileManager.profileKnowledgeContent(shotDetailPage.shotData.profileName)
-                            shotKnowledgeDialog.open()
+                            // openFor() over setting the properties by hand: it is
+                            // the one place that knows every field the dialog needs,
+                            // so a new one (candidateNames) reaches all three callers.
+                            shotKnowledgeDialog.openFor(shotDetailPage.shotData.profileName || "")
                         }
                     }
                 }

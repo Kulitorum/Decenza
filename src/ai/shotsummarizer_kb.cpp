@@ -338,9 +338,10 @@ void ShotSummarizer::loadDialInReference()
 // ("D-Flow / Q - Jeff", "Adaptive v2 - Jeff", "Damian's Q2") inherits
 // that recipe's KB entry. NOT the deleted greedy scan: anchored on a
 // registered recipe alias, prefix-only (D4), longest-wins via the
-// longest-first sort (D1), editors excluded as anchors (D2), closed
-// separator set (D3). Built-ins never reach here (exact match wins
-// first; D8). s_recipeAliases empty (load failure) → "" → no-op.
+// longest-first sort (D1), editors excluded as anchors (D2), boundary
+// rule stated as the complement of the letter case (D3). Built-ins never
+// reach here (exact match wins first; D8). s_recipeAliases empty (load
+// failure) → "" → no-op.
 QString ShotSummarizer::recipePrefixResolve(const QString& normalizedKey)
 {
     if (normalizedKey.isEmpty()) return QString();
@@ -351,13 +352,29 @@ QString ShotSummarizer::recipePrefixResolve(const QString& normalizedKey)
         if (normalizedKey.size() <= n) continue;
         if (!normalizedKey.startsWith(ra.key)) continue;
         const QChar sep = normalizedKey.at(n);
-        // Closed separator set (D3): / - space ASCII-digit. A following
-        // letter (or any other char) is NOT a boundary, so
-        // "d-flow / quark" does not match the "d-flow / q" alias and
-        // "d-flowx" does not match "d-flow".
-        const bool isSep = sep == u'/' || sep == u'-' || sep == u' '
-                           || (sep >= u'0' && sep <= u'9');
-        if (isSep) return ra.id;   // longest-first ⇒ first hit is longest
+        // A boundary is ANY character that is not a letter (D3). Stated as
+        // the complement on purpose: the only case this rule turns on is
+        // that a following LETTER must block, so "d-flow / quark" does not
+        // match the "d-flow / q" alias and "d-flowx" does not match
+        // "d-flow". Everything else is incidental.
+        //
+        // This replaced an enumerated set (/ - space ASCII-digit), which
+        // was the wrong shape for the rule: it had to guess which
+        // punctuation users type, and silently failed on the rest.
+        // "Best practice (light roast)_cris" — the shipped profile renamed
+        // with a suffix — resolved to nothing because '_' was not in the
+        // list, so every shot on it lost that entry's flow_trend_ok AND
+        // channeling_expected and was eligible for two false-positive
+        // findings. Verified before adopting: over the 100 shipped
+        // profiles the widened rule changes 0 resolutions, and across the
+        // full alias set it introduces 0 cases where one entry's alias
+        // becomes a boundary-prefix of another's on a newly-admitted
+        // character (tst_kb_resolution pins both).
+        //
+        // isLetter() is Unicode-aware, so a CJK or Cyrillic character
+        // following an alias blocks exactly as an ASCII letter does. The
+        // old enumeration admitted those as boundaries by omission.
+        if (!sep.isLetter()) return ra.id;   // longest-first ⇒ first hit is longest
     }
     return QString();
 }
@@ -460,6 +477,120 @@ QStringList ShotSummarizer::getAnalysisFlags(const QString& kbId)
     loadProfileKnowledge();
     const QString id = resolveKbInput(kbId);
     return id.isEmpty() ? QStringList() : s_profileKnowledge.value(id).analysisFlags;
+}
+
+// === Candidate-set transfer rules (change: resolve-profile-kb-by-shape) ===
+//
+// THE one place a flag's transfer rule is decided. Callers never classify —
+// they hand over the candidate set and get the resulting facts, so a rule
+// cannot drift between call sites (getAnalysisFlags alone has four).
+//
+// The classification is by what the flag SUPPRESSES, not by the flag's name:
+//
+//   union     — silences a diagnosis derived from the profile's SHAPE. The
+//               shape is shared by construction across a candidate set, so
+//               the claim travels with it. Not applying it emits a WRONG
+//               finding; over-applying it omits a right one. Missing beats
+//               wrong when the subject is "you did something wrong".
+//   unanimity — disables a detector reading PHYSICS, which holds on any
+//               profile regardless of shape. Applying it on one member's
+//               say-so hides a genuinely faulty shot, so the errors swap
+//               places and the conservative direction reverses.
+//
+// grind_check_skip is the second kind and the reason this is a table rather
+// than a blanket union: it returns EARLY from analyzeFlowVsGoal, so it takes
+// out the choked-puck and yield-overshoot arms too — physics-level signals
+// (mean pressurized flow, yield ratio) that say nothing about profile shape.
+// A gusher on a look-alike profile must still be reported.
+//
+// Unlisted flags default to unanimity. A newly authored flag must opt IN to
+// the union by being classified here, never inherit it by omission.
+static bool flagTransfersAsUnion(const QString& flag)
+{
+    static const QSet<QString> kUnionFlags = {
+        QStringLiteral("flow_trend_ok"),         // silences the flow-trend caution line
+        QStringLiteral("channeling_expected"),   // silences the channeling badge + line
+    };
+    return kUnionFlags.contains(flag);
+}
+
+QStringList ShotSummarizer::getAnalysisFlags(const QStringList& kbIds)
+{
+    if (kbIds.isEmpty()) return {};
+    if (kbIds.size() == 1) return getAnalysisFlags(kbIds.first());
+
+    loadProfileKnowledge();
+
+    // Collect each candidate's flags, then apply the per-flag rule. Iterating
+    // the UNION of all flags seen (not one candidate's list) so a flag present
+    // on only some candidates is still considered rather than silently missed.
+    QList<QSet<QString>> perCandidate;
+    QSet<QString> seen;
+    for (const QString& id : kbIds) {
+        const QStringList fl = getAnalysisFlags(id);
+        const QSet<QString> asSet(fl.begin(), fl.end());
+        perCandidate.append(asSet);
+        seen.unite(asSet);
+    }
+
+    QStringList out;
+    for (const QString& flag : std::as_const(seen)) {
+        int holders = 0;
+        for (const QSet<QString>& c : std::as_const(perCandidate))
+            if (c.contains(flag)) ++holders;
+
+        const bool transfers = flagTransfersAsUnion(flag)
+            ? (holders > 0)                       // union: any candidate suffices
+            : (holders == perCandidate.size());   // unanimity: all must carry it
+        if (transfers) out.append(flag);
+    }
+    // Sorted so the result never depends on QSet iteration order — analysis
+    // inputs feed a cascade whose output is compared across runs.
+    out.sort();
+    return out;
+}
+
+std::optional<ShotAnalysis::ExpertBand>
+ShotSummarizer::expertBandForKbIds(const QStringList& kbIds)
+{
+    if (kbIds.isEmpty()) return std::nullopt;
+    if (kbIds.size() == 1) return expertBandForKbId(kbIds.first());
+
+    // Unanimity, compared on the values that make a band a distinct claim.
+    // `src`/`confidence` are provenance rather than claim, so two entries
+    // citing the same band from different sources still agree about the band.
+    auto key = [](const std::optional<ShotAnalysis::ExpertBand>& b) -> QString {
+        if (!b) return QStringLiteral("(none)");
+        return QStringLiteral("%1/%2/%3")
+            .arg(static_cast<int>(b->axis))
+            .arg(b->lo ? QString::number(*b->lo, 'f', 3) : QStringLiteral("-"),
+                 b->hi ? QString::number(*b->hi, 'f', 3) : QStringLiteral("-"));
+    };
+
+    const std::optional<ShotAnalysis::ExpertBand> first = expertBandForKbId(kbIds.first());
+    const QString firstKey = key(first);
+    for (qsizetype i = 1; i < kbIds.size(); ++i) {
+        if (key(expertBandForKbId(kbIds.at(i))) != firstKey)
+            return std::nullopt;   // disputed → withheld → strict no-op
+    }
+    return first;
+}
+
+double ShotSummarizer::ugsForKbIds(const QStringList& kbIds)
+{
+    if (kbIds.isEmpty()) return std::numeric_limits<double>::quiet_NaN();
+    if (kbIds.size() == 1) return ugsForKbId(kbIds.first());
+
+    const double first = ugsForKbId(kbIds.first());
+    for (qsizetype i = 1; i < kbIds.size(); ++i) {
+        const double v = ugsForKbId(kbIds.at(i));
+        // NaN != NaN, so compare the "absent" case explicitly: two candidates
+        // that both LACK a UGS agree, and agreeing on absence yields absence.
+        const bool bothAbsent = std::isnan(first) && std::isnan(v);
+        if (!bothAbsent && !qFuzzyCompare(first, v))
+            return std::numeric_limits<double>::quiet_NaN();
+    }
+    return first;
 }
 
 QString ShotSummarizer::computeProfileKbId(const QString& profileTitle, const QString& editorType)

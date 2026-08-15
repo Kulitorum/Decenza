@@ -387,6 +387,44 @@ public:
     // Returns false if either profile has no steps.
     static bool functionallyEqual(const Profile& a, const Profile& b);
 
+    // === Shape ===
+    // A profile's SHAPE is its structure and frame durations, with every
+    // magnitude a user changes while dialling in a coffee excluded:
+    // temperature, pressure/flow setpoints, volume, exit weight, exit
+    // THRESHOLDS, the limiter, and frame names all differ freely. What
+    // remains is frame count, preinfuse frame count, beverage type, and per
+    // frame the pump mode, sensor, transition, and exit type/direction plus
+    // its duration.
+    //
+    // The split is drawn there because the KB's per-profile suppression flags
+    // (flow_trend_ok, channeling_expected) are claims about the SHAPE — "this
+    // structure legitimately produces declining flow" — and remain true of a
+    // profile someone re-tuned. See the profile-shape-equivalence capability.
+    //
+    // NOT a relative of functionallyEqual(): that one answers "is this the
+    // same profile" for import de-duplication and is deliberately stricter.
+    // It is also inherently PAIRWISE — its inactive-axis rule reads both
+    // frames at once (skip when EITHER side is zero, because de1app writes a
+    // default our writer omits) — so it cannot be expressed as a per-frame
+    // signature and the two do not share a traversal. They share only the
+    // 0.1 tolerance convention. Exact equality implies same shape; the
+    // converse does not hold.
+    QString shapeSignature() const;
+
+    // Same shape? Defined as signature equality so that the predicate and the
+    // string used to index profiles by shape cannot drift apart — there is
+    // exactly one definition of "shape" and this is it.
+    //
+    // Duration caveat, stated because it is a real edge: seconds are ROUNDED
+    // to the nearest 0.1 s for the signature rather than compared with a
+    // ±0.1 s tolerance. Those differ at bucket boundaries — 2.04 s and 2.06 s
+    // are 0.02 s apart but round to 2.0 and 2.1. Tolerance is not transitive
+    // and so cannot produce a stable grouping key; rounding can. Profile
+    // durations are authored as whole or half seconds, so the boundary is not
+    // reachable in practice from the shipped set, but a generated profile
+    // could sit on one.
+    static bool sameShape(const Profile& a, const Profile& b);
+
     // Human-readable account of WHY functionallyEqual() said no: one line per
     // differing field, labelled with the frame index. Empty exactly when
     // functionallyEqual() is true.

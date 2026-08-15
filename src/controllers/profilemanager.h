@@ -32,6 +32,33 @@ struct ProfileInfo {
     QString editorType;   // "dflow", "aflow", "pressure", "flow", "advanced"
     ProfileSource source;
     bool hasKnowledgeBase = false;
+    // When the profile reached its KB entry by SHAPE rather than by title
+    // (change: resolve-profile-kb-by-shape), the canonical display name of the
+    // entry it matched — so a surface can say "Based on Londinium" rather than
+    // silently applying someone else's knowledge. Empty when the profile
+    // resolved by title (nothing to explain: its own name said so), when it
+    // resolved to nothing, and when the shape matched SEVERAL entries at once
+    // — there is no single profile to name then, and the analysis facts still
+    // transfer without the identity claim.
+    QString kbDerivedFrom;
+    // The resolved KB entry id, or empty when the resolution produced no
+    // single identity. Stored so the knowledge CONTENT lookup and the
+    // knowledge INDICATOR derive from one resolution: they were two
+    // independent title-only calls, so widening one without the other lights a
+    // sparkle that opens an empty dialog.
+    QString kbId;
+    // Every candidate the resolution produced — one id for a title match or a
+    // unique shape match, SEVERAL when the shape matched more than one
+    // documented profile.
+    //
+    // The set is what the analysis actually consumes: an ambiguous match still
+    // transfers suppression flags by union and agreed facts by unanimity, so a
+    // shot's badges and summary ARE shaped by KB knowledge in that case. The
+    // indicator is therefore driven by this, not by kbId — a user is entitled
+    // to know what the badges are based on even when we cannot name a single
+    // source. What the ambiguity withholds is the IDENTITY claim: no "Based
+    // on X", because there is no one X.
+    QStringList kbIds;
     bool readOnly = false;  // From profile JSON read_only field or forced for BuiltIn source
     // Cached at catalog-scan time (the scan parses each profile's JSON
     // anyway) so list surfaces — e.g. the recipe wizard's profile tiles —
@@ -284,6 +311,40 @@ public:
     Q_INVOKABLE bool isProfileInSelectedList(const QString& filename) const;
     Q_INVOKABLE void loadAutoLoadProfileIfNeeded();
     Q_INVOKABLE QString profileKnowledgeContent(const QString& profileTitle) const;
+
+    // Whether the sparkle indicator should light for this profile.
+    //
+    // Asks the CONTENT path rather than resolving separately, so the indicator
+    // and the dialog it opens cannot disagree — a lit sparkle that opens an
+    // empty dialog is the exact failure this shares one function to prevent.
+    // The shot pages previously gated on the shot's persisted profileKbId,
+    // which is a different question: that column is empty for pre-change rows
+    // and for any profile whose shape matched several entries, and it says
+    // nothing about whether the profile is still in the catalog.
+    Q_INVOKABLE bool profileHasKnowledge(const QString& profileTitle) const;
+
+    // Canonical display names of the KB entries this profile matched, but ONLY
+    // when it matched more than one. Empty for a single match (the dialog
+    // titles itself with the profile) and for no match.
+    //
+    // Exists so the dialog can say which profiles it is showing without the
+    // C++ side inventing an English sentence: the KB prose is untranslated
+    // English by nature, but the explanatory line around it is UI text and
+    // belongs in QML where TranslationManager can reach it.
+    Q_INVOKABLE QStringList profileKbCandidateNames(const QString& profileTitle) const;
+
+    // Canonical name of the KB entry this profile reached by SHAPE, or empty.
+    //
+    // Empty covers three distinct cases, all of which mean "show nothing":
+    // the profile resolved by title (its own name already says where it came
+    // from), it resolved to nothing, or its shape matched several entries and
+    // no single identity was established. Surfaces render this as a derivation
+    // ("Based on X") because it is an inference from the profile's structure,
+    // not a claim its title made.
+    //
+    // Takes a title because that is what a shot record stores. A profile the
+    // user has since deleted is not in the catalog and returns empty.
+    Q_INVOKABLE QString profileKbDerivedFrom(const QString& profileTitle) const;
     Q_INVOKABLE bool deleteProfile(const QString& filename);
     Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const;
 

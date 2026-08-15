@@ -2,6 +2,8 @@
 
 This document describes the Recipe Editor, supported profile editor types, and how Decenza's implementation syncs with de1app's D-Flow and A-Flow editors.
 
+For how a profile — including a renamed or retuned copy of a documented one — reaches its knowledge-base entry, and which KB facts a multi-candidate shape match may and may not transfer, see [`docs/PROFILE_KNOWLEDGE_BASE.md`](../PROFILE_KNOWLEDGE_BASE.md) § *How a profile reaches an entry*.
+
 ## What is the Recipe Editor?
 
 The Recipe Editor provides simplified, coffee-concept-based interfaces for creating espresso profiles. Instead of editing raw machine frames, users adjust intuitive parameters like "infuse pressure" and "pour flow", and the editor automatically generates the underlying DE1 frames.
