@@ -4822,7 +4822,10 @@ private slots:
                  qPrintable(QStringLiteral("dial-in kinds with no label in the QML: %1")
                                 .arg(missing.join(QStringLiteral(", ")))));
 
-        for (const QString& u : { "celsius", "bar", "mlPerSec", "g", "ml" })
+        // "celsiusTank" is deliberately distinct from "celsius" in C++ so the
+        // two can carry different tolerances; the QML must still format it as a
+        // temperature rather than falling through to the raw-token suffix.
+        for (const QString& u : { "celsius", "celsiusTank", "bar", "mlPerSec", "g", "ml" })
             QVERIFY2(qml.contains(QStringLiteral("\"%1\"").arg(u)),
                      qPrintable(QStringLiteral("unit token %1 is not formatted by the QML").arg(u)));
 

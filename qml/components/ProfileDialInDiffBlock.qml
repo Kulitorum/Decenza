@@ -70,7 +70,11 @@ Column {
     }
 
     function formatNumber(row, value) {
-        if (row.unit === "celsius")
+        // "celsiusTank" is celsius that C++ compares at a looser tolerance
+        // (ProfileJson writes the tank target at one decimal, not two). It is
+        // a separate token there ONLY so the tolerance can differ; it displays
+        // exactly like any other temperature.
+        if (row.unit === "celsius" || row.unit === "celsiusTank")
             return Theme.cToDisplay(value).toFixed(1) + Theme.tempUnitSuffix()
         var suffix = ""
         if (row.unit === "bar") suffix = " " + TranslationManager.translate("espresso.unit.bar", "bar")

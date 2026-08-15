@@ -511,8 +511,14 @@ public:
 
     // Every field on which `a` and `b` disagree, both audiences, in a fixed
     // order: profile-level rows first, then each frame's rows in frame order.
-    // Doubles compare at a 0.1 tolerance, the same one frameDiffReport() has
-    // always used.
+    // Doubles compare PER UNIT, at half the last decimal ProfileJson writes for
+    // that unit — 0.005 for the two-decimal fields, 0.05 for the one-decimal
+    // ones (g, ml, tank temperature), 0.5 for integral counts. Each row carries
+    // the tolerance it was judged at, so a consumer comparing two delta lists
+    // does not have to re-derive it. This is TIGHTER than frameDiffReport(),
+    // which re-filters the same rows at a flat 0.1 of its own — it is a parity
+    // gate for TCL import, not a dial-in view, and loosening it here would
+    // silently weaken that gate.
     //
     // Frames are walked to min(a.steps(), b.steps()); a differing step count is
     // reported as its own row rather than by inventing rows for frames one side

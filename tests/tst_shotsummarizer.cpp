@@ -32,12 +32,17 @@
 #include <QSet>
 #include <QRegularExpression>
 #include <QJsonParseError>
+#include <QTemporaryDir>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlError>
 
 #include "ai/shotsummarizer.h"
 #include "history/shotprojection.h"
 #include "profile/profile.h"
 #include "ai/profileshapeindex.h"
 #include "history/shothistorystorage_internal.h"
+#include "history/shothistorystorage.h"
 
 namespace {
 
@@ -2528,12 +2533,46 @@ private slots:
         QCOMPARE(cmp.deltas.first().kind, QStringLiteral("targetWeight"));
     }
 
-    // Six bundled tea profiles share one shape bucket and one KB entry, and two
-    // of them (chinese green, white tea) differ from each other ONLY in title —
-    // so no metric can separate them and a plain abstain-on-tie would exclude
-    // every tea profile from the feature. The prose is the same either way, so
-    // the block names the ENTRY.
-    void dialInBase_aTieInsideOneEntryNamesTheEntry()
+    // Six bundled tea profiles share one shape bucket and one KB entry, so a
+    // plain abstain-on-tie would exclude every tea profile from the feature.
+    // The tie is answered only when answering it says something true: the tied
+    // candidates must agree on the VALUES, not merely on how many fields
+    // differ. Two of the six (chinese green, white tea) are identical on every
+    // dial-in field, so a renamed copy of either ties at zero against both and
+    // the entry can be named without picking one.
+    void dialInBase_aTieOnEquivalentValuesNamesTheEntry()
+    {
+        const Profile user = shippedProfileEdited(
+            QStringLiteral("tea_portafilter_white_tea.json"), [](QJsonObject& o) {
+                o[QStringLiteral("title")] = QStringLiteral("Zzz My Tea");
+                o[QStringLiteral("target_weight")] = QStringLiteral("5.0");
+            });
+        QVERIFY(user.isValid());
+
+        const DialInComparison cmp = compareWithBundledBase(user, resolveProfileKb(user));
+
+        QVERIFY2(cmp.hasBase(),
+                 "a tie whose candidates agree on the values must still produce a block");
+        QCOMPARE(cmp.baseKbId, QStringLiteral("tea"));
+        QCOMPARE(cmp.baseTitle, ShotSummarizer::canonicalNameForKbId(QStringLiteral("tea")));
+
+        // The LABEL being right is not the same as the numbers being right: an
+        // entry-level answer that kept an arbitrary candidate's deltas would
+        // pass every assertion above. Both tied candidates ship 0 g, so the row
+        // is true of the entry, which is what licenses naming it.
+        QCOMPARE(cmp.deltas.size(), 1);
+        QCOMPARE(cmp.deltas.first().kind, QStringLiteral("targetWeight"));
+        QCOMPARE(cmp.deltas.first().oldValue, 0.0);
+        QCOMPARE(cmp.deltas.first().newValue, 5.0);
+    }
+
+    // The other half of the rule, and the case that made it necessary. A tea at
+    // a temperature none of the six ships differs from every one of them on the
+    // same TWO fields, so the count cannot separate them — but each states a
+    // different "before" temperature, so there is no single true column to
+    // render. Naming the entry here would print one candidate's numbers under a
+    // heading claiming they describe all of them.
+    void dialInBase_aTieOnDifferentValuesInsideOneEntryStillAbstains()
     {
         const Profile user = shippedProfileEdited(
             QStringLiteral("tea_portafilter_white_tea.json"), [](QJsonObject& o) {
@@ -2543,19 +2582,18 @@ private slots:
             });
         QVERIFY(user.isValid());
 
-        const KbResolution res = resolveProfileKb(user);
-        const DialInComparison cmp = compareWithBundledBase(user, res);
+        const DialInComparison cmp = compareWithBundledBase(user, resolveProfileKb(user));
 
-        QVERIFY2(cmp.hasBase(),
-                 "a tie inside one KB entry must still produce a block");
-        QCOMPARE(cmp.baseKbId, QStringLiteral("tea"));
-        QCOMPARE(cmp.baseTitle, ShotSummarizer::canonicalNameForKbId(QStringLiteral("tea")));
+        QVERIFY2(!cmp.hasBase(),
+                 "candidates that disagree on the values cannot be collapsed into one entry-level answer");
     }
 
-    // The precondition the test above rests on: the tea bucket really does hold
+    // The precondition both tests above rest on: the tea bucket really does hold
     // six FILES under one id, and two of them really are indistinguishable. If a
     // bundled profile is retuned later this fails loudly rather than quietly
-    // ceasing to test the same-entry tie.
+    // ceasing to test either half of the tie rule — the equivalent-values case
+    // needs the indistinguishable pair, the abstain case needs the other four to
+    // disagree with them.
     void shapeIndex_theTeaBucketIsSixFilesUnderOneEntry()
     {
         const Profile tea =
@@ -2574,6 +2612,78 @@ private slots:
             Profile::loadFromFile(QStringLiteral(":/profiles/tea_portafilter_chinese_green.json"));
         QVERIFY2(Profile::dialInDeltas(green, tea).isEmpty(),
                  "chinese green and white tea must remain indistinguishable on dial-in values");
+
+        // And the rest of the bucket must NOT be: the abstain half of the tie
+        // rule only has something to abstain over while the six disagree on the
+        // values they tie on.
+        int distinct = 0;
+        for (const ProfileShapeIndex::BundledMatch& m : bucket) {
+            const Profile other = Profile::loadFromFile(m.resourcePath);
+            QVERIFY(other.isValid());
+            if (!Profile::dialInDeltas(other, tea).isEmpty()) ++distinct;
+        }
+        QCOMPARE(distinct, 4);
+    }
+
+    // The "Based on X" line on the shot pages, end to end through the path
+    // production actually takes. convertShotRecord has a fast path (analysis
+    // already cached by loadShotRecordStatic) and a slow one (a fresh
+    // ShotRecord, which is how every other test builds one), and the
+    // derivation used to be computed ONLY in the slow branch — so every
+    // hand-built ShotRecord in the suite showed the line while no real shot
+    // ever did. Going through the database is the whole point: a fixture that
+    // skips loadShotRecordStatic exercises the branch that was never broken.
+    //
+    // It lives in this file rather than beside the other DB round-trips in
+    // tst_dbmigration because it needs BOTH profiles.qrc (for the shape index
+    // to have anything to match against) and ai.qrc (for the entry's canonical
+    // name). This binary already links both; tst_dbmigration links neither,
+    // and adding them there costs two resource compiles for one test.
+    void dialInBase_theDerivedFromNameSurvivesTheCachedAnalysisFastPath()
+    {
+        const QString profileJson = shippedProfileJson(QStringLiteral("blooming_espresso.json"),
+                                                       QStringLiteral("Zzz Unrelated Name"));
+        QVERIFY(!profileJson.isEmpty());
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + QStringLiteral("/derivedfrom.db");
+        {
+            ShotHistoryStorage storage;
+            QVERIFY(storage.initialize(path));
+            storage.close();
+            QTRY_VERIFY(storage.isDbWorkIdle());
+        }
+
+        qint64 shotId = -1;
+        const QString conn = QStringLiteral("derivedfrom_conn");
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+            db.setDatabaseName(path);
+            QVERIFY(db.open());
+
+            QSqlQuery ins(db);
+            // profile_kb_id deliberately left NULL: a shape-resolved shot never
+            // persists one (it is the dial-in grouping key), so this is the
+            // state every such row is really in.
+            ins.prepare(QStringLiteral(
+                "INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, profile_json)"
+                " VALUES ('derivedfrom', 1000, 'Zzz Unrelated Name', 30, :pj)"));
+            ins.bindValue(QStringLiteral(":pj"), profileJson);
+            QVERIFY2(ins.exec(), qPrintable(ins.lastError().text()));
+            shotId = ins.lastInsertId().toLongLong();
+            QVERIFY(shotId > 0);
+
+            const ShotRecord r = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+            QVERIFY2(r.cachedAnalysis.has_value(),
+                     "precondition: the load path must cache, or this test cannot fail");
+            QVERIFY2(r.profileKbId.isEmpty(),
+                     "a shape match must not have been written to the grouping column");
+
+            const ShotProjection p = ShotHistoryStorage::convertShotRecord(r);
+            QCOMPARE(p.profileKbDerivedFrom, QStringLiteral("Blooming Espresso"));
+        }
+        QSqlDatabase::removeDatabase(conn);
     }
 
     // === Candidate-set transfer rules (group 4) ===

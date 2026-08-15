@@ -1993,6 +1993,28 @@ private slots:
                                 "  FRAME[1] temperature: A=92 B=88\n"));
     }
 
+    // The limiter RANGE is developer-only, so it reaches the user through
+    // nothing — but it still reaches the TCL parity gate, and fieldDeltas is
+    // the only thing that can hide it from there. It carries a continuous unit
+    // (bar or mL/s, whichever the frame's pump does not drive) and the shipped
+    // set authors it at 0.2, 0.9, 1.0, 1.5, 2.5, 3.0 and 3.5 — so typing it as
+    // an integral "count", whose 0.5 tolerance swallows a 0.3 change, silently
+    // loosened a gate that had compared at 0.1 since it was written. Pinned at
+    // a delta between the two: 0.3 is invisible at 0.5 and reported at 0.1.
+    void frameDiffReport_aSubHalfLimiterRangeChangeStillReachesTheParityGate()
+    {
+        const Profile base = makeShapeProfile();
+        const Profile user = withFrame(makeShapeProfile(), 0, [](ProfileFrame& f) {
+            f.maxFlowOrPressureRange += 0.3;
+        });
+
+        QVERIFY2(Profile::frameDiffReport(base, user)
+                     .contains(QStringLiteral("FRAME[0] maxFlowOrPressureRange")),
+                 "a 0.3 limiter-range change must not be filtered out before the gate sees it");
+        QVERIFY2(Profile::dialInDeltas(base, user).isEmpty(),
+                 "the limiter range is a control-loop constant, never a dial-in row");
+    }
+
     // Frame 0 is flow-driven, so its pressure value is one the machine never
     // applies. The parity gate still wants it; a user must not be shown it.
     void dialInDeltas_theInactiveAxisIsDeveloperOnly()
@@ -2160,6 +2182,30 @@ private slots:
         QCOMPARE(rows.first().frameIndex, -1);
     }
 
+    // fromJson repairs a leaked 93.0 `espresso_temperature` by re-deriving it
+    // from the first frame, and flags that it did. A repaired value was never
+    // authored, so a difference against it describes OUR repair — the user
+    // would be told they changed a brew temperature they never touched.
+    void dialInDeltas_aHealedBrewTemperatureIsNotReportedAsAnEdit()
+    {
+        QJsonObject o = makeShapeProfile().toJson().object();
+        // 93.0 exactly, and outside the frames' 92.0 — the leaked-default
+        // fingerprint fromJson heals.
+        o[QStringLiteral("espresso_temperature")] = QStringLiteral("93.00");
+        const Profile healed = Profile::fromJson(QJsonDocument(o));
+        QVERIFY2(healed.espressoTemperatureHealed(),
+                 "fixture precondition: this JSON must trip the heal, or the test cannot fail");
+        QCOMPARE(healed.espressoTemperature(), 92.0);
+
+        Profile authored = makeShapeProfile();
+        authored.setEspressoTemperature(85.0);
+        QVERIFY(!authored.espressoTemperatureHealed());
+
+        // 7 °C apart, and silent — because one side of the comparison is ours.
+        QVERIFY(Profile::dialInDeltas(healed, authored).isEmpty());
+        QVERIFY(Profile::dialInDeltas(authored, healed).isEmpty());
+    }
+
     // The limiter is a max FLOW on a pressure-driven frame and a max PRESSURE on
     // a flow-driven one. The fixture is mixed-pump (frame 0 flow, frame 1
     // pressure), as are 69 of the 100 bundled profiles, so collapsing on `kind`
@@ -2211,12 +2257,38 @@ private slots:
             << tweak([](Profile& p) { p.setMaximumFlow(p.maximumFlow() + 1); });
         QTest::newRow("brewTemperature") << "espressoTemperature" << "celsius"
             << tweak([](Profile& p) { p.setEspressoTemperature(p.espressoTemperature() - 2); });
+        QTest::newRow("tankTemperature") << "tankTemperature" << "celsiusTank"
+            << tweak([](Profile& p) {
+                   p.setTankDesiredWaterTemperature(p.tankDesiredWaterTemperature() + 5);
+               });
         // Frame 0 is flow-driven, so ITS limiter caps pressure.
         QTest::newRow("limiterOnFlowFrame") << "maxFlowOrPressure" << "bar"
             << withFrame(makeShapeProfile(), 0, [](ProfileFrame& f) { f.maxFlowOrPressure = 7.0; });
         // Frame 1 is pressure-driven, so ITS limiter caps flow.
         QTest::newRow("limiterOnPressureFrame") << "maxFlowOrPressure" << "mlPerSec"
             << withFrame(makeShapeProfile(), 1, [](ProfileFrame& f) { f.maxFlowOrPressure = 7.0; });
+    }
+
+    // The tank token exists so it can be LOOSER than the frame/espresso one.
+    // A single token shared by both would have to pick one tolerance, and
+    // whichever it picked would be wrong for the other half: 0.05 hides three
+    // hundredths of a brew-temperature edit, 0.005 reports a tank difference
+    // that a ProfileJson round-trip invented at the first decimal.
+    void dialInDeltas_theTankTemperatureIsComparedMoreLoosely()
+    {
+        const Profile base = makeShapeProfile();
+
+        Profile tankNudged = base;
+        tankNudged.setTankDesiredWaterTemperature(base.tankDesiredWaterTemperature() + 0.03);
+        QCOMPARE(Profile::dialInDeltas(base, tankNudged).size(), 0);
+
+        const Profile frameNudged = withFrame(base, 0, [](ProfileFrame& f) {
+            f.temperature += 0.03;
+        });
+        const QVector<ProfileFieldDelta> rows = Profile::dialInDeltas(base, frameNudged);
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().kind, QStringLiteral("temperature"));
+        QCOMPARE(rows.first().unit, QStringLiteral("celsius"));
     }
 
     void dialInDeltas_everyRowCarriesTheRightUnit()

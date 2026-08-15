@@ -1070,14 +1070,14 @@ QString ProfileManager::profileKnowledgeContent(const QString& profileTitle) con
     return ShotSummarizer::findProfileSection(profileTitle);
 }
 
-// Catalog lookup by TITLE, for the three KB surfaces that only have a title to
+// Catalog lookup by TITLE, for the four KB surfaces that only have a title to
 // go on (a shot's stored profile name, a selector delegate's display title).
 //
 // Title is not a key: refreshProfiles de-duplicates by FILENAME, so a
 // downloaded copy and a user "Save As" can legitimately share one. Returning
 // the first hit would let the sparkle, the "Based on X" line and the dialog
 // body each answer from whichever entry the scan happened to reach first —
-// and those three sit next to each other on the same screen. When two entries
+// and those sit next to each other on the same screen. When two entries
 // with one title disagree about their KB resolution there is no right answer,
 // so say so and return none rather than pick.
 const ProfileInfo* ProfileManager::findProfileByTitleForKb(const QString& profileTitle) const

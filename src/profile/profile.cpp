@@ -1751,6 +1751,7 @@ QVector<ProfileFieldDelta> Profile::fieldDeltas(const Profile& a, const Profile&
     static const QString kG     = QStringLiteral("g");
     static const QString kMl    = QStringLiteral("ml");
     static const QString kSec   = QStringLiteral("s");
+    static const QString kTank  = QStringLiteral("celsiusTank");
     static const QString kCount = QStringLiteral("count");
 
     // Tolerance per unit, derived from ProfileJson's serialization precision:
@@ -1758,10 +1759,16 @@ QVector<ProfileFieldDelta> Profile::fieldDeltas(const Profile& a, const Profile&
     // cannot manufacture a difference, and one editor step (0.1 g of yield,
     // 0.01 bar of pressure) always exceeds it. NOT a tuned number — change
     // ProfileJson and change this, together.
+    // kTank is a temperature too, but ProfileJson writes the tank target at ONE
+    // decimal while frame/espresso temperatures get two, so it needs a token of
+    // its OWN to keep "half the last surviving decimal" true of both. It cannot
+    // just carry a different tolerance under the same "celsius" string: these
+    // are compared by VALUE, so a token equal to kC would loosen every frame
+    // temperature to 0.05 as well. The QML formats both as temperatures.
     auto toleranceFor = [](const QString& unit) {
-        if (unit == kG || unit == kMl) return 0.05;   // ProfileJson 1 decimal
-        if (unit == kCount)            return 0.5;    // integer-valued rows
-        return 0.005;                                 // ProfileJson 2 decimals
+        if (unit == kG || unit == kMl || unit == kTank) return 0.05;  // ProfileJson 1 decimal
+        if (unit == kCount)                            return 0.5;   // integer-valued rows
+        return 0.005;                                                // ProfileJson 2 decimals
     };
 
     // Both audiences read this one walk, so the ORDER here is the order
@@ -1815,7 +1822,7 @@ QVector<ProfileFieldDelta> Profile::fieldDeltas(const Profile& a, const Profile&
     num(QStringLiteral("maximumPressure"), kBar, a.maximumPressure(),  b.maximumPressure(),  false, true);
     num(QStringLiteral("maximumFlow"),     kMls, a.maximumFlow(),      b.maximumFlow(),      false, true);
     num(QStringLiteral("minimumPressure"), kBar, a.minimumPressure(),  b.minimumPressure(),  false, true);
-    num(QStringLiteral("tankTemperature"), kC,   a.tankDesiredWaterTemperature(),
+    num(QStringLiteral("tankTemperature"), kTank, a.tankDesiredWaterTemperature(),
                                                  b.tankDesiredWaterTemperature(),            false, true);
 
     // The espresso temperature is an AUTHORED value, not one derived from the
@@ -1903,8 +1910,16 @@ QVector<ProfileFieldDelta> Profile::fieldDeltas(const Profile& a, const Profile&
         num(QStringLiteral("maxFlowOrPressure"),
             fa.pump == "pressure" ? kMls : kBar,
             fa.maxFlowOrPressure, fb.maxFlowOrPressure, true, true, idx, fname);
-        // The limiter's P/I control range is a loop constant, not a dialled value.
-        num(QStringLiteral("maxFlowOrPressureRange"), kCount,
+        // The limiter's P/I control range is a loop constant, not a dialled
+        // value — dev-only. It takes the LIMITER's unit rather than kCount:
+        // kCount's 0.5 tolerance is for genuinely integral rows, and this range
+        // is continuous (shipped profiles carry 0.2, 0.9, 1.0, 1.5, 2.5, 3.0,
+        // 3.5). Tagging it kCount stopped emitting differences in (0.1, 0.5],
+        // which never then reached frameDiffReport's own 0.1 re-filter — quietly
+        // loosening the TCL import parity gate below what main compared at, and
+        // falsifying "empty exactly when functionallyEqual() is true".
+        num(QStringLiteral("maxFlowOrPressureRange"),
+            fa.pump == "pressure" ? kMls : kBar,
             fa.maxFlowOrPressureRange, fb.maxFlowOrPressureRange, true, false, idx, fname);
 
         // Dial-in only, and LAST in the frame's group so the developer report's

@@ -577,7 +577,7 @@ signals:
     void autoLoadStaleCleared();
 
 private:
-    // Catalog lookup by title for the three KB surfaces. Returns nullptr when
+    // Catalog lookup by title for the four KB surfaces. Returns nullptr when
     // no profile has that title, and also when two do and disagree about their
     // KB resolution — see the definition for why picking one is wrong.
     const ProfileInfo* findProfileByTitleForKb(const QString& profileTitle) const;

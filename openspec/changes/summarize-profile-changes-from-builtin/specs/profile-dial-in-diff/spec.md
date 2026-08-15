@@ -112,11 +112,16 @@ Where more than one bundled profile is the same shape as the user's profile, the
 against the **nearest** of them. Nearness SHALL be the count of dial-in fields on which the user's profile
 differs from the candidate: the candidate the user differs from on strictly the fewest fields is the nearest.
 
-If no single candidate has strictly the fewest, the outcome SHALL depend on whether the tied candidates
-describe the same knowledge entry. Across entries, no block SHALL be shown — naming one would assert a
-relationship the comparison did not establish. Within a single entry, the block SHALL be shown and SHALL
-name the ENTRY rather than any one of its bundled profiles, because the knowledge presented is the same
-whichever was chosen and abstaining would exclude profiles the comparison can describe perfectly well.
+If no single candidate has strictly the fewest, the block SHALL be shown only when every tied candidate
+would tell the user the same thing: they SHALL all resolve to the same knowledge entry, AND they SHALL all
+produce equivalent difference lists — the same fields, at the same frames, with values equal within the
+tolerance each row was judged at. When both hold, the block SHALL name the ENTRY rather than any one of its
+bundled profiles, because nothing shown depends on which was chosen.
+
+Otherwise no block SHALL be shown. Tied candidates in different entries would assert a relationship the
+comparison did not establish. Tied candidates in the SAME entry that state different values are equally
+disqualifying: the counts match while the "before" column does not, so any single rendering of it would be
+false of every candidate but one.
 
 A candidate that cannot be loaded SHALL cause the comparison to abstain rather than be skipped: an
 incomplete candidate set cannot establish that any member is strictly nearest.
@@ -140,13 +145,23 @@ that the shape matched more than one profile, so the chosen base does not read a
 - **THEN** it SHALL name the first bundled profile
 - **AND** it SHALL list the user's differences from that profile
 
-#### Scenario: A tie within one knowledge entry names the entry
+#### Scenario: A tie between candidates that say the same thing names the entry
 
 - **GIVEN** a user profile the same shape as several bundled profiles that all resolve to one knowledge entry
 - **AND** it differs from more than one of them on the same number of dial-in fields
+- **AND** those tied candidates produce equivalent difference lists
 - **WHEN** the block is produced
 - **THEN** it SHALL be shown
 - **AND** it SHALL name the knowledge entry rather than any one bundled profile
+
+#### Scenario: A tie within one entry on different values produces no block
+
+- **GIVEN** a user profile the same shape as several bundled profiles that all resolve to one knowledge entry
+- **AND** it differs from each on the same number of dial-in fields
+- **AND** the candidates disagree with each other on those fields' values
+- **WHEN** the knowledge entry is opened
+- **THEN** no block SHALL be shown
+- **AND** the knowledge entry SHALL still be presented
 
 #### Scenario: A tie across entries produces no block
 

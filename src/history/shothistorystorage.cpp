@@ -3452,6 +3452,12 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         // analyzeShot on the same inputs. See cachedAnalysis docstring on
         // ShotRecord for the invalidation contract.
         record.cachedAnalysis = std::move(analysis);
+        // Same walk, same reason — see cachedKbDerivedFrom on ShotRecord. Only
+        // a SHAPE match is a derivation worth naming: a title match needs no
+        // explanation and an ambiguous one has no single entry to name.
+        if (inputs.identityFromShape && !inputs.identityKbId.isEmpty())
+            record.cachedKbDerivedFrom =
+                ShotSummarizer::canonicalNameForKbId(inputs.identityKbId);
     }
 
     // Persist any drift between the stored badge columns and the recomputed values

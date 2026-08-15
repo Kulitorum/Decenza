@@ -175,7 +175,13 @@ Three rules decide whether it appears at all
 2. **The base is a bundled FILE, never a KB id.** One entry can be authored
    against several bundled profiles — `gentle-flat-long-preinfusion-family` has
    four — so "distance to an entry" is not defined.
-3. **Fewest differing dial-in fields wins; a tie shows nothing.** Nearness is
+3. **Fewest differing dial-in fields wins.** A tie is answered only when the
+   tied candidates would say the same thing — same KB id *and* equivalent
+   difference lists — and is then named for the entry rather than for an
+   arbitrary member of it. Same entry but different numbers still shows
+   nothing: the six `tea_portafilter_*` profiles all tie at one row while each
+   states a different brew temperature, so no single "before" column is true.
+   Nearness is
    *not* how far apart the values are: a magnitude comparison would need a
    weighting between bar, mL/s, °C and grams that nothing in the domain
    supplies, and that weighting would silently decide the outcome. Counting

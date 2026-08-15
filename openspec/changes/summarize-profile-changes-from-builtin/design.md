@@ -110,13 +110,17 @@ dialog's existing warning about incomplete entry.
 - **Refactoring `frameDiffReport` could change what the TCL parity gate accepts.** → Its field set and text
   stay byte-identical; `tst_tclimport`'s existing assertion is the guard, and a test pins the rendered text
   for a known pair so a silent format change fails rather than passing quietly.
-- **The vote can pick a base a human would not.** → It abstains on a tie, and the surface keeps disclosing
+- **The vote can pick a base a human would not.** → It abstains on a tie unless every tied candidate carries
+  the same KB id AND produces an equivalent difference list, in which case the answer is named for the entry
+  and the numbers shown are true of all of them. The surface keeps disclosing
   that several bundled profiles share the shape, so the chosen base never reads as the only match. Both real
   collisions in the shipped set separate widely on dial-in values, so the tie path is expected to be rare
   rather than routine — but it is the path that prevents a confident wrong attribution.
 - **A shipped profile whose dial-in values later change would silently change what a user's diff says.** →
   Acceptable: the diff is a live derivation, not a record, and it is recomputed on every open by design.
 - **Dialog-open cost.** → One extra `Profile::fromJson` of a bundled file plus a linear field walk, on a
-  discrete user action, after an index that is already built by the catalog scan. Measured and recorded at
-  the call site before merge; if the cold-index case lands on this path it is the same 48 ms already
-  documented there, not a new cost.
+  discrete user action, after an index that is already built by the catalog scan. Deliberately NOT
+  stopwatched: the read is bounded, runs once per dialog open, and is assigned to a plain property rather
+  than bound, so no figure would change the decision — the call site says so rather than quoting a number
+  it does not have. The one measured cost on this path is the cold shape index, and that is the same 48 ms
+  already documented in `profileshapeindex.cpp`, not a new one.

@@ -146,8 +146,13 @@ struct DialInComparison {
 //   - Title: only bundled profiles carrying the resolved id, because that is the
 //     entry whose prose is on screen.
 //   - Shape: the whole bucket, since the shape is all that was established.
-// Both then converge on fewest-differences, abstaining unless one candidate is
-// strictly nearest.
+// Both then converge on fewest-differences. A strictly nearest candidate wins
+// outright. A TIE is answered only when the tied candidates would tell the user
+// the same story: they must all carry the same KB id AND produce equivalent
+// delta lists, in which case the answer is named for the entry rather than for
+// an arbitrary member of it. Same id but different numbers is still an
+// abstention — the six tea profiles tie on row COUNT while each states a
+// different "before" temperature, so there is no single true column to show.
 //
 // A bundled profile compared with itself yields no base: there is nothing to
 // tell the user about a profile that IS the documentation.

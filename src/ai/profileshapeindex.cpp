@@ -232,6 +232,34 @@ void resetForTesting()
 
 } // namespace ProfileShapeIndex
 
+namespace {
+
+// Do two delta lists say the SAME thing about a profile? Used only to decide
+// whether tied candidates may be merged into one entry-level answer: if they
+// disagree about any value, there is no true "before" column to render and the
+// comparison must abstain rather than pick one sibling's numbers.
+bool sameDeltas(const QVector<ProfileFieldDelta>& a, const QVector<ProfileFieldDelta>& b)
+{
+    if (a.size() != b.size()) return false;
+    for (qsizetype i = 0; i < a.size(); ++i) {
+        const ProfileFieldDelta& x = a[i];
+        const ProfileFieldDelta& y = b[i];
+        if (x.kind != y.kind || x.unit != y.unit || x.frameIndex != y.frameIndex
+            || x.numeric != y.numeric)
+            return false;
+        if (x.numeric) {
+            if (qAbs(x.oldValue - y.oldValue) > x.tolerance
+                || qAbs(x.newValue - y.newValue) > x.tolerance)
+                return false;
+        } else if (x.oldText != y.oldText || x.newText != y.newText) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& resolution)
 {
     using ProfileShapeIndex::BundledMatch;
@@ -261,15 +289,26 @@ DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& re
     // Fewest differing dial-in fields wins. The deltas are kept because the
     // winner's list IS the block — recomputing it separately would let the
     // selection and the thing selected drift apart.
-    QString bestPath, bestTitle, bestId;
-    QVector<ProfileFieldDelta> bestDeltas;
+    //
+    // EVERY candidate level with the best count is kept, not just the first.
+    // The tie is on the delta COUNT, and equal counts do not imply equal
+    // content: six tea profiles all differ from an 85 degree copy on the same
+    // seven frames, but each states a different "before" value. Keeping only the
+    // first one's list showed the user numbers from a profile they had never
+    // brewed.
+    struct Scored {
+        QString path;
+        QString title;
+        QString kbId;
+        QVector<ProfileFieldDelta> deltas;
+    };
+    QVector<Scored> best;
     qsizetype bestCount = -1;
-    QStringList tiedIds;        // kb ids of every candidate level with the best
 
     for (const BundledMatch& m : candidates) {
         const Profile bundled = Profile::loadFromFile(m.resourcePath);
         if (!bundled.isValid()) {
-            // The index now refuses an invalid profile at build time, so this is
+            // The index refuses an invalid profile at build time, so this is
             // unreachable short of the resource system changing under us. It must
             // ABSTAIN rather than skip: a candidate we cannot read makes the set
             // incomplete, and an incomplete set cannot establish "strictly
@@ -286,17 +325,14 @@ DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& re
         const qsizetype count = deltas.size();
         if (bestCount < 0 || count < bestCount) {
             bestCount = count;
-            tiedIds = QStringList{ m.kbId };
-            bestPath = m.resourcePath;
-            bestTitle = bundled.title();
-            bestId = m.kbId;
-            bestDeltas = std::move(deltas);
+            best.clear();
+            best.append({ m.resourcePath, bundled.title(), m.kbId, std::move(deltas) });
         } else if (count == bestCount) {
-            tiedIds.append(m.kbId);
+            best.append({ m.resourcePath, bundled.title(), m.kbId, std::move(deltas) });
         }
     }
 
-    if (bestCount < 0) return {};
+    if (best.isEmpty()) return {};
 
     // A profile compared with itself is the documentation, not a copy of it.
     //
@@ -305,36 +341,59 @@ DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& re
     // never compares a frame's display name — which is five of the fields this
     // block exists to show. Using it meant a user who changed only the yield, a
     // pressure/flow limit, or a step name was told nothing at all, in exactly
-    // the population the feature targets. Asking "did anything dial-in differ,
-    // and is this still the same title" keeps the self-check consistent with the
-    // list it is guarding.
-    if (bestDeltas.isEmpty() && bestTitle == p.title()) return {};
+    // the population the feature targets.
+    //
+    // Checked against EVERY tied candidate's title, not just the first one's.
+    // chinese green and white tea are byte-identical apart from their titles, so
+    // opening the dialog on the bundled white tea scores chinese green first;
+    // comparing only that one's title let the self-check miss, and the block
+    // announced "Unchanged copy of Tea" on the profile that IS the
+    // documentation.
+    if (bestCount == 0)
+        for (const Scored& s : best)
+            if (s.title == p.title()) return {};
 
-    if (tiedIds.size() > 1) {
-        // Several candidates are equally near. Whether that is fatal depends on
-        // whether they describe the same KNOWLEDGE.
-        //
-        // Across entries it is: naming one asserts a relationship the comparison
-        // did not establish, so abstain.
-        //
-        // Within ONE entry it is not, and abstaining there costs real coverage.
-        // The tea_portafilter set is six bundled profiles in one shape bucket
-        // all resolving to `tea`, and two of them (chinese green, white tea)
-        // differ from each other only in title — no metric can separate them,
-        // and abstaining would silently exclude every tea profile from the
-        // feature. The prose on screen is the same either way, so the honest
-        // move is to name the ENTRY rather than pick one of its files.
-        const QSet<QString> distinct(tiedIds.cbegin(), tiedIds.cend());
-        if (distinct.size() > 1) return {};
+    const Scored* winner = &best.first();
 
-        const QString canonical = ShotSummarizer::canonicalNameForKbId(bestId);
-        if (!canonical.isEmpty()) bestTitle = canonical;
+    if (best.size() > 1) {
+        // Several candidates are equally near. Two conditions must BOTH hold for
+        // the block to be shown, and the second is the one an earlier version of
+        // this code missed.
+        //
+        // 1. They must describe the same KNOWLEDGE. Across entries, naming one
+        //    asserts a relationship the comparison did not establish.
+        //
+        // 2. They must say the same thing about this profile. Equal counts are
+        //    not equal content — an 85 degree tea copy ties all six bundled tea
+        //    profiles at the same row count while each carries a different
+        //    "before" value, and there is then no true column to render. Naming
+        //    the entry does not rescue that: the numbers beside it would still
+        //    be one arbitrary sibling's.
+        //
+        // Where both hold — a renamed but untouched copy of one of two identical
+        // twins, say — the block is shown against the ENTRY, because every tied
+        // candidate agrees on what it would say.
+        QSet<QString> distinctIds;
+        for (const Scored& s : best) distinctIds.insert(s.kbId);
+        if (distinctIds.size() > 1) return {};
+
+        for (const Scored& s : best)
+            if (!sameDeltas(s.deltas, winner->deltas)) return {};
+
+        const QString canonical = ShotSummarizer::canonicalNameForKbId(winner->kbId);
+        if (!canonical.isEmpty()) {
+            out.baseResourcePath = winner->path;
+            out.baseTitle = canonical;
+            out.baseKbId = winner->kbId;
+            out.deltas = winner->deltas;
+            return out;
+        }
     }
 
-    out.baseResourcePath = bestPath;
-    out.baseTitle = bestTitle;
-    out.baseKbId = bestId;
-    out.deltas = std::move(bestDeltas);
+    out.baseResourcePath = winner->path;
+    out.baseTitle = winner->title;
+    out.baseKbId = winner->kbId;
+    out.deltas = winner->deltas;
     return out;
 }
 
