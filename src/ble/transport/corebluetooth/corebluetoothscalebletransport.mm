@@ -727,7 +727,7 @@ void CoreBluetoothScaleBleTransport::discoverServices() {
         log("Discovering services");
         // On iOS, Qt main thread = dispatch main queue, so just call directly
         [m_impl->periph discoverServices:nil];
-    }, DISCOVERY_TIMEOUT_MS);
+    }, BleGatt::DISCOVERY_TIMEOUT_MS);
 #else
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
 #endif
@@ -762,7 +762,7 @@ void CoreBluetoothScaleBleTransport::discoverCharacteristics(const QBluetoothUui
             log(QString("Service %1 not found on device").arg(serviceUuid.toString()));
             failGattOperation();
         }
-    }, DISCOVERY_TIMEOUT_MS);
+    }, BleGatt::DISCOVERY_TIMEOUT_MS);
 #else
     Q_UNUSED(serviceUuid);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");

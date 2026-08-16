@@ -2100,6 +2100,19 @@ int main(int argc, char *argv[])
     checkpoint("QML engine created");
 
     // Auto-connect when DE1 is discovered via BLE
+    // Tell BLEManager whether a DE1 connect is actually in flight, so it can hold
+    // a scale's direct-connect behind it (two concurrent GATT connects collide on
+    // the Android stack). Both signals, because DE1Device emits connectingChanged
+    // alone when an attempt STARTS and both when one ends — reading one of them
+    // would miss an edge. isConnecting() clears in onTransportConnected(), which
+    // runs only after every DE1 notification subscription is confirmed, so the
+    // gate brackets connect, discovery and subscribe.
+    const auto noteDe1Connecting = [&de1Device, &bleManager]() {
+        bleManager.noteDe1Connecting(de1Device.isConnecting());
+    };
+    QObject::connect(&de1Device, &DE1Device::connectingChanged, &bleManager, noteDe1Connecting);
+    QObject::connect(&de1Device, &DE1Device::connectedChanged, &bleManager, noteDe1Connecting);
+
     QObject::connect(&bleManager, &BLEManager::de1Discovered,
                      &de1Device, [&de1Device, &bleManager, &physicalScale, &settings
 #ifndef Q_OS_IOS
@@ -2135,13 +2148,6 @@ int main(int argc, char *argv[])
     // and nothing else — so everything sent through it was missing from every log a
     // user submitted. DE1Device's macros already write each line to the system log
     // carrying [DE1][<source>], which is what the view now reads.
-
-    // Forward the DE1 BLE service+characteristic discovery window so BLEManager
-    // can pause the scale heartbeat during it (#1176 mid-discovery scale drop on
-    // Tab A8). DE1Device re-emits this from whichever transport is current, so
-    // we bind once and don't need to rewire on transport swaps.
-    QObject::connect(&de1Device, &DE1Device::serviceDiscoveryActiveChanged,
-                     &bleManager, &BLEManager::setDe1ServiceDiscoveryActive);
 
 #ifndef Q_OS_IOS
     // When USB DE1 discovered: disconnect BLE, switch to USB transport
@@ -2645,14 +2651,6 @@ int main(int argc, char *argv[])
         }
         const bool wasActive = de1WasActive;
         de1WasActive = isActive;
-
-        // Release a scale direct-connect that was deferred behind the DE1's BLE
-        // connect, once the DE1's connect resolves (connected, or the attempt
-        // ended without success). Prevents the concurrent-GATT-connect collision
-        // that made the scale fail + sit out its 20 s timeout at startup.
-        if (isConnected || (wasActive && !isActive)) {
-            bleManager.onDe1ConnectionSettled();
-        }
 
         if (isConnected) {
             // Just transitioned to connected: stop any pending reconnect attempts.

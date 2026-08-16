@@ -200,7 +200,7 @@ void QtScaleBleTransport::discoverServices() {
             QT_TRANSPORT_LOG(QString("Cannot discover services - state: %1").arg(static_cast<int>(m_controller ? m_controller->state() : -1)));
             failGattOperation();
         }
-    }, DISCOVERY_TIMEOUT_MS);
+    }, BleGatt::DISCOVERY_TIMEOUT_MS);
 }
 
 void QtScaleBleTransport::discoverCharacteristics(const QBluetoothUuid& serviceUuid) {
@@ -226,7 +226,7 @@ void QtScaleBleTransport::discoverCharacteristics(const QBluetoothUuid& serviceU
         QT_TRANSPORT_LOG(QString("Calling discoverDetails(SkipValueDiscovery) for %1").arg(serviceUuid.toString()));
         service->discoverDetails(QLowEnergyService::SkipValueDiscovery);
 #endif
-    }, DISCOVERY_TIMEOUT_MS);
+    }, BleGatt::DISCOVERY_TIMEOUT_MS);
 }
 
 void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,

@@ -184,7 +184,6 @@ signals:
      * writes for the duration. Serial transports never emit this — there is no
      * radio contention to coordinate around.
      */
-    void serviceDiscoveryActiveChanged(bool active);
 
     /**
      * Emitted for debug/diagnostic logging.

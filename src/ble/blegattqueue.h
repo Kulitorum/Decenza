@@ -62,6 +62,24 @@
  * ~32 s worst-case retry sequence, starving the machine the budget exists to
  * protect.
  */
+namespace BleGatt {
+/**
+ * The outer bound for service and characteristic DISCOVERY, as opposed to a
+ * read or a write.
+ *
+ * Shared by every transport rather than declared per class: it answers one
+ * question, and the answer is a property of the radio, not of who is asking.
+ * Characteristic discovery took 6.0 s in the #1819 capture (23.13 s to 29.14 s),
+ * so a write-sized budget would not be a bound on it — it would be a guarantee
+ * of failure.
+ *
+ * Like every clock in this subsystem it decides only "no answer at all is also
+ * an answer". It is not a second opinion about an operation the platform does
+ * answer; those end on their own terminal signals.
+ */
+inline constexpr int DISCOVERY_TIMEOUT_MS = 20000;
+}  // namespace BleGatt
+
 class BleGattQueue : public QObject {
     Q_OBJECT
 

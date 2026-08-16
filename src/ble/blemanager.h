@@ -703,17 +703,23 @@ public slots:
     // Connecting for ~30s and starves the DE1 link (issue #1303). A saved scale
     // still auto-connects via onDeviceDiscovered when it's seen advertising.
     Q_INVOKABLE void tryDirectConnectToScale(bool allowDirectConnect = true);
-    // Release a scale direct-connect that was deferred to avoid colliding with
-    // the DE1's BLE GATT connect (Android serializes concurrent connects badly).
-    // Called by main.cpp when the DE1's direct-wake connection resolves
-    // (connected, or the attempt ended).
-    void onDe1ConnectionSettled();
-    // Track whether the DE1 transport is in BLE service+characteristic discovery
-    // and forward the state to a co-resident DecentScale so its heartbeat pauses
-    // for the duration. Wired from DE1Device::serviceDiscoveryActiveChanged in
-    // main.cpp. See #1176 — scale heartbeat writes that race DE1 char discovery
-    // fail with CharacteristicWriteError on weaker radios (Samsung Tab A8).
-    void setDe1ServiceDiscoveryActive(bool active);
+    /**
+     * The DE1's connect attempt started or ended.
+     *
+     * Wired in main.cpp from DE1Device's own connectingChanged/connectedChanged,
+     * so this tracks whether a DE1 connect is ACTUALLY in flight rather than
+     * whether BLEManager once asked for one. That distinction is the whole
+     * reason the 15 s cap it replaces existed: tryDirectConnectToDE1() set an
+     * optimistic flag and emitted de1Discovered(), the handler in main.cpp
+     * declined whenever the DE1 was already connected or connecting, and nothing
+     * then cleared the flag — so the cap was there to unstick a gate that should
+     * never have closed.
+     *
+     * A scale direct-connect is deferred while this is true, because two
+     * concurrent GATT connects collide on the Android stack. It is the CONNECT
+     * that is serialized here; GATT operations are serialized by BleGattQueue.
+     */
+    void noteDe1Connecting(bool connecting);
     // DE1 controller-error fault, re-emitted from DE1Device::de1LinkFault. Feeds
     // the BLE-stack-wedge detector (#1309). These faults fire ONLY for real
     // controller errors (Connection/Authorization/RemoteHostClosed/write-failed)
@@ -1125,7 +1131,6 @@ private:
     // A cancellable member (not a fire-and-forget singleShot) so a new connect
     // attempt or a successful connect stops any stale pending abort.
     QTimer* m_scaleDirectAbortTimer = nullptr;
-    bool m_de1ServiceDiscoveryActive = false;
 
     // --- BLE-stack-wedge auto-recovery state (#1309) ---------------------------
     bool m_de1Connected = false;            // Fed by noteDe1Connected() from main.cpp
@@ -1223,12 +1228,16 @@ private:
 
     // Serialize the scale's BLE direct-connect behind the DE1's: two concurrent
     // GATT connects collide on the Android stack (the scale connect dies when
-    // the DE1's completes). Set while a DE1 direct-wake is in flight; the scale
-    // connect defers until onDe1ConnectionSettled() or the 15 s cap below — the
-    // cap still connects the scale when no DE1 is present (debugging).
-    bool m_de1DirectConnectInFlight = false;
+    // the DE1's completes).
+    //
+    // True while a DE1 connect is genuinely in flight, fed from DE1Device's own
+    // state rather than set optimistically when one is requested. DE1Device clears its own
+    // m_connecting in onTransportConnected(), which now runs only after every
+    // notification subscription is confirmed — so this gate brackets the DE1's
+    // connect, discovery AND subscribe, which is exactly the window #1819 had a
+    // scale connecting into.
+    bool m_de1Connecting = false;
     bool m_scaleConnectDeferred = false;
-    QTimer* m_de1WaitTimer = nullptr;
 
     // Refractometer
     QList<QBluetoothDeviceInfo> m_refractometerDevices;

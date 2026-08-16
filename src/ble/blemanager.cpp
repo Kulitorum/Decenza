@@ -108,24 +108,6 @@ BLEManager::BLEManager(QObject* parent)
         abortScaleDirectConnectIfPending(QStringLiteral("~4s elapsed"));
     });
 
-    // Backstop for serializing the scale's BLE connect behind the DE1's: if the
-    // DE1 never finishes connecting (e.g. no DE1 present while debugging),
-    // connect the scale anyway after 15 s rather than waiting forever.
-    m_de1WaitTimer = new QTimer(this);
-    m_de1WaitTimer->setSingleShot(true);
-    m_de1WaitTimer->setInterval(15000);
-    connect(m_de1WaitTimer, &QTimer::timeout, this, [this]() {
-        // Cap reached: stop gating the scale behind the DE1 unconditionally, so
-        // m_de1DirectConnectInFlight can't stick if the DE1 never resolves and no
-        // scale was waiting. If one is waiting, connect it now.
-        m_de1DirectConnectInFlight = false;
-        if (m_scaleConnectDeferred) {
-            m_scaleConnectDeferred = false;
-            scaleInfo("DE1 did not connect within 15 s — connecting scale anyway");
-            tryDirectConnectToScale();
-        }
-    });
-
     // Fail-safe watchdog for the BLE-stack-wedge adapter power-cycle (#1309).
     // The cycle is normally event-driven (HostPoweredOff → powerOn() →
     // HostConnectable → done); this timer guards each leg in case the OS never
@@ -1758,20 +1740,6 @@ void BLEManager::setScaleDevice(ScaleDevice* scale) {
         // severity — the 13 drivers via SCALE_LOG/SCALE_WARN, and the transports
         // (whose logMessage each driver re-emits as its own) via their log()/warn()
         // helpers.
-        // Push current DE1-discovery state immediately so a scale that connects
-        // mid-discovery (e.g. after the gate timed out) starts in the right
-        // pause state instead of waiting for the next edge.
-        if (auto* ds = qobject_cast<DecentScale*>(m_scaleDevice)) {
-            ds->setHeartbeatsPaused(m_de1ServiceDiscoveryActive);
-        }
-    }
-}
-
-void BLEManager::setDe1ServiceDiscoveryActive(bool active) {
-    if (m_de1ServiceDiscoveryActive == active) return;
-    m_de1ServiceDiscoveryActive = active;
-    if (auto* ds = qobject_cast<DecentScale*>(m_scaleDevice)) {
-        ds->setHeartbeatsPaused(active);
     }
 }
 
@@ -2481,14 +2449,11 @@ void BLEManager::tryDirectConnectToDE1() {
 
     de1Info(QStringLiteral("Direct wake: connecting to %1 at %2").arg(deviceName, upperAddress));
 
-    // A DE1 direct-wake connect is now being initiated — gate the scale's BLE
-    // direct-connect behind it (two concurrent GATT connects collide on the
-    // Android stack). Arm the 15 s cap here so the gate is always bounded even if
-    // the DE1 connect never resolves (no DE1 present); it's cleared in
-    // onDe1ConnectionSettled() on success/failure, or by the cap timer. Set only
-    // at the point of an actual connect — early-returns above must not gate.
-    m_de1DirectConnectInFlight = true;
-    if (!m_de1WaitTimer->isActive()) m_de1WaitTimer->start();
+    // No gate is set here. This emit is a REQUEST, and the handler in main.cpp
+    // declines it whenever the DE1 is already connected or connecting — so a flag
+    // set at this point is a claim about something that may not happen, which is
+    // what the 15 s cap that used to sit here existed to undo. The gate is
+    // driven by noteDe1Connecting() from the DE1's own state instead.
 
     // Emit de1Discovered so main.cpp's handler connects to the device
     emit de1Discovered(deviceInfo);
@@ -3074,16 +3039,17 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
-    // Serialize behind the DE1's direct-wake connect: a second BLE GATT connect
-    // while the DE1's is in flight collides on the Android stack — the scale
-    // connect dies the instant the DE1 finishes, then sits out the 20 s timeout
-    // before retrying. Defer until the DE1 settles (onDe1ConnectionSettled) or a
-    // 15 s cap (m_de1WaitTimer), which still connects the scale with no DE1.
-    if (m_de1DirectConnectInFlight) {
+    // Serialize behind the DE1's connect: a second BLE GATT connect while the
+    // DE1's is in flight collides on the Android stack — the scale connect dies
+    // the instant the DE1 finishes, then sits out the 20 s timeout before
+    // retrying. Released by noteDe1Connecting(false), which the DE1 emits when
+    // its attempt ends — succeeding, failing, or aborted by its own connect
+    // watchdog. No elapsed-time cap: if no DE1 connect is running, this is false
+    // and the scale goes now.
+    if (m_de1Connecting) {
         m_scaleConnectDeferred = true;
-        if (!m_de1WaitTimer->isActive()) m_de1WaitTimer->start();
         scaleInfo(QStringLiteral("Waiting for the DE1 to finish connecting before connecting "
-                                 "the scale (15 s cap)"));
+                                 "the scale"));
         return;
     }
 
@@ -3121,15 +3087,16 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     m_scaleDirectAbortTimer->start();
 }
 
-void BLEManager::onDe1ConnectionSettled() {
-    // The DE1's direct-wake connect has resolved (connected, or the attempt
-    // ended) — drop the gate and run any scale direct-connect that was deferred
-    // behind it to avoid a concurrent-GATT-connect collision on Android.
-    m_de1DirectConnectInFlight = false;
-    m_de1WaitTimer->stop();
+void BLEManager::noteDe1Connecting(bool connecting) {
+    if (m_de1Connecting == connecting) return;
+    m_de1Connecting = connecting;
+    if (connecting) return;
+
+    // The DE1's attempt has ended — connected, failed, or aborted by its connect
+    // watchdog. Run any scale direct-connect that was held behind it.
     if (m_scaleConnectDeferred) {
         m_scaleConnectDeferred = false;
-        scaleInfo("DE1 connect settled — starting deferred scale connect");
+        scaleInfo(QStringLiteral("DE1 connect settled — starting deferred scale connect"));
         tryDirectConnectToScale();
     }
 }

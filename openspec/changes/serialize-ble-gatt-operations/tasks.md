@@ -18,7 +18,7 @@
 
 - [x] 3.1 Replace `m_commandQueue`, `m_commandTimer` and `m_writePending` in `src/ble/bletransport.cpp` with submissions to the shared queue, carrying the existing constants as per-operation policy.
 - [x] 3.2 Re-point `clearQueue()` and `discardQueued()` at the shared queue, preserving their current return values and UUID scoping.
-- [ ] 3.3 Submit `discoverDetails()` through the queue, releasing on `RemoteServiceDiscovered` and on the service-discovery retry path. **Deferred to the group 4 commit, deliberately:** queueing the DE1's discovery only buys anything once the scale's is queued too, and it needs a longer per-operation bound than a write (discovery took 6.0 s in the #1819 capture against `WRITE_TIMEOUT_MS` of 5 s). It lands with its counterpart rather than alone.
+- [x] 3.3 Submit `discoverDetails()` through the queue, releasing on `RemoteServiceDiscovered` and on the service-discovery retry path. The longer bound it needs is now `BleGatt::DISCOVERY_TIMEOUT_MS`, declared once and shared with the scale transports rather than duplicated per class — the answer is a property of the radio, not of who is asking.
 - [ ] 3.3a The controller CONNECT is deliberately NOT queued, which is a departure from design.md's "cover connect and service discovery". A connect is bounded only by `CONNECT_WATCHDOG_MS` (35 s), so a wedged one would hold the shared slot for 35 s and starve every other device — a worse failure than the one being fixed, and unlike a GATT operation a connect is radio-scheduler work the host stack already interleaves. Record the decision in design.md if it survives group 4.
 - [x] 3.4 Re-run the group 1 tests unchanged. Any difference is a regression, not a new baseline.
 - [ ] 3.5 Confirm the firmware updater releases the slot across its erase-and-wait intervals rather than holding it, and that a firmware update does not stall a connected scale.
@@ -41,25 +41,30 @@
 
 ## 6. Remove the timer gate
 
-**NOT STARTED, and it is two unrelated things under one heading.** 6.2 is a
-maintainability item — a hand-rolled approximation of the queue, spread over five
-files — and is blocked only on 3.3. 6.1/6.3 are a behaviour change with real risk and
-no queue-side replacement, because connects are deliberately not queued. Do them
-separately; the case for each is different.
+**Done.** The 15 s cap is gone and nothing replaced it with another clock.
 
-**On 6.1, deliberately last.** The queue makes this gate harmless rather than
-necessary: with GATT operations serialized, a scale connecting during the DE1's
-subscribe no longer breaks anything, so deleting the 15 s cap is a connect-latency
-improvement, not part of the #1819 fix. It is also the riskiest change left — it
-alters startup connect sequencing for every user, and the cap is what stops
-`m_de1DirectConnectInFlight` sticking when `de1Discovered` is emitted but main.cpp's
-`!isConnecting()` guard declines to start a connect, so no `connectedChanged` ever
-fires to release it. Replacing it needs an event that covers that case, and getting it
-wrong strands the scale rather than delaying it.
+The flag it was unsticking was set in the wrong place. `tryDirectConnectToDE1()` set
+`m_de1DirectConnectInFlight = true` and then emitted `de1Discovered()` — a REQUEST,
+which main.cpp's handler declines whenever the DE1 is already connected or connecting.
+So the gate could close over a connect that never started, and the cap existed to
+reopen it. Fixing where the state comes from removes the need for the cap rather than
+replacing it: `noteDe1Connecting()` is fed from DE1Device's own
+`connectingChanged`/`connectedChanged`, so the gate is closed exactly while a DE1
+connect is genuinely in flight and open otherwise.
 
-- [ ] 6.1 Delete `m_de1WaitTimer`, `m_scaleConnectDeferred` and the 15 s branch in `tryDirectConnectToScale()` in `src/ble/blemanager.cpp`. The release event has to cover "the DE1 connect was never actually started", which `onDe1ConnectionSettled()` does not.
-- [ ] 6.2 Remove `setServiceDiscoveryActive()` and its call sites. **Blocked on 3.3, not on the rest of this change.** It is the one genuinely redundant mechanism here: a bool mirrored through `BleTransport` → `DE1Transport::serviceDiscoveryActiveChanged` → `DE1Device` → `main.cpp:2143` → `BLEManager::setDe1ServiceDiscoveryActive` → `m_de1ServiceDiscoveryActive` → `DecentScale::setHeartbeatsPaused`, five files to express "do not let a scale heartbeat write race DE1 characteristic discovery" (#1176, Tab A8) — for one driver, advisorily. The queue expresses it for every device, as a guarantee. But it is NOT subsumed yet: the scale heartbeat is queued and the DE1's own `discoverDetails()` is not, so the two can still overlap until 3.3 lands. (This task previously read "now subsumed by the shared queue", which was true of the design and not of the code — recorded rather than quietly corrected.)
-- [ ] 6.3 Confirm the no-DE1-present case still connects a scale promptly, driven by discovery failure / `CONNECT_WATCHDOG_MS` rather than by an elapsed-time cap.
+That also widens what the gate covers, for free. `DE1Device::m_connecting` clears in
+`onTransportConnected()`, which now runs only after every notification subscription is
+confirmed — so the gate brackets the DE1's connect, discovery AND subscribe, which is
+precisely the window #1819 had a scale connecting into.
+
+**One behaviour regression, deliberate and worth weighing.** With a saved-but-absent
+DE1, the gate now holds the scale until `CONNECT_WATCHDOG_MS` (35 s) aborts the hung
+attempt, where the cap released it at 15 s. Longer, but bounded by a real event
+instead of a guess — and releasing early is what #1819 was.
+
+- [x] 6.1 Delete `m_de1WaitTimer` and the 15 s branch in `tryDirectConnectToScale()` in `src/ble/blemanager.cpp`. `m_scaleConnectDeferred` stays: it records that a scale connect wanted to run, which is still needed. `onDe1ConnectionSettled()` is replaced by `noteDe1Connecting(bool)`, one entry point instead of an implicit two-edge convention inside main.cpp's `connectedChanged` lambda.
+- [x] 6.2 Remove `setServiceDiscoveryActive()` and its call sites. It was the one genuinely redundant mechanism here: a bool mirrored through `BleTransport` → `DE1Transport::serviceDiscoveryActiveChanged` → `DE1Device` → `main.cpp:2143` → `BLEManager::setDe1ServiceDiscoveryActive` → `m_de1ServiceDiscoveryActive` → `DecentScale::setHeartbeatsPaused`, five files to express "do not let a scale heartbeat write race DE1 characteristic discovery" (#1176, Tab A8) — for one driver, advisorily. The queue expresses it for every device, as a guarantee. But it is NOT subsumed yet: the scale heartbeat is queued and the DE1's own `discoverDetails()` is not, so the two can still overlap until 3.3 lands. Deleted with 3.3 in the same change, which is what made it genuinely redundant. `DecentScale::setHeartbeatsPaused()` and `m_heartbeatsPaused` went with it — nothing else drove them, so leaving them would have left a pause nobody could ask for. (This task previously read "now subsumed by the shared queue" while 3.3 was still deferred, which was true of the design and not of the code — recorded rather than quietly corrected.)
+- [ ] 6.3 Confirm on hardware that the no-DE1-present case still connects a scale, driven by `CONNECT_WATCHDOG_MS` rather than an elapsed-time cap — and time it, since 35 s is the expected worst case where 15 s was.
 
 ## 7. Observability
 

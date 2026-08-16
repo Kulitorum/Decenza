@@ -330,8 +330,6 @@ signals:
     void de1LinkFault(const QString& kind);
     // Forwarded from the DE1 transport: BLE service+characteristic discovery
     // window. Re-emitted here so BLEManager binds once to the stable
-    // DE1Device. See DE1Transport::serviceDiscoveryActiveChanged for purpose.
-    void serviceDiscoveryActiveChanged(bool active);
     void simulationModeChanged();
     void guiEnabledChanged();
     void usbChargerOnChanged();

@@ -261,7 +261,6 @@ void BleTransport::disconnect() {
     }
     m_characteristics.clear();
     m_characteristicsReady = false;
-    setServiceDiscoveryActive(false);
 
     if (m_controller) {
         m_controller->disconnectFromDevice();
@@ -450,7 +449,6 @@ void BleTransport::onControllerDisconnected() {
     m_operationTimeoutTimer.stop();
     m_gattQueue->forget(this);
     m_characteristicsReady = false;
-    setServiceDiscoveryActive(false);
     m_notificationLiveness.invalidate();
     // Failures observed while a link was already dying must not be carried
     // into the next connection, where they would make a healthy link look
@@ -562,12 +560,6 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     }
 #endif
 
-    // A controller error during discovery would otherwise leave
-    // m_serviceDiscoveryActive stuck at true (BlueZ does not always fire a
-    // stateChanged→Unconnected after UnknownRemoteDeviceError). Reset here so
-    // peer scales aren't held in pause forever after a connect-time failure.
-    setServiceDiscoveryActive(false);
-
     // Synthesize disconnected() so the upper layer treats the attempt as
     // terminated. Without this, DE1Device::m_connecting stays true forever
     // after a connect-time error like UnknownRemoteDeviceError, and the
@@ -655,9 +647,7 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                     break;
                 }
             }, qc);
-            log("Starting characteristic discovery for DE1 service");
-            setServiceDiscoveryActive(true);
-            m_service->discoverDetails();
+            submitDiscovery();
         } else {
             warn("ERROR: createServiceObject() returned null for DE1 service UUID");
             emit errorOccurred("Failed to initialize DE1 service - try reconnecting");
@@ -691,6 +681,7 @@ void BleTransport::onServiceDiscoveryFinished() {
 
 void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) {
     if (state == QLowEnergyService::RemoteServiceDiscovered) {
+        completeOperation(DE1::SERVICE_UUID);
         setupService();
         m_characteristicsReady = true;
         // INFO: the machine is addressable from here on, which is the moment a
@@ -698,8 +689,7 @@ void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) 
         // fingerprint of a half-open link.
         info(QString("Characteristics ready: %1 registered").arg(m_characteristics.size()));
         // Discovery window closed — peer scales can resume normal write traffic.
-        setServiceDiscoveryActive(false);
-
+    
 #ifdef Q_OS_ANDROID
         // Store address for shutdown service (handles swipe-to-kill)
         if (m_controller) {
@@ -754,12 +744,6 @@ void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, co
 }
 
 // -- Private helpers --
-
-void BleTransport::setServiceDiscoveryActive(bool active) {
-    if (m_serviceDiscoveryActive == active) return;
-    m_serviceDiscoveryActive = active;
-    emit serviceDiscoveryActiveChanged(active);
-}
 
 void BleTransport::log(const QString& message) {
     DE1_LOG_TAGGED("BLE", message);
@@ -1097,6 +1081,34 @@ void BleTransport::failRequiredStream(const QBluetoothUuid& uuid) {
     // That is how "do not report connected" is expressed: no flag to set, no
     // flag to forget to clear.
     m_gattQueue->forget(this);
+}
+
+void BleTransport::submitDiscovery() {
+    // Characteristic discovery is not a read or a write, but it occupies the
+    // same radio, and in the #1819 capture it was a peripheral in discovery that
+    // the DE1's rejected CCCD writes ran against. Queueing it on both sides is
+    // what closes that; a queue only one participant submits to orders nothing.
+    //
+    // Keyed by the service, which is what its completion — stateChanged ->
+    // RemoteServiceDiscovered — reports.
+    auto op = operationFor(DE1::SERVICE_UUID, QStringLiteral("discover"), [this]() {
+        if (!m_service) {
+            log(QStringLiteral("Characteristic discovery skipped - no service"));
+            m_gattQueue->noteFailed(this);
+            return;
+        }
+        log("Starting characteristic discovery for DE1 service");
+        m_service->discoverDetails();
+    }, BleGatt::DISCOVERY_TIMEOUT_MS);
+    op.onAbandoned = [this]() {
+        m_operationTimeoutTimer.stop();
+        // Not a de1LinkFault: nothing was written and nothing was lost. The
+        // service-discovery retry path (onServiceDiscoveryFinished) owns what
+        // happens next, and it already tears the attempt down after MAX_RETRIES.
+        warn(QStringLiteral("Characteristic discovery did not complete — the "
+                            "connection attempt will be retried"));
+    };
+    m_gattQueue->submit(std::move(op));
 }
 
 void BleTransport::submitReadyMarker() {

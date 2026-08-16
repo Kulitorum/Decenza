@@ -498,7 +498,13 @@ void DecentScale::startHeartbeat() {
         m_heartbeatTimer = new QTimer(this);
         m_heartbeatTimer->setInterval(1000);  // Every 1 second like de1app
         connect(m_heartbeatTimer, &QTimer::timeout, this, [this]() {
-            if (!m_characteristicsReady || m_heartbeatsPaused) return;
+            // No pause flag: a heartbeat write that raced DE1 characteristic
+            // discovery used to fail with CharacteristicWriteError and drop the
+            // scale on weaker radios (#1176), and BLEManager forwarded a
+            // discovery-active bool through five files to suppress it. Both
+            // sides of that race are queued operations now, so the write waits
+            // its turn instead of being withheld.
+            if (!m_characteristicsReady) return;
             sendHeartbeat();
             // Periodic battery refresh: re-send the display-on command every
             // kBatteryPollHeartbeatTicks (~4 min). The scale replies with an
@@ -517,18 +523,6 @@ void DecentScale::startHeartbeat() {
     DECENT_LOG("Starting heartbeat timer");
     m_ticksSinceBatteryPoll = 0;
     m_heartbeatTimer->start();
-}
-
-void DecentScale::setHeartbeatsPaused(bool paused) {
-    if (m_heartbeatsPaused == paused) return;
-    m_heartbeatsPaused = paused;
-    // Lifted out of the macro arg: SCALE_LOG concatenates with `+`, which binds
-    // tighter than `?:`, so an inline ternary would parse as
-    // `(QString + bool) ? "..." : "..."` and fail to compile.
-    const QString msg = paused
-        ? QStringLiteral("Pausing heartbeats — DE1 BLE discovery in progress")
-        : QStringLiteral("Resuming heartbeats — DE1 BLE discovery complete");
-    DECENT_LOG(msg);
 }
 
 void DecentScale::stopHeartbeat() {

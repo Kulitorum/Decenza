@@ -305,9 +305,6 @@ protected:
     QBluetoothUuid heldGattKey() const;
 
     static constexpr int OPERATION_TIMEOUT_MS = 5000;
-    // Characteristic discovery took 6.0 s in the #1819 capture, so the write
-    // budget is not a bound for it — it is a guarantee of failure.
-    static constexpr int DISCOVERY_TIMEOUT_MS = 20000;
 
 private:
     BleGattQueue* m_gattQueue = nullptr;
