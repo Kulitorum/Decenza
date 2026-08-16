@@ -61,6 +61,15 @@ public:
     // and the link-teardown family still fires de1LinkFault. That contract is
     // otherwise enforced only by the ABSENCE of an emit, which no test can see.
     friend class tst_BleTransportError;
+    // tst_BleCommandQueue pins the command queue's observable behaviour —
+    // FIFO order, 50 ms pacing, urgent-write placement, UUID-scoped discard,
+    // clearQueue()'s in-flight accounting, and the depth warning. These are
+    // about to move onto the shared cross-device queue (#1819), and a move is
+    // only verifiable against a recorded baseline: reading the new code and
+    // agreeing it looks equivalent is what lets a tuned constant quietly
+    // change meaning. Every assertion here passes before the move and must
+    // pass unchanged after it.
+    friend class tst_BleCommandQueue;
 #endif
 
 private slots:

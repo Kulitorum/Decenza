@@ -696,6 +696,7 @@ set(SOURCES
     src/core/fileshare.cpp
     src/ble/protocol/binarycodec.cpp
     src/ble/blecapability.cpp
+    src/ble/blegattqueue.cpp
     src/ble/blemanager.cpp
     src/ble/de1device.cpp
     src/ble/bletransport.cpp

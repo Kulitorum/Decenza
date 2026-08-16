@@ -73,6 +73,7 @@ set(MACHINE_SOURCES
 set(BLE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ble/de1device.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/bletransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/blegattqueue.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/blecapability.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/protocol/binarycodec.cpp
@@ -933,6 +934,23 @@ add_decenza_test(tst_serialstall
 #     raises no modal, and the teardown family still feeds de1LinkFault ---
 add_decenza_test(tst_bletransporterror
     tst_bletransporterror.cpp
+)
+
+# --- tst_blegattqueue: the shared cross-device GATT queue (#1819) — one
+#     operation outstanding across all peripherals, event-driven dispatch with
+#     no queue-owned clock, per-operation retry policy, and teardown discard. ---
+add_decenza_test(tst_blegattqueue
+    tst_blegattqueue.cpp
+)
+
+# --- tst_blecommandqueue: the DE1 command queue's observable behaviour —
+#     FIFO order, 50 ms pacing, urgent placement, UUID-scoped discard,
+#     clearQueue()'s in-flight accounting, depth reporting, and the retry
+#     constants. Recorded as a baseline BEFORE that queue moves onto the shared
+#     cross-device queue (#1819), so the move is verified against measurements
+#     rather than against a reading of the new code. ---
+add_decenza_test(tst_blecommandqueue
+    tst_blecommandqueue.cpp
 )
 
 # --- tst_blefidelity: BLE encode round-trip for all built-in profiles ---
