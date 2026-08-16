@@ -77,9 +77,9 @@ wrong strands the scale rather than delaying it.
 - [ ] 9.1 Reproduce the original ordering: force a slow DE1 connect with a scale present, confirm all five DE1 subscriptions complete and a shot charts and stops at weight.
 - [ ] 9.2 Connect a DiFluid refractometer mid-session while the DE1 is connected and delivering telemetry; confirm neither link is disturbed.
 - [ ] 9.3 Re-run task 1.3's profile-upload measurement with a scale connected and report the delta.
-- [ ] 9.4 Run the full suite through `mcp__qtcreator__run_tests` (scope `all`) before opening the PR — nothing on GitHub runs it automatically.
-- [ ] 9.5 Dispatch an Android CI test build (`gh workflow run android-release.yml --ref <branch> -f upload_to_release=false`).
-- [ ] 9.6 Dispatch a macOS or iOS CI build to cover `corebluetoothscalebletransport.mm`, which the Android build does not compile.
+- [x] 9.4 Run the full suite through `mcp__qtcreator__run_tests` (scope `all`) before opening the PR — nothing on GitHub runs it automatically.
+- [x] 9.5 Dispatch an Android CI test build (`gh workflow run android-release.yml --ref <branch> -f upload_to_release=false`).
+- [x] 9.6 Dispatch a macOS or iOS CI build to cover `corebluetoothscalebletransport.mm`, which the Android build does not compile.
 
 ## 10. Documentation and close-out
 
