@@ -41,14 +41,24 @@
 
 ## 6. Remove the timer gate
 
-- [ ] 6.1 Delete `m_de1WaitTimer`, `m_scaleConnectDeferred` and the 15 s branch in `tryDirectConnectToScale()` in `src/ble/blemanager.cpp`.
+**NOT STARTED, and deliberately last.** The queue makes this gate harmless rather than
+necessary: with GATT operations serialized, a scale connecting during the DE1's
+subscribe no longer breaks anything, so deleting the 15 s cap is a connect-latency
+improvement, not part of the #1819 fix. It is also the riskiest change left — it
+alters startup connect sequencing for every user, and the cap is what stops
+`m_de1DirectConnectInFlight` sticking when `de1Discovered` is emitted but main.cpp's
+`!isConnecting()` guard declines to start a connect, so no `connectedChanged` ever
+fires to release it. Replacing it needs an event that covers that case, and getting it
+wrong strands the scale rather than delaying it.
+
+- [ ] 6.1 Delete `m_de1WaitTimer`, `m_scaleConnectDeferred` and the 15 s branch in `tryDirectConnectToScale()` in `src/ble/blemanager.cpp`. The release event has to cover "the DE1 connect was never actually started", which `onDe1ConnectionSettled()` does not.
 - [ ] 6.2 Remove `setServiceDiscoveryActive()` and its call sites, now subsumed by the shared queue.
 - [ ] 6.3 Confirm the no-DE1-present case still connects a scale promptly, driven by discovery failure / `CONNECT_WATCHDOG_MS` rather than by an elapsed-time cap.
 
 ## 7. Observability
 
 - [x] 7.1 Raise the descriptor-error record to the tier the connections views display, and include the characteristic UUID so the failed stream is named rather than inferred.
-- [ ] 7.2 Add a single record at the end of DE1 notification subscription stating which streams are live. (The ready marker is the place for it.)
+- [x] 7.2 Add a single record at the end of DE1 notification subscription stating which streams are live. (The ready marker is the place for it.)
 - [x] 7.3 Re-read `docs/CLAUDE_MD/LOGGING.md` tier rules against every line added — audience, not importance, picks the tier.
 
 ## 8. Tests for the new behaviour
@@ -73,7 +83,7 @@
 
 ## 10. Documentation and close-out
 
-- [ ] 10.1 Add the shared queue to `docs/CLAUDE_MD/BLE_PROTOCOL.md`, recording that Qt's GATT queue is per-controller (`QtBluetoothLE.java:949-950`) so the cross-device guarantee is the app's to supply, and that scale transports previously had no in-flight tracking at all.
-- [ ] 10.2 Record why `SUBSCRIBE_TIMEOUT_MS` was deleted rather than tuned, and why scale operations do not inherit the DE1's retry budget.
+- [x] 10.1 Add the shared queue to `docs/CLAUDE_MD/BLE_PROTOCOL.md`, recording that Qt's GATT queue is per-controller (`QtBluetoothLE.java:949-950`) so the cross-device guarantee is the app's to supply, and that scale transports previously had no in-flight tracking at all.
+- [x] 10.2 Record why `SUBSCRIBE_TIMEOUT_MS` was deleted rather than tuned, and why scale operations do not inherit the DE1's retry budget.
 - [ ] 10.3 Assess whether the wiki manual needs an entry — the user-visible change is that a half-connected DE1 now shows as disconnected and reconnects instead of appearing ready. A few sentences if so.
 - [ ] 10.4 Archive the change with `openspec archive serialize-ble-gatt-operations` as the last commit on the branch, before merge.

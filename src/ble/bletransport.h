@@ -8,6 +8,7 @@
 #include <QLowEnergyController>
 #include <QLowEnergyDescriptor>
 #include <QLowEnergyService>
+#include <QStringList>
 #include <QTimer>
 #include <functional>
 
@@ -152,6 +153,17 @@ private:
     void submitSubscribe(const QBluetoothUuid& uuid, bool required);
     /** Report a required stream as unusable and fail the connection attempt. */
     void failRequiredStream(const QBluetoothUuid& uuid);
+
+    // Streams whose CCCD write was abandoned this connection attempt. Only
+    // optional ones can appear: a required failure drops the ready marker, so
+    // there is no line to qualify. Read once, by that marker.
+    //
+    // It exists because "which telemetry is actually live" was previously
+    // readable only as the ABSENCE of warnings, and #1819 is what an absent
+    // stream looks like from the outside: a machine that says CONNECTED and
+    // then does nothing. A reader — or a field AI — should not have to infer a
+    // negative.
+    QStringList m_streamsNotEnabled;
     /**
      * A queue entry that issues nothing and completes itself.
      *

@@ -200,6 +200,8 @@ void BleTransport::subscribe(const QBluetoothUuid& uuid) {
 void BleTransport::subscribeAll() {
     if (!m_service) return;
 
+    m_streamsNotEnabled.clear();
+
     // One queue entry per stream, then the marker that reports the link ready,
     // then the initial reads. FIFO ordering is what makes this a plain list
     // instead of the hand-rolled recursion it replaces — the sequencing, the
@@ -1067,6 +1069,7 @@ void BleTransport::submitSubscribe(const QBluetoothUuid& uuid, bool required) {
         m_operationTimeoutTimer.stop();
         warn(QString("Could not enable notifications for %1 after %2 retries")
                  .arg(uuid.toString().mid(1, 8)).arg(MAX_WRITE_RETRIES));
+        m_streamsNotEnabled.append(uuid.toString().mid(1, 8));
         if (required) failRequiredStream(uuid);
     };
     m_gattQueue->submit(std::move(op));
@@ -1101,6 +1104,16 @@ void BleTransport::submitReadyMarker() {
     op.requester = this;
     op.label = QStringLiteral("de1 ready");
     op.issue = [this]() {
+        // One positive statement of what the machine will actually send. INFO,
+        // because this is the connect narrative a user reads.
+        if (m_streamsNotEnabled.isEmpty()) {
+            info(QStringLiteral("DE1 telemetry live: state, shot samples, water level, "
+                                "MMR responses, temperatures"));
+        } else {
+            info(QString("DE1 telemetry live except %1 — that stream will not update "
+                         "until the next reconnect")
+                     .arg(m_streamsNotEnabled.join(QStringLiteral(", "))));
+        }
         // Baseline the liveness clock here so a link that connects but never
         // pushes a single notification also ages out and is caught as a zombie
         // on the next reconnect attempt — not just one that goes quiet later.
