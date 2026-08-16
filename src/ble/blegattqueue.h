@@ -173,8 +173,26 @@ public:
     /** The requester holding the slot, or nullptr. */
     Requester inFlightRequester() const;
 
+    /**
+     * The discard key of the in-flight operation, or a null UUID.
+     *
+     * Lets a requester tell "this reply ends the operation I am holding the
+     * slot for" from "this is a late reply for one already abandoned". Without
+     * it, a stray ACK releases whatever holds the slot now — the misattribution
+     * BleTransport's old CCCD ACK matcher existed to prevent.
+     */
+    QBluetoothUuid inFlightKey() const;
+
 #ifdef DECENZA_TESTING
     friend class tst_BleGattQueue;
+    // tst_BleCommandQueue asserts what BleTransport puts IN the queue — order,
+    // urgent placement, discard scoping, the retry policy each operation
+    // carries. That is queue contents, so it needs the same access.
+    friend class tst_BleCommandQueue;
+    // tst_BleTransportError drives BleTransport's retry-exhaustion path for
+    // real. Reaching it needs the in-flight operation put one failure from
+    // exhaustion, which is 2.5 s of retry delay to walk in real time.
+    friend class tst_BleTransportError;
 #endif
 
 private:

@@ -1,32 +1,28 @@
 #include <QtTest>
 #include <QSignalSpy>
 
+#include "ble/blegattqueue.h"
 #include "ble/bletransport.h"
 #include "ble/protocol/de1characteristics.h"
 
-// Baseline for the shared-GATT-queue move (#1819).
+// What BleTransport puts on the shared GATT queue (#1819).
 //
-// BleTransport's command queue is the most carefully tuned code in the BLE
-// layer — 50 ms pacing, a retry budget derived from a 26-log corpus, an urgent
-// path that must not re-enter writeCharacteristic, and a UUID-scoped discard
-// that withdraws dead profile frames without touching unrelated work. All of it
-// is about to move onto a queue shared with the scale and refractometer
-// transports.
+// This file was written against the private command queue that preceded
+// BleGattQueue, so the move to the shared queue could be checked against a
+// RECORDED baseline rather than against a reading of the new code. Every
+// assertion below passed before the move. Three did not survive it unchanged,
+// and each one says so at its own site with the evidence — that is the file
+// working, not the file being talked into a new baseline.
 //
-// A move like that is only verifiable against a RECORDED baseline. Reading the
-// new implementation and agreeing it looks equivalent is exactly how a tuned
-// constant changes meaning without anything failing — and this file's whole
-// purpose is that the numbers below were true before the move, so a difference
-// after it is a regression rather than a new baseline to be talked into.
+// Headless by construction: with no QLowEnergyService, a dispatched write
+// reaches writeCharacteristic()'s `!m_service` guard, which reports the failure
+// to the queue. The queue then holds the slot across the operation's retry
+// delay, which is what the in-flight cases below use to get an operation into
+// the slot without a radio.
 //
-// Every assertion here is written against the CURRENT implementation and passes
-// on it. None of them may be edited to accommodate the move.
-//
-// Headless by construction: with no QLowEnergyService, writeCharacteristic()
-// returns early at its `!m_service` guard, so a dispatched command is a no-op
-// and never sets m_writePending. That makes queue MECHANICS observable without a
-// radio, and it is why the in-flight cases below set m_writePending explicitly
-// rather than pretending a write is in the air.
+// Every test builds its own BleGattQueue and injects it. The production default
+// is the process-wide instance, and sharing that between test functions would
+// leak one test's queue contents into the next.
 class tst_BleCommandQueue : public QObject {
     Q_OBJECT
 
@@ -39,126 +35,177 @@ private:
 
     static QByteArray payload(char tag) { return QByteArray(4, tag); }
 
+    // Run the event loop long enough for the queue's posted dispatch. The
+    // dispatch is a zero-interval single-shot; 20 ms is far inside the 500 ms
+    // retry delay that then holds the slot.
+    static void dispatch() { QTest::qWait(20); }
+
 private slots:
     void init() { QTest::failOnWarning(); }
 
-    // --- FIFO and pacing -------------------------------------------------
+    // --- FIFO and dispatch ------------------------------------------------
 
     void writesQueueInSubmissionOrder() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(headerWrite(), payload('h'));
         t.write(frameWrite(), payload('1'));
         t.write(frameWrite(), payload('2'));
 
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(3));
-        QCOMPARE(t.m_commandQueue.at(0).uuid, headerWrite());
-        QCOMPARE(t.m_commandQueue.at(1).uuid, frameWrite());
-        QCOMPARE(t.m_commandQueue.at(2).uuid, frameWrite());
+        QCOMPARE(queue.pendingCount(), qsizetype(3));
+        QCOMPARE(queue.m_queue.at(0).key, headerWrite());
+        QCOMPARE(queue.m_queue.at(1).key, frameWrite());
+        QCOMPARE(queue.m_queue.at(2).key, frameWrite());
     }
 
-    // The pacing interval is the contract, not an implementation detail: it is
-    // what keeps the DE1's link from being flooded, and the shared queue must
-    // carry it per-operation rather than adopting one interval for every
-    // device.
-    void queuedWorkIsPacedAtFiftyMilliseconds() {
-        BleTransport t;
-        QCOMPARE(t.m_commandTimer.interval(), 50);
-        QVERIFY(t.m_commandTimer.isSingleShot());
-    }
-
-    // A first enqueue arms the timer; it is not dispatched inline. Dispatching
-    // inline would remove the pacing entirely for the first command of every
-    // burst, which is the common case during a profile upload.
-    void firstEnqueueArmsTheTimerRatherThanDispatchingInline() {
-        BleTransport t;
-        QVERIFY(!t.m_commandTimer.isActive());
+    // CHANGED BY THE MOVE, deliberately. This slot used to assert a 50 ms
+    // pacing timer on the transport.
+    //
+    // That constant did not do what its name said. It was armed on an enqueue
+    // that found the link idle, so it delayed the FIRST operation after a
+    // pause — and onCharacteristicWritten() called processCommandQueue()
+    // directly, with no delay at all, so consecutive writes were never paced by
+    // it. The advertised "50 ms inter-write spacing" applied to exactly the case
+    // that least needed it.
+    //
+    // Carrying it forward as paceMsAfter would have imposed 50 ms after every
+    // write for the first time, adding about a second to a ~20-write profile
+    // upload for no measured benefit. So DE1 operations carry no pacing, and
+    // what actually keeps the link from being flooded is the property the
+    // pacing was standing in for: nothing is issued while anything is
+    // outstanding, on any device.
+    void de1OperationsCarryNoPacingDelay() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
-        QVERIFY(t.m_commandTimer.isActive());
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(1));
+
+        QCOMPARE(queue.m_queue.at(0).policy.paceMsAfter, 0);
     }
 
-    // With a write in flight the timer is NOT armed — the completion path
-    // re-drives the queue. An extra arm here would let a second write be
-    // dispatched under the first.
-    void enqueueWhileAWriteIsInFlightDoesNotArmTheTimer() {
-        BleTransport t;
-        t.m_writePending = true;
+    // Not dispatched inline. Dispatching under the submitting call would let a
+    // completion handler recurse into its own next operation, and would defeat
+    // the serialization for the first operation of every burst.
+    void aSubmittedOperationIsPostedRatherThanDispatchedInline() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
-        QVERIFY(!t.m_commandTimer.isActive());
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(1));
+
+        QVERIFY(!queue.isBusy());
+        QCOMPARE(queue.pendingCount(), qsizetype(1));
     }
 
-    void processDequeuesExactlyOneCommand() {
-        BleTransport t;
+    void submittingWhileAnOperationIsInFlightLeavesItQueued() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
+        t.write(frameWrite(), payload('1'));
+        dispatch();
+        QVERIFY(queue.isBusy());
+
+        t.write(frameWrite(), payload('2'));
+
+        QCOMPARE(queue.pendingCount(), qsizetype(1));
+        QVERIFY(queue.isBusy());
+    }
+
+    void dispatchTakesExactlyOneOperation() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(headerWrite(), payload('h'));
         t.write(frameWrite(), payload('1'));
 
-        t.processCommandQueue();
+        dispatch();
 
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(1));
-        QCOMPARE(t.m_commandQueue.at(0).uuid, frameWrite());
+        QCOMPARE(queue.inFlightKey(), headerWrite());
+        QCOMPARE(queue.pendingCount(), qsizetype(1));
+        QCOMPARE(queue.m_queue.at(0).key, frameWrite());
     }
 
-    void processIsANoOpWhileAWriteIsInFlight() {
-        BleTransport t;
+    // A retry holds the slot rather than releasing and re-queueing. Releasing
+    // would let another device's operation land between a retry and its
+    // predecessor, which is the interleaving the retry is trying to recover
+    // from.
+    void aRetryKeepsTheSlotAcrossItsDelay() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
-        t.m_writePending = true;
+        t.write(frameWrite(), payload('2'));
 
-        t.processCommandQueue();
+        dispatch();
 
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(1));
+        QVERIFY(queue.isBusy());
+        QCOMPARE(queue.pendingCount(), qsizetype(1));
     }
 
     // --- writeUrgent -----------------------------------------------------
 
-    // Urgent bypasses the queue when nothing is in flight. This is the app-
-    // suspend charger write: it must reach the machine before the process is
-    // frozen, not 50 ms later behind whatever else is queued.
-    void urgentWriteBypassesTheQueueWhenIdle() {
-        BleTransport t;
+    // CHANGED BY THE MOVE, deliberately. Urgent used to call writeCharacteristic
+    // directly when nothing was in flight, and prepend only when something was.
+    //
+    // A bypass cannot survive a shared queue: "nothing is issued while another
+    // device has an operation outstanding" is the entire guarantee, and an
+    // operation that skips the queue when THIS device looks idle knows nothing
+    // about the others. So urgency is position, always.
+    //
+    // The cost is one event-loop turn for the app-suspend charger write, and it
+    // is not a real cost: QLowEnergyService::writeCharacteristic is itself
+    // asynchronous, so the synchronous call only ever reached Qt's own
+    // per-controller queue, which needs the same event loop to drain.
+    void urgentWriteGoesToTheFrontRatherThanBypassing() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
 
         t.writeUrgent(writeToMmr(), payload('u'));
 
-        // Went straight to writeCharacteristic (a no-op headlessly) rather than
-        // joining the queue, which still holds only the earlier frame write.
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(1));
-        QCOMPARE(t.m_commandQueue.at(0).uuid, frameWrite());
+        QCOMPARE(queue.pendingCount(), qsizetype(2));
+        QCOMPARE(queue.m_queue.at(0).key, writeToMmr());
+        QCOMPARE(queue.m_queue.at(1).key, frameWrite());
     }
 
-    // With a write in flight it PREPENDS instead. writeCharacteristic is not
-    // re-entrant — calling it under an in-flight write corrupts
-    // m_writePending/m_lastWriteUuid/m_writeTimeoutTimer — so the urgency is
-    // expressed as queue position, not as an immediate call.
-    void urgentWritePrependsWhileAWriteIsInFlight() {
-        BleTransport t;
+    void urgentWriteGoesAheadOfEverythingAlreadyWaiting() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
         t.write(frameWrite(), payload('2'));
-        t.m_writePending = true;
 
         t.writeUrgent(writeToMmr(), payload('u'));
 
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(3));
-        QCOMPARE(t.m_commandQueue.at(0).uuid, writeToMmr());
-        QCOMPARE(t.m_commandQueue.at(1).uuid, frameWrite());
+        QCOMPARE(queue.pendingCount(), qsizetype(3));
+        QCOMPARE(queue.m_queue.at(0).key, writeToMmr());
+        QCOMPARE(queue.m_queue.at(1).key, frameWrite());
+    }
+
+    // It still waits for the in-flight operation. Jumping the queue is not
+    // jumping the slot.
+    void urgentWriteStillWaitsForTheOperationInFlight() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
+        t.write(frameWrite(), payload('1'));
+        dispatch();
+        const QBluetoothUuid held = queue.inFlightKey();
+
+        t.writeUrgent(writeToMmr(), payload('u'));
+
+        QCOMPARE(queue.inFlightKey(), held);
+        QCOMPARE(queue.m_queue.at(0).key, writeToMmr());
     }
 
     // Urgent does not clear. Callers that need to clear do so explicitly, so an
     // app-suspend charger write cannot drop pending extraction frames.
     void urgentWriteDoesNotClearPendingWork() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
-        t.m_writePending = true;
         t.writeUrgent(writeToMmr(), payload('u'));
-        t.m_writePending = false;
 
-        QVERIFY(t.m_commandQueue.size() >= qsizetype(2));
+        QCOMPARE(queue.pendingCount(), qsizetype(2));
     }
 
     // --- discardQueued ---------------------------------------------------
 
     void discardDropsOnlyTheNamedCharacteristics() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(headerWrite(), payload('h'));
         t.write(frameWrite(), payload('1'));
         t.write(writeToMmr(), payload('m'));
@@ -167,160 +214,236 @@ private slots:
         const qsizetype dropped = t.discardQueued({frameWrite()});
 
         QCOMPARE(dropped, qsizetype(2));
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(2));
-        QCOMPARE(t.m_commandQueue.at(0).uuid, headerWrite());
-        QCOMPARE(t.m_commandQueue.at(1).uuid, writeToMmr());
+        QCOMPARE(queue.pendingCount(), qsizetype(2));
+        QCOMPARE(queue.m_queue.at(0).key, headerWrite());
+        QCOMPARE(queue.m_queue.at(1).key, writeToMmr());
+    }
+
+    // Several at once, which is how a profile upload withdraws its own work:
+    // header and frames together, everything else untouched.
+    void discardHandlesSeveralCharacteristicsAtOnce() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
+        t.write(headerWrite(), payload('h'));
+        t.write(frameWrite(), payload('1'));
+        t.write(writeToMmr(), payload('m'));
+        t.write(frameWrite(), payload('2'));
+
+        const qsizetype dropped = t.discardQueued({headerWrite(), frameWrite()});
+
+        QCOMPARE(dropped, qsizetype(3));
+        QCOMPARE(queue.pendingCount(), qsizetype(1));
+        QCOMPARE(queue.m_queue.at(0).key, writeToMmr());
     }
 
     void discardPreservesTheOrderOfWhatItKeeps() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(headerWrite(), payload('h'));
         t.write(frameWrite(), payload('1'));
         t.write(writeToMmr(), payload('m'));
 
         t.discardQueued({frameWrite()});
 
-        QCOMPARE(t.m_commandQueue.at(0).uuid, headerWrite());
-        QCOMPARE(t.m_commandQueue.at(1).uuid, writeToMmr());
+        QCOMPARE(queue.m_queue.at(0).key, headerWrite());
+        QCOMPARE(queue.m_queue.at(1).key, writeToMmr());
     }
 
     void discardOfAnAbsentCharacteristicDropsNothing() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(headerWrite(), payload('h'));
 
         QCOMPARE(t.discardQueued({frameWrite()}), qsizetype(0));
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(1));
+        QCOMPARE(queue.pendingCount(), qsizetype(1));
     }
 
     void discardWithNoUuidsDropsNothing() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(headerWrite(), payload('h'));
 
         QCOMPARE(t.discardQueued({}), qsizetype(0));
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(1));
+        QCOMPARE(queue.pendingCount(), qsizetype(1));
     }
 
     // Deliberate asymmetry with clearQueue() below: discard withdraws work the
-    // caller queued itself, and a write already dispatched has either landed or
-    // is being retried. Counting it would over-report and, worse, imply the
-    // in-flight write was cancelled when it was not.
-    void discardDoesNotTouchOrCountTheInFlightWrite() {
-        BleTransport t;
+    // caller queued itself, and an operation already dispatched has either
+    // landed or is being retried. Counting it would over-report and, worse,
+    // imply the in-flight operation was cancelled when it was not.
+    void discardDoesNotTouchOrCountTheInFlightOperation() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
-        t.m_writePending = true;
+        t.write(frameWrite(), payload('2'));
+        dispatch();
+        QVERIFY(queue.isBusy());
 
         QCOMPARE(t.discardQueued({frameWrite()}), qsizetype(1));
-        QVERIFY(t.m_writePending);
+        QVERIFY(queue.isBusy());
+        QCOMPARE(queue.inFlightKey(), frameWrite());
+    }
+
+    // Scoped to this transport. Another device's work for the same
+    // characteristic is not this caller's to withdraw — and on a shared queue
+    // that is no longer hypothetical.
+    void discardLeavesAnotherTransportsWorkAlone() {
+        BleGattQueue queue;
+        BleTransport mine(nullptr, &queue);
+        BleTransport other(nullptr, &queue);
+        mine.write(frameWrite(), payload('1'));
+        other.write(frameWrite(), payload('2'));
+
+        QCOMPARE(mine.discardQueued({frameWrite()}), qsizetype(1));
+        QCOMPARE(queue.pendingCount(&other), qsizetype(1));
     }
 
     // --- clearQueue ------------------------------------------------------
 
-    // clearQueue DOES count the in-flight write. Its callers are about to
+    // clearQueue DOES count the in-flight operation. Its callers are about to
     // change machine state and need the MMR dedup cache invalidated if an MMR
     // write was mid-air; under-reporting there leaves m_lastMMRValues claiming
     // the DE1 holds a value it never received.
-    void clearCountsTheInFlightWriteAsWellAsTheQueued() {
-        BleTransport t;
+    void clearCountsTheInFlightOperationAsWellAsTheQueued() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
         t.write(frameWrite(), payload('2'));
-        t.m_writePending = true;
+        t.write(frameWrite(), payload('3'));
+        dispatch();
+        QVERIFY(queue.isBusy());
 
         QCOMPARE(t.clearQueue(), qsizetype(3));
-        QCOMPARE(t.m_commandQueue.size(), qsizetype(0));
-        QVERIFY(!t.m_writePending);
+        QCOMPARE(queue.pendingCount(), qsizetype(0));
+        QVERIFY(!queue.isBusy());
     }
 
     void clearWithNothingInFlightCountsOnlyTheQueued() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
         t.write(frameWrite(), payload('2'));
 
         QCOMPARE(t.clearQueue(), qsizetype(2));
     }
 
-    void clearResetsRetryState() {
-        BleTransport t;
+    void clearStopsTheOperationClock() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
-        t.m_writePending = true;
-        t.m_writeRetryCount = 3;
-        t.m_lastWriteUuid = QStringLiteral("0000a010");
-        t.m_lastWriteData = payload('1');
+        dispatch();
+        QVERIFY(t.m_operationTimeoutTimer.isActive());
 
         t.clearQueue();
 
-        QCOMPARE(t.m_writeRetryCount, 0);
-        QVERIFY(t.m_lastWriteUuid.isEmpty());
-        QVERIFY(t.m_lastWriteData.isEmpty());
-        QVERIFY(!t.m_writeTimeoutTimer.isActive());
+        QVERIFY(!t.m_operationTimeoutTimer.isActive());
     }
 
     void clearOfAnEmptyQueueReportsNothingCleared() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         QCOMPARE(t.clearQueue(), qsizetype(0));
+    }
+
+    // Scoped to this transport, like discard. A DE1 clearing its queue for a
+    // sleep must not throw away a scale's tare.
+    void clearLeavesAnotherTransportsWorkAlone() {
+        BleGattQueue queue;
+        BleTransport mine(nullptr, &queue);
+        BleTransport other(nullptr, &queue);
+        mine.write(frameWrite(), payload('1'));
+        other.write(frameWrite(), payload('2'));
+
+        QCOMPARE(mine.clearQueue(), qsizetype(1));
+        QCOMPARE(queue.pendingCount(&other), qsizetype(1));
     }
 
     // --- retry and timeout constants -------------------------------------
 
     // Pinned as VALUES, not as "whatever the header says". The retry budget
     // carries a 60-line derivation and is coupled to the DE1-fault-cluster
-    // weighting in QtScaleBleTransport::onDe1LinkFault; the shared queue must
-    // carry these per-operation rather than imposing one policy on every
-    // device. A change here is a change to that derivation, and should fail
-    // until the derivation is redone.
+    // weighting in QtScaleBleTransport::onDe1LinkFault. A change here is a
+    // change to that derivation, and should fail until the derivation is redone.
     void de1RetryPolicyIsUnchanged() {
         QCOMPARE(BleTransport::MAX_WRITE_RETRIES, 5);
         QCOMPARE(BleTransport::WRITE_TIMEOUT_MS, 5000);
         QCOMPARE(BleTransport::WRITE_RETRY_DELAY_MS, 500);
     }
 
-    void writeTimeoutTimerIsConfiguredFromThatBudget() {
-        BleTransport t;
-        QCOMPARE(t.m_writeTimeoutTimer.interval(), BleTransport::WRITE_TIMEOUT_MS);
-        QVERIFY(t.m_writeTimeoutTimer.isSingleShot());
+    // And that the budget is what the operations actually carry. Declaring the
+    // constants and attaching something else is exactly the drift a shared
+    // queue makes possible, since the policy now travels as data.
+    void submittedOperationsCarryThatBudget() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
+        t.write(frameWrite(), payload('1'));
+
+        QCOMPARE(queue.m_queue.at(0).policy.maxRetries, BleTransport::MAX_WRITE_RETRIES);
+        QCOMPARE(queue.m_queue.at(0).policy.retryDelayMs, BleTransport::WRITE_RETRY_DELAY_MS);
+    }
+
+    // The operation clock is armed by the dispatch, at the write budget. It is
+    // the outer bound for an operation the platform never answers at all — see
+    // its declaration for why there is exactly one clock and not two.
+    void dispatchArmsTheOperationClockAtTheWriteBudget() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
+        t.write(frameWrite(), payload('1'));
+        QVERIFY(!t.m_operationTimeoutTimer.isActive());
+
+        dispatch();
+
+        QVERIFY(t.m_operationTimeoutTimer.isActive());
+        QCOMPARE(t.m_operationTimeoutTimer.interval(), BleTransport::WRITE_TIMEOUT_MS);
+        QVERIFY(t.m_operationTimeoutTimer.isSingleShot());
     }
 
     // --- queue depth reporting -------------------------------------------
 
-    // Edge-triggered: one warning per episode, not one per enqueue past the
+    // Edge-triggered: one warning per episode, not one per submit past the
     // threshold. de1app warns at the same depth and also sheds nothing — a
     // depth report is a diagnosis, not a policy.
+    //
     // Asserted through the WARNING, not through the latch member: one message
-    // for 25 enqueues past the threshold. failOnWarning() in init() is what
-    // makes this able to fail — a second, unignored warning fails the slot, so
-    // "once" is genuinely pinned rather than merely described.
+    // for 25 submits past the threshold. failOnWarning() in init() is what makes
+    // this able to fail — a second, unignored warning fails the slot, so "once"
+    // is genuinely pinned rather than merely described.
     void depthWarningFiresOnceWhenTheQueueBacksUp() {
-        BleTransport t;
-        QCOMPARE(BleTransport::QUEUE_DEPTH_WARN, qsizetype(20));
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
+        QCOMPARE(BleGattQueue::QUEUE_DEPTH_WARN, qsizetype(20));
 
         QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("BLE write queue is 20 deep")));
+                             QRegularExpression(QStringLiteral("BLE operation queue is 20 deep")));
         for (int i = 0; i < 25; ++i)
             t.write(frameWrite(), payload('x'));
     }
 
     // Re-arms only once well clear of the threshold, so a queue hovering at the
-    // boundary does not log on every other enqueue.
+    // boundary does not log on every other submit.
+    //
     // Hysteresis, asserted end to end: back up, drain to just under the
     // threshold, back up again, and show the second episode reports. A latch
     // that never re-armed would emit one warning and fail the second
     // ignoreMessage; one that re-armed on the first dip below the threshold
     // would emit an extra warning at the drain step and fail on that.
-    void depthWarningReportsEachEpisodeButNotEachEnqueue() {
-        BleTransport t;
+    void depthWarningReportsEachEpisodeButNotEachSubmit() {
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
 
         QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("BLE write queue is 20 deep")));
+                             QRegularExpression(QStringLiteral("BLE operation queue is 20 deep")));
         for (int i = 0; i < 22; ++i)
             t.write(frameWrite(), payload('x'));
 
-        // Drain to 9 — below half, so the next enqueue re-arms without
+        // Drain to 9 — below half, so the next submit re-arms without
         // reporting. Any warning emitted here is unignored and fails the slot.
-        t.m_commandQueue.resize(9);
+        queue.m_queue.resize(9);
         t.write(frameWrite(), payload('x'));
 
         QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("BLE write queue is 20 deep")));
-        while (t.m_commandQueue.size() < 20)
+                             QRegularExpression(QStringLiteral("BLE operation queue is 20 deep")));
+        while (queue.pendingCount() < 20)
             t.write(frameWrite(), payload('x'));
     }
 
@@ -336,7 +459,8 @@ private slots:
     }
 
     void abandonedWritesReportTheLinkAsNoLongerAcceptingWrites() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         QSignalSpy faults(&t, &BleTransport::de1LinkFault);
 
         QTest::ignoreMessage(QtWarningMsg,
@@ -347,7 +471,7 @@ private slots:
         QVERIFY(t.m_writeDeadLinkReported);
         QCOMPARE(t.m_consecutiveWriteFailures, BleTransport::WRITE_DEAD_LINK_THRESHOLD);
         // noteWriteAbandoned counts and reports; the fault itself is emitted by
-        // the two retry-exhaustion sites, not here.
+        // the operation's abandonment callback, not here.
         QCOMPARE(faults.count(), 0);
 
         // The episode is still open, and ~BleTransport calls disconnect() ->
@@ -363,7 +487,8 @@ private slots:
     // LOGGING.md the recurring failure is a fault reported at WARN whose
     // resolution sits at DEBUG, leaving a reader with only the failure half.
     void aSuccessfulWriteClosesTheEpisodeAndResetsTheRun() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         QTest::ignoreMessage(QtWarningMsg,
                              QRegularExpression(QStringLiteral("stopped accepting writes")));
         for (int i = 0; i < BleTransport::WRITE_DEAD_LINK_THRESHOLD; ++i)
@@ -378,7 +503,8 @@ private slots:
     // A disconnect is a different story from a recovery: the link went away
     // rather than started working, and "accepting writes again" would be false.
     void aDisconnectClosesTheEpisodeWithoutClaimingRecovery() {
-        BleTransport t;
+        BleGattQueue queue;
+        BleTransport t(nullptr, &queue);
         QTest::ignoreMessage(QtWarningMsg,
                              QRegularExpression(QStringLiteral("stopped accepting writes")));
         for (int i = 0; i < BleTransport::WRITE_DEAD_LINK_THRESHOLD; ++i)

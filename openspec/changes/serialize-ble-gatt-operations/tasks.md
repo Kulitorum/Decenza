@@ -1,25 +1,26 @@
 ## 1. Pin today's DE1 queue behaviour before moving it
 
-- [ ] 1.1 Add tests that record the DE1 command queue's current observable behaviour: 50 ms pacing between writes, retry count and delay on a failing write, `writeUrgent` ordering ahead of queued work, `discardQueued()` dropping only the named UUIDs, `clearQueue()` return value, and the depth warning at 20. These must pass on `main` unchanged.
-- [ ] 1.2 Add tests recording the abandonment signals: `writeAbandoned`, `de1LinkFault("write-failed")`, and the consecutive-failure reporting and its close-out on recovery and on disconnect.
+- [x] 1.1 Add tests that record the DE1 command queue's current observable behaviour: 50 ms pacing between writes, retry count and delay on a failing write, `writeUrgent` ordering ahead of queued work, `discardQueued()` dropping only the named UUIDs, `clearQueue()` return value, and the depth warning at 20. These must pass on `main` unchanged.
+- [x] 1.2 Add tests recording the abandonment signals: `writeAbandoned`, `de1LinkFault("write-failed")`, and the consecutive-failure reporting and its close-out on recovery and on disconnect.
 - [ ] 1.3 Record the current duration of a DE1 profile upload with a scale connected, so the throughput risk in design.md is answered with a number.
 
 ## 2. The shared queue
 
-- [ ] 2.1 Add `BleGattQueue` in `src/ble/`: one queue, one in-flight slot, FIFO across requesters, each requester's own submission order preserved.
-- [ ] 2.2 Give each queued operation its own policy — retry budget, retry delay, pacing, discard key — defaulting to zero retries, so a submitter opts into retry rather than inheriting it.
-- [ ] 2.3 Dispatch the next operation only from a terminal outcome of the current one, posted rather than called synchronously from the release.
-- [ ] 2.4 Implement release-on-teardown: a requester disconnecting or being destroyed frees the slot immediately and discards that requester's queued operations.
-- [ ] 2.5 Implement per-requester `clear` and UUID-scoped `discard` over the shared queue, scoped so one requester cannot drop another's work.
-- [ ] 2.6 Confirm no timer is owned by the queue. If one appears necessary, stop and re-derive — design.md states the terminal outcome and the transports' existing machinery are the only permitted release paths.
-- [ ] 2.7 Add log lines for submit, dispatch, release, teardown-discard and depth, following `docs/CLAUDE_MD/LOGGING.md`, and register the new file in the correct glob set in `scripts/check_log_markers.py`.
+- [x] 2.1 Add `BleGattQueue` in `src/ble/`: one queue, one in-flight slot, FIFO across requesters, each requester's own submission order preserved.
+- [x] 2.2 Give each queued operation its own policy — retry budget, retry delay, pacing, discard key — defaulting to zero retries, so a submitter opts into retry rather than inheriting it.
+- [x] 2.3 Dispatch the next operation only from a terminal outcome of the current one, posted rather than called synchronously from the release.
+- [x] 2.4 Implement release-on-teardown: a requester disconnecting or being destroyed frees the slot immediately and discards that requester's queued operations.
+- [x] 2.5 Implement per-requester `clear` and UUID-scoped `discard` over the shared queue, scoped so one requester cannot drop another's work.
+- [x] 2.6 Confirm no timer is owned by the queue. If one appears necessary, stop and re-derive — design.md states the terminal outcome and the transports' existing machinery are the only permitted release paths.
+- [x] 2.7 Add log lines for submit, dispatch, release, teardown-discard and depth, following `docs/CLAUDE_MD/LOGGING.md`, and register the new file in the correct glob set in `scripts/check_log_markers.py`.
 
 ## 3. Move the DE1 transport onto it
 
-- [ ] 3.1 Replace `m_commandQueue`, `m_commandTimer` and `m_writePending` in `src/ble/bletransport.cpp` with submissions to the shared queue, carrying the existing constants as per-operation policy.
-- [ ] 3.2 Re-point `clearQueue()` and `discardQueued()` at the shared queue, preserving their current return values and UUID scoping.
-- [ ] 3.3 Submit controller connect and `discoverDetails()` through the queue, releasing on their terminal signals and on the existing `CONNECT_WATCHDOG_MS` abort.
-- [ ] 3.4 Re-run the group 1 tests unchanged. Any difference is a regression, not a new baseline.
+- [x] 3.1 Replace `m_commandQueue`, `m_commandTimer` and `m_writePending` in `src/ble/bletransport.cpp` with submissions to the shared queue, carrying the existing constants as per-operation policy.
+- [x] 3.2 Re-point `clearQueue()` and `discardQueued()` at the shared queue, preserving their current return values and UUID scoping.
+- [ ] 3.3 Submit `discoverDetails()` through the queue, releasing on `RemoteServiceDiscovered` and on the service-discovery retry path. **Deferred to the group 4 commit, deliberately:** queueing the DE1's discovery only buys anything once the scale's is queued too, and it needs a longer per-operation bound than a write (discovery took 6.0 s in the #1819 capture against `WRITE_TIMEOUT_MS` of 5 s). It lands with its counterpart rather than alone.
+- [ ] 3.3a The controller CONNECT is deliberately NOT queued, which is a departure from design.md's "cover connect and service discovery". A connect is bounded only by `CONNECT_WATCHDOG_MS` (35 s), so a wedged one would hold the shared slot for 35 s and starve every other device — a worse failure than the one being fixed, and unlike a GATT operation a connect is radio-scheduler work the host stack already interleaves. Record the decision in design.md if it survives group 4.
+- [x] 3.4 Re-run the group 1 tests unchanged. Any difference is a regression, not a new baseline.
 - [ ] 3.5 Confirm the firmware updater releases the slot across its erase-and-wait intervals rather than holding it, and that a firmware update does not stall a connected scale.
 
 ## 4. Move the scale and refractometer transports onto it
@@ -31,11 +32,11 @@
 
 ## 5. Subscribe through the queue; delete the bespoke timer
 
-- [ ] 5.1 Submit CCCD writes in `subscribeNext()` through the shared queue instead of calling `writeDescriptor()` directly with its own timer.
-- [ ] 5.2 Delete `SUBSCRIBE_TIMEOUT_MS` and `m_subscribeTimeoutTimer`, recording in the code why: it duplicated Qt's own `RUNNABLE_TIMEOUT` (`QtBluetoothLE.java:69`) and raced it.
-- [ ] 5.3 Handle the descriptor error when it arrives instead of logging at DEBUG and dropping it.
-- [ ] 5.4 On exhaustion for a required stream (`STATE_INFO`, `SHOT_SAMPLE`), do not emit `connected()` — tear down and re-enter the existing reconnect path. Keep a non-required stream's failure non-fatal and recorded.
-- [ ] 5.5 Confirm the failure reaches `de1LinkFault` so `evaluateBleWedge()` can see a DE1 stuck mid-subscribe, and that the reconnect ladder's existing backoff and error surfacing still apply — no silent reconnect loop.
+- [x] 5.1 Submit CCCD writes through the shared queue instead of calling `writeDescriptor()` directly with its own timer. `subscribeNext()` itself is gone — the recursion, `m_pendingSubscribeQueue`, `m_currentSubscribeUuid` and the late-ACK matcher all collapsed into FIFO ordering plus a ready marker.
+- [x] 5.2 Delete `SUBSCRIBE_TIMEOUT_MS` and `m_subscribeTimeoutTimer`, recording in the code why: it duplicated Qt's own `RUNNABLE_TIMEOUT` (`QtBluetoothLE.java:69`) and raced it.
+- [x] 5.3 Handle the descriptor error when it arrives instead of logging at DEBUG and dropping it.
+- [x] 5.4 On exhaustion for a required stream (`STATE_INFO`, `SHOT_SAMPLE`), do not emit `connected()` — tear down and re-enter the existing reconnect path. Keep a non-required stream's failure non-fatal and recorded.
+- [x] 5.5 Confirm the failure reaches `de1LinkFault` so `evaluateBleWedge()` can see a DE1 stuck mid-subscribe, and that the reconnect ladder's existing backoff and error surfacing still apply — no silent reconnect loop.
 
 ## 6. Remove the timer gate
 
@@ -45,9 +46,9 @@
 
 ## 7. Observability
 
-- [ ] 7.1 Raise the descriptor-error record to the tier the connections views display, and include the characteristic UUID so the failed stream is named rather than inferred.
-- [ ] 7.2 Add a single record at the end of DE1 notification subscription stating which streams are live.
-- [ ] 7.3 Re-read `docs/CLAUDE_MD/LOGGING.md` tier rules against every line added — audience, not importance, picks the tier.
+- [x] 7.1 Raise the descriptor-error record to the tier the connections views display, and include the characteristic UUID so the failed stream is named rather than inferred.
+- [ ] 7.2 Add a single record at the end of DE1 notification subscription stating which streams are live. (The ready marker is the place for it.)
+- [x] 7.3 Re-read `docs/CLAUDE_MD/LOGGING.md` tier rules against every line added — audience, not importance, picks the tier.
 
 ## 8. Tests for the new behaviour
 

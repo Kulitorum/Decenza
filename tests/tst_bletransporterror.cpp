@@ -158,73 +158,33 @@ private slots:
 
     // -- Selective discard --
     //
-    // The queue's only correction used to be clearQueue(), which throws away
-    // writes nothing has superseded. These pin the narrower operation: an
-    // upload withdraws its OWN frames and leaves everything else alone.
-    //
-    // Nothing here spins an event loop, so the 50 ms command timer never fires
-    // and the queue stays exactly as written(). writeCharacteristic() would in
-    // any case return early with no service attached.
+    // Scoping, ordering and in-flight accounting live in tst_BleCommandQueue,
+    // which owns what BleTransport puts on the shared queue. The one invariant
+    // that belongs here is the SAFETY one: a stop must be untouchable.
 
-    void discardQueuedRemovesOnlyTheNamedCharacteristics() {
-        BleTransport transport;
-        transport.write(DE1::Characteristic::HEADER_WRITE, QByteArray(1, 'h'));
-        transport.write(DE1::Characteristic::FRAME_WRITE, QByteArray(1, 'a'));
-        transport.write(DE1::Characteristic::SHOT_SETTINGS, QByteArray(1, 's'));
-        transport.write(DE1::Characteristic::FRAME_WRITE, QByteArray(1, 'b'));
-        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
-        QCOMPARE(transport.m_commandQueue.size(), 5);
-
-        const qsizetype dropped = transport.discardQueued(
-            {DE1::Characteristic::HEADER_WRITE, DE1::Characteristic::FRAME_WRITE});
-
-        QCOMPARE(dropped, 3);
-        QCOMPARE(transport.m_commandQueue.size(), 2);
-        // Survivors keep their relative order — a discard must not reshuffle
-        // the writes it spares.
-        QCOMPARE(transport.m_commandQueue.at(0).uuid, DE1::Characteristic::SHOT_SETTINGS);
-        QCOMPARE(transport.m_commandQueue.at(1).uuid, DE1::Characteristic::WRITE_TO_MMR);
-    }
-
-    // The invariant the spec asks for, asserted rather than built: a stop is
-    // issued through writeUrgent(), which prepends when a write is in flight,
-    // and no discard may take it. The stop paths clear before writing so this
-    // is belt-and-braces today — which is exactly why it needs a test, since
-    // nothing else would notice if that ordering changed.
+    // A stop is issued through writeUrgent(), which puts it at the head of the
+    // queue, and no discard may take it. The stop paths clear before writing so
+    // this is belt-and-braces today — which is exactly why it needs a test,
+    // since nothing else would notice if that ordering changed.
     void aPendingUrgentStateWriteSurvivesADiscard() {
-        BleTransport transport;
+        BleGattQueue queue;
+        BleTransport transport(nullptr, &queue);
         transport.write(DE1::Characteristic::FRAME_WRITE, QByteArray(1, 'a'));
 
-        transport.m_writePending = true;   // force the prepend branch
         transport.writeUrgent(DE1::Characteristic::REQUESTED_STATE,
                               QByteArray(1, static_cast<char>(DE1::State::Idle)));
-        QCOMPARE(transport.m_commandQueue.size(), 2);
+        QCOMPARE(queue.pendingCount(), qsizetype(2));
         // Asserted before the discard: without this, the slot passes just as
         // well if writeUrgent() appended instead of prepending, since only one
         // entry survives either way.
-        QCOMPARE(transport.m_commandQueue.head().uuid, DE1::Characteristic::REQUESTED_STATE);
-
-        // Left in flight across the discard. clearQueue() cancels the in-flight
-        // write and counts it; discardQueued() must do neither — the write is on
-        // the wire or being retried, and cancelling it would desynchronise
-        // m_writePending / m_lastCommand / the timeout timer with no way to know
-        // whether it reached the peripheral. That divergence between two
-        // neighbouring functions is what drifts.
-        transport.m_lastCommand = []() {};
-        transport.m_writeTimeoutTimer.start();
+        QCOMPARE(queue.m_queue.head().key, DE1::Characteristic::REQUESTED_STATE);
 
         const qsizetype dropped = transport.discardQueued(
             {DE1::Characteristic::HEADER_WRITE, DE1::Characteristic::FRAME_WRITE});
 
-        QCOMPARE(dropped, 1);
-        QCOMPARE(transport.m_commandQueue.size(), 1);
-        QCOMPARE(transport.m_commandQueue.head().uuid, DE1::Characteristic::REQUESTED_STATE);
-        QVERIFY(transport.m_writePending);
-        QVERIFY(transport.m_lastCommand != nullptr);
-        QVERIFY(transport.m_writeTimeoutTimer.isActive());
-
-        transport.m_writePending = false;
-        transport.m_writeTimeoutTimer.stop();
+        QCOMPARE(dropped, qsizetype(1));
+        QCOMPARE(queue.pendingCount(), qsizetype(1));
+        QCOMPARE(queue.m_queue.head().key, DE1::Characteristic::REQUESTED_STATE);
     }
 
     // -- A link that has stopped accepting writes --
@@ -233,50 +193,42 @@ private slots:
     // assertions real: a second report, or a report before the bound, fails the
     // test without any explicit check for it.
 
-    // The counter is reached from two exhaustion sites in production. Every
-    // other slot here calls noteWriteAbandoned() directly, so removing either
-    // call site would leave the whole detector dead with a green suite. This
-    // one drives the real write-timeout path: the handler is a lambda on
-    // m_writeTimeoutTimer and touches no service, so it runs headless.
-    void theWriteTimeoutPathFeedsTheConsecutiveFailureCounter() {
-        BleTransport transport;
+    // Every other slot here calls noteWriteAbandoned() directly, so deleting
+    // the one production call site would leave the whole detector dead with a
+    // green suite. This one drives the real path end to end: a write is
+    // submitted, dispatched, and abandoned by the queue, and the counter and
+    // both signals must follow from that alone.
+    void theRetryExhaustionPathFeedsTheConsecutiveFailureCounter() {
+        BleGattQueue queue;
+        BleTransport transport(nullptr, &queue);
         QSignalSpy fault(&transport, &DE1Transport::de1LinkFault);
         QSignalSpy abandoned(&transport, &DE1Transport::writeAbandoned);
 
-        const auto exhaustOneWrite = [&transport]() {
-            transport.m_writePending = true;
-            transport.m_lastCommand = []() {};
-            transport.m_writeRetryCount = BleTransport::MAX_WRITE_RETRIES;
-            QTest::ignoreMessage(QtWarningMsg,
-                QRegularExpression("Write FAILED after 5 retries"));
-            // QTimer::timeout carries a QPrivateSignal, so it cannot be
-            // emitted from outside QTimer. Firing it through the meta-object
-            // reaches the same connected lambda without spinning an event loop
-            // (which would also fire the 50 ms command timer and make the rest
-            // of this file's queue assertions non-deterministic).
-            QMetaObject::invokeMethod(&transport.m_writeTimeoutTimer, "timeout");
-        };
+        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(4, 'm'));
 
-        exhaustOneWrite();
-        exhaustOneWrite();
-        QCOMPARE(transport.m_consecutiveWriteFailures, 2);
+        // Dispatch is posted, not inline. With no service attached the issue
+        // step reports the failure to the queue, which starts the retry ladder.
+        QTest::qWait(20);
+        QCOMPARE(queue.inFlightRequester(), static_cast<const void*>(&transport));
 
+        // Put the operation one failure from exhaustion rather than walking the
+        // ladder in real time — five retries at WRITE_RETRY_DELAY_MS is 2.5 s of
+        // wall clock for a step this slot is not about.
+        queue.m_retryCount = BleTransport::MAX_WRITE_RETRIES;
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("DE1 link has stopped accepting writes: 3 consecutive"));
-        exhaustOneWrite();
+            QRegularExpression("Write FAILED after 5 retries"));
+        queue.noteFailed(&transport);
 
+        QCOMPARE(transport.m_consecutiveWriteFailures, 1);
         // The fault feed and the counter must stay in step — they are read
         // together by QtScaleBleTransport::onDe1LinkFault.
-        QCOMPARE(fault.count(), 3);
-        QCOMPARE(abandoned.count(), 3);
-
-        // ~BleTransport() runs disconnect(), which closes the still-open
-        // episode with its peak. Expected here rather than suppressed: a link
-        // torn down mid-episode is exactly the case that must not go
-        // unrecorded, and this is the assertion that it does not.
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("Link dropped while it had stopped accepting writes. "
-                               "The run reached 3"));
+        QCOMPARE(fault.count(), 1);
+        QCOMPARE(abandoned.count(), 1);
+        // The abandoned write is reported with the characteristic and payload it
+        // was submitted with, which is what DE1Device dispatches on.
+        QCOMPARE(abandoned.at(0).at(0).value<QBluetoothUuid>(),
+                 DE1::Characteristic::WRITE_TO_MMR);
+        QCOMPARE(abandoned.at(0).at(1).toByteArray(), QByteArray(4, 'm'));
     }
 
     void consecutiveAbandonedWritesReportOnceAtTheBound() {
@@ -372,8 +324,13 @@ private slots:
         QCOMPARE(transport.m_consecutiveWriteFailures, 2);
     }
 
-    void aDisconnectClearsTheCount() {
-        BleTransport transport;
+    // A disconnect must also release the radio. A dead link holding the shared
+    // slot stalls every other device, which is why this asserts the queue is
+    // clear and not merely that the counters reset.
+    void aDisconnectClearsTheCountAndReleasesTheQueue() {
+        BleGattQueue queue;
+        BleTransport transport(nullptr, &queue);
+        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
         transport.noteWriteAbandoned();
         transport.noteWriteAbandoned();
 
@@ -386,54 +343,15 @@ private slots:
         // consecutiveAbandonedWritesReportOnceAtTheBound; here it can only have
         // been false, so this pins the disconnect path's intent, not the reset.)
         QCOMPARE(transport.m_writeDeadLinkReported, false);
-        QCOMPARE(transport.m_queueDepthReported, false);
+        QCOMPARE(queue.pendingCount(&transport), qsizetype(0));
+        QVERIFY(!queue.isBusy());
     }
 
-    // -- Queue depth --
-
-    void aBackedUpQueueReportsItsDepthOnce() {
-        BleTransport transport;
-
-        for (int i = 0; i < BleTransport::QUEUE_DEPTH_WARN - 1; ++i)
-            transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
-
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("BLE write queue is 20 deep"));
-        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
-
-        // Deeper still is the same episode, not a new one.
-        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
-        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
-
-        // Draining well clear of the threshold re-arms, and a second backlog
-        // reports again. The hysteresis branch is otherwise never exercised:
-        // during the fill it only ever writes false over false, so deleting it
-        // outright would not fail this test.
-        // Drain to one BELOW half: the re-arm is evaluated after the enqueue, so
-        // the write that re-arms must itself land at or under the half mark.
-        // Draining to exactly half leaves the next write at half+1 and the latch
-        // stays set — which is what this assertion originally got wrong.
-        while (transport.m_commandQueue.size() >= BleTransport::QUEUE_DEPTH_WARN / 2)
-            transport.m_commandQueue.dequeue();
-        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));  // re-arms
-        QCOMPARE(transport.m_queueDepthReported, false);
-
-        while (transport.m_commandQueue.size() < BleTransport::QUEUE_DEPTH_WARN - 1)
-            transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("BLE write queue is 20 deep"));
-        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
-    }
-
-    void discardQueuedWithNoMatchLeavesTheQueueUntouched() {
-        BleTransport transport;
-        transport.write(DE1::Characteristic::SHOT_SETTINGS, QByteArray(1, 's'));
-        transport.write(DE1::Characteristic::WRITE_TO_MMR, QByteArray(1, 'm'));
-
-        QCOMPARE(transport.discardQueued({DE1::Characteristic::FRAME_WRITE}), 0);
-        QCOMPARE(transport.discardQueued({}), 0);
-        QCOMPARE(transport.m_commandQueue.size(), 2);
-    }
+    // Queue depth reporting and the no-match discard cases moved to
+    // tst_BleCommandQueue with the queue itself. The depth latch is no longer a
+    // property of one transport — it belongs to the queue every device shares,
+    // so a DE1 disconnecting does not re-arm a warning another device's backlog
+    // is still earning.
 };
 
 QTEST_MAIN(tst_BleTransportError)

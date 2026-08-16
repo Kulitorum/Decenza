@@ -1,21 +1,28 @@
 #pragma once
 
+#include "blegattqueue.h"
 #include "de1transport.h"
 
 #include <QBluetoothDeviceInfo>
 #include <QElapsedTimer>
 #include <QLowEnergyController>
+#include <QLowEnergyDescriptor>
 #include <QLowEnergyService>
 #include <QTimer>
-#include <QQueue>
 #include <functional>
 
 /**
  * BLE transport for DE1 communication.
  *
  * Implements DE1Transport using QLowEnergyController (Bluetooth Low Energy).
- * Manages the BLE command queue with 50ms inter-write spacing, write retry
- * logic, service discovery, and characteristic subscriptions.
+ * Handles service discovery, characteristic subscriptions, write retries, and
+ * the DE1's half of the process-wide GATT queue.
+ *
+ * Every GATT operation this class issues — writes, reads, and the CCCD writes
+ * that enable notifications — goes through BleGattQueue, which is shared with
+ * the scale and refractometer transports. Nothing here dispatches to the
+ * platform while any device has an operation outstanding. See blegattqueue.h
+ * for why that is process-wide rather than per-device (#1819).
  *
  * Lifecycle:
  *   1. Construct BleTransport
@@ -30,7 +37,13 @@ class BleTransport : public DE1Transport {
     Q_OBJECT
 
 public:
-    explicit BleTransport(QObject* parent = nullptr);
+    /**
+     * @param queue  The GATT queue to submit to. Defaults to the process-wide
+     *               instance, which is what production wants. Tests inject their
+     *               own so ordering can be asserted without sharing state
+     *               between test functions.
+     */
+    explicit BleTransport(QObject* parent = nullptr, BleGattQueue* queue = nullptr);
     ~BleTransport() override;
 
     // -- DE1Transport interface --
@@ -61,14 +74,13 @@ public:
     // and the link-teardown family still fires de1LinkFault. That contract is
     // otherwise enforced only by the ABSENCE of an emit, which no test can see.
     friend class tst_BleTransportError;
-    // tst_BleCommandQueue pins the command queue's observable behaviour —
-    // FIFO order, 50 ms pacing, urgent-write placement, UUID-scoped discard,
-    // clearQueue()'s in-flight accounting, and the depth warning. These are
-    // about to move onto the shared cross-device queue (#1819), and a move is
-    // only verifiable against a recorded baseline: reading the new code and
-    // agreeing it looks equivalent is what lets a tuned constant quietly
-    // change meaning. Every assertion here passes before the move and must
-    // pass unchanged after it.
+    // tst_BleCommandQueue pins the queue behaviour this transport is
+    // responsible for — FIFO order, urgent-write placement, UUID-scoped
+    // discard, clearQueue()'s in-flight accounting, the depth warning, and the
+    // retry budget. It was written against the private command queue that
+    // preceded BleGattQueue so the move to the shared queue could be checked
+    // against a recorded baseline rather than against a reading of the new
+    // code.
     friend class tst_BleCommandQueue;
 #endif
 
@@ -80,9 +92,14 @@ private slots:
     void onServiceDiscoveryFinished();
     void onServiceStateChanged(QLowEnergyService::ServiceState state);
     void onCharacteristicChanged(const QLowEnergyCharacteristic& c, const QByteArray& value);
+    // Split from onCharacteristicChanged, which the two signals used to share.
+    // A read RESPONSE ends the operation holding the queue slot; an unsolicited
+    // notification does not, and releasing the slot on one would free a write
+    // still in the air. The conflation was invisible before there was a slot to
+    // free.
+    void onCharacteristicRead(const QLowEnergyCharacteristic& c, const QByteArray& value);
     void onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value);
     void onDescriptorWritten(const QLowEnergyDescriptor& descriptor, const QByteArray& value);
-    void processCommandQueue();
 
 private:
     // The three audience tiers — see src/ble/de1logging.h. DEBUG for protocol
@@ -99,19 +116,64 @@ private:
     bool setupController(const QBluetoothDeviceInfo& device);
     void setupService();
     void writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data);
-    void queueCommand(const QBluetoothUuid& uuid, std::function<void()> command);
 
-    // Post-connect notification subscription (CCCD enable), sequenced and
-    // confirmed one at a time — see subscribeAll(). Fires connected() only
-    // once every characteristic in m_pendingSubscribeQueue has been confirmed
-    // or individually timed out, closing the race where a one-shot MMR read's
-    // response notification could be sent before the client had actually
-    // finished enabling notifications for it.
-    void subscribeNext();
-    QList<QBluetoothUuid> m_pendingSubscribeQueue;
-    QBluetoothUuid m_currentSubscribeUuid;
-    QTimer m_subscribeTimeoutTimer;
-    static constexpr int SUBSCRIBE_TIMEOUT_MS = 3000;
+    // -- The DE1's half of the shared GATT queue --------------------------
+    //
+    // Four submitters, one skeleton. Each submitter decides only what to issue
+    // and what giving up means; everything common — the requester tag, the
+    // discard key, the retry policy, and arming the operation timeout — is in
+    // operationFor().
+
+    /**
+     * The common Operation skeleton. The caller fills in onAbandoned and
+     * submits.
+     *
+     * @param timeoutMs  How long this operation may hold the slot with no
+     *                   platform answer at all. Armed on dispatch and again on
+     *                   every retry; stopped by whichever terminal outcome
+     *                   arrives first.
+     */
+    BleGattQueue::Operation operationFor(const QBluetoothUuid& key,
+                                         const QString& verb,
+                                         std::function<void()> issue,
+                                         int timeoutMs = WRITE_TIMEOUT_MS);
+    void submitWrite(const QBluetoothUuid& uuid, const QByteArray& data, bool toFront);
+    void submitRead(const QBluetoothUuid& uuid);
+    /**
+     * Enable notifications for one characteristic.
+     *
+     * @param required  A stream the machine is unusable without. STATE_INFO and
+     *                  SHOT_SAMPLE are the two: with either missing there is no
+     *                  phase detection, no chart, no shot detection and no
+     *                  stop-at-weight — the state #1819 reported as CONNECTED.
+     *                  Failing to enable a required stream fails the connection
+     *                  rather than proceeding without it.
+     */
+    void submitSubscribe(const QBluetoothUuid& uuid, bool required);
+    /** Report a required stream as unusable and fail the connection attempt. */
+    void failRequiredStream(const QBluetoothUuid& uuid);
+    /**
+     * A queue entry that issues nothing and completes itself.
+     *
+     * It is how "every subscription above has been confirmed" is expressed
+     * without a flag: FIFO ordering puts it after the subscribes, and a
+     * required-stream failure calls forget(), which drops it along with the
+     * rest of this transport's queued work. Reaching it IS the confirmation.
+     */
+    void submitReadyMarker();
+
+    /** True when the slot holds this transport's operation for `uuid`. */
+    bool ownsInFlight(const QBluetoothUuid& uuid) const;
+    /** Terminal success for the operation on `uuid`; no-op if it isn't ours. */
+    void completeOperation(const QBluetoothUuid& uuid);
+    /** Emit queueDrained() if this transport has nothing left anywhere. */
+    void emitQueueDrainedIfIdle();
+    /** The CCCD of `uuid`, or an invalid descriptor if there isn't one. */
+    QLowEnergyDescriptor cccdFor(const QBluetoothUuid& uuid) const;
+
+    // Never null after construction: the injected queue, or the process-wide
+    // instance. Not owned.
+    BleGattQueue* m_gattQueue = nullptr;
 
     QLowEnergyController* m_controller = nullptr;
     QLowEnergyService* m_service = nullptr;
@@ -132,28 +194,15 @@ private:
     // corresponds to a subsequent m_controller->connectToDevice() call.
     bool m_disconnectedEmittedForAttempt = false;
 
-    // Command queue (50ms spacing between BLE writes).
+    // -- Retry policy, carried by every operation this transport submits ---
     //
-    // Each entry carries the characteristic it targets so a caller can discard
-    // just its own pending work — see discardQueued(). Without it the queue is
-    // opaque and the only available correction is clearQueue(), which throws
-    // away unrelated writes that nothing has superseded. de1app makes the same
-    // distinction by matching on a per-entry comment string
-    // (remove_matching_ble_queue_entries, de1_comms.tcl:1423, called at 14
-    // sites); the UUID is the equivalent handle here and is already in scope at
-    // both queueCommand() call sites.
-    struct QueuedCommand {
-        QBluetoothUuid uuid;
-        std::function<void()> run;
-    };
-    QQueue<QueuedCommand> m_commandQueue;
-    QTimer m_commandTimer;
-    bool m_writePending = false;
-
-    // Write retry logic (like de1app)
-    std::function<void()> m_lastCommand;
-    int m_writeRetryCount = 0;
-
+    // The budget belongs to the LINK, not to the operation type: a read, a
+    // characteristic write and a CCCD write all fail for the same reasons on
+    // the same radio, so they share one policy rather than three. (Reads did
+    // not retry before the shared queue, because nothing tracked them well
+    // enough to retry them. They are idempotent GETs and a lost one used to
+    // leave the app with no firmware version or no initial state.)
+    //
     // Was 10. Measured across 283 retry cycles in the 26-log user-submitted
     // corpus (#1176 … #1810). 12 of those logs carry a "retrying 1/10" line; 14
     // carry at least one exhaustion, and the two extra are head-trimmed captures
@@ -193,10 +242,16 @@ private:
     // numbers must be reproducible: over the extracted corpus, count
     // "retrying 1/10" lines for cycles started, per-N "retrying N/10" line
     // counts for the distribution (recoveries at exactly N = count(N) -
-    // count(N+1)), and "FAILED after 10 retries" for exhaustions. Both
-    // exhaustion paths (write timeout, CharacteristicWriteError) share
-    // m_writeRetryCount and emit the same "retrying N/10" text, so a cycle may
-    // start on one and end on the other; they are deliberately counted together.
+    // count(N+1)), and "FAILED after 10 retries" for exhaustions. Every
+    // exhaustion path shared one counter and emitted the same "retrying N/10"
+    // text, so a cycle could start on one and end on another; they are
+    // deliberately counted together.
+    //
+    // Those are the marker strings in the CORPUS, which is fixed and predates
+    // the shared queue. Retries are counted by BleGattQueue now and logged by
+    // it as "[Bluetooth][GattQueue] retry N/5 for <verb> <uuid>"; a
+    // re-derivation over logs captured since must grep for that instead. The
+    // counting rule is unchanged — one counter, every failure path.
     //
     // These figures replace an earlier set (434 cycles, 380 exhaustions, "43 of
     // 54 recoveries at a budget of 5") that were stated here as measurement and
@@ -218,15 +273,20 @@ private:
     // fires on its first cascade at any budget. What changed is that it is
     // detected SOONER, not more often.)
     static constexpr int MAX_WRITE_RETRIES = 5;
-    QTimer m_writeTimeoutTimer;
     static constexpr int WRITE_TIMEOUT_MS = 5000;
     static constexpr int WRITE_RETRY_DELAY_MS = 500;
-    QString m_lastWriteUuid;
-    // The same characteristic in full. m_lastWriteUuid above is an
-    // eight-character abbreviation built for log lines; writeAbandoned()
-    // carries a real QBluetoothUuid so the device layer can dispatch on it.
-    QBluetoothUuid m_lastWriteUuidFull;
-    QByteArray m_lastWriteData;
+
+    // The one clock this transport owns, and the only thing that can end an
+    // operation the platform never answers at all.
+    //
+    // It is deliberately NOT a second bound on an operation the platform DOES
+    // answer: every real terminal outcome (characteristicWritten,
+    // characteristicRead, descriptorWritten, and the service error signals)
+    // stops it. The predecessor of this timer raced Qt's own 3 s
+    // RUNNABLE_TIMEOUT on the same CCCD write and turned a DescriptorWriteError
+    // that arrived at +45 ms into a 3 s stall, three times in one connect
+    // (#1819). One clock, and it is the outer one.
+    QTimer m_operationTimeoutTimer;
 
     // Consecutive writes abandoned after exhausting their retries, reset by any
     // successful write and by a disconnect. Recognises a link that has stopped
@@ -266,16 +326,8 @@ private:
     // counter, so a timer would only add a second clock to reason about.
     static constexpr int WRITE_DEAD_LINK_RESTATE = 10;
 
-    // Edge-triggered so a backed-up queue reports once rather than on every
-    // enqueue. de1app warns at 20 (de1_comms.tcl:49) and has no cap either;
-    // this is the same signal, and like de1app's it sheds nothing — a depth
-    // report is a diagnosis, not a policy.
-    bool m_queueDepthReported = false;
-    static constexpr qsizetype QUEUE_DEPTH_WARN = 20;
-
-    // Called from both retry-exhaustion sites. Counts the abandoned write and
-    // reports the link as no longer accepting writes when the count passes the
-    // bound.
+    // Counts the abandoned write and reports the link as no longer accepting
+    // writes when the count passes the bound.
     void noteWriteAbandoned();
     // Called when a write completes. Closes out a reported episode with the
     // run it reached, at INFO — per LOGGING.md the recurring failure is a fault

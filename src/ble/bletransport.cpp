@@ -91,73 +91,20 @@ static void stopBleConnectionService() {
 }
 #endif
 
-BleTransport::BleTransport(QObject* parent)
+BleTransport::BleTransport(QObject* parent, BleGattQueue* queue)
     : DE1Transport(parent)
+    , m_gattQueue(queue ? queue : &BleGattQueue::instance())
 {
-    m_commandTimer.setInterval(50);  // Process queue every 50ms
-    m_commandTimer.setSingleShot(true);
-    connect(&m_commandTimer, &QTimer::timeout, this, &BleTransport::processCommandQueue);
-
-    // Notification-subscribe timeout: bounds each CCCD descriptor write during
-    // subscribeAll() so one stuck subscription can't block the connection
-    // forever. No retry — subscribeNext() just moves on and logs the failure
-    // (see subscribeNext()/onDescriptorWritten()).
-    m_subscribeTimeoutTimer.setSingleShot(true);
-    m_subscribeTimeoutTimer.setInterval(SUBSCRIBE_TIMEOUT_MS);
-    connect(&m_subscribeTimeoutTimer, &QTimer::timeout, this, [this]() {
-        // Proceeding without confirmation means this characteristic's
-        // notifications may never start flowing this session, yet the app will
-        // present as fully connected. Name the stream and the consequence so a
-        // field AI reading the log can tie "telemetry frozen / stale data" back
-        // to this line rather than having to infer it. The zombie-link detector
-        // is the only in-session backstop (up to NOTIFICATION_STALE_MS later).
-        warn(QString("Notification subscribe timed out (%1) — proceeding without "
-                     "confirmation; that stream's notifications may not flow until "
-                     "the next reconnect")
-                 .arg(m_currentSubscribeUuid.toString().mid(1, 8)));
-        m_writePending = false;
-        subscribeNext();
-    });
-
-    // Write timeout timer - detect hung BLE writes (like de1app)
-    m_writeTimeoutTimer.setSingleShot(true);
-    m_writeTimeoutTimer.setInterval(WRITE_TIMEOUT_MS);
-    connect(&m_writeTimeoutTimer, &QTimer::timeout, this, [this]() {
-        if (m_writePending) {
-            m_writePending = false;
-            if (m_lastCommand && m_writeRetryCount < MAX_WRITE_RETRIES) {
-                m_writeRetryCount++;
-                log(QString("Write timeout, retrying %1/%2 (uuid=%3)")
-                    .arg(m_writeRetryCount).arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
-                QTimer::singleShot(WRITE_RETRY_DELAY_MS, this, [this]() {
-                    if (m_lastCommand) {
-                        m_lastCommand();
-                    }
-                });
-            } else {
-                warn(QString("Write FAILED after %1 retries (uuid=%2, %3 bytes)")
-                    .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid).arg(m_lastWriteData.size()));
-                // Deliberately no errorOccurred (user-facing): retry exhaustion means
-                // the link is dead and the reconnect ladder takes over — typically
-                // self-healing in seconds. Surfacing it queued stale "Connection
-                // Error" modals behind the screensaver (#1423). Persistent failures
-                // still reach the user via the reconnect path's own errors.
-                // Count BEFORE the emit. de1LinkFault runs its consumers
-                // synchronously, and one of them reaching disconnect() would
-                // run noteWriteSucceeded() and zero the counter, so the
-                // increment below would restart the episode from 1 on exactly
-                // the links that fault hardest. Nothing here reads state the
-                // emit could invalidate, so the safe order is free.
-                noteWriteAbandoned();
-                emit writeAbandoned(m_lastWriteUuidFull, m_lastWriteData);
-                emit de1LinkFault(QStringLiteral("write-failed"));
-                m_lastCommand = nullptr;
-                m_writeRetryCount = 0;
-                processCommandQueue();  // Move on to next command
-                if (!m_writePending && m_commandQueue.isEmpty())
-                    emit queueDrained();
-            }
-        }
+    // The outer bound on an operation the platform never answers. Retry and
+    // abandonment are the queue's; this only says "no answer at all is also an
+    // answer". See the member's declaration for why there is exactly one.
+    m_operationTimeoutTimer.setSingleShot(true);
+    connect(&m_operationTimeoutTimer, &QTimer::timeout, this, [this]() {
+        if (m_gattQueue->inFlightRequester() != this) return;
+        log(QString("No answer for %1 within %2 ms")
+                .arg(m_gattQueue->inFlightKey().toString().mid(1, 8))
+                .arg(m_operationTimeoutTimer.interval()));
+        m_gattQueue->noteFailed(this);
     });
 
     // Retry timer for failed service discovery
@@ -219,149 +166,85 @@ BleTransport::~BleTransport() {
 // -- DE1Transport interface implementation --
 
 void BleTransport::write(const QBluetoothUuid& uuid, const QByteArray& data) {
-    queueCommand(uuid, [this, uuid, data]() {
-        writeCharacteristic(uuid, data);
-    });
+    submitWrite(uuid, data, /*toFront=*/false);
 }
 
 void BleTransport::writeUrgent(const QBluetoothUuid& uuid, const QByteArray& data) {
-    // Bypass the 50ms command queue for immediate write. Does NOT clear the queue —
-    // callers that need to clear (SAW, sleep) do so explicitly before calling this.
-    // This allows ensureChargerOn (app suspend) to write urgently without dropping
-    // any pending extraction frames.
+    // Urgency is queue POSITION, never a bypass: this jumps ahead of everything
+    // waiting but still waits for whatever is outstanding, on this device or any
+    // other. That is the whole guarantee the queue provides.
     //
-    // If a write is already in-flight, prepend to the queue instead of calling
-    // writeCharacteristic directly — writeCharacteristic is not re-entrant and would
-    // corrupt m_writePending/m_lastWriteUuid/m_writeTimeoutTimer state.
-    if (m_writePending) {
-        m_commandQueue.prepend({uuid, [this, uuid, data]() {
-            writeCharacteristic(uuid, data);
-        }});
-    } else {
-        writeCharacteristic(uuid, data);
-    }
+    // It does NOT clear — callers that need to clear (SAW, sleep) do so
+    // explicitly first — so ensureChargerOn() on app suspend cannot drop pending
+    // extraction frames.
+    //
+    // The write it carries used to be issued synchronously when nothing was in
+    // flight, and now waits one event-loop turn for the queue's posted dispatch.
+    // That costs nothing real: QLowEnergyService::writeCharacteristic is itself
+    // asynchronous, so the synchronous call only ever reached Qt's own per-
+    // controller queue, which needs the same event loop to drain.
+    submitWrite(uuid, data, /*toFront=*/true);
 }
 
 void BleTransport::read(const QBluetoothUuid& uuid) {
-    // Queue the read so it runs after any pending writes complete. Without
-    // queueing, a read issued right after a write executes immediately and
-    // returns the pre-write value, defeating any read-after-write verification.
-    queueCommand(uuid, [this, uuid]() {
-        if (!m_service || !m_characteristics.contains(uuid)) {
-            log(QString("read(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
-            return;
-        }
-        m_service->readCharacteristic(m_characteristics[uuid]);
-    });
+    submitRead(uuid);
 }
 
 void BleTransport::subscribe(const QBluetoothUuid& uuid) {
-    if (!m_service || !m_characteristics.contains(uuid)) {
-        log(QString("subscribe(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
-        return;
-    }
-    QLowEnergyCharacteristic c = m_characteristics[uuid];
-    QLowEnergyDescriptor notification = c.descriptor(
-        QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
-    if (notification.isValid()) {
-        m_service->writeDescriptor(notification, QByteArray::fromHex("0100"));
-    } else {
-        warn(QString("subscribe(%1) FAILED - CCCD descriptor not found")
-            .arg(uuid.toString().mid(1, 8)));
-    }
+    // Ad-hoc subscribe outside the connect sequence — the firmware updater's
+    // FW_MAP_REQUEST. Not a required stream: nothing about the machine's
+    // usability depends on it.
+    submitSubscribe(uuid, /*required=*/false);
 }
 
 void BleTransport::subscribeAll() {
     if (!m_service) return;
 
-    // Sequenced, not fire-and-forget: each CCCD "enable notifications" write is
-    // confirmed (or individually timed out) before the next is attempted, and
-    // connected() is not emitted until the whole queue drains. Without this, a
-    // one-shot MMR read (issued once connected() fires) can have its response
-    // notification sent by the DE1 before the client has actually finished
-    // enabling notifications for READ_FROM_MMR — the response is then silently
-    // dropped with no recovery, since it's not a repeating notification like
-    // STATE_INFO/SHOT_SAMPLE that self-heals on the next push.
-    m_pendingSubscribeQueue = {
-        DE1::Characteristic::STATE_INFO,
-        DE1::Characteristic::SHOT_SAMPLE,
-        DE1::Characteristic::WATER_LEVELS,
-        DE1::Characteristic::READ_FROM_MMR,
-        DE1::Characteristic::TEMPERATURES,
-    };
+    // One queue entry per stream, then the marker that reports the link ready,
+    // then the initial reads. FIFO ordering is what makes this a plain list
+    // instead of the hand-rolled recursion it replaces — the sequencing, the
+    // one-at-a-time confirmation and the late-ACK matching are all the queue's
+    // now.
+    //
+    // Enabling notifications one confirmed step at a time still matters for the
+    // reason it always did: a one-shot MMR read issued once connected() fires
+    // can have its response notification sent by the DE1 before the client has
+    // finished enabling notifications for READ_FROM_MMR, and that response is
+    // then silently dropped with no recovery — unlike a repeating stream such as
+    // STATE_INFO, which self-heals on the next push.
+    submitSubscribe(DE1::Characteristic::STATE_INFO,    /*required=*/true);
+    submitSubscribe(DE1::Characteristic::SHOT_SAMPLE,   /*required=*/true);
+    submitSubscribe(DE1::Characteristic::WATER_LEVELS,  /*required=*/false);
+    submitSubscribe(DE1::Characteristic::READ_FROM_MMR, /*required=*/false);
+    submitSubscribe(DE1::Characteristic::TEMPERATURES,  /*required=*/false);
     // SHOT_SETTINGS is intentionally NOT subscribed: the DE1 firmware does
     // not push notifications on writes (confirmed in de1app's de1_comms.tcl).
     // Verification happens via explicit read() after each write in
     // DE1Device::setShotSettings().
 
-    subscribeNext();
-}
+    submitReadyMarker();
 
-void BleTransport::subscribeNext() {
-    if (m_pendingSubscribeQueue.isEmpty()) {
-        // All subscriptions are confirmed (or individually timed out past the
-        // point where waiting further is worthwhile). Read initial values —
-        // these are plain GATT reads (an immediate request/response over the
-        // same ATT transaction), not notification-based, so they don't share
-        // the CCCD-vs-notification race and don't need to wait on it.
-        read(DE1::Characteristic::VERSION);
-        read(DE1::Characteristic::STATE_INFO);
-        read(DE1::Characteristic::WATER_LEVELS);
-        read(DE1::Characteristic::SHOT_SETTINGS);
-        // Baseline the liveness clock now so a link that connects but never
-        // pushes a single notification also ages out and is caught as a zombie
-        // on the next reconnect attempt — not just one that goes quiet later.
-        m_notificationLiveness.start();
-        emit connected();
-        return;
-    }
-
-    const QBluetoothUuid uuid = m_pendingSubscribeQueue.takeFirst();
-    if (!m_service || !m_characteristics.contains(uuid)) {
-        log(QString("subscribe(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
-        subscribeNext();
-        return;
-    }
-    QLowEnergyCharacteristic c = m_characteristics[uuid];
-    QLowEnergyDescriptor notification = c.descriptor(
-        QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
-    if (!notification.isValid()) {
-        warn(QString("subscribe(%1) FAILED - CCCD descriptor not found")
-            .arg(uuid.toString().mid(1, 8)));
-        subscribeNext();
-        return;
-    }
-
-    m_currentSubscribeUuid = uuid;
-    // Shared with the command queue's single-outstanding-GATT-operation gate —
-    // holding it here keeps a queued characteristic write/read from being
-    // dispatched while a CCCD descriptor write is still in flight, the same
-    // protection m_writePending already gives characteristic writes.
-    m_writePending = true;
-    m_subscribeTimeoutTimer.start();
-    m_service->writeDescriptor(notification, QByteArray::fromHex("0100"));
+    // Queued after the marker, exactly as before: these are plain GATT reads
+    // (request/response over the same ATT transaction), so they don't share the
+    // CCCD-vs-notification race and connected() need not wait on them.
+    read(DE1::Characteristic::VERSION);
+    read(DE1::Characteristic::STATE_INFO);
+    read(DE1::Characteristic::WATER_LEVELS);
+    read(DE1::Characteristic::SHOT_SETTINGS);
 }
 
 void BleTransport::disconnect() {
-    m_commandQueue.clear();
-    m_writePending = false;
-    m_writeTimeoutTimer.stop();
-    m_lastCommand = nullptr;
-    m_writeRetryCount = 0;
-    m_lastWriteUuid.clear();
-    m_lastWriteData.clear();
+    // Releases the slot if we hold it and drops everything of ours still
+    // waiting, including any half-finished subscribeAll() sequence — a
+    // torn-down connection's queued work must not bleed into the next attempt,
+    // and a dead link must not hold the radio for every other device.
+    m_operationTimeoutTimer.stop();
+    m_gattQueue->forget(this);
     forgetWriteFailureState();
-    m_queueDepthReported = false;
 
-    // Reset the notification-subscribe sequence so a stale in-flight
-    // subscribeAll() from a torn-down connection can't bleed into the next
-    // attempt's subscribeNext() chain.
-    m_pendingSubscribeQueue.clear();
-    m_currentSubscribeUuid = QBluetoothUuid();
-    m_subscribeTimeoutTimer.stop();
     // Invalidate liveness so a torn-down connection's stale timestamp can't
     // make the very next fresh connect look like a zombie before its first
-    // notification arrives (subscribeNext() re-baselines it on connected()).
+    // notification arrives (the ready marker re-baselines it on connected()).
     m_notificationLiveness.invalidate();
 
     // Stop any pending retries
@@ -400,42 +283,21 @@ void BleTransport::disconnect() {
 }
 
 qsizetype BleTransport::clearQueue() {
-    // processCommandQueue dequeues a command before dispatching it, so the
-    // currently-in-flight write is no longer in m_commandQueue but is still
-    // live (m_writePending=true). Count it too — otherwise an aborted MMR
-    // write would leave m_lastMMRValues claiming the DE1 has the value.
-    qsizetype cleared = m_commandQueue.size() + (m_writePending ? 1 : 0);
-    m_commandQueue.clear();
-    m_writePending = false;
-    m_writeTimeoutTimer.stop();
-    m_lastCommand = nullptr;
-    m_writeRetryCount = 0;
-    m_lastWriteUuid.clear();
-    m_lastWriteData.clear();
-    return cleared;
+    // forget() counts the in-flight operation as well as the queued ones, which
+    // is what this caller needs: it is about to change machine state and must
+    // invalidate the MMR dedup cache if an MMR write was mid-air. Under-report
+    // there and m_lastMMRValues claims the DE1 holds a value it never received.
+    m_operationTimeoutTimer.stop();
+    return m_gattQueue->forget(this);
 }
 
 qsizetype BleTransport::discardQueued(const QList<QBluetoothUuid>& uuids) {
-    if (uuids.isEmpty() || m_commandQueue.isEmpty()) return 0;
-
-    // Deliberately does NOT touch the in-flight write. clearQueue() counts it
-    // because its callers are about to change machine state and need the MMR
-    // dedup cache invalidated if an MMR write was mid-air; here the caller is
-    // withdrawing work it queued itself, and a write already dispatched has
-    // either landed or is being retried by the write-timeout path.
-    const qsizetype before = m_commandQueue.size();
-    QQueue<QueuedCommand> kept;
-    for (const QueuedCommand& c : std::as_const(m_commandQueue)) {
-        if (!uuids.contains(c.uuid))
-            kept.enqueue(c);
-    }
-    m_commandQueue.swap(kept);
-
-    const qsizetype dropped = before - m_commandQueue.size();
-    if (dropped > 0)
-        log(QString("Discarded %1 queued command(s) for %2 characteristic(s)")
-                .arg(dropped).arg(uuids.size()));
-    return dropped;
+    // Scoped to this transport's own entries, and deliberately does NOT touch
+    // the in-flight operation — the asymmetry with clearQueue() above. Here the
+    // caller is withdrawing work it queued itself, and an operation already
+    // dispatched has either landed or is being retried. Counting it would report
+    // a cancellation that did not happen.
+    return m_gattQueue->discard(this, uuids);
 }
 
 bool BleTransport::isConnected() const {
@@ -583,21 +445,15 @@ void BleTransport::onControllerDisconnected() {
 
     // Clear pending BLE operations to prevent writes against a dead connection,
     // which causes DeadObjectException crashes on Android (issue #189)
-    m_commandQueue.clear();
-    m_writePending = false;
-    m_writeTimeoutTimer.stop();
-    m_commandTimer.stop();
+    m_operationTimeoutTimer.stop();
+    m_gattQueue->forget(this);
     m_characteristicsReady = false;
     setServiceDiscoveryActive(false);
-    m_pendingSubscribeQueue.clear();
-    m_currentSubscribeUuid = QBluetoothUuid();
-    m_subscribeTimeoutTimer.stop();
     m_notificationLiveness.invalidate();
     // Failures observed while a link was already dying must not be carried
     // into the next connection, where they would make a healthy link look
     // write-dead after one more abandoned write.
     forgetWriteFailureState();
-    m_queueDepthReported = false;
 
     if (!m_disconnectedEmittedForAttempt) {
         m_disconnectedEmittedForAttempt = true;
@@ -739,63 +595,62 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
             connect(m_service, &QLowEnergyService::characteristicChanged,
                     this, &BleTransport::onCharacteristicChanged, qc);
             connect(m_service, &QLowEnergyService::characteristicRead,
-                    this, &BleTransport::onCharacteristicChanged, qc);  // Use same handler for reads
+                    this, &BleTransport::onCharacteristicRead, qc);
             connect(m_service, &QLowEnergyService::characteristicWritten,
                     this, &BleTransport::onCharacteristicWritten, qc);
             connect(m_service, &QLowEnergyService::descriptorWritten,
                     this, &BleTransport::onDescriptorWritten, qc);
             connect(m_service, &QLowEnergyService::errorOccurred,
                     this, [this](QLowEnergyService::ServiceError error) {
-                // Log but don't fail on descriptor errors - common on Windows
-                if (error != QLowEnergyService::DescriptorReadError &&
-                    error != QLowEnergyService::DescriptorWriteError) {
-                    // Handle write errors with retry (like de1app)
-                    if (error == QLowEnergyService::CharacteristicWriteError && m_writePending) {
-                        m_writePending = false;
-                        m_writeTimeoutTimer.stop();
-                        if (m_lastCommand && m_writeRetryCount < MAX_WRITE_RETRIES) {
-                            m_writeRetryCount++;
-                            log(QString("CharacteristicWriteError, retrying %1/%2 (uuid=%3)")
-                                .arg(m_writeRetryCount).arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
-                            // Intentionally NOT a de1LinkFault: a single transient
-                            // retry that then succeeds is normal even on capable
-                            // hardware. Only write-failed (retries exhausted) and
-                            // connection-teardown errors count toward the dual-HIGH
-                            // signature (matches design D1) — counting every retry
-                            // produced false positives on healthy devices.
-                            QTimer::singleShot(WRITE_RETRY_DELAY_MS, this, [this]() {
-                                if (m_lastCommand) {
-                                    m_lastCommand();
-                                }
-                            });
-                        } else {
-                            warn(QString("CharacteristicWriteError FAILED after %1 retries (uuid=%2, %3 bytes)")
-                                .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid).arg(m_lastWriteData.size()));
-                            // No user-facing errorOccurred here — same rationale as the
-                            // write-timeout exhaustion path above (#1423).
-                            // Counted before the emit — see the write-timeout
-                            // path for why the order matters.
-                            noteWriteAbandoned();
-                            emit writeAbandoned(m_lastWriteUuidFull, m_lastWriteData);
-                            emit de1LinkFault(QStringLiteral("write-failed"));
-                            m_lastCommand = nullptr;
-                            m_writeRetryCount = 0;
-                            processCommandQueue();
-                            if (!m_writePending && m_commandQueue.isEmpty())
-                                emit queueDrained();
-                        }
-                    } else {
-                        // Log BEFORE emitting. This branch used to emit straight to
-                        // the UI with no log call at all, so a user could report
-                        // "Service error: 5" and the debug log they attached would
-                        // not contain it anywhere — the one error they named was
-                        // the one thing undiagnosable from the capture (#1586).
-                        const QString name = bleServiceErrorName(error);
-                        warn(QString("SERVICE ERROR: %1").arg(name));
-                        emit errorOccurred(QString("Service error: %1").arg(name));
+                const QString name = bleServiceErrorName(error);
+                switch (error) {
+                case QLowEnergyService::CharacteristicWriteError:
+                case QLowEnergyService::CharacteristicReadError:
+                case QLowEnergyService::DescriptorWriteError: {
+                    // The operation in flight has failed, definitively and now.
+                    // Retry (if its budget allows) and abandonment are the
+                    // queue's; this only reports the outcome and releases the
+                    // clock.
+                    //
+                    // DescriptorWriteError used to be swallowed at DEBUG as
+                    // "common on Windows". It is the #1819 signal: three CCCD
+                    // writes were rejected at +45 ms while a scale ran discovery
+                    // on the same stack, each was then waited out for a full
+                    // 3 s, and the machine was reported CONNECTED with no
+                    // telemetry enabled. INFO, because the audience is the user
+                    // reading the connections view — which filters to INFO — and
+                    // not the protocol detail DEBUG is for.
+                    if (m_gattQueue->inFlightRequester() != this) {
+                        log(QString("%1 with no operation of ours in flight — ignored").arg(name));
+                        break;
                     }
-                } else {
-                    log(QString("Descriptor error (suppressed): %1").arg(bleServiceErrorName(error)));
+                    info(QString("%1 on %2 — the operation failed and will be retried "
+                                 "if its budget allows")
+                             .arg(name, m_gattQueue->inFlightKey().toString().mid(1, 8)));
+                    // Intentionally NOT a de1LinkFault: a single transient
+                    // failure that then succeeds is normal even on capable
+                    // hardware. Only exhaustion and connection-teardown errors
+                    // count toward the dual-HIGH signature (design D1) —
+                    // counting every retry produced false positives on healthy
+                    // devices.
+                    m_operationTimeoutTimer.stop();
+                    m_gattQueue->noteFailed(this);
+                    break;
+                }
+                case QLowEnergyService::DescriptorReadError:
+                    // Nothing here ever reads a descriptor, so this can only be
+                    // a stack quirk about one we wrote. Genuinely noise.
+                    log(QString("Descriptor read error (suppressed): %1").arg(name));
+                    break;
+                default:
+                    // Log BEFORE emitting. This branch used to emit straight to
+                    // the UI with no log call at all, so a user could report
+                    // "Service error: 5" and the debug log they attached would
+                    // not contain it anywhere — the one error they named was
+                    // the one thing undiagnosable from the capture (#1586).
+                    warn(QString("SERVICE ERROR: %1").arg(name));
+                    emit errorOccurred(QString("Service error: %1").arg(name));
+                    break;
                 }
             }, qc);
             log("Starting characteristic discovery for DE1 service");
@@ -852,62 +707,48 @@ void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) 
         startBleConnectionService();
 #endif
 
-        // connected() is emitted from subscribeNext() once every notification
-        // subscription is confirmed (or individually timed out) — see
-        // subscribeAll()/subscribeNext() for why this can no longer fire here
-        // immediately.
+        // connected() is emitted by the ready marker subscribeAll() queues
+        // behind the notification subscriptions, once every one of them has
+        // been confirmed — see subscribeAll() for why it cannot fire here.
         subscribeAll();
     }
 }
 
 void BleTransport::onCharacteristicChanged(const QLowEnergyCharacteristic& c, const QByteArray& value) {
-    // Any inbound notification/read response is proof the link is delivering
-    // data — restart the liveness clock the zombie-link check in
-    // connectToDevice() consults. (This slot is wired to both
-    // characteristicChanged and characteristicRead; in steady state the DE1's
-    // periodic pushes dominate, which is exactly the signal we want.)
+    // An unsolicited push. Proof the link is delivering data, so it restarts the
+    // liveness clock the zombie-link check in connectToDevice() consults — but
+    // it ends no operation, which is why onCharacteristicRead below is a
+    // separate slot rather than this one wired to both signals.
     m_notificationLiveness.restart();
     emit dataReceived(c.uuid(), value);
 }
 
+void BleTransport::onCharacteristicRead(const QLowEnergyCharacteristic& c, const QByteArray& value) {
+    // Delivered exactly like a push, and additionally ends the read holding the
+    // slot. Delivery first so a consumer sees the value before anything else is
+    // dispatched; the queue posts its next dispatch either way.
+    onCharacteristicChanged(c, value);
+    completeOperation(c.uuid());
+    emitQueueDrainedIfIdle();
+}
+
 void BleTransport::onDescriptorWritten(const QLowEnergyDescriptor& descriptor, const QByteArray& value) {
     Q_UNUSED(value);
-    // Only meaningful mid-subscribeAll() sequence. An ad-hoc subscribe(uuid)
-    // call outside that sequence (e.g. firmware update's FW_MAP_REQUEST
-    // subscribe) doesn't arm this timer and isn't part of this bookkeeping.
-    if (!m_subscribeTimeoutTimer.isActive()) return;
-
-    // Only advance when the CCCD that just completed is the one for the
-    // subscription currently in flight. Without this check, a late ACK from a
-    // characteristic that already TIMED OUT (its write is still pending in the
-    // stack after subscribeNext() moved on) would be misattributed to the
-    // current step and advance the sequence prematurely — skipping a real
-    // confirmation and re-opening the dropped-notification race this exists to
-    // close. Exactly the congested-radio timing this change targets.
-    if (!m_characteristics.contains(m_currentSubscribeUuid)) return;
-    const QLowEnergyDescriptor expected = m_characteristics[m_currentSubscribeUuid].descriptor(
-        QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
-    if (descriptor != expected) return;  // stray/late ACK for a different characteristic
-
-    m_subscribeTimeoutTimer.stop();
-    m_writePending = false;
-    subscribeNext();
+    // Ends the CCCD write holding the slot, and only that one. A late ACK for a
+    // subscription already abandoned would otherwise release whatever holds the
+    // slot now — including another device's operation. This is the whole of what
+    // the old ACK matcher did, once the sequencing it also carried became the
+    // queue's job.
+    if (descriptor != cccdFor(m_gattQueue->inFlightKey())) return;
+    completeOperation(m_gattQueue->inFlightKey());
 }
 
 void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value) {
-    m_writePending = false;
-    m_writeTimeoutTimer.stop();
-    m_writeRetryCount = 0;
     noteWriteSucceeded();
-    m_lastCommand = nullptr;
-    m_lastWriteUuid.clear();
-    m_lastWriteData.clear();
+    completeOperation(c.uuid());
 
     emit writeComplete(c.uuid(), value);
-    processCommandQueue();
-
-    if (!m_writePending && m_commandQueue.isEmpty())
-        emit queueDrained();
+    emitQueueDrainedIfIdle();
 }
 
 // -- Private helpers --
@@ -1009,8 +850,14 @@ void BleTransport::setupService() {
 }
 
 void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data) {
+    // Called only as a queued operation's issue step, and every path out of here
+    // must reach the platform or release the slot. A path that does neither
+    // wedges every device until something else forces a teardown — the failure
+    // mode these early returns were free of only because nothing was waiting on
+    // them.
     if (!m_service || !m_characteristics.contains(uuid)) {
         log(QString("writeCharacteristic(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
+        m_gattQueue->noteFailed(this);
         return;
     }
     // Don't hand a write to Qt once the controller has left the connected/
@@ -1026,14 +873,9 @@ void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteAr
         && controllerState != QLowEnergyController::DiscoveredState) {
         log(QString("writeCharacteristic(%1) skipped - controller not connected (state %2)")
                 .arg(uuid.toString().mid(1, 8)).arg(static_cast<int>(controllerState)));
+        m_gattQueue->noteFailed(this);
         return;
     }
-    m_writePending = true;
-    QString uuidShort = uuid.toString().mid(1, 8);
-    m_lastWriteUuid = uuidShort;
-    m_lastWriteUuidFull = uuid;
-    m_lastWriteData = data;
-    m_writeTimeoutTimer.start();
     m_service->writeCharacteristic(m_characteristics[uuid], data);
 }
 
@@ -1100,42 +942,172 @@ void BleTransport::forgetWriteFailureState() {
     m_writeDeadLinkReported = false;
 }
 
-void BleTransport::queueCommand(const QBluetoothUuid& uuid, std::function<void()> command) {
-    m_commandQueue.enqueue({uuid, std::move(command)});
+// -- The DE1's half of the shared GATT queue -----------------------------
 
-    // Report a backlog once per episode. A queue this deep means the link is
-    // not keeping up, and today that is only ever visible after the fact, as
-    // the write failures it goes on to produce. Nothing is shed — see the
-    // header.
-    if (m_commandQueue.size() >= QUEUE_DEPTH_WARN) {
-        if (!m_queueDepthReported) {
-            m_queueDepthReported = true;
-            warn(QString("BLE write queue is %1 deep — the link is not keeping "
-                         "up with the commands being issued")
-                     .arg(m_commandQueue.size()));
-        }
-    } else if (m_commandQueue.size() <= QUEUE_DEPTH_WARN / 2) {
-        // Re-arm only once well clear of the threshold, so a queue hovering at
-        // the boundary does not log on every other enqueue.
-        m_queueDepthReported = false;
-    }
-    if (!m_writePending && !m_commandTimer.isActive()) {
-        m_commandTimer.start();
-    }
+QLowEnergyDescriptor BleTransport::cccdFor(const QBluetoothUuid& uuid) const {
+    if (!m_service || !m_characteristics.contains(uuid)) return {};
+    return m_characteristics[uuid].descriptor(
+        QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
 }
 
-void BleTransport::processCommandQueue() {
-    if (m_writePending || m_commandQueue.isEmpty()) return;
+bool BleTransport::ownsInFlight(const QBluetoothUuid& uuid) const {
+    return m_gattQueue->inFlightRequester() == this
+           && m_gattQueue->inFlightKey() == uuid;
+}
 
-    auto command = m_commandQueue.dequeue();
-    m_lastCommand = command.run;  // Store for potential retry
-    command.run();
+void BleTransport::completeOperation(const QBluetoothUuid& uuid) {
+    if (!ownsInFlight(uuid)) return;
+    m_operationTimeoutTimer.stop();
+    m_gattQueue->noteSucceeded(this);
+}
 
-    // Reads don't set m_writePending and don't re-enter via
-    // onCharacteristicWritten, so the queue would otherwise stall after a
-    // dispatched read until some other queueCommand() call. Re-arm the timer
-    // here so subsequent queued items continue draining.
-    if (!m_writePending && !m_commandQueue.isEmpty() && !m_commandTimer.isActive()) {
-        m_commandTimer.start();
+void BleTransport::emitQueueDrainedIfIdle() {
+    if (m_gattQueue->inFlightRequester() == this) return;
+    if (m_gattQueue->pendingCount(this) > 0) return;
+    emit queueDrained();
+}
+
+BleGattQueue::Operation BleTransport::operationFor(const QBluetoothUuid& key,
+                                                   const QString& verb,
+                                                   std::function<void()> issue,
+                                                   int timeoutMs) {
+    BleGattQueue::Operation op;
+    op.requester = this;
+    op.key = key;
+    op.label = QStringLiteral("%1 %2").arg(verb, key.toString().mid(1, 8));
+    op.policy = {MAX_WRITE_RETRIES, WRITE_RETRY_DELAY_MS, /*paceMsAfter=*/0};
+    op.issue = [this, timeoutMs, issue = std::move(issue)]() {
+        // Armed here rather than by the callers so it covers retries too: the
+        // queue calls issue() again for each one, and a retry that also goes
+        // unanswered must be bounded exactly like the first attempt.
+        m_operationTimeoutTimer.start(timeoutMs);
+        issue();
+    };
+    return op;
+}
+
+void BleTransport::submitWrite(const QBluetoothUuid& uuid, const QByteArray& data, bool toFront) {
+    auto op = operationFor(uuid, QStringLiteral("write"), [this, uuid, data]() {
+        writeCharacteristic(uuid, data);
+    });
+    op.onAbandoned = [this, uuid, data]() {
+        m_operationTimeoutTimer.stop();
+        warn(QString("Write FAILED after %1 retries (uuid=%2, %3 bytes)")
+                 .arg(MAX_WRITE_RETRIES).arg(uuid.toString().mid(1, 8)).arg(data.size()));
+        // Deliberately no errorOccurred (user-facing): retry exhaustion means
+        // the link is dead and the reconnect ladder takes over — typically
+        // self-healing in seconds. Surfacing it queued stale "Connection Error"
+        // modals behind the screensaver (#1423). Persistent failures still reach
+        // the user via the reconnect path's own errors.
+        //
+        // Count BEFORE the emit. de1LinkFault runs its consumers synchronously,
+        // and one of them reaching disconnect() would run
+        // forgetWriteFailureState() and zero the counter, so the increment would
+        // restart the episode from 1 on exactly the links that fault hardest.
+        noteWriteAbandoned();
+        emit writeAbandoned(uuid, data);
+        emit de1LinkFault(QStringLiteral("write-failed"));
+        emitQueueDrainedIfIdle();
+    };
+    if (toFront)
+        m_gattQueue->submitFront(std::move(op));
+    else
+        m_gattQueue->submit(std::move(op));
+}
+
+void BleTransport::submitRead(const QBluetoothUuid& uuid) {
+    // Queued rather than issued, so a read runs after the writes ahead of it.
+    // Issued straight away, a read placed right after a write returns the
+    // pre-write value and defeats read-after-write verification.
+    if (!m_service || !m_characteristics.contains(uuid)) {
+        log(QString("read(%1) skipped - %2")
+                .arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
+        return;
     }
+    auto op = operationFor(uuid, QStringLiteral("read"), [this, uuid]() {
+        m_service->readCharacteristic(m_characteristics[uuid]);
+    });
+    op.onAbandoned = [this, uuid]() {
+        m_operationTimeoutTimer.stop();
+        // No de1LinkFault and no writeAbandoned: a lost read leaves a value
+        // unknown, where a lost write leaves the machine holding something other
+        // than what it was told. Different severity, so a different close-out.
+        warn(QString("Read FAILED after %1 retries (uuid=%2)")
+                 .arg(MAX_WRITE_RETRIES).arg(uuid.toString().mid(1, 8)));
+        emitQueueDrainedIfIdle();
+    };
+    m_gattQueue->submit(std::move(op));
+}
+
+void BleTransport::submitSubscribe(const QBluetoothUuid& uuid, bool required) {
+    // Checked at submission, not at issue: the characteristic map is fully
+    // populated before subscribeAll() runs, so either of these is a permanent
+    // fact about this connection and retrying it five times would only delay
+    // saying so.
+    if (!m_service || !m_characteristics.contains(uuid)) {
+        // Expected during teardown, and a caller subscribing to something this
+        // DE1 does not expose is not a fault of the link. DEBUG, like the
+        // matching guard in submitRead().
+        log(QString("subscribe(%1) skipped - %2")
+                .arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
+        if (required) failRequiredStream(uuid);
+        return;
+    }
+    if (!cccdFor(uuid).isValid()) {
+        warn(QString("subscribe(%1) FAILED - CCCD descriptor not found")
+                 .arg(uuid.toString().mid(1, 8)));
+        if (required) failRequiredStream(uuid);
+        return;
+    }
+
+    auto op = operationFor(uuid, QStringLiteral("subscribe"), [this, uuid]() {
+        m_service->writeDescriptor(cccdFor(uuid), QByteArray::fromHex("0100"));
+    });
+    op.onAbandoned = [this, uuid, required]() {
+        m_operationTimeoutTimer.stop();
+        warn(QString("Could not enable notifications for %1 after %2 retries")
+                 .arg(uuid.toString().mid(1, 8)).arg(MAX_WRITE_RETRIES));
+        if (required) failRequiredStream(uuid);
+    };
+    m_gattQueue->submit(std::move(op));
+}
+
+void BleTransport::failRequiredStream(const QBluetoothUuid& uuid) {
+    // Written to stand alone: these logs are read by users and by their AI
+    // assistants, who have no knowledge of this subsystem. The failure this
+    // describes is the one #1819 reported — a machine that says CONNECTED and
+    // then does nothing a user can see.
+    warn(QString("DE1 connection failed: %1 is a stream the machine cannot be "
+                 "used without, and notifications for it could not be enabled. "
+                 "Without it there is no live chart, no shot detection and no "
+                 "stop-at-weight, so the connection is being failed rather than "
+                 "reported as working. Reconnecting is what clears this — from "
+                 "the Connections page, or over MCP with devices_connect_de1.")
+             .arg(uuid.toString().mid(1, 8)));
+
+    // Reaches evaluateBleWedge() via BLEManager, which needs a fault on record
+    // before it will act — a DE1 stuck mid-subscribe with a scale connected is
+    // otherwise caught by nothing.
+    emit de1LinkFault(QStringLiteral("subscribe-failed"));
+
+    // Drops everything of ours still queued, which includes the ready marker.
+    // That is how "do not report connected" is expressed: no flag to set, no
+    // flag to forget to clear.
+    m_gattQueue->forget(this);
+}
+
+void BleTransport::submitReadyMarker() {
+    BleGattQueue::Operation op;
+    op.requester = this;
+    op.label = QStringLiteral("de1 ready");
+    op.issue = [this]() {
+        // Baseline the liveness clock here so a link that connects but never
+        // pushes a single notification also ages out and is caught as a zombie
+        // on the next reconnect attempt — not just one that goes quiet later.
+        m_notificationLiveness.start();
+        emit connected();
+        // Issues nothing to the platform, so nothing else will ever end it.
+        m_gattQueue->noteSucceeded(this);
+    };
+    m_gattQueue->submit(std::move(op));
 }

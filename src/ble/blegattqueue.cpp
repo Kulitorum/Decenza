@@ -65,7 +65,15 @@ void BleGattQueue::dispatchNext() {
 
     // The issue callback runs with the slot already held, so anything it
     // submits re-entrantly queues behind rather than being dispatched under it.
-    m_inFlight->issue();
+    //
+    // Copied out of m_inFlight before it is called. The callback can reach back
+    // in and clear the slot on the same stack — noteFailed() from a guard that
+    // never reached the platform, forget() from a consumer that tears the link
+    // down inside connected() — and either would destroy the std::function
+    // whose body is currently running, which is undefined behaviour. A local
+    // copy outlives the call.
+    const std::function<void()> issue = m_inFlight->issue;
+    issue();
 }
 
 void BleGattQueue::noteSucceeded(Requester requester) {
@@ -109,8 +117,10 @@ void BleGattQueue::noteFailed(Requester requester) {
         // asked for it.
         const quint64 generation = m_generation;
         QTimer::singleShot(m_inFlight->policy.retryDelayMs, this, [this, generation]() {
-            if (m_generation == generation && m_inFlight.has_value())
-                m_inFlight->issue();
+            if (m_generation != generation || !m_inFlight.has_value()) return;
+            // Copied for the same reason as in dispatchNext().
+            const std::function<void()> issue = m_inFlight->issue;
+            issue();
         });
         return;
     }
@@ -187,6 +197,10 @@ qsizetype BleGattQueue::pendingCount(Requester requester) const {
 
 BleGattQueue::Requester BleGattQueue::inFlightRequester() const {
     return m_inFlight.has_value() ? m_inFlight->requester : nullptr;
+}
+
+QBluetoothUuid BleGattQueue::inFlightKey() const {
+    return m_inFlight.has_value() ? m_inFlight->key : QBluetoothUuid();
 }
 
 void BleGattQueue::reportDepth() {
