@@ -41,7 +41,13 @@
 
 ## 6. Remove the timer gate
 
-**NOT STARTED, and deliberately last.** The queue makes this gate harmless rather than
+**NOT STARTED, and it is two unrelated things under one heading.** 6.2 is a
+maintainability item — a hand-rolled approximation of the queue, spread over five
+files — and is blocked only on 3.3. 6.1/6.3 are a behaviour change with real risk and
+no queue-side replacement, because connects are deliberately not queued. Do them
+separately; the case for each is different.
+
+**On 6.1, deliberately last.** The queue makes this gate harmless rather than
 necessary: with GATT operations serialized, a scale connecting during the DE1's
 subscribe no longer breaks anything, so deleting the 15 s cap is a connect-latency
 improvement, not part of the #1819 fix. It is also the riskiest change left — it
@@ -52,7 +58,7 @@ fires to release it. Replacing it needs an event that covers that case, and gett
 wrong strands the scale rather than delaying it.
 
 - [ ] 6.1 Delete `m_de1WaitTimer`, `m_scaleConnectDeferred` and the 15 s branch in `tryDirectConnectToScale()` in `src/ble/blemanager.cpp`. The release event has to cover "the DE1 connect was never actually started", which `onDe1ConnectionSettled()` does not.
-- [ ] 6.2 Remove `setServiceDiscoveryActive()` and its call sites, now subsumed by the shared queue.
+- [ ] 6.2 Remove `setServiceDiscoveryActive()` and its call sites. **Blocked on 3.3, not on the rest of this change.** It is the one genuinely redundant mechanism here: a bool mirrored through `BleTransport` → `DE1Transport::serviceDiscoveryActiveChanged` → `DE1Device` → `main.cpp:2143` → `BLEManager::setDe1ServiceDiscoveryActive` → `m_de1ServiceDiscoveryActive` → `DecentScale::setHeartbeatsPaused`, five files to express "do not let a scale heartbeat write race DE1 characteristic discovery" (#1176, Tab A8) — for one driver, advisorily. The queue expresses it for every device, as a guarantee. But it is NOT subsumed yet: the scale heartbeat is queued and the DE1's own `discoverDetails()` is not, so the two can still overlap until 3.3 lands. (This task previously read "now subsumed by the shared queue", which was true of the design and not of the code — recorded rather than quietly corrected.)
 - [ ] 6.3 Confirm the no-DE1-present case still connects a scale promptly, driven by discovery failure / `CONNECT_WATCHDOG_MS` rather than by an elapsed-time cap.
 
 ## 7. Observability
