@@ -7,6 +7,7 @@
 #include "ble/scales/bookooscale.h"
 #include "ble/scales/difluidscale.h"
 #include "ble/scales/acaiascale.h"
+#include "ble/blegattqueue.h"
 #include "ble/transport/scalebletransport.h"
 #include "ble/protocol/de1characteristics.h"
 #include "ble/protocol/decentscaleprotocol.h"
@@ -23,7 +24,18 @@
 class MockScaleBleTransport : public ScaleBleTransport {
     Q_OBJECT
 public:
-    explicit MockScaleBleTransport(QObject* parent = nullptr) : ScaleBleTransport(parent) {}
+    explicit MockScaleBleTransport(QObject* parent = nullptr, BleGattQueue* queue = nullptr)
+        : ScaleBleTransport(parent, queue) {}
+
+    // The base class's shared-queue plumbing, exposed so the contract every
+    // scale and refractometer transport depends on can be asserted once here
+    // rather than separately in each of them. Both real implementations call
+    // exactly these.
+    using ScaleBleTransport::submitGattOperation;
+    using ScaleBleTransport::completeGattOperation;
+    using ScaleBleTransport::failGattOperation;
+    using ScaleBleTransport::releaseGattQueue;
+    using ScaleBleTransport::holdsGattSlot;
 
     void connectToDevice(const QString&, const QString&) override { m_connectCount++; }
     void disconnectFromDevice() override { m_disconnectCount++; }
@@ -1421,6 +1433,122 @@ private slots:
         QVERIFY2(!acaia.supportsTimer(),
                  "AcaiaScale overrides the three timer slots with EMPTY bodies — it must "
                  "report no timer support, not inherit true from the override list");
+    }
+
+    // --- The shared GATT queue, from a scale transport's side (#1819) -----
+    //
+    // Scale and refractometer transports had no concept of an outstanding
+    // operation at all — that asymmetry with the DE1 side IS the bug. These pin
+    // the contract the base class now supplies to both implementations: a
+    // submitted operation is not issued inline, it holds the slot until it ends,
+    // and every way it can end releases it. A path that reaches neither the
+    // platform nor a release wedges every device on the radio, which is the one
+    // failure a shared queue can introduce that separate queues could not.
+
+    void aSubmittedScaleOperationIsPostedRatherThanIssuedInline() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        bool issued = false;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("op"),
+                              [&issued]() { issued = true; });
+
+        QVERIFY(!issued);
+        QVERIFY(!queue.isBusy());
+        QCOMPARE(queue.pendingCount(), qsizetype(1));
+
+        QTest::qWait(20);
+        QVERIFY(issued);
+        QVERIFY(t.holdsGattSlot());
+    }
+
+    void aScaleOperationHoldsTheSlotUntilItCompletes() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        int issued = 0;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("first"),
+                              [&issued]() { ++issued; });
+        t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("second"),
+                              [&issued]() { ++issued; });
+        QTest::qWait(20);
+
+        // The second is not issued under the first.
+        QCOMPARE(issued, 1);
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
+
+        t.completeGattOperation(DE1::Characteristic::STATE_INFO);
+        QTest::qWait(20);
+
+        QCOMPARE(issued, 2);
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::SHOT_SAMPLE);
+    }
+
+    // Failure is terminal, not a retry: these transports carry no retry budget,
+    // which is exactly what they did before they were queued. Inheriting the
+    // DE1's would let a dead scale hold the shared slot for ~32 s.
+    void aFailedScaleOperationReleasesTheSlotWithoutRetrying() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        int issued = 0;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("op"),
+                              [&issued]() { ++issued; });
+        QTest::qWait(20);
+
+        t.failGattOperation();
+        QTest::qWait(20);
+
+        QCOMPARE(issued, 1);
+        QVERIFY(!queue.isBusy());
+    }
+
+    // A guard that returns before reaching the platform must still release. This
+    // is the shape every early return in both real transports now follows, and
+    // the one that wedges the radio if it is ever forgotten.
+    void anOperationThatNeverReachesThePlatformStillReleasesTheSlot() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        bool secondIssued = false;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("guarded"),
+                              [&t]() { t.failGattOperation(); });
+        t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("next"),
+                              [&secondIssued]() { secondIssued = true; });
+
+        QTest::qWait(30);
+
+        QVERIFY(secondIssued);
+    }
+
+    void aTornDownScaleTransportFreesTheSlotAndItsQueuedWork() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("held"), []() {});
+        t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("queued"), []() {});
+        QTest::qWait(20);
+        QVERIFY(t.holdsGattSlot());
+
+        t.releaseGattQueue();
+
+        QVERIFY(!queue.isBusy());
+        QCOMPARE(queue.pendingCount(&t), qsizetype(0));
+    }
+
+    // One scale's teardown must not drop another device's work. On a shared
+    // queue that is no longer a hypothetical distinction.
+    void oneTransportsTeardownLeavesAnothersWorkAlone() {
+        BleGattQueue queue;
+        MockScaleBleTransport mine(nullptr, &queue);
+        MockScaleBleTransport other(nullptr, &queue);
+
+        mine.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("mine"), []() {});
+        other.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("other"), []() {});
+
+        mine.releaseGattQueue();
+
+        QCOMPARE(queue.pendingCount(&other), qsizetype(1));
     }
 };
 

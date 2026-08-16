@@ -18,7 +18,7 @@ class QtScaleBleTransport : public ScaleBleTransport {
     Q_OBJECT
 
 public:
-    explicit QtScaleBleTransport(QObject* parent = nullptr);
+    explicit QtScaleBleTransport(QObject* parent = nullptr, BleGattQueue* queue = nullptr);
     ~QtScaleBleTransport() override;
 
     void connectToDevice(const QString& address, const QString& name) override;

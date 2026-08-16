@@ -724,6 +724,7 @@ set(SOURCES
     src/ble/scales/variaakuscale.cpp
     src/ble/scales/timemorescale.cpp
     src/ble/scales/flowscale.cpp
+    src/ble/transport/scalebletransport.cpp
     src/ble/transport/qtscalebletransport.cpp
     src/core/asynclogger.cpp
     src/core/btlogfilter.cpp

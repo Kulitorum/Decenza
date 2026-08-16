@@ -1,11 +1,16 @@
 #pragma once
 
+#include "../blegattqueue.h"
+
 #include <QObject>
 #include <QBluetoothUuid>
 #include <QBluetoothDeviceInfo>
 #include <QBluetoothAddress>
 #include <QByteArray>
 #include <QString>
+#include <QTimer>
+
+#include <functional>
 
 /**
  * Abstract BLE transport interface for scales.
@@ -29,8 +34,13 @@ public:
         WithoutResponse = 1  // WRITE_TYPE_NO_RESPONSE - fire and forget
     };
 
-    explicit ScaleBleTransport(QObject* parent = nullptr) : QObject(parent) {}
-    virtual ~ScaleBleTransport() = default;
+    /**
+     * @param queue  The process-wide GATT queue by default. Injected in tests so
+     *               ordering can be asserted without sharing state between test
+     *               functions.
+     */
+    explicit ScaleBleTransport(QObject* parent = nullptr, BleGattQueue* queue = nullptr);
+    ~ScaleBleTransport() override;
 
     /**
      * Connect to a BLE device by address (for Android/desktop).
@@ -232,4 +242,74 @@ signals:
      * Emitted for debug logging (shown in UI and written to log file).
      */
     void logMessage(const QString& message);
+
+protected:
+    // -- This transport's half of the shared GATT queue --------------------
+    //
+    // Scale and refractometer transports had NO concept of an outstanding
+    // operation: writeCharacteristic() and friends called straight through to
+    // the platform with no in-flight flag, no completion matching and no retry.
+    // That asymmetry IS issue #1819 — the DE1 side could tell an operation was
+    // outstanding and this side could not, so it had nothing to yield.
+    //
+    // Everything here is shared by both implementations rather than written
+    // twice: the Qt one and the CoreBluetooth one must order operations
+    // identically, and two copies of a sequencing rule are two rules.
+
+    /**
+     * Queue one operation.
+     *
+     * @param key        Discard key and completion matcher — the characteristic
+     *                   for reads/writes/CCCD, the service for characteristic
+     *                   discovery, null for service discovery.
+     * @param timeoutMs  The outer bound for an operation the platform never
+     *                   answers at all. Discovery legitimately takes seconds
+     *                   (6.0 s in the #1819 capture), so it gets its own.
+     *
+     * No retries, by design: that reproduces exactly what these transports did
+     * before they were queued, and inheriting the DE1's budget would let a dead
+     * scale hold the shared slot through a ~32 s retry sequence, starving the
+     * machine that budget exists to protect.
+     */
+    void submitGattOperation(const QBluetoothUuid& key,
+                             const QString& label,
+                             std::function<void()> issue,
+                             int timeoutMs = OPERATION_TIMEOUT_MS);
+
+    /** Terminal success for the operation on `key`; no-op if it isn't ours. */
+    void completeGattOperation(const QBluetoothUuid& key);
+
+    /**
+     * Terminal success for whatever operation we hold, without matching a key.
+     *
+     * For the two completions that carry no usable identity: service discovery
+     * finishing, and a descriptor write ACK (QLowEnergyDescriptor names no
+     * characteristic). The guard that matters — never releasing ANOTHER
+     * device's slot — still holds. What it cannot catch is a late ACK for an
+     * operation of ours that already timed out, releasing our next one early;
+     * that needs a timed-out operation to answer afterwards, which is the case
+     * the per-operation clock exists to make rare rather than impossible.
+     */
+    void completeGattOperation();
+
+    /** Terminal failure for whatever operation we hold. */
+    void failGattOperation();
+
+    /** Release the slot and drop our queued work. Call on disconnect and teardown. */
+    void releaseGattQueue();
+
+    /** True while the slot holds an operation of ours. */
+    bool holdsGattSlot() const;
+
+    /** The characteristic/service the held operation targets, or a null UUID. */
+    QBluetoothUuid heldGattKey() const;
+
+    static constexpr int OPERATION_TIMEOUT_MS = 5000;
+    // Characteristic discovery took 6.0 s in the #1819 capture, so the write
+    // budget is not a bound for it — it is a guarantee of failure.
+    static constexpr int DISCOVERY_TIMEOUT_MS = 20000;
+
+private:
+    BleGattQueue* m_gattQueue = nullptr;
+    QTimer m_operationTimeoutTimer;
 };

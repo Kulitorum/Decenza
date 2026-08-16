@@ -38,8 +38,8 @@ static QString observeModeAdvisory() {
         "recommend observe mode to \"protect\" the HIGH link. ***");
 }
 
-QtScaleBleTransport::QtScaleBleTransport(QObject* parent)
-    : ScaleBleTransport(parent)
+QtScaleBleTransport::QtScaleBleTransport(QObject* parent, BleGattQueue* queue)
+    : ScaleBleTransport(parent, queue)
 {
     m_clock.start();  // monotonic source for the connection-priority window
 }
@@ -147,6 +147,11 @@ void QtScaleBleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void QtScaleBleTransport::disconnectFromDevice() {
+    // Before the objects go: release the slot and drop our queued operations, so
+    // nothing is issued against a service or controller that is about to be
+    // deleted, and no other device waits on work that will never run.
+    releaseGattQueue();
+
     // Clean up services
     for (auto* service : m_services) {
         service->disconnect();
@@ -179,20 +184,38 @@ void QtScaleBleTransport::disconnectFromDevice() {
 }
 
 void QtScaleBleTransport::discoverServices() {
-    if (m_controller &&
-        (m_controller->state() == QLowEnergyController::ConnectedState ||
-         m_controller->state() == QLowEnergyController::DiscoveredState)) {
-        QT_TRANSPORT_LOG("Starting service discovery");
-        m_controller->discoverServices();
-    } else {
-        QT_TRANSPORT_LOG(QString("Cannot discover services - state: %1").arg(static_cast<int>(m_controller ? m_controller->state() : -1)));
-    }
+    // Queued like any other GATT operation. Discovery is not a read or a write,
+    // but it occupies the same stack, and in the #1819 capture it was a scale
+    // in discovery that the DE1's rejected CCCD writes ran against. A null key:
+    // service discovery targets no characteristic, and its completion
+    // (discoveryFinished) names none either.
+    submitGattOperation(QBluetoothUuid(), QStringLiteral("scale discover services"),
+                        [this]() {
+        if (m_controller &&
+            (m_controller->state() == QLowEnergyController::ConnectedState ||
+             m_controller->state() == QLowEnergyController::DiscoveredState)) {
+            QT_TRANSPORT_LOG("Starting service discovery");
+            m_controller->discoverServices();
+        } else {
+            QT_TRANSPORT_LOG(QString("Cannot discover services - state: %1").arg(static_cast<int>(m_controller ? m_controller->state() : -1)));
+            failGattOperation();
+        }
+    }, DISCOVERY_TIMEOUT_MS);
 }
 
 void QtScaleBleTransport::discoverCharacteristics(const QBluetoothUuid& serviceUuid) {
-    QT_TRANSPORT_LOG(QString("Discovering characteristics for service %1").arg(serviceUuid.toString()));
-    QLowEnergyService* service = getOrCreateService(serviceUuid);
-    if (service) {
+    // Keyed by the service, which is what its completion
+    // (stateChanged -> RemoteServiceDiscovered) reports.
+    submitGattOperation(serviceUuid, QStringLiteral("scale discover characteristics"),
+                        [this, serviceUuid]() {
+        QT_TRANSPORT_LOG(QString("Discovering characteristics for service %1").arg(serviceUuid.toString()));
+        QLowEnergyService* service = getOrCreateService(serviceUuid);
+        if (!service) {
+            QT_TRANSPORT_LOG("ERROR: Failed to create service object!");
+            emit error("Failed to create service object");
+            failGattOperation();
+            return;
+        }
         QT_TRANSPORT_LOG(QString("Service object created, state: %1").arg(static_cast<int>(service->state())));
 #ifdef Q_OS_IOS
         // iOS: Use FullDiscovery to get CCCD descriptors (SkipValueDiscovery doesn't discover them)
@@ -203,104 +226,132 @@ void QtScaleBleTransport::discoverCharacteristics(const QBluetoothUuid& serviceU
         QT_TRANSPORT_LOG(QString("Calling discoverDetails(SkipValueDiscovery) for %1").arg(serviceUuid.toString()));
         service->discoverDetails(QLowEnergyService::SkipValueDiscovery);
 #endif
-    } else {
-        QT_TRANSPORT_LOG("ERROR: Failed to create service object!");
-        emit error("Failed to create service object");
-    }
+    }, DISCOVERY_TIMEOUT_MS);
 }
 
 void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
                                               const QBluetoothUuid& characteristicUuid) {
     QT_TRANSPORT_LOG(QString("Enabling notifications for %1").arg(characteristicUuid.toString()));
 
-    if (!isLinkReady()) {
-        QT_TRANSPORT_LOG("enableNotifications skipped - controller not connected");
-        return;
-    }
-    QLowEnergyService* service = m_services.value(serviceUuid);
-    if (!service) {
-        QT_TRANSPORT_LOG("ERROR: Service not found for enabling notifications");
-        emit error("Service not found for enabling notifications");
-        return;
-    }
+    // notificationsEnabled() is still emitted without waiting for the CCCD ACK:
+    // some scales (Bookoo) reject the write and notify anyway, and the Nordic
+    // library reported success regardless for the same reason. What now waits is
+    // the QUEUE SLOT, not the driver — the descriptor write occupies the radio
+    // whether or not its answer means anything to us, and that occupancy is the
+    // whole subject of #1819.
+    emit notificationsEnabled(characteristicUuid);
 
-    QLowEnergyCharacteristic characteristic = service->characteristic(characteristicUuid);
-    if (!characteristic.isValid()) {
-        QT_TRANSPORT_LOG("ERROR: Characteristic not found for enabling notifications");
-        emit error("Characteristic not found for enabling notifications");
-        return;
-    }
+    submitGattOperation(characteristicUuid, QStringLiteral("scale enable notifications"),
+                        [this, serviceUuid, characteristicUuid]() {
+        if (!isLinkReady()) {
+            QT_TRANSPORT_LOG("enableNotifications skipped - controller not connected");
+            failGattOperation();
+            return;
+        }
+        QLowEnergyService* service = m_services.value(serviceUuid);
+        if (!service) {
+            QT_TRANSPORT_LOG("ERROR: Service not found for enabling notifications");
+            emit error("Service not found for enabling notifications");
+            failGattOperation();
+            return;
+        }
 
-    QLowEnergyDescriptor cccd = characteristic.descriptor(
-        QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
+        QLowEnergyCharacteristic characteristic = service->characteristic(characteristicUuid);
+        if (!characteristic.isValid()) {
+            QT_TRANSPORT_LOG("ERROR: Characteristic not found for enabling notifications");
+            emit error("Characteristic not found for enabling notifications");
+            failGattOperation();
+            return;
+        }
 
-    if (cccd.isValid()) {
+        QLowEnergyDescriptor cccd = characteristic.descriptor(
+            QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
+        if (!cccd.isValid()) {
+            QT_TRANSPORT_LOG("CCCD descriptor not found - scale may still send notifications");
+            failGattOperation();
+            return;
+        }
+
         // Expected to fire once per characteristic per session. If it appears more often,
         // something is re-enabling notifications and we want to see it in the log.
         QT_TRANSPORT_LOG(QString("write CCCD enable %1").arg(characteristicUuid.toString().mid(1, 8)));
         service->writeDescriptor(cccd, QByteArray::fromHex("0100"));
-    } else {
-        QT_TRANSPORT_LOG("CCCD descriptor not found - scale may still send notifications");
-    }
-
-    // Emit immediately (fire-and-forget) - don't wait for CCCD write response.
-    // Some scales (e.g. Bookoo) reject CCCD writes but still send notifications.
-    // Nordic BLE library had the same behavior: report success regardless of CCCD outcome.
-    emit notificationsEnabled(characteristicUuid);
+    });
 }
 
 void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
                                               const QBluetoothUuid& characteristicUuid,
                                               const QByteArray& data,
                                               WriteType writeType) {
-    if (!isLinkReady()) {
-        // Controller not connected — handing a write to a torn-down
-        // QLowEnergyController is the same write-to-a-dead-link bug class as the
-        // iOS-only crashes #1400/#1405. Applied here defensively (no Android/
-        // desktop crash report yet); the periodic scale heartbeat is the most
-        // likely trigger. Drop it.
-        log("writeCharacteristic skipped - controller not connected");
-        return;
-    }
-    QLowEnergyService* service = m_services.value(serviceUuid);
-    if (!service) {
-        emit error("Service not found for write");
-        return;
-    }
+    submitGattOperation(characteristicUuid, QStringLiteral("scale write"),
+                        [this, serviceUuid, characteristicUuid, data, writeType]() {
+        if (!isLinkReady()) {
+            // Controller not connected — handing a write to a torn-down
+            // QLowEnergyController is the same write-to-a-dead-link bug class as the
+            // iOS-only crashes #1400/#1405. Applied here defensively (no Android/
+            // desktop crash report yet); the periodic scale heartbeat is the most
+            // likely trigger. Drop it.
+            log("writeCharacteristic skipped - controller not connected");
+            failGattOperation();
+            return;
+        }
+        QLowEnergyService* service = m_services.value(serviceUuid);
+        if (!service) {
+            emit error("Service not found for write");
+            failGattOperation();
+            return;
+        }
 
-    QLowEnergyCharacteristic characteristic = service->characteristic(characteristicUuid);
-    if (!characteristic.isValid()) {
-        emit error("Characteristic not found for write");
-        return;
-    }
+        QLowEnergyCharacteristic characteristic = service->characteristic(characteristicUuid);
+        if (!characteristic.isValid()) {
+            emit error("Characteristic not found for write");
+            failGattOperation();
+            return;
+        }
 
-    // Map our WriteType to Qt's WriteMode
-    QLowEnergyService::WriteMode mode = (writeType == WriteType::WithoutResponse)
-        ? QLowEnergyService::WriteWithoutResponse
-        : QLowEnergyService::WriteWithResponse;
+        // Map our WriteType to Qt's WriteMode
+        const bool withoutResponse = (writeType == WriteType::WithoutResponse);
+        service->writeCharacteristic(characteristic, data,
+                                     withoutResponse ? QLowEnergyService::WriteWithoutResponse
+                                                     : QLowEnergyService::WriteWithResponse);
 
-    service->writeCharacteristic(characteristic, data, mode);
+        if (withoutResponse) {
+            // Complete at issue, because there is nothing to wait for. A
+            // write-without-response is acknowledged by no one: Qt's darwin
+            // backend hands it to CoreBluetooth and calls performNextRequest
+            // straight away, emitting no characteristicWritten
+            // (btcentralmanager.mm:815-818). Holding the slot for it would mean
+            // holding it until the operation clock expired, every heartbeat.
+            completeGattOperation(characteristicUuid);
+        }
+    });
 }
 
 void QtScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
                                              const QBluetoothUuid& characteristicUuid) {
-    if (!isLinkReady()) {
-        log("readCharacteristic skipped - controller not connected");
-        return;
-    }
-    QLowEnergyService* service = m_services.value(serviceUuid);
-    if (!service) {
-        emit error("Service not found for read");
-        return;
-    }
+    submitGattOperation(characteristicUuid, QStringLiteral("scale read"),
+                        [this, serviceUuid, characteristicUuid]() {
+        if (!isLinkReady()) {
+            log("readCharacteristic skipped - controller not connected");
+            failGattOperation();
+            return;
+        }
+        QLowEnergyService* service = m_services.value(serviceUuid);
+        if (!service) {
+            emit error("Service not found for read");
+            failGattOperation();
+            return;
+        }
 
-    QLowEnergyCharacteristic characteristic = service->characteristic(characteristicUuid);
-    if (!characteristic.isValid()) {
-        emit error("Characteristic not found for read");
-        return;
-    }
+        QLowEnergyCharacteristic characteristic = service->characteristic(characteristicUuid);
+        if (!characteristic.isValid()) {
+            emit error("Characteristic not found for read");
+            failGattOperation();
+            return;
+        }
 
-    service->readCharacteristic(characteristic);
+        service->readCharacteristic(characteristic);
+    });
 }
 
 bool QtScaleBleTransport::isConnected() const {
@@ -605,6 +656,9 @@ void QtScaleBleTransport::triggerScaleBackoff(const char* reason,
 void QtScaleBleTransport::onControllerDisconnected() {
     QT_TRANSPORT_LOG("Controller disconnected");
     m_connected = false;
+    // A dead link must not hold the radio for every other device, and this
+    // transport's queued work must not reach the next connection.
+    releaseGattQueue();
     emit disconnected();
 }
 
@@ -614,6 +668,9 @@ void QtScaleBleTransport::onControllerError(QLowEnergyController::Error err) {
         m_controller ? m_controller->state() : QLowEnergyController::UnconnectedState);
     const QString msg = QString("!!! CONTROLLER ERROR: %1 (state=%2) !!!").arg(errorName, stateName);
     QT_TRANSPORT_LOG(msg);
+    // Whatever we were holding cannot complete now. Released before the signal,
+    // whose consumers reconnect.
+    releaseGattQueue();
     emit error(msg);
 
     // Same one-shot Linux BT diagnostics dump as the DE1 transport —
@@ -648,6 +705,9 @@ void QtScaleBleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
 
 void QtScaleBleTransport::onServiceDiscoveryFinished() {
     QT_TRANSPORT_LOG("Service discovery finished");
+    // Ends the service-discovery operation. Released before the signal so the
+    // handler's own next operation queues normally rather than under it.
+    completeGattOperation();
     emit servicesDiscoveryFinished();
 }
 
@@ -668,6 +728,8 @@ void QtScaleBleTransport::onServiceStateChanged(QLowEnergyService::ServiceState 
 
     if (state == QLowEnergyService::RemoteServiceDiscovered) {
         QBluetoothUuid serviceUuid = service->serviceUuid();
+        // Ends the characteristic-discovery operation for this service.
+        completeGattOperation(serviceUuid);
 
         // Emit discovered characteristics with descriptor info
         const QList<QLowEnergyCharacteristic> chars = service->characteristics();
@@ -711,17 +773,24 @@ void QtScaleBleTransport::onCharacteristicRead(const QLowEnergyCharacteristic& c
         .arg(c.uuid().toString())
         .arg(value.size())
         .arg(QString(value.toHex())));
+    completeGattOperation(c.uuid());
     emit characteristicRead(c.uuid(), value);
 }
 
 void QtScaleBleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c) {
+    // Write-with-response only; the without-response form completed at issue.
+    completeGattOperation(c.uuid());
     emit characteristicWritten(c.uuid());
 }
 
 void QtScaleBleTransport::onDescriptorWritten(const QLowEnergyDescriptor& d, const QByteArray& value) {
     Q_UNUSED(value);
-    // CCCD confirmations are not logged — some scales send them frequently
+    // CCCD confirmations are not logged — some scales send them frequently.
     Q_UNUSED(d);
+    // Keyless: QLowEnergyDescriptor names no characteristic, so this releases
+    // whatever operation of ours holds the slot. See completeGattOperation()'s
+    // declaration for what that guard can and cannot catch.
+    completeGattOperation();
 }
 
 void QtScaleBleTransport::onServiceError(QLowEnergyService::ServiceError err) {
@@ -729,9 +798,17 @@ void QtScaleBleTransport::onServiceError(QLowEnergyService::ServiceError err) {
     QString serviceUuid = service ? service->serviceUuid().toString() : "unknown";
 
     if (err == QLowEnergyService::DescriptorWriteError) {
-        // CCCD write failures are non-fatal - some scales reject them but still notify
+        // CCCD write failures are non-fatal - some scales reject them but still notify.
+        // Still terminal for the OPERATION: the radio is done with it, and
+        // holding the shared slot until the clock expired would make a scale
+        // that rejects CCCDs cost every other device five seconds.
         QT_TRANSPORT_LOG("DescriptorWriteError (non-fatal, scale may still send notifications)");
+        failGattOperation();
         return;
+    }
+    if (err == QLowEnergyService::CharacteristicWriteError ||
+        err == QLowEnergyService::CharacteristicReadError) {
+        failGattOperation();
     }
 
     // Shared with the DE1 transport so both links name the same failure the same

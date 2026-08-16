@@ -25,10 +25,11 @@
 
 ## 4. Move the scale and refractometer transports onto it
 
-- [ ] 4.1 Add in-flight tracking to `src/ble/transport/qtscalebletransport.cpp`: submit connect, service discovery, characteristic discovery, notification enable and each read/write, and match each platform completion signal back to its operation.
-- [ ] 4.2 Do the same in `src/ble/transport/corebluetooth/corebluetoothscalebletransport.mm`, matching the Qt implementation's ordering exactly — no platform-conditional behaviour.
-- [ ] 4.3 Keep zero retries as the default for these transports, so a submitted operation that fails behaves exactly as today's fire-and-forget call did.
-- [ ] 4.4 Confirm no per-device changes are needed in `src/ble/scales/` or `src/ble/refractometers/`; if any driver reaches around its transport to the platform, route it through the transport instead.
+- [x] 4.1 Add in-flight tracking to `src/ble/transport/qtscalebletransport.cpp`: submit connect, service discovery, characteristic discovery, notification enable and each read/write, and match each platform completion signal back to its operation.
+- [x] 4.2 Do the same in `src/ble/transport/corebluetooth/corebluetoothscalebletransport.mm`, matching the Qt implementation's ordering exactly — no platform-conditional behaviour. This removed a real divergence: `didDiscoverServices` kicked characteristic discovery for every service from inside the delegate, ahead of the Qt signals, so on Apple platforms discovery reached the radio outside any queue and before the driver asked for it. **Needs hardware verification (task 9.1/9.2 on macOS or iOS) — it changes the Apple connect sequence.**
+- [x] 4.2a Two platform limits, recorded rather than worked around: CoreBluetooth delivers a read response and an unsolicited notification through one callback with nothing to distinguish them, so a notification can release an outstanding read's slot early (harmless — the response still arrives); and a write WITHOUT response is completed at issue on both backends, because neither platform acknowledges one (`btcentralmanager.mm:815-818`).
+- [x] 4.3 Keep zero retries as the default for these transports, so a submitted operation that fails behaves exactly as today's fire-and-forget call did.
+- [x] 4.4 Confirm no per-device changes are needed in `src/ble/scales/` or `src/ble/refractometers/`; if any driver reaches around its transport to the platform, route it through the transport instead.
 
 ## 5. Subscribe through the queue; delete the bespoke timer
 
@@ -52,13 +53,14 @@
 
 ## 8. Tests for the new behaviour
 
-- [ ] 8.1 Two requesters: the second is not dispatched until the first reaches a terminal outcome; each requester's own order preserved.
-- [ ] 8.2 An operation that errors releases the slot at the error, not later, and is reported as failed to its requester.
-- [ ] 8.3 A requester torn down while holding the slot frees it immediately and its queued operations are discarded; another requester proceeds.
-- [ ] 8.4 A zero-retry operation is not retried; a DE1 operation retries exactly its configured budget.
-- [ ] 8.5 A DE1 connect whose required-stream CCCD write fails does not emit `connected()`. Break the fix and watch this go red before keeping it.
+- [x] 8.1 Two requesters: the second is not dispatched until the first reaches a terminal outcome; each requester's own order preserved.
+- [x] 8.2 An operation that errors releases the slot at the error, not later, and is reported as failed to its requester.
+- [x] 8.3 A requester torn down while holding the slot frees it immediately and its queued operations are discarded; another requester proceeds.
+- [x] 8.4 A zero-retry operation is not retried; a DE1 operation retries exactly its configured budget.
+- [ ] 8.5 A DE1 connect whose required-stream CCCD write fails does not emit `connected()`. Break the fix and watch this go red before keeping it. Not yet written: it needs a fake service, which no test in this tree has.
+- [x] 8.8 The single-in-flight invariant is asserted by a test that can fail. Verified by removing the guard — and the FIRST attempt did not go red, because the check is duplicated in `scheduleDispatch()` and `dispatchNext()` and neither alone is load-bearing, and because a submit arriving while the dispatch timer is still armed is held back by the timer without consulting the check at all. Both tests were rewritten to submit after the previous operation is already in flight; they now go red with the guards removed and green with them restored.
 - [ ] 8.6 An optional-stream failure still yields `connected()`.
-- [ ] 8.7 Put shared production sources into a narrow intermediate library if more than one test target needs them — never into `decenza_testlib` (`scripts/check_test_source_duplication.py` gates this).
+- [x] 8.7 Put shared production sources into a narrow intermediate library if more than one test target needs them — never into `decenza_testlib` (`scripts/check_test_source_duplication.py` gates this).
 
 ## 9. Verify on hardware
 

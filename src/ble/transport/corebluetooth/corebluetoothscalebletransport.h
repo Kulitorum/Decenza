@@ -14,7 +14,8 @@ class CoreBluetoothScaleBleTransport final : public ScaleBleTransport
 {
     Q_OBJECT
 public:
-    explicit CoreBluetoothScaleBleTransport(QObject* parent = nullptr);
+    explicit CoreBluetoothScaleBleTransport(QObject* parent = nullptr,
+                                            BleGattQueue* queue = nullptr);
     ~CoreBluetoothScaleBleTransport() override;
 
     void connectToDevice(const QString& address, const QString& name) override;

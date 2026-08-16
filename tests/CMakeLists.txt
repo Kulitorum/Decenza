@@ -74,6 +74,12 @@ set(BLE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ble/de1device.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/bletransport.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/blegattqueue.cpp
+    # The scale/refractometer transport base gained the shared queue's
+    # submit/complete plumbing, so it is no longer header-only. It belongs
+    # beside blegattqueue.cpp: both are compiled once into decenza_testlib,
+    # which every test target already links, rather than duplicated into the
+    # scale and refractometer targets that reach the base class.
+    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/blecapability.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/protocol/binarycodec.cpp
@@ -1200,7 +1206,6 @@ target_include_directories(tst_shotimportdedupe PRIVATE ${CMAKE_BINARY_DIR})
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo, DiFluid, Acaia) ---
 add_decenza_test(tst_scaleprotocol
     tst_scaleprotocol.cpp
-    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/bookooscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/difluidscale.cpp
@@ -1236,7 +1241,6 @@ target_link_libraries(tst_wifiscalediscovery PRIVATE decenza_wifiscaleresultlib)
 # --- tst_difluidr2: DiFluid R2 refractometer packet parsing and name matching ---
 add_decenza_test(tst_difluidr2
     tst_difluidr2.cpp
-    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/refractometers/difluidr2.cpp
 )
 target_link_libraries(tst_difluidr2 PRIVATE decenza_refractometerlib)
@@ -1244,7 +1248,6 @@ target_link_libraries(tst_difluidr2 PRIVATE decenza_refractometerlib)
 # --- tst_difluidr1: DiFluid R1 key derivation, AES decrypt, plaintext parsing (#1307) ---
 add_decenza_test(tst_difluidr1
     tst_difluidr1.cpp
-    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/refractometers/difluidr1.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/refractometers/aes128.cpp
 )

@@ -94,17 +94,24 @@ private slots:
         QCOMPARE(queue.pendingCount(), qsizetype(1));
     }
 
+    // Submitted AFTER the first is already in flight, which is what makes this
+    // reach the guard: a submit that arrives while the dispatch timer is still
+    // armed is held back by the timer alone, so the in-flight check is never
+    // consulted and the slot would pass this test even with the check gone.
+    // Verified by removing it and watching this go red.
     void submittingWhileAnOperationIsInFlightLeavesItQueued() {
         BleGattQueue queue;
         BleTransport t(nullptr, &queue);
         t.write(frameWrite(), payload('1'));
         dispatch();
         QVERIFY(queue.isBusy());
+        const QBluetoothUuid held = queue.inFlightKey();
 
-        t.write(frameWrite(), payload('2'));
+        t.write(writeToMmr(), payload('2'));
+        dispatch();  // give an unguarded dispatch every chance to fire
 
         QCOMPARE(queue.pendingCount(), qsizetype(1));
-        QVERIFY(queue.isBusy());
+        QCOMPARE(queue.inFlightKey(), held);
     }
 
     void dispatchTakesExactlyOneOperation() {
@@ -296,6 +303,36 @@ private slots:
 
         QCOMPARE(mine.discardQueued({frameWrite()}), qsizetype(1));
         QCOMPARE(queue.pendingCount(&other), qsizetype(1));
+    }
+
+    // The point of the whole change (#1819): one device's operation is not
+    // issued while another's is outstanding. Asserted with two real transports
+    // rather than fakes, because the guarantee has to hold for the code that
+    // actually submits — and the queue is requester-agnostic, so this is the
+    // same path the scale and refractometer transports take.
+    void oneDeviceIsNotDispatchedWhileAnotherHoldsTheSlot() {
+        BleGattQueue queue;
+        BleTransport first(nullptr, &queue);
+        BleTransport second(nullptr, &queue);
+        first.write(frameWrite(), payload('1'));
+        dispatch();
+        QCOMPARE(queue.inFlightRequester(), static_cast<const void*>(&first));
+
+        // Submitted while the first is already in flight and the dispatch timer
+        // is idle — the only arrangement that actually consults the in-flight
+        // check rather than being held back by the timer.
+        second.write(writeToMmr(), payload('2'));
+        dispatch();
+
+        QCOMPARE(queue.inFlightRequester(), static_cast<const void*>(&first));
+        QCOMPARE(queue.pendingCount(&second), qsizetype(1));
+
+        // And the second device is served once the first releases — the queue
+        // orders, it does not starve.
+        first.clearQueue();
+        dispatch();
+
+        QCOMPARE(queue.inFlightRequester(), static_cast<const void*>(&second));
     }
 
     // --- clearQueue ------------------------------------------------------
