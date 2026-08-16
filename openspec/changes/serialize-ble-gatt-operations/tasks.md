@@ -1,0 +1,76 @@
+## 1. Pin today's DE1 queue behaviour before moving it
+
+- [ ] 1.1 Add tests that record the DE1 command queue's current observable behaviour: 50 ms pacing between writes, retry count and delay on a failing write, `writeUrgent` ordering ahead of queued work, `discardQueued()` dropping only the named UUIDs, `clearQueue()` return value, and the depth warning at 20. These must pass on `main` unchanged.
+- [ ] 1.2 Add tests recording the abandonment signals: `writeAbandoned`, `de1LinkFault("write-failed")`, and the consecutive-failure reporting and its close-out on recovery and on disconnect.
+- [ ] 1.3 Record the current duration of a DE1 profile upload with a scale connected, so the throughput risk in design.md is answered with a number.
+
+## 2. The shared queue
+
+- [ ] 2.1 Add `BleGattQueue` in `src/ble/`: one queue, one in-flight slot, FIFO across requesters, each requester's own submission order preserved.
+- [ ] 2.2 Give each queued operation its own policy — retry budget, retry delay, pacing, discard key — defaulting to zero retries, so a submitter opts into retry rather than inheriting it.
+- [ ] 2.3 Dispatch the next operation only from a terminal outcome of the current one, posted rather than called synchronously from the release.
+- [ ] 2.4 Implement release-on-teardown: a requester disconnecting or being destroyed frees the slot immediately and discards that requester's queued operations.
+- [ ] 2.5 Implement per-requester `clear` and UUID-scoped `discard` over the shared queue, scoped so one requester cannot drop another's work.
+- [ ] 2.6 Confirm no timer is owned by the queue. If one appears necessary, stop and re-derive — design.md states the terminal outcome and the transports' existing machinery are the only permitted release paths.
+- [ ] 2.7 Add log lines for submit, dispatch, release, teardown-discard and depth, following `docs/CLAUDE_MD/LOGGING.md`, and register the new file in the correct glob set in `scripts/check_log_markers.py`.
+
+## 3. Move the DE1 transport onto it
+
+- [ ] 3.1 Replace `m_commandQueue`, `m_commandTimer` and `m_writePending` in `src/ble/bletransport.cpp` with submissions to the shared queue, carrying the existing constants as per-operation policy.
+- [ ] 3.2 Re-point `clearQueue()` and `discardQueued()` at the shared queue, preserving their current return values and UUID scoping.
+- [ ] 3.3 Submit controller connect and `discoverDetails()` through the queue, releasing on their terminal signals and on the existing `CONNECT_WATCHDOG_MS` abort.
+- [ ] 3.4 Re-run the group 1 tests unchanged. Any difference is a regression, not a new baseline.
+- [ ] 3.5 Confirm the firmware updater releases the slot across its erase-and-wait intervals rather than holding it, and that a firmware update does not stall a connected scale.
+
+## 4. Move the scale and refractometer transports onto it
+
+- [ ] 4.1 Add in-flight tracking to `src/ble/transport/qtscalebletransport.cpp`: submit connect, service discovery, characteristic discovery, notification enable and each read/write, and match each platform completion signal back to its operation.
+- [ ] 4.2 Do the same in `src/ble/transport/corebluetooth/corebluetoothscalebletransport.mm`, matching the Qt implementation's ordering exactly — no platform-conditional behaviour.
+- [ ] 4.3 Keep zero retries as the default for these transports, so a submitted operation that fails behaves exactly as today's fire-and-forget call did.
+- [ ] 4.4 Confirm no per-device changes are needed in `src/ble/scales/` or `src/ble/refractometers/`; if any driver reaches around its transport to the platform, route it through the transport instead.
+
+## 5. Subscribe through the queue; delete the bespoke timer
+
+- [ ] 5.1 Submit CCCD writes in `subscribeNext()` through the shared queue instead of calling `writeDescriptor()` directly with its own timer.
+- [ ] 5.2 Delete `SUBSCRIBE_TIMEOUT_MS` and `m_subscribeTimeoutTimer`, recording in the code why: it duplicated Qt's own `RUNNABLE_TIMEOUT` (`QtBluetoothLE.java:69`) and raced it.
+- [ ] 5.3 Handle the descriptor error when it arrives instead of logging at DEBUG and dropping it.
+- [ ] 5.4 On exhaustion for a required stream (`STATE_INFO`, `SHOT_SAMPLE`), do not emit `connected()` — tear down and re-enter the existing reconnect path. Keep a non-required stream's failure non-fatal and recorded.
+- [ ] 5.5 Confirm the failure reaches `de1LinkFault` so `evaluateBleWedge()` can see a DE1 stuck mid-subscribe, and that the reconnect ladder's existing backoff and error surfacing still apply — no silent reconnect loop.
+
+## 6. Remove the timer gate
+
+- [ ] 6.1 Delete `m_de1WaitTimer`, `m_scaleConnectDeferred` and the 15 s branch in `tryDirectConnectToScale()` in `src/ble/blemanager.cpp`.
+- [ ] 6.2 Remove `setServiceDiscoveryActive()` and its call sites, now subsumed by the shared queue.
+- [ ] 6.3 Confirm the no-DE1-present case still connects a scale promptly, driven by discovery failure / `CONNECT_WATCHDOG_MS` rather than by an elapsed-time cap.
+
+## 7. Observability
+
+- [ ] 7.1 Raise the descriptor-error record to the tier the connections views display, and include the characteristic UUID so the failed stream is named rather than inferred.
+- [ ] 7.2 Add a single record at the end of DE1 notification subscription stating which streams are live.
+- [ ] 7.3 Re-read `docs/CLAUDE_MD/LOGGING.md` tier rules against every line added — audience, not importance, picks the tier.
+
+## 8. Tests for the new behaviour
+
+- [ ] 8.1 Two requesters: the second is not dispatched until the first reaches a terminal outcome; each requester's own order preserved.
+- [ ] 8.2 An operation that errors releases the slot at the error, not later, and is reported as failed to its requester.
+- [ ] 8.3 A requester torn down while holding the slot frees it immediately and its queued operations are discarded; another requester proceeds.
+- [ ] 8.4 A zero-retry operation is not retried; a DE1 operation retries exactly its configured budget.
+- [ ] 8.5 A DE1 connect whose required-stream CCCD write fails does not emit `connected()`. Break the fix and watch this go red before keeping it.
+- [ ] 8.6 An optional-stream failure still yields `connected()`.
+- [ ] 8.7 Put shared production sources into a narrow intermediate library if more than one test target needs them — never into `decenza_testlib` (`scripts/check_test_source_duplication.py` gates this).
+
+## 9. Verify on hardware
+
+- [ ] 9.1 Reproduce the original ordering: force a slow DE1 connect with a scale present, confirm all five DE1 subscriptions complete and a shot charts and stops at weight.
+- [ ] 9.2 Connect a DiFluid refractometer mid-session while the DE1 is connected and delivering telemetry; confirm neither link is disturbed.
+- [ ] 9.3 Re-run task 1.3's profile-upload measurement with a scale connected and report the delta.
+- [ ] 9.4 Run the full suite through `mcp__qtcreator__run_tests` (scope `all`) before opening the PR — nothing on GitHub runs it automatically.
+- [ ] 9.5 Dispatch an Android CI test build (`gh workflow run android-release.yml --ref <branch> -f upload_to_release=false`).
+- [ ] 9.6 Dispatch a macOS or iOS CI build to cover `corebluetoothscalebletransport.mm`, which the Android build does not compile.
+
+## 10. Documentation and close-out
+
+- [ ] 10.1 Add the shared queue to `docs/CLAUDE_MD/BLE_PROTOCOL.md`, recording that Qt's GATT queue is per-controller (`QtBluetoothLE.java:949-950`) so the cross-device guarantee is the app's to supply, and that scale transports previously had no in-flight tracking at all.
+- [ ] 10.2 Record why `SUBSCRIBE_TIMEOUT_MS` was deleted rather than tuned, and why scale operations do not inherit the DE1's retry budget.
+- [ ] 10.3 Assess whether the wiki manual needs an entry — the user-visible change is that a half-connected DE1 now shows as disconnected and reconnects instead of appearing ready. A few sentences if so.
+- [ ] 10.4 Archive the change with `openspec archive serialize-ble-gatt-operations` as the last commit on the branch, before merge.
