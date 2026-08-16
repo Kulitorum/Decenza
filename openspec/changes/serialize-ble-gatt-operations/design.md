@@ -79,6 +79,19 @@ Releasing must not call straight into the next requester on the same stack. A co
 
 The 15 s cap is a timer used as a guard, and it covers one of three orderings. Its stated purpose — do not wait forever when no DE1 is present — is already an event: discovery failure, no-device-found, or the existing `CONNECT_WATCHDOG_MS` abort. `setServiceDiscoveryActive()` (the DE1's advisory "peer scales please pause") is subsumed and removed with it.
 
+### The subscribe sequencer collapses into the queue
+
+`subscribeAll()`/`subscribeNext()` is a sequencer in its own right: `m_pendingSubscribeQueue`, `m_currentSubscribeUuid`, a 3 s timeout, and late-ACK matching in `onDescriptorWritten` so a reply for an already-abandoned characteristic cannot advance the chain. Every one of those exists because there was no shared queue to sequence against.
+
+Ported naively it becomes a sequencer running inside a sequencer, which is worse than either. Ported properly it is a loop: submit one operation per stream, then the initial reads, then a final marker operation that baselines the liveness clock and emits `connected()`. FIFO ordering supplies what the recursion used to, and all five of those members and the ACK matcher are deleted.
+
+It also removes a flag that would otherwise have to be invented. A required stream whose retries are exhausted calls `forget(this)`, which drops that requester's remaining queued work — including the completion marker — so "do not report connected" needs no `m_subscribeFailed` bool. The teardown path already says it.
+
+### Two latent defects the migration exposes, both fixes in their own right
+
+- **`characteristicRead` and `characteristicChanged` share one handler.** Under a queue, releasing the slot on an unsolicited notification would free an unrelated write still in the air. They must be separated regardless of this change; today the conflation is merely invisible.
+- **Three early returns in `writeCharacteristic()` bail without touching the platform.** Nothing will ever complete for them. Today that is harmless; under a queue each one wedges every device until something else forces a teardown. Every path that does not reach the platform must release the slot.
+
 ## Risks / Trade-offs
 
 - **This touches the most carefully tuned code in the BLE layer.** The DE1 write path's retry budget, pacing, urgent path and discard semantics all move. → They must come through byte-identical, and the tests that pin them are load-bearing rather than confirmatory. Pin the current behaviour in tests *before* moving it, so the move is verified against a recorded baseline rather than against a reading of the code.
