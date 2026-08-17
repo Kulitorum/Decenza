@@ -216,6 +216,30 @@ void QtScaleBleTransport::discoverCharacteristics(const QBluetoothUuid& serviceU
             return;
         }
         QT_TRANSPORT_LOG(QString("Service object created, state: %1").arg(static_cast<int>(service->state())));
+
+        // discoverDetails() returns SILENTLY unless the service is in
+        // RemoteService state (qlowenergyservice.cpp:585-586) — no signal, no
+        // error. getOrCreateService() hands back the cached, already-discovered
+        // object, so a repeat call for the same service used to be a harmless
+        // no-op and is now an operation nothing can ever complete: it holds the
+        // process-wide slot for the full 20 s discovery clock, blocking the DE1
+        // and every other device.
+        //
+        // This is the same guard the CoreBluetooth transport carries for its own
+        // dedupe (charsDiscoveredForService); the Qt side had none.
+        if (service->state() == QLowEnergyService::RemoteServiceDiscovered) {
+            QT_TRANSPORT_LOG(QStringLiteral("Characteristics already discovered — completing without re-issuing"));
+            completeGattOperation(serviceUuid);
+            return;
+        }
+        if (service->state() != QLowEnergyService::RemoteService) {
+            // Discovering already, or invalid. Either way this call would issue
+            // nothing; fail it rather than wait out the clock holding the radio.
+            QT_TRANSPORT_LOG(QString("Cannot discover characteristics in state %1 — releasing the slot")
+                                 .arg(static_cast<int>(service->state())));
+            failGattOperation();
+            return;
+        }
 #ifdef Q_OS_IOS
         // iOS: Use FullDiscovery to get CCCD descriptors (SkipValueDiscovery doesn't discover them)
         QT_TRANSPORT_LOG(QString("Calling discoverDetails(FullDiscovery) for %1 [iOS]").arg(serviceUuid.toString()));
@@ -329,7 +353,7 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
         // describes a backend this class never runs on. The Darwin transport
         // makes the same call for itself, where the citation applies.
         Q_UNUSED(withoutResponse);
-    });
+    }, RW_TIMEOUT_MS);
 }
 
 void QtScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
@@ -356,7 +380,7 @@ void QtScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
         }
 
         service->readCharacteristic(characteristic);
-    });
+    }, RW_TIMEOUT_MS);
 }
 
 bool QtScaleBleTransport::isConnected() const {
@@ -471,8 +495,9 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     // starvation; we must not require a follow-on fault that may never arrive
     // on devices where the controller subsequently recovers (#1238: the P80X
     // emitted only one controller-error, 20.034s after the cascade). Transient
-    // single-write retries that recover are not signaled at the source (see
-    // bletransport.cpp:753-758), so capable hardware does not false-positive.
+    // single-write retries that recover are not signaled at the source (the
+    // "Intentionally NOT a de1LinkFault" arm in BleTransport::onServiceError),
+    // so capable hardware does not false-positive.
     //
     // COUPLED TO MAX_WRITE_RETRIES (bletransport.h). This comment used to read
     // "a 10-retry cascade — ~5s of sustained starvation". Both halves moved when

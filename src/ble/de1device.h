@@ -265,9 +265,11 @@ public slots:
     // USB charger control (force=true to resend even if state unchanged, needed for DE1's 10-min timeout)
     void setUsbChargerOn(bool on, bool force = false);
 
-    // Like setUsbChargerOn but bypasses the BLE command queue for immediate send.
-    // Used by ensureChargerOn() on app suspend where the 50ms queue delay could
-    // race with iOS suspension.
+    // Like setUsbChargerOn but puts the write at the FRONT of the shared GATT
+    // queue rather than behind whatever else is waiting — a position, not a
+    // bypass. Used by ensureChargerOn() on app exit and suspend; see
+    // DE1Transport::writeUrgent and the two call sites in main.cpp for why the
+    // posted dispatch still gets an event-loop turn on both paths.
     void setUsbChargerOnUrgent(bool on);
 
     // Water refill level (write StartFillLevel to machine via WaterLevels characteristic)

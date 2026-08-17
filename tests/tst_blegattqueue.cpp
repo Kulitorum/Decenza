@@ -234,6 +234,31 @@ private slots:
         QCOMPARE(q.inFlightRequester(), de1());
     }
 
+    // Two failure reports inside one retry delay must arm ONE retry. Both
+    // captured the same generation, so both passed the guard and both called
+    // issue(): the payload written twice, and the duplicate's late ACK able to
+    // release a LATER operation on the same characteristic while it is still on
+    // the wire. Reachable on the DE1 side, where the service errorOccurred arm
+    // and onServiceStateChanged(InvalidService) both fire when a link drops
+    // mid-retry.
+    void asecondFailureInsideTheRetryDelayDoesNotArmASecondRetry() {
+        BleGattQueue q;
+        Recorder rec;
+        BleGattQueue::Policy retrying;
+        retrying.maxRetries = 3;
+        retrying.retryDelayMs = 40;
+
+        q.submit(op(de1(), QStringLiteral("flaky"), &rec, retrying));
+        pump();
+        QCOMPARE(rec.issued.size(), 1);
+
+        q.noteFailed(de1());
+        q.noteFailed(de1());   // same window, same generation
+        pump(80);
+
+        QCOMPARE(rec.issued.size(), 2);   // not 3
+    }
+
     // --- late and misattributed completions -------------------------------
 
     void aCompletionFromARequesterThatDoesNotHoldTheSlotIsIgnored() {
@@ -408,11 +433,6 @@ private slots:
         QVERIFY(rec.issued.isEmpty());
     }
 
-    // --- depth reporting --------------------------------------------------
-
-    // Edge-triggered: one warning per episode. failOnWarning() in init() is
-    // what makes "once" able to fail — a second unignored warning fails the
-    // slot.
     // --- drained(), the release event for work that is NOT a queued operation --
     //
     // A BLE connect is not queued (queueing it would let a scale reconnect
@@ -546,6 +566,11 @@ private slots:
         QCOMPARE(q.inFlightLabel(), QStringLiteral("write a00e"));
     }
 
+    // --- depth reporting --------------------------------------------------
+
+    // Edge-triggered: one warning per episode. failOnWarning() in init() is
+    // what makes "once" able to fail — a second unignored warning fails the
+    // slot.
     void depthWarningFiresOncePerEpisode() {
         BleGattQueue q;
         Recorder rec;

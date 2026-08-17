@@ -84,6 +84,7 @@ void BleGattQueue::dispatchNext() {
 
     m_inFlight = m_queue.dequeue();
     m_retryCount = 0;
+    m_retryPending = false;
     ++m_generation;
 
     GQ_LOG(QString("dispatch %1 (%2 queued)")
@@ -112,6 +113,7 @@ void BleGattQueue::noteSucceeded(Requester requester) {
 
     m_inFlight.reset();
     m_retryCount = 0;
+    m_retryPending = false;
     ++m_generation;
 
     scheduleDispatch();
@@ -121,8 +123,18 @@ void BleGattQueue::noteSucceeded(Requester requester) {
 void BleGattQueue::noteFailed(Requester requester) {
     if (!m_inFlight.has_value() || m_inFlight->requester != requester) return;
 
+    // A second failure report arriving INSIDE the retry delay must not arm a
+    // second timer. Two DE1 reporters can fire in the same window — the service
+    // errorOccurred arm and onServiceStateChanged(InvalidService), which is what
+    // a link dropping mid-retry produces — and both captured the same generation,
+    // so both passed the guard and both called issue(). That writes the payload
+    // twice, and the duplicate's late ACK can release a LATER operation on the
+    // same characteristic while it is still on the wire.
+    if (m_retryPending) return;
+
     if (m_retryCount < m_inFlight->policy.maxRetries) {
         ++m_retryCount;
+        m_retryPending = true;
         GQ_LOG(QString("retry %1/%2 for %3")
                    .arg(m_retryCount)
                    .arg(m_inFlight->policy.maxRetries)
@@ -141,6 +153,7 @@ void BleGattQueue::noteFailed(Requester requester) {
         const quint64 generation = m_generation;
         QTimer::singleShot(m_inFlight->policy.retryDelayMs, this, [this, generation]() {
             if (m_generation != generation || !m_inFlight.has_value()) return;
+            m_retryPending = false;
             // Copied for the same reason as in dispatchNext().
             const std::function<void()> issue = m_inFlight->issue;
             issue();
@@ -151,6 +164,7 @@ void BleGattQueue::noteFailed(Requester requester) {
     Operation done = *m_inFlight;
     m_inFlight.reset();
     m_retryCount = 0;
+    m_retryPending = false;
     ++m_generation;
 
     if (done.onAbandoned) done.onAbandoned();
@@ -175,6 +189,7 @@ qsizetype BleGattQueue::forget(Requester requester) {
         ++dropped;
         m_inFlight.reset();
         m_retryCount = 0;
+        m_retryPending = false;
         ++m_generation;
     }
 

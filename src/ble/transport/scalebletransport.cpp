@@ -20,6 +20,7 @@ ScaleBleTransport::ScaleBleTransport(QObject* parent, BleGattQueue* queue)
                         "Reconnecting the device clears it.")
                     .arg(heldGattKey().toString().mid(1, 8))
                     .arg(m_operationTimeoutTimer.interval()));
+        onGattSlotReleased();
         m_gattQueue->noteFailed(this);
     });
 }
@@ -45,6 +46,7 @@ void ScaleBleTransport::submitGattOperation(const QBluetoothUuid& key,
     };
     op.onAbandoned = [this, label]() {
         m_operationTimeoutTimer.stop();
+        onGattSlotReleased();
         // INFO, not DEBUG: the connections view a user reads filters to INFO, and
         // this is a terminal outcome. Per LOGGING.md the recurring failure is a
         // fault whose resolution — or here, whose conclusion — sits a tier below
@@ -62,17 +64,20 @@ void ScaleBleTransport::completeGattOperation(const QBluetoothUuid& key) {
 void ScaleBleTransport::completeGattOperation() {
     if (!holdsGattSlot()) return;
     m_operationTimeoutTimer.stop();
+    onGattSlotReleased();
     m_gattQueue->noteSucceeded(this);
 }
 
 void ScaleBleTransport::failGattOperation() {
     if (!holdsGattSlot()) return;
     m_operationTimeoutTimer.stop();
+    onGattSlotReleased();
     m_gattQueue->noteFailed(this);
 }
 
 void ScaleBleTransport::releaseGattQueue() {
     m_operationTimeoutTimer.stop();
+    onGattSlotReleased();
     m_gattQueue->forget(this);
 }
 

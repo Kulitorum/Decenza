@@ -214,8 +214,14 @@ void BleTransport::subscribeAll() {
     // finished enabling notifications for READ_FROM_MMR, and that response is
     // then silently dropped with no recovery — unlike a repeating stream such as
     // STATE_INFO, which self-heals on the next push.
-    submitSubscribe(DE1::Characteristic::STATE_INFO,    /*required=*/true);
-    submitSubscribe(DE1::Characteristic::SHOT_SAMPLE,   /*required=*/true);
+    //
+    // The two required streams are checked for a SUBMISSION-time failure and
+    // stop the sequence. failRequiredStream()'s forget() expresses "do not
+    // report connected" by dropping the ready marker, and at this point the
+    // marker has not been submitted yet — so on this path, unlike on the
+    // abandonment path, returning is what stops it being queued at all.
+    if (!submitSubscribe(DE1::Characteristic::STATE_INFO,  /*required=*/true)) return;
+    if (!submitSubscribe(DE1::Characteristic::SHOT_SAMPLE, /*required=*/true)) return;
     submitSubscribe(DE1::Characteristic::WATER_LEVELS,  /*required=*/false);
     submitSubscribe(DE1::Characteristic::READ_FROM_MMR, /*required=*/false);
     submitSubscribe(DE1::Characteristic::TEMPERATURES,  /*required=*/false);
@@ -702,6 +708,7 @@ void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) 
     }
     if (state == QLowEnergyService::RemoteServiceDiscovered) {
         completeOperation(DE1::SERVICE_UUID);
+        emitQueueDrainedIfIdle();
         setupService();
         m_characteristicsReady = true;
         // INFO: the machine is addressable from here on, which is the moment a
@@ -758,6 +765,12 @@ void BleTransport::onDescriptorWritten(const QLowEnergyDescriptor& descriptor, c
         return;
     }
     completeOperation(m_gattQueue->inFlightKey());
+    // Every other terminal-success path emits this; a subscribe that happened to
+    // be our last outstanding work reported nothing, and main.cpp waits on it at
+    // exit to know the sleep and charger writes went out. Last, for the same
+    // reason as in onCharacteristicWritten: a consumer reached from a completion
+    // may enqueue, and "drained" must not be claimed ahead of that.
+    emitQueueDrainedIfIdle();
 }
 
 void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value) {
@@ -1079,25 +1092,39 @@ void BleTransport::submitRead(const QBluetoothUuid& uuid) {
     m_gattQueue->submit(std::move(op));
 }
 
-void BleTransport::submitSubscribe(const QBluetoothUuid& uuid, bool required) {
+bool BleTransport::submitSubscribe(const QBluetoothUuid& uuid, bool required) {
     // Checked at submission, not at issue: the characteristic map is fully
     // populated before subscribeAll() runs, so either of these is a permanent
     // fact about this connection and retrying it five times would only delay
     // saying so.
+    //
+    // RETURNS FALSE when the stream is permanently unavailable, and
+    // subscribeAll() must stop on a required one. This is not decoration: a
+    // failure found HERE reaches failRequiredStream() before the ready marker
+    // has been submitted, so the forget() it performs drops nothing and the
+    // marker is queued immediately afterwards — the machine reports CONNECTED
+    // with STATE_INFO never enabled, which is #1819 exactly. The abandonment
+    // path below has the opposite ordering and forget() is sufficient there.
     if (!m_service || !m_characteristics.contains(uuid)) {
         // Expected during teardown, and a caller subscribing to something this
         // DE1 does not expose is not a fault of the link. DEBUG, like the
         // matching guard in submitRead().
         log(QString("subscribe(%1) skipped - %2")
                 .arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
+        // Recorded here as well as on abandonment. The ready marker makes a
+        // POSITIVE statement about which telemetry is live, so a stream that
+        // was skipped rather than abandoned must still appear in the exception
+        // list or that statement is false.
+        m_streamsNotEnabled.append(uuid.toString().mid(1, 8));
         if (required) failRequiredStream(uuid);
-        return;
+        return false;
     }
     if (!cccdFor(uuid).isValid()) {
         warn(QString("subscribe(%1) FAILED - CCCD descriptor not found")
                  .arg(uuid.toString().mid(1, 8)));
+        m_streamsNotEnabled.append(uuid.toString().mid(1, 8));
         if (required) failRequiredStream(uuid);
-        return;
+        return false;
     }
 
     auto op = operationFor(uuid, QStringLiteral("subscribe"), [this, uuid]() {
@@ -1118,6 +1145,7 @@ void BleTransport::submitSubscribe(const QBluetoothUuid& uuid, bool required) {
         emitQueueDrainedIfIdle();
     };
     m_gattQueue->submit(std::move(op));
+    return true;
 }
 
 void BleTransport::failRequiredStream(const QBluetoothUuid& uuid) {

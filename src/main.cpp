@@ -4725,6 +4725,20 @@ int main(int argc, char *argv[])
             needBleWait = true;
         }
 
+        // IMPORTANT: Ensure charger is ON before exiting.
+        // Matches de1app's app_exit behaviour — always leave the charger ON so
+        // the tablet can charge while the app is not running to manage it.
+        //
+        // BEFORE the drain wait below, not after, and that ordering is the whole
+        // point. The write goes to the FRONT of the shared GATT queue and its
+        // dispatch is posted, so it needs one event-loop turn; after the wait
+        // there may be no such turn on a quiet quit (drainDbWork() returns
+        // immediately when nothing is queued, and the export loop runs zero
+        // iterations), and de1Device.disconnect() below would then forget() the
+        // write unissued — leaving the DE1 USB port off, which is the
+        // tablet-dies-overnight case this call exists to prevent.
+        batteryManager.ensureChargerOn();
+
         // Wait for BLE writes to complete before exiting
         if (needBleWait) {
             QEventLoop waitLoop;
@@ -4754,10 +4768,6 @@ int main(int argc, char *argv[])
             else
                 qWarning() << "BLE queue drain timed out after" << timeoutMs << "ms — sleep command may not have been delivered.";
         }
-
-        // IMPORTANT: Ensure charger is ON before exiting
-        // This matches de1app's app_exit behavior - always leave charger ON for safety
-        batteryManager.ensureChargerOn();
 
         // Neutralize the auto-reconnect path before BLE disconnect, otherwise
         // de1Device.disconnect() below fires connectedChanged, which triggers

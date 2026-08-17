@@ -298,13 +298,49 @@ protected:
     /** Release the slot and drop our queued work. Call on disconnect and teardown. */
     void releaseGattQueue();
 
+    /**
+     * Called on EVERY path that gives up the slot — success, failure, timeout,
+     * abandonment and teardown alike. Override to drop per-operation state that
+     * would otherwise be read against a later operation.
+     *
+     * It exists because the CoreBluetooth transport cleared its "which read is
+     * outstanding" key in four release SHIMS, and the two paths that do not go
+     * through them (the operation clock firing, and disconnectFromDevice()
+     * calling releaseGattQueue() directly) left it stale — after which an
+     * unsolicited notification on that characteristic would complete whatever
+     * held the slot next, releasing a write still on the wire. One hook, every
+     * path, rather than four call sites and a standing invitation to miss one.
+     */
+    virtual void onGattSlotReleased() {}
+
     /** True while the slot holds an operation of ours. */
     bool holdsGattSlot() const;
 
     /** The characteristic/service the held operation targets, or a null UUID. */
     QBluetoothUuid heldGattKey() const;
 
+    // Connect-time operations: notify-enable, and anything else without its own
+    // budget. Nothing time-critical is running while these are outstanding.
     static constexpr int OPERATION_TIMEOUT_MS = 5000;
+
+    // Reads and writes, which are the operations that can be outstanding DURING
+    // a shot — the Decent Scale's 1 Hz heartbeat is the common one. Shorter than
+    // the above because this clock is what bounds the worst case for a
+    // stop-at-weight: nothing can preempt an operation the platform has already
+    // accepted, so a scale that stops answering holds the shared radio, and the
+    // DE1's stop write waits out this interval behind it.
+    //
+    // 3000 is not a guess and not a tuning knob. It is Qt's own per-job timeout
+    // on Android (RUNNABLE_TIMEOUT, QtBluetoothLE.java:69), after which Qt
+    // abandons the job and DISCARDS any late reply (:580-589) — so past this
+    // point there is provably no answer coming on that platform, and holding the
+    // shared radio longer buys nothing on any platform.
+    //
+    // It bounds the exposure rather than removing it; 3 s is still a ruined
+    // shot. Removing it means not having optional scale writes outstanding
+    // during a shot at all, which is a per-driver change and wants the
+    // measurement in task 9.7 first.
+    static constexpr int RW_TIMEOUT_MS = 3000;
 
 private:
     BleGattQueue* m_gattQueue = nullptr;

@@ -40,6 +40,11 @@ public:
     bool isConnected() const override;
     bool isConnecting() const override;
 
+protected:
+    // Drops the "which read is outstanding" key on every release path. See the
+    // base declaration for the stale-key hazard it closes.
+    void onGattSlotReleased() override;
+
 private:
     void log(const QString& msg);
 

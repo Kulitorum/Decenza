@@ -8,7 +8,7 @@ Guarantees that every Bluetooth Low Energy GATT operation from every connected p
 
 The system SHALL permit at most one GATT operation to be in flight at any moment, counted across every connected or connecting BLE peripheral rather than per peripheral. An operation SHALL be considered in flight from the moment it is issued to the platform until it reaches a terminal outcome.
 
-Operations covered SHALL include service discovery, characteristic discovery, characteristic read, characteristic write, descriptor read, and descriptor write. Serialization SHALL NOT be limited to writes: the observed failure was a descriptor write rejected while another peripheral was performing service discovery.
+Operations covered SHALL include service discovery, characteristic discovery, characteristic read, characteristic write, and descriptor write. (Not descriptor read: nothing in the app issues one, and listing it would describe untested capability as behaviour.) Serialization SHALL NOT be limited to writes: the observed failure was a descriptor write rejected while another peripheral was performing service discovery.
 
 Peripheral connection SHALL NOT be a queued operation. A connect that waits its turn behind queued work would let a scale reconnect stall a DE1 write, and stop-at-weight sits on that path. Instead the system SHALL apply backpressure: a scale or refractometer connect SHALL be deferred while any GATT operation is outstanding or queued, and SHALL be released when the queue reports itself drained. This is de1app's rule (`bluetooth.tcl:2276`, "Too much backpressure, waiting with the connect"), event-driven rather than polled.
 

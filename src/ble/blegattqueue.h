@@ -174,6 +174,7 @@ public:
      */
     void noteFailed(Requester requester);
 
+
     /**
      * Drop every queued operation for this requester and release the slot if it
      * holds it. Called when a transport disconnects or is destroyed.
@@ -257,6 +258,9 @@ private:
     QQueue<Operation> m_queue;
     std::optional<Operation> m_inFlight;
     int m_retryCount = 0;
+    // A retry timer is armed and has not fired. Suppresses a second
+    // failure report for the same attempt; see noteFailed().
+    bool m_retryPending = false;
     // Bumped on EVERY slot transition (dispatch, success, abandon, teardown).
     // A delayed retry captures it and reissues only if it still matches, so a
     // retry whose operation was dropped mid-delay cannot fire against whatever

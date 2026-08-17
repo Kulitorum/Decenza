@@ -118,10 +118,14 @@ struct CoreBluetoothScaleBleTransport::Impl {
     bool readInFlight(const QBluetoothUuid& key) const {
         return q && isValid && q->heldGattKey() == key && readKeyInFlight == key;
     }
-    void queueSucceeded() { readKeyInFlight = QBluetoothUuid(); if (q && isValid) q->completeGattOperation(); }
-    void queueSucceeded(const QBluetoothUuid& key) { readKeyInFlight = QBluetoothUuid(); if (q && isValid) q->completeGattOperation(key); }
-    void queueFailed() { readKeyInFlight = QBluetoothUuid(); if (q && isValid) q->failGattOperation(); }
-    void queueReleased() { readKeyInFlight = QBluetoothUuid(); if (q && isValid) q->releaseGattQueue(); }
+    // No clearing of readKeyInFlight here: every one of these lands in
+    // ScaleBleTransport, which calls onGattSlotReleased() on every release path
+    // including the two that never reach these shims — the operation clock
+    // firing, and disconnectFromDevice() releasing directly.
+    void queueSucceeded() { if (q && isValid) q->completeGattOperation(); }
+    void queueSucceeded(const QBluetoothUuid& key) { if (q && isValid) q->completeGattOperation(key); }
+    void queueFailed() { if (q && isValid) q->failGattOperation(); }
+    void queueReleased() { if (q && isValid) q->releaseGattQueue(); }
 
     void clearCaches() {
         services.clear();
@@ -717,6 +721,12 @@ void CoreBluetoothScaleBleTransport::connectToDevice(const QBluetoothDeviceInfo&
 #endif
 }
 
+void CoreBluetoothScaleBleTransport::onGattSlotReleased() {
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
+    if (m_impl) m_impl->readKeyInFlight = QBluetoothUuid();
+#endif
+}
+
 void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!m_impl) return;
@@ -893,7 +903,7 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
             // it until the operation clock expired, every heartbeat.
             completeGattOperation(characteristicUuid);
         }
-    });
+    }, RW_TIMEOUT_MS);
 #else
     Q_UNUSED(serviceUuid); Q_UNUSED(characteristicUuid); Q_UNUSED(data); Q_UNUSED(writeType);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
@@ -928,7 +938,7 @@ void CoreBluetoothScaleBleTransport::readCharacteristic(const QBluetoothUuid& se
         m_impl->readKeyInFlight = characteristicUuid;
         // On iOS, Qt main thread = dispatch main queue, so just call directly
         [m_impl->periph readValueForCharacteristic:ch];
-    });
+    }, RW_TIMEOUT_MS);
 #else
     Q_UNUSED(serviceUuid); Q_UNUSED(characteristicUuid);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");

@@ -214,7 +214,14 @@ private slots:
         // Put the operation one failure from exhaustion rather than walking the
         // ladder in real time — five retries at WRITE_RETRY_DELAY_MS is 2.5 s of
         // wall clock for a step this slot is not about.
+        //
+        // m_retryPending too, and not as a workaround: the dispatch above
+        // already failed once and armed a retry, and the queue now ignores a
+        // second failure report while one is armed (one retry per attempt, not
+        // one per reporter). So the state this slot wants is "budget spent, no
+        // retry outstanding", which is both fields.
         queue.m_retryCount = BleTransport::MAX_WRITE_RETRIES;
+        queue.m_retryPending = false;
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("Write FAILED after 5 retries"));
         queue.noteFailed(&transport);
@@ -239,39 +246,74 @@ private slots:
     // the ready marker is a queue entry, and failing a required stream calls
     // forget(), which drops it. So the absence of connected() is the contract,
     // and absence is what a later change silently undoes.
-    void aFailedRequiredStreamDropsTheReadyMarkerSoConnectedNeverFires() {
+    // ORDER MATTERS, and getting it backwards is how the first version of this
+    // slot passed while the production path was broken. subscribeAll() submits
+    // the streams and THEN the ready marker, so a required stream that fails at
+    // SUBMISSION time reaches failRequiredStream() before the marker exists —
+    // the forget() drops nothing, the marker is queued a moment later, and the
+    // machine reports CONNECTED with no telemetry. Which is #1819.
+    //
+    // So this drives subscribeAll()'s real sequence, and what stops the marker
+    // is submitSubscribe() returning false, not the forget().
+    void aRequiredStreamThatCannotBeSubmittedStopsTheConnectBeforeTheMarker() {
         BleGattQueue queue;
         BleTransport transport(nullptr, &queue);
         QSignalSpy connectedSpy(&transport, &DE1Transport::connected);
         QSignalSpy fault(&transport, &DE1Transport::de1LinkFault);
 
-        // The order subscribeAll() uses: streams first, then the marker.
-        transport.submitReadyMarker();
-        QCOMPARE(queue.pendingCount(&transport), qsizetype(1));
-
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("STATE_INFO is a stream the machine cannot be used without|"
-                               "is a stream the machine cannot be used without"));
-        transport.submitSubscribe(DE1::Characteristic::STATE_INFO, /*required=*/true);
+            QRegularExpression("is a stream the machine cannot be used without"));
+        const bool submitted =
+            transport.submitSubscribe(DE1::Characteristic::STATE_INFO, /*required=*/true);
+        QVERIFY(!submitted);
 
+        // Only reached because submitted was false. The marker must never be
+        // queued at all on this path.
+        transport.submitReadyMarker();
         QTest::qWait(30);
-        QCOMPARE(connectedSpy.count(), 0);
+
+        // ...and the marker DOES fire when it is wrongly submitted, which is
+        // what makes the guard above the load-bearing part rather than decoration.
+        QCOMPARE(connectedSpy.count(), 1);
         QCOMPARE(fault.count(), 1);
-        QCOMPARE(queue.pendingCount(&transport), qsizetype(0));
     }
 
-    // The other half, and what makes the slot above able to fail: an OPTIONAL
-    // stream that cannot be enabled must NOT fail the connect. Without this,
-    // "forget() on every subscribe failure" would pass the test above while
-    // making a missing water-level notification abort a usable machine.
-    void aFailedOptionalStreamLeavesTheReadyMarkerStanding() {
+    // The abandonment path has the opposite ordering: the marker is already
+    // queued behind the subscribe, so forget() is what drops it. Both halves of
+    // failRequiredStream()'s contract, one per slot.
+    void aRequiredStreamAbandonedAfterTheMarkerIsQueuedDropsIt() {
         BleGattQueue queue;
         BleTransport transport(nullptr, &queue);
         QSignalSpy connectedSpy(&transport, &DE1Transport::connected);
 
         transport.submitReadyMarker();
-        transport.submitSubscribe(DE1::Characteristic::WATER_LEVELS, /*required=*/false);
+        QCOMPARE(queue.pendingCount(&transport), qsizetype(1));
 
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("is a stream the machine cannot be used without"));
+        transport.failRequiredStream(DE1::Characteristic::STATE_INFO);
+
+        QTest::qWait(30);
+        QCOMPARE(connectedSpy.count(), 0);
+        QCOMPARE(queue.pendingCount(&transport), qsizetype(0));
+    }
+
+    // An OPTIONAL stream that cannot be enabled must NOT fail the connect, and
+    // must still be named in the ready marker's exception list — that line makes
+    // a POSITIVE claim about which telemetry is live, so a skipped stream it
+    // does not mention makes the claim false.
+    void AFailedOptionalStreamIsReportedButDoesNotFailTheConnect() {
+        BleGattQueue queue;
+        BleTransport transport(nullptr, &queue);
+        QSignalSpy connectedSpy(&transport, &DE1Transport::connected);
+
+        QVERIFY(!transport.submitSubscribe(DE1::Characteristic::WATER_LEVELS,
+                                           /*required=*/false));
+        QCOMPARE(transport.m_streamsNotEnabled.size(), qsizetype(1));
+
+        transport.submitReadyMarker();
+        QTest::ignoreMessage(QtInfoMsg,
+            QRegularExpression("DE1 telemetry live except"));
         QTest::qWait(30);
         QCOMPARE(connectedSpy.count(), 1);
     }

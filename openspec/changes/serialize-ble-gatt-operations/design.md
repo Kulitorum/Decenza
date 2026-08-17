@@ -140,6 +140,16 @@ It also removes a flag that would otherwise have to be invented. A required stre
 - **Failing the connect on a subscribe error could loop.** A DE1 that consistently fails one CCCD write now reconnects instead of running degraded. → Intended — a machine that cannot chart or stop a shot is not usable — but the reconnect ladder's existing backoff and error surfacing must not be bypassed, and the user must not see a silent reconnect loop.
 - **Behaviour change on platforms with no reported defect.** → One log is not evidence other platforms are safe; the per-controller queue is backend-independent, and a single code path is worth more than a platform-conditional optimisation. Accepted deliberately.
 
+- **An urgent DE1 write can now wait behind ANOTHER device's operation, and stop-at-weight is on that path.** This is the one guarantee the shared queue genuinely weakens, and it is worth stating plainly rather than leaving inside the `writeUrgent` comment. Before: the DE1's `writeUrgent` bypassed the DE1's own private queue, and a scale's traffic was on a separate unserialized path that could never block it. After: `submitFront()` reorders only what is WAITING — nothing preempts an operation the platform has already accepted — so if a scale or refractometer holds the slot, the SAW stop command waits for it.
+
+  Realistic exposure during a shot is small: the scale is connected and doing 1 Hz heartbeat writes that complete in tens of milliseconds, and inbound notifications are not queued at all. The worst case is not small: a scale that stops answering holds the slot for `OPERATION_TIMEOUT_MS` (5 s), and a DE1 write already mid-retry-cascade holds it for up to 32.5 s.
+
+  **Bounded, not removed.** Reads and writes now carry `RW_TIMEOUT_MS = 3000` rather than the 5 s connect-time budget, which cuts the tail by 2 s. That constant is not a tuning knob: it is Qt's own per-job timeout on Android (`RUNNABLE_TIMEOUT`, `QtBluetoothLE.java:69`), past which Qt abandons the job and discards any late reply (`:580-589`) — so on that platform there is provably no answer coming after it, and holding the shared radio longer buys nothing anywhere. 3 s is still a ruined shot; this makes the worst case smaller, not acceptable.
+
+  Removing the tail entirely means not having optional scale writes outstanding during a shot at all — the Decent Scale heartbeat is the only one in practice. That is a per-driver change of exactly the shape this change deleted (`setHeartbeatsPaused`), so it wants evidence before it is rebuilt under a new name.
+
+  Deliberately NOT mitigated with preemption machinery, because the honest position is that the exposure is unmeasured rather than known-acceptable, and a priority lane is a large mechanism to build on a guess. **Task 9.7 measures SAW latency under scale contention on hardware; that measurement, not this paragraph, is what should decide whether a priority lane is justified.**
+
 ## Migration Plan
 
 No persisted state, no schema change, no data migration. Deploy is the build; rollback is a revert.

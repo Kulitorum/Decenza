@@ -153,7 +153,9 @@ private:
      *                  Failing to enable a required stream fails the connection
      *                  rather than proceeding without it.
      */
-    void submitSubscribe(const QBluetoothUuid& uuid, bool required);
+    // False when the stream is permanently unavailable on this connection.
+    // subscribeAll() stops on a required one — see the definition.
+    bool submitSubscribe(const QBluetoothUuid& uuid, bool required);
     /** Report a required stream as unusable and fail the connection attempt. */
     void failRequiredStream(const QBluetoothUuid& uuid);
 

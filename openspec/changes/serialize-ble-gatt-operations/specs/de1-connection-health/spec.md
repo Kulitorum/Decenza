@@ -6,7 +6,11 @@ The system SHALL NOT report the DE1 as connected when any notification stream re
 
 On such a failure the system SHALL tear the link down and re-enter its existing reconnect path, so subscription is retried against a freshly established connection rather than against the connection that just failed it.
 
-The system SHALL NOT retry a failed notification-enable in place against the same connection. A retry loop pinned to one operation stalls every other operation behind it and does not address the condition that caused the failure.
+Retry of a failed notification-enable SHALL be bounded by the same policy as any other GATT write on that link, and SHALL NOT be unbounded or pinned at the head of the queue past that bound. On exhaustion the link SHALL be torn down rather than retried further in place.
+
+A failure that is a permanent fact about the connection — the characteristic absent from the discovered map, or no CCCD descriptor on it — SHALL NOT be retried at all, and SHALL fail the connection at once. Retrying five times could only delay saying so.
+
+(This requirement previously read "SHALL NOT retry a failed notification-enable in place against the same connection", which contradicted both `design.md` and the shipped code, where a rejected CCCD write takes the ordinary write policy. Corrected rather than quietly reworded.)
 
 #### Scenario: A notification-enable is rejected during connection setup
 
