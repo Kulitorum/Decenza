@@ -93,6 +93,7 @@ void BleGattQueue::noteSucceeded(Requester requester) {
         return;
     }
     scheduleDispatch();
+    emitDrainedIfIdle();
 }
 
 void BleGattQueue::noteFailed(Requester requester) {
@@ -134,6 +135,7 @@ void BleGattQueue::noteFailed(Requester requester) {
     if (done.onAbandoned) done.onAbandoned();
 
     scheduleDispatch();
+    emitDrainedIfIdle();
 }
 
 qsizetype BleGattQueue::forget(Requester requester) {
@@ -164,6 +166,7 @@ qsizetype BleGattQueue::forget(Requester requester) {
     // Whatever else was waiting is now eligible, and the whole point of
     // releasing on teardown is that a dead link does not hold the stack.
     scheduleDispatch();
+    emitDrainedIfIdle();
     return dropped;
 }
 
@@ -201,6 +204,18 @@ BleGattQueue::Requester BleGattQueue::inFlightRequester() const {
 
 QBluetoothUuid BleGattQueue::inFlightKey() const {
     return m_inFlight.has_value() ? m_inFlight->key : QBluetoothUuid();
+}
+
+QString BleGattQueue::inFlightLabel() const {
+    return m_inFlight.has_value() ? m_inFlight->label : QString();
+}
+
+void BleGattQueue::emitDrainedIfIdle() {
+    if (m_inFlight.has_value() || !m_queue.isEmpty()) return;
+    // A consumer of this may submit work of its own (that is the point — it was
+    // waiting for a clear radio). Anything it submits queues normally, because
+    // the slot is already released before we get here.
+    emit drained();
 }
 
 void BleGattQueue::reportDepth() {

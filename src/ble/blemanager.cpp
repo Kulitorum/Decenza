@@ -1,4 +1,5 @@
 #include "blemanager.h"
+#include "blegattqueue.h"
 
 #include "bluetoothlogging.h"
 #include "core/fileshare.h"
@@ -107,6 +108,11 @@ BLEManager::BLEManager(QObject* parent)
     connect(m_scaleDirectAbortTimer, &QTimer::timeout, this, [this]() {
         abortScaleDirectConnectIfPending(QStringLiteral("~4s elapsed"));
     });
+
+    // The release event for a scale connect deferred behind GATT traffic. The
+    // queue owns the definition of "clear"; BLEManager only acts on it.
+    connect(&BleGattQueue::instance(), &BleGattQueue::drained,
+            this, &BLEManager::onGattQueueDrained);
 
     // Fail-safe watchdog for the BLE-stack-wedge adapter power-cycle (#1309).
     // The cycle is normally event-driven (HostPoweredOff → powerOn() →
@@ -3039,17 +3045,24 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
-    // Serialize behind the DE1's connect: a second BLE GATT connect while the
-    // DE1's is in flight collides on the Android stack — the scale connect dies
-    // the instant the DE1 finishes, then sits out the 20 s timeout before
-    // retrying. Released by noteDe1Connecting(false), which the DE1 emits when
-    // its attempt ends — succeeding, failing, or aborted by its own connect
-    // watchdog. No elapsed-time cap: if no DE1 connect is running, this is false
-    // and the scale goes now.
-    if (m_de1Connecting) {
-        m_scaleConnectDeferred = true;
-        scaleInfo(QStringLiteral("Waiting for the DE1 to finish connecting before connecting "
-                                 "the scale"));
+    // Backpressure gate, de1app's rule (bluetooth.tcl:2276): a BLE connect is
+    // not a queued operation, so it competes with queued GATT traffic for the
+    // radio rather than waiting its turn. Defer it while the shared queue has
+    // anything going on, and release when the queue says it is clear.
+    //
+    // Gating on the contention rather than on a device means no DE1 present is
+    // no wait at all: the queue is empty, and the scale connects now.
+    if (auto& q = BleGattQueue::instance(); q.isBusy() || q.pendingCount() > 0) {
+        if (!m_scaleConnectDeferred) {
+            m_scaleConnectDeferred = true;
+            m_scaleConnectDeferSince.start();
+        }
+        scaleInfo(QStringLiteral("Scale connect deferred: the BLE radio is busy — "
+                                 "%1 GATT operation(s) queued, '%2' in flight%3")
+                      .arg(q.pendingCount())
+                      .arg(q.inFlightLabel().isEmpty() ? QStringLiteral("none")
+                                                       : q.inFlightLabel(),
+                           m_de1Connecting ? QStringLiteral(", DE1 connecting") : QString()));
         return;
     }
 
@@ -3058,7 +3071,16 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     QBluetoothAddress address(upperAddress);
     QBluetoothDeviceInfo deviceInfo(address, deviceName, QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
 
-    scaleInfo(QStringLiteral("Direct wake: connecting to %1 at %2").arg(deviceName, upperAddress));
+    // The radio context at the instant a scale connect is issued. This is the
+    // line that makes the inherited "two concurrent connects collide" claim
+    // testable from a submitted log: correlate scale connect outcomes against
+    // the DE1 phase recorded here. No capture so far carries both.
+    scaleInfo(QString("Direct wake: connecting to %1 at %2 [radio: %3 queued, DE1 %4]")
+                  .arg(deviceName, upperAddress)
+                  .arg(BleGattQueue::instance().pendingCount())
+                  .arg(m_de1Connecting ? QStringLiteral("connecting")
+                                       : (m_de1Connected ? QStringLiteral("connected")
+                                                         : QStringLiteral("down"))));
 
     // Mark that we're doing a direct connect - but we won't skip scan results
     // Instead, onDeviceDiscovered will check if scale is already connected
@@ -3090,15 +3112,19 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
 void BLEManager::noteDe1Connecting(bool connecting) {
     if (m_de1Connecting == connecting) return;
     m_de1Connecting = connecting;
-    if (connecting) return;
+    // Recorded only. Nothing is gated on it — see the declaration for why, and
+    // for what the log lines it feeds are meant to settle.
+    de1Debug(QString("DE1 link is now %1").arg(connecting ? "connecting" : "not connecting"));
+}
 
-    // The DE1's attempt has ended — connected, failed, or aborted by its connect
-    // watchdog. Run any scale direct-connect that was held behind it.
-    if (m_scaleConnectDeferred) {
-        m_scaleConnectDeferred = false;
-        scaleInfo(QStringLiteral("DE1 connect settled — starting deferred scale connect"));
-        tryDirectConnectToScale();
-    }
+void BLEManager::onGattQueueDrained() {
+    if (!m_scaleConnectDeferred) return;
+    m_scaleConnectDeferred = false;
+    const qint64 waitedMs = m_scaleConnectDeferSince.isValid()
+                                ? m_scaleConnectDeferSince.elapsed() : -1;
+    scaleInfo(QString("BLE radio clear after %1 ms — starting deferred scale connect")
+                  .arg(waitedMs));
+    tryDirectConnectToScale();
 }
 
 void BLEManager::openLocationSettings()

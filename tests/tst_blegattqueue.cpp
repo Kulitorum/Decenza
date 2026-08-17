@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QSignalSpy>
 
 #include "ble/blegattqueue.h"
 #include "ble/protocol/de1characteristics.h"
@@ -406,6 +407,118 @@ private slots:
     // Edge-triggered: one warning per episode. failOnWarning() in init() is
     // what makes "once" able to fail — a second unignored warning fails the
     // slot.
+    // --- drained(), the release event for work that is NOT a queued operation --
+    //
+    // A BLE connect is not queued (queueing it would let a scale reconnect
+    // mid-shot stall a DE1 write, and stop-at-weight sits on that path), so it
+    // competes with queued GATT traffic for the radio instead of waiting its
+    // turn. BLEManager defers a scale connect until this fires. That makes it
+    // the whole release mechanism — there is no interval and no cap behind it —
+    // so it has to be exactly right about "clear".
+
+    void drainedFiresWhenTheLastOperationCompletes() {
+        BleGattQueue q;
+        Recorder rec;
+        QSignalSpy drained(&q, &BleGattQueue::drained);
+
+        q.submit(op(de1(), QStringLiteral("only"), &rec));
+        pump();
+        QCOMPARE(drained.count(), 0);   // in flight, not clear
+
+        q.noteSucceeded(de1());
+        pump();
+
+        QCOMPARE(drained.count(), 1);
+        QVERIFY(!q.isBusy());
+        QCOMPARE(q.pendingCount(), qsizetype(0));
+    }
+
+    // Not on every release — only on the one that empties the queue. A gate
+    // released while work remains would put a connect back onto a busy radio,
+    // which is the thing it is there to avoid.
+    void drainedDoesNotFireWhileWorkRemains() {
+        BleGattQueue q;
+        Recorder rec;
+        QSignalSpy drained(&q, &BleGattQueue::drained);
+
+        q.submit(op(de1(), QStringLiteral("first"), &rec));
+        q.submit(op(de1(), QStringLiteral("second"), &rec));
+        pump();
+
+        q.noteSucceeded(de1());
+        pump();
+        QCOMPARE(drained.count(), 0);   // 'second' took the slot
+
+        q.noteSucceeded(de1());
+        pump();
+        QCOMPARE(drained.count(), 1);
+    }
+
+    // An abandoned operation clears the radio just as a successful one does.
+    // Missing this would leave a scale connect deferred forever behind work
+    // that failed — the failure mode a release-by-event design has to not have.
+    void drainedFiresWhenTheLastOperationIsAbandoned() {
+        BleGattQueue q;
+        Recorder rec;
+        QSignalSpy drained(&q, &BleGattQueue::drained);
+
+        q.submit(op(de1(), QStringLiteral("doomed"), &rec));
+        pump();
+        q.noteFailed(de1());            // no retry budget -> abandoned
+        pump();
+
+        QCOMPARE(rec.abandoned, QStringList{QStringLiteral("doomed")});
+        QCOMPARE(drained.count(), 1);
+    }
+
+    // And when a transport tears down. A dead link must not hold a scale
+    // connect any more than it holds the slot.
+    void drainedFiresWhenTeardownEmptiesTheQueue() {
+        BleGattQueue q;
+        Recorder rec;
+        QSignalSpy drained(&q, &BleGattQueue::drained);
+
+        q.submit(op(de1(), QStringLiteral("held"), &rec));
+        q.submit(op(de1(), QStringLiteral("queued"), &rec));
+        pump();
+
+        q.forget(de1());
+        pump();
+
+        QCOMPARE(drained.count(), 1);
+        QVERIFY(!q.isBusy());
+    }
+
+    // Teardown that leaves ANOTHER device's work behind is not "clear".
+    void teardownDoesNotReportDrainedWhileAnotherDeviceIsWaiting() {
+        BleGattQueue q;
+        Recorder rec;
+        QSignalSpy drained(&q, &BleGattQueue::drained);
+
+        q.submit(op(de1(), QStringLiteral("de1-held"), &rec));
+        q.submit(op(scale(), QStringLiteral("scale-queued"), &rec));
+        pump();
+
+        q.forget(de1());
+        pump();
+
+        QCOMPARE(drained.count(), 0);   // the scale's operation took the slot
+        QCOMPARE(q.inFlightRequester(), scale());
+    }
+
+    // The label is what the deferral log line names as "what is holding the
+    // radio". A submitted log with an empty name there answers nothing.
+    void theInFlightLabelIsAvailableForLogging() {
+        BleGattQueue q;
+        Recorder rec;
+        QVERIFY(q.inFlightLabel().isEmpty());
+
+        q.submit(op(de1(), QStringLiteral("write a00e"), &rec));
+        pump();
+
+        QCOMPARE(q.inFlightLabel(), QStringLiteral("write a00e"));
+    }
+
     void depthWarningFiresOncePerEpisode() {
         BleGattQueue q;
         Recorder rec;

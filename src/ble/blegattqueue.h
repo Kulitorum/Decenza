@@ -191,6 +191,9 @@ public:
     /** The requester holding the slot, or nullptr. */
     Requester inFlightRequester() const;
 
+    /** Label of the in-flight operation, or empty. For logging only. */
+    QString inFlightLabel() const;
+
     /**
      * The discard key of the in-flight operation, or a null UUID.
      *
@@ -200,6 +203,16 @@ public:
      * BleTransport's old CCCD ACK matcher existed to prevent.
      */
     QBluetoothUuid inFlightKey() const;
+
+signals:
+    /**
+     * Nothing is in flight and nothing is queued, for any device.
+     *
+     * The release event for work that must not compete with GATT traffic for
+     * the radio — a BLE connect, which is not itself a queued operation. This is
+     * what lets a caller wait for "the radio is clear" without polling for it.
+     */
+    void drained();
 
 #ifdef DECENZA_TESTING
     friend class tst_BleGattQueue;
@@ -217,6 +230,9 @@ private:
     void dispatchNext();
     void scheduleDispatch();
     void reportDepth();
+    // Emits drained() when the slot has just been released and nothing remains.
+    // Called from every release path; never from dispatch.
+    void emitDrainedIfIdle();
 
     QQueue<Operation> m_queue;
     std::optional<Operation> m_inFlight;

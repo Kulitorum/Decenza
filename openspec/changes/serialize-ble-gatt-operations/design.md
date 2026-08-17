@@ -61,6 +61,42 @@ Routing it through `de1LinkFault` also closes a gap that would otherwise remain:
 
 *Alternative — de1app's unbounded retry:* its own source says retrying a forever-failing vital command "kind of kills the BLE abilities of the app", and it pins the command at the head of a stalled queue. What actually protects de1app is that it issues its enables three separate times during connection setup — redundancy, not error handling.
 
+### Gating a connect: backpressure, not device state
+
+A BLE connect is deliberately **not** a queued operation, so something else has to keep
+it off a busy radio. That something is de1app's rule, which we could not use before
+because there was no shared queue to measure: `ble_connect_to_scale` defers while the
+shared command stack is backed up — "Too much backpressure, waiting with the connect"
+(`bluetooth.tcl:2276`) — rather than while any particular device is busy.
+
+It gates on the contention itself, so it needs no belief about *which* device is
+contending. Three consequences, all wanted:
+
+- **No DE1 present is no wait at all.** The queue is empty, so the scale connects
+  immediately. This matters more than it looks: the absent-DE1 case cannot be measured
+  from any capture available (only 4 of 29 carry DE1 controller states, and one supplies
+  100% of the failure samples), so the gate has to be safe there by construction.
+- **No device coupling.** `m_de1Connecting`, the main.cpp wiring and the DE1-state
+  branch all stop being control flow.
+- **No threshold and no interval.** de1app polls with `after 1000` and uses a depth of
+  >2 because a poll cannot express "when it is clear". `drained()` is that event
+  exactly, so both numbers disappear rather than being imported.
+
+*Alternative — queue the connects too:* rejected, and it is the strongest alternative.
+It would make the gate and the queue one mechanism and order connects against GATT
+traffic in both directions. But a scale reconnect mid-shot would then stall DE1 writes
+for the duration of that connect, and stop-at-weight is on that path. de1app's
+asymmetry is deliberate and right: a connect waits for GATT traffic, GATT traffic never
+waits for a connect.
+
+*Alternative — gate on the DE1's connection state:* shipped briefly and withdrawn. It
+enforced an inherited claim — that two concurrent GATT connects collide on the Android
+stack — that no available log supports. In the one capture carrying both DE1 controller
+states and scale connects, scale connects fail 101 of 101 times when no DE1 is up at
+all, so its 2-of-6 success rate during a DE1 connect says nothing about the DE1. The
+state now only records, and feeds a radio-context line on every scale connect so the
+claim becomes answerable from a submitted log instead of being enforced on faith.
+
 ### Ordering is FIFO with no per-device priority
 
 Served in submission order regardless of peripheral. No DE1 priority.

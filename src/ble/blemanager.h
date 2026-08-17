@@ -11,6 +11,7 @@
 #include <QStringList>
 #include <QFile>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QMutex>
 #include <QPointer>
 #include <atomic>
@@ -704,22 +705,32 @@ public slots:
     // still auto-connects via onDeviceDiscovered when it's seen advertising.
     Q_INVOKABLE void tryDirectConnectToScale(bool allowDirectConnect = true);
     /**
-     * The DE1's connect attempt started or ended.
+     * The DE1's connect attempt started or ended. OBSERVABILITY ONLY.
      *
-     * Wired in main.cpp from DE1Device's own connectingChanged/connectedChanged,
-     * so this tracks whether a DE1 connect is ACTUALLY in flight rather than
-     * whether BLEManager once asked for one. That distinction is the whole
-     * reason the 15 s cap it replaces existed: tryDirectConnectToDE1() set an
-     * optimistic flag and emitted de1Discovered(), the handler in main.cpp
-     * declined whenever the DE1 was already connected or connecting, and nothing
-     * then cleared the flag — so the cap was there to unstick a gate that should
-     * never have closed.
+     * Wired in main.cpp from DE1Device's connectingChanged/connectedChanged.
+     * Nothing gates on it — it exists so every scale connect can record what the
+     * DE1 link was doing at that moment, which is the one question the field
+     * logs could not answer.
      *
-     * A scale direct-connect is deferred while this is true, because two
-     * concurrent GATT connects collide on the Android stack. It is the CONNECT
-     * that is serialized here; GATT operations are serialized by BleGattQueue.
+     * The claim it used to enforce is that two concurrent GATT connects collide
+     * on the Android stack. That claim is inherited from a comment and is NOT
+     * supported by any log available: across 29 user-submitted captures only one
+     * contains both DE1 controller states and scale connects, and on that
+     * machine scale connects fail 101 of 101 times when no DE1 is up at all — so
+     * its 2-of-6 success rate during a DE1 connect says nothing about the DE1.
+     * Rather than keep enforcing an unverified claim, the state now only
+     * records, and the log lines it feeds are what would confirm or refute it.
      */
     void noteDe1Connecting(bool connecting);
+
+    /**
+     * The shared GATT queue has gone quiet. Releases a deferred scale connect.
+     *
+     * The whole release mechanism: no interval, no threshold, no cap. If this
+     * never arrives, neither does the scale connect — which is why the deferral
+     * line names what is holding the radio, so a submitted log says who.
+     */
+    void onGattQueueDrained();
     // DE1 controller-error fault, re-emitted from DE1Device::de1LinkFault. Feeds
     // the BLE-stack-wedge detector (#1309). These faults fire ONLY for real
     // controller errors (Connection/Authorization/RemoteHostClosed/write-failed)
@@ -1226,18 +1237,26 @@ private:
     bool m_directConnectInProgress = false;
     QString m_directConnectAddress;
 
-    // Serialize the scale's BLE direct-connect behind the DE1's: two concurrent
-    // GATT connects collide on the Android stack (the scale connect dies when
-    // the DE1's completes).
-    //
-    // True while a DE1 connect is genuinely in flight, fed from DE1Device's own
-    // state rather than set optimistically when one is requested. DE1Device clears its own
-    // m_connecting in onTransportConnected(), which now runs only after every
-    // notification subscription is confirmed — so this gate brackets the DE1's
-    // connect, discovery AND subscribe, which is exactly the window #1819 had a
-    // scale connecting into.
+    // Recorded, not enforced — see noteDe1Connecting(). Read only by the log
+    // line every scale connect emits, so the field can answer a question no
+    // capture so far can.
     bool m_de1Connecting = false;
+
+    // A scale direct-connect is waiting for the radio to go quiet. Released by
+    // BleGattQueue::drained(), never by an elapsed time.
+    //
+    // This is de1app's rule: ble_connect_to_scale defers while the shared
+    // command stack is backed up ("Too much backpressure, waiting with the
+    // connect", bluetooth.tcl:2276) rather than while any particular device is
+    // busy. It gates on the contention itself, so it needs no belief about which
+    // device is contending — and with no DE1 present the queue is empty and the
+    // scale connects immediately, which is what makes it safe in the case no log
+    // available can measure. de1app polls with `after 1000`; we have the exact
+    // event, so there is no interval and no threshold to pick.
     bool m_scaleConnectDeferred = false;
+    // How long that wait has lasted, for the release line. A measurement, not a
+    // control: nothing reads it to decide anything.
+    QElapsedTimer m_scaleConnectDeferSince;
 
     // Refractometer
     QList<QBluetoothDeviceInfo> m_refractometerDevices;
