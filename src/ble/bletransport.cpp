@@ -598,6 +598,16 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                     this, [this](QLowEnergyService::ServiceError error) {
                 const QString name = bleServiceErrorName(error);
                 switch (error) {
+                // OperationError is the one Qt emits most: every synchronous
+                // rejection sets it, NOT the per-operation errors below.
+                // qlowenergyservice.cpp does it in discoverDetails (:581),
+                // readCharacteristic (:650), writeCharacteristic (:724) and
+                // writeDescriptor — a null controller, a service that is not
+                // RemoteServiceDiscovered, or a characteristic the service does
+                // not contain. Left in the default arm it raised a user-facing
+                // error and never released the slot, so one rejection cost every
+                // device on the radio 5 s, or 20 s if it landed during discovery.
+                case QLowEnergyService::OperationError:
                 case QLowEnergyService::CharacteristicWriteError:
                 case QLowEnergyService::CharacteristicReadError:
                 case QLowEnergyService::DescriptorWriteError: {
@@ -680,6 +690,16 @@ void BleTransport::onServiceDiscoveryFinished() {
 }
 
 void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) {
+    if (state == QLowEnergyService::InvalidService) {
+        // Definitive: discovery is not going to complete. Left unhandled it
+        // burned the full DISCOVERY_TIMEOUT_MS with no output at all, and the
+        // whole radio with it.
+        warn(QStringLiteral("DE1 service became invalid — characteristic discovery "
+                            "cannot complete; the connection attempt will be retried"));
+        m_operationTimeoutTimer.stop();
+        m_gattQueue->noteFailed(this);
+        return;
+    }
     if (state == QLowEnergyService::RemoteServiceDiscovered) {
         completeOperation(DE1::SERVICE_UUID);
         setupService();
@@ -731,12 +751,22 @@ void BleTransport::onDescriptorWritten(const QLowEnergyDescriptor& descriptor, c
     // slot now — including another device's operation. This is the whole of what
     // the old ACK matcher did, once the sequencing it also carried became the
     // queue's job.
-    if (descriptor != cccdFor(m_gattQueue->inFlightKey())) return;
+    if (descriptor != cccdFor(m_gattQueue->inFlightKey())) {
+        // Every other misattribution guard in this file logs its drop. A CCCD ACK
+        // that fails to match is what a stalled subscribe looks like from outside.
+        log(QStringLiteral("Descriptor ACK did not match the subscribe in flight — ignored"));
+        return;
+    }
     completeOperation(m_gattQueue->inFlightKey());
 }
 
 void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value) {
-    noteWriteSucceeded();
+    // Guarded, like completeOperation() below it. An ACK for a write already
+    // abandoned at the clock would otherwise zero the consecutive-failure run and
+    // print "accepting writes again" about a link that is not — and a late ACK is
+    // precisely the pattern of a link that is sick, so the detector would be
+    // defeated by its own evidence.
+    if (ownsInFlight(c.uuid())) noteWriteSucceeded();
     completeOperation(c.uuid());
 
     emit writeComplete(c.uuid(), value);
@@ -841,28 +871,40 @@ void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteAr
     // wedges every device until something else forces a teardown — the failure
     // mode these early returns were free of only because nothing was waiting on
     // them.
-    if (!m_service || !m_characteristics.contains(uuid)) {
-        log(QString("writeCharacteristic(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
-        m_gattQueue->noteFailed(this);
-        return;
-    }
-    // Don't hand a write to Qt once the controller has left the connected/
-    // discovered state. Writing through a torn-down QLowEnergyController crashes
-    // inside DarwinBTCentralManager's write queue on the LE dispatch queue
-    // (iOS #1400 — symbolicated to the GATT write path; the periodic MMR
-    // keepalive is the likely trigger writing to a dead link). We guard on
-    // controller state (not isConnected(), which also requires
-    // m_characteristicsReady) so connection-setup writes still go through.
-    const auto controllerState = m_controller ? m_controller->state()
-                                               : QLowEnergyController::UnconnectedState;
-    if (controllerState != QLowEnergyController::ConnectedState
-        && controllerState != QLowEnergyController::DiscoveredState) {
-        log(QString("writeCharacteristic(%1) skipped - controller not connected (state %2)")
-                .arg(uuid.toString().mid(1, 8)).arg(static_cast<int>(controllerState)));
+    if (!linkAcceptsGattOperations(uuid, QStringLiteral("write"))) {
         m_gattQueue->noteFailed(this);
         return;
     }
     m_service->writeCharacteristic(m_characteristics[uuid], data);
+}
+
+bool BleTransport::linkAcceptsGattOperations(const QBluetoothUuid& uuid,
+                                             const QString& verb) {
+    // One predicate for all three issue callbacks. It used to be open-coded in
+    // writeCharacteristic() only, which is how read and subscribe came to issue
+    // against a link that had gone: the check existed, it just was not where the
+    // other two could reach it.
+    if (!m_service || !m_characteristics.contains(uuid)) {
+        log(QString("%1(%2) skipped - %3")
+                .arg(verb, uuid.toString().mid(1, 8),
+                     !m_service ? "no service" : "unknown characteristic"));
+        return false;
+    }
+    // Controller state, not isConnected(), which also requires
+    // m_characteristicsReady — connection-setup operations must still go through.
+    // Handing anything to a torn-down QLowEnergyController crashes inside
+    // DarwinBTCentralManager's write queue on the LE dispatch queue (iOS #1400,
+    // symbolicated to the GATT write path).
+    const auto controllerState = m_controller ? m_controller->state()
+                                              : QLowEnergyController::UnconnectedState;
+    if (controllerState != QLowEnergyController::ConnectedState
+        && controllerState != QLowEnergyController::DiscoveredState) {
+        log(QString("%1(%2) skipped - controller not connected (state %3)")
+                .arg(verb, uuid.toString().mid(1, 8))
+                .arg(static_cast<int>(controllerState)));
+        return false;
+    }
+    return true;
 }
 
 void BleTransport::noteWriteAbandoned() {
@@ -961,7 +1003,10 @@ BleGattQueue::Operation BleTransport::operationFor(const QBluetoothUuid& key,
     op.requester = this;
     op.key = key;
     op.label = QStringLiteral("%1 %2").arg(verb, key.toString().mid(1, 8));
-    op.policy = {MAX_WRITE_RETRIES, WRITE_RETRY_DELAY_MS, /*paceMsAfter=*/0};
+    // Named, not positional: both fields are ints, so a swapped pair would
+    // compile clean and turn a 5-retry/500 ms policy into 500 retries.
+    op.policy.maxRetries = MAX_WRITE_RETRIES;
+    op.policy.retryDelayMs = WRITE_RETRY_DELAY_MS;
     op.issue = [this, timeoutMs, issue = std::move(issue)]() {
         // Armed here rather than by the callers so it covers retries too: the
         // queue calls issue() again for each one, and a retry that also goes
@@ -1011,6 +1056,15 @@ void BleTransport::submitRead(const QBluetoothUuid& uuid) {
         return;
     }
     auto op = operationFor(uuid, QStringLiteral("read"), [this, uuid]() {
+        // Re-checked at DISPATCH, not just at submission. Every controller and
+        // service signal here is a Qt::QueuedConnection, so the link can go down
+        // between the two and forget() will not have run yet. Issuing then is the
+        // write-to-a-dead-link path that crashes inside DarwinBTCentralManager
+        // (#1400/#1405), and it would hold the shared slot to the clock.
+        if (!linkAcceptsGattOperations(uuid, QStringLiteral("read"))) {
+            m_gattQueue->noteFailed(this);
+            return;
+        }
         m_service->readCharacteristic(m_characteristics[uuid]);
     });
     op.onAbandoned = [this, uuid]() {
@@ -1047,6 +1101,12 @@ void BleTransport::submitSubscribe(const QBluetoothUuid& uuid, bool required) {
     }
 
     auto op = operationFor(uuid, QStringLiteral("subscribe"), [this, uuid]() {
+        // Same dispatch-time re-check as read and write. A CCCD enable IS a
+        // write, so the dead-link crash path applies to it in full.
+        if (!linkAcceptsGattOperations(uuid, QStringLiteral("subscribe"))) {
+            m_gattQueue->noteFailed(this);
+            return;
+        }
         m_service->writeDescriptor(cccdFor(uuid), QByteArray::fromHex("0100"));
     });
     op.onAbandoned = [this, uuid, required]() {
@@ -1055,6 +1115,7 @@ void BleTransport::submitSubscribe(const QBluetoothUuid& uuid, bool required) {
                  .arg(uuid.toString().mid(1, 8)).arg(MAX_WRITE_RETRIES));
         m_streamsNotEnabled.append(uuid.toString().mid(1, 8));
         if (required) failRequiredStream(uuid);
+        emitQueueDrainedIfIdle();
     };
     m_gattQueue->submit(std::move(op));
 }
@@ -1107,6 +1168,7 @@ void BleTransport::submitDiscovery() {
         // happens next, and it already tears the attempt down after MAX_RETRIES.
         warn(QStringLiteral("Characteristic discovery did not complete — the "
                             "connection attempt will be retried"));
+        emitQueueDrainedIfIdle();
     };
     m_gattQueue->submit(std::move(op));
 }

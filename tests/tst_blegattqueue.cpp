@@ -53,7 +53,7 @@ private:
     }
 
     // Let posted dispatches run. Generous enough to cover the zero-interval
-    // post plus any pacing the test asked for, without being a race.
+    // post and any retry delay a test asked for, without being a race.
     static void pump(int ms = 30) { QTest::qWait(ms); }
 
 private slots:
@@ -63,11 +63,16 @@ private slots:
 
     // The headline property. Without it, #1819: a scale's discovery lands on
     // top of the DE1's descriptor writes and all three are rejected.
+    // The second operation is submitted AFTER the first has been dispatched, and
+    // that ordering is the whole test. Submitting both up front would pass on
+    // FIFO order alone, with the in-flight guard deleted — which is how the
+    // first version of this slot survived its negative control.
     void onlyOneOperationIsIssuedUntilItCompletes() {
         BleGattQueue q;
         Recorder rec;
 
         q.submit(op(de1(), QStringLiteral("de1-write"), &rec));
+        pump();
         q.submit(op(scale(), QStringLiteral("scale-discover"), &rec));
         pump();
 
@@ -365,41 +370,42 @@ private slots:
         QCOMPARE(q.pendingCount(), qsizetype(1));
     }
 
-    // --- pacing -----------------------------------------------------------
+    // --- unrunnable operations --------------------------------------------
 
-    // Pacing is carried by the operation that just ran, so one device's
-    // interval does not become every device's.
-    void pacingDelaysTheNextDispatchWithoutHoldingTheSlot() {
+    // An operation with no issue callback would take the slot, issue nothing,
+    // and be ended by nothing — every device's BLE traffic stopped for the rest
+    // of the session, with no error. Rejected at submit, where the caller can
+    // still be named in the log.
+    void anOperationWithNothingToDoIsRejectedRatherThanDispatched() {
         BleGattQueue q;
-        Recorder rec;
-        BleGattQueue::Policy paced;
-        paced.paceMsAfter = 60;
+        BleGattQueue::Operation broken;
+        broken.requester = de1();
+        broken.label = QStringLiteral("no-issue");
 
-        q.submit(op(de1(), QStringLiteral("paced"), &rec, paced));
-        q.submit(op(de1(), QStringLiteral("next"), &rec));
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("submitted with nothing to do")));
+        q.submit(std::move(broken));
         pump();
-        QCOMPARE(rec.issued, QStringList{QStringLiteral("paced")});
 
-        q.noteSucceeded(de1());
-        QVERIFY(!q.isBusy());          // released at once...
-        pump(20);
-        QCOMPARE(rec.issued.size(), 1); // ...but the next one waits out the pace
-
-        pump(80);
-        QCOMPARE(rec.issued.size(), 2);
+        QCOMPARE(q.pendingCount(), qsizetype(0));
+        QVERIFY(!q.isBusy());
     }
 
-    void anUnpacedOperationDispatchesTheNextOneStraightAway() {
+    // No requester means no key to complete against: noteSucceeded/noteFailed
+    // both match on it, so this one could take the slot and never give it back
+    // either.
+    void anOperationWithNoOwnerIsRejected() {
         BleGattQueue q;
         Recorder rec;
+        BleGattQueue::Operation orphan = op(nullptr, QStringLiteral("orphan"), &rec);
 
-        q.submit(op(de1(), QStringLiteral("a"), &rec));
-        q.submit(op(de1(), QStringLiteral("b"), &rec));
-        pump();
-        q.noteSucceeded(de1());
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("submitted with no owner")));
+        q.submit(std::move(orphan));
         pump();
 
-        QCOMPARE(rec.issued.size(), 2);
+        QCOMPARE(q.pendingCount(), qsizetype(0));
+        QVERIFY(rec.issued.isEmpty());
     }
 
     // --- depth reporting --------------------------------------------------
@@ -487,6 +493,27 @@ private slots:
 
         QCOMPARE(drained.count(), 1);
         QVERIFY(!q.isBusy());
+    }
+
+    // discard() is the one mutator that can empty the queue without any
+    // dispatch being posted and without any slot transition, so it is the one
+    // path that would silently never report idle. BLEManager's deferred scale
+    // connect waits on drained(); missing it here strands the connect until
+    // some unrelated traffic happens to end.
+    void drainedFiresWhenDiscardEmptiesTheQueue() {
+        BleGattQueue q;
+        Recorder rec;
+        QSignalSpy drained(&q, &BleGattQueue::drained);
+
+        const QBluetoothUuid frame = DE1::Characteristic::FRAME_WRITE;
+
+        q.submit(op(de1(), QStringLiteral("dead-frame"), &rec, {}, frame));
+        QCOMPARE(q.discard(de1(), {frame}), qsizetype(1));
+        pump();
+
+        QCOMPARE(drained.count(), 1);
+        QVERIFY(!q.isBusy());
+        QVERIFY(rec.issued.isEmpty());
     }
 
     // Teardown that leaves ANOTHER device's work behind is not "clear".

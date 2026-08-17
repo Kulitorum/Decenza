@@ -58,30 +58,6 @@ private slots:
         QCOMPARE(queue.m_queue.at(2).key, frameWrite());
     }
 
-    // CHANGED BY THE MOVE, deliberately. This slot used to assert a 50 ms
-    // pacing timer on the transport.
-    //
-    // That constant did not do what its name said. It was armed on an enqueue
-    // that found the link idle, so it delayed the FIRST operation after a
-    // pause — and onCharacteristicWritten() called processCommandQueue()
-    // directly, with no delay at all, so consecutive writes were never paced by
-    // it. The advertised "50 ms inter-write spacing" applied to exactly the case
-    // that least needed it.
-    //
-    // Carrying it forward as paceMsAfter would have imposed 50 ms after every
-    // write for the first time, adding about a second to a ~20-write profile
-    // upload for no measured benefit. So DE1 operations carry no pacing, and
-    // what actually keeps the link from being flooded is the property the
-    // pacing was standing in for: nothing is issued while anything is
-    // outstanding, on any device.
-    void de1OperationsCarryNoPacingDelay() {
-        BleGattQueue queue;
-        BleTransport t(nullptr, &queue);
-        t.write(frameWrite(), payload('1'));
-
-        QCOMPARE(queue.m_queue.at(0).policy.paceMsAfter, 0);
-    }
-
     // Not dispatched inline. Dispatching under the submitting call would let a
     // completion handler recurse into its own next operation, and would defeat
     // the serialization for the first operation of every burst.
@@ -490,69 +466,15 @@ private slots:
     // accepting writes while still reporting itself connected. Reporting only —
     // nothing is torn down on this signal — and the shared queue must not
     // change either half of that.
+    //
+    // Only the CONSTANTS are asserted here. The detector's behaviour — report
+    // once per episode, restate as the run grows, close out differently on a
+    // recovery than on a disconnect — is asserted in tst_bletransporterror,
+    // against the exact log text and run counts. Three slots here re-ran a
+    // strict subset of that and were deleted rather than kept as insurance.
     void writeDeadLinkReportingThresholdsAreUnchanged() {
         QCOMPARE(BleTransport::WRITE_DEAD_LINK_THRESHOLD, 3);
         QCOMPARE(BleTransport::WRITE_DEAD_LINK_RESTATE, 10);
-    }
-
-    void abandonedWritesReportTheLinkAsNoLongerAcceptingWrites() {
-        BleGattQueue queue;
-        BleTransport t(nullptr, &queue);
-        QSignalSpy faults(&t, &BleTransport::de1LinkFault);
-
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("stopped accepting writes")));
-        for (int i = 0; i < BleTransport::WRITE_DEAD_LINK_THRESHOLD; ++i)
-            t.noteWriteAbandoned();
-
-        QVERIFY(t.m_writeDeadLinkReported);
-        QCOMPARE(t.m_consecutiveWriteFailures, BleTransport::WRITE_DEAD_LINK_THRESHOLD);
-        // noteWriteAbandoned counts and reports; the fault itself is emitted by
-        // the operation's abandonment callback, not here.
-        QCOMPARE(faults.count(), 0);
-
-        // The episode is still open, and ~BleTransport calls disconnect() ->
-        // forgetWriteFailureState(), which closes it out with a second warning.
-        // Expected, and worth pinning rather than sidestepping: a link torn down
-        // mid-episode must still say how bad it got, and the destructor is the
-        // only place that happens when nothing recovers first.
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("Link dropped while it had stopped")));
-    }
-
-    // A recovery closes the episode out at INFO with the run it reached. Per
-    // LOGGING.md the recurring failure is a fault reported at WARN whose
-    // resolution sits at DEBUG, leaving a reader with only the failure half.
-    void aSuccessfulWriteClosesTheEpisodeAndResetsTheRun() {
-        BleGattQueue queue;
-        BleTransport t(nullptr, &queue);
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("stopped accepting writes")));
-        for (int i = 0; i < BleTransport::WRITE_DEAD_LINK_THRESHOLD; ++i)
-            t.noteWriteAbandoned();
-
-        t.noteWriteSucceeded();
-
-        QCOMPARE(t.m_consecutiveWriteFailures, 0);
-        QVERIFY(!t.m_writeDeadLinkReported);
-    }
-
-    // A disconnect is a different story from a recovery: the link went away
-    // rather than started working, and "accepting writes again" would be false.
-    void aDisconnectClosesTheEpisodeWithoutClaimingRecovery() {
-        BleGattQueue queue;
-        BleTransport t(nullptr, &queue);
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("stopped accepting writes")));
-        for (int i = 0; i < BleTransport::WRITE_DEAD_LINK_THRESHOLD; ++i)
-            t.noteWriteAbandoned();
-
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("Link dropped while it had stopped")));
-        t.forgetWriteFailureState();
-
-        QCOMPARE(t.m_consecutiveWriteFailures, 0);
-        QVERIFY(!t.m_writeDeadLinkReported);
     }
 
 };

@@ -4,7 +4,6 @@
 #include <QObject>
 #include <QQueue>
 #include <QString>
-#include <QTimer>
 
 #include <functional>
 #include <optional>
@@ -26,10 +25,19 @@
  * STATE_INFO, SHOT_SAMPLE and WATER_LEVELS never enabled — no chart, no shot
  * detection, no stop-at-weight, and a shot that ran until stopped by hand.
  *
- * de1app has one queue for the DE1 and the scale together (`::de1(cmdstack)`,
- * single `::de1(wrote)` flag) and decaid gets the same property from
- * universal_ble's per-device serialized queue. Both make the state unreachable
- * rather than handling the error better. This is the same move.
+ * de1app has one queue for the DE1 and the scale together — `::de1(cmdstack)`
+ * with a single `::de1(wrote)` in-flight flag (`machine.tcl:132-133`,
+ * `de1_comms.tcl:43,56-59`) — so the state is unreachable there rather than
+ * handled better. That is the precedent this follows.
+ *
+ * decaid is NOT a second precedent, and an earlier version of this comment said
+ * it was. It sets `UniversalBle.queueType = QueueType.perDevice`
+ * (`universal_ble_discovery_service.dart:403`) and its own comment says why:
+ * "each BLE peripheral gets its own command queue, so DE1 GATT operations never
+ * block scale heartbeat writes and vice versa". That is a deliberate choice to
+ * allow the concurrency #1819 is about — a considered counter-example, recorded
+ * here rather than quietly dropped, because a reader weighing this design should
+ * know a peer app went the other way on purpose.
  *
  * ---- What is deliberately NOT here --------------------------------------
  *
@@ -44,18 +52,27 @@
  * 3000 against Qt's own 3000, and it turned a DescriptorWriteError that arrived
  * at +45 ms into a 3 s stall, three times in one connect.
  *
- * The one timer below is the PACING timer, and it is not a guard — it is the
- * "minimum interval between operations" that already existed for the DE1. It
- * decides when the next operation may start, never whether the previous one
- * finished.
+ * **The queue owns no QTimer at all.** Dispatch is posted with a queued
+ * invocation rather than a zero-interval timer, which is the same thing said
+ * honestly: it is an event-loop hop, not a duration. The only delay left in the
+ * class is an operation's own retry backoff, which is a property of that
+ * operation and travels with it.
  *
  * ---- Policy travels with the operation ----------------------------------
  *
- * Retry budget, retry delay and pacing are per Operation, not per queue. The
- * DE1's tuned values (MAX_WRITE_RETRIES=5 and the corpus derivation behind it,
- * WRITE_RETRY_DELAY_MS, the 50 ms pacing) stay attached to DE1 operations, and
- * everything else defaults to zero retries — which is exactly what the scale and
- * refractometer transports did before they had a queue at all.
+ * Retry budget and retry delay are per Operation, not per queue. The DE1's
+ * tuned values (MAX_WRITE_RETRIES=5 and the corpus derivation behind it, and
+ * WRITE_RETRY_DELAY_MS) stay attached to DE1 operations, and everything else
+ * defaults to zero retries — which is exactly what the scale and refractometer
+ * transports did before they had a queue at all.
+ *
+ * The DE1's old 50 ms inter-write pacing is NOT carried across. It was armed
+ * only on an enqueue that found the link idle, and the completion path
+ * dispatched the next command with no delay at all, so it paced the first write
+ * after a pause and never consecutive ones. Reproducing it as a real per-write
+ * interval would have added ~1 s to a 20-write profile upload for the first
+ * time. What kept the link from being flooded is the property below, not that
+ * constant.
  *
  * Defaulting scales to the DE1's budget would be actively harmful, not merely
  * generous: a dead scale link would hold the shared slot through the DE1's
@@ -99,11 +116,10 @@ public:
         // non-DE1 caller wants: it reproduces the fire-and-forget behaviour the
         // scale and refractometer transports had before they were queued.
         int maxRetries = 0;
+        // Delay before a failed operation is reissued. A backoff, not a guard:
+        // it decides when to try again, never whether something finished. Zero
+        // with zero retries, which is the default.
         int retryDelayMs = 0;
-        // Minimum interval before the NEXT operation may be dispatched. Carried
-        // by the operation that just ran, so one device's pacing does not become
-        // every device's.
-        int paceMsAfter = 0;
     };
 
     struct Operation {
@@ -228,10 +244,14 @@ signals:
 
 private:
     void dispatchNext();
+    // Rejects an unrunnable operation at submit. See the definition.
+    static bool validate(const Operation& op);
     void scheduleDispatch();
     void reportDepth();
-    // Emits drained() when the slot has just been released and nothing remains.
-    // Called from every release path; never from dispatch.
+    // Emits drained() when nothing is in flight and nothing remains queued.
+    // Called from every release path, and from the two places that can empty
+    // the queue without one: discard(), and a dispatch that finds the queue
+    // already emptied. Re-checks at delivery, so a spurious call is harmless.
     void emitDrainedIfIdle();
 
     QQueue<Operation> m_queue;
@@ -243,10 +263,11 @@ private:
     // took the slot next.
     quint64 m_generation = 0;
 
-    // Single-shot, and armed for exactly two reasons: the pacing interval the
-    // previous operation asked for, and the retry delay of an operation about to
-    // be reissued. It never decides that something finished.
-    QTimer m_dispatchTimer;
+    // True between posting a dispatch and running it. The guard a timer's
+    // isActive() used to provide, without the timer.
+    bool m_dispatchPosted = false;
+    // One drained() per idle transition; see emitDrainedIfIdle().
+    bool m_drainedPosted = false;
 
     // Edge-triggered depth reporting. de1app warns at the same depth and also
     // sheds nothing — a depth report is a diagnosis, not a policy. Re-arms only

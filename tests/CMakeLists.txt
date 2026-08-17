@@ -76,9 +76,14 @@ set(BLE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ble/blegattqueue.cpp
     # The scale/refractometer transport base gained the shared queue's
     # submit/complete plumbing, so it is no longer header-only. It belongs
-    # beside blegattqueue.cpp: both are compiled once into decenza_testlib,
-    # which every test target already links, rather than duplicated into the
-    # scale and refractometer targets that reach the base class.
+    # beside blegattqueue.cpp and bletransport.cpp, which were already here.
+    #
+    # A narrow library would be the rule for a NEW shared source, and it is not
+    # the right call for this one: the rule exists to kill duplicate COMPILES
+    # (touching profilemanager.cpp cost 77.0 s across nine of them), and this
+    # file is compiled exactly once either way. Splitting it out would trade
+    # nothing for a new target and another link edge on all 106 binaries. The
+    # duplication gate stays at zero with it here.
     ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/blecapability.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
@@ -950,7 +955,7 @@ add_decenza_test(tst_blegattqueue
 )
 
 # --- tst_blecommandqueue: the DE1 command queue's observable behaviour —
-#     FIFO order, 50 ms pacing, urgent placement, UUID-scoped discard,
+#     FIFO order, urgent placement, UUID-scoped discard,
 #     clearQueue()'s in-flight accounting, depth reporting, and the retry
 #     constants. Recorded as a baseline BEFORE that queue moves onto the shared
 #     cross-device queue (#1819), so the move is verified against measurements

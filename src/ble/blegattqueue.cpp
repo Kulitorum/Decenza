@@ -1,16 +1,8 @@
 #include "blegattqueue.h"
 
-#include "bluetoothlogging.h"
+#include "blegattlogging.h"
 
 #include <QTimer>
-
-// [Bluetooth], not [DE1] or [Scale], for the reason bluetoothlogging.h already
-// gives about the adapter: this sits BENEATH every device. An ordering decision
-// that delayed the DE1 because a refractometer held the slot is not a DE1 fault
-// and not a refractometer fault, and filing it under either sends a reader
-// looking in the wrong file.
-#define GQ_LOG(msg)  BT_LOG_TAGGED("GattQueue", msg)
-#define GQ_WARN(msg) BT_WARN_TAGGED("GattQueue", msg)
 
 BleGattQueue& BleGattQueue::instance() {
     static BleGattQueue queue;
@@ -19,41 +11,76 @@ BleGattQueue& BleGattQueue::instance() {
 
 BleGattQueue::BleGattQueue(QObject* parent)
     : QObject(parent)
-{
-    m_dispatchTimer.setSingleShot(true);
-    connect(&m_dispatchTimer, &QTimer::timeout, this, &BleGattQueue::dispatchNext);
-}
+{}
 
 void BleGattQueue::submit(Operation op) {
+    if (!validate(op)) return;
     m_queue.enqueue(std::move(op));
     reportDepth();
     scheduleDispatch();
 }
 
 void BleGattQueue::submitFront(Operation op) {
+    if (!validate(op)) return;
     m_queue.prepend(std::move(op));
     reportDepth();
     scheduleDispatch();
 }
 
+bool BleGattQueue::validate(const Operation& op) {
+    // Rejected at SUBMIT, loudly, rather than at dispatch. An operation with no
+    // requester can never be completed — noteSucceeded/noteFailed match on the
+    // requester — and one with no issue callback would take the slot, issue
+    // nothing, and be ended by nothing: the queue stops for every device,
+    // permanently, with no error anywhere. That is the worst failure this class
+    // has, and it is a programming mistake with no runtime cause, so the right
+    // place to catch it is where the caller can be named.
+    if (!op.requester) {
+        GQ_WARN(QString("An internal BLE operation (%1) was submitted with no owner "
+                        "and has been dropped. This is a bug; the operation will "
+                        "never run. Nothing else is affected.")
+                    .arg(op.label.isEmpty() ? QStringLiteral("unlabelled") : op.label));
+        return false;
+    }
+    if (!op.issue) {
+        GQ_WARN(QString("An internal BLE operation (%1) was submitted with nothing to "
+                        "do and has been dropped. This is a bug; running it would have "
+                        "stalled all Bluetooth traffic until the app restarted.")
+                    .arg(op.label.isEmpty() ? QStringLiteral("unlabelled") : op.label));
+        return false;
+    }
+    return true;
+}
+
 void BleGattQueue::scheduleDispatch() {
     // Nothing to do while an operation is outstanding: its terminal outcome is
-    // what drives the queue forward. Nothing to do either while the timer is
-    // already armed — it is holding either a pacing interval or a retry delay,
-    // and re-arming it here would shorten one of them.
-    if (m_inFlight.has_value() || m_dispatchTimer.isActive() || m_queue.isEmpty())
+    // what drives the queue forward. Nothing to do either while a dispatch is
+    // already posted and has not run.
+    if (m_inFlight.has_value() || m_dispatchPosted || m_queue.isEmpty())
         return;
 
     // Posted, never called inline. A terminal-outcome handler that released the
     // slot and re-entered dispatch on the same stack would let a device recurse
     // into its own next operation beneath its own callback — the re-entrancy
     // class that makes a nested event loop under a QML signal handler fatal
-    // (see QML_GOTCHAS.md). A zero-interval single-shot is the post.
-    m_dispatchTimer.start(0);
+    // (see QML_GOTCHAS.md).
+    //
+    // A queued invocation, not a zero-interval timer: both hop the event loop,
+    // but only one of them says so. There is no duration here to get wrong.
+    m_dispatchPosted = true;
+    QMetaObject::invokeMethod(this, [this]() { dispatchNext(); }, Qt::QueuedConnection);
 }
 
 void BleGattQueue::dispatchNext() {
-    if (m_inFlight.has_value() || m_queue.isEmpty()) return;
+    m_dispatchPosted = false;
+    if (m_inFlight.has_value()) return;
+    if (m_queue.isEmpty()) {
+        // Emptied between the post and now — a discard, or a teardown. This is
+        // the transition to idle just as much as a completion is, and the only
+        // one no mutator observes directly.
+        emitDrainedIfIdle();
+        return;
+    }
 
     m_inFlight = m_queue.dequeue();
     m_retryCount = 0;
@@ -83,15 +110,10 @@ void BleGattQueue::noteSucceeded(Requester requester) {
     // reply arrives for a characteristic the sequence has already moved past.
     if (!m_inFlight.has_value() || m_inFlight->requester != requester) return;
 
-    const int paceMs = m_inFlight->policy.paceMsAfter;
     m_inFlight.reset();
     m_retryCount = 0;
     ++m_generation;
 
-    if (paceMs > 0 && !m_queue.isEmpty()) {
-        m_dispatchTimer.start(paceMs);
-        return;
-    }
     scheduleDispatch();
     emitDrainedIfIdle();
 }
@@ -130,7 +152,6 @@ void BleGattQueue::noteFailed(Requester requester) {
     m_inFlight.reset();
     m_retryCount = 0;
     ++m_generation;
-    m_dispatchTimer.stop();
 
     if (done.onAbandoned) done.onAbandoned();
 
@@ -155,7 +176,6 @@ qsizetype BleGattQueue::forget(Requester requester) {
         m_inFlight.reset();
         m_retryCount = 0;
         ++m_generation;
-        m_dispatchTimer.stop();
     }
 
     if (dropped > 0) {
@@ -188,6 +208,10 @@ qsizetype BleGattQueue::discard(Requester requester, const QList<QBluetoothUuid>
                    .arg(dropped)
                    .arg(keys.size()));
     }
+    // The queue can be empty now with nothing in flight, and no other path will
+    // notice: dispatchNext() covers the case where a dispatch was already
+    // posted, and this covers the case where none was.
+    emitDrainedIfIdle();
     return dropped;
 }
 
@@ -212,10 +236,27 @@ QString BleGattQueue::inFlightLabel() const {
 
 void BleGattQueue::emitDrainedIfIdle() {
     if (m_inFlight.has_value() || !m_queue.isEmpty()) return;
-    // A consumer of this may submit work of its own (that is the point — it was
-    // waiting for a clear radio). Anything it submits queues normally, because
-    // the slot is already released before we get here.
-    emit drained();
+    // Collapsed to one emission per idle transition. Two paths can observe the
+    // same transition — discard() emptying the queue, and the dispatch it had
+    // already posted then finding it empty — and a consumer that acts on
+    // drained() (BLEManager starts a scale connect) must not be told twice
+    // about one event.
+    if (m_drainedPosted) return;
+    m_drainedPosted = true;
+
+    // Posted for the same reason dispatch is, and one more: forget() is reached
+    // from transport DESTRUCTORS, and a consumer of drained() connects a scale —
+    // which would run against a half-destroyed object on the destructor's own
+    // stack. Emitting queued moves it past the teardown.
+    //
+    // Re-checked at delivery: anything may have been submitted in between, and a
+    // drained() that arrives about a busy queue is exactly the wrong answer for
+    // a caller deciding whether the radio is free.
+    QMetaObject::invokeMethod(this, [this]() {
+        m_drainedPosted = false;
+        if (m_inFlight.has_value() || !m_queue.isEmpty()) return;
+        emit drained();
+    }, Qt::QueuedConnection);
 }
 
 void BleGattQueue::reportDepth() {

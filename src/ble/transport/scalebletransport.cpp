@@ -1,11 +1,6 @@
 #include "scalebletransport.h"
 
-#include "../bluetoothlogging.h"
-
-// [Bluetooth], like the queue itself: an ordering decision that delayed one
-// device because another held the slot is not a fault of either, and filing it
-// under [Scale] would send a reader looking in the wrong file.
-#define SQ_LOG(msg) BT_LOG_TAGGED("GattQueue", msg)
+#include "../blegattlogging.h"
 
 ScaleBleTransport::ScaleBleTransport(QObject* parent, BleGattQueue* queue)
     : QObject(parent)
@@ -14,9 +9,17 @@ ScaleBleTransport::ScaleBleTransport(QObject* parent, BleGattQueue* queue)
     m_operationTimeoutTimer.setSingleShot(true);
     connect(&m_operationTimeoutTimer, &QTimer::timeout, this, [this]() {
         if (!holdsGattSlot()) return;
-        SQ_LOG(QString("no answer for %1 within %2 ms — releasing the slot")
-                   .arg(heldGattKey().toString().mid(1, 8))
-                   .arg(m_operationTimeoutTimer.interval()));
+        // WARN, and self-contained: these logs are read by users and by their AI
+        // assistants. An operation the platform never answered did not just fail
+        // for this device — it held the shared radio for the whole interval, so
+        // every other device's traffic was blocked behind it. That is the half a
+        // reader would otherwise have to infer.
+        GQ_WARN(QString("A %1 operation on this scale/refractometer got no answer "
+                        "within %2 ms. The BLE radio was held for that whole time, "
+                        "delaying every other device including the machine. "
+                        "Reconnecting the device clears it.")
+                    .arg(heldGattKey().toString().mid(1, 8))
+                    .arg(m_operationTimeoutTimer.interval()));
         m_gattQueue->noteFailed(this);
     });
 }
@@ -42,7 +45,11 @@ void ScaleBleTransport::submitGattOperation(const QBluetoothUuid& key,
     };
     op.onAbandoned = [this, label]() {
         m_operationTimeoutTimer.stop();
-        SQ_LOG(QString("%1 failed and was not retried").arg(label));
+        // INFO, not DEBUG: the connections view a user reads filters to INFO, and
+        // this is a terminal outcome. Per LOGGING.md the recurring failure is a
+        // fault whose resolution — or here, whose conclusion — sits a tier below
+        // the noise around it, leaving the reader with half the story.
+        GQ_INFO(QString("%1 failed and was not retried").arg(label));
     };
     m_gattQueue->submit(std::move(op));
 }

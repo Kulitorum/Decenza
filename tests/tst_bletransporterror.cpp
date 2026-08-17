@@ -231,6 +231,51 @@ private slots:
         QCOMPARE(abandoned.at(0).at(1).toByteArray(), QByteArray(4, 'm'));
     }
 
+    // -- A required stream that cannot be enabled fails the whole connect --
+    //
+    // This is #1819's actual defect, and the one assertion that would have
+    // caught it: three CCCD writes were rejected, and the transport reported
+    // CONNECTED anyway. There is no flag expressing "do not report connected" —
+    // the ready marker is a queue entry, and failing a required stream calls
+    // forget(), which drops it. So the absence of connected() is the contract,
+    // and absence is what a later change silently undoes.
+    void aFailedRequiredStreamDropsTheReadyMarkerSoConnectedNeverFires() {
+        BleGattQueue queue;
+        BleTransport transport(nullptr, &queue);
+        QSignalSpy connectedSpy(&transport, &DE1Transport::connected);
+        QSignalSpy fault(&transport, &DE1Transport::de1LinkFault);
+
+        // The order subscribeAll() uses: streams first, then the marker.
+        transport.submitReadyMarker();
+        QCOMPARE(queue.pendingCount(&transport), qsizetype(1));
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("STATE_INFO is a stream the machine cannot be used without|"
+                               "is a stream the machine cannot be used without"));
+        transport.submitSubscribe(DE1::Characteristic::STATE_INFO, /*required=*/true);
+
+        QTest::qWait(30);
+        QCOMPARE(connectedSpy.count(), 0);
+        QCOMPARE(fault.count(), 1);
+        QCOMPARE(queue.pendingCount(&transport), qsizetype(0));
+    }
+
+    // The other half, and what makes the slot above able to fail: an OPTIONAL
+    // stream that cannot be enabled must NOT fail the connect. Without this,
+    // "forget() on every subscribe failure" would pass the test above while
+    // making a missing water-level notification abort a usable machine.
+    void aFailedOptionalStreamLeavesTheReadyMarkerStanding() {
+        BleGattQueue queue;
+        BleTransport transport(nullptr, &queue);
+        QSignalSpy connectedSpy(&transport, &DE1Transport::connected);
+
+        transport.submitReadyMarker();
+        transport.submitSubscribe(DE1::Characteristic::WATER_LEVELS, /*required=*/false);
+
+        QTest::qWait(30);
+        QCOMPARE(connectedSpy.count(), 1);
+    }
+
     void consecutiveAbandonedWritesReportOnceAtTheBound() {
         BleTransport transport;
 

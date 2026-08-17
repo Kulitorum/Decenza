@@ -4329,11 +4329,21 @@ int main(int argc, char *argv[])
 
             // IMPORTANT: Ensure charger is ON when app goes to background
             // This prevents tablet from dying if user doesn't return to the app.
-            // Previously skipped on iOS because the 50ms BLE command queue raced with
-            // CoreBluetooth suspension, causing SIGSEGV. Now safe because ensureChargerOn
-            // uses setUsbChargerOnUrgent() which bypasses the queue and writes synchronously
-            // before iOS can tear down CoreBluetooth. The bluetooth-central background mode
-            // also helps by keeping CoreBluetooth alive longer during backgrounding.
+            // Previously skipped on iOS because the old BLE command queue raced with
+            // CoreBluetooth suspension, causing SIGSEGV. ensureChargerOn() uses
+            // setUsbChargerOnUrgent(), which puts the write at the FRONT of the shared
+            // GATT queue. That is a position, not a bypass, and since the queue moved
+            // to posted dispatch the write leaves one event-loop turn after this call
+            // rather than during it.
+            //
+            // That turn is available: this handler runs FROM the event loop (it is a
+            // QGuiApplication::applicationStateChanged slot), so returning from it
+            // returns to the loop, which then delivers the queued dispatch. iOS does
+            // not suspend us inside our own slot. The write was never synchronous in
+            // the sense that mattered anyway — QLowEnergyService::writeCharacteristic
+            // only ever handed the payload to DarwinBTCentralManager's own request
+            // queue, which drains on the LE dispatch queue. The bluetooth-central
+            // background mode keeps CoreBluetooth alive longer during backgrounding.
             batteryManager.ensureChargerOn();
 
             // Flush queued database writes LAST in this branch, and last for the

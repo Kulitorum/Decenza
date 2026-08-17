@@ -1521,6 +1521,62 @@ private slots:
         QVERIFY(secondIssued);
     }
 
+    // A late or duplicate reply for a characteristic the sequence has already
+    // moved past must not release whatever is holding the slot NOW. On a shared
+    // queue that "whatever" can belong to another device entirely: a stale
+    // notify-enable ACK releasing the DE1's in-flight write would let a third
+    // operation be issued on top of it.
+    void aCompletionForAKeyThatIsNotInFlightIsIgnored() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        int issued = 0;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("first"),
+                              [&issued]() { ++issued; });
+        t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("second"),
+                              [&issued]() { ++issued; });
+        QTest::qWait(20);
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
+
+        // A reply for the one that has not been issued yet.
+        t.completeGattOperation(DE1::Characteristic::SHOT_SAMPLE);
+        QTest::qWait(20);
+
+        QCOMPARE(issued, 1);
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
+    }
+
+    // The one clock these transports own, and the only thing that can end an
+    // operation the platform never answers at all. Without it a scale that goes
+    // away mid-write holds the shared slot for the rest of the session — the DE1
+    // included. A backoff would be a timer used as a guard; this is not one:
+    // there is no event to wait for, which is precisely the condition.
+    void anUnansweredScaleOperationReleasesTheSlotAtItsTimeout() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        bool secondIssued = false;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("silent"),
+                              []() {}, /*timeoutMs=*/30);
+        t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("next"),
+                              [&secondIssued]() { secondIssued = true; });
+        QTest::qWait(20);
+        QVERIFY(t.holdsGattSlot());
+        QVERIFY(!secondIssued);
+
+        // Self-contained and WARN, per LOGGING.md: the reader has to be told the
+        // radio was held for the whole interval, not just that one device failed.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("The BLE radio was held for that whole time")));
+        QTest::qWait(80);
+
+        // The slot moved on. Not `!holdsGattSlot()` — this same transport owns
+        // the next operation, so it holds the slot again immediately; what must
+        // be true is that the unanswered one no longer does.
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::SHOT_SAMPLE);
+        QVERIFY(secondIssued);
+    }
+
     void aTornDownScaleTransportFreesTheSlotAndItsQueuedWork() {
         BleGattQueue queue;
         MockScaleBleTransport t(nullptr, &queue);

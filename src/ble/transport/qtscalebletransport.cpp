@@ -8,7 +8,6 @@
 #include "../blemanager.h"
 #include <QDateTime>
 #include <QDebug>
-#include <QTimer>
 #include <QLowEnergyConnectionParameters>
 
 #ifdef Q_OS_ANDROID
@@ -315,15 +314,21 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
                                      withoutResponse ? QLowEnergyService::WriteWithoutResponse
                                                      : QLowEnergyService::WriteWithResponse);
 
-        if (withoutResponse) {
-            // Complete at issue, because there is nothing to wait for. A
-            // write-without-response is acknowledged by no one: Qt's darwin
-            // backend hands it to CoreBluetooth and calls performNextRequest
-            // straight away, emitting no characteristicWritten
-            // (btcentralmanager.mm:815-818). Holding the slot for it would mean
-            // holding it until the operation clock expired, every heartbeat.
-            completeGattOperation(characteristicUuid);
-        }
+        // NOT completed at issue, even for a write without response. This class
+        // runs on Android, Windows and Linux only — main.cpp picks
+        // CoreBluetoothScaleBleTransport on Darwin — and those backends DO emit
+        // characteristicWritten for a no-response write
+        // (qlowenergycontroller_android.cpp:642, unconditional). Completing here
+        // as well would release the slot twice: once now, and again when the ACK
+        // arrives — by which time the slot belongs to the NEXT operation, which
+        // for a 1 Hz scale heartbeat is the very next heartbeat on the same
+        // characteristic, so even the key guard would not catch it.
+        //
+        // An earlier version did complete here, citing Qt's darwin backend
+        // (btcentralmanager.mm:815-818). That fact is true and irrelevant: it
+        // describes a backend this class never runs on. The Darwin transport
+        // makes the same call for itself, where the citation applies.
+        Q_UNUSED(withoutResponse);
     });
 }
 
@@ -797,18 +802,32 @@ void QtScaleBleTransport::onServiceError(QLowEnergyService::ServiceError err) {
     QLowEnergyService* service = qobject_cast<QLowEnergyService*>(sender());
     QString serviceUuid = service ? service->serviceUuid().toString() : "unknown";
 
-    if (err == QLowEnergyService::DescriptorWriteError) {
-        // CCCD write failures are non-fatal - some scales reject them but still notify.
-        // Still terminal for the OPERATION: the radio is done with it, and
-        // holding the shared slot until the clock expired would make a scale
-        // that rejects CCCDs cost every other device five seconds.
-        QT_TRANSPORT_LOG("DescriptorWriteError (non-fatal, scale may still send notifications)");
+    // Terminal for the operation in flight, whatever else it means. OperationError
+    // is included because it is the one Qt emits for every SYNCHRONOUS rejection —
+    // null controller, service not RemoteServiceDiscovered, characteristic absent
+    // (qlowenergyservice.cpp:581, :650, :724) — and without it the commonest
+    // rejection of all held the shared radio to the clock.
+    if (err == QLowEnergyService::DescriptorWriteError ||
+        err == QLowEnergyService::CharacteristicWriteError ||
+        err == QLowEnergyService::CharacteristicReadError ||
+        err == QLowEnergyService::OperationError) {
         failGattOperation();
-        return;
     }
-    if (err == QLowEnergyService::CharacteristicWriteError ||
-        err == QLowEnergyService::CharacteristicReadError) {
-        failGattOperation();
+
+    if (err == QLowEnergyService::DescriptorWriteError) {
+        // "Non-fatal" is a claim about the NOTIFICATION STREAM — some scales
+        // reject the CCCD write and notify anyway — not about the operation, and
+        // this used to return here at DEBUG without reaching the warn() below.
+        //
+        // That is exactly #1819, on the other link: a DescriptorWriteError logged
+        // at DEBUG and dropped is what left a machine reporting CONNECTED with no
+        // telemetry. Whatever it means for notifications, the user-facing record
+        // of it belongs at a tier the connections view shows, so this now falls
+        // through rather than returning.
+        warn(QStringLiteral("Scale rejected a notification-enable (CCCD) write. Some "
+                            "scales do this and still send readings; if weight never "
+                            "appears, reconnect the scale."));
+        return;
     }
 
     // Shared with the DE1 transport so both links name the same failure the same

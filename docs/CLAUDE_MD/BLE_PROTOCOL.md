@@ -22,9 +22,16 @@ DE1's notification-enable descriptor writes; all three were rejected with
 `DescriptorWriteError`, and the app reported the machine CONNECTED with `STATE_INFO`,
 `SHOT_SAMPLE` and `WATER_LEVELS` never enabled — no chart, no shot detection, no
 stop-at-weight. de1app has one queue for the DE1 and the scale together
-(`::de1(cmdstack)`, a single `::de1(wrote)` flag) and decaid gets the same property
-from `universal_ble`'s per-device serialized queue. Both make the state unreachable
+(`::de1(cmdstack)`, a single `::de1(wrote)` flag), which makes the state unreachable
 rather than handling the error better.
+
+decaid is a **counter-example, not a precedent** — this doc previously cited it as
+one. It sets `UniversalBle.queueType = QueueType.perDevice`
+(`universal_ble_discovery_service.dart:403`), deliberately serializing per device and
+NOT across devices, so it does not prevent the #1819 interleaving. What it does do is
+fail the connect: a failed subscribe throws out of `_bleConnect()`, the whole attempt
+is abandoned and the reconnect ladder re-runs it against a fresh GATT. That half is
+worth copying; the queue shape is not.
 
 **Scale and refractometer transports had no in-flight concept at all** before this.
 `QtScaleBleTransport::writeCharacteristic()` validated the link and called straight

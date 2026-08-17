@@ -203,7 +203,7 @@ public slots:
     void startClean();
     void startAirPurge();         // Transport mode: drains internal water via AirPurge state
     void stopOperation();         // Soft stop (for steam: stops flow, no purge)
-    void stopOperationUrgent();   // Bypasses command queue for faster stop (SOW)
+    void stopOperationUrgent();   // Front of the GATT queue, for a faster stop (SAW)
     void stopOperationUrgent(qint64 sawTriggerMs);  // Includes SAW trigger timestamp for latency tracing
     void requestIdle();           // Hard stop (requests Idle state, triggers steam purge)
     void skipToNextFrame();   // Skip to next profile frame during extraction (0x0E)
@@ -251,8 +251,10 @@ public slots:
                   const QString& reason = QString(),
                   bool force = false);
 
-    // MMR write bypassing the BLE command queue — used for time-critical writes
-    // that must complete before the app suspends (e.g. ensureChargerOn on iOS).
+    // MMR write placed at the FRONT of the shared GATT queue — used for
+    // time-critical writes that must go out before the app suspends (e.g.
+    // ensureChargerOn on iOS). It jumps everything waiting but not anything
+    // already outstanding; nothing can preempt an accepted GATT operation.
     // Always bypasses the dedup check since "urgent" implies "must reach the
     // DE1 now". Still updates m_lastMMRValues so a subsequent non-urgent
     // writeMMR with the same value is correctly elided.
@@ -328,8 +330,6 @@ signals:
     // write-failed / connection-teardown). Re-emitted here so consumers bind
     // once to the stable DE1Device and survive transport swaps.
     void de1LinkFault(const QString& kind);
-    // Forwarded from the DE1 transport: BLE service+characteristic discovery
-    // window. Re-emitted here so BLEManager binds once to the stable
     void simulationModeChanged();
     void guiEnabledChanged();
     void usbChargerOnChanged();

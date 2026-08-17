@@ -9,7 +9,7 @@ The structural facts this design has to work with:
 - **Qt's own queue is per controller.** `readWriteQueue` and `pendingJob` are instance fields of `QtBluetoothLE`, one instance per `QLowEnergyController`. The darwin backend has no cross-peripheral queue either. No backend supplies the cross-device guarantee, which is why this is unconditional rather than platform-gated.
 - **Qt already bounds every operation at 3 s on Android.** `RUNNABLE_TIMEOUT = 3000` (`QtBluetoothLE.java:69`). Our `SUBSCRIBE_TIMEOUT_MS = 3000` is a second clock racing it on the same operation.
 - **The failure signal we needed was already being delivered.** `handleOnDescriptorWrite` maps a non-success status to `errorCode = 3` and calls `leDescriptorWritten(...)` — the `DescriptorWriteError` that arrived at +45 ms in the captured session. The code logged it at DEBUG, dropped it, and waited out the full 3 s anyway.
-- **Existing DE1 policy that must survive byte-identical.** 50 ms queue pacing, `MAX_WRITE_RETRIES = 5` with a derivation from a 26-log corpus, `WRITE_TIMEOUT_MS = 5000`, `WRITE_RETRY_DELAY_MS = 500`, `writeUrgent`, UUID-scoped `discardQueued()`, the depth warning at 20, and the consecutive-abandonment reporting.
+- **Existing DE1 policy that must survive byte-identical.** `MAX_WRITE_RETRIES = 5` with a derivation from a 26-log corpus, `WRITE_TIMEOUT_MS = 5000`, `WRITE_RETRY_DELAY_MS = 500`, `writeUrgent`, UUID-scoped `discardQueued()`, the depth warning at 20, and the consecutive-abandonment reporting.
 - **The firmware updater holds a link for long stretches**, with erase-and-wait sequences measured in seconds between GATT operations.
 
 ## Goals / Non-Goals
@@ -18,9 +18,11 @@ The structural facts this design has to work with:
 
 - One queue, one operation dispatched at a time, across every peripheral.
 - Give the scale and refractometer transports the in-flight concept they lack.
-- Cover connect and service/characteristic discovery, not only reads and writes — the observed collision was a descriptor write against a peripheral in discovery.
+- Cover service/characteristic discovery, not only reads and writes — the observed collision was a descriptor write against a peripheral in discovery. Connect is handled by backpressure instead of being queued (see below).
 - Preserve the DE1's tuned queue behaviour exactly, as per-operation policy rather than queue-wide policy.
-- Delete `m_de1WaitTimer` and `SUBSCRIBE_TIMEOUT_MS`. Add no timer.
+- Delete `m_de1WaitTimer` and `SUBSCRIBE_TIMEOUT_MS`. Add no timer used as a guard.
+
+  **As shipped, three timers exist and none of them guards anything.** `m_operationTimeoutTimer` on each transport bounds how long a *platform* may sit on an operation it never answers — the shared slot is held for that whole interval, so leaving it unbounded wedges every device. The retry delay in `noteFailed()` is a backoff: it decides *when* to try again, never *whether* something finished. And a scale connect deferred on backpressure is released by the queue's `drained()` signal, not by any interval. What the rule forbids is a timer standing in for an event that exists — which is exactly what `m_de1WaitTimer` and `SUBSCRIBE_TIMEOUT_MS` were, and both are gone. The queue itself owns no clock; dispatch is a posted `QMetaObject::invokeMethod`, not a zero-interval `QTimer`.
 - One code path on every platform.
 
 **Non-Goals:**
@@ -133,7 +135,7 @@ It also removes a flag that would otherwise have to be invented. A required stre
 - **This touches the most carefully tuned code in the BLE layer.** The DE1 write path's retry budget, pacing, urgent path and discard semantics all move. → They must come through byte-identical, and the tests that pin them are load-bearing rather than confirmatory. Pin the current behaviour in tests *before* moving it, so the move is verified against a recorded baseline rather than against a reading of the code.
 - **Scale operations gain queueing they never had.** A scale op that never completes now holds the slot where previously it was fire-and-forget. → Zero-retry default plus release-on-teardown keeps the exposure to a single operation, and a disconnecting transport frees the slot immediately.
 - **A wedged queue stalls every device, not one.** Concentrating the mechanism concentrates the failure. → This is why release-on-teardown and release-on-error are requirements rather than nice-to-haves, and why an operation released without success is reported as failed rather than assumed successful.
-- **Throughput cost on multi-write sequences.** A profile upload is ~20 writes; with a scale connected they now interleave. → The DE1's queue is already paced at 50 ms per write, so the queue is not the binding constraint in the common case. Measure an upload with a scale connected before and after and report the delta rather than asserting no regression.
+- **Throughput cost on multi-write sequences.** A profile upload is ~20 writes; with a scale connected they now interleave. → The old 50 ms pacing was NOT carried across, so an upload is if anything faster than before: that constant was armed on an enqueue that found the link idle, delaying the first write after a pause while consecutive writes went unpaced. What bounds the link now is that nothing is issued while anything is outstanding. Measure an upload with a scale connected before and after and report the delta rather than asserting no regression.
 - **Interleaving during a profile upload.** The DE1 firmware's receive state machine is wedged by a *disconnect* mid-upload, not by delay. → Other peripherals' operations do not disconnect the DE1, and per-device ordering is preserved. Still: exercise an upload with a scale actively connected.
 - **Failing the connect on a subscribe error could loop.** A DE1 that consistently fails one CCCD write now reconnects instead of running degraded. → Intended — a machine that cannot chart or stop a shot is not usable — but the reconnect ladder's existing backoff and error surfacing must not be bypassed, and the user must not see a silent reconnect loop.
 - **Behaviour change on platforms with no reported defect.** → One log is not evidence other platforms are safe; the per-controller queue is backend-independent, and a single code path is worth more than a platform-conditional optimisation. Accepted deliberately.
@@ -146,4 +148,4 @@ No CI job builds a PR, so verification is local plus dispatched workflows: the f
 
 ## Open Questions
 
-- Whether the DE1's existing 50 ms pacing should be re-tuned once the shared queue is imposing ordering. Deferrable: leaving it as-is is safe, and changing it is an optimisation with its own evidence bar.
+- Whether any inter-write pacing should be reintroduced now that the shared queue imposes ordering. Resolved for now as **no**: the old 50 ms constant did not do what its name said (see the throughput note above), and reintroducing it as a real per-write delay would add about a second to a ~20-write profile upload for no measured benefit.

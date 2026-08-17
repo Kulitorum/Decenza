@@ -112,6 +112,14 @@ private:
     bool setupController(const QBluetoothDeviceInfo& device);
     void setupService();
     void writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data);
+    /**
+     * Whether an operation on `uuid` may be handed to the platform right now.
+     *
+     * Checked at DISPATCH by every issue callback, not at submission: the link
+     * can go down in between, and the teardown that would have dropped the
+     * operation arrives on a queued connection.
+     */
+    bool linkAcceptsGattOperations(const QBluetoothUuid& uuid, const QString& verb);
 
     // -- The DE1's half of the shared GATT queue --------------------------
     //
@@ -159,6 +167,8 @@ private:
     // then does nothing. A reader — or a field AI — should not have to infer a
     // negative.
     QStringList m_streamsNotEnabled;
+    /** Characteristic discovery, queued like every other radio operation. */
+    void submitDiscovery();
     /**
      * A queue entry that issues nothing and completes itself.
      *
@@ -167,8 +177,6 @@ private:
      * required-stream failure calls forget(), which drops it along with the
      * rest of this transport's queued work. Reaching it IS the confirmation.
      */
-    /** Characteristic discovery, queued like every other radio operation. */
-    void submitDiscovery();
     void submitReadyMarker();
 
     /** True when the slot holds this transport's operation for `uuid`. */
@@ -253,10 +261,12 @@ private:
     // deliberately counted together.
     //
     // Those are the marker strings in the CORPUS, which is fixed and predates
-    // the shared queue. Retries are counted by BleGattQueue now and logged by
-    // it as "[Bluetooth][GattQueue] retry N/5 for <verb> <uuid>"; a
-    // re-derivation over logs captured since must grep for that instead. The
-    // counting rule is unchanged — one counter, every failure path.
+    // the shared queue. In logs captured since, both markers moved: retries are
+    // counted by BleGattQueue and logged by it as
+    // "[Bluetooth][GattQueue] retry N/5 for <verb> <uuid>", and exhaustion is
+    // this transport's own "Write FAILED after 5 retries" (bletransport.cpp,
+    // the onAbandoned callback). Grep for that pair instead. The counting rule
+    // is unchanged — one counter, every failure path.
     //
     // These figures replace an earlier set (434 cycles, 380 exhaustions, "43 of
     // 54 recoveries at a budget of 5") that were stated here as measurement and
@@ -299,7 +309,7 @@ private:
     // where every other indicator looks healthy: the controller says
     // ConnectedState and notifications can keep arriving, so neither
     // m_notificationLiveness below nor the wedge detector (which gates on
-    // !m_de1Connected in evaluateBleWedge, blemanager.cpp:380) can see it.
+    // !m_de1Connected in evaluateBleWedge, blemanager.cpp:379) can see it.
     //
     // Separation in the corpus is wide: nine logs peak at 1 abandoned write,
     // #1713 at 2, and the pathological ones sit at 7, 8, 11 and 89. The bound

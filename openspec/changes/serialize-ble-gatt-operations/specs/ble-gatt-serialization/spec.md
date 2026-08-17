@@ -8,14 +8,21 @@ Guarantees that every Bluetooth Low Energy GATT operation from every connected p
 
 The system SHALL permit at most one GATT operation to be in flight at any moment, counted across every connected or connecting BLE peripheral rather than per peripheral. An operation SHALL be considered in flight from the moment it is issued to the platform until it reaches a terminal outcome.
 
-Operations covered SHALL include peripheral connection, service discovery, characteristic discovery, characteristic read, characteristic write, descriptor read, and descriptor write. Serialization SHALL NOT be limited to writes: the observed failure was a descriptor write rejected while another peripheral was performing service discovery.
+Operations covered SHALL include service discovery, characteristic discovery, characteristic read, characteristic write, descriptor read, and descriptor write. Serialization SHALL NOT be limited to writes: the observed failure was a descriptor write rejected while another peripheral was performing service discovery.
+
+Peripheral connection SHALL NOT be a queued operation. A connect that waits its turn behind queued work would let a scale reconnect stall a DE1 write, and stop-at-weight sits on that path. Instead the system SHALL apply backpressure: a scale or refractometer connect SHALL be deferred while any GATT operation is outstanding or queued, and SHALL be released when the queue reports itself drained. This is de1app's rule (`bluetooth.tcl:2276`, "Too much backpressure, waiting with the connect"), event-driven rather than polled.
 
 #### Scenario: A second peripheral connects while the first is enabling notifications
 
 - **WHEN** the DE1 is writing the notification-enable descriptors for its telemetry characteristics
 - **AND** a scale or refractometer connect is requested during that window
-- **THEN** the second peripheral's connect and discovery are not issued to the platform until the DE1's in-flight operation has completed
+- **THEN** the second peripheral's connect is deferred until the queue drains
 - **AND** every one of the DE1's notification-enable descriptor writes completes successfully
+
+#### Scenario: No DE1 is present and a scale connect is requested
+
+- **WHEN** no machine is connected or connecting and no GATT operation is outstanding or queued
+- **THEN** the scale connect proceeds immediately, with no waiting interval of any kind
 
 #### Scenario: Two peripherals are already connected and both have work to do
 
