@@ -574,6 +574,13 @@ private:
     int m_refillKitDetected = -1;  // -1=unknown, 0=not detected, 1=detected
 
     // SAW stop latency instrumentation (monotonic ms timestamps)
+    // A stop-at-weight write that took this long to be acknowledged is reported
+    // at WARN rather than DEBUG. 300 ms is roughly 0.6 g at a typical 2 ml/s
+    // pour — the point where the overshoot is something a user would taste
+    // rather than something lost in scale noise. Not a threshold anything acts
+    // on; it only decides which tier the line is written at.
+    static constexpr qint64 SAW_SLOW_ACK_WARN_MS = 300;
+
     bool m_sawStopWritePending = false;
     qint64 m_lastSawTriggerMs = 0;
     qint64 m_lastSawWriteMs = 0;

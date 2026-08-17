@@ -2,6 +2,7 @@
 
 #include <QBluetoothUuid>
 #include <QObject>
+#include <QElapsedTimer>
 #include <QQueue>
 #include <QString>
 
@@ -95,6 +96,16 @@ namespace BleGatt {
  * answer; those end on their own terminal signals.
  */
 inline constexpr int DISCOVERY_TIMEOUT_MS = 20000;
+
+// Report an operation that waited this long behind OTHER devices' work.
+//
+// 500 ms because a healthy scale or refractometer operation completes in far
+// less — the common in-shot case is a 1 Hz Decent Scale heartbeat — so half a
+// second of foreign wait already means something is not answering, not that the
+// radio is merely busy. High enough that a normal burst is silent; low enough
+// that it fires well before the 3 s read/write clock would end the operation
+// holding things up.
+inline constexpr int FOREIGN_WAIT_WARN_MS = 500;
 }  // namespace BleGatt
 
 class BleGattQueue : public QObject {
@@ -134,6 +145,16 @@ public:
         // Issues the operation to the platform. Called on dispatch, and again on
         // each retry.
         std::function<void()> issue;
+        // Milliseconds this operation spent queued while ANOTHER device held the
+        // slot. Accumulated by the queue, never set by callers.
+        //
+        // Only the foreign part, deliberately. Waiting behind your own queued
+        // work is expected and uninteresting — a profile upload is ~20 writes
+        // and the last one waits for the other 19. Waiting behind a DIFFERENT
+        // device is the one cost this shared queue introduced that separate
+        // per-controller queues did not have, and it is the number that decides
+        // whether a stop-at-weight was ever actually held up in the field.
+        qint64 foreignWaitMs = 0;
         // Called once when the operation is given up on: retries exhausted, or
         // a failure with no retry budget. Not called on teardown discard — a
         // requester tearing down is not told about work it is itself dropping.
@@ -249,6 +270,9 @@ private:
     static bool validate(const Operation& op);
     void scheduleDispatch();
     void reportDepth();
+    // Charges the time the just-released operation held the slot to every queued
+    // operation belonging to a DIFFERENT requester.
+    void chargeForeignWait();
     // Emits drained() when nothing is in flight and nothing remains queued.
     // Called from every release path, and from the two places that can empty
     // the queue without one: discard(), and a dispatch that finds the queue
@@ -258,6 +282,12 @@ private:
     QQueue<Operation> m_queue;
     std::optional<Operation> m_inFlight;
     int m_retryCount = 0;
+    // Monotonic source for the foreign-wait measurement. Measurement only: it
+    // decides nothing and gates nothing, which is what separates it from the
+    // timers this design does not use.
+    QElapsedTimer m_clock;
+    qint64 m_inFlightSince = 0;
+
     // A retry timer is armed and has not fired. Suppresses a second
     // failure report for the same attempt; see noteFailed().
     bool m_retryPending = false;

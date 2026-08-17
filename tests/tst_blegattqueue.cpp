@@ -259,6 +259,68 @@ private slots:
         QCOMPARE(rec.issued.size(), 2);   // not 3
     }
 
+    // --- foreign wait reporting -------------------------------------------
+    //
+    // The one cost the shared queue introduced over the per-device queues it
+    // replaced: an operation can now be delayed by a DIFFERENT device. These pin
+    // that it is measured and reported, because whether it happens in the field
+    // is what decides if further work (suppressing optional scale writes during
+    // a shot) is justified. Without the log there is nothing to decide on.
+
+    void waitingBehindAnotherDeviceIsReported() {
+        BleGattQueue q;
+        Recorder rec;
+
+        q.submit(op(scale(), QStringLiteral("slow-scale"), &rec));
+        pump();
+        QCOMPARE(q.inFlightRequester(), scale());
+
+        // The DE1's work arrives while the scale holds the radio.
+        q.submit(op(de1(), QStringLiteral("de1 stop"), &rec));
+        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("waited [0-9]+ ms because another device")));
+        q.noteSucceeded(scale());
+        pump();
+
+        QCOMPARE(q.inFlightRequester(), de1());
+    }
+
+    // Waiting behind your OWN queued work is expected and must stay silent — a
+    // profile upload is ~20 writes and the last one waits for the other 19.
+    // init()'s failOnWarning is what makes this assertion real.
+    void waitingBehindOwnWorkIsNotReported() {
+        BleGattQueue q;
+        Recorder rec;
+
+        q.submit(op(de1(), QStringLiteral("first"), &rec));
+        pump();
+        q.submit(op(de1(), QStringLiteral("second"), &rec));
+        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+
+        q.noteSucceeded(de1());
+        pump();
+
+        QCOMPARE(rec.issued.size(), 2);
+    }
+
+    // A brief foreign wait is the normal case — a healthy scale heartbeat — and
+    // must not warn either, or the signal is worthless.
+    void aBriefWaitBehindAnotherDeviceIsNotReported() {
+        BleGattQueue q;
+        Recorder rec;
+
+        q.submit(op(scale(), QStringLiteral("quick-scale"), &rec));
+        pump();
+        q.submit(op(de1(), QStringLiteral("de1 stop"), &rec));
+
+        q.noteSucceeded(scale());
+        pump();
+
+        QCOMPARE(q.inFlightRequester(), de1());
+    }
+
     // --- late and misattributed completions -------------------------------
 
     void aCompletionFromARequesterThatDoesNotHoldTheSlotIsIgnored() {

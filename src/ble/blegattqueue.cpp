@@ -11,7 +11,9 @@ BleGattQueue& BleGattQueue::instance() {
 
 BleGattQueue::BleGattQueue(QObject* parent)
     : QObject(parent)
-{}
+{
+    m_clock.start();
+}
 
 void BleGattQueue::submit(Operation op) {
     if (!validate(op)) return;
@@ -85,11 +87,26 @@ void BleGattQueue::dispatchNext() {
     m_inFlight = m_queue.dequeue();
     m_retryCount = 0;
     m_retryPending = false;
+    m_inFlightSince = m_clock.elapsed();
     ++m_generation;
 
     GQ_LOG(QString("dispatch %1 (%2 queued)")
                .arg(m_inFlight->label)
                .arg(m_queue.size()));
+
+    // WARN and self-contained: these logs are read by users and by their AI
+    // assistants, who have no knowledge of this subsystem. This is the one cost
+    // the shared queue introduced over the per-device queues it replaced, so a
+    // reader has to be able to see it happening rather than infer it.
+    if (m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_WARN_MS) {
+        GQ_WARN(QString("A Bluetooth operation (%1) waited %2 ms because another "
+                        "device was using the radio. One operation runs at a time "
+                        "across the machine, the scale and the refractometer, so a "
+                        "device that is slow to answer delays the others. If this "
+                        "appears during a shot it may have delayed the stop.")
+                    .arg(m_inFlight->label)
+                    .arg(m_inFlight->foreignWaitMs));
+    }
 
     // The issue callback runs with the slot already held, so anything it
     // submits re-entrantly queues behind rather than being dispatched under it.
@@ -104,6 +121,16 @@ void BleGattQueue::dispatchNext() {
     issue();
 }
 
+void BleGattQueue::chargeForeignWait() {
+    if (m_queue.isEmpty()) return;
+    const qint64 held = m_clock.elapsed() - m_inFlightSince;
+    if (held <= 0) return;
+
+    const Requester holder = m_inFlight.has_value() ? m_inFlight->requester : nullptr;
+    for (Operation& op : m_queue)
+        if (op.requester != holder) op.foreignWaitMs += held;
+}
+
 void BleGattQueue::noteSucceeded(Requester requester) {
     // A late or duplicate completion for an operation that is no longer in
     // flight must not release someone else's slot. This is the same
@@ -111,6 +138,7 @@ void BleGattQueue::noteSucceeded(Requester requester) {
     // reply arrives for a characteristic the sequence has already moved past.
     if (!m_inFlight.has_value() || m_inFlight->requester != requester) return;
 
+    chargeForeignWait();
     m_inFlight.reset();
     m_retryCount = 0;
     m_retryPending = false;
@@ -161,6 +189,8 @@ void BleGattQueue::noteFailed(Requester requester) {
         return;
     }
 
+    chargeForeignWait();
+
     Operation done = *m_inFlight;
     m_inFlight.reset();
     m_retryCount = 0;
@@ -186,6 +216,7 @@ qsizetype BleGattQueue::forget(Requester requester) {
     m_queue.swap(kept);
 
     if (m_inFlight.has_value() && m_inFlight->requester == requester) {
+        chargeForeignWait();
         ++dropped;
         m_inFlight.reset();
         m_retryCount = 0;

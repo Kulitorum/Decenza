@@ -337,8 +337,26 @@ void DE1Device::onTransportWriteComplete(const QBluetoothUuid& uuid, const QByte
         qint64 dispatchMs = m_lastSawWriteMs - m_lastSawTriggerMs;
         qint64 bleAckMs = ackMs - m_lastSawWriteMs;
         qint64 totalMs = ackMs - m_lastSawTriggerMs;
-        SAW_LOG_STDERR("Latency", QStringLiteral("dispatch=%1 ms, bleAck=%2 ms, total=%3 ms")
-                                      .arg(dispatchMs).arg(bleAckMs).arg(totalMs));
+        // Tier by what happened, not by importance. A normal stop is developer
+        // detail and belongs at DEBUG among the rest; a slow one is the single
+        // most consequential thing in the log for that shot, and per LOGGING.md
+        // a fault whose reader can only find it by scrolling through the normal
+        // case is a fault nobody reads.
+        //
+        // bleAckMs now spans the shared GATT queue, so it includes any wait
+        // behind another device's operation — the queue's own FOREIGN_WAIT_WARN
+        // line names which one. Read the two together.
+        if (bleAckMs >= SAW_SLOW_ACK_WARN_MS) {
+            SAW_WARN_STDERR("Latency", QStringLiteral(
+                "the stop-at-weight command took %1 ms to reach the machine "
+                "(dispatch=%2 ms, total=%3 ms). Bluetooth was busy; the shot may "
+                "have run past its target weight. A [Bluetooth][GattQueue] line "
+                "just before this names the device that held the radio.")
+                    .arg(bleAckMs).arg(dispatchMs).arg(totalMs));
+        } else {
+            SAW_LOG_STDERR("Latency", QStringLiteral("dispatch=%1 ms, bleAck=%2 ms, total=%3 ms")
+                                          .arg(dispatchMs).arg(bleAckMs).arg(totalMs));
+        }
         m_sawStopWritePending = false;
         m_lastSawTriggerMs = 0;
         m_lastSawWriteMs = 0;
