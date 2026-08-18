@@ -338,6 +338,61 @@ private slots:
         QCOMPARE(p.preinfuseFrameCount(), 2);
     }
 
+    void pressureProfileCountsForcedRiseAsPreinfusion() {
+        // Same shape as pressureProfileStructure(): preinfusion + one forced-rise + hold +
+        // decline. The forced-rise frame fills headspace before any coffee pours, so it must
+        // be excluded from Stop-at-Volume's pour count — matching de1app commit 13a30463.
+        RecipeParams recipe;
+        recipe.editorType = EditorType::Pressure;
+        recipe.preinfusionTime = 5.0;
+        recipe.preinfusionFlowRate = 4.0;
+        recipe.preinfusionStopPressure = 4.0;
+        recipe.holdTime = 10.0;
+        recipe.espressoPressure = 9.2;
+        recipe.simpleDeclineTime = 25.0;
+        recipe.pressureEnd = 4.0;
+
+        Profile p = RecipeGenerator::createProfile(recipe, "Pressure Test");
+        // 1 leading preinfusion frame (exitIf==true) + 1 forced-rise frame before Hold
+        QCOMPARE(p.preinfuseFrameCount(), 2);
+    }
+
+    void pressureProfileCountsBothForcedRiseFrames() {
+        // holdTime > 3 triggers a forced-rise before Hold; after the 3s decrement holdTime
+        // drops below 3, and declineTime > 3 triggers a second forced-rise before Decline.
+        // Both must be excluded from the pour count.
+        RecipeParams recipe;
+        recipe.editorType = EditorType::Pressure;
+        recipe.preinfusionTime = 5.0;
+        recipe.preinfusionFlowRate = 4.0;
+        recipe.preinfusionStopPressure = 4.0;
+        recipe.holdTime = 3.5;
+        recipe.espressoPressure = 9.2;
+        recipe.simpleDeclineTime = 25.0;
+        recipe.pressureEnd = 4.0;
+
+        Profile p = RecipeGenerator::createProfile(recipe, "Pressure Double Rise Test");
+        // 1 leading preinfusion frame + 2 forced-rise frames (before Hold, before Decline)
+        QCOMPARE(p.preinfuseFrameCount(), 3);
+    }
+
+    void flowProfilePreinfuseCountUnaffectedByForcedRiseFix() {
+        // Flow-type profiles generate no forced-rise frame, so this fix must not change
+        // their preinfuse count.
+        RecipeParams recipe;
+        recipe.editorType = EditorType::Flow;
+        recipe.preinfusionTime = 5.0;
+        recipe.preinfusionFlowRate = 4.0;
+        recipe.preinfusionStopPressure = 4.0;
+        recipe.holdTime = 8.0;
+        recipe.holdFlow = 2.2;
+        recipe.simpleDeclineTime = 17.0;
+        recipe.flowEnd = 1.8;
+
+        Profile p = RecipeGenerator::createProfile(recipe, "Flow Test");
+        QCOMPARE(p.preinfuseFrameCount(), 1);
+    }
+
     void createProfileUsesFirstFrameTemp() {
         // de1app: espresso_temperature matches first frame temp
         RecipeParams recipe;

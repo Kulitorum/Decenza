@@ -26,7 +26,7 @@
     "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "With a technician's help, you could sometimes boost the pressure on the classic E61 machine to 10 bar.  You will need to grind finer, and your espresso will be very thick.  Excellent for medium roasted beans mixed with whole milk.",
-    "number_of_preinfuse_frames": "2",
+    "number_of_preinfuse_frames": "3",
     "preinfusion_flow_rate": "8.00",
     "preinfusion_stop_pressure": "4.00",
     "preinfusion_time": "10.00",
@@ -109,7 +109,7 @@
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "36.0",
-    "target_volume_count_start": "2",
+    "target_volume_count_start": "3",
     "target_weight": "36.0",
     "temp_steps_enabled": true,
     "temperature_presets": [

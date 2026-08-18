@@ -98,7 +98,11 @@ enum class SubState : uint8_t {
     Refill          = 17,
     PausedSteam     = 18,
     UserNotPresent  = 19,
-    Puffing         = 20
+    Puffing         = 20,
+    // Front standby switch is cutting AC power to the machine (no power, cannot make
+    // coffee). Firmware < 1337 reports this unreliably — gate any use of it on
+    // firmwareBuildNumber() >= 1337, matching de1app.
+    Error_NoAC      = 217
 };
 
 // Shot frame flags (bit field)
@@ -199,6 +203,7 @@ inline QString subStateToString(SubState subState) {
         case SubState::PausedSteam:     return "PausedSteam";
         case SubState::UserNotPresent:  return "UserNotPresent";
         case SubState::Puffing:         return "Puffing";
+        case SubState::Error_NoAC:      return "Error_NoAC";
         default:                        return "Unknown";
     }
 }

@@ -31,31 +31,6 @@
 #include "profile/profile.h"
 #include "profile/profileframe.h"
 
-// Materialize frames for simple profiles (settings_2a/2b) loaded from JSON.
-// Built-in JSONs ship with `"steps": []` because the app regenerates frames at
-// activation time via ProfileManager::regenerateSimpleFrames(). Profile::loadFromTclString
-// does the same thing at parse time, so to compare like-for-like we have to regenerate
-// here when the JSON side has empty steps. Profile::fromJson() already does this for
-// shipping JSONs, but call it here defensively in case a JSON was written with
-// non-empty steps and a stale preinfuseFrameCount.
-static void normaliseSimpleProfile(Profile& p)
-{
-    const QString t = p.profileType();
-    if (t != QLatin1String("settings_2a") && t != QLatin1String("settings_2b"))
-        return;
-    if (p.steps().isEmpty())
-        p.regenerateSimpleFrames();
-    // For simple profiles, NumberOfPreinfuseFrames is a derived value: de1app
-    // calculates it during frame generation (pressure_to_advanced_list /
-    // flow_to_advanced_list in de1plus/profile.tcl). The TCL source files still
-    // carry a literal `final_desired_shot_volume_advanced_count_start` field
-    // (typically 0) which the Decenza TCL parser stores verbatim — that produces
-    // a spurious mismatch against the value derived from the regenerated frames.
-    // Normalise both sides to the derived count so the comparison reflects what
-    // the DE1 actually receives at upload time.
-    p.setPreinfuseFrameCount(Profile::countPreinfuseFrames(p.steps()));
-}
-
 // Replace a built-in with its de1app source. The rewrite is deliberately a
 // REPLACEMENT, not a merge: a shipped built-in is supposed to be its de1app
 // profile, so keeping anything extra is how the two drift apart again. Any key
@@ -418,19 +393,24 @@ int main(int argc, char* argv[])
 
         if (QFile::exists(outPath)) {
             Profile existing = Profile::loadFromFile(outPath);
-            normaliseSimpleProfile(existing);
-            // Mirror the normalisation on the TCL side so we don't trip on
-            // simple-profile preinfuseFrameCount (see normaliseSimpleProfile).
-            Profile tclNorm = tcl;
-            normaliseSimpleProfile(tclNorm);
 
-            // Two independent comparisons. Frames come from the parsed profiles;
-            // scalars are read straight out of the .tcl, NOT through
-            // loadFromTclString — routing both sides through the reader would
-            // make the gate structurally blind to a reader bug, and a reader bug
-            // is what put 338 scalar mismatches into the shipped corpus.
+            // Frames come straight from the parsed profiles — both Profile::loadFromFile()
+            // (via fromJson()) and Profile::loadFromTclString() already materialize a simple
+            // profile's frames and derive its preinfuseFrameCount before returning; a shipped
+            // built-in never stores empty steps (Profile::toJsonObject() never emits one), so
+            // there is nothing left to normalise here. This used to re-derive
+            // preinfuseFrameCount on BOTH sides right before comparing, which quietly
+            // recomputed away the very value being compared — the tool always agreed with
+            // itself regardless of what was actually stored, and compare mode read "0
+            // different" for 17 built-ins whose stored count was genuinely stale, caught only
+            // because tst_tclimport::compareWithBuiltin compares un-normalized profiles.
+            //
+            // Scalars are read straight out of the .tcl, NOT through loadFromTclString —
+            // routing both sides through the reader would make the gate structurally blind to
+            // a reader bug, and a reader bug is what put 338 scalar mismatches into the
+            // shipped corpus.
             const QString frameDiff = existing.isValid()
-                                          ? Profile::frameDiffReport(tclNorm, existing)
+                                          ? Profile::frameDiffReport(tcl, existing)
                                           : QStringLiteral("  (built-in JSON is invalid)\n");
             const QString scalarDiff = buildScalarDiff(s.tclContent, outPath);
 

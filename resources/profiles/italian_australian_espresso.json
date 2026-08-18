@@ -26,7 +26,7 @@
     "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "Italians in Australia have a style all their own. They still use dark roasted coffee beans and extract at 9 bar, but they lower the brew temperature so as to not overextract the coffee.  Aim for a brew ratio of 2.5x, which is to say an in-cup weight that is 2.5x the weight of the coffee ground dose.",
-    "number_of_preinfuse_frames": "2",
+    "number_of_preinfuse_frames": "3",
     "preinfusion_flow_rate": "4.50",
     "preinfusion_stop_pressure": "4.00",
     "preinfusion_time": "8.00",
@@ -109,7 +109,7 @@
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "36.0",
-    "target_volume_count_start": "2",
+    "target_volume_count_start": "3",
     "target_weight": "36.0",
     "temp_steps_enabled": true,
     "temperature_presets": [

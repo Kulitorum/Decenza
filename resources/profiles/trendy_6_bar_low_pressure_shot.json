@@ -26,7 +26,7 @@
     "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "Some lightly roasted espresso beans smell great but resist being well extracted into a drink.  The solution can be to lower the pressure to 6 bar. Try this technique if you're having trouble with a particularly sophisticated lightly roasted bean.",
-    "number_of_preinfuse_frames": "2",
+    "number_of_preinfuse_frames": "3",
     "preinfusion_flow_rate": "8.00",
     "preinfusion_stop_pressure": "4.00",
     "preinfusion_time": "20.00",
@@ -109,7 +109,7 @@
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "36.0",
-    "target_volume_count_start": "2",
+    "target_volume_count_start": "3",
     "target_weight": "36.0",
     "temp_steps_enabled": true,
     "temperature_presets": [

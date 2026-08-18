@@ -292,6 +292,18 @@ void DE1Device::onTransportDisconnected() {
         finishProfileUpload(false, QStringLiteral("BLE disconnect during upload"));
     }
 
+    // Reset substate so a stale value (in particular Error_NoAC) cannot outlive the
+    // connection it was reported on. Without this, a machine that dropped while its
+    // standby switch was cutting AC would show the no-AC warning forever — even after
+    // the switch was flipped back and the app reconnected — since nothing would arrive
+    // to change it. m_state is left alone here: it already drives no per-value cleanup
+    // the way substate's warning does, and callers read connectedChanged()/guiEnabled
+    // rather than m_state to learn the link is down.
+    if (m_subState != DE1::SubState::Ready) {
+        m_subState = DE1::SubState::Ready;
+        emit subStateChanged();
+    }
+
     m_connecting = false;
     emit connectingChanged();
     emit connectedChanged();

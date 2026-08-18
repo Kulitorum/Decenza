@@ -340,6 +340,59 @@ private slots:
     }
 
     // ==========================================
+    // Standby switch (Error_NoAC) — de1app commit 04d3b02e
+    // ==========================================
+
+    void standbySwitchOpenOnSupportedFirmware() {
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = 1337;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QVERIFY(f.state.standbySwitchOpen());
+    }
+
+    void standbySwitchStaysClosedOnOldFirmware_data() {
+        QTest::addColumn<int>("firmwareBuildNumber");
+        QTest::newRow("unknown (0)") << 0;
+        QTest::newRow("just below the gate") << 1336;
+        QTest::newRow("well below the gate") << 1200;
+    }
+
+    void standbySwitchStaysClosedOnOldFirmware() {
+        QFETCH(int, firmwareBuildNumber);
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = firmwareBuildNumber;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QVERIFY(!f.state.standbySwitchOpen());
+    }
+
+    void standbySwitchClearsOnDisconnect() {
+        TestFixture f;
+        f.device.m_firmwareBuildNumber = 1337;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QVERIFY(f.state.standbySwitchOpen());
+
+        f.device.m_simulationMode = false;  // No transport + no sim = disconnected
+        f.state.onDE1StateChanged();
+        QVERIFY(!f.state.standbySwitchOpen());
+    }
+
+    void standbySwitchRecheckedWhenFirmwareArrivesLate() {
+        // The substate STATE_INFO read is queued before sendInitialSettings()'s MMR
+        // read populates firmwareBuildNumber(), so a machine already sitting in
+        // Error_NoAC when the app connects evaluates the gate against firmware 0
+        // (unknown) first. Without a recheck when the firmware number lands,
+        // Error_NoAC's latching nature means nothing would ever re-evaluate it for
+        // the rest of the session.
+        TestFixture f;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Error_NoAC);
+        QVERIFY(!f.state.standbySwitchOpen());  // firmware still unknown
+
+        f.device.m_firmwareBuildNumber = 1400;
+        emit f.device.firmwareVersionChanged();
+        QVERIFY(f.state.standbySwitchOpen());
+    }
+
+    // ==========================================
     // Steam phase with substates
     // ==========================================
 

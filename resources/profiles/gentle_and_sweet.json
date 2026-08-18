@@ -26,7 +26,7 @@
     "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "This is a very easy espresso to successfully make and is suggested if you are having difficulty making good drinks.  The pressure rises to only 6 bar and then slowly descends to 4 bar.  The resulting espresso should be free of channeling, have low acidity and quite pleasant to drink straight or with milk.",
-    "number_of_preinfuse_frames": "2",
+    "number_of_preinfuse_frames": "3",
     "preinfusion_flow_rate": "8.00",
     "preinfusion_stop_pressure": "4.00",
     "preinfusion_time": "20.00",
@@ -124,7 +124,7 @@
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "36.0",
-    "target_volume_count_start": "2",
+    "target_volume_count_start": "3",
     "target_weight": "36.0",
     "temp_steps_enabled": true,
     "temperature_presets": [

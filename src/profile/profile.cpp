@@ -201,7 +201,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
         // If hold time > 3s, add a forced rise frame without limiter first
         if (holdTime > 3) {
             ProfileFrame riseNoLimit;
-            riseNoLimit.name = "forced rise without limit";
+            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
             riseNoLimit.temperature = temp2;
             riseNoLimit.sensor = "coffee";
             riseNoLimit.pump = "pressure";
@@ -239,7 +239,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
         // possible decrement) and decline is long enough to split off 3s
         if (holdTime < 3 && declineTime > 3) {
             ProfileFrame riseNoLimit;
-            riseNoLimit.name = "forced rise without limit";
+            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
             riseNoLimit.temperature = temp3;
             riseNoLimit.sensor = "coffee";
             riseNoLimit.pump = "pressure";
@@ -566,7 +566,9 @@ QJsonObject Profile::toJsonObject() const {
     // generated preinfusion frames alongside a stale target_volume_count_start, and
     // the machine counts target volume from the wrong frame.
     if (m_steps.isEmpty() && !steps.isEmpty()) {
-        const QString derived = QString::number(countPreinfuseFrames(steps));
+        // countPreinfuseFramesWithForcedRise() also folds in a Pressure profile's
+        // forced-rise frame(s) — see its declaration.
+        const QString derived = QString::number(countPreinfuseFramesWithForcedRise(steps));
         obj["number_of_preinfuse_frames"] = derived;
         obj["target_volume_count_start"] = derived;
     }
@@ -1615,8 +1617,9 @@ Profile Profile::loadFromTclString(const QString& content) {
     } else {
         // Derived from the frames, whether they were generated here or read
         // from a stored advanced_shot — de1app's count always describes the
-        // frame list it is sent with.
-        profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
+        // frame list it is sent with. countPreinfuseFramesWithForcedRise() also
+        // folds in a Pressure profile's forced-rise frame(s) — see its declaration.
+        profile.m_preinfuseFrameCount = countPreinfuseFramesWithForcedRise(profile.m_steps);
     }
 
     qDebug() << "Loaded Tcl profile:" << profile.m_title
@@ -2192,6 +2195,14 @@ int Profile::countPreinfuseFrames(const QList<ProfileFrame>& steps) {
     return count;
 }
 
+int Profile::countPreinfuseFramesWithForcedRise(const QList<ProfileFrame>& steps) {
+    int count = countPreinfuseFrames(steps);
+    for (const auto& step : steps) {
+        if (step.name == ProfileFrame::kForcedRiseWithoutLimitName) count++;
+    }
+    return count;
+}
+
 QByteArray Profile::toDirectControlFrame(int frameIndex, const ProfileFrame& frame) const {
     // Generate a single frame for direct control mode
     // Same format as toFrameBytes but for live updates
@@ -2305,7 +2316,9 @@ void Profile::regenerateSimpleFrames() {
     m_steps.clear();
     m_steps = materializedSteps();
 
-    m_preinfuseFrameCount = countPreinfuseFrames(m_steps);
+    // countPreinfuseFramesWithForcedRise() also folds in a Pressure profile's
+    // forced-rise frame(s) — see its declaration.
+    m_preinfuseFrameCount = countPreinfuseFramesWithForcedRise(m_steps);
 
     // Do NOT sync m_espressoTemperature from first frame here.
     // The caller (applyRecipeToScalarFields) already set it from tempStart.
@@ -2536,6 +2549,8 @@ void Profile::regenerateFromRecipe() {
     // profiles (settings_to_advanced_list copies as-is). D-Flow/A-Flow are advanced profiles.
     if (m_recipeParams.editorType == EditorType::Pressure
         || m_recipeParams.editorType == EditorType::Flow) {
-        m_preinfuseFrameCount = countPreinfuseFrames(m_steps);
+        // countPreinfuseFramesWithForcedRise() also folds in a Pressure profile's
+        // forced-rise frame(s) — see its declaration.
+        m_preinfuseFrameCount = countPreinfuseFramesWithForcedRise(m_steps);
     }
 }

@@ -83,10 +83,13 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
 
     // Use recipe's preinfuseFrameCount if set (D-Flow/A-Flow templates provide this via
     // applyEditorDefaults), otherwise fall back to counting for simple profiles.
+    // countPreinfuseFramesWithForcedRise() also folds a Pressure profile's forced-rise
+    // frame(s) into the count (matching de1app commit 13a30463); it is a no-op add for
+    // Flow, which never generates one.
     if (recipe.preinfuseFrameCount >= 0) {
         profile.setPreinfuseFrameCount(recipe.preinfuseFrameCount);
     } else {
-        profile.setPreinfuseFrameCount(Profile::countPreinfuseFrames(profile.steps()));
+        profile.setPreinfuseFrameCount(Profile::countPreinfuseFramesWithForcedRise(profile.steps()));
     }
 
     // Store recipe params for re-editing
@@ -553,7 +556,7 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
         // If hold time > 3s, add a forced rise frame without limiter first
         if (holdTime > 3) {
             ProfileFrame riseNoLimit;
-            riseNoLimit.name = "forced rise without limit";
+            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
             riseNoLimit.temperature = tempHold;
             riseNoLimit.sensor = "coffee";
             riseNoLimit.pump = "pressure";
@@ -592,7 +595,7 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
         // matching de1app's pressure_to_advanced_list() which also uses the mutated value.
         if (holdTime < 3 && declineTime > 3) {
             ProfileFrame riseNoLimit;
-            riseNoLimit.name = "forced rise without limit";
+            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
             riseNoLimit.temperature = tempDecline;
             riseNoLimit.sensor = "coffee";
             riseNoLimit.pump = "pressure";

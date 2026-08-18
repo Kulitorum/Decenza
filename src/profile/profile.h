@@ -449,6 +449,15 @@ public:
     // Count consecutive leading frames with exit conditions (preinfusion frames)
     static int countPreinfuseFrames(const QList<ProfileFrame>& steps);
 
+    // countPreinfuseFrames() plus every "forced rise without limit" frame anywhere in
+    // steps. A Pressure-type profile's forced-rise frame(s) drive pressure up before any
+    // coffee pours — filling headspace, not pouring — so the DE1 must treat them as
+    // preinfusion too, or Stop-at-Volume starts counting before the pour begins (matching
+    // de1app commit 13a30463). The frame(s) keep exitIf==false: that flag also sets the
+    // DE1's real DoCompare exit condition, and setting it would defeat "without limit".
+    // A no-op add for Flow-type steps, which never generate a frame with this name.
+    static int countPreinfuseFramesWithForcedRise(const QList<ProfileFrame>& steps);
+
     // Compare two profiles for functional equality (frame sequence only).
     // Profile-level limits (maximumPressure, maximumFlow, etc.) are excluded.
     // Returns false if either profile has no steps.

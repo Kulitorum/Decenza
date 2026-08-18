@@ -26,7 +26,7 @@
     "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "Lever espresso machines are why we refer to pulling an espresso.  You pull a spring-loaded lever by hand to create pressure on the coffee puck.  This 6 bar espresso is a classic Italian technique, and will result in a very sweet and gentle espresso.",
-    "number_of_preinfuse_frames": "1",
+    "number_of_preinfuse_frames": "2",
     "preinfusion_flow_rate": "4.50",
     "preinfusion_stop_pressure": "4.00",
     "preinfusion_time": "20.00",
@@ -104,7 +104,7 @@
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "36.0",
-    "target_volume_count_start": "1",
+    "target_volume_count_start": "2",
     "target_weight": "36.0",
     "temp_steps_enabled": false,
     "temperature_presets": [

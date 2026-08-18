@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include "ble/de1device.h"
+#include "ble/protocol/de1characteristics.h"
 #include "mocks/MockTransport.h"
 
 // Guards the GHC "headless" gate default (PR #1470). m_isHeadless means "the
@@ -10,6 +11,12 @@
 // (or unless) the GHC MMR read returns. Only a positive GHC read flips it
 // false, and a disconnect must restore the permissive default so a GHC
 // machine's false cannot bleed into the next connection.
+//
+// Also guards DE1::SubState reset on disconnect (de1app commit 04d3b02e): a
+// substate is never reset by de1app's own disconnect handler, so a stale
+// Error_NoAC can pin the front-standby-switch warning up forever, even after
+// the switch is flipped back and the app reconnects. Same shape as the
+// headless reset above, different field.
 
 class tst_DE1DeviceHeadless : public QObject {
     Q_OBJECT
@@ -44,6 +51,32 @@ private slots:
 
         QCOMPARE(f.device.isHeadless(), true);
         QCOMPARE(spy.count(), 1);  // flipped once (setIsHeadless dedups), not a no-op
+    }
+
+    void disconnectResetsSubState() {
+        TestFixture f;
+        f.transport.setConnectedSim(true);
+        f.device.m_subState = DE1::SubState::Error_NoAC;
+
+        QSignalSpy spy(&f.device, &DE1Device::subStateChanged);
+        f.transport.setConnectedSim(false);
+
+        QCOMPARE(f.device.subState(), DE1::SubState::Ready);
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void disconnectIsANoOpWhenSubStateAlreadyReady() {
+        // onTransportDisconnected() guards the reset on a value check, so an
+        // already-quiet disconnect (the overwhelmingly common case) does not spam
+        // subStateChanged.
+        TestFixture f;
+        f.transport.setConnectedSim(true);
+
+        QSignalSpy spy(&f.device, &DE1Device::subStateChanged);
+        f.transport.setConnectedSim(false);
+
+        QCOMPARE(f.device.subState(), DE1::SubState::Ready);
+        QCOMPARE(spy.count(), 0);
     }
 };
 
