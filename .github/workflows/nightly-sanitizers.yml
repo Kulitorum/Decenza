@@ -471,10 +471,21 @@ jobs:
         run: |
           # A mechanism that cannot assert its own effect is the failure mode
           # this workflow exists to avoid -- see the ccache and qmllint_check
-          # gates above. LSan does Die() on an unreadable suppressions file, so a
-          # wrong path fails red rather than silently unsuppressed, but it fails
-          # as ~110 aborted binaries with a one-line libc message, which looks
-          # nothing like a leak. Name the real problem instead.
+          # gates above.
+          #
+          # This check is load-bearing, not belt-and-braces. LSan reads the
+          # suppressions file LAZILY -- only when it has a leak to check -- so a
+          # wrong path is SILENT on every clean night and only speaks up on the
+          # rare night a leak occurs, where it reads as the suppression having
+          # failed rather than as a bad path. Measured on ASan/glibc 2.39:
+          #
+          #   leaking binary,     bad path -> "failed to read suppressions
+          #                                    file '<path>'", exit 1
+          #   non-leaking binary, bad path -> no output, exit 0
+          #
+          # An earlier version of this comment claimed LSan Die()s at startup so
+          # a bad path could not go unnoticed. That is wrong, and it is exactly
+          # the assumption that would have justified deleting this check.
           test -f "$GITHUB_WORKSPACE/tests/lsan-suppressions.txt" || {
             echo "::error::LSan suppressions file missing at the path LSAN_OPTIONS names"
             exit 1
