@@ -301,23 +301,45 @@ jobs:
         with:
           key: ${{ env.CACHE_KEY }}
           use_cache: ${{ steps.cachefit.outputs.use_cache }}
-          # 600M kept this permanently at 100% full (measured 2026-07-29: 0.6/0.6 GB,
-          # 869 cacheable calls, only 56.62% hit rate) — too small for ~870 sanitizer-
-          # instrumented compilation units, which run well past normal object size.
+          # Sized to hold ONE full build, with the ceiling set by this job's own
+          # yield threshold above (CACHE_HEADROOM_MIN_GB=2), not by the 10 GB cap.
           #
-          # 800M per leg (ASan + UBSan can't share — see the matrix comment above),
-          # not more: this job's OWN yield threshold above (CACHE_HEADROOM_MIN_GB=2)
-          # is the real constraint, not the 10 GB cap. Measured 2026-07-30: repo at
-          # 7.15/10 GB with the two sanitizer entries at their old ~0.6G each
-          # (1.07G combined) — so non-sanitizer usage is ~6.1G, leaving only ~1.9G of
-          # headroom above the 2G yield floor for BOTH legs combined. At 1.5G/leg
-          # (2.8G combined) or even 1G/leg (2.0G combined) that headroom goes
-          # negative and the very first night both caches fill up, the yield fires,
-          # and it deletes what it's holding to hand the space back — self-defeating.
-          # 800M/leg (1.6G combined) leaves ~300M of real margin instead. Re-check
-          # this arithmetic if CACHE_HEADROOM_MIN_GB or the other caches' baseline
-          # footprint changes.
-          max-size: 800M
+          # History, because the number has moved twice and each move had a
+          # different cause. 600M kept this permanently full (2026-07-29: 0.6/0.6
+          # GB, 56.62% hit rate). 800M was then chosen against a repo sitting at
+          # 7.15/10 GB, which left only ~1.9G above the yield floor for both legs.
+          #
+          # 800M was sized while a PCH was still on, when only ~10% of compiles
+          # were cacheable at all. #1829 turned the PCH off and the cacheable pool
+          # went 84/875 to 878/878, so the working set roughly decupled and 800M
+          # stopped fitting a single build: run 32185501571 ended at 0.8/0.8 GB
+          # (100.4% — it evicted DURING the run) with 502 hits / 376 misses.
+          #
+          # 1.2G/leg, measured 2026-08-18 after deleting a stale
+          # gradle-android-qt6.11.1 entry the 6.11.2 upgrade orphaned (0.36 GB,
+          # unreachable — the workflow keys on a qt6.11.2- prefix):
+          #
+          #   repo total 6.26/10 GB, so 3.74 GB free, 1.74 GB above the floor
+          #   the two sanitizer entries are 1.48 GB of that (0.74 GB each: an
+          #     0.8 GB ccache dir stores as a 0.74 GB entry, since ccache already
+          #     compresses and the archive barely shrinks)
+          #   at 1.2G/leg they become ~2.23 GB -> 7.01 GB total, 2.99 GB free,
+          #     ~1.0 GB still above the floor
+          #
+          # A full build is ~878 objects at ~1.08 MB each (run 32176361096 stored
+          # 742 objects to fill 0.8 GB), so ~0.95 GB — 1.2G fits it with ~26% to
+          # spare. 1.5G/leg would also clear the floor now (2.43 GB free) but is
+          # not taken: the margin is shared with every other cached leg, and the
+          # macOS ccache alone is already 1.21 GB and subject to the same
+          # PCH-off growth this job just went through.
+          #
+          # This does NOT eliminate eviction across many commits, which is normal
+          # and what LRU is for. It removes the pathological case where a single
+          # build cannot fit in its own cache.
+          #
+          # Re-check if CACHE_HEADROOM_MIN_GB changes, if another leg's cache
+          # grows, or if the object count moves materially.
+          max-size: 1200M
 
       # Hash on file CONTENT rather than mtime, so a fresh checkout (every run
       # here) still hits. Mirrors linux-release.yml.
