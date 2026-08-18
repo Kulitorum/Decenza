@@ -9,6 +9,7 @@
 #include "mcp/mcptoolregistry.h"
 
 #include <memory>
+#include "messagecapture.h"   // ScopedWarningFilter
 
 // Shared test fixture for MCP tool tests.
 // Wires ProfileManager with a MockTransport so BLE writes can be verified.
@@ -17,43 +18,6 @@
 //   McpTestFixture f;
 //   registerProfileTools(f.registry, f.profileManager);
 //   auto result = f.callTool("profiles_list", {});
-
-// RAII guard to suppress qWarning messages matching a pattern.
-// Nestable: patterns are pushed onto a stack. A warning is suppressed if it
-// matches ANY active filter's pattern. Non-matching messages are forwarded
-// to Qt Test's handler so QTest::ignoreMessage still works.
-struct ScopedWarningFilter {
-    static inline QVector<QRegularExpression*> s_filters;
-    static inline QtMessageHandler s_originalHandler = nullptr;
-    static inline int s_depth = 0;
-
-    static void handler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg) {
-        if (type == QtWarningMsg) {
-            for (auto* f : s_filters) {
-                if (f && f->match(msg).hasMatch())
-                    return;  // Suppress
-            }
-        }
-        // Forward to Qt Test's handler
-        if (s_originalHandler)
-            s_originalHandler(type, ctx, msg);
-    }
-
-    QRegularExpression m_pattern;
-
-    ScopedWarningFilter(const QString& pattern) : m_pattern(pattern) {
-        s_filters.append(&m_pattern);
-        if (s_depth++ == 0)
-            s_originalHandler = qInstallMessageHandler(handler);
-    }
-    ~ScopedWarningFilter() {
-        s_filters.removeOne(&m_pattern);
-        if (--s_depth == 0) {
-            qInstallMessageHandler(s_originalHandler);
-            s_originalHandler = nullptr;
-        }
-    }
-};
 
 struct McpTestFixture {
     QTemporaryDir tempDir;   // isolated profile storage

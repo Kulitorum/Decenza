@@ -3,6 +3,7 @@
 
 #include "ble/blegattqueue.h"
 #include "ble/protocol/de1characteristics.h"
+#include "mocks/messagecapture.h"
 
 // The shared cross-device GATT queue (#1819).
 //
@@ -66,46 +67,12 @@ private:
     // simulated.
     static void advanceQueueClock(BleGattQueue& q, qint64 ms) { q.m_testClockSkewMs += ms; }
 
-    // Counts DEBUG lines containing a needle, so "this was NOT logged" is an
-    // assertion that can fail.
-    //
-    // suppressedFor() cannot do that job, and the slots below used to lean on
-    // it: it counts COLLAPSED repeats, so a line that passes the gate and
-    // prints for the first time leaves it at zero. Zero there is equally
-    // consistent with silence and with one printed line, which makes it blind
-    // to exactly the regression these slots exist to catch. Chains to the
-    // previous handler so QTest::ignoreMessage and failOnWarning still work.
-    class DebugLineCounter {
-    public:
-        explicit DebugLineCounter(QString needle) {
-            s_needle = std::move(needle);
-            s_count = 0;
-            s_last.clear();
-            s_prev = qInstallMessageHandler(&DebugLineCounter::handle);
-        }
-        ~DebugLineCounter() { qInstallMessageHandler(s_prev); }
-        DebugLineCounter(const DebugLineCounter&) = delete;
-        DebugLineCounter& operator=(const DebugLineCounter&) = delete;
-
-        int count() const { return s_count; }
-        QString lastLine() const { return s_last; }
-
-    private:
-        static void handle(QtMsgType type, const QMessageLogContext& ctx,
-                           const QString& msg) {
-            if (type == QtDebugMsg && msg.contains(s_needle)) {
-                ++s_count;
-                s_last = msg;
-            }
-            if (s_prev)
-                s_prev(type, ctx, msg);
-        }
-
-        static inline QtMessageHandler s_prev = nullptr;
-        static inline QString s_needle;
-        static inline int s_count = 0;
-        static inline QString s_last;
-    };
+    // The needle every log-volume slot below counts. One constant, so a slot
+    // cannot silently stop matching because someone retyped the string.
+    static const QString& dispatchNeedle() {
+        static const QString s = QStringLiteral("dispatch ");
+        return s;
+    }
 
 private slots:
     void init() { QTest::failOnWarning(); }
@@ -311,18 +278,27 @@ private slots:
     }
 
     // --- dispatch log volume ----------------------------------------------
-
-    // The dispatch line is one per operation, and at idle the Decent Scale's
-    // 1 Hz heartbeat makes it periodic forever: 25,992 of 26,565 lines in a
-    // measured 7-hour tablet session, which evicted every other subsystem from
-    // the ring buffer. An unchanging repeat must collapse.
     //
-    // init()'s failOnWarning cannot catch this — these are DEBUG — so the
-    // assertion is the ignoreMessage pair: exactly one line for the run.
+    // These four slots assert VOLUME, not correctness — a regression here costs
+    // a ring buffer full of noise, not a missed stop-at-weight. They are cheap
+    // because they share a file, and they exist because this gate has been got
+    // wrong four times.
+    //
+    // Three of them assert ZERO lines, which is only an assertion at all
+    // because anOperationDelayedByAnotherDeviceIsLogged() proves the same
+    // needle CAN reach a non-zero count in this binary. That slot is
+    // load-bearing for the other three: delete or rename it and they quietly
+    // become vacuous. MessageCapture::count() spans every tier for the same
+    // reason — a line promoted to qInfo must turn these red, not satisfy them.
+
+    // At idle the Decent Scale's 1 Hz heartbeat made this line periodic
+    // forever: 25,992 of 26,565 lines in a measured 7-hour tablet session,
+    // which evicted every other subsystem from the ring buffer. With the gate
+    // in place an idle beat never reaches the collapser at all.
     void anIdleDispatchIsNotLoggedAtAll() {
         BleGattQueue q;
         Recorder rec;
-        DebugLineCounter log(QStringLiteral("dispatch "));
+        MessageCapture log;
 
         for (int i = 0; i < 5; ++i) {
             q.submit(op(scale(), QStringLiteral("scale write"), &rec));
@@ -333,47 +309,55 @@ private slots:
 
         QCOMPARE(rec.issued.size(), 5);   // all five ran...
         // ...and none reached the log. Counted, not inferred from
-        // suppressedFor(): collapsing alone was never enough — one line a
-        // minute still out-logs every other subsystem in the app combined — and
-        // a suppressed-repeat count of zero cannot tell silence apart from a
-        // first line that printed.
-        QCOMPARE(log.count(), 0);
+        // LogCollapse::suppressedFor(), which counts COLLAPSED repeats: a line
+        // that prints for the first time leaves it at zero, so zero there is
+        // equally consistent with silence and with one printed line.
+        QCOMPARE(log.count(dispatchNeedle()), 0);
     }
 
-    // Queue DEPTH alone must not produce a line, however deep.
+    // Queue DEPTH alone must not produce a line, at the depth the old gate
+    // tripped on.
     //
-    // This is the regression that shipped: gating on depth >= 2 was silent at
-    // idle and therefore looked correct, but the app's own connect sequence is
-    // the deepest thing that ever happens here — applyAllSettings enqueues the
-    // settings blast the instant the DE1 reports ready — so a healthy launch
-    // peaked at 35 and wrote 43 lines every single time. A measured 4h17m field
-    // session logged 50 of these, and not one said anything the single
-    // FOREIGN_WAIT_WARN episode line did not.
+    // This is the regression that shipped in the third attempt: gating on
+    // depth >= 2 was silent at idle and therefore looked correct, but the app's
+    // own connect sequence is the deepest thing that ever happens on this queue
+    // (see the QUEUE_DEPTH_WARN comment in blegattqueue.h for the measured
+    // peak), so a healthy launch wrote 43 lines every single time.
     //
-    // All three operations here belong to the SAME requester, so nothing waits
-    // on a foreign device and nothing is worth a line.
+    // All three operations belong to the SAME requester, so chargeForeignWait()
+    // skips every one of them and foreignWaitMs is identically zero. This slot
+    // can therefore only fail to a DEPTH trigger — which is exactly what it is
+    // guarding, and what makes it the negative control for the shipped defect.
     void aDeepQueueOfOneDevicesOwnWorkIsNotLogged() {
         BleGattQueue q;
         Recorder rec;
-        DebugLineCounter log(QStringLiteral("dispatch "));
+        MessageCapture log;
 
         q.submit(op(de1(), QStringLiteral("de1-a"), &rec));
         q.submit(op(de1(), QStringLiteral("de1-b"), &rec));
         q.submit(op(de1(), QStringLiteral("de1-c"), &rec));
         pump();
-
         QCOMPARE(rec.issued, QStringList{QStringLiteral("de1-a")});
-        QCOMPARE(log.count(), 0);
+        QCOMPARE(log.count(dispatchNeedle()), 0);
+
+        // Drain, so the assertion covers depths 1 and 0 as well as 2 rather
+        // than only the one the old threshold happened to sit on.
+        q.noteSucceeded(de1());
+        pump();
+        q.noteSucceeded(de1());
+        pump();
+        QCOMPARE(rec.issued.size(), 3);
+        QCOMPARE(log.count(dispatchNeedle()), 0);
     }
 
-    // ...but an operation that actually WAITED behind another device is logged,
-    // and carries the depth as payload. Depth is what a reader wants once they
-    // are already looking at a delay; it is not what tells them to look.
+    // ...but an operation that actually WAITED behind another device is logged.
     //
     // Held below FOREIGN_WAIT_WARN_MS deliberately: the near-miss must reach
     // the log as DEBUG context WITHOUT raising the WARN, so this also pins that
     // the two thresholds are independent. init()'s failOnWarning is what makes
-    // that half able to fail.
+    // that half able to fail. Written as a proportion of the constant so it
+    // tracks BOTH bounds — it has to stay above FOREIGN_WAIT_WARN_MS / 2 to
+    // reach the gate and below FOREIGN_WAIT_WARN_MS to stay under the warning.
     void anOperationDelayedByAnotherDeviceIsLogged() {
         BleGattQueue q;
         Recorder rec;
@@ -382,37 +366,77 @@ private slots:
         pump();
 
         q.submit(op(de1(), QStringLiteral("de1 stop"), &rec));
-        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS / 2 + 40);
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS * 3 / 4);
 
-        DebugLineCounter log(QStringLiteral("dispatch "));
+        // Installed AFTER the setup submits, so it counts only the dispatch
+        // under test.
+        MessageCapture log;
         q.noteSucceeded(scale());
         pump();
 
-        QCOMPARE(log.count(), 1);
-        QVERIFY(log.lastLine().contains(QStringLiteral("dispatch de1 stop")));
-        QVERIFY(log.lastLine().contains(QStringLiteral("queued)")));
+        QCOMPARE(log.count(dispatchNeedle()), 1);
+        const QString line = log.last(dispatchNeedle()).text;
+        QVERIFY(line.contains(QStringLiteral("dispatch de1 stop")));
+        // Depth is PAYLOAD, and this pins the value rather than the word:
+        // "de1 stop" is the only queued operation and is dequeued before the
+        // line is built, so the depth behind it is 0. Asserting merely that the
+        // text contains "queued)" would hold against a hardcoded number.
+        QVERIFY(line.contains(QStringLiteral("(0 queued)")));
     }
 
-    // TWO devices overlapping briefly is silent too — the case above is one
+    // A nonzero depth DOES reach the text when the operation also waited. The
+    // pair of assertions is the point: aDeepQueueOfOneDevicesOwnWorkIsNotLogged
+    // shows depth alone does not trigger, this shows depth is still reported
+    // once something else did. Rides on an existing episode rather than adding
+    // a slot to arrange the same state again.
+    void aDelayedDispatchReportsTheDepthBehindIt() {
+        BleGattQueue q;
+        Recorder rec;
+
+        q.submit(op(scale(), QStringLiteral("slow-scale"), &rec));
+        pump();
+        q.submit(op(de1(), QStringLiteral("de1-a"), &rec));
+        q.submit(op(de1(), QStringLiteral("de1-b"), &rec));
+        q.submit(op(de1(), QStringLiteral("de1-c"), &rec));
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS * 3 / 4);
+
+        MessageCapture log;
+        q.noteSucceeded(scale());
+        pump();
+
+        QCOMPARE(log.count(dispatchNeedle()), 1);
+        QVERIFY(log.last(dispatchNeedle()).text.contains(QStringLiteral("(2 queued)")));
+    }
+
+    // TWO devices overlapping briefly is silent too — the slot above covers one
     // device's own backlog, this is the routine interleave of two healthy
     // periodic ones: the DE1's once-a-minute keepalive landing on the scale's
     // 1 Hz heartbeat, clearing ~54 ms apart. It repeats forever, so logging it
     // made this line the loudest source in the app at ~120/hour even after
-    // collapsing. Nothing here waits long enough to be worth a reader's time.
+    // collapsing.
+    //
+    // NOT redundant with aDeepQueueOfOneDevicesOwnWorkIsNotLogged: two
+    // requesters means chargeForeignWait() DOES charge the second operation, so
+    // this is the only slot that would catch a gate loosened towards
+    // foreignWaitMs > 0. The 54 ms is simulated rather than left to whatever
+    // pump() really takes, so the number in this comment is the number the test
+    // encodes, and lowering the gate towards the routine interleave turns it
+    // red.
     void aBriefOverlapOfTwoDevicesIsNotWorthALine() {
         BleGattQueue q;
         Recorder rec;
-        DebugLineCounter log(QStringLiteral("dispatch "));
+        MessageCapture log;
 
         q.submit(op(de1(), QStringLiteral("de1-keepalive"), &rec));
         q.submit(op(scale(), QStringLiteral("scale write"), &rec));
         pump();
+        advanceQueueClock(q, 54);
         q.noteSucceeded(de1());
         pump();
 
         QCOMPARE(rec.issued, (QStringList{QStringLiteral("de1-keepalive"),
                                           QStringLiteral("scale write")}));
-        QCOMPARE(log.count(), 0);
+        QCOMPARE(log.count(dispatchNeedle()), 0);
     }
 
     // --- foreign wait reporting -------------------------------------------

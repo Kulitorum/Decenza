@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QHash>
+#include <QList>
+#include <QPair>
 #include <QString>
 
 // Collapses a repeating log line to one entry per window, carrying the count of what it stood in
@@ -88,6 +90,28 @@ public:
         return c;
     }
 
+    // Ends a run across EVERY key at once, returning what was still pending for each.
+    //
+    // flush() above takes a key because its callers observe the end of one named thing — a broker
+    // reconnecting, a poll stopping. An episodic source that is keyed by something it does not
+    // enumerate cannot use it: the GATT queue keys its dispatch line by operation LABEL, and a
+    // contention episode touches whatever labels happened to be queued. Making each caller keep a
+    // set of the keys it has used, purely so it can flush them, is the copy-per-caller this class
+    // exists to prevent.
+    //
+    // The caller is expected to LOG what comes back. Dropping the return value silently discards
+    // the tallies, which is the same misattribution as never flushing, only quieter.
+    QList<QPair<QString, Collapsed>> flushAll(qint64 nowMs)
+    {
+        QList<QPair<QString, Collapsed>> out;
+        for (auto it = m_entries.cbegin(); it != m_entries.cend(); ++it) {
+            if (it->suppressed > 0)
+                out.append({it.key(), {it->suppressed, it->everEmitted ? nowMs - it->lastEmitMs : 0}});
+        }
+        m_entries.clear();
+        return out;
+    }
+
     // Convenience for the common shape: " (+N identical in the preceding M s)" or an empty string.
     // Centralized so the five callers cannot word the same annotation five ways — which is what
     // happened to the [USB Scale] prefix (73 hand-written sites, 21 of them drifted).
@@ -105,15 +129,6 @@ public:
         return QStringLiteral(" (+%1 identical in the preceding %2 s)")
             .arg(c.suppressed)
             .arg(c.spanMs / 1000);
-    }
-
-    // How many identical lines are currently held back for `key`. Read-only, for
-    // tests that need to assert a source collapses rather than counting log
-    // lines — which qDebug output does not let a test do directly.
-    int suppressedFor(const QString& key) const
-    {
-        const auto it = m_entries.constFind(key);
-        return it == m_entries.cend() ? 0 : it->suppressed;
     }
 
 private:
