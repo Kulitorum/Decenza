@@ -53,12 +53,13 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 - **ADB path**: `/c/Users/Micro/AppData/Local/Android/Sdk/platform-tools/adb.exe`
 - **Uninstall app**: `adb uninstall io.github.kulitorum.decenza_de1`
 - **WiFi debugging**: `192.168.1.212:5555` (reconnect: `adb connect 192.168.1.212:5555`). The DHCP lease can rotate — if reconnect fails, plug in USB and run `adb shell ip route | grep wlan` to read the current IP, then `adb tcpip 5555` + `adb connect <ip>:5555`.
-- **Qt version**: 6.11.1
-- **Qt path**: `C:/Qt/6.11.1/msvc2022_64`
-- **Qt sources**: `~/Qt/6.11.1/Src` (macOS) — the full source tree for the exact version we build against. **Read it instead of guessing at Qt behaviour, and cite file-and-line in any comment that asserts what Qt does.** An un-sourced claim in a comment gets believed and then licenses wrong code: both bugs below were written as settled fact first and found by opening the source much later.
+- **Qt version**: 6.11.2
+- **Qt path**: `C:/Qt/6.11.2/msvc2022_64`
+- **Qt sources**: `~/Qt/6.11.2/Src` (macOS) — the full source tree for the exact version we build against. **Read it instead of guessing at Qt behaviour, and cite file-and-line in any comment that asserts what Qt does.** An un-sourced claim in a comment gets believed and then licenses wrong code: both bugs below were written as settled fact first and found by opening the source much later.
   - Error handling is not inferable from the enum names — several `errno` values collapse onto one `QAbstractSocket::SocketError`, per platform, and `connectToHost()` with an IP literal can emit `errorOccurred` **synchronously** (`qtbase/src/network/socket/qnativesocketengine_unix.cpp`, `qabstractsocket.cpp`).
   - Neither is the object model — a registered singleton with no instance is **truthy**, not `undefined` (`qtdeclarative/src/qml/jsruntime/qv4qmlcontext.cpp:229`). See `QML_GOTCHAS.md`.
-- **qtbase checkout**: `~/Development/GitHub/qtbase` — separate git clone with the Gerrit remote, for upstream patches. Not the copy to read for reference (it sits on whatever contribution branch is in flight); use `~/Qt/6.11.1/Src` for that.
+- **No local Qt contribution checkout.** `~/Development/GitHub/qtbase` and `~/Development/GitHub/qtdeclarative` were Gerrit clones for upstreaming patches; they were deleted with the 6.11.2 upgrade, once every patch they carried was either shipped upstream or preserved as source. Clone fresh from Gerrit if you need to contribute again. **`~/Qt/6.11.2/Src` is the copy to read for reference** — a contribution clone never was, since it sits on whatever branch is in flight.
+- **Decenza ships stock Qt.** No patched platform plugin, jar, framework or library is committed or packaged. A Qt bug is fixed upstream, worked around in Decenza's own code, or accepted as a known issue. Patches kept only as source (not built, not shipped) live in `docs/qt-patches/`, each with its upstream bug and the condition under which it would come back.
 - **C++ standard**: C++17
 - **de1app source**: `C:\code\de1app` (Windows) or `/Users/jeffreyh/Development/GitHub/de1app` (macOS) — original Tcl/Tk DE1 app for reference
 - **IMPORTANT**: Use relative paths (e.g., `src/main.cpp`) instead of absolute paths (e.g., `C:\CODE\de1-qt\src\main.cpp`) to avoid "Error: UNKNOWN: unknown error, open" when editing files

@@ -69,6 +69,23 @@ rejected options are not re-proposed later:
 - **Get an A12+ iPad for testing.** Not a blocker for starting, but iOS ships untested without it,
   and the Simulator is not available on this Mac (`project_qt_ios_simulator_gap`).
 
+## Android accessibility overrides — SUPERSEDED (2026-08-18)
+
+> **This whole section is obsolete.** `android/qt-overrides/` no longer exists. The
+> `upgrade-qt-6-11-2` change deleted it outright: Qt 6.11.2 carries both TalkBack fixes upstream
+> (verified against the `v6.11.2` tag, not the 6.12 branch), and the Android `qFatal` crash patch
+> was dropped rather than rebuilt — 9 reports in roughly 8 months across a user base in the
+> hundreds did not justify a permanent fork. Its source is preserved in `docs/qt-patches/`, and
+> `build-config` now carries a `Decenza Ships Stock Qt Runtime Binaries` requirement, which also
+> supersedes the "Patched Qt Platform Artifacts Are Version-Locked" requirement this change ADDs
+> below — drop that requirement when this change is next revised. Gerrit **735089** is still the
+> better outcome and is still worth asking to have picked.
+>
+> The two a11y improvements named at the end of this section that were *not* patched locally are
+> still worth re-checking on device, and that check moved to `upgrade-qt-6-11-2` task 8.1.
+>
+> The original text follows, for the reasoning only.
+
 ## Android accessibility overrides — delete two thirds, keep the crash patch
 
 `android/qt-overrides/` ships a patched Qt Android platform plugin (`.so`) plus a patched
