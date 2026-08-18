@@ -330,8 +330,18 @@ jobs:
         run: |
           mkdir -p build
           cd build
+          # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
+          # on made ccache miss ~90% of this leg's compiles. See PR #1738.
+          #
+          # This leg was omitted when #1738 turned the PCH off on the four legs
+          # that carry a warm ccache, because it predates that change (#1560).
+          # The cost was invisible: the cache restored and reported a healthy
+          # 83% hit rate, on the 9.6% of calls that were cacheable at all --
+          # measured on run 31996391080, where Build was 1792 s of a 1913 s job
+          # while the tests it exists to run took 59 s.
           $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
