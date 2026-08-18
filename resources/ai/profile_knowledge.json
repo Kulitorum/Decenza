@@ -552,6 +552,19 @@
       "prose": "By John Buckman (Decent founder), synthesized from Brakel's preinfusion technique, Scott Rao's Blooming, and Jonathan Gagné's Adaptive flow-locking — the distillation of what the Decent community learned was optimal for light roasts; it subsequently evolved into the \"Adaptive\" profile. Preinfusion at low pressure (3 bar) until dripping, then a 1.5 bar gentle soak to fully saturate the puck, then pressure ramps to ~9–10.5 bar, then flow-controlled extraction at ~2.5 ml/s with a 10.5 bar limiter. Canonical recipe: 18g in, 50g out, ~60s. Expected curves: very low pressure during fill/soak (~1.5–3 bar), then a rise to ~9–10 bar, then pressure-limited flow extraction; pressure may not reach the limiter if the grind is coarse; variable curves expected (adapts to grind). Temperature 92°C preinfusion, 90°C extraction. ~50–70s total. Grind coarse for light roasts (target ~2.5 ml/s extraction flow); grind fine enough to maintain dripping during preinfusion — if dripping stops, too coarse. Roast light primarily; can adapt to medium with temperature adjustment. DO NOT flag the long low-pressure soak. DO NOT flag channeling in dC/dt — the extended low-flow soak followed by the pressure ramp produces large conductance-derivative spikes regardless of puck quality."
     },
     {
+      "id": "adaptive-v3",
+      "roastAffinity": [
+        "medium"
+      ],
+      "displayName": "Adaptive v3",
+      "analysisFlags": [
+        "flow_trend_ok",
+        "channeling_expected"
+      ],
+      "family": "flow-adaptive",
+      "prose": "By Decent (author: Decent), the sibling of \"Best Practice (light roast)\" this KB's `best-practice-light-roast` entry says it evolved into — same lineage (Brakel preinfusion + Rao Blooming + Gagné Adaptive flow-locking) in a 7-frame shot: Prefill/Fill push flow to the puck under a 3 bar cap, Compressing switches to pressure control until flow drops below 6.8 ml/s, Dripping holds a near-zero 0.1 bar so the puck drips freely, Pressurize ramps to 11 bar (capped at 7.7 bar exit), then Extraction start/Extraction run flow-controlled at the rate read off the Pressurize step and gently increased from there — the same auto flow-lock as Gagné's Adaptive. Canonical recipe (from the profile's own notes): 15g in, 33g out, ~32s, medium roast; target ~1.5 ml/s flow at the Pressurize step and ~4g (±1g) of dripping during Dripping. Temperature 93°C fill, 89°C hold/extraction. Expected curves: near-zero pressure during Dripping (by design), a sharp ramp to ~11 bar at Pressurize, then flow-controlled extraction with flow rising gradually. DO NOT flag the low-pressure Dripping step or the rising flow during Extraction — both are the adaptive mechanism working as intended."
+    },
+    {
       "id": "easy-blooming-active-pressure-decline",
       "roastAffinity": [
         "light"

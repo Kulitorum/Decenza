@@ -8,6 +8,7 @@
         <file>profiles/a_flow_default_medium.json</file>
         <file>profiles/a_flow_default_very_dark.json</file>
         <file>profiles/adaptive_v2.json</file>
+        <file>profiles/adaptive_v3.json</file>
         <file>profiles/advanced_spring_lever.json</file>
         <file>profiles/baseline_high_contact_8_bar.json</file>
         <file>profiles/baseline_low_contact_4_bar.json</file>
