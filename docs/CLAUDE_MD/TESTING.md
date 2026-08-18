@@ -72,7 +72,7 @@ $ ASAN_OPTIONS=detect_leaks=1 ./tests/tst_mcptools_write
 
 The runtime refuses the option; there is no flag that turns it on. On macOS, ASan covers use-after-free, heap-buffer-overflow, stack-use-after-return and double-free — a leak is invisible to it. So "84/84 passed under ASan" on a Mac means *no memory errors*, never *no leaks*.
 
-The nightly Linux ASan job (`ASAN_OPTIONS=detect_leaks=1`) is the only place leaks are caught. Its first run found two that the local suite had been passing over: `tst_decentscalewifi` (131,068 bytes / 1,372 allocations) and `tst_mcptools_write` (6,540 bytes / 70 allocations), byte-identical across all three retry attempts.
+The nightly Linux ASan job (`ASAN_OPTIONS=detect_leaks=1`) is the only place leaks are caught. Its first run found two that the local suite had been passing over: `tst_decentscalewifi` (131,068 bytes / 1,372 allocations) and `tst_mcptools_write` (6,540 bytes / 70 allocations), byte-identical across all three retry attempts. It also carries leak suppressions, in `tests/lsan-suppressions.txt`, which states the evidence each entry must carry, what it costs, and when it comes out.
 
 To chase a leak on macOS, use the platform tools instead: `leaks <pid>`, or `MallocStackLogging=1` for allocation stacks.
 
