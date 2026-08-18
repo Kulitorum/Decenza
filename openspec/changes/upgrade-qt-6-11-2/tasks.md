@@ -209,8 +209,11 @@ Group 6 is destructive and needs explicit confirmation before it runs.
       `qrc:/…qml` errors, no TypeErrors, no crash, sanitizers (ASan+UBSan) report nothing pending.
       Only non-fatal noise: MQTT "not authorized" (home-assistant broker, pre-existing/unrelated)
       and Tailscale Funnel reachability retries (network-dependent, expected, self-clears).
-- [ ] 7.7 Confirm the `text-invariants.yml` PR job is green before merging. It is not a required
-      status check, so nothing blocks a merge on it — `main` has gone red exactly this way.
+- [x] 7.7 Checked: `text-invariants.yml` never ran on PR #1825. Its `paths:` filter is `qml/**`,
+      `src/**`, `scripts/check_*.py`, `tests/CMakeLists.txt`, `resources/fonts/**`, or itself — this
+      PR touched none of them (`CMakeLists.txt` is root-level not `src/`, and
+      `scripts/qmllint_report.py` doesn't match the `check_*.py` glob). Nothing in scope, correctly
+      no run, not a gate miss.
 - [ ] 7.8 Dispatch a CI **Android** test build of the branch — `gh workflow run android-release.yml
       --ref <branch> -f upload_to_release=false`. macOS compiles none of the `#ifdef Q_OS_ANDROID`
       code, and this change removes an Android packaging step. Ask before dispatching.
