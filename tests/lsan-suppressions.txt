@@ -1,0 +1,42 @@
+# LeakSanitizer suppressions for the nightly ASan job (nightly-sanitizers.yml).
+#
+# The bar for adding an entry here is high, and deliberately so: surfacing leaks
+# is the entire point of that job, and a suppression that hides one of ours makes
+# every future green night worth less than it looks. An entry must carry evidence
+# that the leak is not ours and is not a defect -- not an argument that it is
+# probably fine.
+#
+# leak:__res_context_send
+#
+#   28 bytes, one allocation, entirely inside glibc's resolver. glibc allocates
+#   sizeof(struct sockaddr_in6) at resolv/res_send.c:324 and stores it in
+#   _res._u._ext.nsaddrs[]. Its only free path here is __res_thread_freeres
+#   (resolv/res-close.c:130), which glibc's own comment describes as running
+#   "when a thread is exiting". QHostInfo resolves on a QThreadPool that reuses
+#   and parks its threads (30 s expiry), so a pool thread that sent a DNS query
+#   can still be alive at process exit holding its per-thread _res state. Under
+#   load the leak check races that teardown, which is why it is intermittent
+#   rather than constant.
+#
+#   Measured 2026-08-18 (glibc 2.39, Qt 6.11.1, ASan, blackholed resolver,
+#   8-way concurrency, 80 runs each):
+#
+#     bare C, threads exit immediately ........  0 / 80
+#     bare Qt QHostInfo, no Decenza code ......  3 / 80
+#     tst_wifiscalediscovery, our code ........  3 / 80
+#
+#   The leak reproduces with our code absent, at the same rate and with a
+#   byte-identical stack, so there is nothing here for us to fix. It is bounded
+#   -- 28 bytes per pool thread, at most 20 threads -- and returned to the OS
+#   when the process ends, so it is not a production concern either.
+#
+#   Effect of this entry, measured over 192 runs each at 16-way concurrency:
+#   without it the harness reported the leak on 2 runs; with it, 0 leak reports,
+#   and the suppression matched on 9 runs at exactly 1 allocation / 28 bytes.
+#   (The two counts differ because the underlying race varies with load; both
+#   are small samples of the same intermittent event.)
+#
+#   Note the scope this costs us: a genuine leak of ours reached through
+#   getaddrinfo would also be hidden. That window is narrow -- the template
+#   matches only frames through glibc's resolver send path -- but it is real.
+leak:__res_context_send
