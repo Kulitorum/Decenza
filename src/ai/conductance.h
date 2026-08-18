@@ -8,9 +8,11 @@
 // share identical code paths — changes to the formulas automatically flow
 // to both.
 //
-// Formulas follow Visualizer.coffee conventions (see
+// Conductance and its derivative follow Visualizer.coffee conventions (see
 // app/models/shot_chart/additional_charts.rb) so Decenza's curves line up
-// with visualizer.coffee uploads.
+// with visualizer.coffee uploads. resistance() and darcyResistanceSample()
+// are Decenza/de1app-native formulas (DSx2 plain resistance and the Darcy
+// P/F² form respectively) with no Visualizer.coffee counterpart to match.
 namespace Conductance {
 
 // Darcy conductance C = F² / P, clamped to 19 to match the Visualizer

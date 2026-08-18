@@ -1734,7 +1734,8 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             if (ok) ids << id;
         }
         // Same 2-10 bound as the shots_compare MCP tool: below 2 there's nothing to
-        // compare, and above 10 this now issues a self-heal DB write per id (see
+        // compare, and above 10 this can now issue a self-heal DB write per id whose
+        // stored curves haven't been corrected yet (see
         // ShotHistoryStorage::loadShotRecordStatic) — an unbounded list would turn a
         // read endpoint into an unbounded write surface for anyone on the LAN.
         if (ids.size() < 2 || ids.size() > 10) {

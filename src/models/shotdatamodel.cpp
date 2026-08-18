@@ -214,10 +214,11 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
     m_temperatureMixPoints.append(QPointF(time, mixTemp));
 
     // Resistance (P/F), conductance (F²/P) and Darcy resistance (P/F², the
-    // inverse of conductance) all share their formulas with the load-time
-    // recompute in ShotHistoryStorage and with tools/shot_eval via the
-    // Conductance:: namespace, so per-sample production behavior, historical
-    // recompute and batch offline evaluation can never drift apart again.
+    // inverse of conductance) all live in the Conductance:: namespace and are
+    // shared with the load-time recompute in ShotHistoryStorage, so per-sample
+    // production behavior and historical recompute can't drift apart. Conductance
+    // is additionally shared with tools/shot_eval (offline); shot_eval doesn't
+    // compute resistance or Darcy resistance, so that third leg is conductance-only.
     const double resistance = Conductance::resistance(pressure, flow);
     const double conductance = Conductance::sample(pressure, flow);
     const double darcyResistance = Conductance::darcyResistanceSample(pressure, flow);

@@ -2235,7 +2235,7 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
     //
     // Table-driven (one row per curve) rather than four parallel snapshot/compare/
     // write blocks, so a future curve added to this set can't get wired into some
-    // of the four spots (snapshot, compare, JSON key) while silently missing another.
+    // of the three spots (snapshot, compare, JSON-key write) while silently missing another.
     struct DerivedCurve {
         const char* jsonKey;
         QVector<QPointF>* field;
@@ -3164,9 +3164,11 @@ void ShotHistoryStorage::computeDerivedCurves(ShotRecord& record)
     const qsizetype n = qMin(record.pressure.size(), record.flow.size());
     if (n < 3) return;
 
-    // Resistance, conductance and Darcy resistance all share their formulas
-    // with ShotDataModel (live path) and shot_eval (offline) via the
-    // Conductance:: namespace, so every path agrees on threshold / clamp.
+    // All three formulas live in the Conductance:: namespace and are shared
+    // with ShotDataModel's live path, so this recompute and the live path can't
+    // drift apart. Conductance (+ its derivative) is additionally shared with
+    // tools/shot_eval (offline); shot_eval doesn't compute resistance or Darcy
+    // resistance, so that three-way agreement doesn't extend to those two.
     record.conductance = Conductance::fromPressureFlow(record.pressure, record.flow);
 
     record.resistance.clear();
@@ -3408,12 +3410,13 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     const bool storedSkipFirstFrame = record.skipFirstFrameDetected;
     const bool storedPourTruncated = record.pourTruncatedDetected;
 
-    // decompressSampleData() always recomputes resistance/conductance/darcyResistance/
-    // conductanceDerivative from this shot's own pressure/flow (recompute-shot-curves-
-    // on-load) — so the badge-recompute block below can always assume
-    // conductanceDerivative is populated, for both legacy and current shots alike.
-    // When the recompute disagrees with what was stored, correctedBlob comes back
-    // non-empty and we persist it below on the same connection.
+    // decompressSampleData() unconditionally recomputes resistance/conductance/
+    // darcyResistance/conductanceDerivative from this shot's own pressure/flow
+    // (recompute-shot-curves-on-load) — so conductanceDerivative is populated
+    // for the badge-recompute block below whenever the shot has enough samples
+    // for computeDerivedCurves() to run (its own >=3-sample guard applies here
+    // too). When the recompute disagrees with what was stored, correctedBlob
+    // comes back non-empty and we persist it below on the same connection.
     QByteArray correctedBlob;
     if (query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?")) {
         query.bindValue(0, shotId);
@@ -3421,27 +3424,46 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             QByteArray blob = query.value(0).toByteArray();
             decompressSampleData(blob, &record, &correctedBlob);
         }
+        // Release the read transaction this SELECT is still holding — the
+        // single row was consumed above but the statement was never stepped
+        // to exhaustion, so it stays "active" and the writes below would try
+        // to upgrade a stale WAL read snapshot instead of taking a fresh write
+        // lock. That upgrade fails immediately (SQLITE_BUSY_SNAPSHOT) rather
+        // than waiting out busy_timeout — see core/dbutils.h's DbWriteTxn doc
+        // on the no-active-statement precondition.
+        query.finish();
     }
 
     if (!correctedBlob.isEmpty()) {
-        QSqlQuery curveUpd(db);
-        curveUpd.prepare("UPDATE shot_samples SET data_blob = ? WHERE shot_id = ?");
-        curveUpd.bindValue(0, correctedBlob);
-        curveUpd.bindValue(1, shotId);
-        if (!curveUpd.exec()) {
-            qWarning() << "ShotHistoryStorage::loadShotRecordStatic: derived-curve persist"
-                          " failed for shot" << shotId << curveUpd.lastError();
-        } else {
+        // Both writes land together or not at all: a corrected blob with a
+        // stale updated_at would permanently hide the correction from
+        // ShotHistoryExporter::exportedFileIsFresh(), which decides purely by
+        // comparing an export's mtime against this column, and nothing ever
+        // retries a write that already "succeeded" on the blob half.
+        DbWriteTxn txn = DbWriteTxn::begin(db, "curve self-heal");
+        if (txn.ok()) {
+            QSqlQuery curveUpd(db);
+            curveUpd.prepare("UPDATE shot_samples SET data_blob = ? WHERE shot_id = ?");
+            curveUpd.bindValue(0, correctedBlob);
+            curveUpd.bindValue(1, shotId);
+
             // Bump updated_at so consumers keyed on it (ShotHistoryExporter's
-            // exportedFileIsFresh()) know this shot changed and re-derive their
-            // own cached output — same reason the badge-persist UPDATE below
-            // touches it too.
+            // exportedFileIsFresh()) know this shot changed and re-derive
+            // their own cached output — same reason the badge-persist UPDATE
+            // below touches it too.
             QSqlQuery touchUpd(db);
             touchUpd.prepare("UPDATE shots SET updated_at = strftime('%s', 'now') WHERE id = ?");
             touchUpd.bindValue(0, shotId);
-            if (!touchUpd.exec()) {
-                qWarning() << "ShotHistoryStorage::loadShotRecordStatic: updated_at touch"
-                              " failed for shot" << shotId << touchUpd.lastError();
+
+            if (curveUpd.exec() && touchUpd.exec()) {
+                if (!txn.commit()) {
+                    qWarning() << "ShotHistoryStorage::loadShotRecordStatic: curve self-heal"
+                                  " commit failed for shot" << shotId << txn.commitError();
+                }
+            } else {
+                qWarning() << "ShotHistoryStorage::loadShotRecordStatic: curve self-heal"
+                              " failed for shot" << shotId
+                           << curveUpd.lastError() << touchUpd.lastError();
             }
         }
     }
@@ -3484,8 +3506,10 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // re-analyze pass. Stored badge values are only authoritative as of save
     // time; the detectors evolve. The channeling sub-block uses
     // conductanceDerivative, which decompressSampleData() above unconditionally
-    // recomputes from pressure/flow for every shot (recompute-shot-curves-on-load),
-    // so it is always populated regardless of migration status.
+    // recomputes from pressure/flow (recompute-shot-curves-on-load), regardless
+    // of migration status — populated whenever the shot has enough samples for
+    // computeDerivedCurves() to run (its own >=3-sample guard, shothistorystorage.h),
+    // same as before this change for any shot that already had the field.
     // The grind and skip-first-frame sub-blocks need only flow / flowGoal /
     // pressure / phases, which are always available.
     // Compute all four quality badges via a single ShotAnalysis::analyzeShot

@@ -181,6 +181,31 @@ private slots:
         const QByteArray blobBefore = readBlob();
         QVERIFY(!blobBefore.isEmpty());
 
+        auto readUpdatedAt = [&]() {
+            qint64 updatedAt = -1;
+            withTempDb(path, "shs_test_resistance_updated_at", [&](QSqlDatabase& db) {
+                QSqlQuery q(db);
+                q.prepare(QStringLiteral("SELECT updated_at FROM shots WHERE id = ?"));
+                q.bindValue(0, shotId);
+                if (q.exec() && q.next()) updatedAt = q.value(0).toLongLong();
+            });
+            return updatedAt;
+        };
+
+        // Rewind updated_at into the past first — importShotRecord's INSERT
+        // defaults it to "now", and strftime('%s','now') only has 1-second
+        // resolution, so without this the self-heal's own bump could land in
+        // the same second and the "did it increase" assertion below would
+        // pass even if the bump never ran.
+        withTempDb(path, "shs_test_resistance_rewind", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral("UPDATE shots SET updated_at = updated_at - 1000 WHERE id = ?"));
+            q.bindValue(0, shotId);
+            QVERIFY(q.exec());
+        });
+        const qint64 updatedAtBefore = readUpdatedAt();
+        QVERIFY(updatedAtBefore > 0);
+
         withTempDb(path, "shs_test_resistance_load", [&](QSqlDatabase& db) {
             ShotRecord loaded = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
             QVERIFY(!loaded.resistance.isEmpty());
@@ -190,12 +215,21 @@ private slots:
 
         const QByteArray blobAfter = readBlob();
         QVERIFY2(blobBefore != blobAfter, "a stale stored curve must trigger a persisted correction");
+        // The self-heal write must also bump shots.updated_at (same reason the
+        // sibling badge-persist UPDATE does) — otherwise ShotHistoryExporter's
+        // exportedFileIsFresh() never notices the shot changed and keeps
+        // serving a stale pre-fix export forever.
+        const qint64 updatedAtAfter = readUpdatedAt();
+        QVERIFY2(updatedAtAfter > updatedAtBefore,
+                 "curve self-heal must bump shots.updated_at");
 
-        // Loading the now-corrected shot again must not keep rewriting it.
+        // Loading the now-corrected shot again must not keep rewriting it —
+        // neither the blob nor updated_at.
         withTempDb(path, "shs_test_resistance_reload", [&](QSqlDatabase& db) {
             ShotHistoryStorage::loadShotRecordStatic(db, shotId);
         });
         QCOMPARE(readBlob(), blobAfter);
+        QCOMPARE(readUpdatedAt(), updatedAtAfter);
 
         // Drains on the real condition (isDbWorkIdle) rather than a fixed sleep —
         // see tests/shotrowfixtures.h's initAndCloseStorage, which this mirrors.
