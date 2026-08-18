@@ -217,6 +217,23 @@ Settings::Settings(QObject* parent)
         m_settings.setValue("calibration/steamTwoTapStopDefaultMigrated", true);
     }
 
+    // Sync + check status after a migration's actual work, before stamping its
+    // flag as done. QSettings::setValue()/remove() are void — they give no
+    // signal on their own if the underlying write fails (disk full, permission
+    // error, corrupted store). Without this, a failed write still gets marked
+    // "done" and never retries. Scoped to the three flow-cal migrations below
+    // (the block this PR is editing), not the whole file's migration chain.
+    auto commitFlowCalMigrationFlag = [&](const QString& flagKey) {
+        m_settings.sync();
+        if (m_settings.status() != QSettings::NoError) {
+            qWarning() << "Settings: migration work for" << flagKey
+                       << "may not have persisted (QSettings status:" << m_settings.status()
+                       << ") — leaving flag unset so it retries next launch";
+            return;
+        }
+        m_settings.setValue(flagKey, true);
+    };
+
     // One-time reset: clear all per-profile flow calibrations and reset global to 1.0.
     // The auto-cal algorithm prior to this version had no ratio guards, allowing shots
     // with poor scale data (machine/weight ratio > 1.4) to drag calibrations down to
@@ -226,8 +243,8 @@ Settings::Settings(QObject* parent)
     if (!m_settings.contains("calibration/v2RatioGuardReset")) {
         m_calibration->resetAllProfileFlowCalibrations();
         m_calibration->setFlowCalibrationMultiplier(1.0);
-        m_settings.setValue("calibration/v2RatioGuardReset", true);
         qDebug() << "Settings: Reset all flow calibrations to 1.0 (v2 ratio guard migration)";
+        commitFlowCalMigrationFlag("calibration/v2RatioGuardReset");
     }
 
     // One-time reset: clear all per-profile flow calibrations and reset global to 1.0.
@@ -240,8 +257,8 @@ Settings::Settings(QObject* parent)
     if (!m_settings.contains("calibration/v3FlowProfileReset")) {
         m_calibration->resetAllProfileFlowCalibrations();
         m_calibration->setFlowCalibrationMultiplier(1.0);
-        m_settings.setValue("calibration/v3FlowProfileReset", true);
         qDebug() << "Settings: Reset all flow calibrations to 1.0 (v3 flow profile feedback loop fix)";
+        commitFlowCalMigrationFlag("calibration/v3FlowProfileReset");
     }
 
     // One-time clear of pending flow-cal batches only — NOT a full reset like v2/v3
@@ -257,7 +274,7 @@ Settings::Settings(QObject* parent)
             m_calibration->clearAllFlowCalPendingIdeals();
             qDebug() << "Settings: Cleared pending flow-cal batches (v4 achieved-flow formula fix)";
         }
-        m_settings.setValue("calibration/v4AchievedFlowFormulaReset", true);
+        commitFlowCalMigrationFlag("calibration/v4AchievedFlowFormulaReset");
     }
 
     // Migrate theme/customColors → theme/customColorsDark (one-time, for light/dark mode support)

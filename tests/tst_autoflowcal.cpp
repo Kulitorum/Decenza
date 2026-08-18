@@ -368,15 +368,16 @@ private slots:
     // regardless of magnitude (see flowWindowOvershootsTarget_neverReclassified
     // below) — reclassifying it would route a window that may still be
     // genuinely PID-locked through the pressure-branch formula's reported-flow
-    // denominator, reintroducing the v2 feedback-loop bug that formula exists
-    // to avoid for flow-controlled windows.
+    // denominator, reintroducing the v2 feedback-loop bug that using TARGET
+    // flow (the flow-branch formula) exists to avoid for flow-controlled
+    // windows.
 
-    // Target essentially achieved (1.4% deviation) — must NOT reclassify. This
-    // is the common case: every window sampled on a real D-Flow/Q shot in this
-    // repo's own dial-in history hit 99-101% of target.
+    // Target essentially achieved — must NOT reclassify. This is the common
+    // case: every window sampled on a real D-Flow/Q shot in this repo's own
+    // dial-in history hit 99-101% of target.
     void flowWindowAchievesTarget_notReclassified() {
-        QVERIFY(!autoFlowCalWindowTargetCheck(1.825, 1.8, 0.10).missedTarget);
-        QVERIFY(!autoFlowCalWindowTargetCheck(1.69, 1.7, 0.10).missedTarget);
+        QVERIFY(!autoFlowCalWindowTargetCheck(1.825, 1.8, kAutoFlowCalDeviationThreshold).missedTarget);  // 1.4% deviation
+        QVERIFY(!autoFlowCalWindowTargetCheck(1.69, 1.7, kAutoFlowCalDeviationThreshold).missedTarget);   // 0.6% deviation
     }
 
     // Threshold boundary on the undershoot side: clearly-inside deviation does
@@ -387,11 +388,11 @@ private slots:
     // returned `deviation` value, since the log line at the call site depends
     // on it being the actual computed fraction, not a rounded/approximate one.
     void flowTargetDeviationThreshold_boundaryIsExclusive() {
-        auto under = autoFlowCalWindowTargetCheck(1.85, 2.00, 0.10);  // 7.5% low
+        auto under = autoFlowCalWindowTargetCheck(1.85, 2.00, kAutoFlowCalDeviationThreshold);  // 7.5% low
         QVERIFY(!under.missedTarget);
         QVERIFY(qFuzzyCompare(under.deviation, 0.075));
 
-        auto over = autoFlowCalWindowTargetCheck(1.75, 2.00, 0.10);   // 12.5% low
+        auto over = autoFlowCalWindowTargetCheck(1.75, 2.00, kAutoFlowCalDeviationThreshold);   // 12.5% low
         QVERIFY(over.missedTarget);
         QVERIFY(qFuzzyCompare(over.deviation, 0.125));
     }
@@ -400,21 +401,29 @@ private slots:
     // asymmetry of this check. A pressure cap has no mechanism to push flow
     // above target, so there's no pressure-cap explanation for an overshoot
     // reading, and treating it as "missed target" would reintroduce the v2
-    // feedback loop (see class-level comment above).
+    // feedback loop (see section comment above).
     void flowWindowOvershootsTarget_neverReclassified() {
-        QVERIFY(!autoFlowCalWindowTargetCheck(2.15, 2.00, 0.10).missedTarget);  // 7.5% high
-        QVERIFY(!autoFlowCalWindowTargetCheck(2.25, 2.00, 0.10).missedTarget);  // 12.5% high
-        QVERIFY(!autoFlowCalWindowTargetCheck(4.00, 2.00, 0.10).missedTarget);  // 100% high
+        QVERIFY(!autoFlowCalWindowTargetCheck(2.15, 2.00, kAutoFlowCalDeviationThreshold).missedTarget);  // 7.5% high
+        QVERIFY(!autoFlowCalWindowTargetCheck(2.25, 2.00, kAutoFlowCalDeviationThreshold).missedTarget);  // 12.5% high
+        QVERIFY(!autoFlowCalWindowTargetCheck(4.00, 2.00, kAutoFlowCalDeviationThreshold).missedTarget);  // 100% high
     }
 
     // A non-positive target flow has nothing to compare against — must not
     // claim a deviation (and must not divide by zero).
     void flowTargetDeviation_nonPositiveTargetNeverMisses() {
-        auto zero = autoFlowCalWindowTargetCheck(1.5, 0.0, 0.10);
+        // This path is unreachable in production (see the qWarning it emits
+        // in autoFlowCalWindowTargetCheck() — a canary for an upstream
+        // invariant break), so calling it directly here is deliberately
+        // exercising the "should never happen" guard, not routine input.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+            QStringLiteral("non-positive target")));
+        auto zero = autoFlowCalWindowTargetCheck(1.5, 0.0, kAutoFlowCalDeviationThreshold);
         QVERIFY(!zero.missedTarget);
         QCOMPARE(zero.deviation, 0.0);
 
-        auto negative = autoFlowCalWindowTargetCheck(1.5, -1.0, 0.10);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+            QStringLiteral("non-positive target")));
+        auto negative = autoFlowCalWindowTargetCheck(1.5, -1.0, kAutoFlowCalDeviationThreshold);
         QVERIFY(!negative.missedTarget);
         QCOMPARE(negative.deviation, 0.0);
     }
@@ -441,7 +450,7 @@ private slots:
         };
         constexpr double kTargetFlow = 1.7;
         for (const auto& w : windows) {
-            QCOMPARE(autoFlowCalWindowTargetCheck(w.meanMachineFlow, kTargetFlow, 0.10).missedTarget,
+            QCOMPARE(autoFlowCalWindowTargetCheck(w.meanMachineFlow, kTargetFlow, kAutoFlowCalDeviationThreshold).missedTarget,
                      w.expectMissed);
         }
     }
@@ -453,9 +462,10 @@ private slots:
     // formula-selection logic in one median, but must leave stored multipliers
     // alone — unlike the v2/v3 migrations it sits beside, which reset everything
     // because the STORED value itself was shown corrupted. This covers the
-    // primitive the migration calls; the migration's own gating (first-construction-
-    // in-process) has no existing test coverage for v2/v3 either, so this doesn't
-    // introduce a new gap.
+    // primitive the migration calls; the migration's own gating (a persisted,
+    // on-disk one-time flag, checked in the Settings constructor) has no
+    // existing test coverage for v2/v3 either, so this doesn't introduce a
+    // new gap.
     void clearAllFlowCalPendingIdeals_clearsBatchesButNotMultipliers() {
         Settings settings;
         SettingsCalibration* cal = settings.calibration();

@@ -4,14 +4,29 @@
 #include <QtGlobal>
 #include <algorithm>
 
-namespace {
+bool isActiveFlowFrame(const ProfileFrame& frame) {
+    return frame.isFlowControl() && frame.flow > kAutoFlowCalMinFlowTarget;
+}
 
-// Flow-target threshold: frames with `flow > 0.1` are considered active flow
-// targets. Matches the historical profile-level scan, which ignored frames
-// with near-zero flow targets to avoid treating no-op flow frames as anchors.
-constexpr double kMinFlowTarget = 0.1;
+double pickClosestFlowTarget(
+    const QList<ProfileFrame>& steps,
+    const QList<int>& indices,
+    double meanMachineFlow) {
 
-}  // namespace
+    double target = 0.0;
+    double bestDist = 1e9;
+    for (int idx : indices) {
+        if (idx < 0 || idx >= steps.size()) continue;
+        const auto& frame = steps[idx];
+        if (!isActiveFlowFrame(frame)) continue;
+        double dist = qAbs(frame.flow - meanMachineFlow);
+        if (dist < bestDist) {
+            bestDist = dist;
+            target = frame.flow;
+        }
+    }
+    return target;
+}
 
 AutoFlowCalClassification classifyAutoFlowCalWindow(
     const QList<ProfileFrame>& steps,
@@ -87,7 +102,7 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
             return result;
         }
         const auto& frame = steps[idx];
-        if (frame.isFlowControl() && frame.flow > kMinFlowTarget) {
+        if (isActiveFlowFrame(frame)) {
             anyFlow = true;
         } else {
             anyPressure = true;
@@ -103,20 +118,10 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
         result.isFlowProfile = true;
         // Pick the flow target closest to the observed mean machine flow.
         // Preserves the historical multi-target handling (e.g. profiles that
-        // step between two flow rates) without extra bookkeeping. Iterating
-        // in frame-index order makes an exact-distance tie resolve to the
+        // step between two flow rates) without extra bookkeeping. sortedFrames
+        // is frame-index order, so an exact-distance tie resolves to the
         // lower-indexed (earlier) frame, deterministically.
-        double bestDist = 1e9;
-        for (int idx : sortedFrames) {
-            const auto& frame = steps[idx];
-            if (frame.isFlowControl() && frame.flow > kMinFlowTarget) {
-                double dist = qAbs(frame.flow - meanMachineFlow);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    result.targetFlow = frame.flow;
-                }
-            }
-        }
+        result.targetFlow = pickClosestFlowTarget(steps, sortedFrames, meanMachineFlow);
     } else {
         result.isFlowProfile = false;
     }
@@ -131,6 +136,14 @@ AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
 
     AutoFlowCalTargetCheck result;
     if (targetFlow <= 0.0) {
+        // Should be unreachable in production: the sole call site only
+        // invokes this when isFlowProfile is true, which both
+        // classifyAutoFlowCalWindow() and the profile-level fallback scan
+        // only set alongside a target picked from a frame that passed
+        // isActiveFlowFrame() (flow > kAutoFlowCalMinFlowTarget > 0). If
+        // this ever fires, one of those two invariants broke upstream.
+        qWarning() << "Auto flow cal: target check called with non-positive target"
+                   << targetFlow << "— treating as no deviation";
         return result;
     }
     result.deviation = qAbs(meanMachineFlow - targetFlow) / targetFlow;

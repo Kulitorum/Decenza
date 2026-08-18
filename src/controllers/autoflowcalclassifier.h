@@ -49,6 +49,39 @@ struct AutoFlowCalClassification {
     int lastFrameInWindow = -1;
 };
 
+/// Flow-target threshold: frames with `flow > kAutoFlowCalMinFlowTarget` are
+/// considered active flow targets, filtering out near-zero flow frames that
+/// are really pressure-controlled in practice. Shared between
+/// `classifyAutoFlowCalWindow()` and `MainController::computeAutoFlowCalibration()`'s
+/// profile-level fallback scan via `isActiveFlowFrame()`/`pickClosestFlowTarget()`
+/// below, so the two picking paths can't drift on what counts as "a flow frame".
+constexpr double kAutoFlowCalMinFlowTarget = 0.1;
+
+/// Default relative-undershoot threshold for `autoFlowCalWindowTargetCheck()`
+/// below (10%). Named here, not re-typed as a literal at each call site
+/// (production or test), so the production constant and the values tests
+/// assert against can't silently diverge.
+constexpr double kAutoFlowCalDeviationThreshold = 0.10;
+
+/// True if `frame` counts as an active flow-controlled anchor for auto flow
+/// calibration purposes: pump control is flow AND its target is above the
+/// no-op threshold.
+bool isActiveFlowFrame(const ProfileFrame& frame);
+
+/**
+ * Picks the flow target (mL/s) among the given frame `indices` closest to
+ * `meanMachineFlow`, considering only frames where `isActiveFlowFrame()` is
+ * true. Ties resolve to whichever qualifying index comes FIRST in `indices`
+ * — the caller controls tie-break order by how it orders `indices` (e.g.
+ * frame-index-ascending for a deterministic "lowest index wins").
+ *
+ * @return The picked target, or `0.0` if no frame in `indices` qualifies.
+ */
+double pickClosestFlowTarget(
+    const QList<ProfileFrame>& steps,
+    const QList<int>& indices,
+    double meanMachineFlow);
+
 /**
  * Classify the pump-control mode active during an auto-flow-cal steady
  * window using the frame-transition data recorded during the shot.
