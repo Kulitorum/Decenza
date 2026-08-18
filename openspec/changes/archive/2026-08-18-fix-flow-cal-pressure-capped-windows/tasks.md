@@ -44,7 +44,7 @@ that predicate and the migration's primitive, not a full `MainController` integr
 
 ## 6. Archive
 
-- [ ] 6.1 Once merged, run `openspec archive fix-flow-cal-pressure-capped-windows` as the last commit on the feature branch, per the project's OpenSpec workflow.
+- [x] 6.1 Once merged, run `openspec archive fix-flow-cal-pressure-capped-windows` as the last commit on the feature branch, per the project's OpenSpec workflow. Missed doing this before the squash-merge (branch was already deleted); running now as a small follow-up PR instead.
 
 ## 7. Post-review fixes (`/code-review` on PR #1828)
 
