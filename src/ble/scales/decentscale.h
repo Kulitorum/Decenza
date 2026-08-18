@@ -46,6 +46,9 @@ private:
     void startHeartbeat();
     void stopHeartbeat();
     void startWatchdog();
+    // Restarts the watchdog's countdown when the weight-notify enable reaches
+    // the radio, so it times from there rather than from submission.
+    void onNotificationsIssued(const QBluetoothUuid& characteristicUuid);
     void stopWatchdog();
     void tickleWatchdog();
     void onWatchdogFired();
@@ -88,6 +91,9 @@ private:
     // startHeartbeat() so each new connect/wake starts the interval fresh.
     int m_ticksSinceBatteryPoll = 0;
     QTimer* m_heartbeatTimer = nullptr;
+    // A wake sequence has requested its weight-notify enable and is waiting for
+    // it to reach the radio before the watchdog starts counting.
+    bool m_watchdogArmPending = false;
     QTimer* m_watchdogTimer = nullptr;
     // Gates the periodic battery poll — see kBatteryPollHeartbeatTicks above.
     bool m_lcdOn = true;

@@ -108,6 +108,10 @@ inline constexpr int DISCOVERY_TIMEOUT_MS = 20000;
 // that it fires well before the 3 s read/write clock would end the operation
 // holding things up.
 inline constexpr int FOREIGN_WAIT_WARN_MS = 500;
+
+// Queue depth at which a dispatch is worth a DEBUG line. Two, not one: one is
+// the routine periodic overlap of two healthy devices. See dispatchNext().
+inline constexpr qsizetype DISPATCH_LOG_MIN_DEPTH = 2;
 }  // namespace BleGatt
 
 class BleGattQueue : public QObject {
@@ -297,6 +301,22 @@ private:
     // decides nothing and gates nothing, which is what separates it from the
     // timers this design does not use.
     QElapsedTimer m_clock;
+
+    // Every read of the clock goes through here so a test can advance it instead
+    // of sleeping. Same reasoning as LogCollapse::shouldLog taking `nowMs` as a
+    // parameter: a class whose behaviour depends on elapsed time is only
+    // testable without wall-clock waits if the time is injectable.
+    //
+    // Asserting a 500 ms threshold by waiting 580 ms is a timer in the test —
+    // slow (seconds per suite) and timing-dependent, which is exactly the shape
+    // that goes flaky on a loaded runner. The skew is compiled out entirely
+    // outside test builds.
+#ifdef DECENZA_TESTING
+    qint64 m_testClockSkewMs = 0;
+    qint64 nowMs() const { return m_clock.elapsed() + m_testClockSkewMs; }
+#else
+    qint64 nowMs() const { return m_clock.elapsed(); }
+#endif
     qint64 m_inFlightSince = 0;
 
     // A retry timer is armed and has not fired. Suppresses a second

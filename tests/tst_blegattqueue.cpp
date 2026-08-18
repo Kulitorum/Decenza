@@ -56,6 +56,16 @@ private:
     // post and any retry delay a test asked for, without being a race.
     static void pump(int ms = 30) { QTest::qWait(ms); }
 
+    // Advance the QUEUE's clock without advancing the wall clock.
+    //
+    // These slots assert thresholds measured in hundreds of milliseconds, and
+    // sleeping through them made the suite slow and timing-dependent — a timer
+    // in a test, which is the same anti-pattern the production code is not
+    // allowed. pump() still exists and is still needed: a posted dispatch is a
+    // real event that needs a real event-loop turn. Only the DURATIONS are
+    // simulated.
+    static void advanceQueueClock(BleGattQueue& q, qint64 ms) { q.m_testClockSkewMs += ms; }
+
 private slots:
     void init() { QTest::failOnWarning(); }
 
@@ -307,6 +317,23 @@ private slots:
         QCOMPARE(rec.issued, QStringList{QStringLiteral("de1-a")});
     }
 
+    // ONE deep is the routine overlap of two healthy periodic devices — the
+    // DE1's once-a-minute keepalive landing on the scale's 1 Hz heartbeat. It
+    // repeats forever, so logging it made this line the loudest source in the
+    // app at ~120/hour even after collapsing. Measured on a tablet; this is the
+    // assertion that keeps it silent.
+    void aSingleOperationQueuedBehindIsNotWorthALine() {
+        BleGattQueue q;
+        Recorder rec;
+
+        q.submit(op(de1(), QStringLiteral("de1-keepalive"), &rec));
+        q.submit(op(scale(), QStringLiteral("scale write"), &rec));
+        pump();
+
+        QCOMPARE(rec.issued, QStringList{QStringLiteral("de1-keepalive")});
+        QCOMPARE(q.m_dispatchLog.suppressedFor(QStringLiteral("de1-keepalive")), 0);
+    }
+
     // --- foreign wait reporting -------------------------------------------
     //
     // The one cost the shared queue introduced over the per-device queues it
@@ -325,7 +352,7 @@ private slots:
 
         // The DE1's work arrives while the scale holds the radio.
         q.submit(op(de1(), QStringLiteral("de1 stop"), &rec));
-        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS + 80);
 
         // Reported once when the queue goes IDLE, not at the moment the delayed
         // operation dispatches — so the DE1 operation has to finish too.
@@ -353,7 +380,7 @@ private slots:
         q.submit(op(de1(), QStringLiteral("de1-a"), &rec));
         q.submit(op(de1(), QStringLiteral("de1-b"), &rec));
         q.submit(op(de1(), QStringLiteral("de1-c"), &rec));
-        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS + 80);
 
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(QStringLiteral("3 Bluetooth operation\\(s\\) were delayed")));
@@ -384,7 +411,7 @@ private slots:
         pump();
         q.submit(op(de1(), QStringLiteral("de1-a"), &rec));
         q.submit(op(de1(), QStringLiteral("de1-b"), &rec));
-        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS + 80);
 
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(QStringLiteral("2 Bluetooth operation\\(s\\) were delayed")));
@@ -400,7 +427,7 @@ private slots:
         q.submit(op(scale(), QStringLiteral("scale-2"), &rec));
         pump();
         q.submit(op(de1(), QStringLiteral("de1-c"), &rec));
-        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS + 80);
 
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(QStringLiteral("1 Bluetooth operation\\(s\\) were delayed")));
@@ -425,10 +452,10 @@ private slots:
         pump();
 
         // The scale has already held the radio for a good while...
-        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 200);
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS + 200);
         // ...and only now does the DE1's work arrive, waiting a short time.
         q.submit(op(de1(), QStringLiteral("de1 stop"), &rec));
-        QTest::qWait(40);
+        advanceQueueClock(q, 40);
 
         // No warning: this operation waited ~40 ms, not the ~700 ms the scale
         // operation had been running. failOnWarning() in init() is the assertion.
@@ -448,7 +475,7 @@ private slots:
         q.submit(op(de1(), QStringLiteral("first"), &rec));
         pump();
         q.submit(op(de1(), QStringLiteral("second"), &rec));
-        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+        advanceQueueClock(q, BleGatt::FOREIGN_WAIT_WARN_MS + 80);
 
         q.noteSucceeded(de1());
         pump();

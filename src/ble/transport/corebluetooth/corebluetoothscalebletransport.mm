@@ -855,6 +855,9 @@ void CoreBluetoothScaleBleTransport::enableNotifications(const QBluetoothUuid& s
         log(QString("Enabling notifications for %1").arg(characteristicUuid.toString()));
         // On iOS, Qt main thread = dispatch main queue, so just call directly
         [m_impl->periph setNotifyValue:YES forCharacteristic:ch];
+        // Reached the radio. See the signal's declaration for why a driver
+        // waiting on notifications must time from here and not from submit.
+        emit notificationsIssued(characteristicUuid);
     });
 #else
     Q_UNUSED(serviceUuid); Q_UNUSED(characteristicUuid);

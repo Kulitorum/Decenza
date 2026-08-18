@@ -22,6 +22,8 @@ DecentScale::DecentScale(ScaleBleTransport* transport, QObject* parent)
                 this, &DecentScale::onTransportDisconnected);
         connect(m_transport, &ScaleBleTransport::error,
                 this, &DecentScale::onTransportError);
+        connect(m_transport, &ScaleBleTransport::notificationsIssued,
+                this, &DecentScale::onNotificationsIssued);
         connect(m_transport, &ScaleBleTransport::serviceDiscovered,
                 this, &DecentScale::onServiceDiscovered);
         connect(m_transport, &ScaleBleTransport::servicesDiscoveryFinished,
@@ -189,8 +191,26 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
         wake();
     });
 
-    // Start watchdog (1s timeout allows pending 300/400ms notification enables to trigger data flow)
-    startWatchdog();
+    // NOT armed here. Armed when the notify-enable it is timing actually reaches
+    // the radio — see onNotificationsIssued().
+    //
+    // The budget below is "did weight data start flowing after we enabled
+    // notifications", and it used to be measured from this point on the
+    // assumption that the enables submitted just above go out immediately. Under
+    // the shared GATT queue that assumption broke: with the DE1 connecting at
+    // the same time the enable is queued behind the machine's connect burst.
+    // Measured on a tablet — enableNotifications called at 7.221 s, dispatched
+    // at 8.483 s — so the watchdog expired 50 ms BEFORE the scale had been asked
+    // anything, reported "no initial weight data" and burned a retry.
+    //
+    // The interval was never wrong; the moment it started from was. So this
+    // arms nothing and the issue callback does — a timer that begins when its
+    // subject begins, which is the timers-as-guards rule rather than a tuning
+    // change. Restarting an already-running timer on issue would have been the
+    // smaller edit and would have left the same bug reachable: an enable that is
+    // still queued when the watchdog was never armed at all (a wake sequence cut
+    // short) has nothing to restart.
+    m_watchdogArmPending = true;
 
     // Heartbeat at 2000ms
     QTimer::singleShot(2000, this, [this]() {
@@ -325,6 +345,29 @@ void DecentScale::sendKeepAlive() {
     // The 1s heartbeat handles keep-alive, and the watchdog handles stale data detection.
 }
 
+void DecentScale::onNotificationsIssued(const QBluetoothUuid& characteristicUuid) {
+    // The weight stream only: an enable for anything else says nothing about
+    // when weight data should start.
+    if (characteristicUuid != Scale::Decent::READ) return;
+
+    if (m_watchdogArmPending) {
+        // First enable of this wake sequence reaching the radio. startWatchdog()
+        // resets the retry counter, which is right exactly once per sequence.
+        m_watchdogArmPending = false;
+        startWatchdog();
+        return;
+    }
+
+    // A later enable — the wake sequence's own 400 ms repeat, or one the
+    // watchdog itself issued on retry. Restart the countdown so it measures from
+    // this attempt, but do NOT go through startWatchdog(): resetting the retry
+    // counter here would let the watchdog retry forever.
+    if (m_watchdogTimer && m_watchdogTimer->isActive()) {
+        m_watchdogTimer->start(m_watchdogUpdatesSeen ? kWatchdogTickleTimeoutMs
+                                                     : kWatchdogFirstTimeoutMs);
+    }
+}
+
 void DecentScale::enableWeightNotifications(const QString& reason) {
     if (!m_transport || !m_characteristicsReady) return;
     DECENT_LOG(QString("Enabling notifications (%1)").arg(reason));
@@ -350,6 +393,10 @@ void DecentScale::stopWatchdog() {
     }
     m_watchdogUpdatesSeen = false;
     m_watchdogRetries = 0;
+    // A wake sequence torn down before its enable reached the radio must not
+    // leave this pending: a later sequence's enable would otherwise arm a
+    // watchdog belonging to a connection that is already gone.
+    m_watchdogArmPending = false;
 }
 
 void DecentScale::tickleWatchdog() {

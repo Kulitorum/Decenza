@@ -19,7 +19,7 @@ BleGattQueue::BleGattQueue(QObject* parent)
 
 void BleGattQueue::submit(Operation op) {
     if (!validate(op)) return;
-    op.enqueuedAtMs = m_clock.elapsed();
+    op.enqueuedAtMs = nowMs();
     m_queue.enqueue(std::move(op));
     reportDepth();
     scheduleDispatch();
@@ -27,7 +27,7 @@ void BleGattQueue::submit(Operation op) {
 
 void BleGattQueue::submitFront(Operation op) {
     if (!validate(op)) return;
-    op.enqueuedAtMs = m_clock.elapsed();
+    op.enqueuedAtMs = nowMs();
     m_queue.prepend(std::move(op));
     reportDepth();
     scheduleDispatch();
@@ -91,26 +91,35 @@ void BleGattQueue::dispatchNext() {
     m_inFlight = m_queue.dequeue();
     m_retryCount = 0;
     m_retryPending = false;
-    m_inFlightSince = m_clock.elapsed();
+    m_inFlightSince = nowMs();
     ++m_generation;
 
-    // Logged only when the dispatch is INFORMATIVE: something was queued behind
-    // it, or it waited on another device. A lone operation dispatched into an
-    // empty queue is the idle case — the scale heartbeat, once a second, for as
-    // long as the app runs — and it tells a reader nothing that the operation's
-    // own completion does not. Collapsing it was not enough: at one line a
-    // minute it would still have out-logged every other subsystem in the app
-    // combined (measured: 82 lines/hour for all of them together).
+    // Logged only when the ORDERING is non-trivial, which is the only thing this
+    // line is read for.
     //
-    // What this class is read for is ORDERING between devices, and every line
-    // that carries ordering information survives the gate. Everything the gate
-    // drops is a single device talking to itself with nobody waiting.
-    if (!m_queue.isEmpty() || m_inFlight->foreignWaitMs > 0) {
+    // "Non-trivial" is not "anything was queued". Two devices with periodic
+    // traffic overlap by one operation as a matter of course — the DE1's
+    // once-a-minute keepalive lands on the scale's 1 Hz heartbeat and they clear
+    // ~54 ms apart. Measured on a tablet, gating on depth >= 1 left exactly that
+    // pair repeating every minute forever: ~120 lines/hour, still the loudest
+    // source in an app whose every other subsystem totals ~82.
+    //
+    // So the bar is two deep, or a wait already half way to the one worth
+    // warning about. Below that a reader learns nothing they could act on; above
+    // it, these are the DEBUG context around a FOREIGN_WAIT_WARN episode rather
+    // than a permanent drip. At idle this is silent.
+    //
+    // (Third attempt at this gate. The first logged unconditionally — 97.8% of a
+    // 7-hour device log. The second collapsed repeats but still fired on the
+    // routine interleave. Each looked obviously sufficient when written, and
+    // only a real log settled it.)
+    if (m_queue.size() >= BleGatt::DISPATCH_LOG_MIN_DEPTH
+        || m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_WARN_MS / 2) {
         const QString msg = QString("dispatch %1 (%2 queued)")
                                 .arg(m_inFlight->label)
                                 .arg(m_queue.size());
         LogCollapse::Collapsed collapsed;
-        if (m_dispatchLog.shouldLog(m_inFlight->label, msg, m_clock.elapsed(), &collapsed))
+        if (m_dispatchLog.shouldLog(m_inFlight->label, msg, nowMs(), &collapsed))
             GQ_LOG(msg + LogCollapse::suffix(collapsed));
     }
 
@@ -142,7 +151,7 @@ void BleGattQueue::dispatchNext() {
 void BleGattQueue::chargeForeignWait() {
     if (m_queue.isEmpty()) return;
 
-    const qint64 now = m_clock.elapsed();
+    const qint64 now = nowMs();
     const Requester holder = m_inFlight.has_value() ? m_inFlight->requester : nullptr;
     for (Operation& op : m_queue) {
         if (op.requester == holder) continue;

@@ -233,6 +233,20 @@ signals:
     void notificationsEnabled(const QBluetoothUuid& characteristicUuid);
 
     /**
+     * The notify-enable has been ISSUED to the platform — it left the shared
+     * queue and reached the radio. Distinct from notificationsEnabled above,
+     * which fires at SUBMIT and deliberately does not wait for the CCCD ACK.
+     *
+     * The difference used to be nothing and is now up to a second: a scale
+     * connecting alongside the DE1 has its enable queued behind the machine's
+     * connect burst. Measured on a tablet, a driver called enableNotifications
+     * at 7.221 s and the queue dispatched it at 8.483 s. Any driver timing "did
+     * data start flowing after I enabled notifications" has to start counting
+     * from THIS, or it is counting time the scale never saw.
+     */
+    void notificationsIssued(const QBluetoothUuid& characteristicUuid);
+
+    /**
      * Emitted on any BLE error.
      */
     void error(const QString& message);

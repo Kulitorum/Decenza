@@ -43,9 +43,16 @@ public:
     void discoverCharacteristics(const QBluetoothUuid& service) override {
         m_characteristicDiscoveries.append(service);
     }
-    void enableNotifications(const QBluetoothUuid& service, const QBluetoothUuid&) override {
+    void enableNotifications(const QBluetoothUuid& service,
+                             const QBluetoothUuid& characteristic) override {
         m_notifyEnableCount++;
         m_lastNotifyService = service;
+        // The real transports emit this from inside the queued issue callback,
+        // when the enable actually reaches the radio. A mock that skips it lets
+        // a driver waiting on the signal look broken (or, worse, lets one that
+        // should wait look fine). Emitted inline here — the ORDER is what the
+        // drivers care about, not the delay.
+        emit notificationsIssued(characteristic);
     }
     void writeCharacteristic(const QBluetoothUuid& service, const QBluetoothUuid&,
                              const QByteArray& value, WriteType = WriteType::WithResponse) override {
@@ -83,6 +90,22 @@ class tst_ScaleProtocol : public QObject {
     Q_OBJECT
 
 private:
+    // Brings a DecentScale to "connected, weight-notify enabled, watchdog
+    // running" through the PRODUCTION path.
+    //
+    // Discovery alone no longer arms the watchdog: it now starts when the
+    // notify-enable reaches the radio, because under the shared GATT queue the
+    // gap between requesting an enable and it going out can exceed the
+    // watchdog's whole budget. In the app the wake sequence issues that enable a
+    // few hundred ms after discovery; here we issue the same call, and the mock
+    // emits notificationsIssued exactly as the real transports do. Nothing pokes
+    // the driver's internals, so the arming code is what is under test.
+    static void connectWithWatchdogRunning(DecentScale& scale) {
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        scale.enableWeightNotifications(QStringLiteral("test"));
+    }
+
     // Build a 7-byte Decent Scale packet with valid XOR checksum
     static QByteArray buildDecentPacket(uint8_t cmd, uint8_t d2, uint8_t d3,
                                         uint8_t d4, uint8_t d5) {
@@ -673,8 +696,7 @@ private slots:
         DecentScale scale(transport);
 
         // Drive the real connect path so the scale reports connected
-        scale.m_serviceFound = true;
-        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        connectWithWatchdogRunning(scale);
         QVERIFY(scale.isConnected());
 
         QSignalSpy spy(&scale, &ScaleDevice::connectedChanged);
@@ -701,14 +723,46 @@ private slots:
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);
 
-        scale.m_serviceFound = true;
-        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        connectWithWatchdogRunning(scale);
         QVERIFY(scale.isConnected());
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport error.*"));
         emit transport->error("transient write failure");
 
         QVERIFY(scale.isConnected());
+        QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
+    }
+
+    // The watchdog must not start counting before its notify-enable has reached
+    // the radio. It used to arm inline in the wake sequence, which was fine when
+    // a write went straight out and wrong once the shared queue could hold it
+    // behind the DE1's connect burst: measured on a tablet, enableNotifications
+    // called at 7.221 s and dispatched at 8.483 s, so the 1 s watchdog expired
+    // 50 ms BEFORE the scale had been asked anything, logged "no initial weight
+    // data" and burned a retry.
+    //
+    // Break the arm-on-issue wiring and this goes red: the wake sequence alone
+    // must leave it disarmed.
+    void theWatchdogDoesNotArmUntilTheEnableReachesTheRadio() {
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+
+        // Discovery has run and the wake sequence has requested its enables, but
+        // none has reached the radio yet. Nothing to time, so nothing running.
+        QVERIFY(!(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive()));
+
+        // An enable for a DIFFERENT characteristic says nothing about when
+        // weight data should start.
+        emit transport->notificationsIssued(Scale::Decent::WRITE);
+        QVERIFY(!(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive()));
+
+        // The weight stream's enable reaching the radio is the event it waits
+        // for. Issued through the production call, which the mock answers the
+        // way the real transports do.
+        scale.enableWeightNotifications(QStringLiteral("test"));
         QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
     }
 
@@ -719,8 +773,7 @@ private slots:
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);
 
-        scale.m_serviceFound = true;
-        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        connectWithWatchdogRunning(scale);
         QVERIFY(scale.isConnected());
 
         transport->m_isConnected = false;
@@ -781,8 +834,7 @@ private slots:
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);
 
-        scale.m_serviceFound = true;
-        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        connectWithWatchdogRunning(scale);
         QVERIFY(scale.isConnected());
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
@@ -809,8 +861,11 @@ private slots:
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);
 
-        scale.m_serviceFound = true;
-        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        // Through the production path, like the sibling watchdog slots: firing
+        // the watchdog on a scale whose watchdog was never armed is a state the
+        // app cannot reach, and reaching it here made the first retry take the
+        // first-arm branch and reset the retry budget, so exhaustion never came.
+        connectWithWatchdogRunning(scale);
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));

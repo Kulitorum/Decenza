@@ -298,6 +298,10 @@ void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
         // Expected to fire once per characteristic per session. If it appears more often,
         // something is re-enabling notifications and we want to see it in the log.
         QT_TRANSPORT_LOG(QString("write CCCD enable %1").arg(characteristicUuid.toString().mid(1, 8)));
+
+        // Reached the radio. See the signal's declaration for why a driver
+        // waiting on notifications must time from here and not from submit.
+        emit notificationsIssued(characteristicUuid);
         service->writeDescriptor(cccd, QByteArray::fromHex("0100"));
     });
 }
