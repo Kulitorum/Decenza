@@ -35,6 +35,7 @@
 #include <QSettings>
 #include <QThread>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include "core/dbutils.h"
 
@@ -2231,10 +2232,22 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
     // this shot's own samples rather than trusting whatever formula produced the
     // stored values (recompute-shot-curves-on-load). computeDerivedCurves()
     // no-ops below 3 samples, leaving whatever was just parsed above untouched.
-    const QVector<QPointF> storedResistance = record->resistance;
-    const QVector<QPointF> storedConductance = record->conductance;
-    const QVector<QPointF> storedDarcyResistance = record->darcyResistance;
-    const QVector<QPointF> storedConductanceDerivative = record->conductanceDerivative;
+    //
+    // Table-driven (one row per curve) rather than four parallel snapshot/compare/
+    // write blocks, so a future curve added to this set can't get wired into some
+    // of the four spots (snapshot, compare, JSON key) while silently missing another.
+    struct DerivedCurve {
+        const char* jsonKey;
+        QVector<QPointF>* field;
+        QVector<QPointF> stored;
+    };
+    std::array<DerivedCurve, 4> curves = {{
+        {"resistance", &record->resistance, {}},
+        {"conductance", &record->conductance, {}},
+        {"darcyResistance", &record->darcyResistance, {}},
+        {"conductanceDerivative", &record->conductanceDerivative, {}},
+    }};
+    for (auto& c : curves) c.stored = *c.field;
 
     computeDerivedCurves(*record);
 
@@ -2248,16 +2261,13 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
         return true;
     };
 
-    const bool curvesChanged = !curvesMatch(storedResistance, record->resistance)
-        || !curvesMatch(storedConductance, record->conductance)
-        || !curvesMatch(storedDarcyResistance, record->darcyResistance)
-        || !curvesMatch(storedConductanceDerivative, record->conductanceDerivative);
+    bool curvesChanged = false;
+    for (const auto& c : curves) {
+        if (!curvesMatch(c.stored, *c.field)) { curvesChanged = true; break; }
+    }
 
     if (curvesChanged && outCorrectedBlob) {
-        root["resistance"] = pointsToJsonObject(record->resistance);
-        root["conductance"] = pointsToJsonObject(record->conductance);
-        root["darcyResistance"] = pointsToJsonObject(record->darcyResistance);
-        root["conductanceDerivative"] = pointsToJsonObject(record->conductanceDerivative);
+        for (const auto& c : curves) root[c.jsonKey] = pointsToJsonObject(*c.field);
         *outCorrectedBlob = qCompress(QJsonDocument(root).toJson(QJsonDocument::Compact), 9);
     }
 }
@@ -3421,6 +3431,18 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         if (!curveUpd.exec()) {
             qWarning() << "ShotHistoryStorage::loadShotRecordStatic: derived-curve persist"
                           " failed for shot" << shotId << curveUpd.lastError();
+        } else {
+            // Bump updated_at so consumers keyed on it (ShotHistoryExporter's
+            // exportedFileIsFresh()) know this shot changed and re-derive their
+            // own cached output — same reason the badge-persist UPDATE below
+            // touches it too.
+            QSqlQuery touchUpd(db);
+            touchUpd.prepare("UPDATE shots SET updated_at = strftime('%s', 'now') WHERE id = ?");
+            touchUpd.bindValue(0, shotId);
+            if (!touchUpd.exec()) {
+                qWarning() << "ShotHistoryStorage::loadShotRecordStatic: updated_at touch"
+                              " failed for shot" << shotId << touchUpd.lastError();
+            }
         }
     }
 
@@ -3461,8 +3483,9 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // detector improvements take effect on existing shots without a one-shot
     // re-analyze pass. Stored badge values are only authoritative as of save
     // time; the detectors evolve. The channeling sub-block uses
-    // conductanceDerivative, which is either loaded from the DB
-    // (post-migration-10) or filled by computeDerivedCurves() above (legacy).
+    // conductanceDerivative, which decompressSampleData() above unconditionally
+    // recomputes from pressure/flow for every shot (recompute-shot-curves-on-load),
+    // so it is always populated regardless of migration status.
     // The grind and skip-first-frame sub-blocks need only flow / flowGoal /
     // pressure / phases, which are always available.
     // Compute all four quality badges via a single ShotAnalysis::analyzeShot

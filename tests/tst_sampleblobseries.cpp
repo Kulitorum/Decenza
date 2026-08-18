@@ -1,12 +1,10 @@
 #include <QtTest>
-#include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
-#include <QThread>
 
 #include "core/dbutils.h"
 #include "history/shothistorystorage.h"
@@ -32,16 +30,6 @@ private:
     // record built by hand needs one or every assertion below passes vacuously.
     static void giveIdentity(ShotRecord& record) {
         record.summary.id = 1;
-    }
-
-    // initialize() spawns a distinct-cache thread; close() + drain before the
-    // storage destructs or it can crash (see tst_coffeebags::initAndClose,
-    // tst_shotimportdedupe::drain).
-    static void drain() {
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
     }
 
     // Feed the model a few samples with distinct basket/mix goals. Mirrors
@@ -209,8 +197,10 @@ private slots:
         });
         QCOMPARE(readBlob(), blobAfter);
 
+        // Drains on the real condition (isDbWorkIdle) rather than a fixed sleep —
+        // see tests/shotrowfixtures.h's initAndCloseStorage, which this mirrors.
         storage.close();
-        drain();
+        QTRY_VERIFY(storage.isDbWorkIdle());
     }
 
     // The seam between the blob and the upload/chart surfaces. Without this,

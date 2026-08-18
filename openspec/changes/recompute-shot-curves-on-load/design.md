@@ -10,6 +10,8 @@ Today's recompute-on-load is inconsistent across the three things `ShotHistorySt
 
 `darcyResistance`'s per-sample formula is already duplicated inline in two places (`shotdatamodel.cpp:230-233` live path, `shothistorystorage.cpp:3125-3132` legacy-recompute path) despite the `Conductance` namespace existing specifically so "ShotDataModel (production, per-sample) and offline tools can share identical code paths" (`conductance.h:6-9`). `resistance` has no shared formula at all — it's inlined a third time in `shotdatamodel.cpp:218-221`. This is the same class of bug that caused #1822 in the first place: hand-rolled formulas drift.
 
+**Scope note:** the affected population is not just the #1822 regression window. de1app's own `espresso_resistance` field is P/F² (`de1app/de1plus/gui.tcl`'s "laminar flow" calculation — the same formula Decenza calls Darcy resistance), and `shotfileparser.cpp` maps it verbatim into Decenza's P/F-labeled `record.resistance` for every `.shot`-file and Visualizer-recovery import. Making `resistance` recompute unconditionally therefore also corrects every imported shot's resistance curve, not only shots live-recorded during `44bd47b6`..`a6a58c21`. This is intentional given the Decisions below (the whole point is "recompute from this shot's own pressure/flow, don't trust the stored formula") — noted here so the blast radius is documented rather than a surprise at review time.
+
 ## Goals / Non-Goals
 
 **Goals:**
