@@ -934,6 +934,46 @@ private slots:
         QVERIFY(p.steps().size() > 0);
     }
 
+    void regenerateFromRecipePressureCountsForcedRiseAsPreinfusion() {
+        // regenerateFromRecipe() is the live re-edit path (profilemanager.cpp's real save
+        // path for an existing Pressure/Flow recipe) — a separate call site from
+        // RecipeGenerator::createProfile() and Profile::loadFromTclString(), with its own
+        // preinfuseFrameCount recompute (profile.cpp, gated on
+        // editorType == Pressure || Flow). Must also exclude the forced-rise frame from
+        // Stop-at-Volume's pour count. Matches de1app commit 13a30463.
+        //
+        // Profile::editorType() derives from title/profileType, NOT m_recipeParams — it is
+        // regenerateFromRecipe()'s FIRST check ("advanced" bails out before even looking at
+        // recipe params), so the base profile must be settings_2a for this to reach the
+        // fixed branch at all. Using makeAdvancedProfileJson() (settings_2c) here made the
+        // whole call a silent no-op the first time this test was written — caught only
+        // because the assertion below failed against the untouched original frame.
+        QJsonObject obj = makeAdvancedProfileJson("Pressure Regenerate Test");
+        obj["legacy_profile_type"] = "settings_2a";
+        QJsonObject recipeJson = RecipeParams().toJson();
+        recipeJson["editorType"] = "pressure";
+        obj["recipe"] = recipeJson;
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("pressure"));
+
+        RecipeParams recipe;
+        recipe.editorType = EditorType::Pressure;
+        recipe.preinfusionTime = 5.0;
+        recipe.preinfusionFlowRate = 4.0;
+        recipe.preinfusionStopPressure = 4.0;
+        recipe.holdTime = 10.0;          // > 3s: generates a forced-rise frame
+        recipe.espressoPressure = 9.2;
+        recipe.simpleDeclineTime = 25.0;
+        recipe.pressureEnd = 4.0;
+        p.setRecipeParams(recipe);
+        p.regenerateFromRecipe();
+
+        QVERIFY(p.steps().size() > 0);
+        // 1 leading preinfusion frame + 1 forced-rise frame before Hold.
+        QCOMPARE(p.preinfuseFrameCount(), 2);
+    }
+
     // ===== Title strips leading star (de1app modified indicator) =====
 
     void titleStripsStar() {

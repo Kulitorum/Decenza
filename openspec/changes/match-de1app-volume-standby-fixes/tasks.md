@@ -91,7 +91,10 @@
       volume.
 - [ ] 4.2 If a DE1 running firmware >= 1337 is available, physically flip the standby switch mid
       idle/mid-session and confirm the warning appears, dismisses on tap, and clears when power is
-      restored. If unavailable, verify via simulated substate injection instead and note the gap.
+      restored. Simulated substate injection now covers the gating/reset logic instead (added in
+      5.3: `tests/tst_machinestate.cpp` `standbySwitch*` tests, `tests/tst_de1device_headless.cpp`
+      `disconnectResetsSubState`) — the physical switch-flip and on-screen appearance still need
+      real hardware.
 
 ## 5. Review and merge
 
@@ -99,5 +102,39 @@
       pass, 0 failures. (First run surfaced 3 failing binaries from stale fixtures — see 1.5 —
       fixed, then re-ran clean.)
 - [x] 5.2 Opened [PR #1835](https://github.com/Kulitorum/Decenza/pull/1835).
-- [ ] 5.3 Run `/pr-review-toolkit:review-pr` and address findings.
+- [x] 5.3 Ran `/pr-review-toolkit:review-pr` (code-reviewer, pr-test-analyzer, comment-analyzer,
+      silent-failure-hunter, in parallel). Fixed everything raised, several corroborated by 2-3
+      agents independently:
+      - **Critical**: `standbySwitchOpen`'s firmware gate evaluated before `firmwareBuildNumber()`
+        was populated (arrives later via MMR read), with nothing re-triggering `updatePhase()`
+        when it lands — a machine already in `Error_NoAC` at connect never showed the warning for
+        the whole session. Fixed by connecting `DE1Device::firmwareVersionChanged` to
+        `MachineState::updatePhase` (`machinestate.cpp`). de1app hits the same gap and papers over
+        it with a timer; this project's no-timers-as-guards rule made the signal-driven recheck
+        the right port instead.
+      - `Error_NoAC` had no case in `subStateToString()` → rendered "Unknown" in a user-visible
+        layout widget and 4 network surfaces. Added the case (`de1characteristics.h`).
+      - `standbySwitchDialog` was missing from `anyModalDialogVisible()`, so it could get stacked
+        under `recipeActivationFailedDialog`. Added it (`main.qml`).
+      - `"forced rise without limit"` was a load-bearing string duplicated across 5 sites with no
+        compile-time link. Hoisted to `ProfileFrame::kForcedRiseWithoutLimitName`
+        (`profileframe.h`), all 5 sites now reference it.
+      - My own `profile_sync.cpp` fix from earlier in this change worked, but two agents
+        independently proved the branch I'd added was dead code: real built-in JSONs never ship
+        empty `steps`, so the actual fix is just removing the OLD unconditional overwrite. Deleted
+        `normaliseSimpleProfile()` entirely and compare directly — re-verified with the same
+        revert/`--sync`/corruption tests as before.
+      - Added tests for the two real coverage gaps found (`regenerateFromRecipe()`'s forced-rise
+        branch — the actual live profile-edit save path, previously zero coverage; and
+        `MachineState.standbySwitchOpen` + the disconnect substate-reset, both zero coverage
+        despite an existing harness making it cheap). The new `regenerateFromRecipe` test caught
+        a real bug in itself on the first run — `Profile::editorType()` derives from
+        title/profileType, not `m_recipeParams`, so the test's original settings_2c base profile
+        made `regenerateFromRecipe()`'s own "advanced" early-return a silent no-op; fixed by
+        basing it on settings_2a.
+      - One pr-test-analyzer claim was wrong and not acted on: it said the simple-profile
+        `de1app_packed` goldens are unread by any test — directly contradicted by watching
+        `tst_recipeeditorparity::everyDe1appProfilePacksIdentically` fail then pass against
+        exactly those fixtures earlier in this change.
+      - Full suite re-run clean after every fix: 113/113.
 - [ ] 5.4 Merge via `/merge-pr`.

@@ -203,6 +203,7 @@ inline QString subStateToString(SubState subState) {
         case SubState::PausedSteam:     return "PausedSteam";
         case SubState::UserNotPresent:  return "UserNotPresent";
         case SubState::Puffing:         return "Puffing";
+        case SubState::Error_NoAC:      return "Error_NoAC";
         default:                        return "Unknown";
     }
 }

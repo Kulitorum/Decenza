@@ -556,7 +556,7 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
         // If hold time > 3s, add a forced rise frame without limiter first
         if (holdTime > 3) {
             ProfileFrame riseNoLimit;
-            riseNoLimit.name = "forced rise without limit";
+            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
             riseNoLimit.temperature = tempHold;
             riseNoLimit.sensor = "coffee";
             riseNoLimit.pump = "pressure";
@@ -595,7 +595,7 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
         // matching de1app's pressure_to_advanced_list() which also uses the mutated value.
         if (holdTime < 3 && declineTime > 3) {
             ProfileFrame riseNoLimit;
-            riseNoLimit.name = "forced rise without limit";
+            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
             riseNoLimit.temperature = tempDecline;
             riseNoLimit.sensor = "coffee";
             riseNoLimit.pump = "pressure";

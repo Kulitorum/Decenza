@@ -201,7 +201,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
         // If hold time > 3s, add a forced rise frame without limiter first
         if (holdTime > 3) {
             ProfileFrame riseNoLimit;
-            riseNoLimit.name = "forced rise without limit";
+            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
             riseNoLimit.temperature = temp2;
             riseNoLimit.sensor = "coffee";
             riseNoLimit.pump = "pressure";
@@ -239,7 +239,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
         // possible decrement) and decline is long enough to split off 3s
         if (holdTime < 3 && declineTime > 3) {
             ProfileFrame riseNoLimit;
-            riseNoLimit.name = "forced rise without limit";
+            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
             riseNoLimit.temperature = temp3;
             riseNoLimit.sensor = "coffee";
             riseNoLimit.pump = "pressure";
@@ -2198,7 +2198,7 @@ int Profile::countPreinfuseFrames(const QList<ProfileFrame>& steps) {
 int Profile::countPreinfuseFramesWithForcedRise(const QList<ProfileFrame>& steps) {
     int count = countPreinfuseFrames(steps);
     for (const auto& step : steps) {
-        if (step.name == QLatin1String("forced rise without limit")) count++;
+        if (step.name == ProfileFrame::kForcedRiseWithoutLimitName) count++;
     }
     return count;
 }

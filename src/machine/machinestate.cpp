@@ -77,6 +77,15 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
         connect(m_device, &DE1Device::stateChanged, this, &MachineState::onDE1StateChanged);
         connect(m_device, &DE1Device::subStateChanged, this, &MachineState::onDE1SubStateChanged);
         connect(m_device, &DE1Device::connectedChanged, this, &MachineState::updatePhase);
+        // standbySwitchOpen's firmware gate needs this too: firmwareBuildNumber() starts at 0
+        // (unknown) and is only populated later by an MMR read, well after the STATE_INFO read
+        // that can already be reporting Error_NoAC at connect. Without this, a machine already
+        // in Error_NoAC when the app launches never gets re-evaluated once the firmware build
+        // number lands — Error_NoAC is latching, so no later STATE_INFO notification would ever
+        // re-trigger it. de1app hits this exact gap and papers over it with an `after 6000`
+        // timer (de1_de1.tcl); a signal-driven recheck is the event-based equivalent this
+        // project's no-timers-as-guards rule calls for.
+        connect(m_device, &DE1Device::firmwareVersionChanged, this, &MachineState::updatePhase);
 
         // Sync initial phase from device (handles case where device was already
         // connected before MachineState was constructed, e.g. simulator mode)

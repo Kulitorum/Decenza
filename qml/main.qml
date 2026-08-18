@@ -764,7 +764,7 @@ T.ApplicationWindow {
             || profileRefusedDialog.visible || de1CommunicationErrorDialog.visible
             || firmwareFlashExitDialog.visible || firmwareRebootRequiredDialog.visible
             || noScaleAbortDialog.visible || crashReportDialog.visible
-            || recipeActivationFailedDialog.visible
+            || recipeActivationFailedDialog.visible || standbySwitchDialog.visible
     }
 
     function showNextPendingPopup() {

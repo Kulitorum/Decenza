@@ -36,6 +36,13 @@ struct ProfileFrame {
     // restoredFieldPartitionIsPinned (tst_recipeeditorparity) are the tests that
     // will fail if you forget.
 
+    // The name a generated Pressure profile's forced-rise-without-limit frame(s) carry
+    // (RecipeGenerator::generatePressureFrames, Profile's own settings_2a generator) and
+    // what Profile::countPreinfuseFramesWithForcedRise() matches against to exclude them
+    // from Stop-at-Volume's pour count. One name, five sites — a mismatch here silently
+    // reopens the bug this exists to fix, with every existing count-based test still green.
+    static inline const QString kForcedRiseWithoutLimitName = QStringLiteral("forced rise without limit");
+
     // === Basic Frame Properties ===
     QString name;                   // Human-readable step name (e.g., "Preinfusion")
     double temperature = 93.0;      // Target temperature (Celsius, range 0-127.5)

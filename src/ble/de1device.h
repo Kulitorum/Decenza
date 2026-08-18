@@ -595,5 +595,6 @@ private:
     friend class tst_DE1DeviceFirmware;
     friend class tst_ShotSampleDecode;
     friend class tst_DE1DeviceMMRReads;
+    friend class tst_DE1DeviceHeadless;
 #endif
 };
