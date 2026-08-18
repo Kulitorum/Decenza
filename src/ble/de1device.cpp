@@ -181,6 +181,18 @@ void DE1Device::onTransportConnected() {
 }
 
 void DE1Device::onTransportDisconnected() {
+    // The keepalive run ends here. Without this its suppressed tally sat in the
+    // table across the whole disconnect, and the first keepalive after a
+    // reconnect — possibly hours later — printed carrying the PREVIOUS session's
+    // count, annotated with a span measured to the moment a reader is looking at
+    // it. Keyed by MMR address, which this function does not enumerate, so it
+    // flushes all of them.
+    for (const auto& [address, collapsed] :
+         m_keepaliveLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
+        MMR_LOG(QString("MMR keepalive 0x%1%2")
+                    .arg(address, LogCollapse::suffix(collapsed)));
+    }
+
     // Tier by whether the machine was BUSY, because that is what separates a
     // fault from a shutdown, and nothing else here can.
     //

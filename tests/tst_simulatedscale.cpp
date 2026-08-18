@@ -11,6 +11,7 @@
 #include "profile/profile.h"
 #include "simulator/de1simulator.h"
 #include "simulator/simulatedscale.h"
+#include "messagecapture.h"
 
 // End-to-end cover for the simulator's scale channel: DE1Simulator emits a
 // weight, SimulatedScale publishes it like any ScaleDevice, and MachineState
@@ -27,61 +28,6 @@ class DisconnectTierProbe : public SimulatedScale {
 public:
     using SimulatedScale::setConnected;
     void markExpected() { markExpectedDisconnect(); }
-};
-
-// Captures messages so a test can ASSERT on their tier.
-//
-// QTest::ignoreMessage is a PERMISSION, not an assertion. An unmatched pattern is
-// reported by printUnhandledIgnoreMessages() by calling addMessage() with
-// QAbstractTestLogger::Info (qtbase/src/testlib/qtestlog.cpp:397-419) — a printed
-// line, never a failure. So disconnect tests built on ignoreMessage alone still
-// pass if the line under test is demoted a tier or deleted outright, which is
-// exactly the regression they exist to catch: this whole change is about WHICH
-// TIER a disconnect is reported at, and the one thing ignoreMessage cannot check
-// is that.
-//
-// Deliberately does NOT chain to the previous handler. init() calls
-// QTest::failOnWarning(), and here the WARN branch is a thing being asserted
-// rather than a thing that went wrong.
-class CapturedMessages {
-public:
-    struct Entry { QtMsgType type = QtDebugMsg; QString text; };
-
-    CapturedMessages() {
-        s_entries = &m_entries;
-        m_previous = qInstallMessageHandler(&CapturedMessages::handler);
-    }
-    ~CapturedMessages() {
-        qInstallMessageHandler(m_previous);
-        s_entries = nullptr;
-    }
-    Q_DISABLE_COPY_MOVE(CapturedMessages)
-
-    void clear() { m_entries.clear(); }
-
-    // The one message containing `needle`, or false. Insists on EXACTLY one:
-    // zero means the line vanished, more than one means the event was announced
-    // twice, and a test that accepted either would not notice.
-    bool single(const QString& needle, Entry* out) const {
-        Entry found;
-        int matches = 0;
-        for (const Entry& e : m_entries) {
-            if (e.text.contains(needle)) { found = e; ++matches; }
-        }
-        if (matches == 1 && out)
-            *out = found;
-        return matches == 1;
-    }
-
-private:
-    static void handler(QtMsgType type, const QMessageLogContext&, const QString& msg) {
-        if (s_entries)
-            s_entries->append({type, msg});
-    }
-
-    QList<Entry> m_entries;
-    QtMessageHandler m_previous = nullptr;
-    static inline QList<Entry>* s_entries = nullptr;
 };
 
 class tst_SimulatedScale : public QObject {
@@ -196,14 +142,16 @@ private slots:
     // deliberate DE1-sleep close reported as a fault. Neither a blanket WARN nor
     // a blanket demotion is correct, which is why the driver declares intent.
     void expectedDisconnectIsNarrativeNotAFault() {
-        CapturedMessages log;
+        // SwallowAll, not chaining: init() calls QTest::failOnWarning(), and
+        // here the WARN branch is a thing being ASSERTED rather than a fault.
+        MessageCapture log(MessageCapture::SwallowAll);
         DisconnectTierProbe probe;
         probe.setConnected(true);
 
         // Unmarked: the link went away by itself. WARN.
         log.clear();
         probe.setConnected(false);
-        CapturedMessages::Entry drop;
+        MessageCapture::Entry drop;
         QVERIFY2(log.single(QStringLiteral("DISCONNECTED"), &drop),
                  "expected exactly one DISCONNECTED line");
         QCOMPARE(drop.type, QtWarningMsg);
@@ -224,13 +172,13 @@ private slots:
     // The flag is ONE-SHOT. A stale flag would silently downgrade the next
     // genuine failure — turning the fix into a way to hide real faults.
     void expectedDisconnectDoesNotPersistToTheNextOne() {
-        CapturedMessages log;
+        MessageCapture log(MessageCapture::SwallowAll);
         DisconnectTierProbe probe;
         probe.setConnected(true);
         probe.markExpected();
         log.clear();
         probe.setConnected(false);
-        CapturedMessages::Entry drop;
+        MessageCapture::Entry drop;
         QVERIFY(log.single(QStringLiteral("DISCONNECTED"), &drop));
         QCOMPARE(drop.type, QtInfoMsg);
 
@@ -252,12 +200,12 @@ private slots:
     // local and hands it over immediately before the transition; this pins the
     // base class's half, that reconnecting discards a mark nothing used.
     void expectedDisconnectDoesNotSurviveAReconnect() {
-        CapturedMessages log;
+        MessageCapture log(MessageCapture::SwallowAll);
         DisconnectTierProbe probe;
         probe.setConnected(true);
         log.clear();
         probe.setConnected(false);
-        CapturedMessages::Entry drop;
+        MessageCapture::Entry drop;
         QVERIFY(log.single(QStringLiteral("DISCONNECTED"), &drop));
         QCOMPARE(drop.type, QtWarningMsg);
 

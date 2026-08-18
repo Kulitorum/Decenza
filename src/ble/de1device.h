@@ -487,6 +487,7 @@ private:
     // and cannot be dropped). Its LOG line, repeated 3,042 times in a 48-hour capture for 15% of the
     // whole log, can be. One line per 10 minutes carrying the count; a value CHANGE still prints
     // immediately, because that is the event worth seeing.
+    // Episodic: a run is one connected session. Flushed in onTransportDisconnected().
     LogCollapse m_keepaliveLog{10 * 60 * 1000};
     // Pending one-shot MMR reads keyed by address — covers both the
     // post-connect informational reads issued via issueMMRReadWithRetry().

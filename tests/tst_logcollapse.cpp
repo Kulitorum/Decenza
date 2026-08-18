@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <algorithm>
+
 #include "core/logcollapse.h"
 
 // LogCollapse decides whether a repeating log line is worth printing. Three periodic sources share
@@ -123,6 +125,50 @@ private slots:
         QVERIFY(c.shouldLog("k", "text", 500'000, &c2));
         QCOMPARE(c2.suppressed, 0);
         QCOMPARE(c2.spanMs, 0);
+    }
+
+    // flush() and flushAll() had no coverage at all until an episodic caller
+    // needed them. Both are the mechanism that keeps one run's tally off the
+    // next run's first line, so "it compiles" was the only thing asserting them.
+
+    void flushAllReturnsEveryPendingTallyAndForgetsTheKeys()
+    {
+        LogCollapse c(60'000);
+        LogCollapse::Collapsed ignored;
+
+        // Two keys, each emitted once then repeated inside the window.
+        QVERIFY(c.shouldLog("a", "same", 0, &ignored));
+        QVERIFY(!c.shouldLog("a", "same", 1'000, &ignored));
+        QVERIFY(!c.shouldLog("a", "same", 2'000, &ignored));
+        QVERIFY(c.shouldLog("b", "other", 0, &ignored));
+        QVERIFY(!c.shouldLog("b", "other", 1'000, &ignored));
+
+        auto pending = c.flushAll(3'000);
+        std::sort(pending.begin(), pending.end(),
+                  [](const auto& l, const auto& r) { return l.first < r.first; });
+        QCOMPARE(pending.size(), 2);
+        QCOMPARE(pending[0].first, QStringLiteral("a"));
+        QCOMPARE(pending[0].second.suppressed, 2);
+        QCOMPARE(pending[0].second.spanMs, 3'000);
+        QCOMPARE(pending[1].second.suppressed, 1);
+
+        // Forgotten, so the next run starts as a first sighting rather than
+        // carrying this one's count -- the whole point of flushing.
+        QVERIFY(c.flushAll(4'000).isEmpty());
+        LogCollapse::Collapsed after;
+        QVERIFY(c.shouldLog("a", "same", 5'000, &after));
+        QCOMPARE(after.suppressed, 0);
+        QCOMPARE(after.spanMs, 0);
+    }
+
+    // A key that was emitted and never repeated has nothing to say, and saying
+    // it would put "(+0 identical)" noise on every run end.
+    void flushAllSkipsKeysWithNothingSuppressed()
+    {
+        LogCollapse c(60'000);
+        LogCollapse::Collapsed ignored;
+        QVERIFY(c.shouldLog("a", "once", 0, &ignored));
+        QVERIFY(c.flushAll(1'000).isEmpty());
     }
 };
 

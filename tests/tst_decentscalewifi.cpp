@@ -11,6 +11,7 @@
 #include <optional>
 
 #include "ble/scales/decentscalewifi.h"
+#include "messagecapture.h"
 
 // Fake WebSocket server used to drive the DecentScaleWifi driver under test.
 // Spins up on a random local port; the test connects the driver to
@@ -110,51 +111,6 @@ signals:
     void clientConnected();
 private:
     QWebSocketServer* m_server = nullptr;
-};
-
-// RAII warning filter — same shape as ScopedWarningFilter in
-// tests/mocks/McpTestFixture.h, inlined here rather than including that header
-// (which drags in Settings/MockTransport this target doesn't link). Suppresses
-// warnings matching a pattern; everything else forwards to Qt Test's handler so
-// QTest::ignoreMessage still works alongside it.
-//
-// The distinction that matters: ignoreMessage REQUIRES its message to fire,
-// this only ALLOWS it. See the note on m_disconnectNoise below.
-struct ScopedWarningFilter {
-    static inline QVector<QRegularExpression*> s_filters;
-    static inline QtMessageHandler s_originalHandler = nullptr;
-    static inline int s_depth = 0;
-
-    static void handler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg) {
-        if (type == QtWarningMsg) {
-            for (auto* f : s_filters) {
-                if (f && f->match(msg).hasMatch())
-                    return;  // Suppress
-            }
-        }
-        if (s_originalHandler)
-            s_originalHandler(type, ctx, msg);
-    }
-
-    QRegularExpression m_pattern;
-
-    // A copy would register nothing but still decrement s_depth on destruction,
-    // uninstalling the handler early and leaving a dangling &m_pattern in
-    // s_filters. Nothing copies one today; this makes sure nothing starts.
-    Q_DISABLE_COPY_MOVE(ScopedWarningFilter)
-
-    explicit ScopedWarningFilter(const QString& pattern) : m_pattern(pattern) {
-        s_filters.append(&m_pattern);
-        if (s_depth++ == 0)
-            s_originalHandler = qInstallMessageHandler(handler);
-    }
-    ~ScopedWarningFilter() {
-        s_filters.removeOne(&m_pattern);
-        if (--s_depth == 0) {
-            qInstallMessageHandler(s_originalHandler);
-            s_originalHandler = nullptr;
-        }
-    }
 };
 
 class tst_DecentScaleWifi : public QObject {

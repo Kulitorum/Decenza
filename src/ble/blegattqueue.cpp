@@ -17,6 +17,23 @@ BleGattQueue::BleGattQueue(QObject* parent)
     m_clock.start();
 }
 
+
+namespace BleGatt {
+
+QString dispatchCollapseKey(const QString& label, qsizetype depth) {
+    return depth < 0 ? QString("dispatch %1").arg(label)
+                     : QString("dispatch %1 (%2 queued)").arg(label).arg(depth);
+}
+
+QString dispatchLine(const QString& label, qsizetype depth, int waitedMs) {
+    const QString base = dispatchCollapseKey(label, depth);
+    return waitedMs < 0 ? base
+                        : base + QString(", waited %1 ms behind another device")
+                                     .arg(waitedMs);
+}
+
+}  // namespace BleGatt
+
 void BleGattQueue::submit(Operation op) {
     if (!validate(op)) return;
     op.enqueuedAtMs = nowMs();
@@ -94,33 +111,67 @@ void BleGattQueue::dispatchNext() {
     m_inFlightSince = nowMs();
     ++m_generation;
 
-    // Logged only when the ORDERING is non-trivial, which is the only thing this
-    // line is read for.
+    // Logged only for an operation that actually WAITED behind another device.
+    // That is the whole readership of this line: it is the per-operation detail
+    // under a FOREIGN_WAIT_WARN episode, naming what was delayed and how deep
+    // the queue was when it finally ran.
     //
-    // "Non-trivial" is not "anything was queued". Two devices with periodic
-    // traffic overlap by one operation as a matter of course — the DE1's
-    // once-a-minute keepalive lands on the scale's 1 Hz heartbeat and they clear
-    // ~54 ms apart. Measured on a tablet, gating on depth >= 1 left exactly that
-    // pair repeating every minute forever: ~120 lines/hour, still the loudest
-    // source in an app whose every other subsystem totals ~82.
+    // Queue DEPTH is deliberately not a trigger, only a payload, because the
+    // app's own connect sequence is the deepest thing that ever happens here.
+    // DE1Device::sendInitialSettings() enqueues five subscribes, the ready
+    // marker, four reads and then its initial MMR writes, and
+    // MainController::applyAllSettings() piles the profile upload on top from
+    // the initialSettingsComplete signal that sequence ends with — peaking the
+    // shared queue at 35 on an entirely healthy connect. That measurement, its
+    // device and its composition are recorded on QUEUE_DEPTH_WARN in the header
+    // rather than restated here, so there is one copy to re-derive. Any depth
+    // trigger below that peak therefore fires on every single launch.
     //
-    // So the bar is two deep, or a wait already half way to the one worth
-    // warning about. Below that a reader learns nothing they could act on; above
-    // it, these are the DEBUG context around a FOREIGN_WAIT_WARN episode rather
-    // than a permanent drip. At idle this is silent.
+    // Foreign wait does not have that problem, but its bound is narrower than
+    // "quiet", and worth stating exactly because the difference is the whole
+    // behaviour of this gate:
     //
-    // (Third attempt at this gate. The first logged unconditionally — 97.8% of a
-    // 7-hour device log. The second collapsed repeats but still fired on the
-    // routine interleave. Each looked obviously sufficient when written, and
-    // only a real log settled it.)
-    if (m_queue.size() >= BleGatt::DISPATCH_LOG_MIN_DEPTH
-        || m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_WARN_MS / 2) {
-        const QString msg = QString("dispatch %1 (%2 queued)")
-                                .arg(m_inFlight->label)
-                                .arg(m_queue.size());
+    //   - It is zero while ONE device holds the queue alone, however deep the
+    //     backlog, because chargeForeignWait() skips every operation whose
+    //     requester matches the holder. That is the healthy-launch case above.
+    //   - On a SIMULTANEOUS two-device connect it is not quiet at all, and is
+    //     not meant to be. chargeForeignWait() accumulates onto every queued
+    //     foreign operation, so a slow scale discovery — 6.0 s in the #1819
+    //     capture — charges seconds to the whole DE1 backlog and every one of
+    //     those operations clears this gate. On that connect this logs MORE
+    //     than the depth gate did.
+    //
+    // That second case is the point rather than a regression: it is contention,
+    // it is what #1819 was, and the trail is what a reader needs then. What the
+    // change buys is that the loud case is now the contended one instead of
+    // every launch.
+    //
+    // Half of FOREIGN_WAIT_WARN_MS so a reader sees the near-misses around an
+    // episode, not only the operations that crossed it.
+    //
+    // (Fourth attempt. The first logged unconditionally — 97.8% of a 7-hour
+    // device log. The second collapsed repeats but still fired on the routine
+    // once-a-minute overlap of the DE1 keepalive and the scale heartbeat,
+    // ~120 lines/hour. The third gated on depth >= 2 OR the foreign wait below
+    // — the wait half was already right and has been live since d5b6bba6; the
+    // depth half put 43 lines back into every launch. This removes the depth
+    // half only, so what is new here is a deletion, not an untried trigger.
+    //
+    // The evidence for the deletion is a 4h17m field session on the maintainer's
+    // tablet, summarised in PR #1831: 50 dispatch lines, none saying anything
+    // the single WARN episode line did not. That is maintainer testimony about
+    // a log nobody else holds, not a reproducible measurement — weigh it as
+    // such, and do not reintroduce a depth trigger without a field log showing
+    // what it would have caught.)
+    if (m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_DETAIL_MS) {
+        const QString key = BleGatt::dispatchCollapseKey(m_inFlight->label,
+                                                         m_queue.size());
         LogCollapse::Collapsed collapsed;
-        if (m_dispatchLog.shouldLog(m_inFlight->label, msg, nowMs(), &collapsed))
-            GQ_LOG(msg + LogCollapse::suffix(collapsed));
+        if (m_dispatchLog.shouldLog(m_inFlight->label, key, nowMs(), &collapsed)) {
+            GQ_LOG(BleGatt::dispatchLine(m_inFlight->label, m_queue.size(),
+                                         static_cast<int>(m_inFlight->foreignWaitMs))
+                   + LogCollapse::suffix(collapsed));
+        }
     }
 
     // Accumulated, not reported here. Reported once when the queue goes idle —
@@ -335,6 +386,7 @@ void BleGattQueue::reportForeignWaitEpisode() {
     m_foreignWaitCount = 0;
     m_foreignWaitWorstMs = 0;
     m_foreignWaitWorstLabel.clear();
+
 }
 
 void BleGattQueue::emitDrainedIfIdle() {
@@ -344,6 +396,18 @@ void BleGattQueue::emitDrainedIfIdle() {
     // Before the drained() post, not inside it: drained() is suppressed when one
     // is already pending, and the episode must be reported either way.
     reportForeignWaitEpisode();
+
+    // Idle is ALSO the dispatch line's run end, and it is a different event from
+    // the one above. reportForeignWaitEpisode() returns early unless something
+    // crossed FOREIGN_WAIT_WARN_MS, while the dispatch line logs at
+    // FOREIGN_WAIT_DETAIL_MS — half of it. Flushing inside that function
+    // therefore leaked every tally from a run of near-misses, which is the exact
+    // misattribution the flush exists to prevent: the count sits in the table
+    // until some later run reuses the label, then prints annotated with a span
+    // measured to THAT moment. Nothing keeps a set of the labels a run touched,
+    // hence flushAll() rather than naming any.
+    for (const auto& [label, collapsed] : m_dispatchLog.flushAll(nowMs()))
+        GQ_LOG(BleGatt::dispatchLine(label, -1) + LogCollapse::suffix(collapsed));
     // Collapsed to one emission per idle transition. Two paths can observe the
     // same transition — discard() emptying the queue, and the dispatch it had
     // already posted then finding it empty — and a consumer that acts on

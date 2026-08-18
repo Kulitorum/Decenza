@@ -109,9 +109,41 @@ inline constexpr int DISCOVERY_TIMEOUT_MS = 20000;
 // holding things up.
 inline constexpr int FOREIGN_WAIT_WARN_MS = 500;
 
-// Queue depth at which a dispatch is worth a DEBUG line. Two, not one: one is
-// the routine periodic overlap of two healthy devices. See dispatchNext().
-inline constexpr qsizetype DISPATCH_LOG_MIN_DEPTH = 2;
+// Foreign wait at which a dispatch earns its per-operation DEBUG line.
+//
+// Half the warning, so a reader already looking at an episode sees the
+// near-misses around it and not only the operations that crossed it. Named
+// rather than written as FOREIGN_WAIT_WARN_MS / 2 at the one call site: the
+// constant this replaced (DISPATCH_LOG_MIN_DEPTH) was named and documented
+// here, and burying the replacement as arithmetic inside an `if` is how the
+// difference between this threshold and the warning above stopped being
+// visible — which is exactly the bug that shipped, a flush gated on the WARN
+// firing while the line it flushed logs at half that.
+inline constexpr int FOREIGN_WAIT_DETAIL_MS = FOREIGN_WAIT_WARN_MS / 2;
+
+// The dispatch line, in one place.
+//
+// Built at two sites — the live dispatch and the run-end flush — and matched by
+// a third in tst_blegattqueue.cpp. They were three independent spellings of one
+// string, so renaming the line at either site would have silently desynchronised
+// the subsystem's own log from the test that guards its volume, with nothing
+// failing. `depth < 0` means "not known here", which is the flush's case: it
+// speaks for operations whose queue depth is long gone.
+//
+// waitedMs is the value the GATE fired on and is what a reader chasing a delay
+// actually needs; without it the line cannot tell 260 ms from 480 ms. It is
+// deliberately NOT part of collapseKey() below — see there.
+QString dispatchLine(const QString& label, qsizetype depth, int waitedMs = -1);
+
+// What LogCollapse compares to decide a line REPEATED rather than changed.
+//
+// Same line without the wait. Including a millisecond figure would make every
+// dispatch unique, so nothing would ever collapse and a sustained episode would
+// print one line per operation — the behaviour three earlier attempts at this
+// gate were trying to escape. Collapsing on the shape and letting the first
+// line of a run carry its own wait keeps both.
+QString dispatchCollapseKey(const QString& label, qsizetype depth);
+
 }  // namespace BleGatt
 
 class BleGattQueue : public QObject {
@@ -331,21 +363,28 @@ private:
     // True between posting a dispatch and running it. The guard a timer's
     // isActive() used to provide, without the timer.
     bool m_dispatchPosted = false;
-    // The dispatch line is the busiest thing this class emits — one per
-    // operation — and at idle the Decent Scale's 1 Hz heartbeat makes it
-    // periodic forever. Measured on a tablet: 25,992 of 26,565 lines in a 7-hour
-    // session, 97.8%, which had evicted every other subsystem's history from the
-    // ring buffer and left two sessions in a file that should hold many.
+    // Collapses a repeated dispatch line inside one contention episode.
     //
-    // LogCollapse already existed for exactly this and already had three callers
-    // (MMR keepalive, memory sampler, ShotServer poll) whose comment records
-    // them as 35% of a 48-hour capture. This was a fourth periodic source that
-    // did not use it.
+    // Its original job is gone. The dispatch line used to be emitted for every
+    // operation, which at idle made it periodic forever on the Decent Scale's
+    // 1 Hz heartbeat — measured on a tablet at 25,992 of 26,565 lines in a
+    // 7-hour session, 97.8%, which had evicted every other subsystem's history
+    // from the ring buffer. That is now the GATE's doing, not the collapser's:
+    // an idle beat never reaches this object at all. The figure is kept because
+    // it is why the gate exists, not because it describes what happens here.
     //
-    // Keyed by label so one device's repeats cannot swallow another's, and a
-    // CHANGED text always emits at once — so every burst, every queue depth
-    // above zero and every non-heartbeat operation still logs immediately. Only
-    // the unchanging idle beat collapses.
+    // What is left is narrow but real: one label repeatedly crossing the
+    // foreign-wait threshold during a sustained episode — a stalled DE1
+    // delaying successive 1 Hz scale heartbeats produces identical text at the
+    // same depth. Keyed by label so one device's repeats cannot swallow
+    // another's, and changed text always emits at once.
+    //
+    // EPISODIC, which changes the contract. LogCollapse's own header warns that
+    // an episodic source must flush at its run end or a suppressed tally is not
+    // merely late but MISATTRIBUTED — stapled onto the next episode's first
+    // line hours later, annotated with a span that dates it to now. While the
+    // dispatch line was periodic there was no run end and no flush was needed;
+    // there is one now, and reportForeignWaitEpisode() is it.
     LogCollapse m_dispatchLog{60 * 1000};
 
     // One line per CONTENTION EPISODE rather than per delayed operation. A
