@@ -98,6 +98,6 @@
 - [x] 5.1 Ran the full local test suite via Qt Creator MCP (`run_tests`, scope `all`): 113/113
       pass, 0 failures. (First run surfaced 3 failing binaries from stale fixtures — see 1.5 —
       fixed, then re-ran clean.)
-- [ ] 5.2 Open the PR.
+- [x] 5.2 Opened [PR #1835](https://github.com/Kulitorum/Decenza/pull/1835).
 - [ ] 5.3 Run `/pr-review-toolkit:review-pr` and address findings.
 - [ ] 5.4 Merge via `/merge-pr`.
