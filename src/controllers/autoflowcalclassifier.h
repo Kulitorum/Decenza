@@ -80,30 +80,56 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
     double meanMachineFlow);
 
 /**
- * True when a flow-controlled window's measured mean machine flow deviates
- * from the touched frame's target flow by more than `thresholdFraction`.
+ * Result of checking a flow-controlled window's measured flow against its
+ * frame's target. `deviation` is always computed (0.0 for a non-positive
+ * target); `missedTarget` additionally requires undershoot — see below.
+ */
+struct AutoFlowCalTargetCheck {
+    /// True only when the window UNDERSHOT target by more than the caller's
+    /// threshold. Never true for an overshoot, regardless of magnitude.
+    bool missedTarget = false;
+    /// Relative deviation |measured - target| / target. Always >= 0.
+    /// Exposed so a caller that reclassifies on `missedTarget` can also log
+    /// the magnitude without recomputing the same formula a second time.
+    double deviation = 0.0;
+};
+
+/**
+ * Checks whether a flow-controlled window's measured mean machine flow fell
+ * meaningfully short of the touched frame's target flow.
  *
  * Rationale: a flow-controlled frame can carry a pressure ceiling (e.g.
  * D-Flow, D-Flow/Q). When the puck's resistance would require exceeding that
  * ceiling to hold the frame's target flow, the DE1 caps pressure instead and
- * flow falls below target for the rest of the frame. The caller assumed the
- * target was achieved is `computeAutoFlowCalibration()`'s flow-branch formula
+ * flow falls below target for the rest of the frame. Assuming the target was
+ * achieved is what `computeAutoFlowCalibration()`'s flow-branch formula does
  * (`weightFlow / (targetFlow * density)`) — dividing by an unattained target
  * manufactures an ideal that measures nothing about sensor accuracy
- * (Kulitorum/Decenza#1823). A caller should treat a window where this
- * returns true as pressure-controlled for formula-selection purposes: reuse
- * the achieved-flow (pressure-branch) formula and its ratio guard, which
- * already correctly handle "pump was constrained below its setpoint"
- * regardless of which setpoint did the constraining.
+ * (Kulitorum/Decenza#1823). A caller should treat a window where
+ * `missedTarget` is true as pressure-controlled for formula-selection
+ * purposes: reuse the achieved-flow (pressure-branch) formula and its ratio
+ * guard, which already correctly handle "pump was constrained below its
+ * setpoint" regardless of which setpoint did the constraining.
+ *
+ * Deliberately ONE-SIDED: only undershoot (`meanMachineFlow < targetFlow`)
+ * can set `missedTarget`, never overshoot. A pressure ceiling can hold flow
+ * BELOW its setpoint; it has no mechanism to push flow above it, so an
+ * overshoot reading has no pressure-cap explanation. Reclassifying an
+ * overshooting-but-still-genuinely-flow-controlled window would route it
+ * through the pressure-branch formula's reported-flow denominator on a
+ * window that may still be PID-locked to target — exactly the feedback-loop
+ * bug (factor drifts down and can never converge) that using TARGET flow for
+ * flow-controlled windows was introduced to avoid in the first place; see
+ * the "v3 Migration" section of `docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md`.
  *
  * @param meanMachineFlow   Mean reported flow during the window (mL/s).
  * @param targetFlow        The touched frame's target flow (mL/s). Must be > 0;
- *                          returns false for a non-positive target (nothing to
- *                          compare against).
- * @param thresholdFraction Relative deviation above which the window is
+ *                          returns `{false, 0.0}` for a non-positive target
+ *                          (nothing to compare against).
+ * @param thresholdFraction Relative undershoot above which the window is
  *                          considered pressure-capped (e.g. 0.10 for 10%).
  */
-bool autoFlowCalWindowMissedTarget(
+AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
     double meanMachineFlow,
     double targetFlow,
     double thresholdFraction);

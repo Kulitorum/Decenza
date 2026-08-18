@@ -62,15 +62,22 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
         return result;
     }
 
-    result.firstFrameInWindow = *std::min_element(framesInWindow.constBegin(),
-                                                  framesInWindow.constEnd());
-    result.lastFrameInWindow = *std::max_element(framesInWindow.constBegin(),
-                                                 framesInWindow.constEnd());
+    // Sorted, not iterated straight off the QSet: iteration order there is
+    // hash-bucket order, not numeric order, so a tie in the target-picking
+    // loop below (two flow frames equidistant from meanMachineFlow) would
+    // otherwise resolve to whichever frame's bucket comes first — arbitrary
+    // from a reader's perspective. Sorting makes "lowest frame index wins a
+    // tie" an explicit, deterministic rule instead of an accident of hashing.
+    QList<int> sortedFrames(framesInWindow.constBegin(), framesInWindow.constEnd());
+    std::sort(sortedFrames.begin(), sortedFrames.end());
+
+    result.firstFrameInWindow = sortedFrames.first();
+    result.lastFrameInWindow = sortedFrames.last();
 
     // Classify every frame touched by the window.
     bool anyFlow = false;
     bool anyPressure = false;
-    for (qsizetype idx : framesInWindow) {
+    for (int idx : sortedFrames) {
         if (idx < 0 || idx >= steps.size()) {
             // An out-of-range frame index from the transition stream means
             // the marker data doesn't match the current profile (e.g. profile
@@ -96,9 +103,11 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
         result.isFlowProfile = true;
         // Pick the flow target closest to the observed mean machine flow.
         // Preserves the historical multi-target handling (e.g. profiles that
-        // step between two flow rates) without extra bookkeeping.
+        // step between two flow rates) without extra bookkeeping. Iterating
+        // in frame-index order makes an exact-distance tie resolve to the
+        // lower-indexed (earlier) frame, deterministically.
         double bestDist = 1e9;
-        for (qsizetype idx : framesInWindow) {
+        for (int idx : sortedFrames) {
             const auto& frame = steps[idx];
             if (frame.isFlowControl() && frame.flow > kMinFlowTarget) {
                 double dist = qAbs(frame.flow - meanMachineFlow);
@@ -115,14 +124,16 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
     return result;
 }
 
-bool autoFlowCalWindowMissedTarget(
+AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
     double meanMachineFlow,
     double targetFlow,
     double thresholdFraction) {
 
+    AutoFlowCalTargetCheck result;
     if (targetFlow <= 0.0) {
-        return false;
+        return result;
     }
-    double deviation = qAbs(meanMachineFlow - targetFlow) / targetFlow;
-    return deviation > thresholdFraction;
+    result.deviation = qAbs(meanMachineFlow - targetFlow) / targetFlow;
+    result.missedTarget = meanMachineFlow < targetFlow && result.deviation > thresholdFraction;
+    return result;
 }

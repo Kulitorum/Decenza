@@ -50,7 +50,7 @@ themselves* were shown to be corrupted by the prior formula.
 
 ## Decisions
 
-### Deviation threshold: 10%, compared against the touched frame's target flow
+### Deviation threshold: 10%, compared against the touched frame's target flow, undershoot only
 
 The proposal's originally-scoped fix (from the 2026-08-02 analysis already on record) used a 10%
 deviation threshold. Evidence from #1823 supports this: target-achieved windows there measured
@@ -61,6 +61,17 @@ tight enough to still catch genuine sensor-error windows near target (which is t
 flow-branch formula exists to measure) while being comfortably outside the noise band the
 same-frame samples show session to session (≤2% at target — e.g. 1.82 vs 1.83 vs 1.90 across three
 of this repo's own shots).
+
+**Corrected during review to undershoot-only** (initial implementation checked deviation in either
+direction — an oversight, not a considered choice, caught by `/code-review`). A pressure ceiling
+can hold flow below its setpoint; it has no mechanism to push flow above one, so an overshoot
+reading has no pressure-cap explanation and the mechanism this check exists to detect cannot
+produce it. Reclassifying an overshoot window anyway would route it through the achieved-flow
+formula's reported-flow denominator on a window that may still be genuinely PID-locked to target —
+structurally the same shape as the v2 feedback-loop bug (`ideal = factor * weightFlow /
+(reportedFlow * density)`, which drove a factor from 1.0 to 0.59 over 30 shots because reported
+flow on a flow-controlled window is pinned near target independent of the factor). `deviation >
+threshold` is therefore gated on `meanMachineFlow < targetFlow` as well.
 
 **Alternative considered:** compare against the *existing* window ratio guard bounds
 (`[0.75, 1.35]`) instead of a separate threshold — i.e., let the ratio guard's existing rejection

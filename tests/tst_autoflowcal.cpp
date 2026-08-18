@@ -282,6 +282,32 @@ private slots:
         QCOMPARE(cls.targetFlow, 1.2);
     }
 
+    // Exact distance tie between two flow targets: meanMachineFlow sits
+    // precisely equidistant from both. Must deterministically pick the
+    // lower-indexed frame (sorted iteration order), not whatever a QSet's
+    // hash-bucket order happens to visit first — see the sort added in
+    // classifyAutoFlowCalWindow() ahead of this loop.
+    void multipleFlowTargets_exactTieResolvesToLowerFrameIndex() {
+        QList<ProfileFrame> steps = {
+            flowFrame("pour A", 1.0),   // 0
+            flowFrame("pour B", 2.0),   // 1
+        };
+        QList<FrameTransition> transitions = {
+            {0.0, 0},
+            {5.0, 1},
+        };
+
+        // Window spans both frames. Mean machine flow 1.5 is exactly
+        // equidistant (0.5) from both 1.0 and 2.0.
+        auto cls = classifyAutoFlowCalWindow(steps, transitions,
+                                             0.0, 10.0, 1.5);
+
+        QVERIFY(!cls.fallbackToProfileScan);
+        QVERIFY(!cls.mixedMode);
+        QVERIFY(cls.isFlowProfile);
+        QCOMPARE(cls.targetFlow, 1.0);  // frame 0, the lower index
+    }
+
     // --- Per-profile store: what a WRITE does to the pending batch -----------
     //
     // The auto-cal path clears the batch itself before committing, so these cover
@@ -333,54 +359,74 @@ private slots:
 
     // --- Achieved-flow deviation check --------------------------------------
     //
-    // autoFlowCalWindowMissedTarget() decides whether a flow-classified window
+    // autoFlowCalWindowTargetCheck() decides whether a flow-classified window
     // gets reclassified to the pressure-branch formula because the pump didn't
     // reach the frame's target flow (e.g. a pressure-capped flow frame like
-    // D-Flow / D-Flow-Q — see Kulitorum/Decenza#1823). isFlowProfile flipping to
-    // false is the only effect in computeAutoFlowCalibration(); everything
-    // downstream (ratio guard basis, ideal formula) is the existing, already
-    // relied-upon pressure branch, unchanged by this fix.
+    // D-Flow / D-Flow-Q — see Kulitorum/Decenza#1823). It only ever triggers on
+    // UNDERSHOOT: a pressure ceiling can hold flow below its setpoint but has
+    // no mechanism to push flow above one, so overshoot is never reclassified
+    // regardless of magnitude (see flowWindowOvershootsTarget_neverReclassified
+    // below) — reclassifying it would route a window that may still be
+    // genuinely PID-locked through the pressure-branch formula's reported-flow
+    // denominator, reintroducing the v2 feedback-loop bug that formula exists
+    // to avoid for flow-controlled windows.
 
     // Target essentially achieved (1.4% deviation) — must NOT reclassify. This
     // is the common case: every window sampled on a real D-Flow/Q shot in this
     // repo's own dial-in history hit 99-101% of target.
     void flowWindowAchievesTarget_notReclassified() {
-        QVERIFY(!autoFlowCalWindowMissedTarget(1.825, 1.8, 0.10));
-        QVERIFY(!autoFlowCalWindowMissedTarget(1.69, 1.7, 0.10));
+        QVERIFY(!autoFlowCalWindowTargetCheck(1.825, 1.8, 0.10).missedTarget);
+        QVERIFY(!autoFlowCalWindowTargetCheck(1.69, 1.7, 0.10).missedTarget);
     }
 
-    // Target badly missed (37% deviation) — the exact #1823 shot538 numbers
-    // (meanMachineFlow=1.0688 against target=1.7). Must reclassify.
-    void flowWindowMissesTarget_reclassified() {
-        QVERIFY(autoFlowCalWindowMissedTarget(1.0688, 1.7, 0.10));
-    }
-
-    // Threshold boundary: clearly-inside deviation does not count as "missed";
-    // clearly-outside does, on both sides of target. (Not testing the exact
-    // 10.000...% tie itself — 2.20 - 2.00 isn't exactly representable as 0.20
+    // Threshold boundary on the undershoot side: clearly-inside deviation does
+    // not count as "missed"; clearly-outside does. (Not testing the exact
+    // 10.000...% tie itself — 1.80 - 2.00 isn't exactly representable as 0.20
     // in `double`, so an exact-boundary assertion is a floating-point trap,
-    // not a meaningful spec of the strict `>` comparison.)
+    // not a meaningful spec of the strict `>` comparison.) Also pins the
+    // returned `deviation` value, since the log line at the call site depends
+    // on it being the actual computed fraction, not a rounded/approximate one.
     void flowTargetDeviationThreshold_boundaryIsExclusive() {
-        QVERIFY(!autoFlowCalWindowMissedTarget(1.85, 2.00, 0.10));  // 7.5% low
-        QVERIFY(autoFlowCalWindowMissedTarget(1.75, 2.00, 0.10));   // 12.5% low
-        QVERIFY(!autoFlowCalWindowMissedTarget(2.15, 2.00, 0.10));  // 7.5% high
-        QVERIFY(autoFlowCalWindowMissedTarget(2.25, 2.00, 0.10));   // 12.5% high
+        auto under = autoFlowCalWindowTargetCheck(1.85, 2.00, 0.10);  // 7.5% low
+        QVERIFY(!under.missedTarget);
+        QVERIFY(qFuzzyCompare(under.deviation, 0.075));
+
+        auto over = autoFlowCalWindowTargetCheck(1.75, 2.00, 0.10);   // 12.5% low
+        QVERIFY(over.missedTarget);
+        QVERIFY(qFuzzyCompare(over.deviation, 0.125));
+    }
+
+    // Overshoot NEVER reclassifies, no matter how large — the defining
+    // asymmetry of this check. A pressure cap has no mechanism to push flow
+    // above target, so there's no pressure-cap explanation for an overshoot
+    // reading, and treating it as "missed target" would reintroduce the v2
+    // feedback loop (see class-level comment above).
+    void flowWindowOvershootsTarget_neverReclassified() {
+        QVERIFY(!autoFlowCalWindowTargetCheck(2.15, 2.00, 0.10).missedTarget);  // 7.5% high
+        QVERIFY(!autoFlowCalWindowTargetCheck(2.25, 2.00, 0.10).missedTarget);  // 12.5% high
+        QVERIFY(!autoFlowCalWindowTargetCheck(4.00, 2.00, 0.10).missedTarget);  // 100% high
     }
 
     // A non-positive target flow has nothing to compare against — must not
     // claim a deviation (and must not divide by zero).
     void flowTargetDeviation_nonPositiveTargetNeverMisses() {
-        QVERIFY(!autoFlowCalWindowMissedTarget(1.5, 0.0, 0.10));
-        QVERIFY(!autoFlowCalWindowMissedTarget(1.5, -1.0, 0.10));
+        auto zero = autoFlowCalWindowTargetCheck(1.5, 0.0, 0.10);
+        QVERIFY(!zero.missedTarget);
+        QCOMPARE(zero.deviation, 0.0);
+
+        auto negative = autoFlowCalWindowTargetCheck(1.5, -1.0, 0.10);
+        QVERIFY(!negative.missedTarget);
+        QCOMPARE(negative.deviation, 0.0);
     }
 
     // Reproduces the real 8-window batch from Kulitorum/Decenza#1823's attached
     // debug log for d_flow_20g_2_50_91 (target 1.7 ml/s throughout). 3 windows
-    // achieved target (shots 530, 536, 543 — 99-100%); 5 did not (shots 529,
-    // 531, 537, 538, 541 — 57-67%, the frame's pressure limiter holding the pump
-    // below target). At the 10% threshold, the predicate must split them exactly
-    // along that line — this is the empirical evidence the threshold was chosen
-    // from, pinned as a regression.
+    // achieved target (shots 530, 536, 543 — 99-100%, all slightly UNDER target
+    // so this data is unaffected by restricting the check to undershoot); 5 did
+    // not (shots 529, 531, 537, 538, 541 — 57-67%, the frame's pressure limiter
+    // holding the pump below target). At the 10% threshold, the check must
+    // split them exactly along that line — this is the empirical evidence the
+    // threshold was chosen from, pinned as a regression.
     void issue1823Batch_splitsTargetMetFromTargetMissed() {
         struct Window { double meanMachineFlow; bool expectMissed; };
         const QList<Window> windows = {
@@ -395,7 +441,7 @@ private slots:
         };
         constexpr double kTargetFlow = 1.7;
         for (const auto& w : windows) {
-            QCOMPARE(autoFlowCalWindowMissedTarget(w.meanMachineFlow, kTargetFlow, 0.10),
+            QCOMPARE(autoFlowCalWindowTargetCheck(w.meanMachineFlow, kTargetFlow, 0.10).missedTarget,
                      w.expectMissed);
         }
     }

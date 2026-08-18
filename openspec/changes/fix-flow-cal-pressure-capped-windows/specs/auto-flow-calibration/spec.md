@@ -40,11 +40,16 @@ be skipped as ambiguous.
 ### Requirement: Achieved-flow deviation check for flow-controlled windows
 For a window classified flow-controlled, the system SHALL compare the window's measured mean
 machine flow against the frame's target flow before choosing a calibration formula. If the
-measured flow deviates from target flow by more than the configured threshold, the system SHALL
-treat the window as pressure-capped and compute its ideal using the achieved-flow (pressure-branch)
-formula instead of the target-flow (flow-branch) formula. The system SHALL log which formula was
-used and the measured-vs-target flow values whenever a flow-classified window is re-routed this
-way, so the decision is diagnosable from a submitted debug log.
+measured flow falls short of (undershoots) target flow by more than the configured threshold, the
+system SHALL treat the window as pressure-capped and compute its ideal using the achieved-flow
+(pressure-branch) formula instead of the target-flow (flow-branch) formula. The check SHALL NOT
+trigger on overshoot (measured flow above target) regardless of magnitude — a pressure ceiling can
+only hold flow below its setpoint, never push it above, so an overshoot reading has no pressure-cap
+explanation, and reclassifying it would route a window that may still be genuinely flow-controlled
+through the achieved-flow formula's reported-flow denominator, risking the same feedback-loop
+failure mode that formula exists to avoid for flow-controlled windows. The system SHALL log which
+formula was used and the measured-vs-target flow values whenever a flow-classified window is
+re-routed this way, so the decision is diagnosable from a submitted debug log.
 
 #### Scenario: Flow-controlled window achieves its target flow
 - **WHEN** a window is classified flow-controlled and its measured mean machine flow is within the
@@ -52,13 +57,19 @@ way, so the decision is diagnosable from a submitted debug log.
 - **THEN** the system computes the ideal as `meanWeightFlow / (targetFlow * density)`, independent
   of the current calibration multiplier
 
-#### Scenario: Flow-controlled window does not achieve its target flow (pressure-capped)
-- **WHEN** a window is classified flow-controlled but its measured mean machine flow deviates from
+#### Scenario: Flow-controlled window undershoots its target flow (pressure-capped)
+- **WHEN** a window is classified flow-controlled but its measured mean machine flow falls short of
   the frame's target flow by more than the configured threshold — for example, because the frame's
   pressure limiter is holding the pump below its flow target
 - **THEN** the system computes the ideal using the pressure-branch formula
   (`currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`), using the flow actually
   achieved rather than the unattained target
+
+#### Scenario: Flow-controlled window overshoots its target flow
+- **WHEN** a window is classified flow-controlled and its measured mean machine flow exceeds the
+  frame's target flow by more than the configured threshold
+- **THEN** the system does NOT reclassify the window — it still computes the ideal as
+  `meanWeightFlow / (targetFlow * density)`, the same as a window that achieved target
 
 #### Scenario: Pressure-controlled window
 - **WHEN** a window is classified pressure-controlled

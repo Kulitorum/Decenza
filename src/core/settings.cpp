@@ -253,9 +253,11 @@ Settings::Settings(QObject* parent)
     // only the not-yet-applied accumulator is cleared, to stop it mixing ideals
     // computed under the old and new formula-selection logic in one median.
     if (!m_settings.contains("calibration/v4AchievedFlowFormulaReset")) {
-        m_calibration->clearAllFlowCalPendingIdeals();
+        if (!freshInstall) {
+            m_calibration->clearAllFlowCalPendingIdeals();
+            qDebug() << "Settings: Cleared pending flow-cal batches (v4 achieved-flow formula fix)";
+        }
         m_settings.setValue("calibration/v4AchievedFlowFormulaReset", true);
-        qDebug() << "Settings: Cleared pending flow-cal batches (v4 achieved-flow formula fix)";
     }
 
     // Migrate theme/customColors → theme/customColorsDark (one-time, for light/dark mode support)

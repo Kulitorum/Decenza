@@ -286,7 +286,11 @@ void SettingsCalibration::clearFlowCalPendingIdeals(const QString& profileFilena
 }
 
 void SettingsCalibration::clearAllFlowCalPendingIdeals() {
-    m_settings.setValue("calibration/flowCalBatch", QJsonDocument(QJsonObject()).toJson(QJsonDocument::Compact));
+    // No JSON round-trip needed: unlike perProfileFlow, flowCalBatch has no
+    // in-memory cache to keep in sync, and parseFlowCalBatch() already
+    // defaults a missing key to "{}" — removing the key is equivalent to
+    // writing an empty object, at lower cost.
+    m_settings.remove("calibration/flowCalBatch");
 }
 
 // SAW (Stop-at-Weight) learning
