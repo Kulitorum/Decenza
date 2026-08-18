@@ -201,8 +201,11 @@ public:
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId,
                                             bool* outBadgesPersisted = nullptr);
 
-    // Compute conductance, Darcy resistance, and conductance derivative
-    // from raw pressure/flow data for legacy shots that lack these fields.
+    // Compute resistance, conductance, Darcy resistance, and the conductance
+    // derivative from a shot's own raw pressure/flow data. Called
+    // unconditionally by decompressSampleData() on every load — these are
+    // pure functions of pressure/flow, not values to trust from storage. A
+    // no-op below 3 samples (leaves whatever was already in `record`).
     static void computeDerivedCurves(ShotRecord& record);
 
     // Compute per-phase summaries (avg pressure, flow, weight gained, etc.) from raw curves
@@ -563,7 +566,12 @@ private:
     // migrations; clears the legacy keys only after a successful commit.
     void importLegacyBeanPresets();
     QByteArray compressSampleData(ShotDataModel* shotData, const QString& phaseSummariesJson = QString());
-    static void decompressSampleData(const QByteArray& blob, ShotRecord* record);
+    // outCorrectedBlob (when non-null): set to a recompressed blob when the
+    // recomputed derived curves differ from what was stored, left empty
+    // (cleared) otherwise. Callers on a DB connection use this to self-heal
+    // shot_samples.data_blob — see loadShotRecordStatic.
+    static void decompressSampleData(const QByteArray& blob, ShotRecord* record,
+                                      QByteArray* outCorrectedBlob = nullptr);
     void updateTotalShots();
     QString buildFilterQuery(const ShotFilter& filter, QVariantList& bindValues);
     ShotFilter parseFilterMap(const QVariantMap& filterMap);

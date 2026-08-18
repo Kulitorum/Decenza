@@ -213,24 +213,15 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
     m_temperaturePoints.append(QPointF(time, temperature));
     m_temperatureMixPoints.append(QPointF(time, mixTemp));
 
-    // Resistance: pressure / flow (DSx2 formula), clamped to avoid spikes
-    // during phase transitions when flow is near zero
-    double resistance = 0.0;
-    if (flow > 0.05) {
-        resistance = qMin(pressure / flow, 15.0);
-    }
-    m_resistancePoints.append(QPointF(time, resistance));
-
-    // Conductance: F^2 / P (Darcy's law for laminar flow through porous media)
-    // Darcy Resistance: P / F^2 (inverse of conductance)
-    // Both clamped to 19 to match Visualizer.coffee convention.
-    // Conductance formula is shared with tools/shot_eval via Conductance::sample
-    // so per-sample production behavior and batch offline evaluation agree.
+    // Resistance (P/F), conductance (F²/P) and Darcy resistance (P/F², the
+    // inverse of conductance) all share their formulas with the load-time
+    // recompute in ShotHistoryStorage and with tools/shot_eval via the
+    // Conductance:: namespace, so per-sample production behavior, historical
+    // recompute and batch offline evaluation can never drift apart again.
+    const double resistance = Conductance::resistance(pressure, flow);
     const double conductance = Conductance::sample(pressure, flow);
-    double darcyResistance = 0.0;
-    if (flow > 0.05 && pressure > 0.05) {
-        darcyResistance = qMin(pressure / (flow * flow), 19.0);
-    }
+    const double darcyResistance = Conductance::darcyResistanceSample(pressure, flow);
+    m_resistancePoints.append(QPointF(time, resistance));
     m_conductancePoints.append(QPointF(time, conductance));
     m_darcyResistancePoints.append(QPointF(time, darcyResistance));
 

@@ -2168,8 +2168,11 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData, const
     return qCompress(json, 9);  // Max compression
 }
 
-void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord* record)
+void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord* record,
+                                               QByteArray* outCorrectedBlob)
 {
+    if (outCorrectedBlob) outCorrectedBlob->clear();
+
     QByteArray json = qUncompress(blob);
     if (json.isEmpty()) {
         qWarning() << "ShotHistoryStorage: Failed to decompress sample data";
@@ -2221,6 +2224,41 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
     if (root.contains("phaseSummaries")) {
         record->phaseSummariesJson = QString::fromUtf8(
             QJsonDocument(root["phaseSummaries"].toArray()).toJson(QJsonDocument::Compact));
+    }
+
+    // Resistance, conductance, Darcy resistance and the conductance derivative
+    // are pure functions of pressure/flow — recompute them unconditionally from
+    // this shot's own samples rather than trusting whatever formula produced the
+    // stored values (recompute-shot-curves-on-load). computeDerivedCurves()
+    // no-ops below 3 samples, leaving whatever was just parsed above untouched.
+    const QVector<QPointF> storedResistance = record->resistance;
+    const QVector<QPointF> storedConductance = record->conductance;
+    const QVector<QPointF> storedDarcyResistance = record->darcyResistance;
+    const QVector<QPointF> storedConductanceDerivative = record->conductanceDerivative;
+
+    computeDerivedCurves(*record);
+
+    auto curvesMatch = [](const QVector<QPointF>& a, const QVector<QPointF>& b) {
+        if (a.size() != b.size()) return false;
+        constexpr double kEpsilon = 1e-6;
+        for (qsizetype i = 0; i < a.size(); ++i) {
+            if (std::abs(a[i].x() - b[i].x()) > kEpsilon) return false;
+            if (std::abs(a[i].y() - b[i].y()) > kEpsilon) return false;
+        }
+        return true;
+    };
+
+    const bool curvesChanged = !curvesMatch(storedResistance, record->resistance)
+        || !curvesMatch(storedConductance, record->conductance)
+        || !curvesMatch(storedDarcyResistance, record->darcyResistance)
+        || !curvesMatch(storedConductanceDerivative, record->conductanceDerivative);
+
+    if (curvesChanged && outCorrectedBlob) {
+        root["resistance"] = pointsToJsonObject(record->resistance);
+        root["conductance"] = pointsToJsonObject(record->conductance);
+        root["darcyResistance"] = pointsToJsonObject(record->darcyResistance);
+        root["conductanceDerivative"] = pointsToJsonObject(record->conductanceDerivative);
+        *outCorrectedBlob = qCompress(QJsonDocument(root).toJson(QJsonDocument::Compact), 9);
     }
 }
 
@@ -3116,20 +3154,21 @@ void ShotHistoryStorage::computeDerivedCurves(ShotRecord& record)
     const qsizetype n = qMin(record.pressure.size(), record.flow.size());
     if (n < 3) return;
 
-    // Share the conductance + derivative formulas with ShotDataModel (live path)
-    // and shot_eval (offline) so all three agree on kernel / clamp / scaling.
+    // Resistance, conductance and Darcy resistance all share their formulas
+    // with ShotDataModel (live path) and shot_eval (offline) via the
+    // Conductance:: namespace, so every path agrees on threshold / clamp.
     record.conductance = Conductance::fromPressureFlow(record.pressure, record.flow);
 
-    // Darcy resistance (P/F²) isn't exposed via Conductance yet — retain the
-    // inline loop here; mirror the same thresholds and clamp the namespace uses.
+    record.resistance.clear();
+    record.resistance.reserve(n);
     record.darcyResistance.clear();
     record.darcyResistance.reserve(n);
     for (qsizetype i = 0; i < n; ++i) {
         const double p = record.pressure[i].y();
         const double f = record.flow[i].y();
-        double dr = 0.0;
-        if (f > 0.05 && p > 0.05) dr = qMin(p / (f * f), 19.0);
-        record.darcyResistance.append(QPointF(record.pressure[i].x(), dr));
+        record.resistance.append(QPointF(record.pressure[i].x(), Conductance::resistance(p, f)));
+        record.darcyResistance.append(
+            QPointF(record.pressure[i].x(), Conductance::darcyResistanceSample(p, f)));
     }
 
     record.conductanceDerivative = Conductance::derivative(record.conductance);
@@ -3359,21 +3398,30 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     const bool storedSkipFirstFrame = record.skipFirstFrameDetected;
     const bool storedPourTruncated = record.pourTruncatedDetected;
 
+    // decompressSampleData() always recomputes resistance/conductance/darcyResistance/
+    // conductanceDerivative from this shot's own pressure/flow (recompute-shot-curves-
+    // on-load) — so the badge-recompute block below can always assume
+    // conductanceDerivative is populated, for both legacy and current shots alike.
+    // When the recompute disagrees with what was stored, correctedBlob comes back
+    // non-empty and we persist it below on the same connection.
+    QByteArray correctedBlob;
     if (query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?")) {
         query.bindValue(0, shotId);
         if (query.exec() && query.next()) {
             QByteArray blob = query.value(0).toByteArray();
-            decompressSampleData(blob, &record);
+            decompressSampleData(blob, &record, &correctedBlob);
         }
     }
 
-    // On-the-fly computation of derived curves for legacy shots that lack them.
-    // Empty conductance = pre-migration-10 shot (the column was added in migration 10);
-    // derive it now so the badge-recompute block below can always assume
-    // conductanceDerivative is populated for the channeling check.
-    bool needsDerivedCurves = record.conductance.isEmpty() && !record.pressure.isEmpty();
-    if (needsDerivedCurves) {
-        computeDerivedCurves(record);
+    if (!correctedBlob.isEmpty()) {
+        QSqlQuery curveUpd(db);
+        curveUpd.prepare("UPDATE shot_samples SET data_blob = ? WHERE shot_id = ?");
+        curveUpd.bindValue(0, correctedBlob);
+        curveUpd.bindValue(1, shotId);
+        if (!curveUpd.exec()) {
+            qWarning() << "ShotHistoryStorage::loadShotRecordStatic: derived-curve persist"
+                          " failed for shot" << shotId << curveUpd.lastError();
+        }
     }
 
     if (query.prepare("SELECT time_offset, label, frame_number, is_flow_mode, transition_reason "

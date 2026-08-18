@@ -22,6 +22,25 @@ inline double sample(double pressureBar, double flowMlS)
     return c < 19.0 ? c : 19.0;
 }
 
+// Puck resistance R = P / F (DSx2 formula), clamped to 15. Returns 0 when
+// flow is essentially zero — pressure alone is not gated here, matching the
+// live per-sample path this mirrors.
+inline double resistance(double pressureBar, double flowMlS)
+{
+    if (flowMlS <= 0.05) return 0.0;
+    const double r = pressureBar / flowMlS;
+    return r < 15.0 ? r : 15.0;
+}
+
+// Darcy resistance R = P / F² (inverse of conductance), clamped to 19.
+// Returns 0 when either P or F is essentially zero.
+inline double darcyResistanceSample(double pressureBar, double flowMlS)
+{
+    if (flowMlS <= 0.05 || pressureBar <= 0.05) return 0.0;
+    const double r = pressureBar / (flowMlS * flowMlS);
+    return r < 19.0 ? r : 19.0;
+}
+
 // Build a time-aligned conductance series from pressure and flow series.
 // Samples are paired by index — callers must ensure the two series share the
 // same time axis (true for both ShotDataModel and visualizer payloads).
