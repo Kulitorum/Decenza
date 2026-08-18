@@ -22,87 +22,122 @@ Group 6 is destructive and needs explicit confirmation before it runs.
 
 ## 2. Bump the Qt version
 
-- [ ] 2.1 `.github/workflows/windows-release.yml`: `version: '6.11.1'` → `'6.11.2'`; sccache key
+- [x] 2.1 `.github/workflows/windows-release.yml`: `version: '6.11.1'` → `'6.11.2'`; sccache key
       `sccache-windows-x64-qt6.11.1-vs2026` → `…-qt6.11.2-vs2026`; update the two OpenSSL comments
       that name 6.11.1 (:111, :144).
-- [ ] 2.2 `macos-release.yml`, `linux-release.yml`, `linux-arm64-release.yml`: `version:` → `'6.11.2'`.
-- [ ] 2.3 `ios-release.yml`: `version:` → `'6.11.2'`; update the prebuilt-binary comments at :55-62
-      that name 6.11.1. Re-check whether the Xcode 26.4.1 pin is still needed against 6.11.2's
-      binaries — record the answer either way rather than leaving the pin unexamined.
-- [ ] 2.4 `android-release.yml`: `env.QT_VERSION` → `'6.11.2'`; gradle cache keys
-      `gradle-android-qt6.11.1-*` → `qt6.11.2`. Confirm the NDK revision Qt's toolchain file
-      resolves is unchanged (it should be — patch release), and that `java-version: '17'` still
-      matches what 6.11.2 requires.
-- [ ] 2.5 `nightly-sanitizers.yml`: `version:` → `'6.11.2'`.
-- [ ] 2.6 `CMakeLists.txt:214`: update the "Qt 6.11.1 was built for iOS 17.0" comment. The iOS
+- [x] 2.2 `macos-release.yml`, `linux-release.yml`, `linux-arm64-release.yml`: `version:` → `'6.11.2'`.
+- [x] 2.3 `ios-release.yml`: `version:` → `'6.11.2'`; prebuilt-binary comments rewritten. **The
+      Xcode 26.4.1 pin is kept and the comment now says why**: the libc++ ABI mismatch was observed
+      against 6.11.1's binaries and has *not* been re-tested against 6.11.2. A patch release is
+      built by the same toolchain against the same libc++, so dropping the pin on a version-number
+      inference would be a guess. Task 7.9's iOS CI build is what could answer it; the comment tells
+      a future reader to read the link step rather than infer.
+- [x] 2.4 `android-release.yml`: `env.QT_VERSION` → `'6.11.2'`; gradle cache keys
+      `gradle-android-qt6.11.1-*` → `qt6.11.2`. NDK unchanged: the revision is read out of Qt's own
+      `qt.toolchain.cmake` at run time, and the hardcoded fallback (`27.2.12479018`) is already
+      labelled "Qt 6.11.x", which 6.11.2 is. `java-version: '17'` unchanged: JDK 21 is a Qt 6.12
+      requirement, not a 6.11 one.
+- [x] 2.5 `nightly-sanitizers.yml`: `version:` → `'6.11.2'`.
+- [x] 2.6 `CMakeLists.txt:214`: update the "Qt 6.11.1 was built for iOS 17.0" comment. The iOS
       deployment target itself stays at 17.0 — 6.11.2 does not move it.
-- [ ] 2.7 Grep the tree for any remaining `6.11.1` outside `openspec/changes/archive/` and the four
-      dated source comments listed in task 5.4, and confirm each remaining hit is deliberate.
+- [x] 2.7 Swept. Every remaining `6.11.1` is deliberate: 12 dated source comments (see 5.4), five
+      dated doc measurements (5.5), the `upgrade-qt-6-12` change's own text, and
+      `openspec/specs/build-config/spec.md` — which is rewritten by `openspec archive`, never by
+      hand. The sweep also caught one file the task list had missed: `openspec/config.yaml`'s
+      tech-stack line, now 6.11.2.
 
 ## 3. Delete `android/qt-overrides/`
 
-- [ ] 3.1 Delete `android/qt-overrides/` entirely: `arm64-v8a/libplugins_platforms_qtforandroid_arm64-v8a.so`,
+- [x] 3.1 Delete `android/qt-overrides/` entirely: `arm64-v8a/libplugins_platforms_qtforandroid_arm64-v8a.so`,
       `Qt6Android.jar`, `BUILT_AGAINST_QT`, `README.md`.
-- [ ] 3.2 Remove the override step from `android-release.yml` (≈:186-215), including the
+- [x] 3.2 Remove the override step from `android-release.yml` (≈:186-215), including the
       `BUILT_AGAINST_QT` version-lock guard it contains. Confirm no later step in that workflow
       references `OVERRIDE`, `JAR_OVERRIDE` or `BUILT_AGAINST_FILE`.
-- [ ] 3.3 Remove the reference to `android/qt-overrides/` in the `CMakeLists.txt` qmllint block
-      comment (≈:1823) — it is deleted with that block in group 4, so verify rather than edit twice.
-- [ ] 3.4 Confirm no workflow step writes into `$QT_ROOT_DIR` any more, on any platform. This is the
-      `build-config` spec's "A Qt upgrade lands" scenario and it is the one that keeps a package from
-      being built out of a mixture of Qt versions.
+- [x] 3.3 The `android/qt-overrides/` reference in the `CMakeLists.txt` qmllint block comment
+      (≈:1823) is deleted along with that whole block in task 4.2 — verified, not edited twice. Also
+      rewrote the `env.QT_VERSION` comment in `android-release.yml`, which described the ABI lock
+      and the override step that no longer exist.
+- [x] 3.4 Confirm no workflow step *substitutes* a file in `$QT_ROOT_DIR`. Verified: every remaining
+      use is read-only (`qt-cmake`, `macdeployqt`, toolchain-file reads) **except** the Linux and
+      Linux-arm64 "Remove problematic Qt plugins" steps, which `rm -f` unused SQL/image/position
+      plugins before `linuxdeploy`. Those are legitimate and stay — deleting a stock file cannot
+      introduce a foreign Qt version, which is what the rule is actually about. The spec scenario
+      was worded as "overwrites a file inside the installed Qt tree", which those `rm` lines
+      contradict; it has been corrected to say *replace with one built elsewhere*, with the Linux
+      trim named as permitted. `actionlint` on all seven workflows: 113 issues before and after, all
+      pre-existing info-level SC2086.
 
 ## 4. Delete the qmllint bundle and the skip mechanism
 
-- [ ] 4.1 Delete `tools/qmllint-macos/` (7 files, 5.1 MB) including the bundled
+- [x] 4.1 Delete `tools/qmllint-macos/` (7 files, 5.1 MB) including the bundled
       `QtQmlCompiler.framework`.
-- [ ] 4.2 `CMakeLists.txt`: delete the staging / `install_name_tool` / `codesign` / `--version`-proof
+- [x] 4.2 `CMakeLists.txt`: delete the staging / `install_name_tool` / `codesign` / `--version`-proof
       block (≈:1810-1870), the `QMLLINT_SKIP_UNLINTABLE` option and its `_qmllint_skip_default`
       computation, and the stale-cache `STATUS` message. Keep the `find_program(QMLLINT_EXECUTABLE)`
       lookup beside Qt's `bin/` and the gate target itself.
-- [ ] 4.3 `CMakeLists.txt`: rewrite the surviving comment block. It currently explains a two-mode
+- [x] 4.3 `CMakeLists.txt`: rewrite the surviving comment block. It currently explains a two-mode
       gate, cites "221 of 222", and names the Gerrit change as an expiry condition — all three are
       now historical. Say what the gate does in one mode, and drop the numbers that were only
       meaningful as a comparison between modes.
-- [ ] 4.4 `scripts/qmllint_report.py`: delete `UNLINTABLE_BY_TOOL_BUG`, the `--skip-unlintable`
-      argument, the `CustomItem.qml` entry in the per-file table, the stock-tool detection block
-      (≈:947-975), the `--update-baseline` refusal that exists only for partial runs, and the
-      complete-run/partial-run ceiling reconciliation (≈:82, :208, :247-271, :776, :813, :849).
-      Keep every check that is about a run *failing* — exit status, file-count coverage, the refusal
-      to lower a count from an unfinished run.
-- [ ] 4.5 `.github/workflows/nightly-sanitizers.yml` (≈:429-437): delete the `QMLLINT_SKIP_UNLINTABLE`
+- [x] 4.4 `scripts/qmllint_report.py`: 1117 → 897 lines. Deleted `UNLINTABLE_BY_TOOL_BUG`,
+      `UNLINTABLE_CATEGORY_CONTRIBUTION`, `effective_ceilings()`,
+      `check_unlintable_contribution()`, the `--skip-unlintable` argument and its
+      `--update-baseline` refusal, the stock-tool path-sniffing refusal block, the `skipped`
+      parameter threaded through `run()` / `cmd_check()` / `cmd_report()`, and the partial-run
+      epilogue. `find_qmllint()`'s hardcoded paths moved to 6.11.2; the timeout message now says a
+      timeout on 6.11.2+ is something new and must not be answered by excluding the file.
+      **Kept, deliberately:** the non-zero-exit check, the `--from-raw` truncation guard, the
+      staleness refusals, and `check_accounting()`. Unused `shlex` import removed with the block
+      that used it.
+      **One over-cut caught and fixed:** the `unlisted` failure loop — a `.qml` that left
+      `qt_add_qml_module` must FAIL the gate — sat inside the comment block being removed and went
+      with it. Restored.
+- [x] 4.5 `.github/workflows/nightly-sanitizers.yml` (≈:429-437): delete the `QMLLINT_SKIP_UNLINTABLE`
       explanation. Keep the `ninja -t targets all | grep -q '^qmllint_check:'` guard — that is the
       green-while-blind check and it is unrelated to skipping.
-- [ ] 4.6 Confirm `scripts/qmllint_report.py` still reports the analysed file count and still fails
-      when it does not equal the number of `.qml` files in `qt_add_qml_module`. If that check does
-      not exist today, add it — it is the `qml-diagnostics` spec's "Every file is analysed" scenario
-      and it is what replaces the deleted skip bookkeeping.
+- [x] 4.6 Coverage is now asserted rather than assumed, in two places. `run()` hard-fails if the
+      response file's list and the accounted list differ in length — they used to be allowed to
+      diverge because a skip filtered each separately, and that divergence is exactly a coverage
+      hole (counted-but-not-linted records as clean). And the gate's pass line now prints the
+      analysed count next to its verdict, so "clean: 222/222 (222 file(s) analysed, the whole
+      module)" is checkable by a reader instead of implied. The pre-existing `unlisted` check
+      covers the other direction, on-disk-but-not-in-module.
 
 ## 5. Documentation
 
-- [ ] 5.1 `CLAUDE.md`: Qt version → 6.11.2; `C:/Qt/6.11.1/msvc2022_64` → `6.11.2`;
-      `~/Qt/6.11.1/Src` → `~/Qt/6.11.2/Src` (it exists — verified).
-- [ ] 5.2 `README.md`: badge `Qt-6.11.1+` → `Qt-6.11.2+`; the "Select **Qt 6.11.1** or newer"
+- [x] 5.1 `CLAUDE.md`: Qt version, Windows path and `~/Qt/6.11.2/Src` bumped. Also replaced the
+      **qtbase checkout** bullet, which pointed at a directory this change deletes and named
+      `~/Qt/6.11.1/Src` as the reference tree, with two bullets: no local Qt contribution checkout
+      (clone fresh from Gerrit), and Decenza ships stock Qt with source-only patches in
+      `docs/qt-patches/`.
+- [x] 5.2 `README.md`: badge `Qt-6.11.1+` → `Qt-6.11.2+`; the "Select **Qt 6.11.1** or newer"
       install step.
-- [ ] 5.3 `docs/CLAUDE_MD/PLATFORM_BUILD.md` (6 paths), `TESTING.md` (3 `CMAKE_PREFIX_PATH` lines),
+- [x] 5.3 `docs/CLAUDE_MD/PLATFORM_BUILD.md` (6 paths), `TESTING.md` (3 `CMAKE_PREFIX_PATH` lines),
       `BUILD_PERFORMANCE.md`, `PERFORMANCE_BASELINE.md`, `QML_GOTCHAS.md`, `docs/IOS_CI_SETUP.md`,
       `docs/IOS_CI_FOR_CLAUDE.md`.
-- [ ] 5.4 Leave the four dated "verified against Qt 6.11.1" source comments unchanged
+- [x] 5.4 Leave the dated "verified against Qt 6.11.1" source comments unchanged — there are
+      **12**, not the four this task first named (`src/core/dbutils.h`, `contextsingletons_qml.h`,
+      `markdownrenderer.{h,cpp}`, `ble/blemanager.h`, `ble/scales/decentscalewifi.cpp`,
+      `network/shotserver.h`, `ui/jscanvaspainteritem.cpp`, `qml/Theme.qml` ×2,
+      `DecenzaActivity.java`, `scripts/qml_qualify.py`). Same reasoning at any count
       (`qml/Theme.qml:314`, `:421`, `src/core/markdownrenderer.h:14`,
       `android/src/…/DecenzaActivity.java:83`). They record an observation on a version; rewriting
       the version without re-observing makes them false. Add nothing; this task is to confirm they
       were not swept up by a global replace.
-- [ ] 5.5 `docs/CLAUDE_MD/BUILD_PERFORMANCE.md` / `PERFORMANCE_BASELINE.md`: the measurements are
+- [x] 5.5 `docs/CLAUDE_MD/BUILD_PERFORMANCE.md` / `PERFORMANCE_BASELINE.md`: the measurements are
       labelled "Qt 6.11.1" as the conditions they were taken under. Do not relabel them — mark them
       as pre-6.11.2 measurements instead, same reasoning as 5.4.
-- [ ] 5.6 `CLAUDE.local.md` (Jeff's, uncommitted, not in the PR): the whole "QML diagnostics gate —
-      one file needs a PATCHED qmllint" section is obsolete, as is the `~/Qt/6.11.1` reference and
-      the `Qt_6_11_1_for_macOS_Debug` build-dir names. Flag it for hand-editing; do not commit it.
-- [ ] 5.7 `openspec/changes/upgrade-qt-6-12/proposal.md`: add a note that its "Android accessibility
+- [x] 5.6 `CLAUDE.local.md`: edited in place rather than merely flagged — stale local notes are a
+      trap, and it is `.git/info/exclude`d so the edit cannot be committed (verified with
+      `git check-ignore`). The ~60-line "one file needs a PATCHED qmllint" section is replaced by a
+      short account of why it is gone, keeping the one lesson that outlived it (a file the linter
+      never reached counts as clean). Build-dir names updated to `Qt_6_11_2_for_macOS_Debug`, with
+      the Initial-Configuration check from task 6.7 recorded next to them.
+- [x] 5.7 `openspec/changes/upgrade-qt-6-12/proposal.md`: add a note that its "Android accessibility
       overrides" section and its ADDED "Patched Qt Platform Artifacts Are Version-Locked"
       requirement are superseded — `android/qt-overrides/` no longer exists as of this change. Do not
       rewrite that change; it starts after 6.12 GA and is otherwise unaffected.
-- [ ] 5.8 No wiki manual entry. Nothing here is user-visible: no feature, no UI, no behaviour change,
+- [x] 5.8 No wiki manual entry. Nothing here is user-visible: no feature, no UI, no behaviour change,
       and no platform minimum moves. Recorded so the omission is a decision rather than an oversight.
 
 ## 6. Reclaim local disk (destructive)

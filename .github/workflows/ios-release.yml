@@ -51,15 +51,21 @@ jobs:
       - name: Pin Xcode to 26.4.1 (matches developer's local libc++ ABI)
         run: |
           # macos-26's default Xcode (26.2) ships a libc++ revision that
-          # doesn't include the [abi:ue170006] unstable-ABI symbols Qt
-          # 6.11.1's prebuilt iOS binaries reference (qtshadertools,
+          # doesn't include the [abi:ue170006] unstable-ABI symbols Qt's
+          # prebuilt iOS binaries reference (qtshadertools,
           # libQt6BundledSpirv_Cross). Result: link fails with
           #   Undefined symbols: std::length_error::length_error[abi:ue170006]
           #   ... vtable for spirv_cross::CompilerError ...
           #
+          # Observed against 6.11.1's binaries. NOT re-tested against 6.11.2:
+          # a patch release is built by the same toolchain against the same
+          # libc++, so the pin is kept rather than speculatively dropped. If a
+          # future run wants to remove it, drop the pin on a branch and read
+          # the link step — do not infer it from the version number alone.
+          #
           # Xcode 26.4.1 (Apple clang 21.0.0 build 2100.0.123.102) ships the
           # matching libc++ revision and is the version the developer builds
-          # with locally on macOS 26.4 — same Qt 6.11.1 binaries link cleanly
+          # with locally on macOS 26.4 — the same Qt binaries link cleanly
           # there. The macos-26 runner image has 26.4.1 installed alongside
           # the default 26.2 with full iOS platform support (iOS 26.4 SDK +
           # simulator runtimes per the runner readme).
@@ -77,7 +83,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.11.1'
+          version: '6.11.2'
           target: 'ios'
           arch: 'ios'
           modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtimageformats qtcanvaspainter'

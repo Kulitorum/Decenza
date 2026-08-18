@@ -46,7 +46,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shlex
 import subprocess
 import tempfile
 import sys
@@ -79,9 +78,11 @@ BASELINE = REPO / "qml-diagnostics-baseline.json"
 # error instead of a plausible-looking number. Correcting a measurement is the ONE reason a
 # ceiling may go up; a genuine regression is never it.
 #
-# These are COMPLETE-RUN numbers. A --skip-unlintable run enforces them minus what the skipped
-# files contribute (UNLINTABLE_CATEGORY_CONTRIBUTION / effective_ceilings), because a ceiling that
-# still includes files the run never read is an allowance, not a ceiling.
+# These are whole-tree numbers, and there is only one kind of run: every file in the module,
+# every time. A mode that lints a subset and enforces adjusted ceilings used to exist and was
+# deleted with the Qt 6.11.2 upgrade — a ceiling that covers files the run never read is an
+# allowance, not a ceiling, and keeping the two honest against each other cost more than the
+# subset mode was ever worth.
 CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Each entry is a ceiling, not a budget.
     #
@@ -186,92 +187,6 @@ IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # reason, rather than by re-introducing the mechanism.
 NOT_IN_MODULE_BY_DESIGN: set[str] = set()
 
-# Files a RELEASED qmllint cannot analyse at all — not "slowly", not "with false positives",
-# but never finishing. Dropped from the run only when --skip-unlintable is passed, which is for
-# CI; a developer with a fixed qmllint lints them like anything else and the baseline holds
-# their real numbers. Each entry names the upstream fix, so the entry has an expiry condition
-# rather than becoming permanent by inattention.
-#
-# This is the one place where the gate knowingly looks at less than the whole tree, so it is a
-# flag and a named set rather than something inferred: a run that silently analysed fewer files
-# than it was asked to is the exact failure this script was rewritten to make impossible.
-UNLINTABLE_BY_TOOL_BUG: dict[str, str] = {
-    "qml/components/layout/items/CustomItem.qml":
-        "QQmlJSTypeResolver::merge() is exponential, so qmllint 6.11.1 reaches a 313 GB "
-        "footprint on this file and is OOM-killed. Fixed by "
-        "https://codereview.qt-project.org/c/qt/qtdeclarative/+/755657 — delete this entry "
-        "once CI's Qt carries it.",
-}
-
-# What each of those files contributes to CATEGORY_EXEMPTIONS, measured with a PATCHED qmllint
-# that can finish them. Without this the gate has slack exactly where it is least noticed:
-# the ceilings above are full-tree numbers, CI runs with --skip-unlintable, and the difference
-# is a free allowance for a regression to hide in. Subtracting the recorded contribution makes
-# the skipped run's ceilings as tight as the complete run's.
-#
-# Kept honest in both directions. A full run re-measures these files and hard-errors if the table
-# has drifted (check_unlintable_contribution), so the numbers cannot quietly go stale while the
-# skip-mode ceilings depend on them. `unqualified` is absent on purpose — it is never a category
-# exemption, it is enforced per file, and a skipped file simply has no ceiling checked that run.
-UNLINTABLE_CATEGORY_CONTRIBUTION: dict[str, dict[str, int]] = {
-    # 4 -> 0. All four were duck-typed hops through `Window.window` — three
-    # `typeof win.goToScreensaver === "function"` probes and one `win.openBrewSettings` —
-    # now AppShell signals. The entry stays with an empty contribution rather than being
-    # deleted: the file is still in UNLINTABLE_BY_TOOL_BUG, and a future warning in it must
-    # be recorded here deliberately rather than by re-adding a mapping someone removed.
-    "qml/components/layout/items/CustomItem.qml": {},
-}
-
-
-def effective_ceilings(skipped: set[str]) -> dict[str, int]:
-    """CATEGORY_EXEMPTIONS, less what the skipped files would have contributed."""
-    ceilings = dict(CATEGORY_EXEMPTIONS)
-    for f in skipped:
-        for cat, n in UNLINTABLE_CATEGORY_CONTRIBUTION.get(f, {}).items():
-            if cat in ceilings:
-                ceilings[cat] = max(0, ceilings[cat] - n)
-    return ceilings
-
-
-def check_unlintable_contribution(per_file_category: dict[str, Counter],
-                                  skipped: set[str], live: bool) -> None:
-    """On a COMPLETE run, verify the recorded contribution of the unlintable files.
-
-    Only a run that actually analysed them can say what they contribute, and only that number
-    makes the skipped run's ceilings correct. So the complete run is where the table is checked —
-    a stale entry here silently loosens every CI run, which is the shape of failure this whole
-    script is built against.
-
-    `live` is required because "analysed and found nothing" and "never analysed" produce the same
-    empty result, and only a run this process launched knows which it was. Replaying a capture
-    taken with --skip-unlintable would otherwise report the table stale with `observed: {}` — a
-    confident, wrong failure pointing at a correct table. Verified: it did exactly that before
-    this parameter existed.
-    """
-    if not live:
-        # Say so rather than passing quietly. A check that silently declines to run is how the
-        # first version of this gate reported 218/218 clean over nothing.
-        if any(f not in skipped for f in UNLINTABLE_BY_TOOL_BUG):
-            print("note: --from-raw cannot verify UNLINTABLE_CATEGORY_CONTRIBUTION; a capture "
-                  "does not record which files were passed to qmllint. Re-run live to check it.",
-                  file=sys.stderr)
-        return
-    for f in UNLINTABLE_BY_TOOL_BUG:
-        if f in skipped:
-            continue  # this run did not analyse it; it has nothing to say about the table
-        observed = {c: n for c, n in per_file_category.get(f, Counter()).items()
-                    if c in CATEGORY_EXEMPTIONS}
-        recorded = UNLINTABLE_CATEGORY_CONTRIBUTION.get(f, {})
-        if observed != recorded:
-            sys.exit(
-                f"UNLINTABLE_CATEGORY_CONTRIBUTION for {f} is stale.\n"
-                f"  recorded: {recorded or '{}'}\n"
-                f"  observed: {observed or '{}'}\n"
-                f"Update the table in scripts/qmllint_report.py. Until you do, every "
-                f"--skip-unlintable run enforces the wrong category ceilings."
-            )
-
-
 def relative_to_repo(path: str) -> str:
     """Normalise a path qmllint printed (or Qt's response file listed) to a repo-relative key.
 
@@ -288,8 +203,8 @@ def relative_to_repo(path: str) -> str:
 
 def find_qmllint() -> str:
     for c in (
-        Path.home() / "Qt/6.11.1/macos/bin/qmllint",
-        Path("C:/Qt/6.11.1/msvc2022_64/bin/qmllint.exe"),
+        Path.home() / "Qt/6.11.2/macos/bin/qmllint",
+        Path("C:/Qt/6.11.2/msvc2022_64/bin/qmllint.exe"),
     ):
         if c.exists():
             return str(c)
@@ -371,7 +286,7 @@ def files_from_response(rsp: Path) -> list[str]:
 
 
 def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
-        raw_out: str | None, batch: int, timeout: int, skip: set[str]) -> str:
+        raw_out: str | None, batch: int, timeout: int) -> str:
     """Lint the tree and return everything qmllint printed. Aborts rather than under-report.
 
     IN BATCHES, NOT ONE PROCESS, because qmllint 6.11.1 leaks on this corpus: measured at about
@@ -395,13 +310,19 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
         flags, all_files = split_response(rsp)
     else:
         flags, all_files = ["-I", import_path], list(files)
-    # The response file names sources absolutely and is the authority on what gets linted, so a
-    # skip has to be applied HERE and not only to the caller's list — filtering `files` alone
-    # would drop the file from the accounting while still handing it to qmllint, which is the
-    # worst of both.
-    if skip:
-        all_files = [f for f in all_files if relative_to_repo(f) not in skip]
 
+    # Coverage is now unconditional, so assert it rather than assume it. `files` and `all_files`
+    # are both derived from the response file and must name the same set: what gets ACCOUNTED and
+    # what gets LINTED. They used to be allowed to differ — a skip filtered one, and the other had
+    # to be filtered in the same breath or the file was handed to qmllint while being dropped from
+    # the counts. That mechanism is gone, and this is what replaces it: any future divergence is a
+    # coverage hole, and a file that is counted but never linted records as clean.
+    if rsp and len(all_files) != len(files):
+        sys.exit(
+            f"internal: the response file lists {len(all_files)} file(s) but {len(files)} are "
+            f"being accounted for. These must match — a file linted but not counted is invisible, "
+            f"and a file counted but not linted records as clean."
+        )
     out_path = Path(raw_out) if raw_out else Path(tempfile.gettempdir()) / "qmllint_raw.txt"
     size = batch if batch > 0 else len(all_files)
     chunks = [all_files[i:i + size] for i in range(0, len(all_files), size)]
@@ -426,13 +347,12 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
                 sys.exit(
                     f"qmllint exceeded {timeout}s on batch {n}/{len(chunks)} "
                     f"({chunk[0] if len(chunk) == 1 else f'{len(chunk)} files from {chunk[0]}'}).\n"
-                    f"This is a known qmllint bug, not a hung machine: merge() in "
-                    f"QQmlJSTypeResolver is exponential, and qml/components/layout/items/"
-                    f"CustomItem.qml crosses the threshold — stock qmllint 6.11.1 reaches a "
-                    f"313 GB footprint and is OOM-killed on it.\n"
-                    f"Either lint with a fixed qmllint (--qmllint <path>, or "
-                    f"-DQMLLINT_EXECUTABLE=<path>), or pass --skip-unlintable to exclude the "
-                    f"files listed in UNLINTABLE_BY_TOOL_BUG and check the rest of the tree."
+                    f"Historically this was a qmllint bug rather than a hung machine: merge() in "
+                    f"QQmlJSRegisterContent was tree-recursive, and one layout item drove the "
+                    f"linter to a 313 GB footprint and an OOM kill. Qt 6.11.2 memoizes it "
+                    f"(Gerrit 757430), so a timeout on 6.11.2 or later is something new.\n"
+                    f"Report it and name the file. Do NOT respond by excluding the file: a file "
+                    f"the linter never reached emits no warnings and records as clean."
                 )
             fh.flush()
             # ANY non-zero exit is a failed run, not a finding. Measured on qmllint 6.11.1:
@@ -704,15 +624,9 @@ def check_registry_fresh(import_path: str) -> None:
         )
 
 
-def cmd_report(state: dict, categories: Counter, unqualified: dict, files: list[str],
-               skipped: set[str]) -> int:
+def cmd_report(state: dict, categories: Counter, unqualified: dict, files: list[str]) -> int:
     total_unq = sum(sum(c.values()) for c in unqualified.values())
     print(f"QML files: {len(files)}")
-    # Every total below is a total OF THE FILES LINTED. Saying so on the same screen as the
-    # numbers, rather than only in a note on stderr that a redirect would drop.
-    if skipped:
-        print(f"NOT LINTED ({len(skipped)}, this qmllint cannot finish them): "
-              f"{', '.join(sorted(skipped))}")
     print(f"clean (zero unqualified): {len(state['clean'])}  |  dirty: {len(state['ceilings'])}\n")
     print("by category:")
     for cat, n in categories.most_common():
@@ -729,16 +643,12 @@ def cmd_report(state: dict, categories: Counter, unqualified: dict, files: list[
     return 0
 
 
-def cmd_check(state: dict, skipped: set[str], unlisted: list[str] | None = None) -> int:
+def cmd_check(state: dict, unlisted: list[str] | None = None) -> int:
     if not BASELINE.exists():
         sys.exit(f"No baseline at {BASELINE}. Run with --update-baseline first.")
     base = json.loads(BASELINE.read_text())
     failures: list[str] = []
 
-    # A skipped file produced no diagnostics because it was never linted, so every comparison
-    # against its baseline entry would read as an improvement. Drop it from the baseline side
-    # too. Note this can only ever weaken the gate, never fire it: nothing below can fail
-    # because a file was skipped.
     # A .qml that left qt_add_qml_module is neither bundled nor linted. It vanishes from
     # `files`, so every per-file check below silently passes and `improved` counts its whole
     # former ceiling — the gate would print "N improvement(s) ... run --update-baseline" and
@@ -750,8 +660,8 @@ def cmd_check(state: dict, skipped: set[str], unlisted: list[str] | None = None)
             f"deliberate."
         )
 
-    base_clean = set(base["clean"]) - skipped
-    base_ceilings = {f: n for f, n in base["ceilings"].items() if f not in skipped}
+    base_clean = set(base["clean"])
+    base_ceilings = dict(base["ceilings"])
     now_ceilings = state["ceilings"]
 
     # A file on the clean list must stay at zero. This is the rule that would have caught #1661.
@@ -773,10 +683,8 @@ def cmd_check(state: dict, skipped: set[str], unlisted: list[str] | None = None)
             failures.append(f"{f}: unqualified rose {limit} -> {now}.")
 
     # Every other category is enforced globally, against the hand-edited block above rather
-    # than against anything the baseline file regenerates. On a --skip-unlintable run the limits
-    # are tightened by what the skipped files would have contributed, so a partial run does not
-    # hand out an allowance the size of the files it did not read.
-    ceilings = effective_ceilings(skipped)
+    # than against anything the baseline file regenerates.
+    ceilings = CATEGORY_EXEMPTIONS
     for cat, n in sorted(state["observed_categories"].items()):
         if cat == "unqualified":
             continue
@@ -787,10 +695,7 @@ def cmd_check(state: dict, skipped: set[str], unlisted: list[str] | None = None)
                 f"existing backlog, not for admitting a new one."
             )
         elif n > ceilings[cat]:
-            adjusted = ("" if ceilings[cat] == CATEGORY_EXEMPTIONS[cat]
-                        else f" (exemption {CATEGORY_EXEMPTIONS[cat]}, less what the skipped "
-                             f"file(s) contribute)")
-            failures.append(f"category '{cat}' rose {ceilings[cat]} -> {n}.{adjusted}")
+            failures.append(f"category '{cat}' rose {ceilings[cat]} -> {n}.")
 
     if failures:
         print("QML diagnostics gate FAILED:\n")
@@ -802,18 +707,12 @@ def cmd_check(state: dict, skipped: set[str], unlisted: list[str] | None = None)
         )
         return 1
 
-    print(f"QML diagnostics gate passed. clean: {len(state['clean'])}/{len(state['clean']) + len(now_ceilings)}")
-    if skipped:
-        # Everything below tells the reader a count has FALLEN and should be locked in. None of
-        # it can be said from a partial run: the missing files took their diagnostics with them,
-        # so a category that "fell" may not have moved at all. Ratcheting the baseline down on
-        # that would hand the next complete run a limit nobody's code ever met.
-        print(
-            f"{len(skipped)} file(s) skipped ({', '.join(sorted(skipped))}), so this run cannot "
-            f"say whether any count improved. Re-run without --skip-unlintable to find out."
-        )
-        return 0
-
+    # State the coverage on the same line as the verdict. "clean: 222/222" is the number a
+    # reader checks against the module's file count; a gate that passed over fewer files than the
+    # module contains has not passed, and the only way anyone notices is if the count is printed.
+    analysed = len(state["clean"]) + len(now_ceilings)
+    print(f"QML diagnostics gate passed. clean: {len(state['clean'])}/{analysed} "
+          f"({analysed} file(s) analysed, the whole module)")
     # Warnings removed. A file that went 90 -> 0 counts 90 here; an earlier version added 1
     # more for it having left the ceilings map, double-counting every fully-cleared file.
     improved = sum(
@@ -846,8 +745,7 @@ def main() -> int:
                          "re-count is worth avoiding.")
     ap.add_argument("--timeout", type=int, default=600,
                     help="seconds before a qmllint process is treated as hung (default 600). "
-                         "A released qmllint never finishes this tree unless --skip-unlintable "
-                         "is also passed; see run().")
+                         "The whole tree takes ~11 s on qmllint 6.11.2; see run().")
     ap.add_argument("--batch", type=int, default=0,
                     help="files per qmllint process; 0 (the default) means one process for the "
                          "whole tree, which is how Qt's own Decenza_qmllint target runs it. "
@@ -862,11 +760,6 @@ def main() -> int:
                     help="permit --update-baseline to write a HIGHER ceiling for a file, or move "
                          "one off the clean list. Relaxing the gate, so it is never implicit; "
                          "record the reason in the change's bugs-found.md.")
-    ap.add_argument("--skip-unlintable", action="store_true",
-                    help="drop the files in UNLINTABLE_BY_TOOL_BUG from the run. For a qmllint "
-                         "that cannot finish them at all (CI, until the upstream fix ships); a "
-                         "developer with a fixed qmllint should not pass this, and "
-                         "--update-baseline refuses it.")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--report", action="store_true", help="human-readable summary (default)")
     g.add_argument("--check", action="store_true", help="gate: fail on regression")
@@ -876,18 +769,10 @@ def main() -> int:
     if args.from_raw and args.update_baseline:
         sys.exit(
             "--update-baseline refuses --from-raw. Captured output carries no proof of how it "
-            "was produced: a raw file from a --skip-unlintable run promotes every skipped file "
-            "into the clean list and locks it at zero, and the staleness check cannot run "
-            "against it either. Regenerate the baseline from a live run."
+            "was produced: a truncated capture promotes every unreached file into the clean "
+            "list and locks it at zero, and the staleness check cannot run against it either. "
+            "Regenerate the baseline from a live run."
         )
-    if args.skip_unlintable and args.update_baseline:
-        sys.exit(
-            "--update-baseline refuses --skip-unlintable. The baseline records what every file "
-            "in the module measures; writing it from a run that omitted files would drop their "
-            "entries, and the next complete run would then see them as new files carrying a "
-            "backlog. Regenerate the baseline with a qmllint that can lint the whole tree."
-        )
-
     if args.allow_stale and args.update_baseline:
         sys.exit(
             "--update-baseline refuses --allow-stale. Those two together are precisely how the "
@@ -931,83 +816,6 @@ def main() -> int:
             f"argument list, which may not match how the module is really compiled.",
             file=sys.stderr,
         )
-    # After the unlisted check, which is about the module definition and must still see the file,
-    # and before anything that counts.
-    skipped = sorted(set(files) & set(UNLINTABLE_BY_TOOL_BUG)) if args.skip_unlintable else []
-    if skipped:
-        files = [f for f in files if f not in set(skipped)]
-        print(
-            f"note: skipping {len(skipped)} file(s) this qmllint cannot analyse:\n"
-            + "".join(f"  {f}\n    {UNLINTABLE_BY_TOOL_BUG[f]}\n" for f in skipped),
-            file=sys.stderr,
-        )
-
-    # Refuse the run that cannot succeed, instead of discovering it ten minutes in.
-    #
-    # A released qmllint cannot finish the UNLINTABLE_BY_TOOL_BUG files — it grows to hundreds of
-    # gigabytes and is OOM-killed, which on a laptop takes the desktop down with it. Only a local
-    # build carrying the Gerrit fix can, and the two are indistinguishable by --version. (Not undetectable in principle — running
-    # one against the problem file tells you within ten minutes, which is the cost being avoided.)
-    #
-    # So the test is WHERE the binary lives, not whether --qmllint was passed. An earlier version
-    # of this guard used the flag as a proxy for intent and was dead on the path that matters:
-    # both CMake targets pass --qmllint unconditionally, filled in by find_program() from Qt's own
-    # bin/. Under `cmake -DQMLLINT_SKIP_UNLINTABLE=OFF` with QMLLINT_EXECUTABLE left at that
-    # default, the stock binary would still be handed CustomItem.qml with nothing said.
-    #
-    # Keying on the path works for both entry points because CLAUDE.local.md requires the patched
-    # build to stay in its own tree: copying it into ~/Qt breaks qmlimportscanner's code signature
-    # and with it the whole Decenza build. A binary under a Qt install is therefore a stock one.
-    if not args.from_raw:
-        effective = args.qmllint or find_qmllint()
-        looks_stock = any(
-            str(Path(effective).resolve()).startswith(str(root))
-            for root in (Path.home() / "Qt", Path("C:/Qt"), Path("/opt/Qt"), Path("/usr/lib/qt6"))
-        )
-        blocked = sorted(set(files) & set(UNLINTABLE_BY_TOOL_BUG)) if looks_stock else []
-        if blocked:
-            # Rebuild the command without anything this message is about to re-add, so both
-            # suggestions are runnable rather than self-contradictory: --update-baseline plus
-            # --skip-unlintable is a combination the script refuses outright a few lines up, and a
-            # mode flag or --qmllint left in here would simply appear twice. Every mode goes, not
-            # just --update-baseline: each suggestion below supplies its own.
-            drop_flags = {"--check", "--report", "--update-baseline", "--skip-unlintable"}
-            base = []
-            skip_next = False
-            for a in sys.argv[1:]:
-                if skip_next:
-                    skip_next = False
-                    continue
-                if a in drop_flags:
-                    continue
-                # --qmllint takes a value; drop both halves, in either spelling.
-                if a == "--qmllint":
-                    skip_next = True
-                    continue
-                if a.startswith("--qmllint="):
-                    continue
-                base.append(a)
-            invocation = f"python3 {sys.argv[0]}"
-            quoted = " ".join(shlex.quote(a) for a in base)
-            sys.exit(
-                "refusing to start: this run includes {n} file(s) that a released qmllint cannot "
-                "analyse, and {which}:\n{detail}\n"
-                "It would climb to hundreds of GB and be OOM-killed after roughly ten minutes, "
-                "having written nothing.\n\n"
-                "Lint the whole tree with a patched build:\n"
-                "  {inv} {rest} --update-baseline --qmllint <path-to-patched-qmllint>\n\n"
-                "or skip those files, which reports but cannot rewrite the baseline — a partial "
-                "run must never ratchet it:\n"
-                "  {inv} {rest} --check --skip-unlintable".format(
-                    n=len(blocked),
-                    which=(f"the binary is {effective}, which sits inside a Qt install"
-                           if args.qmllint else "no --qmllint was given, so the binary is Qt's own"),
-                    detail="".join(f"  {f}\n    {UNLINTABLE_BY_TOOL_BUG[f]}\n" for f in blocked),
-                    inv=invocation,
-                    rest=quoted,
-                )
-            )
-
     if args.from_raw:
         output = Path(args.from_raw).read_text(errors="replace")
         # Guard the exact failure that produced this option: output covering only part of the
@@ -1038,14 +846,13 @@ def main() -> int:
             )
     else:
         output = run(args.qmllint or find_qmllint(), import_path, files, rsp,
-                     args.raw_out, args.batch, args.timeout, set(skipped))
-    categories, unqualified, _, per_file_category = parse(output)
+                     args.raw_out, args.batch, args.timeout)
+    categories, unqualified, _, _ = parse(output)
     check_accounting(output, sum(categories.values()))
-    check_unlintable_contribution(per_file_category, set(skipped), live=not args.from_raw)
     state = build_state(categories, unqualified, files)
 
     if args.check:
-        return cmd_check(state, set(skipped), unlisted)
+        return cmd_check(state, unlisted)
     if args.update_baseline:
         # A ceiling that RISES is the one edit this file exists to resist, and until now
         # --update-baseline wrote it without comment — the same keystroke that records a genuine
@@ -1109,7 +916,7 @@ def main() -> int:
         if drops:
             print(f"lowered {drops} ceiling(s).")
         return 0
-    return cmd_report(state, categories, unqualified, files, set(skipped))
+    return cmd_report(state, categories, unqualified, files)
 
 
 if __name__ == "__main__":

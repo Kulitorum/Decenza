@@ -29,11 +29,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Single source of truth for the Qt version. The patched platform plugin in
-  # android/qt-overrides/ is ABI-locked to it — bumping this without rebuilding
-  # the override is caught by the override step, which compares this against
-  # android/qt-overrides/BUILT_AGAINST_QT and fails the build.
-  QT_VERSION: '6.11.1'
+  # Single source of truth for the Qt version. Nothing in this workflow writes
+  # into the installed Qt tree any more: Decenza ships stock Qt binaries, so a
+  # bump here is just a bump. The patched platform plugin that used to live in
+  # android/qt-overrides/ was deleted with the move to 6.11.2, which carries
+  # both of its accessibility fixes upstream; the one fix it carried that is
+  # still not upstream is kept as source only, in docs/qt-patches/.
+  QT_VERSION: '6.11.2'
 
 jobs:
   build-android:
@@ -131,9 +133,9 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-android-qt6.11.1-${{ hashFiles('android/build.gradle') }}
+          key: gradle-android-qt6.11.2-${{ hashFiles('android/build.gradle') }}
           restore-keys: |
-            gradle-android-qt6.11.1-
+            gradle-android-qt6.11.2-
 
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content
@@ -178,70 +180,6 @@ jobs:
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > $RUNNER_TEMP/keystore.jks
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/keystore.jks" >> $GITHUB_ENV
-
-      # Quoted: an unquoted '#' after whitespace starts a YAML comment, which
-      # silently truncated this step name in the Actions UI.
-      - name: "Override Qt Android platform plugin (a11y #1300, EGL crash #1663)"
-        run: |
-          # Patched qtforandroid plugin fixing QTBUG-118858 (TalkBack typing echo),
-          # QTBUG-145786 (keyboard-on-focus), and QTBUG-140490/QTBUG-144207 (qFatal
-          # abort on a contended deadlock protector during surface re-create — the
-          # top source of Android crash reports). See android/qt-overrides/README.md.
-          # No-op until the .so is committed; ABI-locked to the Qt version above —
-          # rebuild or remove on any Qt bump.
-          OVERRIDE="android/qt-overrides/arm64-v8a/libplugins_platforms_qtforandroid_arm64-v8a.so"
-          DEST="$QT_ROOT_DIR/plugins/platforms/libplugins_platforms_qtforandroid_arm64-v8a.so"
-          JAR_OVERRIDE="android/qt-overrides/Qt6Android.jar"
-          JAR_DEST="$QT_ROOT_DIR/jar/Qt6Android.jar"
-
-          # Both overrides are built from one qtbase source tree and are only valid
-          # for the exact Qt they came from — the .so links against Qt private
-          # symbols, and the jar is the stock jar with classes swapped in. Shipping
-          # a stale one produces an APK that dies at startup for every user, and
-          # nothing downstream would notice. So refuse to build rather than warn.
-          if [ -f "$OVERRIDE" ] || [ -f "$JAR_OVERRIDE" ]; then
-            BUILT_AGAINST_FILE="android/qt-overrides/BUILT_AGAINST_QT"
-            if [ ! -f "$BUILT_AGAINST_FILE" ]; then
-              echo "::error::$BUILT_AGAINST_FILE missing — cannot prove the overrides match Qt $QT_VERSION. Rebuild them (see android/qt-overrides/README.md) or delete android/qt-overrides/."
-              exit 1
-            fi
-            BUILT_AGAINST="$(tr -d '[:space:]' < "$BUILT_AGAINST_FILE")"
-            if [ "$BUILT_AGAINST" != "$QT_VERSION" ]; then
-              echo "::error::Qt overrides were built against Qt $BUILT_AGAINST but this build uses Qt $QT_VERSION. They are version-locked and would crash at startup. Rebuild from the matching Qt source, or delete android/qt-overrides/ if upstream has fixed the bugs (see README.md)."
-              exit 1
-            fi
-            echo "Qt overrides validated against Qt $QT_VERSION."
-          fi
-
-          if [ -f "$OVERRIDE" ]; then
-            if [ ! -f "$DEST" ]; then
-              echo "::error::Stock plugin not found at $DEST — Qt layout changed; refusing to ship unverified override."
-              exit 1
-            fi
-            echo "Replacing stock Android platform plugin with patched build:"
-            ls -l "$OVERRIDE" "$DEST"
-            cp -f "$OVERRIDE" "$DEST"
-            echo "Override applied."
-          else
-            echo "No plugin override present — using stock Qt platform plugin."
-          fi
-
-          # The accessibility Java classes (QtAccessibilityDelegate /
-          # QtAccessibilityInterface / QtNativeAccessibility) live in Qt6Android.jar,
-          # NOT the .so. The typing-echo path needs both halves, so override the jar
-          # too (stock jar with only the patched a11y classes swapped in).
-          if [ -f "$JAR_OVERRIDE" ]; then
-            if [ ! -f "$JAR_DEST" ]; then
-              echo "::error::Stock Qt6Android.jar not found at $JAR_DEST — Qt layout changed; refusing to ship unverified override."
-              exit 1
-            fi
-            echo "Replacing stock Qt6Android.jar with patched a11y build:"
-            ls -l "$JAR_OVERRIDE" "$JAR_DEST"
-            cp -f "$JAR_OVERRIDE" "$JAR_DEST"
-            echo "Jar override applied."
-          else
-            echo "No a11y jar override present — using stock Qt6Android.jar."
-          fi
 
       - name: Configure CMake
         run: |

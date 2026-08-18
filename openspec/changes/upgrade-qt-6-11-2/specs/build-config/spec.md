@@ -81,8 +81,13 @@ the fix lives.
 
 #### Scenario: A Qt upgrade lands
 - **WHEN** the pinned Qt version changes
-- **THEN** no step in any workflow overwrites a file inside the installed Qt tree, so a bump cannot
-  produce a package built from a mismatched mixture of Qt versions
+- **THEN** no step in any workflow SHALL replace a file in the installed Qt tree with one built
+  elsewhere, so a bump cannot produce a package assembled from a mixture of Qt versions
+- **AND** *removing* a stock Qt file for packaging reasons is explicitly permitted — the Linux and
+  Linux-arm64 workflows delete unused SQL, image-format and position plugins before `linuxdeploy`
+  runs, because those plugins pull external dependencies an AppImage cannot satisfy. Deleting a
+  file cannot introduce a foreign version; substituting one can. The rule is about provenance, not
+  about the Qt tree being read-only
 
 ### Requirement: A Version Bump Records What It Inherits
 A change that moves the pinned Qt version SHALL record which upstream fixes it is relying on, with

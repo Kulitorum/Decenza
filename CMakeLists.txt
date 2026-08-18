@@ -211,7 +211,7 @@ if(ANDROID)
 endif()
 
 if(IOS)
-    # Qt 6.11.1 was built for iOS 17.0
+    # Qt 6.11.2 was built for iOS 17.0
     set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
     # Fix Qt/Foundation header conflict by compiling all C++ as Objective-C++
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
@@ -1764,16 +1764,20 @@ add_dependencies(Decenza validate_kb)
 #
 # This block used to say the opposite — "deliberately NOT part of the default
 # build ... a full-tree qmllint run takes minutes". That was never measured. It is
-# 11.1 s on a 2023 MacBook Pro with the stock Qt qmllint (221/221 files, the default
-# QMLLINT_SKIP_UNLINTABLE path), 10.8 s for all 222 with the patched binary, and 14 s
-# on a CI runner. At that price there is no reason a developer should have to remember
-# to ask: the whole point of a gate at zero is that a regression is visible the moment
-# it is written, not the next night on main.
+# ~11 s for the whole tree on a 2023 MacBook Pro and ~14 s on a CI runner. At that
+# price there is no reason a developer should have to remember to ask: the whole
+# point of a gate at zero is that a regression is visible the moment it is written,
+# not the next night on main.
 #
-# The default deliberately does NOT require the patched qmllint. Skipping the one file
-# released 6.11.1 cannot finish still checks 221 of 222, and the script names the file
-# and its upstream fix on every run, so the gap is stated rather than hidden. A gate
-# that only works if you first build your own Qt tool is a gate nobody runs.
+# One mode, one number: every file in the module, on every platform, with the qmllint
+# that ships beside the pinned Qt. Until Qt 6.11.2 this was not possible —
+# QQmlJSRegisterContent::merge() was tree-recursive and one layout item drove the
+# released linter to a 313 GB footprint and an OOM kill, so the project carried a
+# patched binary on macOS and skipped that file everywhere else. 6.11.2 memoizes the
+# merge (Gerrit 757430), so the stock tool finishes it. If a future Qt ever
+# reintroduces such a file, state the gap and FAIL — do not add a skip flag. A file
+# the linter never reached emits no warnings and therefore reads as clean, which is
+# the one failure mode this gate cannot survive.
 #
 # It does NOT re-run on every build. The work is a custom command producing a
 # stamp, so ninja/make skip it entirely when nothing it reads has changed — a
@@ -1805,114 +1809,11 @@ find_program(QMLLINT_EXECUTABLE
     DOC "qmllint from the Qt build this project targets"
 )
 
-# On macOS, prefer the patched qmllint bundled in tools/qmllint-macos/ — it is the only one
-# that can analyse qml/components/layout/items/CustomItem.qml, so Mac developers get 222/222
-# instead of 221/222 and never see a skip. See that directory's README for the Qt bug, the
-# provenance of the binaries and how to rebuild them.
-#
-# The tracked copy carries ONE rpath, @executable_path/../lib, so it never contains a
-# developer's home directory. It cannot run as-is: it still needs QtQml/QtNetwork/QtCore,
-# which live wherever this machine's Qt is. So the bundle is STAGED into the build dir and
-# the local Qt lib path is added there. Rewriting the tracked copy in place would dirty the
-# working tree on every configure.
-set(_qmllint_bundle "${CMAKE_SOURCE_DIR}/tools/qmllint-macos")
-if(APPLE AND NOT IOS AND EXISTS "${_qmllint_bundle}/bin/qmllint")
-    # ABI lock. These binaries are Qt 6.11.1 and nothing checks that at load time — a
-    # mismatched QtQmlCompiler against a different QtQml is undefined behaviour, not a clean
-    # error. Degrade to the stock tool rather than risk it. Same liability as
-    # android/qt-overrides/; the README says to delete the directory once Qt carries the fix.
-    # Qt6_VERSION, not QT_VERSION: the latter only exists under the
-    # `find_package(QT NAMES Qt6 Qt5)` idiom, which this project does not use (line 82 is a
-    # direct find_package(Qt6)). Comparing against the undefined QT_VERSION would have made
-    # this branch always warn and never use the bundle.
-    if(NOT Qt6_VERSION VERSION_EQUAL "6.11.1")
-        message(WARNING
-            "tools/qmllint-macos/ is built against Qt 6.11.1 but this build uses "
-            "${Qt6_VERSION}. Falling back to the stock qmllint, which cannot analyse "
-            "CustomItem.qml — QML diagnostics will cover 221 of 222 files. Rebuild or "
-            "delete the bundle: see tools/qmllint-macos/README.md.")
-    else()
-        set(_qmllint_staged "${CMAKE_BINARY_DIR}/qmllint-macos")
-        file(REMOVE_RECURSE "${_qmllint_staged}")
-        file(COPY "${_qmllint_bundle}/bin" "${_qmllint_bundle}/lib"
-             DESTINATION "${_qmllint_staged}")
-        # install_name_tool invalidates the signature it edits, and an arm64 Mach-O with a
-        # broken signature does not execute at all — the re-sign is required, not tidiness.
-        execute_process(
-            COMMAND install_name_tool -add_rpath "${_qt_bin_dir}/../lib"
-                    "${_qmllint_staged}/bin/qmllint"
-            COMMAND_ECHO NONE ERROR_QUIET)
-        execute_process(
-            COMMAND codesign -f -s - "${_qmllint_staged}/bin/qmllint"
-            COMMAND_ECHO NONE ERROR_QUIET)
-        # Prove it before trusting it: a bundle that cannot resolve its libraries fails here,
-        # at configure time with a readable message, rather than as a mystery gate failure.
-        execute_process(
-            COMMAND "${_qmllint_staged}/bin/qmllint" --version
-            RESULT_VARIABLE _qmllint_bundle_ok
-            OUTPUT_QUIET ERROR_QUIET)
-        if(_qmllint_bundle_ok EQUAL 0)
-            set(QMLLINT_EXECUTABLE "${_qmllint_staged}/bin/qmllint" CACHE FILEPATH
-                "qmllint from the Qt build this project targets" FORCE)
-            set(_qmllint_bundled_ok TRUE)
-        else()
-            message(WARNING
-                "tools/qmllint-macos/bin/qmllint staged to ${_qmllint_staged} but will not "
-                "run (exit ${_qmllint_bundle_ok}) — falling back to the stock qmllint, which "
-                "covers 221 of 222 files. See tools/qmllint-macos/README.md.")
-        endif()
-    endif()
-endif()
-
-# qmllint 6.11.1 cannot analyse every file in this tree. QQmlJSTypeResolver::merge() is
-# exponential, and one layout item crosses the threshold: the linter grows to a 313 GB
-# footprint and is OOM-killed after ~10 minutes rather than reporting anything. So the
-# default here is to SKIP that file (the script names it, and says so on every run) —
-# a target that hangs a CI runner is worse than one that checks 221 of 222 files and
-# admits it.
-#
-# Turn this OFF when qmllint carries the upstream fix
-# (https://codereview.qt-project.org/c/qt/qtdeclarative/+/755657), which is also when the
-# whole option should be deleted:
-#
-#     cmake -DQMLLINT_EXECUTABLE=<fixed qmllint> -DQMLLINT_SKIP_UNLINTABLE=OFF <dir>
-#
-# It cannot be inferred from QMLLINT_EXECUTABLE — pointing at another binary says nothing
-# about whether that binary is patched — so it is an explicit switch.
-#
-# The default is ON everywhere EXCEPT where the bundled patched qmllint is in use, because
-# there the reason to skip does not exist: that binary finishes the file in ~11 s along with
-# everything else. Defaulting it ON there would ship the workaround and then not use the fix.
-if(_qmllint_bundled_ok)
-    set(_qmllint_skip_default OFF)
-else()
-    set(_qmllint_skip_default ON)
-endif()
-option(QMLLINT_SKIP_UNLINTABLE
-    "Exclude files a released qmllint cannot finish (see UNLINTABLE_BY_TOOL_BUG in scripts/qmllint_report.py)"
-    ${_qmllint_skip_default})
-
-# option() only sets a default on the FIRST configure, so a build dir created before the
-# bundle existed keeps ON and silently stays at 221/222. Say so rather than let it look like
-# full coverage; the fix is one cache edit, not a reconfigure.
-if(_qmllint_bundled_ok AND QMLLINT_SKIP_UNLINTABLE)
-    message(STATUS
-        "QMLLINT_SKIP_UNLINTABLE is ON but the patched qmllint in tools/qmllint-macos/ can "
-        "lint the whole tree. This build checks 221 of 222 files; set "
-        "-DQMLLINT_SKIP_UNLINTABLE=OFF for 222.")
-endif()
-if(QMLLINT_SKIP_UNLINTABLE)
-    set(_qmllint_skip --skip-unlintable)
-else()
-    set(_qmllint_skip "")
-endif()
-
 if(QMLLINT_EXECUTABLE)
     add_custom_target(qmllint_check
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/scripts/qmllint_report.py
             --check
-            ${_qmllint_skip}
             --qmllint ${QMLLINT_EXECUTABLE}
             --import-path ${CMAKE_BINARY_DIR}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -1923,7 +1824,6 @@ if(QMLLINT_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/scripts/qmllint_report.py
             --report
-            ${_qmllint_skip}
             --qmllint ${QMLLINT_EXECUTABLE}
             --import-path ${CMAKE_BINARY_DIR}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -1959,7 +1859,6 @@ if(QMLLINT_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/scripts/qmllint_report.py
             --check
-            ${_qmllint_skip}
             --qmllint ${QMLLINT_EXECUTABLE}
             --import-path ${CMAKE_BINARY_DIR}
         COMMAND ${CMAKE_COMMAND} -E touch "${_qmllint_stamp}"

@@ -17,10 +17,10 @@ Tests are **auto-enabled in Debug builds** (single-config generators like Ninja/
 
 ```bash
 # Debug build — tests included automatically
-cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.11.1/macos -DCMAKE_BUILD_TYPE=Debug ..
+cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.11.2/macos -DCMAKE_BUILD_TYPE=Debug ..
 
 # Release build — tests off by default, opt-in with:
-cmake -DBUILD_TESTS=ON -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.11.1/macos -DCMAKE_BUILD_TYPE=Release ..
+cmake -DBUILD_TESTS=ON -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.11.2/macos -DCMAKE_BUILD_TYPE=Release ..
 
 # Run all tests — in parallel (the suite is parallel-safe; see below)
 ctest --output-on-failure -j$(nproc) --repeat until-pass:3   # macOS: -j$(sysctl -n hw.ncpu)
@@ -51,7 +51,7 @@ Debug builds instrument automatically (see below). To run an explicit instrument
 ```bash
 # Separate build dir — sanitized objects don't mix with your normal build
 mkdir build-ubsan && cd build-ubsan
-cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.11.1/macos -DCMAKE_BUILD_TYPE=Release \
+cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.11.2/macos -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_TESTS=ON -DENABLE_UBSAN=ON ..
 ninja
 

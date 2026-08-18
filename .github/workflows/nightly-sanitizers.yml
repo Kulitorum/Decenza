@@ -126,7 +126,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.11.1'
+          version: '6.11.2'
           target: 'desktop'
           arch: 'linux_gcc_64'
           modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtserialport qtimageformats qtcanvaspainter'
@@ -429,10 +429,11 @@ jobs:
             echo "::error::qmllint_check target absent — qmllint was not found next to Qt's bin/ at configure time, so the QML diagnostics gate did NOT run."
             exit 1
           fi
-          # QMLLINT_SKIP_UNLINTABLE defaults ON, which is what CI needs: released
-          # qmllint 6.11.1 is OOM-killed on qml/components/layout/items/CustomItem.qml
-          # after ~10 minutes at a 313 GB footprint. The script prints what it skipped
-          # and refuses to update the baseline from a partial run.
+          # One mode, whole tree. The released qmllint used to be OOM-killed on
+          # qml/components/layout/items/CustomItem.qml, so CI ran with a skip flag and
+          # checked 221 of 222 files; Qt 6.11.2 fixes that (Gerrit 757430) and the skip
+          # mechanism was deleted with the upgrade. The gate prints the analysed count
+          # on the same line as its verdict — read it.
           ninja qmllint_check
 
       - name: Run tests under sanitizer

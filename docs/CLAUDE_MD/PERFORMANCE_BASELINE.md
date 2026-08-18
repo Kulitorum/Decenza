@@ -114,7 +114,7 @@ Do not reuse old measurements from before the Qt 6.11.1 upgrade — that upgrade
 Copy this block into the Stage 1 PR description (or into a comment on the migration tracking issue) when the runs complete:
 
 ```
-Hardware: Samsung SM-X210, Decenza <git-sha>, Qt 6.11.1
+Hardware: Samsung SM-X210, Decenza <git-sha>, Qt <version actually built against>
 Profile: decenza-default, real DE1, real puck
 
 | Metric                          | Qt Charts (pre) | Qt Graphs (post) | Δ           |
