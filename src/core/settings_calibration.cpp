@@ -285,6 +285,10 @@ void SettingsCalibration::clearFlowCalPendingIdeals(const QString& profileFilena
     m_settings.setValue("calibration/flowCalBatch", QJsonDocument(map).toJson(QJsonDocument::Compact));
 }
 
+void SettingsCalibration::clearAllFlowCalPendingIdeals() {
+    m_settings.setValue("calibration/flowCalBatch", QJsonDocument(QJsonObject()).toJson(QJsonDocument::Compact));
+}
+
 // SAW (Stop-at-Weight) learning
 
 // Returns average lag for display in QML settings (calculated from stored drip/flow)

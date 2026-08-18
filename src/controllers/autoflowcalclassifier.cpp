@@ -114,3 +114,15 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
 
     return result;
 }
+
+bool autoFlowCalWindowMissedTarget(
+    double meanMachineFlow,
+    double targetFlow,
+    double thresholdFraction) {
+
+    if (targetFlow <= 0.0) {
+        return false;
+    }
+    double deviation = qAbs(meanMachineFlow - targetFlow) / targetFlow;
+    return deviation > thresholdFraction;
+}

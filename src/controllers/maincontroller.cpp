@@ -3092,6 +3092,11 @@ void MainController::computeAutoFlowCalibration() {
     const int fwBuild = m_device ? m_device->firmwareBuildNumber() : 0;
     const double kCalibrationMax = (fwBuild >= kFirmwareCapBumped) ? 2.7 : 1.8;
     constexpr double kChangeThreshold = 0.03;        // 3% relative change required to update
+    // A flow-controlled window whose measured mean flow deviates from the
+    // frame's target by more than this is treated as pressure-capped rather
+    // than genuinely flow-controlled — see autoFlowCalWindowMissedTarget()
+    // and Kulitorum/Decenza#1823.
+    constexpr double kFlowTargetDeviationThreshold = 0.10;
     constexpr double kMaxSampleRatio = 2.5;          // per-sample machine/weight ratio — break window on extreme outliers
     constexpr double kMinSampleRatio = 0.4;          // (generous bounds: window-level check is tighter)
     constexpr double kMaxWindowRatio = 1.35;         // window-mean machine/weight ratio — reject if scale data is suspect
@@ -3337,6 +3342,28 @@ void MainController::computeAutoFlowCalibration() {
                  << ".." << cls.lastFrameInWindow << "]"
                  << (isFlowProfile ? QString("target=%1 ml/s").arg(profileTargetFlow)
                                    : QString());
+    }
+
+    // Achieved-flow deviation check. A flow-controlled frame can carry a
+    // pressure ceiling (D-Flow, D-Flow/Q, similar) — when the puck's
+    // resistance would need more pressure than that ceiling to hold target
+    // flow, the DE1 caps pressure and flow falls below target for the rest
+    // of the frame. The flow-branch formula below assumes target was
+    // achieved; dividing by an unattained target manufactures an ideal that
+    // measures nothing about sensor accuracy (Kulitorum/Decenza#1823).
+    // Reclassify such windows as pressure-controlled for formula-selection
+    // purposes only: the achieved-flow (pressure-branch) formula and its
+    // ratio guard below already correctly handle "pump was constrained below
+    // its setpoint", regardless of which setpoint did the constraining.
+    if (isFlowProfile && autoFlowCalWindowMissedTarget(
+            meanMachineFlow, profileTargetFlow, kFlowTargetDeviationThreshold)) {
+        double deviation = qAbs(meanMachineFlow - profileTargetFlow) / profileTargetFlow;
+        qDebug() << "Auto flow cal: flow window missed target — measured"
+                 << meanMachineFlow << "ml/s vs target" << profileTargetFlow << "ml/s"
+                 << "(" << (deviation * 100.0) << "% deviation, threshold"
+                 << (kFlowTargetDeviationThreshold * 100.0) << "%)"
+                 << "— treating as pressure-capped, using achieved-flow formula";
+        isFlowProfile = false;
     }
 
     // Window-level ratio sanity check. For flow profiles, compare weight flow

@@ -244,6 +244,20 @@ Settings::Settings(QObject* parent)
         qDebug() << "Settings: Reset all flow calibrations to 1.0 (v3 flow profile feedback loop fix)";
     }
 
+    // One-time clear of pending flow-cal batches only — NOT a full reset like v2/v3
+    // above. The v3 formula assumed a flow-controlled frame always achieves its
+    // target flow; on a pressure-capped flow frame (D-Flow, D-Flow/Q) it often
+    // doesn't, producing a bad ideal for that window (Kulitorum/Decenza#1823).
+    // Unlike v2/v3, this doesn't mean the STORED multipliers are wrong — the batch
+    // median's outlier rejection already partially absorbed the bad windows — so
+    // only the not-yet-applied accumulator is cleared, to stop it mixing ideals
+    // computed under the old and new formula-selection logic in one median.
+    if (!m_settings.contains("calibration/v4AchievedFlowFormulaReset")) {
+        m_calibration->clearAllFlowCalPendingIdeals();
+        m_settings.setValue("calibration/v4AchievedFlowFormulaReset", true);
+        qDebug() << "Settings: Cleared pending flow-cal batches (v4 achieved-flow formula fix)";
+    }
+
     // Migrate theme/customColors → theme/customColorsDark (one-time, for light/dark mode support)
     if (m_settings.contains("theme/customColors") && !m_settings.contains("theme/customColorsDark")) {
         m_settings.setValue("theme/customColorsDark", m_settings.value("theme/customColors"));

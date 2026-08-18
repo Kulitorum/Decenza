@@ -331,6 +331,114 @@ private slots:
         cal->clearProfileFlowCalibration(profile);
     }
 
+    // --- Achieved-flow deviation check --------------------------------------
+    //
+    // autoFlowCalWindowMissedTarget() decides whether a flow-classified window
+    // gets reclassified to the pressure-branch formula because the pump didn't
+    // reach the frame's target flow (e.g. a pressure-capped flow frame like
+    // D-Flow / D-Flow-Q — see Kulitorum/Decenza#1823). isFlowProfile flipping to
+    // false is the only effect in computeAutoFlowCalibration(); everything
+    // downstream (ratio guard basis, ideal formula) is the existing, already
+    // relied-upon pressure branch, unchanged by this fix.
+
+    // Target essentially achieved (1.4% deviation) — must NOT reclassify. This
+    // is the common case: every window sampled on a real D-Flow/Q shot in this
+    // repo's own dial-in history hit 99-101% of target.
+    void flowWindowAchievesTarget_notReclassified() {
+        QVERIFY(!autoFlowCalWindowMissedTarget(1.825, 1.8, 0.10));
+        QVERIFY(!autoFlowCalWindowMissedTarget(1.69, 1.7, 0.10));
+    }
+
+    // Target badly missed (37% deviation) — the exact #1823 shot538 numbers
+    // (meanMachineFlow=1.0688 against target=1.7). Must reclassify.
+    void flowWindowMissesTarget_reclassified() {
+        QVERIFY(autoFlowCalWindowMissedTarget(1.0688, 1.7, 0.10));
+    }
+
+    // Threshold boundary: clearly-inside deviation does not count as "missed";
+    // clearly-outside does, on both sides of target. (Not testing the exact
+    // 10.000...% tie itself — 2.20 - 2.00 isn't exactly representable as 0.20
+    // in `double`, so an exact-boundary assertion is a floating-point trap,
+    // not a meaningful spec of the strict `>` comparison.)
+    void flowTargetDeviationThreshold_boundaryIsExclusive() {
+        QVERIFY(!autoFlowCalWindowMissedTarget(1.85, 2.00, 0.10));  // 7.5% low
+        QVERIFY(autoFlowCalWindowMissedTarget(1.75, 2.00, 0.10));   // 12.5% low
+        QVERIFY(!autoFlowCalWindowMissedTarget(2.15, 2.00, 0.10));  // 7.5% high
+        QVERIFY(autoFlowCalWindowMissedTarget(2.25, 2.00, 0.10));   // 12.5% high
+    }
+
+    // A non-positive target flow has nothing to compare against — must not
+    // claim a deviation (and must not divide by zero).
+    void flowTargetDeviation_nonPositiveTargetNeverMisses() {
+        QVERIFY(!autoFlowCalWindowMissedTarget(1.5, 0.0, 0.10));
+        QVERIFY(!autoFlowCalWindowMissedTarget(1.5, -1.0, 0.10));
+    }
+
+    // Reproduces the real 8-window batch from Kulitorum/Decenza#1823's attached
+    // debug log for d_flow_20g_2_50_91 (target 1.7 ml/s throughout). 3 windows
+    // achieved target (shots 530, 536, 543 — 99-100%); 5 did not (shots 529,
+    // 531, 537, 538, 541 — 57-67%, the frame's pressure limiter holding the pump
+    // below target). At the 10% threshold, the predicate must split them exactly
+    // along that line — this is the empirical evidence the threshold was chosen
+    // from, pinned as a regression.
+    void issue1823Batch_splitsTargetMetFromTargetMissed() {
+        struct Window { double meanMachineFlow; bool expectMissed; };
+        const QList<Window> windows = {
+            {1.06846, true},   // shot 529
+            {1.69798, false},  // shot 530
+            {0.996183, true},  // shot 531
+            {1.69086, false},  // shot 536
+            {0.965689, true},  // shot 537
+            {1.0688, true},    // shot 538
+            {1.14582, true},   // shot 541
+            {1.69011, false},  // shot 543
+        };
+        constexpr double kTargetFlow = 1.7;
+        for (const auto& w : windows) {
+            QCOMPARE(autoFlowCalWindowMissedTarget(w.meanMachineFlow, kTargetFlow, 0.10),
+                     w.expectMissed);
+        }
+    }
+
+    // --- clearAllFlowCalPendingIdeals(): the v4 migration's primitive ---------
+    //
+    // The v4 migration (Settings constructor, calibration/v4AchievedFlowFormulaReset)
+    // clears every profile's pending batch so none straddles the old and new
+    // formula-selection logic in one median, but must leave stored multipliers
+    // alone — unlike the v2/v3 migrations it sits beside, which reset everything
+    // because the STORED value itself was shown corrupted. This covers the
+    // primitive the migration calls; the migration's own gating (first-construction-
+    // in-process) has no existing test coverage for v2/v3 either, so this doesn't
+    // introduce a new gap.
+    void clearAllFlowCalPendingIdeals_clearsBatchesButNotMultipliers() {
+        Settings settings;
+        SettingsCalibration* cal = settings.calibration();
+        const QString profileA = QStringLiteral("tst_autoflowcal_v4_a");
+        const QString profileB = QStringLiteral("tst_autoflowcal_v4_b");
+        cal->clearProfileFlowCalibration(profileA);
+        cal->clearProfileFlowCalibration(profileB);
+
+        QVERIFY(cal->setProfileFlowCalibration(profileA, 1.23));
+        QVERIFY(cal->setProfileFlowCalibration(profileB, 0.87));
+        cal->appendFlowCalPendingIdeal(profileA, 0.80);
+        cal->appendFlowCalPendingIdeal(profileA, 0.79);
+        cal->appendFlowCalPendingIdeal(profileB, 1.10);
+        QCOMPARE(cal->flowCalPendingIdeals(profileA).size(), 2);
+        QCOMPARE(cal->flowCalPendingIdeals(profileB).size(), 1);
+
+        double globalBefore = cal->flowCalibrationMultiplier();
+        cal->clearAllFlowCalPendingIdeals();
+
+        QVERIFY(cal->flowCalPendingIdeals(profileA).isEmpty());
+        QVERIFY(cal->flowCalPendingIdeals(profileB).isEmpty());
+        QCOMPARE(cal->profileFlowCalibration(profileA), 1.23);
+        QCOMPARE(cal->profileFlowCalibration(profileB), 0.87);
+        QCOMPARE(cal->flowCalibrationMultiplier(), globalBefore);
+
+        cal->clearProfileFlowCalibration(profileA);
+        cal->clearProfileFlowCalibration(profileB);
+    }
+
     // With auto calibration off, a stored per-profile value is deliberately
     // ignored — the machine uses the global multiplier. This is what
     // set_flow_calibration reports as its `warning` case, and the reason the tool

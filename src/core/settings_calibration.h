@@ -109,6 +109,11 @@ public:
     // Reset all per-profile flow calibrations to empty (used by one-shot migrations).
     void resetAllProfileFlowCalibrations();
 
+    // Clear every profile's pending batch accumulator without touching stored
+    // multipliers (used by one-shot migrations that change how an ideal is
+    // computed, so no batch median mixes ideals from before and after the change).
+    void clearAllFlowCalPendingIdeals();
+
     // SAW (Stop-at-Weight) learning
     double sawLearnedLag() const;  // Average lag for display in QML (calculated from drip/flow)
     double getExpectedDrip(double currentFlowRate) const;  // Predicts drip based on flow and history
