@@ -3129,7 +3129,7 @@ private slots:
         f.close();
         QVERIFY(!kb.isEmpty());
         // Structural-stability pin (restructure-kb-as-validated-json): exactly
-        // 47 entries. Parsed (not a raw "id": substring count, which a future
+        // 48 entries. Parsed (not a raw "id": substring count, which a future
         // prose/rationale string containing `"id":` would falsely break). If a
         // KB entry is intentionally added/removed, update this count AND
         // re-verify #1160 resolution.
@@ -3138,10 +3138,13 @@ private slots:
         // Decenza did not are now built-ins, and every built-in needs a KB entry —
         // baseline-contact-series covers all four Baseline levels through
         // alsoMatches, plus icbinf, psph and soup-58.
+        //
+        // 47 -> 48: de1app added a new built-in, Adaptive v3 (best_practice.tcl),
+        // synced in with KB entry `adaptive-v3`.
         const QJsonArray kbProfiles =
             QJsonDocument::fromJson(kb.toUtf8()).object()
                 .value(QStringLiteral("profiles")).toArray();
-        QCOMPARE(kbProfiles.size(), 47);
+        QCOMPARE(kbProfiles.size(), 48);
 
         // LLM-facing scope: the (a)/(c) framing checks target what the model
         // ingests — `prose` + identity. `rationale` (and `src`) are

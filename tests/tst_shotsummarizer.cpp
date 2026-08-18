@@ -2086,20 +2086,32 @@ private slots:
     // shipped-profile edit that collapses d-flow-q-variant into d-flow fails
     // here rather than silently widening a bucket.
     //
-    // TWO, not the three design.md first measured. The third was
-    // {damians-lr-v2-v3, londinium}, and it was never a collision of two
-    // profiles — it was one profile carrying two KB entries. londonium.json
-    // and damian_s_lrv2.json are byte-identical across all seven frames,
-    // differing only in title, reference_file, notes, target_weight, the
-    // hidden flag and one frame popup; Londonium's own notes say "This is
-    // identical to the LRv2 profile, but renamed to be easier to understand."
-    // The entries were merged (LRv2 now resolves to `londinium`, which carries
-    // the cited pressure-peak band it was always entitled to) and LRv3 — a
-    // genuinely different profile, eight frames at 90C with a 9-bar hold —
-    // was split out to `damians-lr-v2-v3`. So this bucket does not reappear by
+    // THREE. Design.md first measured a fourth, {damians-lr-v2-v3, londinium},
+    // and it was never a collision of two profiles — it was one profile
+    // carrying two KB entries. londonium.json and damian_s_lrv2.json are
+    // byte-identical across all seven frames, differing only in title,
+    // reference_file, notes, target_weight, the hidden flag and one frame
+    // popup; Londonium's own notes say "This is identical to the LRv2
+    // profile, but renamed to be easier to understand." The entries were
+    // merged (LRv2 now resolves to `londinium`, which carries the cited
+    // pressure-peak band it was always entitled to) and LRv3 — a genuinely
+    // different profile, eight frames at 90C with a 9-bar hold — was split
+    // out to `damians-lr-v2-v3`. So this bucket does not reappear by
     // widening the shape key; it disappeared because the KB stopped saying
     // one thing twice.
-    void shippedShapeCollisionsAreExactlyTheKnownTwo()
+    //
+    // {adaptive-v2, adaptive-v3} is the third, added when the de1app sync
+    // brought in Adaptive v3 (best_practice.tcl, KB entry `adaptive-v3`).
+    // Unlike LRv2/Londonium this is a real two-profile collision, not a
+    // duplicate: adaptive_v2.json and adaptive_v3.json share the identical
+    // 7-frame skeleton (Prefill/Fill/Compressing/Dripping/Pressurize/
+    // Extraction start/Extraction, same pump mode and duration per frame) —
+    // best-practice-light-roast's own prose says it "subsequently evolved
+    // into the Adaptive profile", and v2/v3 are two points on that lineage —
+    // but differ in setpoints (temperature, pressure/flow targets) and in
+    // KB facts (v3 has no expertBand; v3 carries channeling_expected for its
+    // near-zero-pressure Dripping step, v2 does not). Kept as a real bucket.
+    void shippedShapeCollisionsAreExactlyTheKnownThree()
     {
         const QMap<QString, QSet<QString>> buckets = shippedShapeBuckets();
 
@@ -2116,6 +2128,7 @@ private slots:
                   });
 
         QList<QStringList> expected{
+            {QStringLiteral("adaptive-v2"), QStringLiteral("adaptive-v3")},
             {QStringLiteral("d-flow"), QStringLiteral("d-flow-la-pavoni-variant")},
             {QStringLiteral("gentle-flat-long-preinfusion-family"),
              QStringLiteral("preinfuse-then-45ml-of-water")},
@@ -2186,19 +2199,26 @@ private slots:
             if (bandSets.size() > 1) ++bandDisagreements;
         }
 
-        QCOMPARE(bucketsSeen, 2);
-        // Measured: exactly one bucket disagrees on flags (flow_trend_ok, the
-        // safe direction the union rule handles); one disagrees on the band,
-        // which is why the band requires unanimity and is withheld otherwise.
+        QCOMPARE(bucketsSeen, 3);
+        // Measured: two buckets disagree on flags (flow_trend_ok, the safe
+        // direction the union rule handles); two disagree on the band, which
+        // is why the band requires unanimity and is withheld otherwise.
         //
-        // Was 3 buckets / 2 band disagreements. The third,
+        // Was 2 buckets / 1 flag / 1 band disagreement before the de1app sync
+        // added {adaptive-v2, adaptive-v3} (see
+        // shippedShapeCollisionsAreExactlyTheKnownThree) — that bucket
+        // disagrees on both: v3 carries channeling_expected and v2 does not,
+        // and v2 has an expertBand while v3 (no citation strong enough to
+        // pin one) does not.
+        //
+        // Before that, was 3 buckets / 2 band disagreements. The extra one,
         // {damians-lr-v2-v3, londinium}, was never two profiles — it was one
         // profile with two KB entries, and its "band disagreement" was the KB
         // describing the same extraction twice with different completeness.
         // Merging the entries removed a disagreement rather than resolving
-        // one; see shippedShapeCollisionsAreExactlyTheKnownTwo.
-        QCOMPARE(flagDisagreements, 1);
-        QCOMPARE(bandDisagreements, 1);
+        // one.
+        QCOMPARE(flagDisagreements, 2);
+        QCOMPARE(bandDisagreements, 2);
     }
 
     // === ProfileShapeIndex (change: resolve-profile-kb-by-shape, group 3) ===
@@ -2719,7 +2739,7 @@ private slots:
     // differ per fact rather than being one policy.
     //
     // The buckets used as fixtures are the real shipped ones, pinned by
-    // shippedShapeCollisionsAreExactlyTheKnownTwo above.
+    // shippedShapeCollisionsAreExactlyTheKnownThree above.
 
     // flow_trend_ok is carried by preinfuse-then-45ml-of-water and NOT by
     // gentle-flat-long-preinfusion-family — a real disagreement in a real
@@ -2921,7 +2941,7 @@ private slots:
         //
         // This fixture used to be londonium.json. That stopped being ambiguous
         // when LRv2 and Londonium were recognised as one profile and their KB
-        // entries merged — see shippedShapeCollisionsAreExactlyTheKnownTwo.
+        // entries merged — see shippedShapeCollisionsAreExactlyTheKnownThree.
         Profile p = loadShipped(QStringLiteral("d_flow_default.json"));
         p.setTitle(QStringLiteral("Zzz Unrelated Name"));
         const KbResolution r = resolveProfileKb(p);
