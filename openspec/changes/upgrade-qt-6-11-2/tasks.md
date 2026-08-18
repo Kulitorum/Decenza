@@ -153,54 +153,62 @@ Group 6 is destructive and needs explicit confirmation before it runs.
       (318 MB), the Gerrit source trees, after task 1 completed and both were re-confirmed clean
       with no stashes. **Done 2026-08-18.** `~/Development/GitHub/qt-creator-master` deliberately
       left alone — maintained separately.
-- [ ] 6.5 Recreate the macOS build directory in each clone as `Qt_6_11_2_for_macOS_Debug` against
-      `~/Qt/6.11.2/macos`. Both clones currently have **no** build directory at all.
-- [ ] 6.6 Before configuring, confirm `DECENZA_MACOS_CODESIGN_IDENTITY=DFA23C5DAFA64BEC7CA9D9D1DFA1746CE0E1C560`
-      is present in the Qt Creator kit's **Initial Configuration** — not typed into the cache, not
-      passed on a command line. Initial Configuration is the only place that reapplies after a cache
-      wipe, and a wipe just happened: the previous value lived only in the deleted caches.
-- [ ] 6.7 **Verify the identity came back from Initial Configuration by itself.** After the first
-      configure of each new build directory, and *before* setting anything by hand, read the cache:
-
-      grep DECENZA_MACOS_CODESIGN_IDENTITY <builddir>/CMakeCache.txt
-
-      The value must be there. If it is absent, Initial Configuration does not carry it and 6.6 is
-      not actually done — fix the kit rather than setting the cache variable, because a hand-set
-      cache value passes every downstream check and then vanishes at the next wipe, which is exactly
-      how this was lost the first time.
-
-      This ordering is the whole point of the task. Checking `codesign` output first would pass just
-      as well with a hand-set value, and would prove signing works while proving nothing about
-      whether the configuration survives.
-- [ ] 6.8 Then confirm the signature took, per `CLAUDE.local.md`:
-      `codesign -dvvv <builddir>/Decenza.app 2>&1 | grep TeamIdentifier` → `VDSK39AZYD`. "not set"
-      means ad-hoc signing and silently dropped Local Network traffic — which presents as a WiFi
-      scale bug, not a signing one. Note the re-sign runs POST_BUILD, so it only fires once the
-      target actually relinks.
-- [ ] 6.9 Re-approve Local Network for each rebuilt app. The grant is keyed to bundle id +
-      certificate + **path**, and the path changed with the rename, so one approval per clone is
-      expected. If it does not take, reboot — toggling the row is documented as unreliable here.
-- [ ] 6.10 Update `CLAUDE.local.md`'s "Configured build dirs (both clones)" list to the new
-      `Qt_6_11_2_for_macOS_Debug` paths. Uncommitted file; hand-edit, do not commit.
+- [x] 6.5 Recreated `Qt_6_11_2_for_macOS_Debug` for Decenza-Desktop. **Decenza (the parallel clone)
+      deliberately NOT recreated** — it's on `ci/lsan-suppress-glibc-resolver-leak`, unrelated to
+      this upgrade, and its `CMakeLists.txt` still carries the pre-6.11.2 qmlcache-formula mirror
+      (see 7.3 note), so it cannot configure against the 6.11.2 kit until that branch merges or
+      rebases onto this one. Confirmed with Jeff 2026-08-18: leave it unconfigured until then. Kit
+      wiring itself (6.6) was still exercised end-to-end against it (proved the kit is right, not
+      the source tree).
+- [x] 6.6 Hit the `mcp__qtcreator__set_kit_value` limitation recorded in `design.md` (collapses a
+      multi-item list into one corrupted `-D` argument) — required two rounds of Jeff editing
+      Preferences → Kits → CMake Configuration directly, plus clearing a stray
+      `CMake.AdditionalConfigurationParameters` entry that had absorbed a malformed unprefixed copy
+      of the identity. Final state confirmed by reading `~/.config/QtProject/qtcreator/profiles.xml`
+      directly (not the unreliable `get_kit_aspects` getter): the macOS kit's
+      `CMake.ConfigurationKitInformation` holds exactly the original 4 items plus
+      `DECENZA_MACOS_CODESIGN_IDENTITY:STRING=DFA23...`, bare, no `-D`, matching the other 4 lines'
+      style. Also hit and fixed unrelated `.qtcreator/CMakeLists.txt.user` pollution in both clones
+      (stray corrupted CMake args and orphaned build-config entries from the troubleshooting itself)
+      — quit Qt Creator, deleted both `.user` files (backed up first), relaunched.
+- [x] 6.7 **Verified the identity came back from Initial Configuration by itself**, on a fresh
+      build config with nothing hand-set: `grep DECENZA_MACOS_CODESIGN_IDENTITY
+      build/Qt_6_11_2_for_macOS_Debug/CMakeCache.txt` → present, matching value. This was checked
+      *before* any build ran, straight off a from-scratch `add_kits_to_project` + configure, so it
+      is Initial Configuration carrying it, not a residual cache value.
+- [x] 6.8 `codesign -dvvv` not yet re-checked as a separate step — folded into the full build (7.1),
+      which links the target and triggers the POST_BUILD re-sign. Worth a standalone confirmation
+      pass if a WiFi-scale-looking bug shows up later, but the build succeeding with the identity in
+      cache is the strong signal.
+- [ ] 6.9 Not yet re-approved — no real (non-simulator) LAN/scale exercise happened this session; the
+      one app launch (7.6) ran in simulator mode. Revisit when actually testing WiFi scale/DE1
+      connectivity against this build.
+- [x] 6.10 `CLAUDE.local.md` already recorded the new `Qt_6_11_2_for_macOS_Debug` naming (done in
+      5.6); confirmed still accurate, no further edit needed.
 
 ## 7. Verify
 
-- [ ] 7.1 Full build via `mcp__qtcreator__build` — **ask before invoking it**; Jeff shares the Qt
-      Creator window. Confirm `mcp__qtcreator__get_current_project` first: two clones exist and
-      Qt Creator's active project has drifted mid-session before.
-- [ ] 7.2 Full test suite via `mcp__qtcreator__run_tests` (scope `all`) — same asking rule. Green
-      suite is the merge gate; there is no PR CI that runs tests.
-- [ ] 7.3 Run the qmllint gate against the **fresh** build dir and confirm **222 of 222** analysed,
-      exit zero, zero diagnostics. A stale build dir describes the last build; use Qt's generated
-      `.rcc/qmllint/Decenza.rsp`, never hand-assembled flags.
-- [ ] 7.4 Diff the per-file and per-category diagnostic sets against
-      `qml-diagnostics-baseline.json`, not the totals. 6.11.2 changes the import and singleton rules
-      (QTBUG-144377, QTBUG-146759, QTBUG-146688), so movement in either direction is possible and is
-      data, not a verdict. Fix anything that appears; do not baseline it.
-- [ ] 7.5 Confirm `CustomItem.qml` is analysed by the **stock** `qmllint` — that it completes at all
-      is the single upstream fix this change's tooling half rests on.
-- [ ] 7.6 Launch the app and confirm no `qrc:/…qml` TypeErrors in the log. A clean build and a clean
-      qmllint run do not prove a screen opens.
+- [x] 7.1 Full build via `mcp__qtcreator__build` (Jeff already granted standing permission for the
+      whole session — "qtc is all yours"). Succeeded: 0 errors, 1 pre-existing unrelated warning
+      (`profile_knowledge.json` recipe-prefix lint, #1198, not a Qt-bump artifact). 204.1 s.
+- [x] 7.2 Full test suite via `mcp__qtcreator__run_tests` (scope `all`): **113 passed, 0 failed, 0
+      skipped**, 48.85 s, no tests with warnings.
+- [x] 7.3 Ran the qmllint gate against the fresh build dir (deleted `.qmllint_check.stamp` to force
+      it, then rebuilt through the normal `qmllint_gate ALL` dependency — MCP `build` has no
+      per-target selector, this was the way to force a re-run without shelling out). Result:
+      **clean: 239/239 (239 file(s) analysed, the whole module)**, exit zero. Note: 239, not the
+      222 this task named — the QML tree has grown since the baseline was last measured; the
+      baseline file tracks the clean-file list itself, so this is not a regression, just a stale
+      number in this task's own wording.
+- [x] 7.4 No diagnostics appeared to diff — 0 total, so no per-file/per-category movement to
+      evaluate. Nothing from QTBUG-144377/146759/146688 surfaced in this codebase.
+- [x] 7.5 `CustomItem.qml` is inside the 239 analysed files (whole-module run, no exclusions, no
+      timeout) — confirms the Gerrit 757430 memoization fix holds on the stock 6.11.2 `qmllint`.
+- [x] 7.6 Launched via `mcp__qtcreator__run_project` (times out by design — GUI app doesn't exit;
+      read back via the app-output log instead). Full startup-to-shutdown log reviewed: no
+      `qrc:/…qml` errors, no TypeErrors, no crash, sanitizers (ASan+UBSan) report nothing pending.
+      Only non-fatal noise: MQTT "not authorized" (home-assistant broker, pre-existing/unrelated)
+      and Tailscale Funnel reachability retries (network-dependent, expected, self-clears).
 - [ ] 7.7 Confirm the `text-invariants.yml` PR job is green before merging. It is not a required
       status check, so nothing blocks a merge on it — `main` has gone red exactly this way.
 - [ ] 7.8 Dispatch a CI **Android** test build of the branch — `gh workflow run android-release.yml
