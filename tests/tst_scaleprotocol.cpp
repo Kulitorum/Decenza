@@ -7,6 +7,7 @@
 #include "ble/scales/bookooscale.h"
 #include "ble/scales/difluidscale.h"
 #include "ble/scales/acaiascale.h"
+#include "ble/blegattqueue.h"
 #include "ble/transport/scalebletransport.h"
 #include "ble/protocol/de1characteristics.h"
 #include "ble/protocol/decentscaleprotocol.h"
@@ -23,7 +24,18 @@
 class MockScaleBleTransport : public ScaleBleTransport {
     Q_OBJECT
 public:
-    explicit MockScaleBleTransport(QObject* parent = nullptr) : ScaleBleTransport(parent) {}
+    explicit MockScaleBleTransport(QObject* parent = nullptr, BleGattQueue* queue = nullptr)
+        : ScaleBleTransport(parent, queue) {}
+
+    // The base class's shared-queue plumbing, exposed so the contract every
+    // scale and refractometer transport depends on can be asserted once here
+    // rather than separately in each of them. Both real implementations call
+    // exactly these.
+    using ScaleBleTransport::submitGattOperation;
+    using ScaleBleTransport::completeGattOperation;
+    using ScaleBleTransport::failGattOperation;
+    using ScaleBleTransport::releaseGattQueue;
+    using ScaleBleTransport::holdsGattSlot;
 
     void connectToDevice(const QString&, const QString&) override { m_connectCount++; }
     void disconnectFromDevice() override { m_disconnectCount++; }
@@ -31,9 +43,16 @@ public:
     void discoverCharacteristics(const QBluetoothUuid& service) override {
         m_characteristicDiscoveries.append(service);
     }
-    void enableNotifications(const QBluetoothUuid& service, const QBluetoothUuid&) override {
+    void enableNotifications(const QBluetoothUuid& service,
+                             const QBluetoothUuid& characteristic) override {
         m_notifyEnableCount++;
         m_lastNotifyService = service;
+        // The real transports emit this from inside the queued issue callback,
+        // when the enable actually reaches the radio. A mock that skips it lets
+        // a driver waiting on the signal look broken (or, worse, lets one that
+        // should wait look fine). Emitted inline here — the ORDER is what the
+        // drivers care about, not the delay.
+        emit notificationsIssued(characteristic);
     }
     void writeCharacteristic(const QBluetoothUuid& service, const QBluetoothUuid&,
                              const QByteArray& value, WriteType = WriteType::WithResponse) override {
@@ -71,6 +90,22 @@ class tst_ScaleProtocol : public QObject {
     Q_OBJECT
 
 private:
+    // Brings a DecentScale to "connected, weight-notify enabled, watchdog
+    // running" through the PRODUCTION path.
+    //
+    // Discovery alone no longer arms the watchdog: it now starts when the
+    // notify-enable reaches the radio, because under the shared GATT queue the
+    // gap between requesting an enable and it going out can exceed the
+    // watchdog's whole budget. In the app the wake sequence issues that enable a
+    // few hundred ms after discovery; here we issue the same call, and the mock
+    // emits notificationsIssued exactly as the real transports do. Nothing pokes
+    // the driver's internals, so the arming code is what is under test.
+    static void connectWithWatchdogRunning(DecentScale& scale) {
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        scale.enableWeightNotifications(QStringLiteral("test"));
+    }
+
     // Build a 7-byte Decent Scale packet with valid XOR checksum
     static QByteArray buildDecentPacket(uint8_t cmd, uint8_t d2, uint8_t d3,
                                         uint8_t d4, uint8_t d5) {
@@ -661,8 +696,7 @@ private slots:
         DecentScale scale(transport);
 
         // Drive the real connect path so the scale reports connected
-        scale.m_serviceFound = true;
-        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        connectWithWatchdogRunning(scale);
         QVERIFY(scale.isConnected());
 
         QSignalSpy spy(&scale, &ScaleDevice::connectedChanged);
@@ -689,14 +723,75 @@ private slots:
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);
 
-        scale.m_serviceFound = true;
-        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        connectWithWatchdogRunning(scale);
         QVERIFY(scale.isConnected());
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport error.*"));
         emit transport->error("transient write failure");
 
         QVERIFY(scale.isConnected());
+        QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
+    }
+
+    // The watchdog must not start counting before its notify-enable has reached
+    // the radio. It used to arm inline in the wake sequence, which was fine when
+    // a write went straight out and wrong once the shared queue could hold it
+    // behind the DE1's connect burst: measured on a tablet, enableNotifications
+    // called at 7.221 s and dispatched at 8.483 s, so the 1 s watchdog expired
+    // 50 ms BEFORE the scale had been asked anything, logged "no initial weight
+    // data" and burned a retry.
+    //
+    // Break the arm-on-issue wiring and this goes red: the wake sequence alone
+    // must leave it disarmed.
+    // NO path may arm the watchdog before the enable reaches the radio — not the
+    // wake sequence, and not wake() itself, which the sequence calls at 200 ms
+    // and 500 ms and which used to arm unconditionally.
+    //
+    // This is the slot that would have caught the incomplete first fix: that one
+    // removed the sequence's own inline arm, the sibling below passed, and on
+    // hardware wake() armed it anyway 278 ms before the enable went out. Asserts
+    // the PROPERTY (nothing is armed yet) rather than one call site.
+    void noPathArmsTheWatchdogBeforeTheEnableIsIssued() {
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+
+        // Everything the connect sequence does before its enable lands.
+        scale.wake();
+        scale.wake();
+        QVERIFY(!(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive()));
+
+        // And after a sleep, where no enable is pending, wake() must still
+        // restore it — the two callers have opposite needs.
+        scale.enableWeightNotifications(QStringLiteral("test"));
+        QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
+        scale.stopWatchdog();
+        scale.wake();
+        QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
+    }
+
+    void theWatchdogDoesNotArmUntilTheEnableReachesTheRadio() {
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+
+        // Discovery has run and the wake sequence has requested its enables, but
+        // none has reached the radio yet. Nothing to time, so nothing running.
+        QVERIFY(!(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive()));
+
+        // An enable for a DIFFERENT characteristic says nothing about when
+        // weight data should start.
+        emit transport->notificationsIssued(Scale::Decent::WRITE);
+        QVERIFY(!(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive()));
+
+        // The weight stream's enable reaching the radio is the event it waits
+        // for. Issued through the production call, which the mock answers the
+        // way the real transports do.
+        scale.enableWeightNotifications(QStringLiteral("test"));
         QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
     }
 
@@ -707,8 +802,7 @@ private slots:
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);
 
-        scale.m_serviceFound = true;
-        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        connectWithWatchdogRunning(scale);
         QVERIFY(scale.isConnected());
 
         transport->m_isConnected = false;
@@ -769,8 +863,7 @@ private slots:
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);
 
-        scale.m_serviceFound = true;
-        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        connectWithWatchdogRunning(scale);
         QVERIFY(scale.isConnected());
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
@@ -797,8 +890,11 @@ private slots:
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);
 
-        scale.m_serviceFound = true;
-        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        // Through the production path, like the sibling watchdog slots: firing
+        // the watchdog on a scale whose watchdog was never armed is a state the
+        // app cannot reach, and reaching it here made the first retry take the
+        // first-arm branch and reset the retry budget, so exhaustion never came.
+        connectWithWatchdogRunning(scale);
 
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
@@ -1421,6 +1517,178 @@ private slots:
         QVERIFY2(!acaia.supportsTimer(),
                  "AcaiaScale overrides the three timer slots with EMPTY bodies — it must "
                  "report no timer support, not inherit true from the override list");
+    }
+
+    // --- The shared GATT queue, from a scale transport's side (#1819) -----
+    //
+    // Scale and refractometer transports had no concept of an outstanding
+    // operation at all — that asymmetry with the DE1 side IS the bug. These pin
+    // the contract the base class now supplies to both implementations: a
+    // submitted operation is not issued inline, it holds the slot until it ends,
+    // and every way it can end releases it. A path that reaches neither the
+    // platform nor a release wedges every device on the radio, which is the one
+    // failure a shared queue can introduce that separate queues could not.
+
+    void aSubmittedScaleOperationIsPostedRatherThanIssuedInline() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        bool issued = false;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("op"),
+                              [&issued]() { issued = true; });
+
+        QVERIFY(!issued);
+        QVERIFY(!queue.isBusy());
+        QCOMPARE(queue.pendingCount(), qsizetype(1));
+
+        QTest::qWait(20);
+        QVERIFY(issued);
+        QVERIFY(t.holdsGattSlot());
+    }
+
+    void aScaleOperationHoldsTheSlotUntilItCompletes() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        int issued = 0;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("first"),
+                              [&issued]() { ++issued; });
+        t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("second"),
+                              [&issued]() { ++issued; });
+        QTest::qWait(20);
+
+        // The second is not issued under the first.
+        QCOMPARE(issued, 1);
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
+
+        t.completeGattOperation(DE1::Characteristic::STATE_INFO);
+        QTest::qWait(20);
+
+        QCOMPARE(issued, 2);
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::SHOT_SAMPLE);
+    }
+
+    // Failure is terminal, not a retry: these transports carry no retry budget,
+    // which is exactly what they did before they were queued. Inheriting the
+    // DE1's would let a dead scale hold the shared slot for ~32 s.
+    void aFailedScaleOperationReleasesTheSlotWithoutRetrying() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        int issued = 0;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("op"),
+                              [&issued]() { ++issued; });
+        QTest::qWait(20);
+
+        t.failGattOperation();
+        QTest::qWait(20);
+
+        QCOMPARE(issued, 1);
+        QVERIFY(!queue.isBusy());
+    }
+
+    // A guard that returns before reaching the platform must still release. This
+    // is the shape every early return in both real transports now follows, and
+    // the one that wedges the radio if it is ever forgotten.
+    void anOperationThatNeverReachesThePlatformStillReleasesTheSlot() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        bool secondIssued = false;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("guarded"),
+                              [&t]() { t.failGattOperation(); });
+        t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("next"),
+                              [&secondIssued]() { secondIssued = true; });
+
+        QTest::qWait(30);
+
+        QVERIFY(secondIssued);
+    }
+
+    // A late or duplicate reply for a characteristic the sequence has already
+    // moved past must not release whatever is holding the slot NOW. On a shared
+    // queue that "whatever" can belong to another device entirely: a stale
+    // notify-enable ACK releasing the DE1's in-flight write would let a third
+    // operation be issued on top of it.
+    void aCompletionForAKeyThatIsNotInFlightIsIgnored() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        int issued = 0;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("first"),
+                              [&issued]() { ++issued; });
+        t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("second"),
+                              [&issued]() { ++issued; });
+        QTest::qWait(20);
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
+
+        // A reply for the one that has not been issued yet.
+        t.completeGattOperation(DE1::Characteristic::SHOT_SAMPLE);
+        QTest::qWait(20);
+
+        QCOMPARE(issued, 1);
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
+    }
+
+    // The one clock these transports own, and the only thing that can end an
+    // operation the platform never answers at all. Without it a scale that goes
+    // away mid-write holds the shared slot for the rest of the session — the DE1
+    // included. A backoff would be a timer used as a guard; this is not one:
+    // there is no event to wait for, which is precisely the condition.
+    void anUnansweredScaleOperationReleasesTheSlotAtItsTimeout() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+        bool secondIssued = false;
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("silent"),
+                              []() {}, /*timeoutMs=*/30);
+        t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("next"),
+                              [&secondIssued]() { secondIssued = true; });
+        QTest::qWait(20);
+        QVERIFY(t.holdsGattSlot());
+        QVERIFY(!secondIssued);
+
+        // Self-contained and WARN, per LOGGING.md: the reader has to be told the
+        // radio was held for the whole interval, not just that one device failed.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("The BLE radio was held for that whole time")));
+        QTest::qWait(80);
+
+        // The slot moved on. Not `!holdsGattSlot()` — this same transport owns
+        // the next operation, so it holds the slot again immediately; what must
+        // be true is that the unanswered one no longer does.
+        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::SHOT_SAMPLE);
+        QVERIFY(secondIssued);
+    }
+
+    void aTornDownScaleTransportFreesTheSlotAndItsQueuedWork() {
+        BleGattQueue queue;
+        MockScaleBleTransport t(nullptr, &queue);
+
+        t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("held"), []() {});
+        t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("queued"), []() {});
+        QTest::qWait(20);
+        QVERIFY(t.holdsGattSlot());
+
+        t.releaseGattQueue();
+
+        QVERIFY(!queue.isBusy());
+        QCOMPARE(queue.pendingCount(&t), qsizetype(0));
+    }
+
+    // One scale's teardown must not drop another device's work. On a shared
+    // queue that is no longer a hypothetical distinction.
+    void oneTransportsTeardownLeavesAnothersWorkAlone() {
+        BleGattQueue queue;
+        MockScaleBleTransport mine(nullptr, &queue);
+        MockScaleBleTransport other(nullptr, &queue);
+
+        mine.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("mine"), []() {});
+        other.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("other"), []() {});
+
+        mine.releaseGattQueue();
+
+        QCOMPARE(queue.pendingCount(&other), qsizetype(1));
     }
 };
 

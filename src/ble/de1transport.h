@@ -33,12 +33,18 @@ public:
     virtual void write(const QBluetoothUuid& uuid, const QByteArray& data) = 0;
 
     /**
-     * Write data bypassing any command queue.
+     * Write data ahead of anything else this transport has waiting.
      * Used for time-critical operations like stop-at-weight (SAW) and
      * ensureChargerOn (app suspend). Default implementation delegates to
-     * write(). BLE overrides this to bypass its 50ms command queue for
-     * lower latency. Does not clear the queue — callers that need to
-     * clear pending commands do so explicitly before calling this.
+     * write(); the BLE transport puts the write at the FRONT of the shared
+     * GATT queue.
+     *
+     * Urgency is position, not a bypass: an urgent write still waits for
+     * whatever operation is currently outstanding, on this device or any
+     * other. Nothing can preempt an in-flight GATT operation — the platform
+     * has already accepted it — so a "bypass" was never available to be lost.
+     * Does not clear the queue; callers that need to clear pending commands
+     * (SAW, sleep) do so explicitly before calling this.
      */
     virtual void writeUrgent(const QBluetoothUuid& uuid, const QByteArray& data) {
         write(uuid, data);
@@ -174,17 +180,6 @@ signals:
      * HIGH-priority request timing; this layer has no scale knowledge.
      */
     void de1LinkFault(const QString& kind);
-
-    /**
-     * Emitted while the transport is in BLE service + characteristic discovery —
-     * a high-burst window where the local BLE controller is saturated and any
-     * write to a co-resident peer (e.g. a scale on the same adapter) will fail
-     * with CharacteristicWriteError on weaker radios (Samsung Tab A8, #1176).
-     * Consumers (BLEManager → DecentScale heartbeat) pause non-essential scale
-     * writes for the duration. Serial transports never emit this — there is no
-     * radio contention to coordinate around.
-     */
-    void serviceDiscoveryActiveChanged(bool active);
 
     /**
      * Emitted for debug/diagnostic logging.

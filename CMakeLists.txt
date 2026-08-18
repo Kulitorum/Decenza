@@ -696,6 +696,7 @@ set(SOURCES
     src/core/fileshare.cpp
     src/ble/protocol/binarycodec.cpp
     src/ble/blecapability.cpp
+    src/ble/blegattqueue.cpp
     src/ble/blemanager.cpp
     src/ble/de1device.cpp
     src/ble/bletransport.cpp
@@ -723,6 +724,7 @@ set(SOURCES
     src/ble/scales/variaakuscale.cpp
     src/ble/scales/timemorescale.cpp
     src/ble/scales/flowscale.cpp
+    src/ble/transport/scalebletransport.cpp
     src/ble/transport/qtscalebletransport.cpp
     src/core/asynclogger.cpp
     src/core/btlogfilter.cpp

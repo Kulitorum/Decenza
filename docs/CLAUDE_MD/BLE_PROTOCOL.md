@@ -1,27 +1,99 @@
 ## BLE Protocol Notes
 
 - DE1 Service: `0000A000-...`
-- Command queue prevents BLE overflow (50ms between writes)
+- One process-wide GATT queue across every peripheral — see "The shared GATT queue" below
 - Shot samples at ~5Hz during extraction
 - Profile upload: header (5 bytes) + frames (8 bytes each) + extension frames (8 bytes, frame number + 32 for limiters) + tail frame (8 bytes)
 - USB charger control: MMR address `0x803854` (1=on, 0=off)
 - DE1 has 10-minute timeout that auto-enables charger; must resend command every 60s
+
+### The shared GATT queue
+
+**Qt serializes GATT work per CONTROLLER, not per adapter.** `readWriteQueue` and
+`pendingJob` are instance fields of `QtBluetoothLE`, one instance per
+`QLowEnergyController` (`QtBluetoothLE.java:949-950`), and the darwin backend has no
+cross-peripheral queue either. Nothing in the framework orders one peripheral's
+operations against another's, on any platform — so the cross-device guarantee is the
+app's to supply. `BleGattQueue` (`src/ble/blegattqueue.h`) is that: one queue, one
+operation in flight, every peripheral.
+
+That is issue #1819. A scale's connect and characteristic discovery ran across the
+DE1's notification-enable descriptor writes; all three were rejected with
+`DescriptorWriteError`, and the app reported the machine CONNECTED with `STATE_INFO`,
+`SHOT_SAMPLE` and `WATER_LEVELS` never enabled — no chart, no shot detection, no
+stop-at-weight. de1app has one queue for the DE1 and the scale together
+(`::de1(cmdstack)`, a single `::de1(wrote)` flag), which makes the state unreachable
+rather than handling the error better.
+
+decaid is a **counter-example, not a precedent** — this doc previously cited it as
+one. It sets `UniversalBle.queueType = QueueType.perDevice`
+(`universal_ble_discovery_service.dart:403`), deliberately serializing per device and
+NOT across devices, so it does not prevent the #1819 interleaving. What it does do is
+fail the connect: a failed subscribe throws out of `_bleConnect()`, the whole attempt
+is abandoned and the reconnect ladder re-runs it against a fresh GATT. That half is
+worth copying; the queue shape is not.
+
+**Scale and refractometer transports had no in-flight concept at all** before this.
+`QtScaleBleTransport::writeCharacteristic()` validated the link and called straight
+through — no flag, no completion matching, no retry — and the same for discovery,
+notify-enable and read. The DE1 side knew an operation was outstanding and the scale
+side did not, so it had nothing to yield. Both now submit through
+`ScaleBleTransport`'s shared plumbing.
+
+**Policy travels with the operation, not with the queue.** DE1 operations carry the
+retry budget below; everything else defaults to zero retries, which is exactly what
+the scale and refractometer transports did before they were queued. Giving them the
+DE1's budget would be actively harmful: a dead scale link would hold the shared slot
+through the DE1's ~32 s worst-case retry sequence, starving the machine that budget
+exists to protect.
+
+**The queue owns no timer that decides an operation finished.** Dispatch is driven by
+the operation's terminal outcome. Each transport owns one per-operation clock as the
+outer bound for an operation the platform never answers at all — 5 s for reads,
+writes and CCCD writes, 20 s for discovery (characteristic discovery took 6.0 s in the
+#1819 capture, so the write budget would be a guarantee of failure rather than a
+bound). `SUBSCRIBE_TIMEOUT_MS` was deleted rather than tuned: at 3000 ms it duplicated
+and raced Qt's own `RUNNABLE_TIMEOUT` of 3000 (`QtBluetoothLE.java:69`) on the same
+operation, and turned a `DescriptorWriteError` that arrived at +45 ms into a 3 s
+stall, three times in one connect.
+
+**Two platform facts the queue has to accommodate:**
+
+- A write WITHOUT response completes at issue, because nobody acknowledges one. Qt's
+  darwin backend hands it to CoreBluetooth and calls `performNextRequest` immediately,
+  emitting no `characteristicWritten` (`btcentralmanager.mm:815-818`).
+- CoreBluetooth delivers a read response and an unsolicited notification through one
+  callback with nothing to distinguish them, so a notification can release an
+  outstanding read's slot early. Harmless — the response still arrives. The Qt
+  transport has separate signals and keeps them separate.
+
+**Connect is deliberately NOT queued.** A connect is bounded only by
+`CONNECT_WATCHDOG_MS` (35 s), so a wedged one would hold the shared slot for 35 s and
+starve every other device — a worse failure than the one being fixed — and unlike a
+GATT operation it is radio-scheduler work the host stack already interleaves.
 
 ### BLE Write Retry & Timeout (like de1app)
 
 BLE writes can fail or hang. The implementation includes retry logic similar to de1app:
 
 **Mechanism:**
-- Each write starts a 5-second timeout timer
-- On error or timeout: retry up to 3 times with 100ms delay
-- After max retries: log failure and move to next command
+- Each operation starts a 5-second clock (`WRITE_TIMEOUT_MS`)
+- On error or no answer: retry up to 5 times with 500 ms delay (`MAX_WRITE_RETRIES`,
+  `WRITE_RETRY_DELAY_MS` — the budget carries a 60-line derivation from a 26-log
+  corpus in `bletransport.h`; read it before changing either)
+- After max retries: `writeAbandoned` + `de1LinkFault("write-failed")`, and the queue
+  moves on
 - Queue is cleared when any flowing operation starts (espresso, steam, hot water, flush)
 
-**Error Logging (captured in shot debug log):**
+**Error logging (captured in shot debug log):**
 ```
-Write timeout, retrying 1/3 (uuid=0000a00f)
-Write FAILED after 3 retries (uuid=0000a00f, 8 bytes)
+[Bluetooth][GattQueue] retry 1/5 for write 0000a00f
+Write FAILED after 5 retries (uuid=0000a00f, 8 bytes)
 ```
+
+Older captures show `Write timeout, retrying 1/10 (uuid=...)` — retries were counted
+and logged by the transport before the shared queue, and the budget was 10 before it
+was 5. Grep for the corpus's wording when re-deriving from those logs, not this one.
 
 **Key UUIDs:**
 - `0000a001` = Version
@@ -38,9 +110,13 @@ Write FAILED after 3 retries (uuid=0000a00f, 8 bytes)
 - `0000a012` = Calibration
 
 **Comparison to de1app:**
-- de1app uses soft 1-second fallback timer (just retries queue)
-- de1app has `vital` flag for commands that must retry
-- Our implementation: hard 5-second timeout, all commands can retry up to 3 times
+- de1app uses a soft 1-second fallback timer (just retries the queue)
+- de1app has a `vital` flag for commands that must retry, unbounded at 500 ms — its own
+  source says that "kind of kills the BLE abilities of the app" when the command never
+  succeeds, and it pins the command at the head of a stalled queue. What actually
+  protects de1app is that it issues its notification enables three separate times
+  during connection setup: redundancy, not error handling.
+- Ours: a 5-second per-operation clock, and every DE1 operation retries up to 5 times
 
 ### Connection-Failure Handling
 

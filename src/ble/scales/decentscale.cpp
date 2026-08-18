@@ -22,6 +22,8 @@ DecentScale::DecentScale(ScaleBleTransport* transport, QObject* parent)
                 this, &DecentScale::onTransportDisconnected);
         connect(m_transport, &ScaleBleTransport::error,
                 this, &DecentScale::onTransportError);
+        connect(m_transport, &ScaleBleTransport::notificationsIssued,
+                this, &DecentScale::onNotificationsIssued);
         connect(m_transport, &ScaleBleTransport::serviceDiscovered,
                 this, &DecentScale::onServiceDiscovered);
         connect(m_transport, &ScaleBleTransport::servicesDiscoveryFinished,
@@ -189,8 +191,26 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
         wake();
     });
 
-    // Start watchdog (1s timeout allows pending 300/400ms notification enables to trigger data flow)
-    startWatchdog();
+    // NOT armed here. Armed when the notify-enable it is timing actually reaches
+    // the radio — see onNotificationsIssued().
+    //
+    // The budget below is "did weight data start flowing after we enabled
+    // notifications", and it used to be measured from this point on the
+    // assumption that the enables submitted just above go out immediately. Under
+    // the shared GATT queue that assumption broke: with the DE1 connecting at
+    // the same time the enable is queued behind the machine's connect burst.
+    // Measured on a tablet — enableNotifications called at 7.221 s, dispatched
+    // at 8.483 s — so the watchdog expired 50 ms BEFORE the scale had been asked
+    // anything, reported "no initial weight data" and burned a retry.
+    //
+    // The interval was never wrong; the moment it started from was. So this
+    // arms nothing and the issue callback does — a timer that begins when its
+    // subject begins, which is the timers-as-guards rule rather than a tuning
+    // change. Restarting an already-running timer on issue would have been the
+    // smaller edit and would have left the same bug reachable: an enable that is
+    // still queued when the watchdog was never armed at all (a wake sequence cut
+    // short) has nothing to restart.
+    m_watchdogArmPending = true;
 
     // Heartbeat at 2000ms
     QTimer::singleShot(2000, this, [this]() {
@@ -325,6 +345,29 @@ void DecentScale::sendKeepAlive() {
     // The 1s heartbeat handles keep-alive, and the watchdog handles stale data detection.
 }
 
+void DecentScale::onNotificationsIssued(const QBluetoothUuid& characteristicUuid) {
+    // The weight stream only: an enable for anything else says nothing about
+    // when weight data should start.
+    if (characteristicUuid != Scale::Decent::READ) return;
+
+    if (m_watchdogArmPending) {
+        // First enable of this wake sequence reaching the radio. startWatchdog()
+        // resets the retry counter, which is right exactly once per sequence.
+        m_watchdogArmPending = false;
+        startWatchdog();
+        return;
+    }
+
+    // A later enable — the wake sequence's own 400 ms repeat, or one the
+    // watchdog itself issued on retry. Restart the countdown so it measures from
+    // this attempt, but do NOT go through startWatchdog(): resetting the retry
+    // counter here would let the watchdog retry forever.
+    if (m_watchdogTimer && m_watchdogTimer->isActive()) {
+        m_watchdogTimer->start(m_watchdogUpdatesSeen ? kWatchdogTickleTimeoutMs
+                                                     : kWatchdogFirstTimeoutMs);
+    }
+}
+
 void DecentScale::enableWeightNotifications(const QString& reason) {
     if (!m_transport || !m_characteristicsReady) return;
     DECENT_LOG(QString("Enabling notifications (%1)").arg(reason));
@@ -350,6 +393,10 @@ void DecentScale::stopWatchdog() {
     }
     m_watchdogUpdatesSeen = false;
     m_watchdogRetries = 0;
+    // A wake sequence torn down before its enable reached the radio must not
+    // leave this pending: a later sequence's enable would otherwise arm a
+    // watchdog belonging to a connection that is already gone.
+    m_watchdogArmPending = false;
 }
 
 void DecentScale::tickleWatchdog() {
@@ -472,10 +519,22 @@ void DecentScale::wake() {
     sendCommand(QByteArray::fromHex("0A01010001"));
     m_lcdOn = true;
 
-    // Restart heartbeat and watchdog if they were stopped by sleep()
+    // Restart heartbeat and watchdog if they were stopped by sleep().
     if (m_characteristicsReady) {
         startHeartbeat();
-        startWatchdog();
+        // But NOT while an enable is still on its way to the radio.
+        //
+        // wake() has two callers with opposite needs. After sleep() the scale's
+        // notifications were never disabled, so nothing is pending and arming
+        // here is right. During the CONNECT wake sequence, wake() is called at
+        // 200 ms and 500 ms while the notify-enables sit in the shared queue —
+        // and arming there starts a "did weight data arrive" clock against an
+        // LCD command, before the scale has been asked for weight at all.
+        //
+        // Measured on a tablet: armed at 6.412 by the 500 ms wake, expired at
+        // 7.412, and the enable did not reach the radio until 7.690. The
+        // warning fired 278 ms before the question was asked.
+        if (!m_watchdogArmPending) startWatchdog();
     }
 }
 
@@ -498,7 +557,13 @@ void DecentScale::startHeartbeat() {
         m_heartbeatTimer = new QTimer(this);
         m_heartbeatTimer->setInterval(1000);  // Every 1 second like de1app
         connect(m_heartbeatTimer, &QTimer::timeout, this, [this]() {
-            if (!m_characteristicsReady || m_heartbeatsPaused) return;
+            // No pause flag: a heartbeat write that raced DE1 characteristic
+            // discovery used to fail with CharacteristicWriteError and drop the
+            // scale on weaker radios (#1176), and BLEManager forwarded a
+            // discovery-active bool through five files to suppress it. Both
+            // sides of that race are queued operations now, so the write waits
+            // its turn instead of being withheld.
+            if (!m_characteristicsReady) return;
             sendHeartbeat();
             // Periodic battery refresh: re-send the display-on command every
             // kBatteryPollHeartbeatTicks (~4 min). The scale replies with an
@@ -517,18 +582,6 @@ void DecentScale::startHeartbeat() {
     DECENT_LOG("Starting heartbeat timer");
     m_ticksSinceBatteryPoll = 0;
     m_heartbeatTimer->start();
-}
-
-void DecentScale::setHeartbeatsPaused(bool paused) {
-    if (m_heartbeatsPaused == paused) return;
-    m_heartbeatsPaused = paused;
-    // Lifted out of the macro arg: SCALE_LOG concatenates with `+`, which binds
-    // tighter than `?:`, so an inline ternary would parse as
-    // `(QString + bool) ? "..." : "..."` and fail to compile.
-    const QString msg = paused
-        ? QStringLiteral("Pausing heartbeats — DE1 BLE discovery in progress")
-        : QStringLiteral("Resuming heartbeats — DE1 BLE discovery complete");
-    DECENT_LOG(msg);
 }
 
 void DecentScale::stopHeartbeat() {

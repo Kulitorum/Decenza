@@ -2100,6 +2100,19 @@ int main(int argc, char *argv[])
     checkpoint("QML engine created");
 
     // Auto-connect when DE1 is discovered via BLE
+    // Tell BLEManager whether a DE1 connect is actually in flight, so it can hold
+    // a scale's direct-connect behind it (two concurrent GATT connects collide on
+    // the Android stack). Both signals, because DE1Device emits connectingChanged
+    // alone when an attempt STARTS and both when one ends — reading one of them
+    // would miss an edge. isConnecting() clears in onTransportConnected(), which
+    // runs only after every DE1 notification subscription is confirmed, so the
+    // gate brackets connect, discovery and subscribe.
+    const auto noteDe1Connecting = [&de1Device, &bleManager]() {
+        bleManager.noteDe1Connecting(de1Device.isConnecting());
+    };
+    QObject::connect(&de1Device, &DE1Device::connectingChanged, &bleManager, noteDe1Connecting);
+    QObject::connect(&de1Device, &DE1Device::connectedChanged, &bleManager, noteDe1Connecting);
+
     QObject::connect(&bleManager, &BLEManager::de1Discovered,
                      &de1Device, [&de1Device, &bleManager, &physicalScale, &settings
 #ifndef Q_OS_IOS
@@ -2135,13 +2148,6 @@ int main(int argc, char *argv[])
     // and nothing else — so everything sent through it was missing from every log a
     // user submitted. DE1Device's macros already write each line to the system log
     // carrying [DE1][<source>], which is what the view now reads.
-
-    // Forward the DE1 BLE service+characteristic discovery window so BLEManager
-    // can pause the scale heartbeat during it (#1176 mid-discovery scale drop on
-    // Tab A8). DE1Device re-emits this from whichever transport is current, so
-    // we bind once and don't need to rewire on transport swaps.
-    QObject::connect(&de1Device, &DE1Device::serviceDiscoveryActiveChanged,
-                     &bleManager, &BLEManager::setDe1ServiceDiscoveryActive);
 
 #ifndef Q_OS_IOS
     // When USB DE1 discovered: disconnect BLE, switch to USB transport
@@ -2645,14 +2651,6 @@ int main(int argc, char *argv[])
         }
         const bool wasActive = de1WasActive;
         de1WasActive = isActive;
-
-        // Release a scale direct-connect that was deferred behind the DE1's BLE
-        // connect, once the DE1's connect resolves (connected, or the attempt
-        // ended without success). Prevents the concurrent-GATT-connect collision
-        // that made the scale fail + sit out its 20 s timeout at startup.
-        if (isConnected || (wasActive && !isActive)) {
-            bleManager.onDe1ConnectionSettled();
-        }
 
         if (isConnected) {
             // Just transitioned to connected: stop any pending reconnect attempts.
@@ -4331,11 +4329,21 @@ int main(int argc, char *argv[])
 
             // IMPORTANT: Ensure charger is ON when app goes to background
             // This prevents tablet from dying if user doesn't return to the app.
-            // Previously skipped on iOS because the 50ms BLE command queue raced with
-            // CoreBluetooth suspension, causing SIGSEGV. Now safe because ensureChargerOn
-            // uses setUsbChargerOnUrgent() which bypasses the queue and writes synchronously
-            // before iOS can tear down CoreBluetooth. The bluetooth-central background mode
-            // also helps by keeping CoreBluetooth alive longer during backgrounding.
+            // Previously skipped on iOS because the old BLE command queue raced with
+            // CoreBluetooth suspension, causing SIGSEGV. ensureChargerOn() uses
+            // setUsbChargerOnUrgent(), which puts the write at the FRONT of the shared
+            // GATT queue. That is a position, not a bypass, and since the queue moved
+            // to posted dispatch the write leaves one event-loop turn after this call
+            // rather than during it.
+            //
+            // That turn is available: this handler runs FROM the event loop (it is a
+            // QGuiApplication::applicationStateChanged slot), so returning from it
+            // returns to the loop, which then delivers the queued dispatch. iOS does
+            // not suspend us inside our own slot. The write was never synchronous in
+            // the sense that mattered anyway — QLowEnergyService::writeCharacteristic
+            // only ever handed the payload to DarwinBTCentralManager's own request
+            // queue, which drains on the LE dispatch queue. The bluetooth-central
+            // background mode keeps CoreBluetooth alive longer during backgrounding.
             batteryManager.ensureChargerOn();
 
             // Flush queued database writes LAST in this branch, and last for the
@@ -4717,6 +4725,20 @@ int main(int argc, char *argv[])
             needBleWait = true;
         }
 
+        // IMPORTANT: Ensure charger is ON before exiting.
+        // Matches de1app's app_exit behaviour — always leave the charger ON so
+        // the tablet can charge while the app is not running to manage it.
+        //
+        // BEFORE the drain wait below, not after, and that ordering is the whole
+        // point. The write goes to the FRONT of the shared GATT queue and its
+        // dispatch is posted, so it needs one event-loop turn; after the wait
+        // there may be no such turn on a quiet quit (drainDbWork() returns
+        // immediately when nothing is queued, and the export loop runs zero
+        // iterations), and de1Device.disconnect() below would then forget() the
+        // write unissued — leaving the DE1 USB port off, which is the
+        // tablet-dies-overnight case this call exists to prevent.
+        batteryManager.ensureChargerOn();
+
         // Wait for BLE writes to complete before exiting
         if (needBleWait) {
             QEventLoop waitLoop;
@@ -4746,10 +4768,6 @@ int main(int argc, char *argv[])
             else
                 qWarning() << "BLE queue drain timed out after" << timeoutMs << "ms — sleep command may not have been delivered.";
         }
-
-        // IMPORTANT: Ensure charger is ON before exiting
-        // This matches de1app's app_exit behavior - always leave charger ON for safety
-        batteryManager.ensureChargerOn();
 
         // Neutralize the auto-reconnect path before BLE disconnect, otherwise
         // de1Device.disconnect() below fires connectedChanged, which triggers

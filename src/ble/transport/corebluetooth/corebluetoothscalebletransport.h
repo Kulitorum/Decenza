@@ -14,7 +14,8 @@ class CoreBluetoothScaleBleTransport final : public ScaleBleTransport
 {
     Q_OBJECT
 public:
-    explicit CoreBluetoothScaleBleTransport(QObject* parent = nullptr);
+    explicit CoreBluetoothScaleBleTransport(QObject* parent = nullptr,
+                                            BleGattQueue* queue = nullptr);
     ~CoreBluetoothScaleBleTransport() override;
 
     void connectToDevice(const QString& address, const QString& name) override;
@@ -38,6 +39,11 @@ public:
 
     bool isConnected() const override;
     bool isConnecting() const override;
+
+protected:
+    // Drops the "which read is outstanding" key on every release path. See the
+    // base declaration for the stale-key hazard it closes.
+    void onGattSlotReleased() override;
 
 private:
     void log(const QString& msg);

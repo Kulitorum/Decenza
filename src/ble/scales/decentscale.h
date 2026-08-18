@@ -26,14 +26,6 @@ public slots:
     void wake() override;
     void disableLcd() override;
     void setLed(int r, int g, int b);
-    // Pause the periodic 1 s heartbeat while DE1 BLE service/char discovery is
-    // in flight. Driven by BLEManager off the DE1 transport's
-    // serviceDiscoveryActiveChanged() signal. The Decent Scale tolerates
-    // skipped heartbeats fine (next tick covers it); a heartbeat write that
-    // races DE1 char discovery, however, fails with CharacteristicWriteError
-    // and disconnects the scale on weaker radios (#1176).
-    void setHeartbeatsPaused(bool paused);
-
 private slots:
     void onTransportConnected();
     void onTransportDisconnected();
@@ -54,6 +46,9 @@ private:
     void startHeartbeat();
     void stopHeartbeat();
     void startWatchdog();
+    // Restarts the watchdog's countdown when the weight-notify enable reaches
+    // the radio, so it times from there rather than from submission.
+    void onNotificationsIssued(const QBluetoothUuid& characteristicUuid);
     void stopWatchdog();
     void tickleWatchdog();
     void onWatchdogFired();
@@ -96,8 +91,10 @@ private:
     // startHeartbeat() so each new connect/wake starts the interval fresh.
     int m_ticksSinceBatteryPoll = 0;
     QTimer* m_heartbeatTimer = nullptr;
+    // A wake sequence has requested its weight-notify enable and is waiting for
+    // it to reach the radio before the watchdog starts counting.
+    bool m_watchdogArmPending = false;
     QTimer* m_watchdogTimer = nullptr;
-    bool m_heartbeatsPaused = false;
     // Gates the periodic battery poll — see kBatteryPollHeartbeatTicks above.
     bool m_lcdOn = true;
 };

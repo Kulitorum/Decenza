@@ -919,7 +919,7 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
         emit targetWeightReached();
 
         if (m_device) {
-            m_device->stopOperationUrgent();  // Bypass BLE queue for immediate stop
+            m_device->stopOperationUrgent();  // Front of the BLE queue, ahead of everything waiting
         }
     }
 }

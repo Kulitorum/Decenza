@@ -537,9 +537,11 @@ void BatteryManager::ensureChargerOn() {
     // drain unnecessarily. Matches de1app's app_exit behaviour.
     if (m_device && m_device->isConnected()) {
         qDebug() << "BatteryManager: Ensuring charger is ON (app exit/suspend safety)";
-        // Use the urgent (queue-bypassing) path so the BLE write goes out immediately.
-        // On iOS, the normal 50ms command queue could race with app suspension — by the
-        // time the queued write fires, CoreBluetooth may have already been suspended.
+        // Urgent, meaning FRONT of the shared GATT queue rather than behind whatever
+        // else is waiting. Not a bypass: it still waits for any operation already
+        // outstanding, on this device or another. See DE1Transport::writeUrgent and
+        // the iOS-suspend note at the caller in main.cpp for why one event-loop turn
+        // is available here.
         m_device->setUsbChargerOnUrgent(true);
     }
 }

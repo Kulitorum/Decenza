@@ -107,6 +107,15 @@ public:
             .arg(c.spanMs / 1000);
     }
 
+    // How many identical lines are currently held back for `key`. Read-only, for
+    // tests that need to assert a source collapses rather than counting log
+    // lines — which qDebug output does not let a test do directly.
+    int suppressedFor(const QString& key) const
+    {
+        const auto it = m_entries.constFind(key);
+        return it == m_entries.cend() ? 0 : it->suppressed;
+    }
+
 private:
     struct Entry
     {

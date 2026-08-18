@@ -203,7 +203,7 @@ public slots:
     void startClean();
     void startAirPurge();         // Transport mode: drains internal water via AirPurge state
     void stopOperation();         // Soft stop (for steam: stops flow, no purge)
-    void stopOperationUrgent();   // Bypasses command queue for faster stop (SOW)
+    void stopOperationUrgent();   // Front of the GATT queue, for a faster stop (SAW)
     void stopOperationUrgent(qint64 sawTriggerMs);  // Includes SAW trigger timestamp for latency tracing
     void requestIdle();           // Hard stop (requests Idle state, triggers steam purge)
     void skipToNextFrame();   // Skip to next profile frame during extraction (0x0E)
@@ -251,8 +251,10 @@ public slots:
                   const QString& reason = QString(),
                   bool force = false);
 
-    // MMR write bypassing the BLE command queue — used for time-critical writes
-    // that must complete before the app suspends (e.g. ensureChargerOn on iOS).
+    // MMR write placed at the FRONT of the shared GATT queue — used for
+    // time-critical writes that must go out before the app suspends (e.g.
+    // ensureChargerOn on iOS). It jumps everything waiting but not anything
+    // already outstanding; nothing can preempt an accepted GATT operation.
     // Always bypasses the dedup check since "urgent" implies "must reach the
     // DE1 now". Still updates m_lastMMRValues so a subsequent non-urgent
     // writeMMR with the same value is correctly elided.
@@ -263,9 +265,11 @@ public slots:
     // USB charger control (force=true to resend even if state unchanged, needed for DE1's 10-min timeout)
     void setUsbChargerOn(bool on, bool force = false);
 
-    // Like setUsbChargerOn but bypasses the BLE command queue for immediate send.
-    // Used by ensureChargerOn() on app suspend where the 50ms queue delay could
-    // race with iOS suspension.
+    // Like setUsbChargerOn but puts the write at the FRONT of the shared GATT
+    // queue rather than behind whatever else is waiting — a position, not a
+    // bypass. Used by ensureChargerOn() on app exit and suspend; see
+    // DE1Transport::writeUrgent and the two call sites in main.cpp for why the
+    // posted dispatch still gets an event-loop turn on both paths.
     void setUsbChargerOnUrgent(bool on);
 
     // Water refill level (write StartFillLevel to machine via WaterLevels characteristic)
@@ -328,10 +332,6 @@ signals:
     // write-failed / connection-teardown). Re-emitted here so consumers bind
     // once to the stable DE1Device and survive transport swaps.
     void de1LinkFault(const QString& kind);
-    // Forwarded from the DE1 transport: BLE service+characteristic discovery
-    // window. Re-emitted here so BLEManager binds once to the stable
-    // DE1Device. See DE1Transport::serviceDiscoveryActiveChanged for purpose.
-    void serviceDiscoveryActiveChanged(bool active);
     void simulationModeChanged();
     void guiEnabledChanged();
     void usbChargerOnChanged();
@@ -574,6 +574,13 @@ private:
     int m_refillKitDetected = -1;  // -1=unknown, 0=not detected, 1=detected
 
     // SAW stop latency instrumentation (monotonic ms timestamps)
+    // A stop-at-weight write that took this long to be acknowledged is reported
+    // at WARN rather than DEBUG. 300 ms is roughly 0.6 g at a typical 2 ml/s
+    // pour — the point where the overshoot is something a user would taste
+    // rather than something lost in scale noise. Not a threshold anything acts
+    // on; it only decides which tier the line is written at.
+    static constexpr qint64 SAW_SLOW_ACK_WARN_MS = 300;
+
     bool m_sawStopWritePending = false;
     qint64 m_lastSawTriggerMs = 0;
     qint64 m_lastSawWriteMs = 0;

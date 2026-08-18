@@ -3,7 +3,6 @@
 #include "ble/scales/scalelogging.h"
 
 #include <QDebug>
-#include <QTimer>
 #include <QMetaObject>
 
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
@@ -94,6 +93,10 @@ struct CoreBluetoothScaleBleTransport::Impl {
     // indefinitely. See isConnecting().
     bool pendingConnect = false;
     bool servicesDiscovered = false;  // Prevent re-discovery loops
+    // The characteristic a queued READ is outstanding for, so a notification on
+    // it can be told from its response. Null when the in-flight operation is not
+    // a read.
+    QBluetoothUuid readKeyInFlight;
     bool isValid = true;  // Set to false when transport is being destroyed
 
     QString targetName;
@@ -104,6 +107,25 @@ struct CoreBluetoothScaleBleTransport::Impl {
     QSet<QBluetoothUuid> charsDiscoveredForService;  // Track which services have had chars discovered
 
     void log(const QString& m) { if (q && isValid) q->log(m); }
+
+    // Shared-GATT-queue forwarders. The delegate is an Objective-C class and so
+    // cannot reach ScaleBleTransport's protected members; Impl is a nested
+    // struct of the transport and can. One line each, no logic — a place to
+    // stand, not a layer.
+    // True when the slot holds a READ for this characteristic. CoreBluetooth
+    // cannot tell a read response from a notification, so the transport records
+    // which kind it asked for.
+    bool readInFlight(const QBluetoothUuid& key) const {
+        return q && isValid && q->heldGattKey() == key && readKeyInFlight == key;
+    }
+    // No clearing of readKeyInFlight here: every one of these lands in
+    // ScaleBleTransport, which calls onGattSlotReleased() on every release path
+    // including the two that never reach these shims — the operation clock
+    // firing, and disconnectFromDevice() releasing directly.
+    void queueSucceeded() { if (q && isValid) q->completeGattOperation(); }
+    void queueSucceeded(const QBluetoothUuid& key) { if (q && isValid) q->completeGattOperation(key); }
+    void queueFailed() { if (q && isValid) q->failGattOperation(); }
+    void queueReleased() { if (q && isValid) q->releaseGattQueue(); }
 
     void clearCaches() {
         services.clear();
@@ -287,6 +309,9 @@ didDisconnectPeripheral:(CBPeripheral *)peripheral
         d->pendingConnect = false;
         d->connected = false;
         d->clearCaches();
+        // A dead link must not hold the radio for every other device, and this
+        // transport's queued work must not reach the next connection.
+        d->queueReleased();
         d->log(QString("Disconnected: %1").arg(reason));
         emit d->q->disconnected();
     }, Qt::QueuedConnection);
@@ -296,8 +321,15 @@ didDisconnectPeripheral:(CBPeripheral *)peripheral
     auto* d = self.impl;
     if (!d) return;
 
-    // Ignore if we already processed services (prevents duplicate handling)
+    // Ignore if we already processed services (prevents duplicate handling).
+    // Still terminal for the operation: a queued discovery that this guard
+    // swallows would otherwise hold the shared radio for the full discovery
+    // timeout. Harmless dedupe before the queue existed; a 20 s process-wide
+    // stall after it.
     if (d->servicesDiscovered) {
+        QMetaObject::invokeMethod(d->q, [d]{
+            if (d->isValid) d->queueSucceeded();
+        }, Qt::QueuedConnection);
         return;
     }
 
@@ -317,21 +349,25 @@ didDisconnectPeripheral:(CBPeripheral *)peripheral
         }
     }
 
-    // Trigger characteristic discovery immediately on main thread (before Qt signals)
-    // This ensures characteristics are being discovered while we notify Qt
-    if (!error && d->periph) {
-        for (CBService* s in d->periph.services) {
-            [d->periph discoverCharacteristics:nil forService:s];
-        }
-    }
+    // Characteristic discovery used to be kicked off for every service right
+    // here, ahead of the Qt signals, to overlap it with notifying Qt. It is not
+    // any more: the drivers are shared with the Qt transport and they all call
+    // discoverCharacteristics() from servicesDiscoveryFinished(), so this was a
+    // platform-only head start that also put discovery on the radio outside the
+    // shared queue — the one operation #1819 shows colliding with the DE1.
+    // Ordering now matches the Qt transport exactly.
 
     // Now notify Qt thread
     QMetaObject::invokeMethod(d->q, [d, errorMsg, serviceUuids]{
         if (!d->isValid) return;
         if (!errorMsg.isEmpty()) {
+            d->queueFailed();
             emit d->q->error(QString("Service discovery error: %1").arg(errorMsg));
             return;
         }
+
+        // Ends the service-discovery operation.
+        d->queueSucceeded();
 
         d->log(QString("Discovered %1 services").arg(serviceUuids.size()));
 
@@ -354,8 +390,13 @@ didDiscoverCharacteristicsForService:(CBService *)service
     // Get service UUID early to check for duplicates
     QBluetoothUuid serviceUuid = cbUuidToQt(service.UUID);
 
-    // Ignore if we already processed characteristics for this service (prevents duplicates)
+    // Ignore if we already processed characteristics for this service (prevents
+    // duplicates). Terminal for the operation, for the same reason as the
+    // services guard above.
     if (d->charsDiscoveredForService.contains(serviceUuid)) {
+        QMetaObject::invokeMethod(d->q, [d, serviceUuid]{
+            if (d->isValid) d->queueSucceeded(serviceUuid);
+        }, Qt::QueuedConnection);
         return;
     }
 
@@ -386,12 +427,15 @@ didDiscoverCharacteristicsForService:(CBService *)service
 
     QMetaObject::invokeMethod(d->q, [d, errorMsg, serviceUuidStr, charInfos]{
         if (!d->isValid) return;
+        QBluetoothUuid su = uuidFromString(serviceUuidStr);
         if (!errorMsg.isEmpty()) {
+            d->queueFailed();
             emit d->q->error(QString("Char discovery error: %1").arg(errorMsg));
             return;
         }
 
-        QBluetoothUuid su = uuidFromString(serviceUuidStr);
+        // Ends the characteristic-discovery operation for this service.
+        d->queueSucceeded(su);
 
         d->log(QString("Service %1: %2 characteristics")
                .arg(su.toString()).arg(charInfos.size()));
@@ -433,10 +477,13 @@ didUpdateNotificationStateForCharacteristic:(CBCharacteristic *)characteristic
         QBluetoothUuid cu = uuidFromString(uuidStr);
 
         if (!errorMsg.isEmpty()) {
+            d->queueFailed();
             emit d->q->error(QString("Notify enable failed for %1: %2")
                              .arg(cu.toString(), errorMsg));
             return;
         }
+
+        d->queueSucceeded(cu);
 
         d->log(QString("Notifications enabled for %1 (isNotifying=%2)")
                .arg(cu.toString())
@@ -455,7 +502,27 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic
     auto* d = self.impl;
     if (!d) return;
 
-    if (error) return;
+    if (error) {
+        // Was a bare `return`: no log at any tier, no terminal outcome, no
+        // error() to the driver. Under the shared queue that also held the radio
+        // for every device until the operation clock expired. Every sibling
+        // delegate below reports and releases; this one was missed, and it is
+        // the same defect shape as #1819 one file over.
+        QString errorMsg = nsToQs(error.localizedDescription);
+        QString uuidStr = nsToQs(characteristic.UUID.UUIDString);
+        QMetaObject::invokeMethod(d->q, [d, uuidStr, errorMsg]{
+            if (!d->isValid) return;
+            // Read-scoped, exactly like the success arm below, and for the same
+            // reason: CoreBluetooth delivers NOTIFICATION errors through this
+            // same callback, so a keyless release here could fail an unrelated
+            // write of ours that is still on the wire. The driver is told
+            // either way — only the slot release is conditional.
+            if (d->readInFlight(uuidFromString(uuidStr))) d->queueFailed();
+            emit d->q->error(QString("Read failed for %1: %2")
+                                 .arg(uuidFromString(uuidStr).toString(), errorMsg));
+        }, Qt::QueuedConnection);
+        return;
+    }
 
     // Copy ALL ObjC data to Qt types NOW, before queuing
     // (ObjC pointers become dangling when lambda executes later)
@@ -469,6 +536,16 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic
     QMetaObject::invokeMethod(d->q, [d, uuidStr, bytes]{
         if (!d->isValid) return;  // Transport being destroyed
         QBluetoothUuid cu = uuidFromString(uuidStr);
+        // CoreBluetooth delivers a read RESPONSE and an unsolicited notification
+        // through this one callback with nothing to tell them apart, so this can
+        // only release a READ. Scoped to reads deliberately: it used to release
+        // whatever was in flight on this characteristic, which for a write meant
+        // a notification arriving mid-write freed the slot while the write was
+        // still on the wire — the exact concurrency this queue exists to prevent.
+        // A read released early is harmless (the response still arrives); a write
+        // released early is not. The platform does not carry the distinction, so
+        // the transport keeps it.
+        if (d->readInFlight(cu)) d->queueSucceeded(cu);
         // Don't log every notification - too verbose at high rates (10/sec for Bookoo)
         emit d->q->characteristicChanged(cu, bytes);
     }, Qt::QueuedConnection);
@@ -492,6 +569,7 @@ didWriteValueForCharacteristic:(CBCharacteristic *)characteristic
         QBluetoothUuid cu = uuidFromString(uuidStr);
 
         if (!errorMsg.isEmpty()) {
+            d->queueFailed();
             d->log(QString("Write failed for %1: %2").arg(cu.toString(), errorMsg));
             emit d->q->error(QString("Write failed for %1: %2")
                              .arg(cu.toString(), errorMsg));
@@ -499,6 +577,7 @@ didWriteValueForCharacteristic:(CBCharacteristic *)characteristic
         }
 
         // Write success — don't log (heartbeat writes flood the log at 1/sec)
+        d->queueSucceeded(cu);
         emit d->q->characteristicWritten(cu);
     }, Qt::QueuedConnection);
 }
@@ -508,8 +587,9 @@ didWriteValueForCharacteristic:(CBCharacteristic *)characteristic
 #endif // Q_OS_IOS || Q_OS_MACOS
 
 // ---------- C++ class ----------
-CoreBluetoothScaleBleTransport::CoreBluetoothScaleBleTransport(QObject* parent)
-    : ScaleBleTransport(parent)
+CoreBluetoothScaleBleTransport::CoreBluetoothScaleBleTransport(QObject* parent,
+                                                               BleGattQueue* queue)
+    : ScaleBleTransport(parent, queue)
 {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     m_impl = new Impl;
@@ -646,6 +726,12 @@ void CoreBluetoothScaleBleTransport::connectToDevice(const QBluetoothDeviceInfo&
 #endif
 }
 
+void CoreBluetoothScaleBleTransport::onGattSlotReleased() {
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
+    if (m_impl) m_impl->readKeyInFlight = QBluetoothUuid();
+#endif
+}
+
 void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!m_impl) return;
@@ -674,15 +760,27 @@ void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
     m_impl->pendingConnect = false;
     m_impl->connected = false;
     m_impl->clearCaches();
+    // Before the peripheral goes: release the slot and drop our queued
+    // operations, so nothing is issued against a released CBPeripheral and no
+    // other device waits on work that will never run.
+    releaseGattQueue();
 #endif
 }
 
 void CoreBluetoothScaleBleTransport::discoverServices() {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (!m_impl || !m_impl->isValid || !m_impl->periph) { emit error("No peripheral"); return; }
-    log("Discovering services");
-    // On iOS, Qt main thread = dispatch main queue, so just call directly
-    [m_impl->periph discoverServices:nil];
+    // Null key: service discovery targets no characteristic, and its completion
+    // names none either. Same shape as the Qt transport.
+    submitGattOperation(QBluetoothUuid(), QStringLiteral("scale discover services"), [this]() {
+        if (!m_impl || !m_impl->isValid || !m_impl->periph) {
+            emit error("No peripheral");
+            failGattOperation();
+            return;
+        }
+        log("Discovering services");
+        // On iOS, Qt main thread = dispatch main queue, so just call directly
+        [m_impl->periph discoverServices:nil];
+    }, BleGatt::DISCOVERY_TIMEOUT_MS);
 #else
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
 #endif
@@ -692,20 +790,32 @@ void CoreBluetoothScaleBleTransport::discoverCharacteristics(const QBluetoothUui
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!m_impl || !m_impl->isValid || !m_impl->periph) { emit error("No peripheral"); return; }
 
-    CBService* svc = m_impl->findService(serviceUuid);
-    if (svc) {
-        log(QString("Discovering characteristics for %1").arg(serviceUuid.toString()));
-        // On iOS, Qt main thread = dispatch main queue, so just call directly
-        [m_impl->periph discoverCharacteristics:nil forService:svc];
-    } else if (!m_impl->servicesDiscovered) {
-        // Services not yet discovered - discover them first
-        log(QString("Service %1 not cached, discovering all services").arg(serviceUuid.toString()));
-        [m_impl->periph discoverServices:nil];
-    } else {
-        // Services were discovered but this specific service wasn't found
-        // This is normal - the device doesn't have this service
-        log(QString("Service %1 not found on device").arg(serviceUuid.toString()));
-    }
+    submitGattOperation(serviceUuid, QStringLiteral("scale discover characteristics"),
+                        [this, serviceUuid]() {
+        if (!m_impl || !m_impl->isValid || !m_impl->periph) {
+            emit error("No peripheral");
+            failGattOperation();
+            return;
+        }
+        CBService* svc = m_impl->findService(serviceUuid);
+        if (svc) {
+            log(QString("Discovering characteristics for %1").arg(serviceUuid.toString()));
+            // On iOS, Qt main thread = dispatch main queue, so just call directly
+            [m_impl->periph discoverCharacteristics:nil forService:svc];
+        } else if (!m_impl->servicesDiscovered) {
+            // Services not yet discovered - discover them first. This completes
+            // through didDiscoverServices, which releases the slot keylessly, so
+            // the operation still ends.
+            log(QString("Service %1 not cached, discovering all services").arg(serviceUuid.toString()));
+            [m_impl->periph discoverServices:nil];
+        } else {
+            // Services were discovered but this specific service wasn't found.
+            // This is normal - the device doesn't have this service. Nothing was
+            // issued, so nothing will complete it.
+            log(QString("Service %1 not found on device").arg(serviceUuid.toString()));
+            failGattOperation();
+        }
+    }, BleGatt::DISCOVERY_TIMEOUT_MS);
 #else
     Q_UNUSED(serviceUuid);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
@@ -715,27 +825,40 @@ void CoreBluetoothScaleBleTransport::discoverCharacteristics(const QBluetoothUui
 void CoreBluetoothScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
                                                         const QBluetoothUuid& characteristicUuid) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (!m_impl || !m_impl->periph) { emit error("No peripheral"); return; }
-    if (!m_impl->readyForIO()) {
-        log("Skipping notify-enable — link not ready (adapter/peripheral not connected)");
-        return;
-    }
+    submitGattOperation(characteristicUuid, QStringLiteral("scale enable notifications"),
+                        [this, serviceUuid, characteristicUuid]() {
+        if (!m_impl || !m_impl->periph) {
+            emit error("No peripheral");
+            failGattOperation();
+            return;
+        }
+        if (!m_impl->readyForIO()) {
+            log("Skipping notify-enable — link not ready (adapter/peripheral not connected)");
+            failGattOperation();
+            return;
+        }
 
-    CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
-    if (!ch) {
-        log(QString("Characteristic %1 not found for notifications").arg(characteristicUuid.toString()));
-        emit error("Characteristic not found for notifications");
-        return;
-    }
+        CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
+        if (!ch) {
+            log(QString("Characteristic %1 not found for notifications").arg(characteristicUuid.toString()));
+            emit error("Characteristic not found for notifications");
+            failGattOperation();
+            return;
+        }
 
-    if (!(ch.properties & (CBCharacteristicPropertyNotify | CBCharacteristicPropertyIndicate))) {
-        emit error("Characteristic does not support notify/indicate");
-        return;
-    }
+        if (!(ch.properties & (CBCharacteristicPropertyNotify | CBCharacteristicPropertyIndicate))) {
+            emit error("Characteristic does not support notify/indicate");
+            failGattOperation();
+            return;
+        }
 
-    log(QString("Enabling notifications for %1").arg(characteristicUuid.toString()));
-    // On iOS, Qt main thread = dispatch main queue, so just call directly
-    [m_impl->periph setNotifyValue:YES forCharacteristic:ch];
+        log(QString("Enabling notifications for %1").arg(characteristicUuid.toString()));
+        // On iOS, Qt main thread = dispatch main queue, so just call directly
+        [m_impl->periph setNotifyValue:YES forCharacteristic:ch];
+        // Reached the radio. See the signal's declaration for why a driver
+        // waiting on notifications must time from here and not from submit.
+        emit notificationsIssued(characteristicUuid);
+    });
 #else
     Q_UNUSED(serviceUuid); Q_UNUSED(characteristicUuid);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
@@ -747,32 +870,48 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
                                                         const QByteArray& data,
                                                         WriteType writeType) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (!m_impl || !m_impl->periph) { emit error("No peripheral"); return; }
-    if (!m_impl->readyForIO()) {
-        // Adapter resetting/off or peripheral no longer connected — writing to a
-        // stale CBPeripheral crashes CoreBluetooth (#1405). Drop the write; a real
-        // peripheral drop is torn down by didDisconnectPeripheral, and a terminal
-        // adapter loss by the centralManagerDidUpdateState handler.
-        log("Skipping write — link not ready (adapter/peripheral not connected)");
-        return;
-    }
+    submitGattOperation(characteristicUuid, QStringLiteral("scale write"),
+                        [this, serviceUuid, characteristicUuid, data, writeType]() {
+        if (!m_impl || !m_impl->periph) {
+            emit error("No peripheral");
+            failGattOperation();
+            return;
+        }
+        if (!m_impl->readyForIO()) {
+            // Adapter resetting/off or peripheral no longer connected — writing to a
+            // stale CBPeripheral crashes CoreBluetooth (#1405). Drop the write; a real
+            // peripheral drop is torn down by didDisconnectPeripheral, and a terminal
+            // adapter loss by the centralManagerDidUpdateState handler.
+            log("Skipping write — link not ready (adapter/peripheral not connected)");
+            failGattOperation();
+            return;
+        }
 
-    CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
-    if (!ch) {
-        log(QString("Characteristic %1 not found for write").arg(characteristicUuid.toString()));
-        emit error("Characteristic not found for write");
-        return;
-    }
+        CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
+        if (!ch) {
+            log(QString("Characteristic %1 not found for write").arg(characteristicUuid.toString()));
+            emit error("Characteristic not found for write");
+            failGattOperation();
+            return;
+        }
 
-    CBCharacteristicWriteType t = (writeType == WriteType::WithoutResponse)
-        ? CBCharacteristicWriteWithoutResponse
-        : CBCharacteristicWriteWithResponse;
+        const bool withoutResponse = (writeType == WriteType::WithoutResponse);
 
-    // Don't log routine writes — failures are logged in the callback
+        // Don't log routine writes — failures are logged in the callback
 
-    // On iOS, Qt main thread = dispatch main queue, so just call directly
-    NSData* ns = [NSData dataWithBytes:data.constData() length:data.size()];
-    [m_impl->periph writeValue:ns forCharacteristic:ch type:t];
+        // On iOS, Qt main thread = dispatch main queue, so just call directly
+        NSData* ns = [NSData dataWithBytes:data.constData() length:data.size()];
+        [m_impl->periph writeValue:ns forCharacteristic:ch
+                              type:withoutResponse ? CBCharacteristicWriteWithoutResponse
+                                                   : CBCharacteristicWriteWithResponse];
+
+        if (withoutResponse) {
+            // Complete at issue: CoreBluetooth calls didWriteValueForCharacteristic
+            // only for writes WITH response. Holding the slot would mean holding
+            // it until the operation clock expired, every heartbeat.
+            completeGattOperation(characteristicUuid);
+        }
+    }, RW_TIMEOUT_MS);
 #else
     Q_UNUSED(serviceUuid); Q_UNUSED(characteristicUuid); Q_UNUSED(data); Q_UNUSED(writeType);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
@@ -782,22 +921,32 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
 void CoreBluetoothScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
                                                        const QBluetoothUuid& characteristicUuid) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (!m_impl || !m_impl->periph) { emit error("No peripheral"); return; }
-    if (!m_impl->readyForIO()) {
-        log("Skipping read — link not ready (adapter/peripheral not connected)");
-        return;
-    }
+    submitGattOperation(characteristicUuid, QStringLiteral("scale read"),
+                        [this, serviceUuid, characteristicUuid]() {
+        if (!m_impl || !m_impl->periph) {
+            emit error("No peripheral");
+            failGattOperation();
+            return;
+        }
+        if (!m_impl->readyForIO()) {
+            log("Skipping read — link not ready (adapter/peripheral not connected)");
+            failGattOperation();
+            return;
+        }
 
-    CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
-    if (!ch) {
-        log(QString("Characteristic %1 not found for read").arg(characteristicUuid.toString()));
-        emit error("Characteristic not found for read");
-        return;
-    }
+        CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
+        if (!ch) {
+            log(QString("Characteristic %1 not found for read").arg(characteristicUuid.toString()));
+            emit error("Characteristic not found for read");
+            failGattOperation();
+            return;
+        }
 
-    log(QString("Reading characteristic %1").arg(characteristicUuid.toString()));
-    // On iOS, Qt main thread = dispatch main queue, so just call directly
-    [m_impl->periph readValueForCharacteristic:ch];
+        log(QString("Reading characteristic %1").arg(characteristicUuid.toString()));
+        m_impl->readKeyInFlight = characteristicUuid;
+        // On iOS, Qt main thread = dispatch main queue, so just call directly
+        [m_impl->periph readValueForCharacteristic:ch];
+    }, RW_TIMEOUT_MS);
 #else
     Q_UNUSED(serviceUuid); Q_UNUSED(characteristicUuid);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");

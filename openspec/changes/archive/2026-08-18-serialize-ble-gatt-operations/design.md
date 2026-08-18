@@ -1,0 +1,161 @@
+## Context
+
+See proposal.md — Why, for the defect and the two reference implementations.
+
+The structural facts this design has to work with:
+
+- **Two transport families, three peripheral families.** `BleTransport` owns the DE1's `QLowEnergyController` and a command queue gated by `m_writePending`. `ScaleBleTransport` (implementations `QtScaleBleTransport` and `CoreBluetoothScaleBleTransport`) serves all 14 scale drivers *and* both DiFluid refractometers.
+- **Only one of them tracks anything.** `QtScaleBleTransport::writeCharacteristic()` validates the link and calls `service->writeCharacteristic()` straight through. No in-flight flag, no completion matching, no retry, no depth accounting — and the same for `discoverServices`, `discoverCharacteristics`, `enableNotifications` and `readCharacteristic`. That asymmetry is the defect: the DE1 side knows an operation is outstanding and the scale side has no concept of one, so it cannot yield.
+- **Qt's own queue is per controller.** `readWriteQueue` and `pendingJob` are instance fields of `QtBluetoothLE`, one instance per `QLowEnergyController`. The darwin backend has no cross-peripheral queue either. No backend supplies the cross-device guarantee, which is why this is unconditional rather than platform-gated.
+- **Qt already bounds every operation at 3 s on Android.** `RUNNABLE_TIMEOUT = 3000` (`QtBluetoothLE.java:69`). Our `SUBSCRIBE_TIMEOUT_MS = 3000` is a second clock racing it on the same operation.
+- **The failure signal we needed was already being delivered.** `handleOnDescriptorWrite` maps a non-success status to `errorCode = 3` and calls `leDescriptorWritten(...)` — the `DescriptorWriteError` that arrived at +45 ms in the captured session. The code logged it at DEBUG, dropped it, and waited out the full 3 s anyway.
+- **Existing DE1 policy that must survive byte-identical.** `MAX_WRITE_RETRIES = 5` with a derivation from a 26-log corpus, `WRITE_TIMEOUT_MS = 5000`, `WRITE_RETRY_DELAY_MS = 500`, `writeUrgent`, UUID-scoped `discardQueued()`, the depth warning at 20, and the consecutive-abandonment reporting.
+- **The firmware updater holds a link for long stretches**, with erase-and-wait sequences measured in seconds between GATT operations.
+
+## Goals / Non-Goals
+
+**Goals:**
+
+- One queue, one operation dispatched at a time, across every peripheral.
+- Give the scale and refractometer transports the in-flight concept they lack.
+- Cover service/characteristic discovery, not only reads and writes — the observed collision was a descriptor write against a peripheral in discovery. Connect is handled by backpressure instead of being queued (see below).
+- Preserve the DE1's tuned queue behaviour exactly, as per-operation policy rather than queue-wide policy.
+- Delete `m_de1WaitTimer` and `SUBSCRIBE_TIMEOUT_MS`. Add no timer used as a guard.
+
+  **As shipped, three timers exist and none of them guards anything.** `m_operationTimeoutTimer` on each transport bounds how long a *platform* may sit on an operation it never answers — the shared slot is held for that whole interval, so leaving it unbounded wedges every device. The retry delay in `noteFailed()` is a backoff: it decides *when* to try again, never *whether* something finished. And a scale connect deferred on backpressure is released by the queue's `drained()` signal, not by any interval. What the rule forbids is a timer standing in for an event that exists — which is exactly what `m_de1WaitTimer` and `SUBSCRIBE_TIMEOUT_MS` were, and both are gone. The queue itself owns no clock; dispatch is a posted `QMetaObject::invokeMethod`, not a zero-interval `QTimer`.
+- One code path on every platform.
+
+**Non-Goals:**
+
+- Not merging the two transport classes. They keep their own platform code; only the queue is shared.
+- Not serializing **inbound** notifications. Notifications are deliveries, not operations; gating them would add latency directly to live shot telemetry.
+- Not giving scale operations the DE1's retry budget. Their default is zero retries — today's behaviour.
+- Not changing the DE1 BLE protocol, the profile upload sequence, or any characteristic's meaning.
+- No user-facing setting, diagnostic mode, or way to disable the queue.
+
+## Decisions
+
+### One queue, not a token above two queues
+
+A `BleGattQueue` owns the single operation queue and the in-flight slot. `BleTransport::m_commandQueue` and `m_commandTimer` are deleted; both transport families submit to the shared queue.
+
+*Alternative — keep both queues and gate dispatch with a shared token:* rejected after reading the code. The scale transport has no completion tracking at all, so the token version still has to teach it which platform signal ends which operation — which is most of a queue entry. Having built that, two queues leave ordering decided in three places (each local queue, plus the token) for no gain.
+
+*Alternative — merge the two transport classes outright:* larger, and not required. The queue is the shared part; the platform code is not.
+
+### Per-operation policy, not per-queue policy
+
+Each queued operation carries its own retry budget, pacing and discard key. DE1 operations carry the existing constants unchanged. Scale and refractometer operations default to zero retries.
+
+This is the load-bearing constraint of the whole change. A shared queue with one retry policy would either dilute the DE1's tuned budget or impose it on scales — and the second is actively harmful: a dead scale link would hold the shared slot through the DE1's ~32 s worst-case retry sequence, starving the machine the budget exists to protect.
+
+### Dispatch is driven by the operation's terminal outcome, with no queue-owned clock
+
+The next operation is dispatched when the current one reaches a terminal outcome: its success callback or its error callback. The queue owns no timer.
+
+Where the platform can deliver neither — Android's `handleOnDescriptorWrite` explicitly discards a reply that arrives after Qt's own 3 s timeout, notifying nothing — the release is driven by the requesting transport's existing terminal machinery (`WRITE_TIMEOUT_MS` for writes, `CONNECT_WATCHDOG_MS` for connects). Those already exist, and both verify real state before acting rather than assuming from elapsed time. Adding a queue-owned bound alongside them would recreate the two-clocks-racing condition that produced the 3 s stalls.
+
+### CCCD writes go through the queue like any other operation; `SUBSCRIBE_TIMEOUT_MS` is deleted
+
+`subscribeNext()` currently bypasses the command queue and runs its own timer. Instead it submits a descriptor write, the error is handled when it arrives (+45 ms, not +3000 ms), retry is the queue's bounded retry, and exhaustion produces `noteWriteAbandoned()` → `writeAbandoned` → `de1LinkFault` → failed connect.
+
+Routing it through `de1LinkFault` also closes a gap that would otherwise remain: `evaluateBleWedge()` requires a fault to have fired **and** the scale to be disconnected, so a DE1 stuck mid-subscribe with a scale connected is caught by nothing today.
+
+*Alternative — de1app's unbounded retry:* its own source says retrying a forever-failing vital command "kind of kills the BLE abilities of the app", and it pins the command at the head of a stalled queue. What actually protects de1app is that it issues its enables three separate times during connection setup — redundancy, not error handling.
+
+### Gating a connect: backpressure, not device state
+
+A BLE connect is deliberately **not** a queued operation, so something else has to keep
+it off a busy radio. That something is de1app's rule, which we could not use before
+because there was no shared queue to measure: `ble_connect_to_scale` defers while the
+shared command stack is backed up — "Too much backpressure, waiting with the connect"
+(`bluetooth.tcl:2276`) — rather than while any particular device is busy.
+
+It gates on the contention itself, so it needs no belief about *which* device is
+contending. Three consequences, all wanted:
+
+- **No DE1 present is no wait at all.** The queue is empty, so the scale connects
+  immediately. This matters more than it looks: the absent-DE1 case cannot be measured
+  from any capture available (only 4 of 29 carry DE1 controller states, and one supplies
+  100% of the failure samples), so the gate has to be safe there by construction.
+- **No device coupling.** `m_de1Connecting`, the main.cpp wiring and the DE1-state
+  branch all stop being control flow.
+- **No threshold and no interval.** de1app polls with `after 1000` and uses a depth of
+  >2 because a poll cannot express "when it is clear". `drained()` is that event
+  exactly, so both numbers disappear rather than being imported.
+
+*Alternative — queue the connects too:* rejected, and it is the strongest alternative.
+It would make the gate and the queue one mechanism and order connects against GATT
+traffic in both directions. But a scale reconnect mid-shot would then stall DE1 writes
+for the duration of that connect, and stop-at-weight is on that path. de1app's
+asymmetry is deliberate and right: a connect waits for GATT traffic, GATT traffic never
+waits for a connect.
+
+*Alternative — gate on the DE1's connection state:* shipped briefly and withdrawn. It
+enforced an inherited claim — that two concurrent GATT connects collide on the Android
+stack — that no available log supports. In the one capture carrying both DE1 controller
+states and scale connects, scale connects fail 101 of 101 times when no DE1 is up at
+all, so its 2-of-6 success rate during a DE1 connect says nothing about the DE1. The
+state now only records, and feeds a radio-context line on every scale connect so the
+claim becomes answerable from a submitted log instead of being enforced on faith.
+
+### Ordering is FIFO with no per-device priority
+
+Served in submission order regardless of peripheral. No DE1 priority.
+
+*Alternative — prioritise the DE1:* rejected. Priority produces starvation, and the problem was concurrency, not ordering. If a starvation case appears, it can be argued on its own evidence.
+
+### Per-operation granularity, not per-phase
+
+The slot is held around each individual operation, not across a whole connect-and-subscribe phase. Phase granularity would have fixed the observed session but leaves steady-state operations racing — a DE1 MMR keepalive and a scale tare issued in the same moment collide identically, with no phase boundary to catch it. It also avoids stalling every peripheral for the duration of a firmware update: the updater holds the slot per operation and releases it across its waits.
+
+### Dispatch the next operation posted, never synchronously from the release
+
+Releasing must not call straight into the next requester on the same stack. A completion handler that releases and immediately re-enters would let a device recurse into its own next operation beneath its own callback — the same re-entrancy class that makes a nested event loop under a QML handler fatal. The next dispatch is posted.
+
+### Delete `m_de1WaitTimer` rather than lengthen it
+
+The 15 s cap is a timer used as a guard, and it covers one of three orderings. Its stated purpose — do not wait forever when no DE1 is present — is already an event: discovery failure, no-device-found, or the existing `CONNECT_WATCHDOG_MS` abort. `setServiceDiscoveryActive()` (the DE1's advisory "peer scales please pause") is subsumed and removed with it.
+
+### The subscribe sequencer collapses into the queue
+
+`subscribeAll()`/`subscribeNext()` is a sequencer in its own right: `m_pendingSubscribeQueue`, `m_currentSubscribeUuid`, a 3 s timeout, and late-ACK matching in `onDescriptorWritten` so a reply for an already-abandoned characteristic cannot advance the chain. Every one of those exists because there was no shared queue to sequence against.
+
+Ported naively it becomes a sequencer running inside a sequencer, which is worse than either. Ported properly it is a loop: submit one operation per stream, then the initial reads, then a final marker operation that baselines the liveness clock and emits `connected()`. FIFO ordering supplies what the recursion used to, and all five of those members and the ACK matcher are deleted.
+
+It also removes a flag that would otherwise have to be invented. A required stream whose retries are exhausted calls `forget(this)`, which drops that requester's remaining queued work — including the completion marker — so "do not report connected" needs no `m_subscribeFailed` bool. The teardown path already says it.
+
+### Two latent defects the migration exposes, both fixes in their own right
+
+- **`characteristicRead` and `characteristicChanged` share one handler.** Under a queue, releasing the slot on an unsolicited notification would free an unrelated write still in the air. They must be separated regardless of this change; today the conflation is merely invisible.
+- **Three early returns in `writeCharacteristic()` bail without touching the platform.** Nothing will ever complete for them. Today that is harmless; under a queue each one wedges every device until something else forces a teardown. Every path that does not reach the platform must release the slot.
+
+## Risks / Trade-offs
+
+- **This touches the most carefully tuned code in the BLE layer.** The DE1 write path's retry budget, pacing, urgent path and discard semantics all move. → They must come through byte-identical, and the tests that pin them are load-bearing rather than confirmatory. Pin the current behaviour in tests *before* moving it, so the move is verified against a recorded baseline rather than against a reading of the code.
+- **Scale operations gain queueing they never had.** A scale op that never completes now holds the slot where previously it was fire-and-forget. → Zero-retry default plus release-on-teardown keeps the exposure to a single operation, and a disconnecting transport frees the slot immediately.
+- **A wedged queue stalls every device, not one.** Concentrating the mechanism concentrates the failure. → This is why release-on-teardown and release-on-error are requirements rather than nice-to-haves, and why an operation released without success is reported as failed rather than assumed successful.
+- **Throughput cost on multi-write sequences.** A profile upload is ~20 writes; with a scale connected they now interleave. → The old 50 ms pacing was NOT carried across, so an upload is if anything faster than before: that constant was armed on an enqueue that found the link idle, delaying the first write after a pause while consecutive writes went unpaced. What bounds the link now is that nothing is issued while anything is outstanding. Measure an upload with a scale connected before and after and report the delta rather than asserting no regression.
+- **Interleaving during a profile upload.** The DE1 firmware's receive state machine is wedged by a *disconnect* mid-upload, not by delay. → Other peripherals' operations do not disconnect the DE1, and per-device ordering is preserved. Still: exercise an upload with a scale actively connected.
+- **Failing the connect on a subscribe error could loop.** A DE1 that consistently fails one CCCD write now reconnects instead of running degraded. → Intended — a machine that cannot chart or stop a shot is not usable — but the reconnect ladder's existing backoff and error surfacing must not be bypassed, and the user must not see a silent reconnect loop.
+- **Behaviour change on platforms with no reported defect.** → One log is not evidence other platforms are safe; the per-controller queue is backend-independent, and a single code path is worth more than a platform-conditional optimisation. Accepted deliberately.
+
+- **An urgent DE1 write can now wait behind ANOTHER device's operation, and stop-at-weight is on that path.** This is the one guarantee the shared queue genuinely weakens, and it is worth stating plainly rather than leaving inside the `writeUrgent` comment. Before: the DE1's `writeUrgent` bypassed the DE1's own private queue, and a scale's traffic was on a separate unserialized path that could never block it. After: `submitFront()` reorders only what is WAITING — nothing preempts an operation the platform has already accepted — so if a scale or refractometer holds the slot, the SAW stop command waits for it.
+
+  Realistic exposure during a shot is small: the scale is connected and doing 1 Hz heartbeat writes that complete in tens of milliseconds, and inbound notifications are not queued at all. The worst case is not small: a scale that stops answering holds the slot for `OPERATION_TIMEOUT_MS` (5 s), and a DE1 write already mid-retry-cascade holds it for up to 32.5 s.
+
+  **Bounded, not removed.** Reads and writes now carry `RW_TIMEOUT_MS = 3000` rather than the 5 s connect-time budget, which cuts the tail by 2 s. That constant is not a tuning knob: it is Qt's own per-job timeout on Android (`RUNNABLE_TIMEOUT`, `QtBluetoothLE.java:69`), past which Qt abandons the job and discards any late reply (`:580-589`) — so on that platform there is provably no answer coming after it, and holding the shared radio longer buys nothing anywhere. 3 s is still a ruined shot; this makes the worst case smaller, not acceptable.
+
+  Removing the tail entirely means not having optional scale writes outstanding during a shot at all — the Decent Scale heartbeat is the only one in practice. That is a per-driver change of exactly the shape this change deleted (`setHeartbeatsPaused`), so it wants evidence before it is rebuilt under a new name.
+
+  Deliberately NOT mitigated with preemption machinery, because the honest position is that the exposure is unmeasured rather than known-acceptable, and a priority lane is a large mechanism to build on a guess. **Task 9.7 measures SAW latency under scale contention on hardware; that measurement, not this paragraph, is what should decide whether a priority lane is justified.**
+
+## Migration Plan
+
+No persisted state, no schema change, no data migration. Deploy is the build; rollback is a revert.
+
+No CI job builds a PR, so verification is local plus dispatched workflows: the full suite through Qt Creator before opening the PR, an Android test build for the platform the defect was reported on, and a macOS or iOS build to compile `corebluetoothscalebletransport.mm`, which the Android build does not.
+
+## Open Questions
+
+- Whether any inter-write pacing should be reintroduced now that the shared queue imposes ordering. Resolved for now as **no**: the old 50 ms constant did not do what its name said (see the throughput note above), and reintroducing it as a real per-write delay would add about a second to a ~20-write profile upload for no measured benefit.

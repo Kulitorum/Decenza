@@ -73,6 +73,18 @@ set(MACHINE_SOURCES
 set(BLE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ble/de1device.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/bletransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/blegattqueue.cpp
+    # The scale/refractometer transport base gained the shared queue's
+    # submit/complete plumbing, so it is no longer header-only. It belongs
+    # beside blegattqueue.cpp and bletransport.cpp, which were already here.
+    #
+    # A narrow library would be the rule for a NEW shared source, and it is not
+    # the right call for this one: the rule exists to kill duplicate COMPILES
+    # (touching profilemanager.cpp cost 77.0 s across nine of them), and this
+    # file is compiled exactly once either way. Splitting it out would trade
+    # nothing for a new target and another link edge on all 106 binaries. The
+    # duplication gate stays at zero with it here.
+    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/blecapability.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/protocol/binarycodec.cpp
@@ -935,6 +947,23 @@ add_decenza_test(tst_bletransporterror
     tst_bletransporterror.cpp
 )
 
+# --- tst_blegattqueue: the shared cross-device GATT queue (#1819) — one
+#     operation outstanding across all peripherals, event-driven dispatch with
+#     no queue-owned clock, per-operation retry policy, and teardown discard. ---
+add_decenza_test(tst_blegattqueue
+    tst_blegattqueue.cpp
+)
+
+# --- tst_blecommandqueue: the DE1 command queue's observable behaviour —
+#     FIFO order, urgent placement, UUID-scoped discard,
+#     clearQueue()'s in-flight accounting, depth reporting, and the retry
+#     constants. Recorded as a baseline BEFORE that queue moves onto the shared
+#     cross-device queue (#1819), so the move is verified against measurements
+#     rather than against a reading of the new code. ---
+add_decenza_test(tst_blecommandqueue
+    tst_blecommandqueue.cpp
+)
+
 # --- tst_blefidelity: BLE encode round-trip for all built-in profiles ---
 add_decenza_test(tst_blefidelity
     tst_blefidelity.cpp
@@ -1182,7 +1211,6 @@ target_include_directories(tst_shotimportdedupe PRIVATE ${CMAKE_BINARY_DIR})
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo, DiFluid, Acaia) ---
 add_decenza_test(tst_scaleprotocol
     tst_scaleprotocol.cpp
-    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/bookooscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/difluidscale.cpp
@@ -1218,7 +1246,6 @@ target_link_libraries(tst_wifiscalediscovery PRIVATE decenza_wifiscaleresultlib)
 # --- tst_difluidr2: DiFluid R2 refractometer packet parsing and name matching ---
 add_decenza_test(tst_difluidr2
     tst_difluidr2.cpp
-    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/refractometers/difluidr2.cpp
 )
 target_link_libraries(tst_difluidr2 PRIVATE decenza_refractometerlib)
@@ -1226,7 +1253,6 @@ target_link_libraries(tst_difluidr2 PRIVATE decenza_refractometerlib)
 # --- tst_difluidr1: DiFluid R1 key derivation, AES decrypt, plaintext parsing (#1307) ---
 add_decenza_test(tst_difluidr1
     tst_difluidr1.cpp
-    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/refractometers/difluidr1.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/refractometers/aes128.cpp
 )
