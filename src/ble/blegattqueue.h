@@ -109,9 +109,6 @@ inline constexpr int DISCOVERY_TIMEOUT_MS = 20000;
 // holding things up.
 inline constexpr int FOREIGN_WAIT_WARN_MS = 500;
 
-// Queue depth at which a dispatch is worth a DEBUG line. Two, not one: one is
-// the routine periodic overlap of two healthy devices. See dispatchNext().
-inline constexpr qsizetype DISPATCH_LOG_MIN_DEPTH = 2;
 }  // namespace BleGatt
 
 class BleGattQueue : public QObject {

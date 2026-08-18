@@ -94,27 +94,35 @@ void BleGattQueue::dispatchNext() {
     m_inFlightSince = nowMs();
     ++m_generation;
 
-    // Logged only when the ORDERING is non-trivial, which is the only thing this
-    // line is read for.
+    // Logged only for an operation that actually WAITED behind another device.
+    // That is the whole readership of this line: it is the per-operation detail
+    // under a FOREIGN_WAIT_WARN episode, naming what was delayed and how deep
+    // the queue was when it finally ran.
     //
-    // "Non-trivial" is not "anything was queued". Two devices with periodic
-    // traffic overlap by one operation as a matter of course — the DE1's
-    // once-a-minute keepalive lands on the scale's 1 Hz heartbeat and they clear
-    // ~54 ms apart. Measured on a tablet, gating on depth >= 1 left exactly that
-    // pair repeating every minute forever: ~120 lines/hour, still the loudest
-    // source in an app whose every other subsystem totals ~82.
+    // Queue DEPTH is deliberately not a trigger, only a payload. Depth is a
+    // proxy for delay and a bad one, because the app's own connect sequence is
+    // the deepest thing that ever happens here: applyAllSettings enqueues the
+    // whole settings blast the moment the DE1 reports ready, and a measured,
+    // entirely healthy tablet connect peaks at 35. QUEUE_DEPTH_WARN is 40, so
+    // any depth trigger below 35 fires on every launch, and one between 35 and
+    // 40 is a five-wide window that a single new setting closes. There is no
+    // value of it that is quiet on a good connect and loud on a bad one.
     //
-    // So the bar is two deep, or a wait already half way to the one worth
-    // warning about. Below that a reader learns nothing they could act on; above
-    // it, these are the DEBUG context around a FOREIGN_WAIT_WARN episode rather
-    // than a permanent drip. At idle this is silent.
+    // Foreign wait has no such problem: it is the delay itself, it is zero on
+    // an uncontended queue however deep, and it is already the quantity the WARN
+    // is computed from. Half of FOREIGN_WAIT_WARN_MS so a reader sees the
+    // near-misses around an episode, not only the operations that crossed it.
     //
-    // (Third attempt at this gate. The first logged unconditionally — 97.8% of a
-    // 7-hour device log. The second collapsed repeats but still fired on the
-    // routine interleave. Each looked obviously sufficient when written, and
-    // only a real log settled it.)
-    if (m_queue.size() >= BleGatt::DISPATCH_LOG_MIN_DEPTH
-        || m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_WARN_MS / 2) {
+    // (Fourth attempt. The first logged unconditionally — 97.8% of a 7-hour
+    // device log. The second collapsed repeats but still fired on the routine
+    // once-a-minute overlap of the DE1 keepalive and the scale heartbeat,
+    // ~120 lines/hour. The third gated on depth >= 2, which was silent at idle
+    // but restored 43 lines to every single launch — a healthy 4h17m field
+    // session logged 50 of these and not one of them said anything the single
+    // WARN episode line did not. Each looked obviously sufficient when written,
+    // and only a real device log settled it. Do not reintroduce a depth
+    // trigger without a field log showing what it would have caught.)
+    if (m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_WARN_MS / 2) {
         const QString msg = QString("dispatch %1 (%2 queued)")
                                 .arg(m_inFlight->label)
                                 .arg(m_queue.size());
