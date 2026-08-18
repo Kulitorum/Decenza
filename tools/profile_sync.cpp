@@ -31,29 +31,39 @@
 #include "profile/profile.h"
 #include "profile/profileframe.h"
 
-// Materialize frames for simple profiles (settings_2a/2b) loaded from JSON.
+// Materialize frames for a simple profile (settings_2a/2b) loaded from JSON, WITHOUT
+// disturbing its stored preinfuseFrameCount.
+//
 // Built-in JSONs ship with `"steps": []` because the app regenerates frames at
-// activation time via ProfileManager::regenerateSimpleFrames(). Profile::loadFromTclString
-// does the same thing at parse time, so to compare like-for-like we have to regenerate
-// here when the JSON side has empty steps. Profile::fromJson() already does this for
-// shipping JSONs, but call it here defensively in case a JSON was written with
-// non-empty steps and a stale preinfuseFrameCount.
+// activation time via ProfileManager::regenerateSimpleFrames(). To get a frame list
+// worth comparing, this tool has to do the same materialization — but
+// Profile::regenerateSimpleFrames() ALSO overwrites preinfuseFrameCount as a side
+// effect (it must, for the live app: that field has to track whatever frames are
+// actually on the machine). Doing that here would defeat the entire comparison:
+// preinfuseFrameCount is exactly the kind of value that can drift between the
+// built-in JSON and what de1app currently derives (de1app commit 13a30463 changed the
+// derivation — a Pressure profile's "forced rise without limit" frame(s) must now be
+// excluded from Stop-at-Volume's pour count), and if this function recomputes it
+// fresh from EACH side's own (possibly-differing) formula before every comparison,
+// the two sides always agree with themselves and the drift is invisible no matter how
+// stale the stored value is. That happened: this used to overwrite unconditionally,
+// and compare mode read "0 different" for 17 built-ins whose stored count was
+// genuinely stale — caught only because tst_tclimport::compareWithBuiltin compares
+// un-normalized profiles instead.
+//
+// So: materialize steps (needed for the frame-by-frame diff), then put the ORIGINAL
+// stored count back — that is the value actually shipping in the file, which is what
+// must be compared against the .tcl side's freshly-derived value.
 static void normaliseSimpleProfile(Profile& p)
 {
     const QString t = p.profileType();
     if (t != QLatin1String("settings_2a") && t != QLatin1String("settings_2b"))
         return;
-    if (p.steps().isEmpty())
+    if (p.steps().isEmpty()) {
+        const int storedPreinfuseFrameCount = p.preinfuseFrameCount();
         p.regenerateSimpleFrames();
-    // For simple profiles, NumberOfPreinfuseFrames is a derived value: de1app
-    // calculates it during frame generation (pressure_to_advanced_list /
-    // flow_to_advanced_list in de1plus/profile.tcl). The TCL source files still
-    // carry a literal `final_desired_shot_volume_advanced_count_start` field
-    // (typically 0) which the Decenza TCL parser stores verbatim — that produces
-    // a spurious mismatch against the value derived from the regenerated frames.
-    // Normalise both sides to the derived count so the comparison reflects what
-    // the DE1 actually receives at upload time.
-    p.setPreinfuseFrameCount(Profile::countPreinfuseFrames(p.steps()));
+        p.setPreinfuseFrameCount(storedPreinfuseFrameCount);
+    }
 }
 
 // Replace a built-in with its de1app source. The rewrite is deliberately a

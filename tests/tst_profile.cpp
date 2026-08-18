@@ -1143,6 +1143,11 @@ private slots:
         QCOMPARE(p.steps()[3].transition, QString("smooth"));
         QCOMPARE(p.steps()[3].pressure, 4.0);   // pressureEnd
         QCOMPARE(p.steps()[3].seconds, 25.0);
+
+        // The forced-rise frame fills headspace before any coffee pours, so it must be
+        // excluded from Stop-at-Volume's pour count: preinfusion(1) + forced_rise(1).
+        // Matches de1app commit 13a30463.
+        QCOMPARE(p.preinfuseFrameCount(), 2);
     }
 
     void pressureProfileShortHold() {
@@ -1176,6 +1181,10 @@ private slots:
         // Frame 3: decline (time reduced by 3s for forced rise)
         QCOMPARE(p.steps()[3].transition, QString("smooth"));
         QCOMPARE(p.steps()[3].seconds, 17.0);  // 20 - 3 = 17
+
+        // The forced-rise-before-decline frame also fills headspace, not the cup:
+        // preinfusion(1) + forced_rise(1). Matches de1app commit 13a30463.
+        QCOMPARE(p.preinfuseFrameCount(), 2);
     }
 
     void flowProfileDeclineGating() {
@@ -1301,7 +1310,11 @@ private slots:
         for (qsizetype i = 1; i < p.steps().size(); ++i)
             QVERIFY2(p.steps().at(i).name != QStringLiteral("preinfusion"),
                      "a second preinfusion frame was emitted at preinfusion_time 0");
-        QCOMPARE(p.preinfuseFrameCount(), 1);
+        // espresso_hold_time is 12.0 here (see simpleProfileJson), so settings_2a also
+        // generates a forced-rise frame, which must be excluded from Stop-at-Volume's
+        // pour count: boost(1) + forced_rise(1) = 2. Matches de1app commit 13a30463.
+        // settings_2b never generates a forced-rise frame, so its count stays at 1.
+        QCOMPARE(p.preinfuseFrameCount(), type == QStringLiteral("settings_2a") ? 2 : 1);
     }
 
     void tempSteppingOffRunsEveryFrameAtEspressoTemperature() {
@@ -1407,6 +1420,10 @@ private slots:
         // de1app: exit_flow_over 6 on decline
         QCOMPARE(p.steps()[4].temperature, 90.0);
         QCOMPARE(p.steps()[4].exitFlowOver, 6.0);  // de1app: exit_flow_over 6
+
+        // 2 leading preinfusion frames (boost + main, both exitIf==true) + 1 forced-rise.
+        // Matches de1app commit 13a30463.
+        QCOMPARE(p.preinfuseFrameCount(), 3);
     }
 
     void emptyFrameFallback() {

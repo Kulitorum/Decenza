@@ -67,6 +67,11 @@ class MachineState : public QObject {
     Q_PROPERTY(double cumulativeVolume READ cumulativeVolume NOTIFY cumulativeVolumeChanged)
     Q_PROPERTY(double preinfusionVolume READ preinfusionVolume NOTIFY preinfusionVolumeChanged)
     Q_PROPERTY(double pourVolume READ pourVolume NOTIFY pourVolumeChanged)
+    // True while the DE1's front standby switch is cutting AC power (substate
+    // Error_NoAC), on firmware new enough to report it reliably. Always false while
+    // disconnected — see updatePhase(). Firmware < 1337 reports this substate
+    // spuriously, matching de1app's own gate.
+    Q_PROPERTY(bool standbySwitchOpen READ standbySwitchOpen NOTIFY standbySwitchOpenChanged)
 public:
     enum class Phase {
         Disconnected,
@@ -104,6 +109,7 @@ public:
     double cumulativeVolume() const { return m_cumulativeVolume; }
     double preinfusionVolume() const { return m_preinfusionVolume; }
     double pourVolume() const { return m_pourVolume; }
+    bool standbySwitchOpen() const { return m_standbySwitchOpen; }
     // QML_SINGLETON hooks. The engine does not create this object: main.cpp builds it on the
     // stack and publishes the pointer before QQmlEngine::load(). See maincontroller.h.
     static void setQmlInstance(MachineState *instance);
@@ -148,6 +154,7 @@ signals:
     void cumulativeVolumeChanged();
     void preinfusionVolumeChanged();
     void pourVolumeChanged();
+    void standbySwitchOpenChanged();
     void scaleWeightChanged();
     void activeScaleTypeChanged();
     void scaleFlowRateChanged();
@@ -224,6 +231,7 @@ private:
     int m_lastEmittedPreinfusionVolumeMl = -1;  // Throttle: only emit when rounded ml changes
     double m_pourVolume = 0.0;          // Volume during pouring substate (ml)
     int m_lastEmittedPourVolumeMl = -1;         // Throttle: only emit when rounded ml changes
+    bool m_standbySwitchOpen = false;
 
     QTimer* m_shotTimer = nullptr;
     qint64 m_shotStartTime = 0;

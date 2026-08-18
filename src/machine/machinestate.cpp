@@ -340,6 +340,10 @@ void MachineState::updatePhase() {
             if (wasInEspresso)
                 emit espressoCycleEnded();
         }
+        if (m_standbySwitchOpen) {
+            m_standbySwitchOpen = false;
+            emit standbySwitchOpenChanged();
+        }
         return;
     }
 
@@ -348,6 +352,15 @@ void MachineState::updatePhase() {
     DE1::SubState subState = m_device->subState();
     DE1::SubState previousSubState = m_previousSubState;
     m_previousSubState = subState;
+
+    // Front standby switch cutting AC (Error_NoAC). Firmware < 1337 reports this
+    // substate spuriously, matching de1app's own gate — see DE1::SubState::Error_NoAC.
+    const bool standbySwitchOpen = (subState == DE1::SubState::Error_NoAC)
+        && m_device->firmwareBuildNumber() >= 1337;
+    if (standbySwitchOpen != m_standbySwitchOpen) {
+        m_standbySwitchOpen = standbySwitchOpen;
+        emit standbySwitchOpenChanged();
+    }
 
     // Log steam substate transitions to reconstruct the full
     // Steaming->Puffing->Ending->Idle sequence in bug reports.

@@ -26,7 +26,7 @@
     "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "Fast heating of steam, not heating for espresso.   You might want to do this if you only want to steam, not brew. Perhaps you are making hot chocolate, an ice cream custard, or de-wrinkling your clothes with the steam wand.",
-    "number_of_preinfuse_frames": "1",
+    "number_of_preinfuse_frames": "2",
     "preinfusion_flow_rate": "7.50",
     "preinfusion_stop_pressure": "3.80",
     "preinfusion_time": "0.00",
@@ -89,7 +89,7 @@
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "30.0",
-    "target_volume_count_start": "1",
+    "target_volume_count_start": "2",
     "target_weight": "0.0",
     "temp_steps_enabled": true,
     "temperature_presets": [

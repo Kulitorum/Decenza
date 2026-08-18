@@ -26,7 +26,7 @@
     "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "This profile is gentle on the coffee puck and not too demanding on the barista.  Produces a very acceptable espresso in a wide variety of settings.",
-    "number_of_preinfuse_frames": "2",
+    "number_of_preinfuse_frames": "4",
     "preinfusion_flow_rate": "8.00",
     "preinfusion_stop_pressure": "4.00",
     "preinfusion_time": "20.00",
@@ -139,7 +139,7 @@
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "36.0",
-    "target_volume_count_start": "2",
+    "target_volume_count_start": "4",
     "target_weight": "36.0",
     "temp_steps_enabled": true,
     "temperature_presets": [

@@ -26,7 +26,7 @@
     "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "For use with machines that have a group head controller (GHC).  Hold your finger on the GHC for the pressure you want.",
-    "number_of_preinfuse_frames": "0",
+    "number_of_preinfuse_frames": "1",
     "preinfusion_flow_rate": "4.00",
     "preinfusion_stop_pressure": "4.00",
     "preinfusion_time": "0.00",
@@ -84,7 +84,7 @@
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "0.0",
-    "target_volume_count_start": "0",
+    "target_volume_count_start": "1",
     "target_weight": "0.0",
     "temp_steps_enabled": false,
     "temperature_presets": [

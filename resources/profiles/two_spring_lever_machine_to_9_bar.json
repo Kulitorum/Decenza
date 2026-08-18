@@ -26,7 +26,7 @@
     "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "A final evolution of the classic lever machine style was to add a second spring. This helped work around a deficiency with single springs, namely that the top pressure achieved went down almost immediately, rather than being held.  The second spring required more arm muscle but is often considered the final perfection of the lever espresso style.",
-    "number_of_preinfuse_frames": "2",
+    "number_of_preinfuse_frames": "3",
     "preinfusion_flow_rate": "8.00",
     "preinfusion_stop_pressure": "4.00",
     "preinfusion_time": "20.00",
@@ -124,7 +124,7 @@
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "36.0",
-    "target_volume_count_start": "2",
+    "target_volume_count_start": "3",
     "target_weight": "36.0",
     "temp_steps_enabled": true,
     "temperature_presets": [

@@ -818,6 +818,13 @@ T.ApplicationWindow {
                 else
                     showNextPendingPopup()  // Skip stale refill, show next
                 break
+            case "standbySwitch":
+                // Only show if the condition is still live
+                if (MachineState.standbySwitchOpen)
+                    standbySwitchDialog.open()
+                else
+                    showNextPendingPopup()  // Skip stale warning, show next
+                break
             case "recipeActivationFailed":
                 recipeActivationFailedDialog.missingProfileTitle =
                     next.params.missingProfileTitle || ""
@@ -1968,6 +1975,71 @@ T.ApplicationWindow {
                 refillDialog.open()
             } else if (refillDialog.opened) {
                 refillDialog.close()
+            }
+        }
+    }
+
+    // Standby switch (front AC) warning. Full-screen and tap-anywhere-dismiss, matching
+    // de1app's "Push the switch on" page: while it holds, the machine has no AC power and
+    // cannot do anything at all. Driven by MachineState.standbySwitchOpen, which is already
+    // false whenever disconnected or on old firmware — see machinestate.cpp.
+    DecenzaDialog {
+        id: standbySwitchDialog
+        modal: true
+        dim: true
+        x: 0
+        y: 0
+        width: Overlay.overlay ? Overlay.overlay.width : Theme.scaled(800)
+        height: Overlay.overlay ? Overlay.overlay.height : Theme.scaled(480)
+        padding: 0
+        closePolicy: Dialog.NoAutoClose
+        onClosed: root.showNextPendingPopup()
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+        }
+
+        Tr { id: trStandbySwitchAnnounce; key: "main.dialog.standbySwitch.announce"; fallback: "Warning: push the switch on"; visible: false }
+
+        onOpened: {
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(trStandbySwitchAnnounce.text, true)
+            }
+        }
+
+        contentItem: AccessibleMouseArea {
+            id: standbySwitchTapArea
+
+            Tr { id: trStandbySwitchMessage; key: "main.dialog.standbySwitch.message"; fallback: "Push the switch on"; visible: false }
+            Tr { id: trDismissStandbySwitch; key: "main.accessibility.dismissStandbySwitchWarning"; fallback: "Dismiss standby switch warning"; visible: false }
+
+            accessibleName: trDismissStandbySwitch.text
+            onAccessibleClicked: standbySwitchDialog.close()
+
+            Text {
+                anchors.centerIn: parent
+                text: trStandbySwitchMessage.text
+                font: Theme.titleFont
+                color: Theme.textColor
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                width: parent.width * 0.8
+            }
+        }
+    }
+
+    // Show/hide the standby switch warning based on machine state. Reacts only to the
+    // CHANGE, not to standbySwitchOpen staying true — a tap-dismiss during one occurrence
+    // must not be immediately reopened by the same still-true condition; a fresh
+    // false->true transition (the condition recurring) opens it again.
+    Connections {
+        target: MachineState
+        function onStandbySwitchOpenChanged() {
+            if (MachineState.standbySwitchOpen) {
+                if (root.screensaverActive) { root.queuePopup("standbySwitch"); return }
+                standbySwitchDialog.open()
+            } else if (standbySwitchDialog.opened) {
+                standbySwitchDialog.close()
             }
         }
     }
@@ -3994,6 +4066,7 @@ T.ApplicationWindow {
             { dialog: flowScaleDialog,         id: "flowScale" },
             { dialog: scaleDisconnectedDialog, id: "scaleDisconnected" },
             { dialog: refillDialog,            id: "refill" },
+            { dialog: standbySwitchDialog,     id: "standbySwitch" },
             { dialog: bleErrorDialog,          id: "bleError" },
             { dialog: chargingMismatchDialog,  id: "chargingMismatch" },
             { dialog: noScaleAbortDialog,      id: null },
