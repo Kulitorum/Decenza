@@ -36,6 +36,12 @@ use them.
 The project SHALL run `qmllint` over every QML file in the module as part of a build target, and
 CI SHALL fail when it reports a non-exempt diagnostic.
 
+Coverage SHALL be unconditional: every file in the module, on every platform that runs the gate,
+using the `qmllint` that ships with the pinned Qt. No file SHALL be excluded from the run on the
+grounds that the tool cannot process it. Should a future toolchain reintroduce such a file, the
+correct response is to state the gap and fail — never to exclude the file and report the remainder
+as full coverage.
+
 Enforcement goes on with the exemption list sized to the current backlog, so it is real from day
 one for everything outside it. This mirrors the `-Wall -Wextra -Werror` contract in
 `compiler-diagnostics`, which governs the same question for C++ and deliberately says nothing
@@ -51,6 +57,16 @@ project had when a `ReferenceError` reached a release.
 #### Scenario: The gate runs without a release tag
 - **WHEN** a branch is pushed
 - **THEN** the QML diagnostics run, rather than waiting for a tag-triggered release build
+
+#### Scenario: Every file is analysed
+- **WHEN** the gate runs on any platform
+- **THEN** the file count it reports as analysed equals the number of `.qml` files in
+  `qt_add_qml_module`, and no file is reported as skipped
+
+#### Scenario: A run did not finish
+- **WHEN** the tool exits non-zero, is killed, or does not reach every file
+- **THEN** the run SHALL be reported as failed, and SHALL NOT be used to record or lower any
+  recorded count — a file the tool never reached emits no warnings and must never be counted clean
 
 ### Requirement: The Gate Runs In The Default Build, And Costs Nothing When Idle
 The QML diagnostics check SHALL run as part of the default build target on desktop platforms, so a
@@ -79,33 +95,6 @@ previous failure as satisfied.
 - **WHEN** the target platform is Android or iOS
 - **THEN** the check is not part of the default build, because the same QML has already been
   checked on desktop and a release must not acquire a new way to fail
-
-### Requirement: A Bundled Tool May Close A Toolchain Gap, But Never Silently
-Where the released `qmllint` cannot analyse a file, the project MAY ship a patched tool so that
-platform reaches full coverage.
-
-Such a bundle SHALL be complete. Shipping only the driver, while the fix lives in a library loaded
-from elsewhere, produces a tool that behaves exactly like the unpatched one while the build config
-asserts full coverage — strictly worse than not shipping it, and the same silent-blindness defect
-the rest of this capability exists to remove.
-
-It SHALL be pinned to the toolchain version it was built against, and a mismatch SHALL degrade to
-the released tool with a warning rather than load a mismatched library or fail the build.
-
-It SHALL be proven at configure time by executing it, not by its presence on disk.
-
-It SHALL carry no absolute path belonging to the developer who built it.
-
-Platforms the bundle does not cover SHALL be stated, not implied by its absence.
-
-#### Scenario: The bundled tool cannot resolve its libraries
-- **WHEN** configure stages the bundle and the executable fails to run
-- **THEN** configure warns with a readable message and falls back to the released tool
-
-#### Scenario: The toolchain is upgraded past the pinned version
-- **WHEN** the project is configured against a different Qt version
-- **THEN** the bundle is not used, a warning names the version mismatch, and coverage degrades
-  rather than the build breaking
 
 ### Requirement: The `unqualified` Category Is Never Exempt
 The `unqualified` category SHALL NOT appear on the exemption list, and SHALL NOT be disabled
