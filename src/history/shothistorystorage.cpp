@@ -35,6 +35,7 @@
 #include <QSettings>
 #include <QThread>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include "core/dbutils.h"
 
@@ -2168,8 +2169,11 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData, const
     return qCompress(json, 9);  // Max compression
 }
 
-void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord* record)
+void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord* record,
+                                               QByteArray* outCorrectedBlob)
 {
+    if (outCorrectedBlob) outCorrectedBlob->clear();
+
     QByteArray json = qUncompress(blob);
     if (json.isEmpty()) {
         qWarning() << "ShotHistoryStorage: Failed to decompress sample data";
@@ -2221,6 +2225,50 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
     if (root.contains("phaseSummaries")) {
         record->phaseSummariesJson = QString::fromUtf8(
             QJsonDocument(root["phaseSummaries"].toArray()).toJson(QJsonDocument::Compact));
+    }
+
+    // Resistance, conductance, Darcy resistance and the conductance derivative
+    // are pure functions of pressure/flow — recompute them unconditionally from
+    // this shot's own samples rather than trusting whatever formula produced the
+    // stored values (recompute-shot-curves-on-load). computeDerivedCurves()
+    // no-ops below 3 samples, leaving whatever was just parsed above untouched.
+    //
+    // Table-driven (one row per curve) rather than four parallel snapshot/compare/
+    // write blocks, so a future curve added to this set can't get wired into some
+    // of the three spots (snapshot, compare, JSON-key write) while silently missing another.
+    struct DerivedCurve {
+        const char* jsonKey;
+        QVector<QPointF>* field;
+        QVector<QPointF> stored;
+    };
+    std::array<DerivedCurve, 4> curves = {{
+        {"resistance", &record->resistance, {}},
+        {"conductance", &record->conductance, {}},
+        {"darcyResistance", &record->darcyResistance, {}},
+        {"conductanceDerivative", &record->conductanceDerivative, {}},
+    }};
+    for (auto& c : curves) c.stored = *c.field;
+
+    computeDerivedCurves(*record);
+
+    auto curvesMatch = [](const QVector<QPointF>& a, const QVector<QPointF>& b) {
+        if (a.size() != b.size()) return false;
+        constexpr double kEpsilon = 1e-6;
+        for (qsizetype i = 0; i < a.size(); ++i) {
+            if (std::abs(a[i].x() - b[i].x()) > kEpsilon) return false;
+            if (std::abs(a[i].y() - b[i].y()) > kEpsilon) return false;
+        }
+        return true;
+    };
+
+    bool curvesChanged = false;
+    for (const auto& c : curves) {
+        if (!curvesMatch(c.stored, *c.field)) { curvesChanged = true; break; }
+    }
+
+    if (curvesChanged && outCorrectedBlob) {
+        for (const auto& c : curves) root[c.jsonKey] = pointsToJsonObject(*c.field);
+        *outCorrectedBlob = qCompress(QJsonDocument(root).toJson(QJsonDocument::Compact), 9);
     }
 }
 
@@ -3116,20 +3164,23 @@ void ShotHistoryStorage::computeDerivedCurves(ShotRecord& record)
     const qsizetype n = qMin(record.pressure.size(), record.flow.size());
     if (n < 3) return;
 
-    // Share the conductance + derivative formulas with ShotDataModel (live path)
-    // and shot_eval (offline) so all three agree on kernel / clamp / scaling.
+    // All three formulas live in the Conductance:: namespace and are shared
+    // with ShotDataModel's live path, so this recompute and the live path can't
+    // drift apart. Conductance (+ its derivative) is additionally shared with
+    // tools/shot_eval (offline); shot_eval doesn't compute resistance or Darcy
+    // resistance, so that three-way agreement doesn't extend to those two.
     record.conductance = Conductance::fromPressureFlow(record.pressure, record.flow);
 
-    // Darcy resistance (P/F²) isn't exposed via Conductance yet — retain the
-    // inline loop here; mirror the same thresholds and clamp the namespace uses.
+    record.resistance.clear();
+    record.resistance.reserve(n);
     record.darcyResistance.clear();
     record.darcyResistance.reserve(n);
     for (qsizetype i = 0; i < n; ++i) {
         const double p = record.pressure[i].y();
         const double f = record.flow[i].y();
-        double dr = 0.0;
-        if (f > 0.05 && p > 0.05) dr = qMin(p / (f * f), 19.0);
-        record.darcyResistance.append(QPointF(record.pressure[i].x(), dr));
+        record.resistance.append(QPointF(record.pressure[i].x(), Conductance::resistance(p, f)));
+        record.darcyResistance.append(
+            QPointF(record.pressure[i].x(), Conductance::darcyResistanceSample(p, f)));
     }
 
     record.conductanceDerivative = Conductance::derivative(record.conductance);
@@ -3359,21 +3410,62 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     const bool storedSkipFirstFrame = record.skipFirstFrameDetected;
     const bool storedPourTruncated = record.pourTruncatedDetected;
 
+    // decompressSampleData() unconditionally recomputes resistance/conductance/
+    // darcyResistance/conductanceDerivative from this shot's own pressure/flow
+    // (recompute-shot-curves-on-load) — so conductanceDerivative is populated
+    // for the badge-recompute block below whenever the shot has enough samples
+    // for computeDerivedCurves() to run (its own >=3-sample guard applies here
+    // too). When the recompute disagrees with what was stored, correctedBlob
+    // comes back non-empty and we persist it below on the same connection.
+    QByteArray correctedBlob;
     if (query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?")) {
         query.bindValue(0, shotId);
         if (query.exec() && query.next()) {
             QByteArray blob = query.value(0).toByteArray();
-            decompressSampleData(blob, &record);
+            decompressSampleData(blob, &record, &correctedBlob);
         }
+        // Release the read transaction this SELECT is still holding — the
+        // single row was consumed above but the statement was never stepped
+        // to exhaustion, so it stays "active" and the writes below would try
+        // to upgrade a stale WAL read snapshot instead of taking a fresh write
+        // lock. That upgrade fails immediately (SQLITE_BUSY_SNAPSHOT) rather
+        // than waiting out busy_timeout — see core/dbutils.h's DbWriteTxn doc
+        // on the no-active-statement precondition.
+        query.finish();
     }
 
-    // On-the-fly computation of derived curves for legacy shots that lack them.
-    // Empty conductance = pre-migration-10 shot (the column was added in migration 10);
-    // derive it now so the badge-recompute block below can always assume
-    // conductanceDerivative is populated for the channeling check.
-    bool needsDerivedCurves = record.conductance.isEmpty() && !record.pressure.isEmpty();
-    if (needsDerivedCurves) {
-        computeDerivedCurves(record);
+    if (!correctedBlob.isEmpty()) {
+        // Both writes land together or not at all: a corrected blob with a
+        // stale updated_at would permanently hide the correction from
+        // ShotHistoryExporter::exportedFileIsFresh(), which decides purely by
+        // comparing an export's mtime against this column, and nothing ever
+        // retries a write that already "succeeded" on the blob half.
+        DbWriteTxn txn = DbWriteTxn::begin(db, "curve self-heal");
+        if (txn.ok()) {
+            QSqlQuery curveUpd(db);
+            curveUpd.prepare("UPDATE shot_samples SET data_blob = ? WHERE shot_id = ?");
+            curveUpd.bindValue(0, correctedBlob);
+            curveUpd.bindValue(1, shotId);
+
+            // Bump updated_at so consumers keyed on it (ShotHistoryExporter's
+            // exportedFileIsFresh()) know this shot changed and re-derive
+            // their own cached output — same reason the badge-persist UPDATE
+            // below touches it too.
+            QSqlQuery touchUpd(db);
+            touchUpd.prepare("UPDATE shots SET updated_at = strftime('%s', 'now') WHERE id = ?");
+            touchUpd.bindValue(0, shotId);
+
+            if (curveUpd.exec() && touchUpd.exec()) {
+                if (!txn.commit()) {
+                    qWarning() << "ShotHistoryStorage::loadShotRecordStatic: curve self-heal"
+                                  " commit failed for shot" << shotId << txn.commitError();
+                }
+            } else {
+                qWarning() << "ShotHistoryStorage::loadShotRecordStatic: curve self-heal"
+                              " failed for shot" << shotId
+                           << curveUpd.lastError() << touchUpd.lastError();
+            }
+        }
     }
 
     if (query.prepare("SELECT time_offset, label, frame_number, is_flow_mode, transition_reason "
@@ -3413,8 +3505,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // detector improvements take effect on existing shots without a one-shot
     // re-analyze pass. Stored badge values are only authoritative as of save
     // time; the detectors evolve. The channeling sub-block uses
-    // conductanceDerivative, which is either loaded from the DB
-    // (post-migration-10) or filled by computeDerivedCurves() above (legacy).
+    // conductanceDerivative, which decompressSampleData() above unconditionally
+    // recomputes from pressure/flow (recompute-shot-curves-on-load), regardless
+    // of migration status — populated whenever the shot has enough samples for
+    // computeDerivedCurves() to run (its own >=3-sample guard, shothistorystorage.h),
+    // same as before this change for any shot that already had the field.
     // The grind and skip-first-frame sub-blocks need only flow / flowGoal /
     // pressure / phases, which are always available.
     // Compute all four quality badges via a single ShotAnalysis::analyzeShot

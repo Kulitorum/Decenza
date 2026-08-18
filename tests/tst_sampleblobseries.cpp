@@ -1,7 +1,12 @@
 #include <QtTest>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QTemporaryDir>
 
+#include "core/dbutils.h"
 #include "history/shothistorystorage.h"
 #include "history/shothistory_types.h"
 #include "history/shotprojection.h"
@@ -18,6 +23,8 @@
 class tst_SampleBlobSeries : public QObject {
     Q_OBJECT
 
+    QTemporaryDir m_dir;
+
 private:
     // convertShotRecord() early-returns an empty projection for id == 0, so a
     // record built by hand needs one or every assertion below passes vacuously.
@@ -25,13 +32,19 @@ private:
         record.summary.id = 1;
     }
 
-    // Feed the model a few samples with distinct basket/mix goals.
+    // Feed the model a few samples with distinct basket/mix goals. Mirrors
+    // production's saveShot(), which always runs computeConductanceDerivative()
+    // before compressSampleData() — skipping it here would leave the blob's
+    // conductanceDerivative empty, which decompressSampleData's unconditional
+    // recompute would then (correctly) flag as a correction on every test that
+    // reuses this fixture.
     static void populate(ShotDataModel& model) {
         for (int i = 0; i < 5; i++) {
             double t = i * 0.2;
             model.addSample(t, 9.0, 2.0, 92.0, 90.0, 9.0, 0.0, /*tempGoal*/ 92.0,
                             /*tempMixGoal*/ 94.0);
         }
+        model.computeConductanceDerivative();
     }
 
 private slots:
@@ -73,6 +86,155 @@ private slots:
         // Every other series must still load.
         QVERIFY(!record.temperatureGoal.isEmpty());
         QVERIFY(!record.pressure.isEmpty());
+    }
+
+    // recompute-shot-curves-on-load (#1822): resistance was briefly computed as
+    // P/F² instead of P/F (44bd47b6..a6a58c21), so shots recorded in that window
+    // have a stored resistance curve identical to darcyResistance forever. Pin
+    // that decompressSampleData recomputes from pressure/flow instead of
+    // trusting the stored formula, and reports a corrected blob when it differs.
+    void staleResistanceFormulaGetsCorrectedOnLoad() {
+        ShotHistoryStorage storage;
+        ShotDataModel model;
+        populate(model);  // constant pressure 9.0, flow 2.0 -> correct P/F resistance = 4.5
+
+        QByteArray blob = storage.compressSampleData(&model);
+        QJsonObject root = QJsonDocument::fromJson(qUncompress(blob)).object();
+
+        // Overwrite the stored resistance with what the P/F² bug would have
+        // produced (9.0 / 2.0² = 2.25), same shape ({t: [...], v: [...]}) as
+        // every other series in the blob.
+        QJsonObject staleResistance;
+        staleResistance["t"] = root["pressure"].toObject()["t"];
+        QJsonArray staleValues;
+        const qsizetype n = root["pressure"].toObject()["t"].toArray().size();
+        for (qsizetype i = 0; i < n; i++) staleValues.append(9.0 / (2.0 * 2.0));
+        staleResistance["v"] = staleValues;
+        root["resistance"] = staleResistance;
+        QByteArray staleBlob = qCompress(QJsonDocument(root).toJson(QJsonDocument::Compact), 9);
+
+        ShotRecord record;
+        QByteArray corrected;
+        ShotHistoryStorage::decompressSampleData(staleBlob, &record, &corrected);
+
+        QVERIFY(!record.resistance.isEmpty());
+        QVERIFY2(qAbs(record.resistance.first().y() - 4.5) < 0.01,
+                 "resistance must be recomputed as P/F (4.5), not trusted as the stale P/F² value (2.25)");
+        QVERIFY2(!corrected.isEmpty(), "a stale stored curve must produce a corrected blob to persist");
+    }
+
+    // The counterpart to the above: a shot whose stored curves already match
+    // the current formula must NOT report a correction on every load — that
+    // would rewrite shot_samples.data_blob on every single view.
+    void alreadyCorrectBlobProducesNoCorrection() {
+        ShotHistoryStorage storage;
+        ShotDataModel model;
+        populate(model);
+
+        QByteArray blob = storage.compressSampleData(&model);
+        ShotRecord record;
+        QByteArray corrected;
+        ShotHistoryStorage::decompressSampleData(blob, &record, &corrected);
+
+        QVERIFY2(corrected.isEmpty(), "an already-correct blob must not be flagged for rewrite");
+    }
+
+    // The DB-backed counterpart: loadShotRecordStatic must persist the
+    // corrected blob back to shot_samples on the same connection (mirroring
+    // the existing badge-persist behavior), exactly once — loading the same
+    // shot again afterward must not keep rewriting an already-corrected row.
+    void staleResistancePersistsCorrectedBlobOnceViaLoadShotRecordStatic() {
+        QVERIFY(m_dir.isValid());
+        const QString path = m_dir.filePath("resistance_selfheal.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(path));
+
+        ShotRecord record;
+        record.summary.uuid = QStringLiteral("resistance-selfheal-uuid");
+        record.summary.timestamp = 1755000000;
+        record.summary.profileName = QStringLiteral("Profile R");
+        record.summary.beverageType = QStringLiteral("espresso");
+        // Correct P/F resistance for constant pressure=9.0, flow=2.0 is 4.5;
+        // store the P/F² value (2.25) instead, simulating the formula bug
+        // that shipped between 44bd47b6 and a6a58c21.
+        for (int i = 0; i < 5; i++) {
+            double t = i * 0.2;
+            record.pressure.append(QPointF(t, 9.0));
+            record.flow.append(QPointF(t, 2.0));
+            record.resistance.append(QPointF(t, 9.0 / (2.0 * 2.0)));
+        }
+
+        const qint64 shotId = storage.importShotRecord(record, false);
+        QVERIFY2(shotId > 0, "import should insert");
+
+        auto readBlob = [&]() {
+            QByteArray blob;
+            withTempDb(path, "shs_test_resistance_read", [&](QSqlDatabase& db) {
+                QSqlQuery q(db);
+                q.prepare(QStringLiteral("SELECT data_blob FROM shot_samples WHERE shot_id = ?"));
+                q.bindValue(0, shotId);
+                if (q.exec() && q.next()) blob = q.value(0).toByteArray();
+            });
+            return blob;
+        };
+
+        const QByteArray blobBefore = readBlob();
+        QVERIFY(!blobBefore.isEmpty());
+
+        auto readUpdatedAt = [&]() {
+            qint64 updatedAt = -1;
+            withTempDb(path, "shs_test_resistance_updated_at", [&](QSqlDatabase& db) {
+                QSqlQuery q(db);
+                q.prepare(QStringLiteral("SELECT updated_at FROM shots WHERE id = ?"));
+                q.bindValue(0, shotId);
+                if (q.exec() && q.next()) updatedAt = q.value(0).toLongLong();
+            });
+            return updatedAt;
+        };
+
+        // Rewind updated_at into the past first — importShotRecord's INSERT
+        // defaults it to "now", and strftime('%s','now') only has 1-second
+        // resolution, so without this the self-heal's own bump could land in
+        // the same second and the "did it increase" assertion below would
+        // pass even if the bump never ran.
+        withTempDb(path, "shs_test_resistance_rewind", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral("UPDATE shots SET updated_at = updated_at - 1000 WHERE id = ?"));
+            q.bindValue(0, shotId);
+            QVERIFY(q.exec());
+        });
+        const qint64 updatedAtBefore = readUpdatedAt();
+        QVERIFY(updatedAtBefore > 0);
+
+        withTempDb(path, "shs_test_resistance_load", [&](QSqlDatabase& db) {
+            ShotRecord loaded = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+            QVERIFY(!loaded.resistance.isEmpty());
+            QVERIFY2(qAbs(loaded.resistance.first().y() - 4.5) < 0.01,
+                     "loaded resistance must be the corrected P/F value, not the stale stored P/F^2");
+        });
+
+        const QByteArray blobAfter = readBlob();
+        QVERIFY2(blobBefore != blobAfter, "a stale stored curve must trigger a persisted correction");
+        // The self-heal write must also bump shots.updated_at (same reason the
+        // sibling badge-persist UPDATE does) — otherwise ShotHistoryExporter's
+        // exportedFileIsFresh() never notices the shot changed and keeps
+        // serving a stale pre-fix export forever.
+        const qint64 updatedAtAfter = readUpdatedAt();
+        QVERIFY2(updatedAtAfter > updatedAtBefore,
+                 "curve self-heal must bump shots.updated_at");
+
+        // Loading the now-corrected shot again must not keep rewriting it —
+        // neither the blob nor updated_at.
+        withTempDb(path, "shs_test_resistance_reload", [&](QSqlDatabase& db) {
+            ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+        });
+        QCOMPARE(readBlob(), blobAfter);
+        QCOMPARE(readUpdatedAt(), updatedAtAfter);
+
+        // Drains on the real condition (isDbWorkIdle) rather than a fixed sleep —
+        // see tests/shotrowfixtures.h's initAndCloseStorage, which this mirrors.
+        storage.close();
+        QTRY_VERIFY(storage.isDbWorkIdle());
     }
 
     // The seam between the blob and the upload/chart surfaces. Without this,
