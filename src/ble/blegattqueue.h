@@ -2,6 +2,8 @@
 
 #include <QBluetoothUuid>
 #include <QObject>
+#include "../core/logcollapse.h"
+
 #include <QElapsedTimer>
 #include <QQueue>
 #include <QString>
@@ -309,6 +311,23 @@ private:
     // True between posting a dispatch and running it. The guard a timer's
     // isActive() used to provide, without the timer.
     bool m_dispatchPosted = false;
+    // The dispatch line is the busiest thing this class emits — one per
+    // operation — and at idle the Decent Scale's 1 Hz heartbeat makes it
+    // periodic forever. Measured on a tablet: 25,992 of 26,565 lines in a 7-hour
+    // session, 97.8%, which had evicted every other subsystem's history from the
+    // ring buffer and left two sessions in a file that should hold many.
+    //
+    // LogCollapse already existed for exactly this and already had three callers
+    // (MMR keepalive, memory sampler, ShotServer poll) whose comment records
+    // them as 35% of a 48-hour capture. This was a fourth periodic source that
+    // did not use it.
+    //
+    // Keyed by label so one device's repeats cannot swallow another's, and a
+    // CHANGED text always emits at once — so every burst, every queue depth
+    // above zero and every non-heartbeat operation still logs immediately. Only
+    // the unchanging idle beat collapses.
+    LogCollapse m_dispatchLog{60 * 1000};
+
     // One line per CONTENTION EPISODE rather than per delayed operation. A
     // connect with a scale present produced six of these in 900 ms, all saying
     // the same thing, which is how a signal meant to mean "something is wrong"

@@ -94,9 +94,25 @@ void BleGattQueue::dispatchNext() {
     m_inFlightSince = m_clock.elapsed();
     ++m_generation;
 
-    GQ_LOG(QString("dispatch %1 (%2 queued)")
-               .arg(m_inFlight->label)
-               .arg(m_queue.size()));
+    // Logged only when the dispatch is INFORMATIVE: something was queued behind
+    // it, or it waited on another device. A lone operation dispatched into an
+    // empty queue is the idle case — the scale heartbeat, once a second, for as
+    // long as the app runs — and it tells a reader nothing that the operation's
+    // own completion does not. Collapsing it was not enough: at one line a
+    // minute it would still have out-logged every other subsystem in the app
+    // combined (measured: 82 lines/hour for all of them together).
+    //
+    // What this class is read for is ORDERING between devices, and every line
+    // that carries ordering information survives the gate. Everything the gate
+    // drops is a single device talking to itself with nobody waiting.
+    if (!m_queue.isEmpty() || m_inFlight->foreignWaitMs > 0) {
+        const QString msg = QString("dispatch %1 (%2 queued)")
+                                .arg(m_inFlight->label)
+                                .arg(m_queue.size());
+        LogCollapse::Collapsed collapsed;
+        if (m_dispatchLog.shouldLog(m_inFlight->label, msg, m_clock.elapsed(), &collapsed))
+            GQ_LOG(msg + LogCollapse::suffix(collapsed));
+    }
 
     // Accumulated, not reported here. Reported once when the queue goes idle —
     // see reportForeignWaitEpisode(). One contended connect produced six of

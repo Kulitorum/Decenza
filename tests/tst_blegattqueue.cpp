@@ -259,6 +259,54 @@ private slots:
         QCOMPARE(rec.issued.size(), 2);   // not 3
     }
 
+    // --- dispatch log volume ----------------------------------------------
+
+    // The dispatch line is one per operation, and at idle the Decent Scale's
+    // 1 Hz heartbeat makes it periodic forever: 25,992 of 26,565 lines in a
+    // measured 7-hour tablet session, which evicted every other subsystem from
+    // the ring buffer. An unchanging repeat must collapse.
+    //
+    // init()'s failOnWarning cannot catch this — these are DEBUG — so the
+    // assertion is the ignoreMessage pair: exactly one line for the run.
+    void anIdleDispatchIsNotLoggedAtAll() {
+        BleGattQueue q;
+        Recorder rec;
+
+        for (int i = 0; i < 5; ++i) {
+            q.submit(op(scale(), QStringLiteral("scale write"), &rec));
+            pump();
+            q.noteSucceeded(scale());
+            pump();
+        }
+
+        QCOMPARE(rec.issued.size(), 5);   // all five ran...
+        // ...and none reached the log, so none was even offered to the
+        // collapser. Collapsing alone was not enough: one line a minute still
+        // out-logs every other subsystem in the app combined.
+        QCOMPARE(q.m_dispatchLog.suppressedFor(QStringLiteral("scale write")), 0);
+    }
+
+    // A CHANGED line must still print at once, or a burst — the case a reader
+    // actually needs — would be swallowed by the collapse that exists for the
+    // idle case. The queue depth is part of the text precisely so this holds.
+    // The gate keeps every line that carries ORDERING — which is what this class
+    // is read for. A dispatch with work queued behind it is exactly that, and
+    // must survive both the gate and the collapser.
+    void aDispatchWithWorkQueuedBehindItIsLogged() {
+        BleGattQueue q;
+        Recorder rec;
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(QStringLiteral("dispatch de1-a \\(2 queued\\)")));
+
+        q.submit(op(de1(), QStringLiteral("de1-a"), &rec));
+        q.submit(op(de1(), QStringLiteral("de1-b"), &rec));
+        q.submit(op(de1(), QStringLiteral("de1-c"), &rec));
+        pump();
+
+        QCOMPARE(rec.issued, QStringList{QStringLiteral("de1-a")});
+    }
+
     // --- foreign wait reporting -------------------------------------------
     //
     // The one cost the shared queue introduced over the per-device queues it
