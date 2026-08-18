@@ -519,10 +519,22 @@ void DecentScale::wake() {
     sendCommand(QByteArray::fromHex("0A01010001"));
     m_lcdOn = true;
 
-    // Restart heartbeat and watchdog if they were stopped by sleep()
+    // Restart heartbeat and watchdog if they were stopped by sleep().
     if (m_characteristicsReady) {
         startHeartbeat();
-        startWatchdog();
+        // But NOT while an enable is still on its way to the radio.
+        //
+        // wake() has two callers with opposite needs. After sleep() the scale's
+        // notifications were never disabled, so nothing is pending and arming
+        // here is right. During the CONNECT wake sequence, wake() is called at
+        // 200 ms and 500 ms while the notify-enables sit in the shared queue —
+        // and arming there starts a "did weight data arrive" clock against an
+        // LCD command, before the scale has been asked for weight at all.
+        //
+        // Measured on a tablet: armed at 6.412 by the 500 ms wake, expired at
+        // 7.412, and the enable did not reach the radio until 7.690. The
+        // warning fired 278 ms before the question was asked.
+        if (!m_watchdogArmPending) startWatchdog();
     }
 }
 

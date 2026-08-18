@@ -743,6 +743,35 @@ private slots:
     //
     // Break the arm-on-issue wiring and this goes red: the wake sequence alone
     // must leave it disarmed.
+    // NO path may arm the watchdog before the enable reaches the radio — not the
+    // wake sequence, and not wake() itself, which the sequence calls at 200 ms
+    // and 500 ms and which used to arm unconditionally.
+    //
+    // This is the slot that would have caught the incomplete first fix: that one
+    // removed the sequence's own inline arm, the sibling below passed, and on
+    // hardware wake() armed it anyway 278 ms before the enable went out. Asserts
+    // the PROPERTY (nothing is armed yet) rather than one call site.
+    void noPathArmsTheWatchdogBeforeTheEnableIsIssued() {
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+
+        // Everything the connect sequence does before its enable lands.
+        scale.wake();
+        scale.wake();
+        QVERIFY(!(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive()));
+
+        // And after a sleep, where no enable is pending, wake() must still
+        // restore it — the two callers have opposite needs.
+        scale.enableWeightNotifications(QStringLiteral("test"));
+        QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
+        scale.stopWatchdog();
+        scale.wake();
+        QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
+    }
+
     void theWatchdogDoesNotArmUntilTheEnableReachesTheRadio() {
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);

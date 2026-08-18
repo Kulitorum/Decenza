@@ -125,5 +125,5 @@ instead of a guess — and releasing early is what #1819 was.
 
 - [x] 10.1 Add the shared queue to `docs/CLAUDE_MD/BLE_PROTOCOL.md`, recording that Qt's GATT queue is per-controller (`QtBluetoothLE.java:949-950`) so the cross-device guarantee is the app's to supply, and that scale transports previously had no in-flight tracking at all.
 - [x] 10.2 Record why `SUBSCRIBE_TIMEOUT_MS` was deleted rather than tuned, and why scale operations do not inherit the DE1's retry budget.
-- [ ] 10.3 Assess whether the wiki manual needs an entry — the user-visible change is that a half-connected DE1 now shows as disconnected and reconnects instead of appearing ready. A few sentences if so.
+- [x] 10.3 Assessed: **no manual entry.** Maintainer's call (2026-08-18) — this change has no user-visible surface. Nothing moves in the UI, no setting appears, and no workflow changes. The one borderline case is a DE1 whose required telemetry never started: it now reports disconnected and reconnects rather than sitting there looking ready. That is a machine that was already broken behaving correctly instead of silently, not a feature to document — and a manual page describing it would be a page about a bug that no longer happens.
 - [ ] 10.4 Archive the change with `openspec archive serialize-ble-gatt-operations` as the last commit on the branch, before merge.
