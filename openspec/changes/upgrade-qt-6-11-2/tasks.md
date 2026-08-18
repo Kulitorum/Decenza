@@ -5,19 +5,19 @@ Group 6 is destructive and needs explicit confirmation before it runs.
 
 ## 1. Preserve the Android crash patch before anything is deleted
 
-- [ ] 1.1 Re-run the unpushed-work check on `~/Development/GitHub/qtbase` and
+- [x] 1.1 Re-run the unpushed-work check on `~/Development/GitHub/qtbase` and
       `~/Development/GitHub/qtdeclarative` (clean tree, no stash, no branch carrying work absent
       from every remote). `design.md` records the 2026-08-18 result; confirm it still holds rather
       than trusting it.
-- [ ] 1.2 Export the crash patch: `git format-patch -1 358540b2` from `~/Development/GitHub/qtbase`.
+- [x] 1.2 Export the crash patch: `git format-patch -1 358540b2` from `~/Development/GitHub/qtbase`.
       Verify it applies to `qtbase` at the `v6.11.2` tag before committing it — a patch that no
       longer applies is not a preserved fix.
-- [ ] 1.3 Commit it to `docs/qt-patches/` with a README recording: QTBUG-140490 / QTBUG-144207,
+- [x] 1.3 Commit it to `docs/qt-patches/` with a README recording: QTBUG-140490 / QTBUG-144207,
       Gerrit **735089** (status `NEW` on `dev` as of 2026-08-18), base commit `bb680db3`, the file it
       touches (`src/plugins/platforms/android/qandroidplatformopenglwindow.cpp`), and the rebuild
       recipe. State plainly that this is source-only and is **not** shipped — it exists so the
       re-entry condition in the `build-config` spec is actionable.
-- [ ] 1.4 Confirm `origin/a11y/android-talkback-fixes` on `github.com/skialpine/qtbase` still
+- [x] 1.4 Confirm `origin/a11y/android-talkback-fixes` on `github.com/skialpine/qtbase` still
       contains `358540b2`, so the off-machine copy is real and not assumed.
 
 ## 2. Bump the Qt version
@@ -105,30 +105,48 @@ Group 6 is destructive and needs explicit confirmation before it runs.
 - [ ] 5.8 No wiki manual entry. Nothing here is user-visible: no feature, no UI, no behaviour change,
       and no platform minimum moves. Recorded so the omission is a decision rather than an oversight.
 
-## 6. Reclaim local disk (destructive — confirm with the user first)
+## 6. Reclaim local disk (destructive)
 
-- [ ] 6.1 **Confirm with the user before running any deletion in this group.** Nothing else in this
-      change is destructive, and nothing here is recoverable.
-- [ ] 6.2 Delete `~/Development/GitHub/Decenza-Desktop/build/Qt_6_11_1_for_macOS_Debug` (5.8 GB) and
-      `~/Development/GitHub/Decenza/build/Qt_6_11_1_for_macOS_Debug` (5.3 GB). Both cache
-      `Qt6_DIR=~/Qt/6.11.1/macos/lib/cmake/Qt6`, which no longer exists, so neither can reconfigure.
-- [ ] 6.3 Delete `~/Development/GitHub/qtbase-android-build` (260 MB) — it built the override `.so`,
-      which no longer exists.
-- [ ] 6.4 Delete `~/Development/GitHub/qtbase` (435 MB) and `~/Development/GitHub/qtdeclarative`
-      (318 MB), the Gerrit source trees, **only after** task 1 is complete and 1.1 re-confirmed
-      clean. Leave `~/Development/GitHub/qt-creator-master` alone — it is maintained separately.
+- [x] 6.1 Confirm with the user before running any deletion in this group.
+- [x] 6.2 Delete `~/Development/GitHub/Decenza-Desktop/build/Qt_6_11_1_for_macOS_Debug` (5.8 GB) and
+      `~/Development/GitHub/Decenza/build/Qt_6_11_1_for_macOS_Debug` (5.3 GB). Both cached
+      `Qt6_DIR=~/Qt/6.11.1/macos/lib/cmake/Qt6`, which no longer exists, so neither could
+      reconfigure. **Done 2026-08-18** — no build directory now exists in either clone.
+- [x] 6.3 Delete `~/Development/GitHub/qtbase-android-build` (260 MB) — it built the override `.so`.
+      **Done 2026-08-18.**
+- [x] 6.4 Delete `~/Development/GitHub/qtbase` (435 MB) and `~/Development/GitHub/qtdeclarative`
+      (318 MB), the Gerrit source trees, after task 1 completed and both were re-confirmed clean
+      with no stashes. **Done 2026-08-18.** `~/Development/GitHub/qt-creator-master` deliberately
+      left alone — maintained separately.
 - [ ] 6.5 Recreate the macOS build directory in each clone as `Qt_6_11_2_for_macOS_Debug` against
-      `~/Qt/6.11.2/macos`.
-- [ ] 6.6 Put `DECENZA_MACOS_CODESIGN_IDENTITY=DFA23C5DAFA64BEC7CA9D9D1DFA1746CE0E1C560` in each
-      Qt Creator kit's **Initial Configuration**, not just the cache — Initial Configuration is the
-      only place that survives a cache wipe, and a wipe just happened.
-- [ ] 6.7 Verify the identity took, per `CLAUDE.local.md`:
+      `~/Qt/6.11.2/macos`. Both clones currently have **no** build directory at all.
+- [ ] 6.6 Before configuring, confirm `DECENZA_MACOS_CODESIGN_IDENTITY=DFA23C5DAFA64BEC7CA9D9D1DFA1746CE0E1C560`
+      is present in the Qt Creator kit's **Initial Configuration** — not typed into the cache, not
+      passed on a command line. Initial Configuration is the only place that reapplies after a cache
+      wipe, and a wipe just happened: the previous value lived only in the deleted caches.
+- [ ] 6.7 **Verify the identity came back from Initial Configuration by itself.** After the first
+      configure of each new build directory, and *before* setting anything by hand, read the cache:
+
+      grep DECENZA_MACOS_CODESIGN_IDENTITY <builddir>/CMakeCache.txt
+
+      The value must be there. If it is absent, Initial Configuration does not carry it and 6.6 is
+      not actually done — fix the kit rather than setting the cache variable, because a hand-set
+      cache value passes every downstream check and then vanishes at the next wipe, which is exactly
+      how this was lost the first time.
+
+      This ordering is the whole point of the task. Checking `codesign` output first would pass just
+      as well with a hand-set value, and would prove signing works while proving nothing about
+      whether the configuration survives.
+- [ ] 6.8 Then confirm the signature took, per `CLAUDE.local.md`:
       `codesign -dvvv <builddir>/Decenza.app 2>&1 | grep TeamIdentifier` → `VDSK39AZYD`. "not set"
       means ad-hoc signing and silently dropped Local Network traffic — which presents as a WiFi
-      scale bug, not a signing one.
-- [ ] 6.8 Re-approve Local Network for each rebuilt app. The grant is keyed to bundle id +
+      scale bug, not a signing one. Note the re-sign runs POST_BUILD, so it only fires once the
+      target actually relinks.
+- [ ] 6.9 Re-approve Local Network for each rebuilt app. The grant is keyed to bundle id +
       certificate + **path**, and the path changed with the rename, so one approval per clone is
       expected. If it does not take, reboot — toggling the row is documented as unreliable here.
+- [ ] 6.10 Update `CLAUDE.local.md`'s "Configured build dirs (both clones)" list to the new
+      `Qt_6_11_2_for_macOS_Debug` paths. Uncommitted file; hand-edit, do not commit.
 
 ## 7. Verify
 
