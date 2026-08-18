@@ -89,12 +89,13 @@
 - [ ] 4.1 On real hardware, run a Pressure-profile Stop-at-Volume shot at a known target and
       confirm delivered volume is close to target rather than short by roughly the forced-rise
       volume.
-- [ ] 4.2 If a DE1 running firmware >= 1337 is available, physically flip the standby switch mid
-      idle/mid-session and confirm the warning appears, dismisses on tap, and clears when power is
-      restored. Simulated substate injection now covers the gating/reset logic instead (added in
-      5.3: `tests/tst_machinestate.cpp` `standbySwitch*` tests, `tests/tst_de1device_headless.cpp`
-      `disconnectResetsSubState`) — the physical switch-flip and on-screen appearance still need
-      real hardware.
+- [ ] 4.2 BLOCKED — Jeff's DE1 predates firmware 1337 / the standby switch this feature targets,
+      so this can't be closed on available hardware. Verification ceiling for now: simulated
+      substate injection (`tests/tst_machinestate.cpp` `standbySwitch*` tests,
+      `tests/tst_de1device_headless.cpp` `disconnectResetsSubState`) plus the structural QML check
+      in 3.4. Leave open; close only if hardware with the switch + firmware >= 1337 becomes
+      available, or drop from the gate if the team decides code+test coverage is sufficient to
+      ship without it.
 
 ## 5. Review and merge
 
