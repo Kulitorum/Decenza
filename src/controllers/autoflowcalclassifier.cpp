@@ -4,14 +4,29 @@
 #include <QtGlobal>
 #include <algorithm>
 
-namespace {
+bool isActiveFlowFrame(const ProfileFrame& frame) {
+    return frame.isFlowControl() && frame.flow > kAutoFlowCalMinFlowTarget;
+}
 
-// Flow-target threshold: frames with `flow > 0.1` are considered active flow
-// targets. Matches the historical profile-level scan, which ignored frames
-// with near-zero flow targets to avoid treating no-op flow frames as anchors.
-constexpr double kMinFlowTarget = 0.1;
+double pickClosestFlowTarget(
+    const QList<ProfileFrame>& steps,
+    const QList<int>& indices,
+    double meanMachineFlow) {
 
-}  // namespace
+    double target = 0.0;
+    double bestDist = 1e9;
+    for (int idx : indices) {
+        if (idx < 0 || idx >= steps.size()) continue;
+        const auto& frame = steps[idx];
+        if (!isActiveFlowFrame(frame)) continue;
+        double dist = qAbs(frame.flow - meanMachineFlow);
+        if (dist < bestDist) {
+            bestDist = dist;
+            target = frame.flow;
+        }
+    }
+    return target;
+}
 
 AutoFlowCalClassification classifyAutoFlowCalWindow(
     const QList<ProfileFrame>& steps,
@@ -62,15 +77,22 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
         return result;
     }
 
-    result.firstFrameInWindow = *std::min_element(framesInWindow.constBegin(),
-                                                  framesInWindow.constEnd());
-    result.lastFrameInWindow = *std::max_element(framesInWindow.constBegin(),
-                                                 framesInWindow.constEnd());
+    // Sorted, not iterated straight off the QSet: iteration order there is
+    // hash-bucket order, not numeric order, so a tie in the target-picking
+    // loop below (two flow frames equidistant from meanMachineFlow) would
+    // otherwise resolve to whichever frame's bucket comes first — arbitrary
+    // from a reader's perspective. Sorting makes "lowest frame index wins a
+    // tie" an explicit, deterministic rule instead of an accident of hashing.
+    QList<int> sortedFrames(framesInWindow.constBegin(), framesInWindow.constEnd());
+    std::sort(sortedFrames.begin(), sortedFrames.end());
+
+    result.firstFrameInWindow = sortedFrames.first();
+    result.lastFrameInWindow = sortedFrames.last();
 
     // Classify every frame touched by the window.
     bool anyFlow = false;
     bool anyPressure = false;
-    for (qsizetype idx : framesInWindow) {
+    for (int idx : sortedFrames) {
         if (idx < 0 || idx >= steps.size()) {
             // An out-of-range frame index from the transition stream means
             // the marker data doesn't match the current profile (e.g. profile
@@ -80,7 +102,7 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
             return result;
         }
         const auto& frame = steps[idx];
-        if (frame.isFlowControl() && frame.flow > kMinFlowTarget) {
+        if (isActiveFlowFrame(frame)) {
             anyFlow = true;
         } else {
             anyPressure = true;
@@ -96,21 +118,35 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
         result.isFlowProfile = true;
         // Pick the flow target closest to the observed mean machine flow.
         // Preserves the historical multi-target handling (e.g. profiles that
-        // step between two flow rates) without extra bookkeeping.
-        double bestDist = 1e9;
-        for (qsizetype idx : framesInWindow) {
-            const auto& frame = steps[idx];
-            if (frame.isFlowControl() && frame.flow > kMinFlowTarget) {
-                double dist = qAbs(frame.flow - meanMachineFlow);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    result.targetFlow = frame.flow;
-                }
-            }
-        }
+        // step between two flow rates) without extra bookkeeping. sortedFrames
+        // is frame-index order, so an exact-distance tie resolves to the
+        // lower-indexed (earlier) frame, deterministically.
+        result.targetFlow = pickClosestFlowTarget(steps, sortedFrames, meanMachineFlow);
     } else {
         result.isFlowProfile = false;
     }
 
+    return result;
+}
+
+AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
+    double meanMachineFlow,
+    double targetFlow,
+    double thresholdFraction) {
+
+    AutoFlowCalTargetCheck result;
+    if (targetFlow <= 0.0) {
+        // Should be unreachable in production: the sole call site only
+        // invokes this when isFlowProfile is true, which both
+        // classifyAutoFlowCalWindow() and the profile-level fallback scan
+        // only set alongside a target picked from a frame that passed
+        // isActiveFlowFrame() (flow > kAutoFlowCalMinFlowTarget > 0). If
+        // this ever fires, one of those two invariants broke upstream.
+        qWarning() << "Auto flow cal: target check called with non-positive target"
+                   << targetFlow << "— treating as no deviation";
+        return result;
+    }
+    result.deviation = qAbs(meanMachineFlow - targetFlow) / targetFlow;
+    result.missedTarget = meanMachineFlow < targetFlow && result.deviation > thresholdFraction;
     return result;
 }

@@ -3092,6 +3092,13 @@ void MainController::computeAutoFlowCalibration() {
     const int fwBuild = m_device ? m_device->firmwareBuildNumber() : 0;
     const double kCalibrationMax = (fwBuild >= kFirmwareCapBumped) ? 2.7 : 1.8;
     constexpr double kChangeThreshold = 0.03;        // 3% relative change required to update
+    // A flow-controlled window whose measured mean flow UNDERSHOOTS the
+    // frame's target by more than this is treated as pressure-capped rather
+    // than genuinely flow-controlled — see autoFlowCalWindowTargetCheck()
+    // and Kulitorum/Decenza#1823. Named in autoflowcalclassifier.h, not
+    // re-typed as a literal here, so this constant and the values
+    // tst_autoflowcal.cpp asserts against can't silently diverge.
+    constexpr double kFlowTargetDeviationThreshold = kAutoFlowCalDeviationThreshold;
     constexpr double kMaxSampleRatio = 2.5;          // per-sample machine/weight ratio — break window on extreme outliers
     constexpr double kMinSampleRatio = 0.4;          // (generous bounds: window-level check is tighter)
     constexpr double kMaxWindowRatio = 1.35;         // window-mean machine/weight ratio — reject if scale data is suspect
@@ -3305,26 +3312,20 @@ void MainController::computeAutoFlowCalibration() {
     if (cls.fallbackToProfileScan) {
         // No phase markers — fall back to the historical profile-level scan.
         // Skips preinfusion frames because those are almost always flow-
-        // controlled even on pressure profiles.
+        // controlled even on pressure profiles. Shares isActiveFlowFrame()/
+        // pickClosestFlowTarget() with classifyAutoFlowCalWindow() so this
+        // fallback can't drift from the marker-based path on what counts as
+        // a flow frame or how a target-distance tie resolves.
         int preinfuseCount = m_profileManager->currentProfile().preinfuseFrameCount();
-        int flowFrameCount = 0;
+        QList<int> remainingIndices;
         for (qsizetype i = preinfuseCount; i < steps.size(); ++i) {
-            if (steps[i].isFlowControl() && steps[i].flow > 0.1)
-                flowFrameCount++;
-        }
-        if (flowFrameCount > 0) {
-            isFlowProfile = true;
-            double bestDist = 1e9;
-            for (qsizetype i = preinfuseCount; i < steps.size(); ++i) {
-                const auto& frame = steps[i];
-                if (frame.isFlowControl() && frame.flow > 0.1) {
-                    double dist = qAbs(frame.flow - meanMachineFlow);
-                    if (dist < bestDist) {
-                        bestDist = dist;
-                        profileTargetFlow = frame.flow;
-                    }
-                }
+            remainingIndices.append(static_cast<int>(i));
+            if (isActiveFlowFrame(steps[i])) {
+                isFlowProfile = true;
             }
+        }
+        if (isFlowProfile) {
+            profileTargetFlow = pickClosestFlowTarget(steps, remainingIndices, meanMachineFlow);
         }
         qDebug() << "Auto flow cal: no phase markers — profile-level scan"
                  << "mode:" << (isFlowProfile ? "flow" : "pressure");
@@ -3339,13 +3340,67 @@ void MainController::computeAutoFlowCalibration() {
                                    : QString());
     }
 
-    // Window-level ratio sanity check. For flow profiles, compare weight flow
-    // against the profile's known target flow (density-adjusted) instead of
-    // the machine's reported flow (which is PID-locked to target and useless
-    // for ratio checking). For pressure profiles, compare machine vs weight flow.
-    // Reject windows where the ratio is outside [0.75, 1.35] — indicates
-    // channeling, scale issues, or other extraction anomalies.
+    // Achieved-flow deviation check. A flow-controlled frame can carry a
+    // pressure ceiling (D-Flow, D-Flow/Q, similar) — when the puck's
+    // resistance would need more pressure than that ceiling to hold target
+    // flow, the DE1 caps pressure and flow falls below target for the rest
+    // of the frame. The flow-branch formula below assumes target was
+    // achieved; dividing by an unattained target manufactures an ideal that
+    // measures nothing about sensor accuracy (Kulitorum/Decenza#1823).
+    // Deliberately checked as UNDERSHOOT only (autoFlowCalWindowTargetCheck
+    // never sets missedTarget on overshoot) — a pressure ceiling holds flow
+    // BELOW its setpoint, it cannot push flow above one, so an overshoot
+    // reading has no pressure-cap explanation. Reclassifying overshoot too
+    // would route a window that may still be genuinely PID-locked through
+    // the achieved-flow formula's reported-flow denominator below — exactly
+    // the feedback-loop bug that using TARGET flow (the flow-branch formula)
+    // exists to avoid for flow-controlled windows (see "v3 Migration" in
+    // AUTO_FLOW_CALIBRATION.md).
+    //
+    // `isFlowProfile` is left untouched here — its value is never reassigned
+    // or repurposed below; it's what the "window mode=" log above reports.
+    // `useFlowFormula` is the separate, formula-selection-only verdict (true
+    // classification, downgraded when the window missed target), and it's
+    // what the later summary log lines report via `formulaModeLabel`.
+    bool reclassifiedAsPressureCapped = false;
     if (isFlowProfile) {
+        AutoFlowCalTargetCheck targetCheck = autoFlowCalWindowTargetCheck(
+            meanMachineFlow, profileTargetFlow, kFlowTargetDeviationThreshold);
+        if (targetCheck.missedTarget) {
+            qDebug() << "Auto flow cal: flow window missed target — measured"
+                     << meanMachineFlow << "ml/s vs target" << profileTargetFlow << "ml/s"
+                     << "(" << (targetCheck.deviation * 100.0) << "% deviation, threshold"
+                     << (kFlowTargetDeviationThreshold * 100.0) << "%)"
+                     << "— treating as pressure-capped, using achieved-flow formula";
+            reclassifiedAsPressureCapped = true;
+        }
+    }
+    bool useFlowFormula = isFlowProfile && !reclassifiedAsPressureCapped;
+    // Shared "mode:" label for the two summary log lines below (accumulated
+    // ideal, updated). Reports which FORMULA computed the ideal, not raw
+    // classification — but calls out reclassification explicitly, so a
+    // reader doesn't mistake "mode: pressure" for "this was a pressure
+    // profile" on a window that was actually flow-controlled but capped.
+    const QString formulaModeLabel = useFlowFormula
+        ? QStringLiteral("flow")
+        : (reclassifiedAsPressureCapped ? QStringLiteral("pressure (reclassified, missed flow target)")
+                                         : QStringLiteral("pressure"));
+
+    // Ratio guard AND ideal-formula selection both key off useFlowFormula, in
+    // one combined if/else rather than two separate ones — two independent
+    // checks on the same flag is exactly the shape that let a future edit
+    // change one branch's condition (e.g. reverting the ratio guard back to
+    // isFlowProfile) while leaving the other on useFlowFormula, silently
+    // ratio-checking a reclassified window against a target it just failed
+    // to reach. One flag, one branch, nothing to drift apart.
+    double currentEffective = m_settings->calibration()->effectiveFlowCalibration(m_profileManager->baseProfileName());
+    double ideal;
+    if (useFlowFormula) {
+        // Window-level ratio sanity check: compare weight flow against the
+        // profile's known target flow (density-adjusted) instead of the
+        // machine's reported flow (which is PID-locked to target and useless
+        // for ratio checking). Reject windows outside [0.75, 1.35] —
+        // indicates channeling, scale issues, or other extraction anomalies.
         double flowProfileRatio = (profileTargetFlow * kWaterDensity93C) / meanWeightFlow;
         if (flowProfileRatio > kMaxWindowRatio || flowProfileRatio < kMinWindowRatio) {
             qDebug() << "Auto flow cal: flow profile ratio" << flowProfileRatio
@@ -3354,16 +3409,7 @@ void MainController::computeAutoFlowCalibration() {
                      << "- skipping (extraction anomaly)";
             return;
         }
-    } else if (windowRatio > kMaxWindowRatio || windowRatio < kMinWindowRatio) {
-        qDebug() << "Auto flow cal: window ratio" << windowRatio
-                 << "outside bounds [" << kMinWindowRatio << "," << kMaxWindowRatio << "]"
-                 << "- skipping (scale data suspect)";
-        return;
-    }
 
-    double currentEffective = m_settings->calibration()->effectiveFlowCalibration(m_profileManager->baseProfileName());
-    double ideal;
-    if (isFlowProfile) {
         // Flow profile: use the profile's target flow (independent of calibration).
         // ideal = weightFlow / (targetFlow * density)
         // This has no dependency on the current calibration factor, preventing
@@ -3373,6 +3419,15 @@ void MainController::computeAutoFlowCalibration() {
         qDebug() << "Auto flow cal: flow profile — using target flow"
                  << profileTargetFlow << "ml/s (reported:" << meanMachineFlow << ")";
     } else {
+        // Window-level ratio sanity check: compare machine vs weight flow.
+        // Reject windows outside [0.75, 1.35] — scale data suspect.
+        if (windowRatio > kMaxWindowRatio || windowRatio < kMinWindowRatio) {
+            qDebug() << "Auto flow cal: window ratio" << windowRatio
+                     << "outside bounds [" << kMinWindowRatio << "," << kMaxWindowRatio << "]"
+                     << "- skipping (scale data suspect)";
+            return;
+        }
+
         // Pressure profile: the machine doesn't control flow, so reported flow
         // reflects actual sensor readings (already multiplied by the calibration
         // factor). Divide out the current factor to get raw sensor flow.
@@ -3383,7 +3438,10 @@ void MainController::computeAutoFlowCalibration() {
     if (!std::isfinite(ideal)) {
         qWarning() << "Auto flow cal: computed non-finite value" << ideal
                    << "(meanMachineFlow:" << meanMachineFlow
-                   << "meanWeightFlow:" << meanWeightFlow << ")";
+                   << "meanWeightFlow:" << meanWeightFlow
+                   << "profileTargetFlow:" << profileTargetFlow
+                   << "useFlowFormula:" << useFlowFormula
+                   << "reclassifiedAsPressureCapped:" << reclassifiedAsPressureCapped << ")";
         return;
     }
 
@@ -3415,7 +3473,7 @@ void MainController::computeAutoFlowCalibration() {
     qDebug() << "Auto flow cal: accumulated ideal" << ideal
              << "for" << profileName << "(" << pending.size() << "/" << kBatchSize << ")"
              << "window:" << windowDuration << "s," << bestCount << "samples"
-             << "mode:" << (isFlowProfile ? "flow" : "pressure");
+             << "mode:" << formulaModeLabel;
 
     if (pending.size() < kBatchSize) {
         return;  // Keep accumulating — don't update C yet
@@ -3464,7 +3522,7 @@ void MainController::computeAutoFlowCalibration() {
              << "from" << oldValue << "to" << computed
              << "(batch median:" << median << "from" << n << "ideals"
              << "alpha:" << alpha
-             << "mode:" << (isFlowProfile ? "flow" : "pressure") << ")";
+             << "mode:" << formulaModeLabel << ")";
 
     emit flowCalibrationAutoUpdated(m_profileManager->currentProfile().title(), oldValue, computed);
 

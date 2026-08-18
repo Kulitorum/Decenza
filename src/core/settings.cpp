@@ -217,6 +217,39 @@ Settings::Settings(QObject* parent)
         m_settings.setValue("calibration/steamTwoTapStopDefaultMigrated", true);
     }
 
+    // Sync + check status after a migration's actual work, before stamping its
+    // flag as done. QSettings::setValue()/remove() are void — they give no
+    // signal on their own if the underlying write fails (disk full, permission
+    // error, corrupted store). Without this, a failed write still gets marked
+    // "done" and never retries. Scoped to the three flow-cal migrations below
+    // (the block this PR is editing), not the whole file's migration chain.
+    //
+    // QSettings::status() is a STICKY first-error latch for the object's
+    // entire lifetime (qsettings.cpp's setStatus(): "We only set an error if
+    // there isn't one set already... we always allow clearing errors" — but
+    // nothing ever calls it with NoError on a successful sync, so in practice
+    // it never clears). A single earlier failure — plausible here, since the
+    // very first thing this constructor does is m_settings.sync() with a
+    // comment noting a real race ("another instance of the app just wrote to
+    // the same plist") — would otherwise make every later commit falsely
+    // report failure forever, causing v2/v3/v4 to re-run their resets (wiping
+    // calibration data) on every single launch instead of retrying once. Only
+    // treat status as reporting on THIS write: compare clean-before to
+    // dirty-after. If status was already dirty before this call, there's no
+    // reliable signal for this write either way — fall back to the pre-fix
+    // behavior (stamp optimistically) rather than block forever on stale info.
+    auto commitFlowCalMigrationFlag = [&](const QString& flagKey) {
+        const bool cleanBefore = (m_settings.status() == QSettings::NoError);
+        m_settings.sync();
+        if (cleanBefore && m_settings.status() != QSettings::NoError) {
+            qWarning() << "Settings: migration work for" << flagKey
+                       << "may not have persisted (QSettings status:" << m_settings.status()
+                       << ") — leaving flag unset so it retries next launch";
+            return;
+        }
+        m_settings.setValue(flagKey, true);
+    };
+
     // One-time reset: clear all per-profile flow calibrations and reset global to 1.0.
     // The auto-cal algorithm prior to this version had no ratio guards, allowing shots
     // with poor scale data (machine/weight ratio > 1.4) to drag calibrations down to
@@ -226,8 +259,8 @@ Settings::Settings(QObject* parent)
     if (!m_settings.contains("calibration/v2RatioGuardReset")) {
         m_calibration->resetAllProfileFlowCalibrations();
         m_calibration->setFlowCalibrationMultiplier(1.0);
-        m_settings.setValue("calibration/v2RatioGuardReset", true);
         qDebug() << "Settings: Reset all flow calibrations to 1.0 (v2 ratio guard migration)";
+        commitFlowCalMigrationFlag("calibration/v2RatioGuardReset");
     }
 
     // One-time reset: clear all per-profile flow calibrations and reset global to 1.0.
@@ -240,8 +273,24 @@ Settings::Settings(QObject* parent)
     if (!m_settings.contains("calibration/v3FlowProfileReset")) {
         m_calibration->resetAllProfileFlowCalibrations();
         m_calibration->setFlowCalibrationMultiplier(1.0);
-        m_settings.setValue("calibration/v3FlowProfileReset", true);
         qDebug() << "Settings: Reset all flow calibrations to 1.0 (v3 flow profile feedback loop fix)";
+        commitFlowCalMigrationFlag("calibration/v3FlowProfileReset");
+    }
+
+    // One-time clear of pending flow-cal batches only — NOT a full reset like v2/v3
+    // above. The v3 formula assumed a flow-controlled frame always achieves its
+    // target flow; on a pressure-capped flow frame (D-Flow, D-Flow/Q) it often
+    // doesn't, producing a bad ideal for that window (Kulitorum/Decenza#1823).
+    // Unlike v2/v3, this doesn't mean the STORED multipliers are wrong — the batch
+    // median's outlier rejection already partially absorbed the bad windows — so
+    // only the not-yet-applied accumulator is cleared, to stop it mixing ideals
+    // computed under the old and new formula-selection logic in one median.
+    if (!m_settings.contains("calibration/v4AchievedFlowFormulaReset")) {
+        if (!freshInstall) {
+            m_calibration->clearAllFlowCalPendingIdeals();
+            qDebug() << "Settings: Cleared pending flow-cal batches (v4 achieved-flow formula fix)";
+        }
+        commitFlowCalMigrationFlag("calibration/v4AchievedFlowFormulaReset");
     }
 
     // Migrate theme/customColors → theme/customColorsDark (one-time, for light/dark mode support)

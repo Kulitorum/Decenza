@@ -282,6 +282,32 @@ private slots:
         QCOMPARE(cls.targetFlow, 1.2);
     }
 
+    // Exact distance tie between two flow targets: meanMachineFlow sits
+    // precisely equidistant from both. Must deterministically pick the
+    // lower-indexed frame (sorted iteration order), not whatever a QSet's
+    // hash-bucket order happens to visit first — see the sort added in
+    // classifyAutoFlowCalWindow() ahead of this loop.
+    void multipleFlowTargets_exactTieResolvesToLowerFrameIndex() {
+        QList<ProfileFrame> steps = {
+            flowFrame("pour A", 1.0),   // 0
+            flowFrame("pour B", 2.0),   // 1
+        };
+        QList<FrameTransition> transitions = {
+            {0.0, 0},
+            {5.0, 1},
+        };
+
+        // Window spans both frames. Mean machine flow 1.5 is exactly
+        // equidistant (0.5) from both 1.0 and 2.0.
+        auto cls = classifyAutoFlowCalWindow(steps, transitions,
+                                             0.0, 10.0, 1.5);
+
+        QVERIFY(!cls.fallbackToProfileScan);
+        QVERIFY(!cls.mixedMode);
+        QVERIFY(cls.isFlowProfile);
+        QCOMPARE(cls.targetFlow, 1.0);  // frame 0, the lower index
+    }
+
     // --- Per-profile store: what a WRITE does to the pending batch -----------
     //
     // The auto-cal path clears the batch itself before committing, so these cover
@@ -329,6 +355,144 @@ private slots:
         QCOMPARE(cal->flowCalPendingIdeals(profile).size(), 1);
 
         cal->clearProfileFlowCalibration(profile);
+    }
+
+    // --- Achieved-flow deviation check --------------------------------------
+    //
+    // autoFlowCalWindowTargetCheck() decides whether a flow-classified window
+    // gets reclassified to the pressure-branch formula because the pump didn't
+    // reach the frame's target flow (e.g. a pressure-capped flow frame like
+    // D-Flow / D-Flow-Q — see Kulitorum/Decenza#1823). It only ever triggers on
+    // UNDERSHOOT: a pressure ceiling can hold flow below its setpoint but has
+    // no mechanism to push flow above one, so overshoot is never reclassified
+    // regardless of magnitude (see flowWindowOvershootsTarget_neverReclassified
+    // below) — reclassifying it would route a window that may still be
+    // genuinely PID-locked through the pressure-branch formula's reported-flow
+    // denominator, reintroducing the v2 feedback-loop bug that using TARGET
+    // flow (the flow-branch formula) exists to avoid for flow-controlled
+    // windows.
+
+    // Target essentially achieved — must NOT reclassify. This is the common
+    // case: every window sampled on a real D-Flow/Q shot in this repo's own
+    // dial-in history hit 99-101% of target.
+    void flowWindowAchievesTarget_notReclassified() {
+        QVERIFY(!autoFlowCalWindowTargetCheck(1.825, 1.8, kAutoFlowCalDeviationThreshold).missedTarget);  // 1.4% deviation
+        QVERIFY(!autoFlowCalWindowTargetCheck(1.69, 1.7, kAutoFlowCalDeviationThreshold).missedTarget);   // 0.6% deviation
+    }
+
+    // Threshold boundary on the undershoot side: clearly-inside deviation does
+    // not count as "missed"; clearly-outside does. (Not testing the exact
+    // 10.000...% tie itself — 1.80 - 2.00 isn't exactly representable as 0.20
+    // in `double`, so an exact-boundary assertion is a floating-point trap,
+    // not a meaningful spec of the strict `>` comparison.) Also pins the
+    // returned `deviation` value, since the log line at the call site depends
+    // on it being the actual computed fraction, not a rounded/approximate one.
+    void flowTargetDeviationThreshold_boundaryIsExclusive() {
+        auto under = autoFlowCalWindowTargetCheck(1.85, 2.00, kAutoFlowCalDeviationThreshold);  // 7.5% low
+        QVERIFY(!under.missedTarget);
+        QVERIFY(qFuzzyCompare(under.deviation, 0.075));
+
+        auto over = autoFlowCalWindowTargetCheck(1.75, 2.00, kAutoFlowCalDeviationThreshold);   // 12.5% low
+        QVERIFY(over.missedTarget);
+        QVERIFY(qFuzzyCompare(over.deviation, 0.125));
+    }
+
+    // Overshoot NEVER reclassifies, no matter how large — the defining
+    // asymmetry of this check. A pressure cap has no mechanism to push flow
+    // above target, so there's no pressure-cap explanation for an overshoot
+    // reading, and treating it as "missed target" would reintroduce the v2
+    // feedback loop (see section comment above).
+    void flowWindowOvershootsTarget_neverReclassified() {
+        QVERIFY(!autoFlowCalWindowTargetCheck(2.15, 2.00, kAutoFlowCalDeviationThreshold).missedTarget);  // 7.5% high
+        QVERIFY(!autoFlowCalWindowTargetCheck(2.25, 2.00, kAutoFlowCalDeviationThreshold).missedTarget);  // 12.5% high
+        QVERIFY(!autoFlowCalWindowTargetCheck(4.00, 2.00, kAutoFlowCalDeviationThreshold).missedTarget);  // 100% high
+    }
+
+    // A non-positive target flow has nothing to compare against — must not
+    // claim a deviation (and must not divide by zero).
+    void flowTargetDeviation_nonPositiveTargetNeverMisses() {
+        // This path is unreachable in production (see the qWarning it emits
+        // in autoFlowCalWindowTargetCheck() — a canary for an upstream
+        // invariant break), so calling it directly here is deliberately
+        // exercising the "should never happen" guard, not routine input.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+            QStringLiteral("non-positive target")));
+        auto zero = autoFlowCalWindowTargetCheck(1.5, 0.0, kAutoFlowCalDeviationThreshold);
+        QVERIFY(!zero.missedTarget);
+        QCOMPARE(zero.deviation, 0.0);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+            QStringLiteral("non-positive target")));
+        auto negative = autoFlowCalWindowTargetCheck(1.5, -1.0, kAutoFlowCalDeviationThreshold);
+        QVERIFY(!negative.missedTarget);
+        QCOMPARE(negative.deviation, 0.0);
+    }
+
+    // Reproduces the real 8-window batch from Kulitorum/Decenza#1823's attached
+    // debug log for d_flow_20g_2_50_91 (target 1.7 ml/s throughout). 3 windows
+    // achieved target (shots 530, 536, 543 — 99-100%, all slightly UNDER target
+    // so this data is unaffected by restricting the check to undershoot); 5 did
+    // not (shots 529, 531, 537, 538, 541 — 57-67%, the frame's pressure limiter
+    // holding the pump below target). At the 10% threshold, the check must
+    // split them exactly along that line — this is the empirical evidence the
+    // threshold was chosen from, pinned as a regression.
+    void issue1823Batch_splitsTargetMetFromTargetMissed() {
+        struct Window { double meanMachineFlow; bool expectMissed; };
+        const QList<Window> windows = {
+            {1.06846, true},   // shot 529
+            {1.69798, false},  // shot 530
+            {0.996183, true},  // shot 531
+            {1.69086, false},  // shot 536
+            {0.965689, true},  // shot 537
+            {1.0688, true},    // shot 538
+            {1.14582, true},   // shot 541
+            {1.69011, false},  // shot 543
+        };
+        constexpr double kTargetFlow = 1.7;
+        for (const auto& w : windows) {
+            QCOMPARE(autoFlowCalWindowTargetCheck(w.meanMachineFlow, kTargetFlow, kAutoFlowCalDeviationThreshold).missedTarget,
+                     w.expectMissed);
+        }
+    }
+
+    // --- clearAllFlowCalPendingIdeals(): the v4 migration's primitive ---------
+    //
+    // The v4 migration (Settings constructor, calibration/v4AchievedFlowFormulaReset)
+    // clears every profile's pending batch so none straddles the old and new
+    // formula-selection logic in one median, but must leave stored multipliers
+    // alone — unlike the v2/v3 migrations it sits beside, which reset everything
+    // because the STORED value itself was shown corrupted. This covers the
+    // primitive the migration calls; the migration's own gating (a persisted,
+    // on-disk one-time flag, checked in the Settings constructor) has no
+    // existing test coverage for v2/v3 either, so this doesn't introduce a
+    // new gap.
+    void clearAllFlowCalPendingIdeals_clearsBatchesButNotMultipliers() {
+        Settings settings;
+        SettingsCalibration* cal = settings.calibration();
+        const QString profileA = QStringLiteral("tst_autoflowcal_v4_a");
+        const QString profileB = QStringLiteral("tst_autoflowcal_v4_b");
+        cal->clearProfileFlowCalibration(profileA);
+        cal->clearProfileFlowCalibration(profileB);
+
+        QVERIFY(cal->setProfileFlowCalibration(profileA, 1.23));
+        QVERIFY(cal->setProfileFlowCalibration(profileB, 0.87));
+        cal->appendFlowCalPendingIdeal(profileA, 0.80);
+        cal->appendFlowCalPendingIdeal(profileA, 0.79);
+        cal->appendFlowCalPendingIdeal(profileB, 1.10);
+        QCOMPARE(cal->flowCalPendingIdeals(profileA).size(), 2);
+        QCOMPARE(cal->flowCalPendingIdeals(profileB).size(), 1);
+
+        double globalBefore = cal->flowCalibrationMultiplier();
+        cal->clearAllFlowCalPendingIdeals();
+
+        QVERIFY(cal->flowCalPendingIdeals(profileA).isEmpty());
+        QVERIFY(cal->flowCalPendingIdeals(profileB).isEmpty());
+        QCOMPARE(cal->profileFlowCalibration(profileA), 1.23);
+        QCOMPARE(cal->profileFlowCalibration(profileB), 0.87);
+        QCOMPARE(cal->flowCalibrationMultiplier(), globalBefore);
+
+        cal->clearProfileFlowCalibration(profileA);
+        cal->clearProfileFlowCalibration(profileB);
     }
 
     // With auto calibration off, a stored per-profile value is deliberately

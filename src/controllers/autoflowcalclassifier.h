@@ -49,6 +49,39 @@ struct AutoFlowCalClassification {
     int lastFrameInWindow = -1;
 };
 
+/// Flow-target threshold: frames with `flow > kAutoFlowCalMinFlowTarget` are
+/// considered active flow targets, filtering out near-zero flow frames that
+/// are really pressure-controlled in practice. Shared between
+/// `classifyAutoFlowCalWindow()` and `MainController::computeAutoFlowCalibration()`'s
+/// profile-level fallback scan via `isActiveFlowFrame()`/`pickClosestFlowTarget()`
+/// below, so the two picking paths can't drift on what counts as "a flow frame".
+constexpr double kAutoFlowCalMinFlowTarget = 0.1;
+
+/// Default relative-undershoot threshold for `autoFlowCalWindowTargetCheck()`
+/// below (10%). Named here, not re-typed as a literal at each call site
+/// (production or test), so the production constant and the values tests
+/// assert against can't silently diverge.
+constexpr double kAutoFlowCalDeviationThreshold = 0.10;
+
+/// True if `frame` counts as an active flow-controlled anchor for auto flow
+/// calibration purposes: pump control is flow AND its target is above the
+/// no-op threshold.
+bool isActiveFlowFrame(const ProfileFrame& frame);
+
+/**
+ * Picks the flow target (mL/s) among the given frame `indices` closest to
+ * `meanMachineFlow`, considering only frames where `isActiveFlowFrame()` is
+ * true. Ties resolve to whichever qualifying index comes FIRST in `indices`
+ * — the caller controls tie-break order by how it orders `indices` (e.g.
+ * frame-index-ascending for a deterministic "lowest index wins").
+ *
+ * @return The picked target, or `0.0` if no frame in `indices` qualifies.
+ */
+double pickClosestFlowTarget(
+    const QList<ProfileFrame>& steps,
+    const QList<int>& indices,
+    double meanMachineFlow);
+
 /**
  * Classify the pump-control mode active during an auto-flow-cal steady
  * window using the frame-transition data recorded during the shot.
@@ -78,3 +111,58 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
     double windowStart,
     double windowEnd,
     double meanMachineFlow);
+
+/**
+ * Result of checking a flow-controlled window's measured flow against its
+ * frame's target. `deviation` is always computed (0.0 for a non-positive
+ * target); `missedTarget` additionally requires undershoot — see below.
+ */
+struct AutoFlowCalTargetCheck {
+    /// True only when the window UNDERSHOT target by more than the caller's
+    /// threshold. Never true for an overshoot, regardless of magnitude.
+    bool missedTarget = false;
+    /// Relative deviation |measured - target| / target. Always >= 0.
+    /// Exposed so a caller that reclassifies on `missedTarget` can also log
+    /// the magnitude without recomputing the same formula a second time.
+    double deviation = 0.0;
+};
+
+/**
+ * Checks whether a flow-controlled window's measured mean machine flow fell
+ * meaningfully short of the touched frame's target flow.
+ *
+ * Rationale: a flow-controlled frame can carry a pressure ceiling (e.g.
+ * D-Flow, D-Flow/Q). When the puck's resistance would require exceeding that
+ * ceiling to hold the frame's target flow, the DE1 caps pressure instead and
+ * flow falls below target for the rest of the frame. Assuming the target was
+ * achieved is what `computeAutoFlowCalibration()`'s flow-branch formula does
+ * (`weightFlow / (targetFlow * density)`) — dividing by an unattained target
+ * manufactures an ideal that measures nothing about sensor accuracy
+ * (Kulitorum/Decenza#1823). A caller should treat a window where
+ * `missedTarget` is true as pressure-controlled for formula-selection
+ * purposes: reuse the achieved-flow (pressure-branch) formula and its ratio
+ * guard, which already correctly handle "pump was constrained below its
+ * setpoint" regardless of which setpoint did the constraining.
+ *
+ * Deliberately ONE-SIDED: only undershoot (`meanMachineFlow < targetFlow`)
+ * can set `missedTarget`, never overshoot. A pressure ceiling can hold flow
+ * BELOW its setpoint; it has no mechanism to push flow above it, so an
+ * overshoot reading has no pressure-cap explanation. Reclassifying an
+ * overshooting-but-still-genuinely-flow-controlled window would route it
+ * through the pressure-branch formula's reported-flow denominator on a
+ * window that may still be PID-locked to target — exactly the feedback-loop
+ * bug (factor drifts down and can never converge) that using TARGET flow for
+ * flow-controlled windows was introduced to avoid in the first place; see
+ * the "v3 Migration" section of `docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md`.
+ *
+ * @param meanMachineFlow   Mean reported flow during the window (mL/s).
+ * @param targetFlow        The touched frame's target flow (mL/s). Must be > 0;
+ *                          returns `{false, 0.0}` for a non-positive target
+ *                          (nothing to compare against).
+ * @param thresholdFraction Relative undershoot above which the window is
+ *                          considered pressure-capped (e.g. 0.10 for 10%).
+ */
+AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
+    double meanMachineFlow,
+    double targetFlow,
+    double thresholdFraction);
