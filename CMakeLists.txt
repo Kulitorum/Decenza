@@ -1941,15 +1941,30 @@ foreach(_qml_file IN LISTS QML_FILES)
     list(APPEND _decenza_qml_abs "${_abs}")
 endforeach()
 
-# Path formula copied from Qt6QmlMacros.cmake:3841-3847 — keep in step with it.
-# `${target}_${relative}` is why the directory is "Decenza_qml/": the "Decenza_"
-# prefix is glued straight onto the leading "qml/" of the relative path.
+# Path formula mirrored from Qt6QmlMacros.cmake — keep in step with it. In Qt 6.11.2 the
+# three substitutions are at :3864, :3867 and :3870 (they were around :3841-3847 in 6.11.1;
+# cite the version you actually read, because this formula MOVES).
+#
+# 6.11.2 CHANGED IT, and that is not cosmetic: the character class gained `/` and a space,
+#
+#     6.11.1:  string(REGEX REPLACE "[$#?]+"    "_" ...)
+#     6.11.2:  string(REGEX REPLACE "[$#?/ ]+"  "_" ...)
+#
+# so directory separators are now flattened into the file name. `qml/AppShell.qml` compiles
+# to `Decenza_qml_AppShell_qml.cpp` in one flat directory, where it used to be
+# `Decenza_qml/AppShell_qml.cpp` in a nested one. Getting this wrong is not silent: the
+# APPEND below fails configure for every unit at once (240 of them on the 6.11.2 bump), which
+# is exactly what the gate under this loop promises and the reason it is written this way.
 set(_decenza_qml_units_wired 0)
 foreach(_qml_file IN LISTS QML_FILES)
     get_filename_component(_abs "${_qml_file}" ABSOLUTE)
     file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}" "${_abs}")
-    string(REGEX REPLACE "\\.(js|mjs|qml)$" "_\\1" _compiled "${_rel}")
-    string(REGEX REPLACE "[$#?]+" "_" _compiled "${_compiled}")
+    # Qt replaces a leading `../` run first, so a source outside the tree cannot escape the
+    # cache directory. No QML_FILES entry does that today; carried anyway to stay a faithful
+    # mirror rather than a formula that happens to agree on the current inputs.
+    string(REGEX REPLACE "\\.\\.[/\\\\]" "_" _compiled "${_rel}")
+    string(REGEX REPLACE "\\.(js|mjs|qml)$" "_\\1" _compiled "${_compiled}")
+    string(REGEX REPLACE "[$#?/ ]+" "_" _compiled "${_compiled}")
     set(_compiled "${CMAKE_CURRENT_BINARY_DIR}/.rcc/qmlcache/Decenza_${_compiled}.cpp")
     add_custom_command(OUTPUT "${_compiled}" APPEND DEPENDS ${_decenza_qml_abs})
     math(EXPR _decenza_qml_units_wired "${_decenza_qml_units_wired} + 1")
