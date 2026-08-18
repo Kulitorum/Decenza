@@ -1,0 +1,89 @@
+From 358540b240bdf6e8465f7645637f212786cb5db6 Mon Sep 17 00:00:00 2001
+From: Jeff Heller <jeffrey_heller@yahoo.com>
+Date: Mon, 27 Jul 2026 12:23:18 -0600
+Subject: [PATCH] Android: don't abort when the deadlock protector is contended
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+QAndroidPlatformOpenGLWindow::eglSurface() calls qFatal() when it cannot
+acquire the process-wide AndroidDeadlockProtector, killing the app. But
+losing that race is not a deadlock: some unrelated subsystem — input
+method, accessibility, permissions — is simply mid-call and holding the
+single global flag.
+
+The recoverable path is already written directly below the qFatal, just
+unreachable, and the Vulkan backend in this same release does exactly
+that (qandroidplatformvulkanwindow.cpp returns &m_vkSurface on the
+identical condition). Both callers of eglSurface() already handle
+EGL_NO_SURFACE: QAndroidPlatformOpenGLContext::makeCurrent() warns and
+returns false, and QEGLPlatformContext::swapBuffers() has its own
+"skip if using surfaceless context" guard. So the abort protects nothing
+that the GL path cannot already survive.
+
+Field data: since moving to Qt 6.11.1, every Android crash report the
+app has received is this abort (2 of 2; 9 of 42 Android reports overall
+since January). The window is the one a threaded render loop cannot
+avoid — beginFrame/makeCurrent succeeds, the app state drops to
+<= ApplicationHidden and destroySurface() clears m_androidSurfaceCreated
+on the GUI thread, then endFrame/swapBuffers takes the surface-recreate
+branch and dies on a contended flag.
+
+No new log line: AndroidDeadlockProtector::acquire() already warns on
+failure and names the current holder, which is strictly more useful than
+anything this site could add.
+
+Trade-offs, both strictly better than terminating:
+- While a holder keeps the protector for a long stretch (a permission
+  dialog), frames are dropped rather than rendered.
+- A failed makeCurrent yields QRhi::FrameOpError, and qtdeclarative's
+  threaded render loop re-posts an update only for FrameOpDeviceLost and
+  FrameOpSwapChainOutOfDate, so nothing schedules a retry. Mid-session
+  other events drive one; at startup there may briefly be none.
+
+This is a local stop-gap. Upstream 735089 ("Android: drop deadlock
+protector from EGL/Vk surface paths") removes the protector from these
+paths entirely — which also removes the unsynchronised read of
+AndroidDeadlockProtector::s_lockers that acquire() performs on failure,
+now reachable once per frame rather than once per process lifetime.
+It targets dev with no Pick-to: footer and sits seventh in a 17-change
+series with no reviewer assigned. Drop this commit when that reaches the
+Qt version we build against.
+
+Task-number: QTBUG-140490
+Task-number: QTBUG-144207
+---
+ .../android/qandroidplatformopenglwindow.cpp    | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/src/plugins/platforms/android/qandroidplatformopenglwindow.cpp b/src/plugins/platforms/android/qandroidplatformopenglwindow.cpp
+index c205727b..418a5fe1 100644
+--- a/src/plugins/platforms/android/qandroidplatformopenglwindow.cpp
++++ b/src/plugins/platforms/android/qandroidplatformopenglwindow.cpp
+@@ -65,7 +65,22 @@ EGLSurface QAndroidPlatformOpenGLWindow::eglSurface(EGLConfig config)
+         static constexpr char funcName[] = "QAndroidPlatformOpenGLWindow::eglSurface()";
+         QtAndroidPrivate::AndroidDeadlockProtector protector(funcName);
+         if (!protector.acquire()) {
+-            qFatal("Failed to acquire deadlock protector for %s.", funcName);
++            // Losing the race for the single process-wide protector is not a deadlock —
++            // another subsystem (input method, accessibility, permissions) is merely
++            // mid-call. Skip surface creation for this frame instead of terminating the
++            // process; the Vulkan backend in this same release already takes exactly this
++            // path (qandroidplatformvulkanwindow.cpp returns &m_vkSurface here), and both
++            // callers of eglSurface() handle EGL_NO_SURFACE — makeCurrent() warns and
++            // returns false, QEGLPlatformContext::swapBuffers() skips the swap. A later
++            // frame creates the surface once the protector is free.
++            // Debug, not warning, on purpose: acquire() itself already warns and names
++            // the current holder, so a second warning would only add noise to the log
++            // users attach to bug reports. This line stays as the string that proves a
++            // built plugin actually carries this patch (grep the .so for it).
++            // Upstream fix: https://codereview.qt-project.org/c/qt/qtbase/+/735089
++            // (QTBUG-140490, QTBUG-144207). Drop this once that reaches our Qt version.
++            qCDebug(lcQpaWindow, "[decenza-patch] deadlock protector contended in %s; "
++                                 "skipping surface creation for this frame.", funcName);
+             return m_eglSurface;
+         }
+ 
+-- 
+2.50.1 (Apple Git-155)
+
