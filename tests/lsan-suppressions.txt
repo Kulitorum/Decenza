@@ -6,37 +6,130 @@
 # that the leak is not ours and is not a defect -- not an argument that it is
 # probably fine.
 #
+# An entry also earns removal. If one stops matching for a month of nights, the
+# thing it covered is gone (a glibc or Qt change, or the probes that provoked it
+# were restructured) and the entry is then a permanent blind spot with nothing
+# left to notice it. Delete it and let the night tell you if you were wrong.
+#
+# ---------------------------------------------------------------------------
 # leak:__res_context_send
 #
-#   28 bytes, one allocation, entirely inside glibc's resolver. glibc allocates
-#   sizeof(struct sockaddr_in6) at resolv/res_send.c:324 and stores it in
-#   _res._u._ext.nsaddrs[]. Its only free path here is __res_thread_freeres
-#   (resolv/res-close.c:130), which glibc's own comment describes as running
-#   "when a thread is exiting". QHostInfo resolves on a QThreadPool that reuses
-#   and parks its threads (30 s expiry), so a pool thread that sent a DNS query
-#   can still be alive at process exit holding its per-thread _res state. Under
-#   load the leak check races that teardown, which is why it is intermittent
-#   rather than constant.
+# First seen: nightly run 32100852987, 2026-08-18. ctest itself reported
+# "100% tests passed, 0 tests failed out of 110" -- the job went red only
+# because the Summarise step fails on any sanitizer report, which is correct
+# behaviour. The report came from the first attempt of tst_wifiscalediscovery
+# and not from the until-pass retry.
 #
-#   Measured 2026-08-18 (glibc 2.39, Qt 6.11.1, ASan, blackholed resolver,
-#   8-way concurrency, 80 runs each):
+# WHAT IS ESTABLISHED
 #
-#     bare C, threads exit immediately ........  0 / 80
-#     bare Qt QHostInfo, no Decenza code ......  3 / 80
-#     tst_wifiscalediscovery, our code ........  3 / 80
+#   The allocation is glibc's own and is made inside glibc. resolv/res_send.c
+#   :324-325 assigns `EXT(statp).nsaddrs[ns] = malloc(sizeof (struct
+#   sockaddr_in6))` -- 28 bytes, matching the report exactly. It sits inside a
+#   `for (ns ...)` loop over configured nameservers, so it is per
+#   (thread x nameserver), not per thread; MAXNS is 3.
 #
-#   The leak reproduces with our code absent, at the same rate and with a
-#   byte-identical stack, so there is nothing here for us to fix. It is bounded
-#   -- 28 bytes per pool thread, at most 20 threads -- and returned to the OS
-#   when the process ends, so it is not a production concern either.
+#   The free lives in __res_iclose (resolv/res-close.c:94, freeing at :112).
+#   Nothing on the getaddrinfo path calls it, so in this scenario the only
+#   caller that can fire is __res_thread_freeres (:130, delegating at :138),
+#   which glibc's own comment at :128 describes as running "when a thread is
+#   exiting".
 #
-#   Effect of this entry, measured over 192 runs each at 16-way concurrency:
-#   without it the harness reported the leak on 2 runs; with it, 0 leak reports,
-#   and the suppression matched on 9 runs at exactly 1 allocation / 28 bytes.
-#   (The two counts differ because the underlying race varies with load; both
-#   are small samples of the same intermittent event.)
+#   Line numbers are glibc-2.39, the version on ubuntu-24.04 (see `runs-on` in
+#   nightly-sanitizers.yml). Re-derive at
+#   https://sourceware.org/git/?p=glibc.git;a=blob;f=resolv/res_send.c;hb=refs/tags/glibc-2.39
 #
-#   Note the scope this costs us: a genuine leak of ours reached through
-#   getaddrinfo would also be hidden. That window is narrow -- the template
-#   matches only frames through glibc's resolver send path -- but it is real.
+#   It reproduces with every line of Decenza removed. A bare Qt program whose
+#   only content is QHostInfo::lookupHost on the same names leaked the same 28
+#   bytes with a byte-identical stack. That -- an allocation made inside libc,
+#   reproduced with our code absent -- is what carries the "not ours"
+#   conclusion. The rate comparison below does not carry it and should not be
+#   read as if it does.
+#
+# WHAT IS NOT ESTABLISHED
+#
+#   Why it is intermittent. The obvious explanation -- that a QHostInfo pool
+#   thread is parked and still alive at exit, holding its per-thread _res -- is
+#   WRONG, and is recorded here so nobody re-derives it. QHostInfo connects
+#   QCoreApplication::destroyed to threadPool.waitForDone()
+#   (qtbase/src/network/kernel/qhostinfo.cpp:907-908, Qt 6.11.2, which is what
+#   CI builds), and waitForDone reaches QThreadPoolPrivate::reset(), which
+#   wait()s on and deletes every pool thread (qthreadpool.cpp:280-284). The test
+#   is QTEST_GUILESS_MAIN, so QCoreApplication is a stack object in main and
+#   that join runs before LSan's atexit check. The 30 s idle expiry never comes
+#   into play. Worse for that theory: a genuinely live thread's TLS is scanned
+#   by LSan as a root region, so its _res pointer would be reachable and nothing
+#   would be reported at all.
+#
+#   The leading remaining hypothesis is a narrow window during thread EXIT,
+#   between the sanitizer unregistering the thread and glibc running
+#   __res_thread_freeres, where the 28 bytes are referenced only from
+#   torn-down TLS. It fits the load dependence, but it does not obviously fit
+#   the bare-C control below, whose threads also exit and which stayed clean.
+#   Treat the mechanism as open. The suppression does not rest on it.
+#
+# MEASUREMENTS -- AND THEIR LIMITS
+#
+#   Taken 2026-08-18 in a throwaway Docker container (ubuntu:24.04, glibc 2.39,
+#   Qt 6.11.1 -- before the 6.11.2 upgrade in #1825, so the rate under the Qt
+#   version CI now builds is unmeasured), NOT on a CI runner, with an
+#   unroutable nameserver
+#   (`--dns 203.0.113.1`) to force our probe timeouts. That is fault injection,
+#   so the true rate on CI is unmeasured. The container has been deleted; these
+#   numbers cannot be re-run without rebuilding it.
+#
+#     8-way concurrency, 80 runs each:
+#       bare C, threads exit immediately ........  0 / 80
+#       bare Qt QHostInfo, no Decenza code ......  3 / 80
+#       tst_wifiscalediscovery, our code ........  3 / 80
+#
+#   3/80 vs 3/80 is NOT evidence the rates are equal -- with three events the
+#   95% interval spans roughly 0.8%-10.6%, so this cannot distinguish our rate
+#   from three times glibc's. It shows only that the leak occurs at a
+#   comparable order without our code. The bare-C row is the informative one:
+#   it is the control that discriminates, and its cleanliness is why the other
+#   two rows mean anything.
+#
+#   The bare-C control, in full, so the 0/80 row is checkable:
+#
+#     static const char* n[5] = {"a.invalid","b.invalid",
+#                                "hds.local","hds-2.local","hds-3.local"};
+#     static void* w(void* p) { struct addrinfo h, *r = NULL;
+#         memset(&h,0,sizeof h); h.ai_family = AF_UNSPEC;
+#         if (getaddrinfo((const char*)p,NULL,&h,&r)==0 && r) freeaddrinfo(r);
+#         return NULL; }
+#     int main(void) { pthread_t t[5];
+#         for (int i=0;i<5;i++) pthread_create(&t[i],NULL,w,(void*)n[i]);
+#         for (int i=0;i<5;i++) pthread_join(t[i],NULL); return 0; }
+#
+#   built `gcc -g -fsanitize=address`, run 8 at a time with
+#   ASAN_OPTIONS=detect_leaks=1. The bare-Qt control is the same shape with
+#   QHostInfo::lookupHost over those names and a QCoreApplication event loop.
+#
+#   Effect of this entry, 192 runs each at 16-way concurrency: without it the
+#   harness reported the leak on 2 runs; with it, 0 leak reports, and the
+#   suppression matched on 9 runs at exactly 1 allocation / 28 bytes. Why 2 and
+#   9 differ is NOT explained -- both arms ran at identical concurrency, so load
+#   does not account for it, and these are small samples of a rare event. Read 9
+#   as a loose upper bound on how often something is being hidden.
+#
+# WHAT THIS COSTS
+#
+#   An LSan template matches a frame anywhere in the ALLOCATION stack, so this
+#   hides any allocation made inside glibc's resolver send path -- the nsaddrs
+#   entry above and res_send's own answer buffers. All of them glibc's.
+#
+#   It does NOT hide a Decenza leak "reached through getaddrinfo": those are
+#   allocated ABOVE res_send and carry no __res_context_send frame. For one of
+#   ours to be covered, our code would have to be called from BELOW that frame,
+#   and glibc takes no callback there (we ship no NSS module). An earlier draft
+#   of this file claimed that cost; it was wrong, and overstated in the
+#   reassuring direction.
+#
+#   The real cost is quantity, not kind: the template has no byte or count
+#   ceiling, so an arbitrarily large leak of this exact shape would also pass
+#   unreported. Today that is bounded by QHostInfo's pool cap of 20 threads
+#   (qhostinfo.cpp:910) times MAXNS, and Decenza has no unbounded resolver path
+#   -- wifiscalediscovery.cpp, decentscalewifi.cpp and mqttclient.cpp all share
+#   that one pool, and MdnsResolver uses raw 5353 sockets without getaddrinfo.
+#   If that ever stops being true, this entry stops being safe.
 leak:__res_context_send

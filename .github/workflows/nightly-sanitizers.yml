@@ -31,13 +31,10 @@ name: Nightly sanitizers
 #
 # Expect the first ASan runs to surface leaks at exit; LeakSanitizer is on by
 # default on Linux and Qt/QML exit paths are noisy. Those are findings to fix or
-# file, never to silence for a green night.
-#
-# There is exactly one suppression, in tests/lsan-suppressions.txt, and that file
-# states the bar for adding another. It covers a 28-byte glibc resolver
-# allocation that was shown to reproduce with all Decenza code removed -- bare Qt
-# QHostInfo leaked it at the same rate with an identical stack. The evidence sits
-# in that file rather than here so the two cannot drift apart.
+# file, never to silence for a green night. The one exception on record, and the
+# bar it had to clear, live in tests/lsan-suppressions.txt -- that file carries
+# the evidence, the cost and the removal criterion, and this comment carries no
+# copy of them so the two cannot drift apart.
 
 on:
   schedule:
@@ -366,11 +363,6 @@ jobs:
           cd build
           ninja -j$(nproc) build_tests
 
-      # Both option sets are exported unconditionally; each sanitizer reads only
-      # its own variable, so the inactive one is inert. halt_on_error matters:
-      # UBSan's default is report-and-continue, so without it a run can print
-      # undefined behaviour and still exit 0. (-fno-sanitize-recover=all in
-      # CMakeLists.txt already forces this; the variable is belt-and-braces.)
       # Prove the compiler cache was actually WIRED UP, not merely installed.
       #
       # This exists because it silently was not. The ccache step was added, went
@@ -444,15 +436,39 @@ jobs:
 
       - name: Run tests under sanitizer
         env:
+          # All three option sets are exported unconditionally; each sanitizer
+          # reads only its own variables, so the inactive ones are inert.
+          # halt_on_error matters: UBSan's default is report-and-continue, so
+          # without it a run can print undefined behaviour and still exit 0.
+          # (-fno-sanitize-recover=all in CMakeLists.txt already forces this;
+          # the variable is belt-and-braces.)
           QT_QPA_PLATFORM: offscreen
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
           ASAN_OPTIONS: print_stacktrace=1:detect_leaks=1
           # Leak suppressions live in LSAN_OPTIONS, not ASAN_OPTIONS -- putting
           # `suppressions=` on the latter silently does nothing for leaks.
-          # print_suppressions=1 keeps a used suppression visible in the log
-          # rather than making it a silent subtraction from the night's signal.
+          #
+          # print_suppressions=1 is explicit rather than functional: it already
+          # defaults to true in sanitizer_common. It does NOT by itself make a
+          # matched suppression visible here, because `ctest --output-on-failure`
+          # below prints a test's output only when that test FAILS -- and a
+          # successfully suppressed leak is exactly the case where it passes. The
+          # Summarise step reads Testing/Temporary/LastTest.log for that reason;
+          # ctest writes every test's output there regardless. Do NOT reach for
+          # log_path= instead: it redirects ALL sanitizer output and would move
+          # the ERROR: lines out from under the finding greps below.
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/lsan-suppressions.txt:print_suppressions=1
         run: |
+          # A mechanism that cannot assert its own effect is the failure mode
+          # this workflow exists to avoid -- see the ccache and qmllint_check
+          # gates above. LSan does Die() on an unreadable suppressions file, so a
+          # wrong path fails red rather than silently unsuppressed, but it fails
+          # as ~110 aborted binaries with a one-line libc message, which looks
+          # nothing like a leak. Name the real problem instead.
+          test -f "$GITHUB_WORKSPACE/tests/lsan-suppressions.txt" || {
+            echo "::error::LSan suppressions file missing at the path LSAN_OPTIONS names"
+            exit 1
+          }
           cd build
           set -o pipefail
           # --repeat until-pass:3 absorbs the rare timing flake in the two
@@ -488,6 +504,18 @@ jobs:
               echo '```'
             else
               echo "No sanitizer findings."
+            fi
+            # A used suppression is a subtraction from this night's signal, so
+            # say so rather than letting it pass as an unqualified clean run. Not
+            # a failure: the entry is there on purpose. LastTest.log, not $LOG --
+            # see the LSAN_OPTIONS comment for why ctest.log cannot carry this.
+            SUPP=build/Testing/Temporary/LastTest.log
+            if [ -f "$SUPP" ] && grep -q "Suppressions used:" "$SUPP"; then
+              echo ""
+              echo "**Leak suppression(s) matched** (see tests/lsan-suppressions.txt):"
+              echo '```'
+              grep -A3 "Suppressions used:" "$SUPP" | grep -vE '^--$' | sort -u | head -20
+              echo '```'
             fi
             grep -E "^[0-9]+% tests passed" "$LOG" 2>/dev/null || true
           } >> "$GITHUB_STEP_SUMMARY"
