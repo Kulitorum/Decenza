@@ -223,9 +223,25 @@ Settings::Settings(QObject* parent)
     // error, corrupted store). Without this, a failed write still gets marked
     // "done" and never retries. Scoped to the three flow-cal migrations below
     // (the block this PR is editing), not the whole file's migration chain.
+    //
+    // QSettings::status() is a STICKY first-error latch for the object's
+    // entire lifetime (qsettings.cpp's setStatus(): "We only set an error if
+    // there isn't one set already... we always allow clearing errors" — but
+    // nothing ever calls it with NoError on a successful sync, so in practice
+    // it never clears). A single earlier failure — plausible here, since the
+    // very first thing this constructor does is m_settings.sync() with a
+    // comment noting a real race ("another instance of the app just wrote to
+    // the same plist") — would otherwise make every later commit falsely
+    // report failure forever, causing v2/v3/v4 to re-run their resets (wiping
+    // calibration data) on every single launch instead of retrying once. Only
+    // treat status as reporting on THIS write: compare clean-before to
+    // dirty-after. If status was already dirty before this call, there's no
+    // reliable signal for this write either way — fall back to the pre-fix
+    // behavior (stamp optimistically) rather than block forever on stale info.
     auto commitFlowCalMigrationFlag = [&](const QString& flagKey) {
+        const bool cleanBefore = (m_settings.status() == QSettings::NoError);
         m_settings.sync();
-        if (m_settings.status() != QSettings::NoError) {
+        if (cleanBefore && m_settings.status() != QSettings::NoError) {
             qWarning() << "Settings: migration work for" << flagKey
                        << "may not have persisted (QSettings status:" << m_settings.status()
                        << ") — leaving flag unset so it retries next launch";
