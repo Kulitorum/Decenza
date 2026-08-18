@@ -143,4 +143,7 @@
         `tst_recipeeditorparity::everyDe1appProfilePacksIdentically` fail then pass against
         exactly those fixtures earlier in this change.
       - Full suite re-run clean after every fix: 113/113.
-- [ ] 5.4 Merge via `/merge-pr`.
+- [x] 5.4 Merged via `/merge-pr`: [9821521](https://github.com/Kulitorum/Decenza/commit/98215217e1f60cdd77109cd3a6f4e62014fd84a5).
+      Note: this archive step should have ridden as the final commit on PR #1835 before
+      merging, per project convention — it was missed and PR #1835 was already merged when
+      the archive was requested, so this archive instead lands as its own follow-up PR.
