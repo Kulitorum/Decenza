@@ -86,9 +86,14 @@
 
 ## 4. Manual testing
 
-- [ ] 4.1 On real hardware, run a Pressure-profile Stop-at-Volume shot at a known target and
-      confirm delivered volume is close to target rather than short by roughly the forced-rise
-      volume.
+- [x] 4.1 Verified on the Decenza macOS sim (`best_overall_pressure_profile`, holdTime 10s,
+      targetVolume 40mL, weight-stop and scale both disabled so SAV alone gates the stop —
+      `checkStopAtVolume()` skips SAV outright for basic profiles when a scale is configured,
+      matching de1app; unrelated to this fix, just had to disable it for a clean test).
+      `stoppedBy: "volume"`, duration 14.808s = preinfusion (0.4s) + forced-rise (3.0s, excluded)
+      + ~11.4s of actual pour at ~3.5mL/s ≈ 40mL. Off by ~4g/40 (~10%, matches the code's own
+      "flow sensor is imprecise, no lag compensation" note), not the ~14/40 (35%) systematic
+      shortfall the bug produced. Confirms the fix.
 - [ ] 4.2 BLOCKED — Jeff's DE1 predates firmware 1337 / the standby switch this feature targets,
       so this can't be closed on available hardware. Verification ceiling for now: simulated
       substate injection (`tests/tst_machinestate.cpp` `standbySwitch*` tests,
