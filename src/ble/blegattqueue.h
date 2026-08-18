@@ -155,6 +155,13 @@ public:
         // per-controller queues did not have, and it is the number that decides
         // whether a stop-at-weight was ever actually held up in the field.
         qint64 foreignWaitMs = 0;
+        // When this operation was enqueued, on the queue's own clock. Set by
+        // submit()/submitFront(), never by callers. Without it the charge below
+        // is the AGE of the operation in flight rather than the part of it this
+        // operation actually waited through — an operation queued 50 ms before a
+        // 6 s discovery ends would be reported as having waited 6 s, and these
+        // numbers exist to decide whether a stop-at-weight was really held up.
+        qint64 enqueuedAtMs = 0;
         // Called once when the operation is given up on: retries exhausted, or
         // a failure with no retry budget. Not called on teardown discard — a
         // requester tearing down is not told about work it is itself dropping.

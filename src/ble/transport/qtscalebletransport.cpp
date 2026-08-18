@@ -338,21 +338,38 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
                                      withoutResponse ? QLowEnergyService::WriteWithoutResponse
                                                      : QLowEnergyService::WriteWithResponse);
 
-        // NOT completed at issue, even for a write without response. This class
-        // runs on Android, Windows and Linux only — main.cpp picks
-        // CoreBluetoothScaleBleTransport on Darwin — and those backends DO emit
-        // characteristicWritten for a no-response write
-        // (qlowenergycontroller_android.cpp:642, unconditional). Completing here
-        // as well would release the slot twice: once now, and again when the ACK
-        // arrives — by which time the slot belongs to the NEXT operation, which
-        // for a 1 Hz scale heartbeat is the very next heartbeat on the same
-        // characteristic, so even the key guard would not catch it.
+        // Whether a no-response write is ever acknowledged is PER BACKEND, and
+        // this class runs on three of them (main.cpp picks the CoreBluetooth
+        // transport on Darwin, so this one never sees it).
         //
-        // An earlier version did complete here, citing Qt's darwin backend
-        // (btcentralmanager.mm:815-818). That fact is true and irrelevant: it
-        // describes a backend this class never runs on. The Darwin transport
-        // makes the same call for itself, where the citation applies.
+        //   Android  emits characteristicWritten unconditionally
+        //            (qlowenergycontroller_android.cpp:642).
+        //   BlueZ    does not: "write without response implies zero feedback",
+        //            emitted only for WriteWithResponse
+        //            (qlowenergycontroller_bluezdbus.cpp:936-941); the kernel
+        //            backend does not even queue the request
+        //            (qlowenergycontroller_bluez.cpp:2704-2709).
+        //   WinRT    does not: `if (writeWithResponse)`
+        //            (qlowenergycontroller_winrt.cpp:1654-1657).
+        //
+        // So this HAS to be a platform split, and an earlier version of this
+        // code got it wrong in the dangerous direction: it cited the Android
+        // line as though it covered all three and completed nowhere. On Windows
+        // and Linux that left the operation with nothing that could ever end it,
+        // holding the PROCESS-WIDE slot until the 3 s clock abandoned it — once
+        // per Acaia IPS heartbeat, which re-arms every 3 s, so the shared radio
+        // would have been almost entirely occupied by operations that had
+        // already been sent. Three drivers write this way: Acaia (non-Pyxis),
+        // Timemore, Eureka Precisa.
+        //
+        // On Android the ACK really arrives, so completing here as well would
+        // release the slot twice — the second release freeing whatever had since
+        // taken it, on any device.
+#ifdef Q_OS_ANDROID
         Q_UNUSED(withoutResponse);
+#else
+        if (withoutResponse) completeGattOperation(characteristicUuid);
+#endif
     }, RW_TIMEOUT_MS);
 }
 
@@ -496,8 +513,12 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     // on devices where the controller subsequently recovers (#1238: the P80X
     // emitted only one controller-error, 20.034s after the cascade). Transient
     // single-write retries that recover are not signaled at the source (the
-    // "Intentionally NOT a de1LinkFault" arm in BleTransport::onServiceError),
-    // so capable hardware does not false-positive.
+    // "Intentionally NOT a de1LinkFault" arm of the errorOccurred handler that
+    // BleTransport::onServiceDiscovered connects), so capable hardware does not
+    // false-positive. Named by its handler rather than by a line number because
+    // the line moved once already; note BleTransport has no onServiceError —
+    // that name belongs to THIS class, and citing it sent a reader to the wrong
+    // one.
     //
     // COUPLED TO MAX_WRITE_RETRIES (bletransport.h). This comment used to read
     // "a 10-retry cascade — ~5s of sustained starvation". Both halves moved when

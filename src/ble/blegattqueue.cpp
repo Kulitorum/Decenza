@@ -4,6 +4,8 @@
 
 #include <QTimer>
 
+#include <algorithm>
+
 BleGattQueue& BleGattQueue::instance() {
     static BleGattQueue queue;
     return queue;
@@ -17,6 +19,7 @@ BleGattQueue::BleGattQueue(QObject* parent)
 
 void BleGattQueue::submit(Operation op) {
     if (!validate(op)) return;
+    op.enqueuedAtMs = m_clock.elapsed();
     m_queue.enqueue(std::move(op));
     reportDepth();
     scheduleDispatch();
@@ -24,6 +27,7 @@ void BleGattQueue::submit(Operation op) {
 
 void BleGattQueue::submitFront(Operation op) {
     if (!validate(op)) return;
+    op.enqueuedAtMs = m_clock.elapsed();
     m_queue.prepend(std::move(op));
     reportDepth();
     scheduleDispatch();
@@ -123,12 +127,19 @@ void BleGattQueue::dispatchNext() {
 
 void BleGattQueue::chargeForeignWait() {
     if (m_queue.isEmpty()) return;
-    const qint64 held = m_clock.elapsed() - m_inFlightSince;
-    if (held <= 0) return;
 
+    const qint64 now = m_clock.elapsed();
     const Requester holder = m_inFlight.has_value() ? m_inFlight->requester : nullptr;
-    for (Operation& op : m_queue)
-        if (op.requester != holder) op.foreignWaitMs += held;
+    for (Operation& op : m_queue) {
+        if (op.requester == holder) continue;
+        // From whichever came LATER — this operation being queued, or the
+        // in-flight one starting. Charging the full age of the in-flight
+        // operation would credit an operation with waiting through a discovery
+        // that was already half over when it arrived.
+        const qint64 from = std::max(op.enqueuedAtMs, m_inFlightSince);
+        const qint64 waited = now - from;
+        if (waited > 0) op.foreignWaitMs += waited;
+    }
 }
 
 void BleGattQueue::noteSucceeded(Requester requester) {

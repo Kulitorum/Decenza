@@ -287,6 +287,33 @@ private slots:
         QCOMPARE(q.inFlightRequester(), de1());
     }
 
+    // Charged from when this operation ARRIVED, not from when the in-flight one
+    // started. Without that, an operation queued moments before a long
+    // discovery ends is reported as having waited the whole discovery — the
+    // #1819 capture had a 6 s one, so the figure could be two orders of
+    // magnitude high. These numbers are the evidence for whether a
+    // stop-at-weight was really delayed, and a wrong number is worse than none.
+    void aLateArrivalIsNotChargedForWaitingItDidNotDo() {
+        BleGattQueue q;
+        Recorder rec;
+
+        q.submit(op(scale(), QStringLiteral("long-scale"), &rec));
+        pump();
+
+        // The scale has already held the radio for a good while...
+        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 200);
+        // ...and only now does the DE1's work arrive, waiting a short time.
+        q.submit(op(de1(), QStringLiteral("de1 stop"), &rec));
+        QTest::qWait(40);
+
+        // No warning: this operation waited ~40 ms, not the ~700 ms the scale
+        // operation had been running. failOnWarning() in init() is the assertion.
+        q.noteSucceeded(scale());
+        pump();
+
+        QCOMPARE(q.inFlightRequester(), de1());
+    }
+
     // Waiting behind your OWN queued work is expected and must stay silent — a
     // profile upload is ~20 writes and the last one waits for the other 19.
     // init()'s failOnWarning is what makes this assertion real.

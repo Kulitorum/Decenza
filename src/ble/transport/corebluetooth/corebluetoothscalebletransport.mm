@@ -512,7 +512,12 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic
         QString uuidStr = nsToQs(characteristic.UUID.UUIDString);
         QMetaObject::invokeMethod(d->q, [d, uuidStr, errorMsg]{
             if (!d->isValid) return;
-            d->queueFailed();
+            // Read-scoped, exactly like the success arm below, and for the same
+            // reason: CoreBluetooth delivers NOTIFICATION errors through this
+            // same callback, so a keyless release here could fail an unrelated
+            // write of ours that is still on the wire. The driver is told
+            // either way — only the slot release is conditional.
+            if (d->readInFlight(uuidFromString(uuidStr))) d->queueFailed();
             emit d->q->error(QString("Read failed for %1: %2")
                                  .arg(uuidFromString(uuidStr).toString(), errorMsg));
         }, Qt::QueuedConnection);

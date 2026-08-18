@@ -28,6 +28,14 @@ ScaleBleTransport::ScaleBleTransport(QObject* parent, BleGattQueue* queue)
 ScaleBleTransport::~ScaleBleTransport() {
     // Nothing may outlive this object in the queue: the requester tag is its
     // address, and a later allocation could reuse it.
+    //
+    // releaseGattQueue() calls the virtual onGattSlotReleased(), and from here
+    // that resolves to the BASE no-op — the derived vtable is gone by the time a
+    // base destructor runs. That is correct rather than a bug to fix: the only
+    // override drops per-operation state belonging to an object that is already
+    // being destroyed. Do not "repair" it by moving cleanup into the override
+    // and expecting this path to reach it; put anything a teardown genuinely
+    // needs in the derived destructor, which runs first.
     releaseGattQueue();
 }
 
