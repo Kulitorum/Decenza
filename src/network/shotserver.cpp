@@ -572,6 +572,15 @@ bool ShotServer::start()
 
 void ShotServer::stop()
 {
+    // The request log's run ends with the server. Its keys are request lines,
+    // which nothing here enumerates, and a tally left behind would be printed by
+    // whatever request first repeats after the NEXT start — a count from the
+    // previous run dated to the new one.
+    for (const auto& [line, collapsed] :
+         m_requestLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
+        qDebug().noquote() << line + LogCollapse::suffix(collapsed);
+    }
+
     cancelAllLibraryRequests();
 
     if (m_discoverySocket) {

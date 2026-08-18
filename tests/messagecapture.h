@@ -3,7 +3,6 @@
 #include <QList>
 #include <QRegularExpression>
 #include <QString>
-#include <QVector>
 #include <QtGlobal>
 
 // Scoped qInstallMessageHandler helpers, in one place.
@@ -36,14 +35,10 @@
 // So a test built on ignoreMessage alone still passes if the line under test is
 // demoted a tier or deleted outright.
 //
-// And why not LogCollapse::suppressedFor(): that counts COLLAPSED repeats, so a
-// line that prints for the first time leaves it at zero. Zero there is equally
-// consistent with silence and with one printed line — blind in the direction
-// that matters for a "was not logged" assertion.
-//
-// count() deliberately spans EVERY tier. A tier promotion is a normal edit to
-// make to a noisy line, and it must turn a "not logged" assertion red rather
-// than satisfying it. Use countAtTier() where the tier is itself the subject.
+// The predecessor of this class asserted silence by reading a collapsed-repeat
+// count, which is zero both when nothing was logged and when one line printed —
+// blind in the one direction a "was not logged" assertion needs. Counting the
+// emitted lines is the assertion; anything derived from the collapser is not.
 class MessageCapture {
 public:
     // Whether messages also reach the handler that was installed before this
@@ -62,18 +57,18 @@ public:
         : m_chaining(chaining) {
         m_outer = s_active;
         s_active = this;
-        // Depth-counted rather than one install per instance: a nested instance
-        // that installed again would get &handler back as its "previous", and
-        // the first message would recurse into handler() forever. Installing
-        // once and walking the m_outer chain removes that failure mode instead
-        // of documenting it.
-        if (s_depth++ == 0)
+        // Installed ONCE, for the outermost instance only. A nested instance
+        // that installed again would get &handler back as its "previous" and the
+        // first message would recurse into handler() forever; walking the
+        // m_outer chain removes that failure mode instead of documenting it.
+        // No depth counter — an empty chain is depth zero.
+        if (!m_outer)
             s_original = qInstallMessageHandler(&MessageCapture::handler);
     }
 
     ~MessageCapture() {
         s_active = m_outer;
-        if (--s_depth == 0) {
+        if (!s_active) {
             qInstallMessageHandler(s_original);
             s_original = nullptr;
         }
@@ -83,56 +78,34 @@ public:
 
     void clear() { m_entries.clear(); }
 
-    const QList<Entry>& entries() const { return m_entries; }
-
-    // Messages containing `needle`, at ANY tier. See the class comment on why
-    // this is not tier-filtered.
-    int count(const QString& needle) const {
-        int n = 0;
-        for (const Entry& e : m_entries) {
-            if (e.text.contains(needle))
-                ++n;
-        }
-        return n;
-    }
-
-    int countAtTier(const QString& needle, QtMsgType type) const {
-        int n = 0;
-        for (const Entry& e : m_entries) {
-            if (e.type == type && e.text.contains(needle))
-                ++n;
-        }
-        return n;
-    }
-
-    // Last message containing `needle`, or an empty Entry.
-    Entry last(const QString& needle) const {
-        Entry found;
-        for (const Entry& e : m_entries) {
-            if (e.text.contains(needle))
-                found = e;
-        }
-        return found;
-    }
+    // Messages containing `needle`, at ANY tier. Not tier-filtered, deliberately:
+    // a tier promotion is a normal edit to make to a noisy line, and it must
+    // turn a "was not logged" assertion red rather than satisfying it. Filtering
+    // to QtDebugMsg is what made the first version of this helper blind in the
+    // one direction that mattered.
+    qsizetype count(const QString& needle) const { return matching(needle).size(); }
 
     // The one message containing `needle`, or false. Insists on EXACTLY one:
     // zero means the line vanished, more than one means the event was announced
-    // twice, and a test that accepted either would not notice.
+    // twice, and a test that accepted either would not notice. Carries the tier
+    // out with it, so a slot asserting ON the tier reads `.type`.
     bool single(const QString& needle, Entry* out) const {
-        Entry found;
-        int matches = 0;
-        for (const Entry& e : m_entries) {
-            if (e.text.contains(needle)) {
-                found = e;
-                ++matches;
-            }
-        }
-        if (matches == 1 && out)
-            *out = found;
-        return matches == 1;
+        const QList<Entry> m = matching(needle);
+        if (m.size() == 1 && out)
+            *out = m.first();
+        return m.size() == 1;
     }
 
 private:
+    QList<Entry> matching(const QString& needle) const {
+        QList<Entry> out;
+        for (const Entry& e : m_entries) {
+            if (e.text.contains(needle))
+                out.append(e);
+        }
+        return out;
+    }
+
     static void handler(QtMsgType type, const QMessageLogContext& ctx,
                         const QString& msg) {
         // Every live capture records, innermost first. A nested capture does
@@ -156,7 +129,6 @@ private:
 
     static inline MessageCapture* s_active = nullptr;
     static inline QtMessageHandler s_original = nullptr;
-    static inline int s_depth = 0;
 };
 
 // Suppresses qWarning messages matching a pattern, so expected noise does not
@@ -169,40 +141,45 @@ private:
 // The distinction that matters: ignoreMessage REQUIRES its message to fire,
 // this only ALLOWS it.
 struct ScopedWarningFilter {
-    static inline QVector<QRegularExpression*> s_filters;
-    static inline QtMessageHandler s_originalHandler = nullptr;
-    static inline int s_depth = 0;
-
-    static void handler(QtMsgType type, const QMessageLogContext& ctx,
-                        const QString& msg) {
-        if (type == QtWarningMsg) {
-            for (auto* f : s_filters) {
-                if (f && f->match(msg).hasMatch())
-                    return;  // Suppress
-            }
-        }
-        if (s_originalHandler)
-            s_originalHandler(type, ctx, msg);
-    }
-
-    QRegularExpression m_pattern;
-
-    // A copy would register nothing but still decrement s_depth on destruction,
-    // uninstalling the handler early and leaving a dangling &m_pattern in
-    // s_filters. Nothing copies one today; this makes sure nothing starts.
-    Q_DISABLE_COPY_MOVE(ScopedWarningFilter)
-
+    // Same chain as MessageCapture above, for the same reason: one idiom for
+    // "nest a message handler" in this header rather than two. It replaced a
+    // QVector<QRegularExpression*> plus a depth counter, whose only real cost
+    // was a dangling-pointer hazard that existed solely BECAUSE the pattern was
+    // parked in a container — the chain has nowhere to dangle. Requires LIFO
+    // destruction, which stack scoping gives for free.
     explicit ScopedWarningFilter(const QString& pattern) : m_pattern(pattern) {
-        s_filters.append(&m_pattern);
-        if (s_depth++ == 0)
-            s_originalHandler = qInstallMessageHandler(handler);
+        m_outer = s_active;
+        s_active = this;
+        if (!m_outer)
+            s_original = qInstallMessageHandler(&ScopedWarningFilter::handler);
     }
 
     ~ScopedWarningFilter() {
-        s_filters.removeOne(&m_pattern);
-        if (--s_depth == 0) {
-            qInstallMessageHandler(s_originalHandler);
-            s_originalHandler = nullptr;
+        s_active = m_outer;
+        if (!s_active) {
+            qInstallMessageHandler(s_original);
+            s_original = nullptr;
         }
     }
+
+    Q_DISABLE_COPY_MOVE(ScopedWarningFilter)
+
+private:
+    static void handler(QtMsgType type, const QMessageLogContext& ctx,
+                        const QString& msg) {
+        if (type == QtWarningMsg) {
+            for (const ScopedWarningFilter* f = s_active; f; f = f->m_outer) {
+                if (f->m_pattern.match(msg).hasMatch())
+                    return;  // Suppressed by this filter or one enclosing it.
+            }
+        }
+        if (s_original)
+            s_original(type, ctx, msg);
+    }
+
+    QRegularExpression m_pattern;
+    ScopedWarningFilter* m_outer = nullptr;
+
+    static inline ScopedWarningFilter* s_active = nullptr;
+    static inline QtMessageHandler s_original = nullptr;
 };

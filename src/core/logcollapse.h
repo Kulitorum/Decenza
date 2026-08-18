@@ -31,10 +31,32 @@
 class LogCollapse
 {
 public:
+    // ON RUN ENDS, which is the one thing a caller has to get right and the thing four of six got
+    // wrong.
+    //
+    // A source that runs for the process lifetime cannot leak — the memory sampler, the battery
+    // poll. Every OTHER source eventually goes quiet, and when it does its pending tally sits in
+    // the table until the next run reuses the key and prints it annotated with a span measured to
+    // THAT moment: last week's repeat count on today's first line. Such a source must flush() or
+    // flushAll() at whatever event ends its run.
+    //
+    // This was a rule in a comment on flush() and it stayed one until someone checked the callers:
+    // of six, three are episodic and two of those never flushed (the MMR keepalive across a
+    // disconnect, the ShotServer request log across a server stop). Both are fixed, and every
+    // declaration site now states which kind it is and where it flushes.
+    //
+    // It is NOT a constructor mode with a destructor assert. That was built and removed: process
+    // exit is not a run end anyone can observe, so an episodic source holds a legitimate tally when
+    // it is destroyed, and the assert aborted on a CORRECT caller — MqttClient, which flushes on
+    // every reconnect, died at teardown. With the assert gone the mode had no reader at all and the
+    // compiler said so (-Wunused-private-field). An enum nobody reads is a comment with a type, so
+    // this is the comment.
+
     // `windowMs` is the minimum spacing between emitted lines for a given key while the text is
     // unchanged. A CHANGED text always emits immediately regardless of the window — a value that
     // moved is the interesting event, and holding it back is how a collapser turns into a bug.
     explicit LogCollapse(qint64 windowMs) : m_windowMs(windowMs) {}
+
 
     // What a single emitted line stood in for. Both fields are needed to describe it honestly, and
     // they travel together for exactly that reason — see suffix().
@@ -57,7 +79,7 @@ public:
 
         if (!e.everEmitted || changed || windowElapsed) {
             if (out)
-                *out = {e.suppressed, e.everEmitted ? nowMs - e.lastEmitMs : 0};
+                *out = pending(e, nowMs);
             e.text = text;
             e.lastEmitMs = nowMs;
             e.suppressed = 0;
@@ -85,7 +107,7 @@ public:
         const auto it = m_entries.constFind(key);
         if (it == m_entries.cend())
             return {};
-        const Collapsed c{it->suppressed, it->everEmitted ? nowMs - it->lastEmitMs : 0};
+        const Collapsed c = pending(*it, nowMs);
         m_entries.erase(it);
         return c;
     }
@@ -106,7 +128,7 @@ public:
         QList<QPair<QString, Collapsed>> out;
         for (auto it = m_entries.cbegin(); it != m_entries.cend(); ++it) {
             if (it->suppressed > 0)
-                out.append({it.key(), {it->suppressed, it->everEmitted ? nowMs - it->lastEmitMs : 0}});
+                out.append({it.key(), pending(*it, nowMs)});
         }
         m_entries.clear();
         return out;
@@ -139,6 +161,14 @@ private:
         int suppressed = 0;
         bool everEmitted = false;
     };
+
+    // One definition of what a pending tally is. The expression was written at three sites after
+    // flushAll() arrived, in a file whose own suffix() comment records what happened last time this
+    // class had one definition worded slightly differently at one of them.
+    static Collapsed pending(const Entry& e, qint64 nowMs)
+    {
+        return {e.suppressed, e.everEmitted ? nowMs - e.lastEmitMs : 0};
+    }
 
     qint64 m_windowMs;
     QHash<QString, Entry> m_entries;

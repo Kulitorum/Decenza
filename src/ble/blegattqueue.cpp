@@ -17,6 +17,23 @@ BleGattQueue::BleGattQueue(QObject* parent)
     m_clock.start();
 }
 
+
+namespace BleGatt {
+
+QString dispatchCollapseKey(const QString& label, qsizetype depth) {
+    return depth < 0 ? QString("dispatch %1").arg(label)
+                     : QString("dispatch %1 (%2 queued)").arg(label).arg(depth);
+}
+
+QString dispatchLine(const QString& label, qsizetype depth, int waitedMs) {
+    const QString base = dispatchCollapseKey(label, depth);
+    return waitedMs < 0 ? base
+                        : base + QString(", waited %1 ms behind another device")
+                                     .arg(waitedMs);
+}
+
+}  // namespace BleGatt
+
 void BleGattQueue::submit(Operation op) {
     if (!validate(op)) return;
     op.enqueuedAtMs = nowMs();
@@ -146,13 +163,15 @@ void BleGattQueue::dispatchNext() {
     // a log nobody else holds, not a reproducible measurement — weigh it as
     // such, and do not reintroduce a depth trigger without a field log showing
     // what it would have caught.)
-    if (m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_WARN_MS / 2) {
-        const QString msg = QString("dispatch %1 (%2 queued)")
-                                .arg(m_inFlight->label)
-                                .arg(m_queue.size());
+    if (m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_DETAIL_MS) {
+        const QString key = BleGatt::dispatchCollapseKey(m_inFlight->label,
+                                                         m_queue.size());
         LogCollapse::Collapsed collapsed;
-        if (m_dispatchLog.shouldLog(m_inFlight->label, msg, nowMs(), &collapsed))
-            GQ_LOG(msg + LogCollapse::suffix(collapsed));
+        if (m_dispatchLog.shouldLog(m_inFlight->label, key, nowMs(), &collapsed)) {
+            GQ_LOG(BleGatt::dispatchLine(m_inFlight->label, m_queue.size(),
+                                         static_cast<int>(m_inFlight->foreignWaitMs))
+                   + LogCollapse::suffix(collapsed));
+        }
     }
 
     // Accumulated, not reported here. Reported once when the queue goes idle —
@@ -368,17 +387,6 @@ void BleGattQueue::reportForeignWaitEpisode() {
     m_foreignWaitWorstMs = 0;
     m_foreignWaitWorstLabel.clear();
 
-    // The episode is the dispatch line's run end, so its collapsed tallies are
-    // spoken for here or never. Without this they sit in the table until some
-    // later episode happens to reuse the same label and prints them annotated
-    // with a span measured to THAT moment — last week's repeat count stapled to
-    // today's first line, which is the failure LogCollapse::flushAll() exists
-    // to prevent. Nothing keeps a set of the labels an episode touched, which
-    // is why this flushes all of them rather than naming any.
-    for (const auto& [label, collapsed] : m_dispatchLog.flushAll(nowMs())) {
-        GQ_LOG(QString("dispatch %1%2")
-                   .arg(label, LogCollapse::suffix(collapsed)));
-    }
 }
 
 void BleGattQueue::emitDrainedIfIdle() {
@@ -388,6 +396,18 @@ void BleGattQueue::emitDrainedIfIdle() {
     // Before the drained() post, not inside it: drained() is suppressed when one
     // is already pending, and the episode must be reported either way.
     reportForeignWaitEpisode();
+
+    // Idle is ALSO the dispatch line's run end, and it is a different event from
+    // the one above. reportForeignWaitEpisode() returns early unless something
+    // crossed FOREIGN_WAIT_WARN_MS, while the dispatch line logs at
+    // FOREIGN_WAIT_DETAIL_MS — half of it. Flushing inside that function
+    // therefore leaked every tally from a run of near-misses, which is the exact
+    // misattribution the flush exists to prevent: the count sits in the table
+    // until some later run reuses the label, then prints annotated with a span
+    // measured to THAT moment. Nothing keeps a set of the labels a run touched,
+    // hence flushAll() rather than naming any.
+    for (const auto& [label, collapsed] : m_dispatchLog.flushAll(nowMs()))
+        GQ_LOG(BleGatt::dispatchLine(label, -1) + LogCollapse::suffix(collapsed));
     // Collapsed to one emission per idle transition. Two paths can observe the
     // same transition — discard() emptying the queue, and the dispatch it had
     // already posted then finding it empty — and a consumer that acts on

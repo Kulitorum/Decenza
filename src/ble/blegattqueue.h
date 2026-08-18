@@ -109,6 +109,41 @@ inline constexpr int DISCOVERY_TIMEOUT_MS = 20000;
 // holding things up.
 inline constexpr int FOREIGN_WAIT_WARN_MS = 500;
 
+// Foreign wait at which a dispatch earns its per-operation DEBUG line.
+//
+// Half the warning, so a reader already looking at an episode sees the
+// near-misses around it and not only the operations that crossed it. Named
+// rather than written as FOREIGN_WAIT_WARN_MS / 2 at the one call site: the
+// constant this replaced (DISPATCH_LOG_MIN_DEPTH) was named and documented
+// here, and burying the replacement as arithmetic inside an `if` is how the
+// difference between this threshold and the warning above stopped being
+// visible — which is exactly the bug that shipped, a flush gated on the WARN
+// firing while the line it flushed logs at half that.
+inline constexpr int FOREIGN_WAIT_DETAIL_MS = FOREIGN_WAIT_WARN_MS / 2;
+
+// The dispatch line, in one place.
+//
+// Built at two sites — the live dispatch and the run-end flush — and matched by
+// a third in tst_blegattqueue.cpp. They were three independent spellings of one
+// string, so renaming the line at either site would have silently desynchronised
+// the subsystem's own log from the test that guards its volume, with nothing
+// failing. `depth < 0` means "not known here", which is the flush's case: it
+// speaks for operations whose queue depth is long gone.
+//
+// waitedMs is the value the GATE fired on and is what a reader chasing a delay
+// actually needs; without it the line cannot tell 260 ms from 480 ms. It is
+// deliberately NOT part of collapseKey() below — see there.
+QString dispatchLine(const QString& label, qsizetype depth, int waitedMs = -1);
+
+// What LogCollapse compares to decide a line REPEATED rather than changed.
+//
+// Same line without the wait. Including a millisecond figure would make every
+// dispatch unique, so nothing would ever collapse and a sustained episode would
+// print one line per operation — the behaviour three earlier attempts at this
+// gate were trying to escape. Collapsing on the shape and letting the first
+// line of a run carry its own wait keeps both.
+QString dispatchCollapseKey(const QString& label, qsizetype depth);
+
 }  // namespace BleGatt
 
 class BleGattQueue : public QObject {

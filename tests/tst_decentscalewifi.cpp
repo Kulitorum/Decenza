@@ -11,7 +11,7 @@
 #include <optional>
 
 #include "ble/scales/decentscalewifi.h"
-#include "mocks/messagecapture.h"
+#include "messagecapture.h"
 
 // Fake WebSocket server used to drive the DecentScaleWifi driver under test.
 // Spins up on a random local port; the test connects the driver to

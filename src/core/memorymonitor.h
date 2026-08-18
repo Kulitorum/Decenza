@@ -77,6 +77,7 @@ private:
 
     // Collapses the per-sample log line while a plateau holds — see onSampleTimerTick(). Sampling
     // itself is untouched; this only decides whether the sample is worth a line.
+    // Periodic: samples for the process lifetime, so there is no run end and nothing to flush.
     LogCollapse m_logCollapse{10 * 60 * 1000};
     // RSS as of the last line PRINTED — the anchor the 5 MB band is measured from, so a value
     // sitting on a fixed bucket edge cannot oscillate across it. Negative until the first line.

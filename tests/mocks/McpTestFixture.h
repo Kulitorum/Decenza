@@ -9,7 +9,7 @@
 #include "mcp/mcptoolregistry.h"
 
 #include <memory>
-#include "messagecapture.h"   // ScopedWarningFilter
+#include "../messagecapture.h"   // ScopedWarningFilter
 
 // Shared test fixture for MCP tool tests.
 // Wires ProfileManager with a MockTransport so BLE writes can be verified.

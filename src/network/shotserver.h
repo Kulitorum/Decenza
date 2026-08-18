@@ -152,6 +152,7 @@ private:
     // Collapses repeated identical request lines — see handleRequest(). One minute, not the ten
     // used by the periodic samplers: a request is user-driven, so a path that has been quiet
     // should log the moment it comes back.
+    // Episodic: a run is one server lifetime. Flushed in stop().
     LogCollapse m_requestLog{60 * 1000};
 
     void handleRequest(QTcpSocket* socket, const QByteArray& request);

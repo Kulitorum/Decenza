@@ -185,5 +185,6 @@ private:
     // One line per window while the poll result is unchanged; a change emits at
     // once. 15 min: the poll runs every ~60 s and a plugged-in tablet never
     // varies, so the window only decides how often "still the same" is restated.
+    // Periodic: polls for the process lifetime, so there is no run end and nothing to flush.
     LogCollapse m_pollCollapse{15 * 60 * 1000};
 };

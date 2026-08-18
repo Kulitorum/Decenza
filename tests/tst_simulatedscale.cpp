@@ -11,7 +11,7 @@
 #include "profile/profile.h"
 #include "simulator/de1simulator.h"
 #include "simulator/simulatedscale.h"
-#include "mocks/messagecapture.h"
+#include "messagecapture.h"
 
 // End-to-end cover for the simulator's scale channel: DE1Simulator emits a
 // weight, SimulatedScale publishes it like any ScaleDevice, and MachineState
@@ -142,9 +142,8 @@ private slots:
     // deliberate DE1-sleep close reported as a fault. Neither a blanket WARN nor
     // a blanket demotion is correct, which is why the driver declares intent.
     void expectedDisconnectIsNarrativeNotAFault() {
-        // Deliberately does NOT chain: init() calls QTest::failOnWarning(), and
-        // here the WARN branch is a thing being asserted rather than a thing
-        // that went wrong.
+        // SwallowAll, not chaining: init() calls QTest::failOnWarning(), and
+        // here the WARN branch is a thing being ASSERTED rather than a fault.
         MessageCapture log(MessageCapture::SwallowAll);
         DisconnectTierProbe probe;
         probe.setConnected(true);
@@ -173,9 +172,6 @@ private slots:
     // The flag is ONE-SHOT. A stale flag would silently downgrade the next
     // genuine failure — turning the fix into a way to hide real faults.
     void expectedDisconnectDoesNotPersistToTheNextOne() {
-        // Deliberately does NOT chain: init() calls QTest::failOnWarning(), and
-        // here the WARN branch is a thing being asserted rather than a thing
-        // that went wrong.
         MessageCapture log(MessageCapture::SwallowAll);
         DisconnectTierProbe probe;
         probe.setConnected(true);
@@ -204,9 +200,6 @@ private slots:
     // local and hands it over immediately before the transition; this pins the
     // base class's half, that reconnecting discards a mark nothing used.
     void expectedDisconnectDoesNotSurviveAReconnect() {
-        // Deliberately does NOT chain: init() calls QTest::failOnWarning(), and
-        // here the WARN branch is a thing being asserted rather than a thing
-        // that went wrong.
         MessageCapture log(MessageCapture::SwallowAll);
         DisconnectTierProbe probe;
         probe.setConnected(true);

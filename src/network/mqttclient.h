@@ -169,6 +169,8 @@ private:
     // message emits at once. 10 min: a broker that is down stays down for hours,
     // and the retry ladder already has its own one-shot "backing off" warning, so
     // this only decides how often "still down, same reason" is restated.
+    // Episodic: a run is one connection attempt sequence. Flushed on a successful connect in
+    // onConnected() — the only caller that got this right before the others were audited.
     LogCollapse m_logCollapse{10 * 60 * 1000};
     // A stop the user asked for is not a fault, so it must not re-arm the retry loop.
     //
