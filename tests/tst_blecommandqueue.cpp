@@ -424,11 +424,14 @@ private slots:
     void depthWarningFiresOnceWhenTheQueueBacksUp() {
         BleGattQueue queue;
         BleTransport t(nullptr, &queue);
-        QCOMPARE(BleGattQueue::QUEUE_DEPTH_WARN, qsizetype(20));
+        // 40, not 20: a normal DE1 connect peaks the shared queue at 35 (measured
+        // on an SM-X210 with a scale connecting alongside), so the old value
+        // fired on every healthy start. See the constant's comment.
+        QCOMPARE(BleGattQueue::QUEUE_DEPTH_WARN, qsizetype(40));
 
         QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("BLE operation queue is 20 deep")));
-        for (int i = 0; i < 25; ++i)
+                             QRegularExpression(QStringLiteral("Bluetooth operations are queued at once")));
+        for (int i = 0; i < BleGattQueue::QUEUE_DEPTH_WARN + 5; ++i)
             t.write(frameWrite(), payload('x'));
     }
 
@@ -445,18 +448,18 @@ private slots:
         BleTransport t(nullptr, &queue);
 
         QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("BLE operation queue is 20 deep")));
-        for (int i = 0; i < 22; ++i)
+                             QRegularExpression(QStringLiteral("Bluetooth operations are queued at once")));
+        for (int i = 0; i < BleGattQueue::QUEUE_DEPTH_WARN + 2; ++i)
             t.write(frameWrite(), payload('x'));
 
-        // Drain to 9 — below half, so the next submit re-arms without
+        // Drain to below half the threshold, so the next submit re-arms without
         // reporting. Any warning emitted here is unignored and fails the slot.
-        queue.m_queue.resize(9);
+        queue.m_queue.resize(BleGattQueue::QUEUE_DEPTH_WARN / 2 - 1);
         t.write(frameWrite(), payload('x'));
 
         QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("BLE operation queue is 20 deep")));
-        while (queue.pendingCount() < 20)
+                             QRegularExpression(QStringLiteral("Bluetooth operations are queued at once")));
+        while (queue.pendingCount() < BleGattQueue::QUEUE_DEPTH_WARN)
             t.write(frameWrite(), payload('x'));
     }
 

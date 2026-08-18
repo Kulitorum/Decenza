@@ -279,12 +279,88 @@ private slots:
         q.submit(op(de1(), QStringLiteral("de1 stop"), &rec));
         QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
 
+        // Reported once when the queue goes IDLE, not at the moment the delayed
+        // operation dispatches — so the DE1 operation has to finish too.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("waited [0-9]+ ms because another device")));
+            QRegularExpression(QStringLiteral("worst \\(de1 stop\\) waited [0-9]+ ms")));
         q.noteSucceeded(scale());
         pump();
+        q.noteSucceeded(de1());
+        pump();
 
-        QCOMPARE(q.inFlightRequester(), de1());
+        QVERIFY(!q.isBusy());
+    }
+
+    // One line per EPISODE, not per delayed operation. A contended connect
+    // delayed six operations in 900 ms on real hardware and produced six
+    // identical warnings, which is how a signal meant to mean "something is
+    // wrong" becomes scrollback. failOnWarning() plus a single ignoreMessage is
+    // what makes "once" able to fail: a second unignored warning fails the slot.
+    void severalDelayedOperationsAreReportedAsOneEpisode() {
+        BleGattQueue q;
+        Recorder rec;
+
+        q.submit(op(scale(), QStringLiteral("slow-scale"), &rec));
+        pump();
+        q.submit(op(de1(), QStringLiteral("de1-a"), &rec));
+        q.submit(op(de1(), QStringLiteral("de1-b"), &rec));
+        q.submit(op(de1(), QStringLiteral("de1-c"), &rec));
+        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("3 Bluetooth operation\\(s\\) were delayed")));
+        q.noteSucceeded(scale());
+        pump();
+        q.noteSucceeded(de1());
+        pump();
+        q.noteSucceeded(de1());
+        pump();
+        q.noteSucceeded(de1());
+        pump();
+
+        QVERIFY(!q.isBusy());
+    }
+
+    // A SECOND episode reports only its own operations. Without the counter
+    // being cleared, a connect episode's tally is carried into the next one and
+    // every later report is inflated — the connect burst would make a single
+    // mid-shot delay read as seven. Added because deleting the reset did NOT
+    // make any other slot here go red: every one of them has exactly one
+    // episode, so none of them could see the carry-over.
+    void aSecondEpisodeCountsOnlyItsOwnOperations() {
+        BleGattQueue q;
+        Recorder rec;
+
+        // Episode one: two operations delayed.
+        q.submit(op(scale(), QStringLiteral("scale-1"), &rec));
+        pump();
+        q.submit(op(de1(), QStringLiteral("de1-a"), &rec));
+        q.submit(op(de1(), QStringLiteral("de1-b"), &rec));
+        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("2 Bluetooth operation\\(s\\) were delayed")));
+        q.noteSucceeded(scale());
+        pump();
+        q.noteSucceeded(de1());
+        pump();
+        q.noteSucceeded(de1());
+        pump();
+        QVERIFY(!q.isBusy());
+
+        // Episode two: ONE operation delayed. Reported as 1, not 3.
+        q.submit(op(scale(), QStringLiteral("scale-2"), &rec));
+        pump();
+        q.submit(op(de1(), QStringLiteral("de1-c"), &rec));
+        QTest::qWait(BleGatt::FOREIGN_WAIT_WARN_MS + 80);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("1 Bluetooth operation\\(s\\) were delayed")));
+        q.noteSucceeded(scale());
+        pump();
+        q.noteSucceeded(de1());
+        pump();
+        QVERIFY(!q.isBusy());
     }
 
     // Charged from when this operation ARRIVED, not from when the in-flight one
@@ -665,8 +741,8 @@ private slots:
         Recorder rec;
 
         QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral("queue is 20 deep")));
-        for (int i = 0; i < 25; ++i)
+                             QRegularExpression(QStringLiteral("Bluetooth operations are queued at once")));
+        for (int i = 0; i < BleGattQueue::QUEUE_DEPTH_WARN + 5; ++i)
             q.submit(op(de1(), QStringLiteral("x"), &rec));
 
         // Drain everything so the queue does not report again at destruction.

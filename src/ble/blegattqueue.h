@@ -277,6 +277,8 @@ private:
     static bool validate(const Operation& op);
     void scheduleDispatch();
     void reportDepth();
+    // Sums up one contention episode when the queue goes idle.
+    void reportForeignWaitEpisode();
     // Charges the time the just-released operation held the slot to every queued
     // operation belonging to a DIFFERENT requester.
     void chargeForeignWait();
@@ -307,6 +309,15 @@ private:
     // True between posting a dispatch and running it. The guard a timer's
     // isActive() used to provide, without the timer.
     bool m_dispatchPosted = false;
+    // One line per CONTENTION EPISODE rather than per delayed operation. A
+    // connect with a scale present produced six of these in 900 ms, all saying
+    // the same thing, which is how a signal meant to mean "something is wrong"
+    // becomes scrollback. Accumulated here and summarised when the queue next
+    // goes idle, which is the natural end of an episode.
+    qsizetype m_foreignWaitCount = 0;
+    qint64 m_foreignWaitWorstMs = 0;
+    QString m_foreignWaitWorstLabel;
+
     // One drained() per idle transition; see emitDrainedIfIdle().
     bool m_drainedPosted = false;
 
@@ -315,5 +326,15 @@ private:
     // once well clear, so a queue hovering at the boundary does not log on every
     // other submit.
     bool m_depthReported = false;
-    static constexpr qsizetype QUEUE_DEPTH_WARN = 20;
+    // Above a NORMAL connect burst, not above nothing. Measured on a Samsung
+    // SM-X210 with a DE1 and a Decent Scale connecting together: the DE1's
+    // startup sequence — five subscribes, the ready marker, four reads, then the
+    // initial settings writes — peaks the shared queue at 35. At the old
+    // threshold of 20 this fired on every single connect, and said "the radio is
+    // not keeping up" about a radio that drained all 35 in ~1.5 s. A warning
+    // that is guaranteed on a healthy start is one a reader learns to skip.
+    //
+    // 40 leaves headroom over that measured peak, so what reaches this now is
+    // work piling up faster than it drains rather than one device starting up.
+    static constexpr qsizetype QUEUE_DEPTH_WARN = 40;
 };

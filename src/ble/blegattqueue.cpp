@@ -98,18 +98,16 @@ void BleGattQueue::dispatchNext() {
                .arg(m_inFlight->label)
                .arg(m_queue.size()));
 
-    // WARN and self-contained: these logs are read by users and by their AI
-    // assistants, who have no knowledge of this subsystem. This is the one cost
-    // the shared queue introduced over the per-device queues it replaced, so a
-    // reader has to be able to see it happening rather than infer it.
+    // Accumulated, not reported here. Reported once when the queue goes idle —
+    // see reportForeignWaitEpisode(). One contended connect produced six of
+    // these lines in 900 ms on real hardware, which teaches a reader to skip the
+    // line that is supposed to mean something is wrong.
     if (m_inFlight->foreignWaitMs >= BleGatt::FOREIGN_WAIT_WARN_MS) {
-        GQ_WARN(QString("A Bluetooth operation (%1) waited %2 ms because another "
-                        "device was using the radio. One operation runs at a time "
-                        "across the machine, the scale and the refractometer, so a "
-                        "device that is slow to answer delays the others. If this "
-                        "appears during a shot it may have delayed the stop.")
-                    .arg(m_inFlight->label)
-                    .arg(m_inFlight->foreignWaitMs));
+        ++m_foreignWaitCount;
+        if (m_inFlight->foreignWaitMs > m_foreignWaitWorstMs) {
+            m_foreignWaitWorstMs = m_inFlight->foreignWaitMs;
+            m_foreignWaitWorstLabel = m_inFlight->label;
+        }
     }
 
     // The issue callback runs with the slot already held, so anything it
@@ -291,8 +289,36 @@ QString BleGattQueue::inFlightLabel() const {
     return m_inFlight.has_value() ? m_inFlight->label : QString();
 }
 
+void BleGattQueue::reportForeignWaitEpisode() {
+    if (m_foreignWaitCount == 0) return;
+
+    // WARN and self-contained: these logs are read by users and by their AI
+    // assistants, who have no knowledge of this subsystem. This is the one cost
+    // the shared queue introduced over the per-device queues it replaced, so a
+    // reader has to be able to see it rather than infer it — but once per
+    // episode, with the worst case named, rather than once per operation.
+    GQ_WARN(QString("%1 Bluetooth operation(s) were delayed because another device "
+                    "was using the radio; the worst (%2) waited %3 ms. One operation "
+                    "runs at a time across the machine, the scale and the "
+                    "refractometer, so a device that is slow to answer delays the "
+                    "others. Some delay is normal while devices are connecting; if "
+                    "this appears during a shot it may have delayed the stop.")
+                .arg(m_foreignWaitCount)
+                .arg(m_foreignWaitWorstLabel)
+                .arg(m_foreignWaitWorstMs));
+
+    m_foreignWaitCount = 0;
+    m_foreignWaitWorstMs = 0;
+    m_foreignWaitWorstLabel.clear();
+}
+
 void BleGattQueue::emitDrainedIfIdle() {
     if (m_inFlight.has_value() || !m_queue.isEmpty()) return;
+
+    // Idle is the end of a contention episode, so this is where it is summed up.
+    // Before the drained() post, not inside it: drained() is suppressed when one
+    // is already pending, and the episode must be reported either way.
+    reportForeignWaitEpisode();
     // Collapsed to one emission per idle transition. Two paths can observe the
     // same transition — discard() emptying the queue, and the dispatch it had
     // already posted then finding it empty — and a consumer that acts on
@@ -322,9 +348,11 @@ void BleGattQueue::reportDepth() {
             m_depthReported = true;
             // WARN and self-contained: these logs are read by users and by their
             // AI assistants, who have no knowledge of this subsystem.
-            GQ_WARN(QString("BLE operation queue is %1 deep across all devices — "
-                            "the radio is not keeping up with the commands being "
-                            "issued")
+            GQ_WARN(QString("%1 Bluetooth operations are queued at once across the "
+                            "machine, the scale and the refractometer. They run one "
+                            "at a time, so the ones at the back will wait. This is "
+                            "more than a normal connect queues, which means work is "
+                            "being submitted faster than the radio can retire it.")
                         .arg(m_queue.size()));
         }
     } else if (m_queue.size() <= QUEUE_DEPTH_WARN / 2) {
