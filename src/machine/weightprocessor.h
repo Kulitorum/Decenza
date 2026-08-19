@@ -260,10 +260,15 @@ private:
     qint64 m_lastConstantSampleLogMs = 0;
     bool m_flowBecameValidLogged = false;  // Log once when flowShort transitions 0→valid
     bool m_untaredCupSignalled = false;   // Fire untaredCupDetected only once per extraction
-    // First wallClock timestamp of the current run of >50g readings in the sanity
-    // check below; 0 while no such run is in progress. Debounces the untared-cup
-    // popup against a stale pre-tare-confirmation sample (see weightprocessor.cpp).
-    qint64 m_highWeightStreakStartMs = 0;
+    // Count of consecutive samples currently satisfying the sanity check's
+    // untared-cup condition (weight>50g, within the first 3s of extraction or a
+    // streak already under way — see weightprocessor.cpp). 0 when no streak is
+    // active. Reset on any sample that isn't consistent with a heavy cup,
+    // including a spike-rejected sample that itself reads near zero, so a stale
+    // reading can't revive a streak the real tare-confirmed zero already broke.
+    // Event-based debounce (consecutive samples, not elapsed time) for the
+    // untared-cup popup against a stale pre-tare-confirmation sample.
+    int m_highWeightStreakSamples = 0;
 
     // Configuration (set at shot start; m_targetWeight may be updated mid-shot via setTargetWeight)
     double m_targetWeight = 0;

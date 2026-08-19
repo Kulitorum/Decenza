@@ -788,14 +788,14 @@ private slots:
         QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
 
         // Weight > 50g immediately — triggers sanity check warning. The popup
-        // itself is debounced (350ms — see UNTARED_CUP_CONFIRM_MS in
-        // weightprocessor.cpp) against a single stale sample (#1837), so it needs
-        // a second reading persisting past that window before it fires.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 55"));
-        wp.processWeight(55.0);
-        m_fakeClock += 400;
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 55"));
-        wp.processWeight(55.0);
+        // itself is debounced against a single stale sample (#1837): it needs
+        // UNTARED_CUP_CONFIRM_SAMPLES (4, event-based — see weightprocessor.cpp)
+        // consecutive readings before it fires.
+        for (int i = 0; i < 4; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 55"));
+            wp.processWeight(55.0);
+            m_fakeClock += 100;
+        }
 
         QVERIFY(cupSpy.count() >= 1);
     }

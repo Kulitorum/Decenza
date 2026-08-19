@@ -116,6 +116,16 @@ void WeightProcessor::processWeight(double weight)
         } else if (++m_consecutiveRejections < 3) {
             m_tareLandedSamples = 0;  // not near zero — any run of them is broken
             m_lastWallClockMs = wallClock;  // Keep de-jitter timing accurate
+            // This rejected sample itself reads near zero — real evidence against
+            // a heavy cup, even though the step got it filtered. Without this, an
+            // untared-cup streak can survive on stale m_lastRawWeight alone: the
+            // real post-tare zero gets spike-rejected here, a later stale-cached
+            // high reading (not yet superseded, since m_lastRawWeight was never
+            // updated by the rejected sample) is then accepted and revives the
+            // streak (#1837 review finding).
+            if (qAbs(weight) <= 50.0) {
+                m_highWeightStreakSamples = 0;
+            }
             // WARN. Measured, not assumed: zero occurrences across 22,265 log
             // lines and five sessions, so this is not a spam source, and a
             // rejected sample sitting next to a stop-at-weight decision is
@@ -542,36 +552,47 @@ void WeightProcessor::processWeight(double weight)
                                     "weight=%1 g").arg(weight, 0, 'f', 2));
             m_lastTareWarnMs = wallClock;
         }
+        // Tare is not currently trusted (fresh extraction, or mid-oscillation-recovery
+        // above), so a streak accumulated before this state can't be trusted either —
+        // matches the reset below for any other sample that isn't a heavy-cup reading.
+        m_highWeightStreakSamples = 0;
         return;
     }
 
     // Sanity check: unreasonable weight early in extraction (likely untared cup)
     if (m_extractionStartTime > 0) {
         double extractionTime = (wallClock - m_extractionStartTime) / 1000.0;
-        if (extractionTime < 3.0 && weight > 50.0) {
+        // Once a streak is under way, let it keep confirming past the 3.0s mark
+        // rather than discarding it — otherwise a streak that starts right at the
+        // boundary (e.g. 2.9s) can have its confirming sample land just after 3.0s
+        // and be silently swallowed, never firing the popup at all. A streak can
+        // still only START inside the window (m_highWeightStreakSamples == 0 gates
+        // that below).
+        bool withinWindow = extractionTime < 3.0 || m_highWeightStreakSamples > 0;
+        if (withinWindow && weight > 50.0) {
             SAWW_WARN(QStringLiteral("Sanity check: weight %1 g at %2 s into extraction — "
                                      "skipping stop-at-weight (likely untared cup)")
                           .arg(weight, 0, 'f', 2).arg(extractionTime, 0, 'f', 1));
             // Debounce the user-facing popup (#1837): a Hot Water shot that leaves
             // 70-140g on the scale, followed immediately by Espresso, re-tares the
-            // scale but the zeroed BLE notification can land ~100-300ms after
-            // extraction already started — so the stale Hot Water weight reads as
-            // "untared cup" for one or two arrivals before the real zero arrives.
-            // Require the high reading to persist past that window (observed
-            // worst case ~200ms across three logged incidents) before telling the
-            // user, so a self-resolving stale sample never shows a false popup for
-            // a cup that was, in fact, tared correctly.
-            constexpr qint64 UNTARED_CUP_CONFIRM_MS = 350;
-            if (m_highWeightStreakStartMs == 0) {
-                m_highWeightStreakStartMs = wallClock;
-            } else if (!m_untaredCupSignalled &&
-                       wallClock - m_highWeightStreakStartMs >= UNTARED_CUP_CONFIRM_MS) {
+            // scale but the zeroed BLE notification can land after extraction has
+            // already started — so the stale Hot Water weight reads as "untared
+            // cup" for a few arrivals before the real zero arrives. Require the
+            // high reading to persist across consecutive samples (event-based, not
+            // a timer — see CLAUDE.md's "never use timers as guards" rule) before
+            // telling the user, mirroring the oscillation-recovery debounce above
+            // (m_settleCount). Three logged #1837 incidents topped out at 3
+            // consecutive stale samples before the real zero arrived; 4 clears
+            // all three with one sample of margin.
+            constexpr int UNTARED_CUP_CONFIRM_SAMPLES = 4;
+            if (!m_untaredCupSignalled &&
+                ++m_highWeightStreakSamples >= UNTARED_CUP_CONFIRM_SAMPLES) {
                 m_untaredCupSignalled = true;
                 emit untaredCupDetected();
             }
             return;
         }
-        m_highWeightStreakStartMs = 0;
+        m_highWeightStreakSamples = 0;
     }
 
     // Suppress SAW during preinfusion frames (matches de1app: SAW only after
@@ -890,7 +911,7 @@ void WeightProcessor::startExtraction()
     m_lastConstantSampleLogMs = 0;
     m_flowBecameValidLogged = false;
     m_untaredCupSignalled = false;
-    m_highWeightStreakStartMs = 0;
+    m_highWeightStreakSamples = 0;
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
     m_uncalibratedBatchWarned = false;
@@ -1024,7 +1045,12 @@ void WeightProcessor::resetForRetare()
     m_lastLowFlowLogMs = 0;
     m_lastConstantSampleLogMs = 0;
     m_flowBecameValidLogged = false;
-    m_highWeightStreakStartMs = 0;
+    m_highWeightStreakSamples = 0;
+    // A retare mid-preheat (cup placed during preheat, #299) can follow a popup
+    // that already fired for an earlier stale reading this same extraction —
+    // without this, a genuinely new untared-cup condition later in the same
+    // extraction could never re-trigger the popup (review finding on #1838).
+    m_untaredCupSignalled = false;
     SAWW_LOG(QStringLiteral("Reset for auto-retare"));
 }
 

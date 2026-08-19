@@ -296,21 +296,23 @@ private slots:
         QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
         QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
 
-        // Feed weight > 50g within first 3 seconds, persisting past the debounce
-        // window (350ms — see UNTARED_CUP_CONFIRM_MS) so the popup fires.
-        // WeightProcessor logs a sanity-check warning for high weight values
+        // Feed weight > 50g within first 3 seconds, persisting across enough
+        // consecutive samples (UNTARED_CUP_CONFIRM_SAMPLES = 4 — event-based, not
+        // a timer) so the popup fires.
+        for (int i = 0; i < 3; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
+            wp.processWeight(80.0);
+            QCOMPARE(cupSpy.count(), 0);  // Not confirmed yet
+            m_fakeClock += 150;
+        }
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
-        wp.processWeight(80.0);
-        QCOMPARE(cupSpy.count(), 0);  // First sample only starts the streak
-        m_fakeClock += 400;
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
-        wp.processWeight(80.0);
+        wp.processWeight(80.0);  // 4th consecutive sample confirms
 
         QCOMPARE(cupSpy.count(), 1);  // Should detect untared cup once persisted
         QCOMPARE(stopSpy.count(), 0); // Should NOT trigger SAW stop
     }
 
-    // ===== A stale sample that resolves before the debounce window does not fire (#1837) =====
+    // ===== A stale sample that resolves before confirmation does not fire (#1837) =====
 
     void untaredCupTransientStaleSampleDoesNotFire() {
         WeightProcessor wp;
@@ -325,20 +327,123 @@ private slots:
 
         // Hot Water leaves e.g. 139.5g on the scale; Espresso re-tares, but the
         // scale's zeroed BLE notification lands after extraction has already
-        // started, so the stale weight reads for one or two arrivals before the
-        // real zero arrives. That must not show the "untared cup" popup.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 139.5"));
-        wp.processWeight(139.5);
-        m_fakeClock += 150;
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 139.5"));
-        wp.processWeight(139.5);
-        m_fakeClock += 60;
+        // started, so the stale weight reads for a few arrivals before the real
+        // zero arrives. Matches #1837's log: the worst of the three logged
+        // incidents saw 3 consecutive stale samples before the real zero — one
+        // short of the 4-sample confirmation. That must not show the popup.
+        for (int i = 0; i < 3; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 139.5"));
+            wp.processWeight(139.5);
+            m_fakeClock += 100;
+        }
         // The real zero also trips the unrelated spike-rejection guard (a 139.5g
         // drop in one sample), matching #1837's log — not what this test covers.
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected"));
         wp.processWeight(0.0);  // Real tare-confirmed zero arrives
 
-        QCOMPARE(cupSpy.count(), 0);  // Never persisted past the debounce window
+        QCOMPARE(cupSpy.count(), 0);  // Never reached the 4-sample confirmation
+    }
+
+    // ===== A stale reading that keeps recurring after a spike-rejected real zero
+    // never fires, even across many alternating cycles (#1838 review finding) =====
+
+    void untaredCupAlternatingReadingsNeverConfirm() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+        wp.startExtraction();
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+
+        QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
+
+        // Some scales alternate a loaded reading with a near-zero one (documented
+        // at weightprocessor.cpp:103-109, "e.g. 200, 0, 200, 0"). Each real zero
+        // is a big-enough step to get spike-rejected (so m_lastRawWeight is never
+        // updated to it), and the next stale-cached high reading is then accepted
+        // normally — so a naive streak counter that only resets on a qualifying
+        // "low" sample can be revived by that stale reading forever. The
+        // spike-reject path must itself break the streak. 10 cycles, one
+        // qualifying sample per cycle — never enough in a row to confirm.
+        for (int i = 0; i < 10; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 139.5"));
+            wp.processWeight(139.5);
+            m_fakeClock += 100;
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected"));
+            wp.processWeight(0.0);
+            m_fakeClock += 100;
+        }
+
+        QCOMPARE(cupSpy.count(), 0);  // Popup never fires — the streak keeps resetting
+    }
+
+    // ===== A streak starting just before the 3s window still confirms, even if
+    // confirmation lands just after it (#1838 review finding) =====
+
+    void untaredCupStreakStartingNearWindowBoundaryStillFires() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+        wp.startExtraction();
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+
+        QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
+
+        // First qualifying sample lands just inside the 3s window; later
+        // confirming samples land just past it. A streak already under way must
+        // be allowed to finish confirming, or a late-starting genuine untared cup
+        // is silently swallowed instead of showing the popup.
+        m_fakeClock += 2850;  // extractionTime = 2.85s — still < 3.0s
+        for (int i = 0; i < 3; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
+            wp.processWeight(80.0);
+            m_fakeClock += 100;  // 2.85, 2.95, 3.05, 3.15s across the loop + final call
+        }
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
+        wp.processWeight(80.0);  // extractionTime = 3.15s — past the window, but streak in progress
+
+        QCOMPARE(cupSpy.count(), 1);  // Confirmed streak fires even though it crossed 3.0s
+    }
+
+    // ===== A retare mid-extraction re-arms the popup for a later, genuinely new
+    // untared-cup condition (#1838 review finding) =====
+
+    void untaredCupReArmsAfterRetare() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+        wp.startExtraction();
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+
+        QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
+
+        // First untared-cup condition confirms and fires once.
+        for (int i = 0; i < 4; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 90"));
+            wp.processWeight(90.0);
+            m_fakeClock += 100;
+        }
+        QCOMPARE(cupSpy.count(), 1);
+
+        // A cup-placed-during-preheat retare mid-extraction (MachineState::
+        // flowBeforeAutoTare) resets extraction timing and the tare state.
+        wp.resetForRetare();
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+
+        // A genuinely new untared-cup condition after the retare must be able to
+        // fire the popup again, not stay silenced by the first one's latch.
+        for (int i = 0; i < 4; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 90"));
+            wp.processWeight(90.0);
+            m_fakeClock += 100;
+        }
+        QCOMPARE(cupSpy.count(), 2);
     }
 
     // ===== Untared cup does NOT fire after 3 seconds =====
