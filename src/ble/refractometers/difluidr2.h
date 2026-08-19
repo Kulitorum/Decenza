@@ -68,6 +68,11 @@ private slots:
 
 private:
     void handlePacket(const QByteArray& packet);
+    // One already-delimited, checksum-valid frame (header, func, cmd, dataLen, its
+    // declared data bytes, checksum — exactly, no more, no less). handlePacket() is
+    // the only caller, split out because a single BLE delivery can hold more than
+    // one frame back-to-back (see handlePacket's comment).
+    void processFrame(const QByteArray& frame);
     // The R2 sends its serial number as SERIAL_PART_COUNT packets, each carrying a
     // part index in Data0 followed by SERIAL_PART_BYTES bytes. Parts are spliced at
     // their indicated offset, so arrival order does not matter — BLE notification

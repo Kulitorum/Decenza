@@ -468,39 +468,65 @@ void DiFluidR2::onCharacteristicChanged(const QBluetoothUuid& /*characteristicUu
 void DiFluidR2::handlePacket(const QByteArray& packet) {
     // Official DiFluid protocol: DF DF <Func> <Cmd> <DataLen> <Data0..DataN> <Checksum>
     // Minimum packet: header(2) + func(1) + cmd(1) + datalen(1) + checksum(1) = 6 bytes
-    if (packet.size() < PACKET_MIN_LENGTH) {
-        // A runt is at least as alarming as the bad-header case logged below — BLE
-        // fragmentation, an MTU change, a firmware emitting a shape we do not know —
-        // and it used to be the one malformed packet that left no evidence at all.
-        R2_LOG(QString("Runt packet (%1 bytes, minimum %2): %3")
-                   .arg(packet.size()).arg(PACKET_MIN_LENGTH)
-                   .arg(QString(packet.toHex(' '))));
-        return;
-    }
+    //
+    // One onCharacteristicChanged delivery is not guaranteed to hold exactly one frame:
+    // the R2 sends notifications back-to-back and the BLE stack has been observed
+    // (Android, live log) to coalesce two into a single characteristic-value update.
+    // DataLen (byte 4) delimits each frame reliably, so walk the delivery one frame at
+    // a time and checksum only that frame — checksumming the whole delivery as one blob
+    // means two individually-valid frames fail together and both get dropped. Confirmed
+    // on a captured "Checksum failed" packet that was exactly two valid 12-byte
+    // serial-number-part frames back to back, each checksumming clean (0xDD, 0xC1) on
+    // its own and only failing as a concatenated pair.
+    qsizetype offset = 0;
+    while (offset < packet.size()) {
+        const QByteArray remaining = packet.mid(offset);
 
-    // Validate header (0xDF 0xDF)
-    if (static_cast<uint8_t>(packet[0]) != PACKET_HEADER ||
-        static_cast<uint8_t>(packet[1]) != PACKET_HEADER) {
-        R2_LOG(QString("Non-protocol packet (%1 bytes): %2")
-            .arg(packet.size()).arg(QString(packet.left(8).toHex(' '))));
-        return;
-    }
+        if (remaining.size() < PACKET_MIN_LENGTH) {
+            // A runt is at least as alarming as the bad-header case logged below — BLE
+            // fragmentation, an MTU change, a firmware emitting a shape we do not know —
+            // and it used to be the one malformed packet that left no evidence at all.
+            R2_LOG(QString("Runt packet (%1 bytes, minimum %2): %3")
+                       .arg(remaining.size()).arg(PACKET_MIN_LENGTH)
+                       .arg(QString(remaining.toHex(' '))));
+            return;
+        }
 
-    if (!validateChecksum(packet)) {
-        R2_WARN(QString("Checksum failed: %1").arg(QString(packet.toHex(' '))));
-        return;
-    }
+        // Validate header (0xDF 0xDF)
+        if (static_cast<uint8_t>(remaining[0]) != PACKET_HEADER ||
+            static_cast<uint8_t>(remaining[1]) != PACKET_HEADER) {
+            R2_LOG(QString("Non-protocol packet (%1 bytes): %2")
+                .arg(remaining.size()).arg(QString(remaining.left(8).toHex(' '))));
+            return;
+        }
 
+        // Data starts at byte 5, length = dataLen. Frame length = 2×header + func +
+        // cmd + datalen (5) + dataLen data bytes + 1 checksum byte.
+        const uint8_t dataLen = static_cast<uint8_t>(remaining[4]);
+        const qsizetype frameLen = 5 + dataLen + 1;
+        if (remaining.size() < frameLen) {
+            R2_WARN(QString("Packet too short for declared data length: %1")
+                        .arg(QString(remaining.toHex(' '))));
+            return;
+        }
+
+        // Sliced to exactly this frame's declared length, so a second frame appended
+        // after it cannot pollute this checksum — only this frame's own bytes count.
+        const QByteArray frame = remaining.left(frameLen);
+        if (!validateChecksum(frame)) {
+            R2_WARN(QString("Checksum failed: %1").arg(QString(frame.toHex(' '))));
+            return;
+        }
+
+        processFrame(frame);
+        offset += frameLen;
+    }
+}
+
+void DiFluidR2::processFrame(const QByteArray& packet) {
     uint8_t func = static_cast<uint8_t>(packet[2]);
     uint8_t cmd = static_cast<uint8_t>(packet[3]);
     uint8_t dataLen = static_cast<uint8_t>(packet[4]);
-
-    // Data starts at byte 5, length = dataLen
-    // Verify packet length: 5 (2×header + func + cmd + datalen) + dataLen + 1 (checksum)
-    if (packet.size() < 5 + dataLen + 1) {
-        R2_WARN(QString("Packet too short for declared data length"));
-        return;
-    }
 
     // Func 0 = Device Info: decode the model/firmware strings for instrumentation.
     // Model "DFT-R102" == genuine R2 Extract (transmits coffee TDS); anything else is a
