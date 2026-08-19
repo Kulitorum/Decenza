@@ -260,6 +260,10 @@ private:
     qint64 m_lastConstantSampleLogMs = 0;
     bool m_flowBecameValidLogged = false;  // Log once when flowShort transitions 0→valid
     bool m_untaredCupSignalled = false;   // Fire untaredCupDetected only once per extraction
+    // First wallClock timestamp of the current run of >50g readings in the sanity
+    // check below; 0 while no such run is in progress. Debounces the untared-cup
+    // popup against a stale pre-tare-confirmation sample (see weightprocessor.cpp).
+    qint64 m_highWeightStreakStartMs = 0;
 
     // Configuration (set at shot start; m_targetWeight may be updated mid-shot via setTargetWeight)
     double m_targetWeight = 0;

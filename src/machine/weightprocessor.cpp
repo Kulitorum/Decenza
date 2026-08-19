@@ -552,12 +552,26 @@ void WeightProcessor::processWeight(double weight)
             SAWW_WARN(QStringLiteral("Sanity check: weight %1 g at %2 s into extraction — "
                                      "skipping stop-at-weight (likely untared cup)")
                           .arg(weight, 0, 'f', 2).arg(extractionTime, 0, 'f', 1));
-            if (!m_untaredCupSignalled) {
+            // Debounce the user-facing popup (#1837): a Hot Water shot that leaves
+            // 70-140g on the scale, followed immediately by Espresso, re-tares the
+            // scale but the zeroed BLE notification can land ~100-300ms after
+            // extraction already started — so the stale Hot Water weight reads as
+            // "untared cup" for one or two arrivals before the real zero arrives.
+            // Require the high reading to persist past that window (observed
+            // worst case ~200ms across three logged incidents) before telling the
+            // user, so a self-resolving stale sample never shows a false popup for
+            // a cup that was, in fact, tared correctly.
+            constexpr qint64 UNTARED_CUP_CONFIRM_MS = 350;
+            if (m_highWeightStreakStartMs == 0) {
+                m_highWeightStreakStartMs = wallClock;
+            } else if (!m_untaredCupSignalled &&
+                       wallClock - m_highWeightStreakStartMs >= UNTARED_CUP_CONFIRM_MS) {
                 m_untaredCupSignalled = true;
                 emit untaredCupDetected();
             }
             return;
         }
+        m_highWeightStreakStartMs = 0;
     }
 
     // Suppress SAW during preinfusion frames (matches de1app: SAW only after
@@ -876,6 +890,7 @@ void WeightProcessor::startExtraction()
     m_lastConstantSampleLogMs = 0;
     m_flowBecameValidLogged = false;
     m_untaredCupSignalled = false;
+    m_highWeightStreakStartMs = 0;
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
     m_uncalibratedBatchWarned = false;
@@ -1009,6 +1024,7 @@ void WeightProcessor::resetForRetare()
     m_lastLowFlowLogMs = 0;
     m_lastConstantSampleLogMs = 0;
     m_flowBecameValidLogged = false;
+    m_highWeightStreakStartMs = 0;
     SAWW_LOG(QStringLiteral("Reset for auto-retare"));
 }
 
