@@ -182,36 +182,52 @@ void DifluidScale::onCharacteristicChanged(const QBluetoothUuid& characteristicU
     // reached only when the weight was exactly zero, and then it was parsing the
     // timer bytes. The comment already said "bytes 5-8" (four bytes); the code
     // took a character count for a byte count.
-    // Sensor frames only. This characteristic also carries the device's echoes of our
-    // own settings writes (Func 1), which are 6-7 bytes — warning about those would
-    // describe healthy traffic as malformed, and at 5Hz a mismatched format would
-    // evict the whole 1000-entry scale log, destroying the artifact a diagnostician
-    // asks for. Anything that is not a sensor frame is logged quietly and dropped.
-    if (!value.startsWith(QByteArray::fromHex("dfdf0300"))) {
-        DIFLUID_LOG(QString("Non-sensor notification: %1").arg(QString(value.toHex(' '))));
-        return;
-    }
-    if (value.size() < 19) {
-        DIFLUID_WARN(QString("Sensor frame too short (%1 bytes, need 19): %2")
-                         .arg(value.size()).arg(QString(value.toHex(' '))));
-        return;
-    }
+    //
+    // One onCharacteristicChanged delivery is not guaranteed to hold exactly one
+    // 19-byte frame: the sibling DiFluidR2 driver — same ScaleBleTransport, same
+    // vendor DF-DF-framed protocol — was confirmed via a captured log to have two
+    // back-to-back notifications coalesced by the BLE stack into a single
+    // delivery (see difluidr2.cpp's handlePacket). The single-shot version here
+    // only ever looked at the first 19 bytes, so a second weight sample riding
+    // along in the same delivery was silently discarded past byte 18 with no log
+    // line at all. Walk the delivery one 19-byte sensor frame at a time instead.
+    qsizetype offset = 0;
+    while (offset < value.size()) {
+        const QByteArray remaining = value.mid(offset);
 
-    // Signed: the field goes negative after a tare drift, and reading it unsigned
-    // turned −0.5 g into 4294967291, which the range gate below then discarded —
-    // freezing the displayed weight at its last non-negative value.
-    const qint32 weightRaw = static_cast<qint32>(
-          (static_cast<quint32>(static_cast<quint8>(value[5])) << 24)
-        | (static_cast<quint32>(static_cast<quint8>(value[6])) << 16)
-        | (static_cast<quint32>(static_cast<quint8>(value[7])) << 8)
-        |  static_cast<quint32>(static_cast<quint8>(value[8])));
+        // Sensor frames only. This characteristic also carries the device's echoes of our
+        // own settings writes (Func 1), which are 6-7 bytes — warning about those would
+        // describe healthy traffic as malformed, and at 5Hz a mismatched format would
+        // evict the whole 1000-entry scale log, destroying the artifact a diagnostician
+        // asks for. Anything that is not a sensor frame is logged quietly and dropped.
+        if (!remaining.startsWith(QByteArray::fromHex("dfdf0300"))) {
+            DIFLUID_LOG(QString("Non-sensor notification: %1").arg(QString(remaining.toHex(' '))));
+            return;
+        }
+        if (remaining.size() < 19) {
+            DIFLUID_WARN(QString("Sensor frame too short (%1 bytes, need 19): %2")
+                             .arg(remaining.size()).arg(QString(remaining.toHex(' '))));
+            return;
+        }
 
-    if (weightRaw <= -20000 || weightRaw >= 20000) {
-        DIFLUID_WARN(QString("Weight out of range: raw=%1 (%2 g) — ignoring")
-                         .arg(weightRaw).arg(weightRaw / 10.0));
-        return;
+        // Signed: the field goes negative after a tare drift, and reading it unsigned
+        // turned −0.5 g into 4294967291, which the range gate below then discarded —
+        // freezing the displayed weight at its last non-negative value.
+        const qint32 weightRaw = static_cast<qint32>(
+              (static_cast<quint32>(static_cast<quint8>(remaining[5])) << 24)
+            | (static_cast<quint32>(static_cast<quint8>(remaining[6])) << 16)
+            | (static_cast<quint32>(static_cast<quint8>(remaining[7])) << 8)
+            |  static_cast<quint32>(static_cast<quint8>(remaining[8])));
+
+        if (weightRaw <= -20000 || weightRaw >= 20000) {
+            DIFLUID_WARN(QString("Weight out of range: raw=%1 (%2 g) — ignoring")
+                             .arg(weightRaw).arg(weightRaw / 10.0));
+        } else {
+            setWeight(weightRaw / 10.0);
+        }
+
+        offset += 19;
     }
-    setWeight(weightRaw / 10.0);
 }
 
 void DifluidScale::sendCommand(const QByteArray& cmd) {
