@@ -397,7 +397,6 @@ public:
     QJsonArray listTools(int accessLevel, const QString& protocolVersion) const
     {
         static const char* levelNames[] = {"Monitor", "Control", "Full"};
-        const bool emitTitle = protocolVersion >= QStringLiteral("2025-06-18");
         const bool emitSchemaDialect = protocolVersion >= QStringLiteral("2025-11-25");
 
         QList<const McpToolDefinition*> ordered;
@@ -420,11 +419,11 @@ public:
 
             QJsonObject toolJson;
             toolJson["name"] = tool.name;
-            if (emitTitle) {
-                // MCP 2025-06-18: human-readable display name distinct from the
-                // programmatic `name`. Auto-derived from snake_case.
-                toolJson["title"] = McpRegistryHelpers::deriveTitle(tool.name);
-            }
+            // MCP 2025-06-18: human-readable display name distinct from the
+            // programmatic `name`, auto-derived from snake_case. Unconditional —
+            // it arrived at what is now the lowest revision this server serves,
+            // so no version it can negotiate lacks the field.
+            toolJson["title"] = McpRegistryHelpers::deriveTitle(tool.name);
             if (required > accessLevel) {
                 int reqClamped = qBound(0, required, 2);
                 toolJson["description"] = QString("[DISABLED — requires '%1' access level in Settings > AI > MCP] ")
