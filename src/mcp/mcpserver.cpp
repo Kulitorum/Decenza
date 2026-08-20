@@ -124,11 +124,44 @@ McpServer::McpServer(QObject* parent)
 // entry is also the preferred version returned when a client requests an
 // unrecognized one. Order matters: keep newest first so `supportedVersions.first()`
 // is the latest spec.
+// Whether a revision belongs to the MODERN era — no handshake, per-request
+// `_meta`, `server/discover`. Everything below `2026-07-28` is legacy.
+//
+// A single string compare rather than a second list: the eras are separated by
+// one date and always will be, since the revision that removed the handshake is
+// the boundary by definition.
+bool McpServer::isModernProtocolVersion(const QString& version)
+{
+    return version >= QStringLiteral("2026-07-28");
+}
+
+// The handshake-based subset of supportedProtocolVersions(), newest first.
+//
+// Extracted rather than filtered inline at each site: it is needed by
+// `initialize` (what may be negotiated, and what an unsupported request falls
+// back to) and by the legacy header check (what a legacy request may be answered
+// under). Two hand-rolled filters would be free to drift, and the drift would be
+// silent — one of them accepting a modern version is precisely the bug this
+// comment exists because of.
+const QStringList& McpServer::legacyProtocolVersions()
+{
+    static const QStringList legacy = [] {
+        QStringList out;
+        for (const QString& v : supportedProtocolVersions()) {
+            if (!isModernProtocolVersion(v))
+                out << v;
+        }
+        return out;
+    }();
+    return legacy;
+}
+
 const QStringList& McpServer::supportedProtocolVersions()
 {
     static const QStringList versions = {
         QStringLiteral("2025-11-25"),
         QStringLiteral("2025-06-18"),
+        QStringLiteral("2026-07-28"),
     };
     return versions;
 }
@@ -447,6 +480,27 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
     return result;
 }
 
+namespace {
+// `_meta` keys the modern era defines. Spelled once — they appear in the
+// discriminator, the version check and the response framing, and a typo in one
+// copy would be a silently different protocol.
+constexpr const char* kMetaKey            = "_meta";
+constexpr const char* kMetaProtocolVersion = "io.modelcontextprotocol/protocolVersion";
+constexpr const char* kMetaClientInfo      = "io.modelcontextprotocol/clientInfo";
+constexpr const char* kMetaServerInfo      = "io.modelcontextprotocol/serverInfo";
+
+// MCP-reserved error codes, renumbered into -32020..-32099 by 2026-07-28.
+constexpr int kErrHeaderMismatch             = -32020;
+constexpr int kErrUnsupportedProtocolVersion = -32022;
+}  // namespace
+
+bool McpServer::isModernRequest(const QJsonObject& request)
+{
+    const QJsonObject params = request.value(QLatin1String("params")).toObject();
+    const QJsonObject meta = params.value(QLatin1String(kMetaKey)).toObject();
+    return meta.contains(QLatin1String(kMetaProtocolVersion));
+}
+
 void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
                                    const QString& path, const QByteArray& headers,
                                    const QByteArray& body, bool remote)
@@ -541,6 +595,17 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
 
         QJsonObject request = doc.object();
         const QString rpcMethod = request["method"].toString();
+
+        // Era selection, before anything else runs and before any session is
+        // touched. Ambiguity resolves to LEGACY, which is not a neutral default:
+        // mis-routing a legacy request to the modern path breaks a client that
+        // works today and gives it no recovery, while mis-routing a modern
+        // request to legacy produces the error a modern client's own detection
+        // is specified to fall back from.
+        if (isModernRequest(request)) {
+            handleModernRequest(socket, request, protocolHeader);
+            return;
+        }
 
         const SessionResolution resolved =
             resolveSessionForMessage(request, sessionHeader, protocolHeader);
@@ -975,7 +1040,14 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
                                                     "absent (not negotiable) — session %1 stays "
                                                     "on %2")
                                          .arg(session->id(), session->protocolVersion()));
-        } else if (!supportedProtocolVersions().contains(protocolHeader)) {
+        } else if (!legacyProtocolVersions().contains(protocolHeader)) {
+            // LEGACY versions only. A header naming a modern revision is not
+            // "supported" for this request however well the server serves that
+            // revision elsewhere: the era is decided by the request's shape, and
+            // this request has no modern `_meta`. Honouring it would answer a
+            // legacy request under modern rules — which is what this did for a
+            // moment after `2026-07-28` joined the supported list, until the
+            // test for the header tripwire caught it.
             MCP_WARN_TAGGED("Server", QStringLiteral("Unsupported protocol version — header %1, "
                                                      "session %2")
                                           .arg(protocolHeader, session->protocolVersion()));
@@ -1001,12 +1073,140 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
 }
 
 
+// One modern request, served statelessly.
+//
+// Only the ENVELOPE forks from legacy: which version applies, that no session is
+// created, and how the result is framed. Everything below `handleJsonRpc` is the
+// same code legacy runs.
+void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& request,
+                                    const QString& protocolHeader)
+{
+    const QVariant requestId = request.value(QLatin1String("id")).toVariant();
+    const QJsonObject params = request.value(QLatin1String("params")).toObject();
+    const QJsonObject meta = params.value(QLatin1String(kMetaKey)).toObject();
+    const QString metaVersion = meta.value(QLatin1String(kMetaProtocolVersion)).toString();
+
+    // "For the HTTP transport, this value MUST match the `MCP-Protocol-Version`
+    // header; otherwise the server MUST return a 400 Bad Request" — but only
+    // when the header is present at all. An absent header cannot disagree.
+    if (!protocolHeader.isEmpty() && protocolHeader != metaVersion) {
+        MCP_WARN_TAGGED("Server", QStringLiteral("Modern request header/body version mismatch — "
+                                                 "header %1, _meta %2")
+                                      .arg(sanitizeForLog(protocolHeader),
+                                           sanitizeForLog(metaVersion)));
+        sendJsonRpcError(socket, kErrHeaderMismatch,
+                         QStringLiteral("MCP-Protocol-Version header does not match the "
+                                        "protocol version in _meta"),
+                         requestId);
+        return;
+    }
+
+    if (!supportedProtocolVersions().contains(metaVersion)) {
+        // UnsupportedProtocolVersionError carries the list a client retries
+        // from, so a client that invoked a method directly — rather than
+        // calling server/discover first — can recover without a second probe.
+        QJsonArray supported;
+        for (const QString& v : supportedProtocolVersions())
+            supported.append(v);
+
+        MCP_WARN_TAGGED("Server", QStringLiteral("Modern request names unsupported protocol %1")
+                                      .arg(sanitizeForLog(metaVersion)));
+
+        QJsonObject error{{"code", kErrUnsupportedProtocolVersion},
+                          {"message", QStringLiteral("Unsupported protocol version")},
+                          {"data", QJsonObject{{"supported", supported},
+                                               {"requested", metaVersion}}}};
+        QJsonObject response{{"jsonrpc", "2.0"},
+                             {"id", QJsonValue::fromVariant(requestId)},
+                             {"error", error}};
+        sendHttpResponse(socket, 200, QJsonDocument(response).toJson(QJsonDocument::Compact),
+                         "application/json");
+        return;
+    }
+
+    const QJsonObject clientInfo = meta.value(QLatin1String(kMetaClientInfo)).toObject();
+    MCP_LOG_TAGGED("Server", QStringLiteral("modern %1 — client=%2 v%3 version=%4")
+                                 .arg(sanitizeForLog(request.value(QLatin1String("method"))
+                                                         .toString()),
+                                      sanitizeForLog(clientInfo.value(QLatin1String("name"))
+                                                         .toString()),
+                                      sanitizeForLog(clientInfo.value(QLatin1String("version"))
+                                                         .toString()),
+                                      metaVersion));
+
+    // A notification carries no id and gets 202, exactly as in legacy.
+    if (!request.contains(QLatin1String("id"))) {
+        sendHttpResponse(socket, 202, "", "application/json");
+        return;
+    }
+
+    // No session, and none created — that is the point of the era. `nullptr` is
+    // passed deliberately rather than a synthesized one: a hidden session keyed
+    // on transport identity would be a session by another name, would
+    // reintroduce every reaper, and would behave like neither era.
+    QJsonObject result = handleJsonRpc(request, /*session=*/nullptr, socket, requestId,
+                                       metaVersion);
+
+    if (result.contains(QLatin1String("_deferred")))
+        return;
+
+    if (result.contains(QLatin1String("error"))) {
+        QJsonObject response{{"jsonrpc", "2.0"},
+                             {"id", QJsonValue::fromVariant(requestId)},
+                             {"error", result.value(QLatin1String("error"))}};
+        sendHttpResponse(socket, 200, QJsonDocument(response).toJson(QJsonDocument::Compact),
+                         "application/json");
+        return;
+    }
+
+    // `resultType` is REQUIRED on every modern result. Always "complete": the
+    // other value, "input_required", belongs to MRTR, which this server does not
+    // implement — adopting the field is not adopting the pattern.
+    //
+    // Stamped here, in the one place every modern result passes through, rather
+    // than in each handler. A handler that forgot would emit a result the schema
+    // does not permit, and nothing below this point knows which era it is in.
+    result["resultType"] = QStringLiteral("complete");
+
+    // `serverInfo` in each result's `_meta` is a SHOULD. It is the same identity
+    // the legacy handshake reports — a modern caller performs no handshake and
+    // has no other occasion to learn it.
+    QJsonObject resultMeta = result.value(QLatin1String(kMetaKey)).toObject();
+    resultMeta[QLatin1String(kMetaServerInfo)] =
+        QJsonObject{{"name", "Decenza MCP Server"},
+                    {"version", QString::fromLatin1(McpSurfaceVersion)},
+                    {"appVersion", QStringLiteral(VERSION_STRING)}};
+    result[QLatin1String(kMetaKey)] = resultMeta;
+
+    QJsonObject response{{"jsonrpc", "2.0"},
+                         {"id", QJsonValue::fromVariant(requestId)},
+                         {"result", result}};
+    sendHttpResponse(socket, 200, QJsonDocument(response).toJson(QJsonDocument::Compact),
+                     "application/json");
+}
+
 QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* session,
                                      QTcpSocket* socket, const QVariant& requestId,
                                      const QString& protocolVersion)
 {
     QString method = request["method"].toString();
     QJsonObject params = request["params"].toObject();
+
+    // Methods the modern era does not have. `ping`, `logging/setLevel` and
+    // `notifications/roots/list_changed` were removed by 2026-07-28;
+    // `resources/subscribe` / `resources/unsubscribe` were replaced outright by
+    // `subscriptions/listen`. `initialize` is the handshake the era deleted.
+    //
+    // Refused here rather than by omission because the handlers below are SHARED
+    // with legacy, where all of these are correct and must keep working.
+    if (isModernProtocolVersion(protocolVersion)
+        && (method == QLatin1String("initialize")
+            || method == QLatin1String("ping")
+            || method == QLatin1String("logging/setLevel")
+            || method == QLatin1String("resources/subscribe")
+            || method == QLatin1String("resources/unsubscribe"))) {
+        return makeErrorResult(-32601, "Method not found in this protocol era: " + method);
+    }
 
     if (method == "initialize")
         return handleInitialize(params, session);
@@ -1099,8 +1299,14 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
 
     // Negotiate protocol version — accept what the client requests if we support it,
     // otherwise return our preferred version (the first entry).
+    // `initialize` negotiates among LEGACY revisions only. A modern revision is
+    // not a candidate here at all: the modern era has no handshake, so a client
+    // that reached this code cannot speak one, and echoing `2026-07-28` back
+    // would name an era in which this request does not exist. Nor may it be the
+    // fallback — `first()` is what an unsupported request is answered with, and
+    // answering a legacy client with a handshake-less revision strands it.
     QString clientVersion = params["protocolVersion"].toString();
-    const QStringList& supportedVersions = supportedProtocolVersions();
+    const QStringList& supportedVersions = legacyProtocolVersions();
     QString negotiatedVersion = supportedVersions.contains(clientVersion)
         ? clientVersion : supportedVersions.first();
 
@@ -1197,12 +1403,43 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     QJsonObject arguments = params["arguments"].toObject();
 
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
+    const bool modern = isModernProtocolVersion(protocolVersion);
+
+    // Control- and settings-category tools are UNREACHABLE in the modern era
+    // until a session-independent rate limiter exists. `controlCallCount()` is
+    // the only thing between a client and unbounded machine_start_* calls, and a
+    // stateless request has no session to count against.
+    //
+    // Structural, not procedural: the refusal sits ahead of every dispatch path
+    // below, so the unsafe intermediate state cannot be reached by forgetting to
+    // add a check somewhere. An unlimited control surface on a machine that
+    // heats water to 90 °C is worse than those tools being unavailable.
+    if (modern) {
+        const QString modernCategory = m_toolRegistry->categoryFor(toolName, arguments);
+        if (modernCategory == QLatin1String("control")
+            || modernCategory == QLatin1String("settings")) {
+            return makeErrorResult(-32601,
+                                   QStringLiteral("Tool '%1' is not available to this protocol "
+                                                  "era yet: control and settings tools require a "
+                                                  "rate limit that does not exist for stateless "
+                                                  "requests.").arg(toolName));
+        }
+        // Confirmation-gated tools likewise. The gate routes its answer back
+        // through a sessionId a stateless caller does not have; giving it an
+        // identity of its own is a separate piece of work. Refused with a reason
+        // rather than served ungated — never the latter.
+        if (needsInAppConfirmation(toolName, arguments)) {
+            return makeErrorResult(-32601,
+                                   QStringLiteral("Tool '%1' requires in-app confirmation, which "
+                                                  "has no stateless form yet.").arg(toolName));
+        }
+    }
 
     // Rate limiting for control + settings tools. Resolved from the ARGUMENTS, not
     // the tool name: a merged tool's read verb must not spend the control budget its
     // write verbs share, and an unresolvable verb is charged as the strictest one.
     QString category = m_toolRegistry->categoryFor(toolName, arguments);
-    if (category == "control" || category == "settings") {
+    if (session && (category == "control" || category == "settings")) {
         if (session->controlCallCount() >= RateLimitPerMinute) {
             // The assistant is told; the user is not. Without this line nothing
             // anywhere explains why the machine ignored a command it was asked
@@ -1215,7 +1452,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     }
 
     // Count control/settings calls before execution so failed calls also count
-    if (category == "control" || category == "settings")
+    if (session && (category == "control" || category == "settings"))
         session->incrementControlCalls();
 
     // Chat-based confirmation: tool returns needs_confirmation, AI re-calls with confirmed:true
@@ -1235,6 +1472,12 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     // In-app confirmation: hold HTTP response, show QML dialog on machine screen
     if (needsInAppConfirmation(toolName, arguments)) {
         // Deny any existing pending confirmation
+        // Legacy-only: the modern path refuses confirmation-gated tools above,
+        // so `session` is non-null by the time control reaches here. Asserted
+        // rather than guarded — a null here would mean the modern refusal was
+        // removed without giving the gate a stateless identity first, which is
+        // the one outcome that must never be silent.
+        Q_ASSERT(session);
         abandonPendingConfirmation(QStringLiteral("superseded by a newer request"));
 
         PendingConfirmation pending;
@@ -1260,7 +1503,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     if (m_toolRegistry->isAsyncTool(toolName)) {
         QPointer<QTcpSocket> socketPtr(socket);
         QVariant reqId = requestId;
-        QString sessId = session->id();
+        QString sessId = session ? session->id() : QString();
         QString protoVer = protocolVersion;
 
         QString error;
@@ -1354,7 +1597,7 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
     if (m_resourceRegistry->isAsyncResource(uri)) {
         QPointer<QTcpSocket> socketPtr(socket);
         QVariant reqId = requestId;
-        QString sessId = session->id();
+        QString sessId = session ? session->id() : QString();
 
         QString error;
         McpRegistryFailure failure = McpRegistryFailure::None;

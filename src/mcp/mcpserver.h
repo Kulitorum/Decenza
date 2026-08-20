@@ -126,8 +126,21 @@ public:
     // and a write verb can be shown to.
     static constexpr int RateLimitPerMinute = 60;
 
-    // Protocol versions this server can negotiate. First entry is preferred.
+    // Every protocol version this server can SERVE, newest legacy first.
+    //
+    // Not the same as "negotiable": `initialize` picks only among the legacy
+    // entries (see handleInitialize), because the modern era has no handshake
+    // and a client reaching that code cannot be speaking one. The modern entry
+    // is reachable only through a modern request's own `_meta`.
     static const QStringList& supportedProtocolVersions();
+
+    // Whether a revision is modern (handshake-less, per-request `_meta`).
+    static bool isModernProtocolVersion(const QString& version);
+
+    // The handshake-based subset of supportedProtocolVersions(), newest first.
+    // What `initialize` may negotiate, and what a legacy request's
+    // `MCP-Protocol-Version` header may name.
+    static const QStringList& legacyProtocolVersions();
 
 signals:
     void activeSessionCountChanged();
@@ -138,6 +151,26 @@ public slots:
     void confirmationResolved(const QString& sessionId, bool accepted);
 
 private:
+    // Whether this POST body is a MODERN-era request.
+    //
+    // The discriminator is `_meta["io.modelcontextprotocol/protocolVersion"]`,
+    // which `RequestMetaObject` makes REQUIRED on every modern request and which
+    // no legacy revision defines — so its presence is decisive on its own.
+    //
+    // NOT the `Mcp-Method` / `Mcp-Name` headers, which an earlier draft of this
+    // change named as the signal. They are required of a modern POST too, but
+    // requiring them here would reject a modern request whose proxy stripped
+    // them — a needless false negative — and they are transport decoration,
+    // while `_meta` is the request itself. NOT `MCP-Protocol-Version` either:
+    // legacy has sent that since 2025-06-18.
+    static bool isModernRequest(const QJsonObject& request);
+
+    // The modern era's whole envelope: version resolution, no session, and the
+    // response framing. Dispatch below this is SHARED with legacy — if a fix has
+    // to be made twice, the fork is in the wrong place.
+    void handleModernRequest(QTcpSocket* socket, const QJsonObject& request,
+                             const QString& protocolHeader);
+
     // JSON-RPC dispatch. `protocolVersion` is the version THIS message is
     // answered under, resolved once by resolveSessionForMessage — handlers must
     // use it rather than reading it back off the session, which can differ.
