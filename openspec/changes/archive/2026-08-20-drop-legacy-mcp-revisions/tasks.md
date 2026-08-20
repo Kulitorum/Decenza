@@ -1,7 +1,7 @@
 ## 1. Narrow the advertised set
 
 - [x] 1.1 Remove `2024-11-05` and `2025-03-26` from `supportedProtocolVersions()`. Leaves `2025-11-25` (preferred, first) and `2025-06-18`
-- [ ] 1.2 Do NOT remove `2025-06-18`. `codex-mcp-client` negotiates it — the one drop with a known victim. The reason is a measurement, not a guess; see design.md
+- [x] 1.2 Do NOT remove `2025-06-18`. `codex-mcp-client` negotiates it — the one drop with a known victim. The reason is a measurement, not a guess; see design.md
 - [x] 1.3 Test: a client requesting a dropped revision is answered with the preferred version, which is the existing unsupported-version behaviour and needs no new code
 
 ## 2. Delete batch dispatch
@@ -29,12 +29,12 @@
 
 - [x] 5.1 `mcp__qtcreator__run_tests` — ask first, Qt Creator is shared. Named scope is enough for the MCP tests; a full run before the PR
 - [x] 5.2 Conformance against a running app with the checked-in baseline: **exit 0**, 9 passed, 22 expected failures, no stale entries, scenario-by-scenario identical to the pre-drop run. The suite has no scenarios for either dropped revision, so it cannot confirm the removal either way — what it confirms is that nothing else regressed. New log lines verified live on the built binary, not only under test
-- [ ] 5.3 Live-check over both callers, ShotServer and `McpRemoteAccess`
+- [ ] 5.3 **NOT DONE — carried forward.** ShotServer's route is verified (conformance exit 0, plus live checks of negotiation, the sentinel and the batch refusal). `McpRemoteAccess` is a second entry into the same handler and was NOT exercised; it needs the tokenized URL. This change does not touch routing, so the risk is low, but "low" is not "checked" and the PR says so rather than implying coverage it does not have
 - [x] 5.4 No wiki manual change — protocol revisions are not a user-visible app surface
 - [x] 5.5 Open the PR, then run `/pr-review-toolkit:review-pr`
-- [ ] 5.6 Archive + spec sync as the final commit on the same PR
+- [x] 5.6 Archive + spec sync as the final commit on the same PR
 
 ## 6. Sequencing note
 
-- [ ] 6.1 This lands BEFORE `add-mcp-dual-era-2026`, and both modify the `MCP-Protocol-Version Request Header` requirement — this one changes the header-absent assumption, that one changes the mismatch rule. Whichever lands second rebases and merges both edits into one requirement block. Flagged here so the collision is expected rather than discovered
+- [→] 6.1 **For the NEXT change, not this one.** This lands BEFORE `add-mcp-dual-era-2026`, and both modify the `MCP-Protocol-Version Request Header` requirement — this one changes the header-absent assumption, that one changes the mismatch rule. Whichever lands second rebases and merges both edits into one requirement block. Flagged here so the collision is expected rather than discovered
 - [x] 6.2 `McpSurfaceVersion` does NOT need bumping. It tracks the TOOL surface, which is unchanged; `scripts/check_mcp_tool_budget.py` fingerprints tools and actions, not protocol revisions
