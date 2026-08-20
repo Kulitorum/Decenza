@@ -204,7 +204,7 @@ private:
     // them — a needless false negative — and they are transport decoration,
     // while `_meta` is the request itself. NOT `MCP-Protocol-Version` either:
     // legacy has sent that since 2025-06-18.
-    static bool isModernRequest(const QJsonObject& request);
+    static bool isModernRequest(const QJsonObject& request, bool hasLegacySession);
 
     // The modern era's whole envelope: version resolution, no session, and the
     // response framing. Dispatch below this is SHARED with legacy — if a fix has

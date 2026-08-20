@@ -281,6 +281,7 @@ namespace {
 constexpr const char* kMetaKey            = "_meta";
 constexpr const char* kMetaProtocolVersion = "io.modelcontextprotocol/protocolVersion";
 constexpr const char* kMetaClientInfo      = "io.modelcontextprotocol/clientInfo";
+constexpr const char* kMetaClientCapabilities = "io.modelcontextprotocol/clientCapabilities";
 constexpr const char* kMetaServerInfo      = "io.modelcontextprotocol/serverInfo";
 constexpr const char* kMetaSubscriptionId  = "io.modelcontextprotocol/subscriptionId";
 
@@ -540,11 +541,46 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
 }
 
 
-bool McpServer::isModernRequest(const QJsonObject& request)
+bool McpServer::isModernRequest(const QJsonObject& request, bool hasLegacySession)
 {
+    // A method that exists ONLY in the modern era is proof of era on its own,
+    // and it has to be, because the `_meta` signal below is exactly what a
+    // malformed modern request is missing. Without this a `server/discover`
+    // carrying no `_meta` is routed to legacy and answered "method not found"
+    // instead of the `-32602` the revision requires — which is precisely what
+    // the conformance suite probes with.
+    //
+    // Unless the caller is holding a live legacy session. Then it is a legacy
+    // client reaching for something its era does not have, and "method not
+    // found" is the true answer; telling it its `_meta` is malformed would
+    // describe a request it never made.
+    const QString method = request.value(QLatin1String("method")).toString();
+    if (!hasLegacySession
+        && (method == QLatin1String("server/discover")
+            || method == QLatin1String("subscriptions/listen"))) {
+        return true;
+    }
+
     const QJsonObject params = request.value(QLatin1String("params")).toObject();
     const QJsonObject meta = params.value(QLatin1String(kMetaKey)).toObject();
     return meta.contains(QLatin1String(kMetaProtocolVersion));
+}
+
+// HTTP status for a modern JSON-RPC error.
+//
+// The modern era carries the outcome in the HTTP status as well as the body;
+// every error here was framed 200-with-a-body at first, which is legacy's shape
+// and which the suite fails on eight separate checks.
+static int modernHttpStatusForError(int code)
+{
+    switch (code) {
+    case -32601: return 404;   // method not found — including one this era removed
+    case -32602:               // invalid params, incl. malformed `_meta`
+    case -32020:               // header/body version mismatch
+    case -32021:               // missing required client capability
+    case -32022: return 400;   // unsupported protocol version
+    default:     return 200;   // an application-level failure is a successful exchange
+    }
 }
 
 void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
@@ -648,7 +684,10 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         // works today and gives it no recovery, while mis-routing a modern
         // request to legacy produces the error a modern client's own detection
         // is specified to fall back from.
-        if (isModernRequest(request)) {
+        // A live legacy session settles the era on its own — see isModernRequest.
+        const bool hasLegacySession =
+            !sessionHeader.isEmpty() && findSession(sessionHeader) != nullptr;
+        if (isModernRequest(request, hasLegacySession)) {
             handleModernRequest(socket, request, protocolHeader);
             return;
         }
@@ -1135,15 +1174,48 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
     // "For the HTTP transport, this value MUST match the `MCP-Protocol-Version`
     // header; otherwise the server MUST return a 400 Bad Request" — but only
     // when the header is present at all. An absent header cannot disagree.
+    // One place frames a modern error, so its HTTP status and JSON-RPC code can
+    // never disagree — they did on eight checks when each site wrote its own 200.
+    const auto sendModernError = [this, socket, requestId](int code, const QString& message,
+                                                           const QJsonObject& data = {}) {
+        QJsonObject error{{"code", code}, {"message", message}};
+        if (!data.isEmpty())
+            error["data"] = data;
+        QJsonObject response{{"jsonrpc", "2.0"},
+                             {"id", QJsonValue::fromVariant(requestId)},
+                             {"error", error}};
+        sendHttpResponse(socket, modernHttpStatusForError(code),
+                         QJsonDocument(response).toJson(QJsonDocument::Compact),
+                         "application/json");
+    };
+
+    // `_meta` validation, before anything reads it. `protocolVersion` and
+    // `clientCapabilities` are both REQUIRED by RequestMetaObject; `clientInfo`
+    // is NOT — spec PR #3002 demoted it to a SHOULD, so demanding it would fail a
+    // conforming client.
+    if (!params.contains(QLatin1String(kMetaKey))) {
+        sendModernError(-32602, QStringLiteral("Missing params._meta"));
+        return;
+    }
+    if (metaVersion.isEmpty()) {
+        sendModernError(-32602, QStringLiteral("Missing _meta "
+                                               "io.modelcontextprotocol/protocolVersion"));
+        return;
+    }
+    if (!meta.contains(QLatin1String(kMetaClientCapabilities))) {
+        sendModernError(-32602, QStringLiteral("Missing _meta "
+                                               "io.modelcontextprotocol/clientCapabilities"));
+        return;
+    }
+
     if (!protocolHeader.isEmpty() && protocolHeader != metaVersion) {
         MCP_WARN_TAGGED("Server", QStringLiteral("Modern request header/body version mismatch — "
                                                  "header %1, _meta %2")
                                       .arg(sanitizeForLog(protocolHeader),
                                            sanitizeForLog(metaVersion)));
-        sendJsonRpcError(socket, kErrHeaderMismatch,
-                         QStringLiteral("MCP-Protocol-Version header does not match the "
-                                        "protocol version in _meta"),
-                         requestId);
+        sendModernError(kErrHeaderMismatch,
+                        QStringLiteral("MCP-Protocol-Version header does not match the "
+                                       "protocol version in _meta"));
         return;
     }
 
@@ -1164,15 +1236,9 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
         MCP_WARN_TAGGED("Server", QStringLiteral("Modern request names unsupported protocol %1")
                                       .arg(sanitizeForLog(metaVersion)));
 
-        QJsonObject error{{"code", kErrUnsupportedProtocolVersion},
-                          {"message", QStringLiteral("Unsupported protocol version")},
-                          {"data", QJsonObject{{"supported", supported},
-                                               {"requested", metaVersion}}}};
-        QJsonObject response{{"jsonrpc", "2.0"},
-                             {"id", QJsonValue::fromVariant(requestId)},
-                             {"error", error}};
-        sendHttpResponse(socket, 200, QJsonDocument(response).toJson(QJsonDocument::Compact),
-                         "application/json");
+        sendModernError(kErrUnsupportedProtocolVersion,
+                        QStringLiteral("Unsupported protocol version"),
+                        QJsonObject{{"supported", supported}, {"requested", metaVersion}});
         return;
     }
 
@@ -1203,11 +1269,10 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
         return;
 
     if (result.contains(QLatin1String("error"))) {
-        QJsonObject response{{"jsonrpc", "2.0"},
-                             {"id", QJsonValue::fromVariant(requestId)},
-                             {"error", result.value(QLatin1String("error"))}};
-        sendHttpResponse(socket, 200, QJsonDocument(response).toJson(QJsonDocument::Compact),
-                         "application/json");
+        const QJsonObject error = result.value(QLatin1String("error")).toObject();
+        sendModernError(error.value(QLatin1String("code")).toInt(),
+                        error.value(QLatin1String("message")).toString(),
+                        error.value(QLatin1String("data")).toObject());
         return;
     }
 
