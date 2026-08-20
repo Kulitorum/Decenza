@@ -75,34 +75,46 @@ private:
 
     // Fire one HTTP request at the server. Extra request headers (Origin,
     // MCP-Protocol-Version, etc.) are appended raw — caller controls casing.
-    static HttpResponse sendHttp(McpServer& server,
-                                 const QByteArray& method,
-                                 const QByteArray& body,
-                                 const QString& sessionId = QString(),
-                                 const QList<QPair<QByteArray, QByteArray>>& extraHeaders = {})
+    // A connection the TEST owns, so it stays open after the request returns.
+    //
+    // sendHttp() keeps its QTcpServer and client socket as stack locals, so the
+    // connection dies the moment it returns. That is fine for a request/response
+    // exchange and useless for a DEFERRED one: an in-app confirmation is
+    // precisely "the client is still waiting on a held response", and with the
+    // socket already gone the server correctly abandons the confirmation before
+    // a test can answer it.
+    //
+    // Nothing needed this until the confirmation gate gained a socket-disconnect
+    // backstop. That the backstop broke five confirmation tests at once is the
+    // harness admitting it had never modelled the connection lifetime those
+    // tests depend on.
+    struct HeldConnection {
+        QTcpServer tcp;
+        QTcpSocket client;
+        QTcpSocket* serverSocket = nullptr;
+
+        bool open()
+        {
+            if (!tcp.listen(QHostAddress::LocalHost)) return false;
+            client.connectToHost(QHostAddress::LocalHost, tcp.serverPort());
+            if (!tcp.waitForNewConnection(1000)) return false;
+            serverSocket = tcp.nextPendingConnection();
+            return serverSocket && client.waitForConnected(1000);
+        }
+
+        void send(McpServer& server, const QByteArray& body, const QString& sessionId = {})
+        {
+            QByteArray headers = "Content-Type: application/json\r\n";
+            if (!sessionId.isEmpty())
+                headers += "Mcp-Session-Id: " + sessionId.toUtf8() + "\r\n";
+            server.handleHttpRequest(serverSocket, "POST", "/mcp", headers, body);
+        }
+    };
+
+    // One parser for both callers — sendHttp and readHeld.
+    static HttpResponse parseHttpResponse(const QByteArray& raw)
     {
         HttpResponse out;
-
-        QTcpServer tcp;
-        tcp.listen(QHostAddress::LocalHost);
-        QTcpSocket client;
-        client.connectToHost(QHostAddress::LocalHost, tcp.serverPort());
-        if (!tcp.waitForNewConnection(1000)) return out;
-        QTcpSocket* serverSocket = tcp.nextPendingConnection();
-        if (!serverSocket) return out;
-        if (!client.waitForConnected(1000)) return out;
-
-        QByteArray headers = "Content-Type: application/json\r\n";
-        if (!sessionId.isEmpty())
-            headers += "Mcp-Session-Id: " + sessionId.toUtf8() + "\r\n";
-        for (const auto& kv : extraHeaders)
-            headers += kv.first + ": " + kv.second + "\r\n";
-
-        server.handleHttpRequest(serverSocket, method, "/mcp", headers, body);
-
-        client.waitForReadyRead(1000);
-        const QByteArray raw = client.readAll();
-
         const qsizetype firstLineEnd = raw.indexOf("\r\n");
         if (firstLineEnd > 0) {
             const QByteArray statusLine = raw.left(firstLineEnd);
@@ -134,6 +146,46 @@ private:
             else if (err.error == QJsonParseError::NoError && doc.isArray())
                 out.jsonArrayBody = doc.array();
         }
+
+        return out;
+    }
+
+    // Read whatever a held connection has been sent so far. Parsing is the same
+    // as sendHttp's, so it lives in parseHttpResponse() and neither copy is free
+    // to drift.
+    static HttpResponse readHeld(HeldConnection& conn)
+    {
+        conn.client.waitForReadyRead(1000);
+        return parseHttpResponse(conn.client.readAll());
+    }
+
+    static HttpResponse sendHttp(McpServer& server,
+                                 const QByteArray& method,
+                                 const QByteArray& body,
+                                 const QString& sessionId = QString(),
+                                 const QList<QPair<QByteArray, QByteArray>>& extraHeaders = {})
+    {
+        HttpResponse out;
+
+        QTcpServer tcp;
+        tcp.listen(QHostAddress::LocalHost);
+        QTcpSocket client;
+        client.connectToHost(QHostAddress::LocalHost, tcp.serverPort());
+        if (!tcp.waitForNewConnection(1000)) return out;
+        QTcpSocket* serverSocket = tcp.nextPendingConnection();
+        if (!serverSocket) return out;
+        if (!client.waitForConnected(1000)) return out;
+
+        QByteArray headers = "Content-Type: application/json\r\n";
+        if (!sessionId.isEmpty())
+            headers += "Mcp-Session-Id: " + sessionId.toUtf8() + "\r\n";
+        for (const auto& kv : extraHeaders)
+            headers += kv.first + ": " + kv.second + "\r\n";
+
+        server.handleHttpRequest(serverSocket, method, "/mcp", headers, body);
+
+        client.waitForReadyRead(1000);
+        out = parseHttpResponse(client.readAll());
 
         serverSocket->close();
         client.close();
@@ -2086,6 +2138,131 @@ private slots:
     // second time in chat. Both halves are one string equality apart from silence:
     // if `needsInAppConfirmation`'s name stops matching the registration, a network
     // client starts the machine with no confirmation of any kind.
+    // The confirmation gate carries its OWN handle, not a session id. That is
+    // what lets a stateless caller hold one: the value was never looked up as a
+    // session, it was only ever echoed back.
+    void confirmationHandleIsNotASessionId()
+    {
+        McpServer server;
+        Settings settings;
+        settings.mcp()->setMcpAccessLevel(2);
+        settings.mcp()->setMcpConfirmationLevel(1);
+        server.setSettings(&settings);
+        server.toolRegistry()->registerTool(
+            "machine_start", "stub",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{{"success", true}}; },
+            "control");
+
+        QSignalSpy spy(&server, &McpServer::confirmationRequested);
+        const QString sid = openSession(server, "2025-11-25");
+        QJsonObject params;
+        params["name"] = "machine_start";
+        params["arguments"] = QJsonObject{{"action", "espresso"}};
+        HeldConnection conn;
+        QVERIFY(conn.open());
+        conn.send(server, rpcBody("tools/call", params, 92), sid);
+
+        QCOMPARE(spy.count(), 1);
+        const QString handle = spy.at(0).at(2).toString();
+        QVERIFY2(!handle.isEmpty(), "the UI needs something to echo back");
+        QVERIFY2(handle != sid,
+                 "the handle must be the confirmation's own identity, not the session's — "
+                 "borrowing the session id is what excluded stateless callers");
+
+        // The confirmation is still pending, and HeldConnection's destructor
+        // closes the socket at scope exit — inside this test function — so the
+        // backstop fires here. Expected rather than suppressed: it is the
+        // behaviour under test in the sibling case.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Pending confirmation for machine_start "
+                                                "abandoned — its connection closed"));
+    }
+
+    // A MODERN caller can hold a confirmation, which is the point of giving the
+    // gate its own handle. Previously refused outright.
+    void modernCallerCanHoldAConfirmation()
+    {
+        McpServer server;
+        Settings settings;
+        settings.mcp()->setMcpAccessLevel(2);
+        settings.mcp()->setMcpConfirmationLevel(1);
+        server.setSettings(&settings);
+        auto ran = std::make_shared<bool>(false);
+        server.toolRegistry()->registerTool(
+            "machine_start", "stub",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [ran](const QJsonObject&) -> QJsonObject {
+                *ran = true;
+                return QJsonObject{{"success", true}};
+            },
+            "control");
+
+        QSignalSpy spy(&server, &McpServer::confirmationRequested);
+        QJsonObject params;
+        params["name"] = "machine_start";
+        params["arguments"] = QJsonObject{{"action", "espresso"}};
+
+        // Held open: a confirmation is a client still waiting on a deferred
+        // response, and the server abandons one whose connection has gone.
+        HeldConnection conn;
+        QVERIFY(conn.open());
+        conn.send(server, modernBody("tools/call", params, 93));
+
+        QCOMPARE(spy.count(), 1);
+        QVERIFY2(!*ran, "the tool must wait for the answer, not run and then ask");
+
+        // Answering with the handle runs it — the round trip a stateless caller
+        // could not previously complete.
+        server.confirmationResolved(spy.at(0).at(2).toString(), true);
+        QVERIFY2(*ran, "a confirmed modern call must actually dispatch");
+    }
+
+    // A confirmation whose requester has gone cannot be meaningfully answered.
+    // This is the ONLY backstop the modern era can have — no session, so no idle
+    // reaper will ever come for it — and for legacy it replaces "noticed up to
+    // thirty minutes later" with "noticed immediately".
+    void confirmationIsAbandonedWhenTheConnectionDrops()
+    {
+        McpServer server;
+        Settings settings;
+        settings.mcp()->setMcpAccessLevel(2);
+        settings.mcp()->setMcpConfirmationLevel(1);
+        server.setSettings(&settings);
+        auto ran = std::make_shared<bool>(false);
+        server.toolRegistry()->registerTool(
+            "machine_start", "stub",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [ran](const QJsonObject&) -> QJsonObject {
+                *ran = true;
+                return QJsonObject{{"success", true}};
+            },
+            "control");
+
+        QSignalSpy spy(&server, &McpServer::confirmationRequested);
+        QJsonObject params;
+        params["name"] = "machine_start";
+        params["arguments"] = QJsonObject{{"action", "espresso"}};
+        // Expected BEFORE the send: sendHttp closes its socket on return, so the
+        // backstop fires inside that call, not after it.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Pending confirmation for machine_start "
+                                                "abandoned — its connection closed"));
+
+        // sendHttp deliberately, NOT HeldConnection: its socket dies on return,
+        // which is the very condition under test.
+        sendHttp(server, "POST", modernBody("tools/call", params, 94));
+        QCOMPARE(spy.count(), 1);
+
+        // Answering a confirmation that is already gone must do nothing at all.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("confirmationResolved but no pending "
+                                                "confirmation"));
+        server.confirmationResolved(spy.at(0).at(2).toString(), true);
+        QVERIFY2(!*ran,
+                 "a confirmation whose requester is gone must not still be answerable");
+    }
+
     void machineStartConfirmsInAppAndNotInChat()
     {
         McpServer server;
@@ -2104,11 +2281,26 @@ private slots:
         QJsonObject params;
         params["name"] = "machine_start";
         params["arguments"] = QJsonObject{{"action", "espresso"}};
-        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 91), sid);
+        // Held open — see HeldConnection. Previously this used sendHttp, whose
+        // socket dies on return; that was invisible until the gate gained a
+        // socket-disconnect backstop, at which point this test was asserting
+        // against a confirmation the server had already abandoned.
+        HeldConnection conn;
+        QVERIFY(conn.open());
+        conn.send(server, rpcBody("tools/call", params, 91), sid);
+        auto resp = readHeld(conn);
 
         QCOMPARE(spy.count(), 1);
         QVERIFY2(!confirmationPayloadText(resp).contains("needs_confirmation"),
                  "the in-app dialog owns this tool; a chat prompt as well is a double prompt");
+
+        // The confirmation is still pending, and HeldConnection's destructor
+        // closes the socket at scope exit — inside this test function — so the
+        // backstop fires here. Expected rather than suppressed: it is the
+        // behaviour under test in the sibling case.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Pending confirmation for machine_start "
+                                                "abandoned — its connection closed"));
     }
 
     // ─── Pure helpers ──────────────────────────────────────────────────────

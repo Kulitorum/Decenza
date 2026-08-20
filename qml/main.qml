@@ -2709,24 +2709,24 @@ T.ApplicationWindow {
     // MCP confirmation dialog — shown when an AI assistant triggers a machine start operation
     McpConfirmDialog {
         id: mcpConfirmDialog
-        onConfirmed: function(sessionId) {
-            McpServer.confirmationResolved(sessionId, true)
+        onConfirmed: function(confirmationId) {
+            McpServer.confirmationResolved(confirmationId, true)
         }
-        onDenied: function(sessionId) {
-            McpServer.confirmationResolved(sessionId, false)
+        onDenied: function(confirmationId) {
+            McpServer.confirmationResolved(confirmationId, false)
         }
     }
 
     Connections {
         target: McpServer
-        function onConfirmationRequested(toolName, toolDescription, sessionId) {
+        function onConfirmationRequested(toolName, toolDescription, confirmationId) {
             if (mcpConfirmDialog.visible) {
                 // Suppress denied signal for the superseded request (C++ already handled it)
                 mcpConfirmDialog.userResponded = true
                 mcpConfirmDialog.close()
             }
             mcpConfirmDialog.toolDescription = toolDescription
-            mcpConfirmDialog.sessionId = sessionId
+            mcpConfirmDialog.confirmationId = confirmationId
             mcpConfirmDialog.open()
         }
     }

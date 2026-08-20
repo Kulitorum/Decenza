@@ -34,7 +34,30 @@ class VisualizerUploader;
 struct PendingConfirmation {
     QPointer<QTcpSocket> socket;
     QVariant requestId;
+
+    // This confirmation's OWN identity, minted per confirmation and era-
+    // independent. It is what the machine's dialog is handed and what comes back
+    // to confirmationResolved().
+    //
+    // `sessionId` used to do this job, and it was never a session lookup —
+    // nothing ever called findSession() on it. It was an opaque token that
+    // happened to be a session id, which meant a stateless caller could not have
+    // one at all. Separating the two lets both eras use one mechanism instead of
+    // legacy keeping this one and modern growing a parallel copy.
+    QString confirmationId;
+
+    // Which LEGACY session owns this, empty for a modern (stateless) caller.
+    // Now means exactly one thing: it supplies the response's `Mcp-Session-Id`
+    // and lets the session reapers abandon a confirmation whose session died.
     QString sessionId;
+
+    // Fires when the requesting connection drops. A confirmation whose requester
+    // is gone cannot be meaningfully answered, and this is the ONLY backstop the
+    // modern era can have — it has no session, so no idle reaper will ever come
+    // for it. For legacy it is an improvement rather than a cost: a dead socket
+    // was previously noticed only when the user finally tapped Confirm, up to
+    // thirty minutes later.
+    QMetaObject::Connection socketGone;
     QString toolName;
     QJsonObject arguments;
     int accessLevel;
@@ -150,11 +173,14 @@ public:
 
 signals:
     void activeSessionCountChanged();
+    // `confirmationId` is an opaque handle the UI echoes back, NOT a session id.
+    // Renamed from `sessionId` when the gate stopped borrowing one: the value it
+    // carried was never looked up as a session, and a stateless caller has none.
     void confirmationRequested(const QString& toolName, const QString& toolDescription,
-                               const QString& sessionId);
+                               const QString& confirmationId);
 
 public slots:
-    void confirmationResolved(const QString& sessionId, bool accepted);
+    void confirmationResolved(const QString& confirmationId, bool accepted);
 
 private:
     // Whether this POST body is a MODERN-era request.

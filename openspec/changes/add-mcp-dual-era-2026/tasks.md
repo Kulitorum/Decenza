@@ -94,13 +94,13 @@ destination: the end state of this plan is legacy dropped, and on that day
 refusal would make `machine_start_*` unreachable to every client. Reasoning in
 design.md.
 
-- [ ] 6.1 `PendingConfirmation` mints its own `confirmationId`. `confirmationRequested` carries it, QML echoes it back, `confirmationResolved` matches on it. Note what this replaces: the `sessionId` there is not a session lookup and never was — nothing calls `findSession` on it
-- [ ] 6.2 `sessionId` stays on the struct but narrows to what it honestly is — which legacy session owns this, for the response header and for the three reaper/DELETE abandon sites. Empty for a modern caller, and the response for one carries no `Mcp-Session-Id`
-- [ ] 6.3 Update `qml/main.qml` (the `confirmationResolved` call sites) in the same edit. The parameter is renamed, not just re-typed; a stale `sessionId` name there would read as a session for the next person
-- [ ] 6.4 Abandon the pending confirmation on `QTcpSocket::disconnected`, both eras. Event-based, not a timer. It is the only backstop the modern era can have, and for legacy it replaces "noticed up to 30 minutes later by the session reaper" with "noticed immediately"
-- [ ] 6.5 A confirmation-gated tool must NEVER be served without confirmation. That invariant does not move
-- [ ] 6.6 Test: a modern caller's confirmation round-trips and the tool runs; a modern caller's confirmation is abandoned when its socket drops; a legacy caller's behaviour is unchanged end to end
-- [ ] 6.7 `tst_mcpserver_session.cpp` may need updating here — this section deliberately changes a mechanism legacy uses. Say so in the PR rather than editing it quietly. The untouched-tests rule of 2.5 applies in full to the first PR
+- [x] 6.1 `PendingConfirmation` mints its own `confirmationId`. `confirmationRequested` carries it, QML echoes it back, `confirmationResolved` matches on it. Note what this replaces: the `sessionId` there is not a session lookup and never was — nothing calls `findSession` on it
+- [x] 6.2 `sessionId` stays on the struct but narrows to what it honestly is — which legacy session owns this, for the response header and for the three reaper/DELETE abandon sites. Empty for a modern caller, and the response for one carries no `Mcp-Session-Id`
+- [x] 6.3 Update `qml/main.qml` (the `confirmationResolved` call sites) in the same edit. The parameter is renamed, not just re-typed; a stale `sessionId` name there would read as a session for the next person
+- [x] 6.4 Abandon the pending confirmation on `QTcpSocket::disconnected`, both eras. Event-based, not a timer. It is the only backstop the modern era can have, and for legacy it replaces "noticed up to 30 minutes later by the session reaper" with "noticed immediately"
+- [x] 6.5 A confirmation-gated tool must NEVER be served without confirmation. That invariant does not move
+- [x] 6.6 Test: a modern caller's confirmation round-trips and the tool runs; a modern caller's confirmation is abandoned when its socket drops; a legacy caller's behaviour is unchanged end to end
+- [x] 6.7 In the event `tst_mcpserver_session.cpp` did NOT need touching; `tst_mcpserver_protocol.cpp` did, and more than expected — the socket-disconnect backstop broke five confirmation tests at once by revealing that the harness had never modelled connection lifetime. A `HeldConnection` helper was added for that. Original task: `tst_mcpserver_session.cpp` may need updating here — this section deliberately changes a mechanism legacy uses. Say so in the PR rather than editing it quietly. The untouched-tests rule of 2.5 applies in full to the first PR
 
 ## 7. `subscriptions/listen`
 

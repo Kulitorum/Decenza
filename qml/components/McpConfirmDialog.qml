@@ -13,12 +13,15 @@ DecenzaDialog {
     closePolicy: Dialog.NoAutoClose
 
     property string toolDescription: ""
-    property string sessionId: ""
+    // Opaque handle for the pending confirmation, echoed back untouched. NOT a
+    // session id — the gate stopped borrowing one so a stateless MCP caller can
+    // hold a confirmation too.
+    property string confirmationId: ""
     property bool userResponded: false
     property int countdown: 15
 
-    signal confirmed(string sessionId)
-    signal denied(string sessionId)
+    signal confirmed(string confirmationId)
+    signal denied(string confirmationId)
 
     // 15-second auto-dismiss timer (legitimate UI auto-dismiss per CLAUDE.md)
     Timer {
@@ -39,7 +42,7 @@ DecenzaDialog {
     // Dialog closure drives the callback — not the raw timer
     onClosed: {
         if (!root.userResponded)
-            root.denied(root.sessionId)
+            root.denied(root.confirmationId)
         root.userResponded = false
         root.countdown = 15
     }
@@ -154,7 +157,7 @@ DecenzaDialog {
                 accessibleName: TranslationManager.translate("mcp.confirm.denyAccessible", "Deny AI action")
                 onClicked: {
                     root.userResponded = true
-                    root.denied(root.sessionId)
+                    root.denied(root.confirmationId)
                     root.close()
                 }
                 background: Rectangle {
@@ -181,7 +184,7 @@ DecenzaDialog {
                     "Allow AI action: %1").arg(root.toolDescription)
                 onClicked: {
                     root.userResponded = true
-                    root.confirmed(root.sessionId)
+                    root.confirmed(root.confirmationId)
                     root.close()
                 }
                 background: Rectangle {

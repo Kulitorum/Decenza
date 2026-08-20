@@ -21,6 +21,7 @@
 #include <QFile>
 #include <QNetworkInterface>
 #include <QHostAddress>
+#include <QUuid>
 #include <QUrl>
 
 // Tool registration functions (implemented in mcptools_*.cpp)
@@ -1542,15 +1543,9 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
                 return makeErrorResult(-32000, QStringLiteral("Rate limit exceeded"));
             }
         }
-        // Confirmation-gated tools stay refused. The gate routes its answer back
-        // through a sessionId a stateless caller does not have; giving it an
-        // identity of its own is a separate piece of work. Refused with a reason
-        // rather than served ungated — never the latter.
-        if (needsInAppConfirmation(toolName, arguments)) {
-            return makeErrorResult(-32601,
-                                   QStringLiteral("Tool '%1' requires in-app confirmation, which "
-                                                  "has no stateless form yet.").arg(toolName));
-        }
+        // Confirmation-gated tools are reachable now. The gate carries its own
+        // handle rather than borrowing a session id, so a stateless caller can
+        // hold one exactly as a legacy caller does.
     }
 
     // Rate limiting for control + settings tools. Resolved from the ARGUMENTS, not
@@ -1595,22 +1590,33 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         // rather than guarded — a null here would mean the modern refusal was
         // removed without giving the gate a stateless identity first, which is
         // the one outcome that must never be silent.
-        Q_ASSERT(session);
         abandonPendingConfirmation(QStringLiteral("superseded by a newer request"));
 
         PendingConfirmation pending;
         pending.socket = socket;
         pending.requestId = requestId;
-        pending.sessionId = session->id();
+        pending.confirmationId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        // Empty for a modern caller — it has no session, and this field now
+        // means only "which legacy session owns this".
+        pending.sessionId = session ? session->id() : QString();
         pending.toolName = toolName;
         pending.arguments = arguments;
         pending.accessLevel = accessLevel;
         pending.protocolVersion = protocolVersion;
+        // The connection dropping is what makes this answerable-or-not, in both
+        // eras. Wired here rather than relying on a reaper, because the modern
+        // era has none — and because "noticed when the user finally answers" was
+        // never a good enough answer for legacy either.
+        if (socket) {
+            pending.socketGone = connect(socket, &QTcpSocket::disconnected, this, [this]() {
+                abandonPendingConfirmation(QStringLiteral("its connection closed"));
+            });
+        }
         m_pendingConfirmation = pending;
 
         QString description = confirmationDescription(toolName, arguments);
         emit confirmationRequested(confirmationActionId(toolName, arguments),
-                                   description, session->id());
+                                   description, pending.confirmationId);
 
         QJsonObject deferred;
         deferred["_deferred"] = true;
@@ -1980,6 +1986,9 @@ void McpServer::abandonPendingConfirmation(const QString& reason)
         return;
     const auto pending = m_pendingConfirmation.value();
     m_pendingConfirmation.reset();
+    // Before anything else: the lambda calls back into this function, and a live
+    // connection during the socket's own teardown would re-enter it.
+    QObject::disconnect(pending.socketGone);
 
     MCP_WARN_TAGGED("Server", QStringLiteral("Pending confirmation for %1 abandoned — %2")
                                   .arg(pending.toolName, reason));
@@ -1993,7 +2002,7 @@ void McpServer::abandonPendingConfirmation(const QString& reason)
                         pending.requestId, pending.sessionId);
 }
 
-void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
+void McpServer::confirmationResolved(const QString& confirmationId, bool accepted)
 {
     if (!m_pendingConfirmation.has_value()) {
         MCP_WARN_TAGGED("Server", QStringLiteral("confirmationResolved but no pending confirmation"));
@@ -2002,15 +2011,16 @@ void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
 
     auto pending = m_pendingConfirmation.value();
 
-    if (pending.sessionId != sessionId) {
-        MCP_WARN_TAGGED("Server", QStringLiteral("confirmation session mismatch, expected %1 got %2")
-                                      .arg(pending.sessionId, sessionId));
+    if (pending.confirmationId != confirmationId) {
+        MCP_WARN_TAGGED("Server", QStringLiteral("confirmation handle mismatch, expected %1 got %2")
+                                      .arg(pending.confirmationId, confirmationId));
         // Don't reset m_pendingConfirmation — a newer valid confirmation may be pending.
         // This can happen when a stale QML callback arrives after a superseded dialog.
         return;
     }
 
     m_pendingConfirmation.reset();
+    QObject::disconnect(pending.socketGone);
 
     if (!pending.socket || pending.socket->state() != QAbstractSocket::ConnectedState) {
         MCP_WARN_TAGGED("Server", QStringLiteral("confirmation socket disconnected, dropping "
