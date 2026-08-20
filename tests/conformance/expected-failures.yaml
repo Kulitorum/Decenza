@@ -1,0 +1,70 @@
+# Baseline for the official MCP conformance suite.
+#
+#   npx @modelcontextprotocol/conformance server \
+#     --url http://<host>:<port>/mcp \
+#     --expected-failures tests/conformance/expected-failures.yaml
+#
+# Every entry is a scenario that CANNOT pass against this server and is not a
+# defect. Two reasons only, both marked below. A scenario that fails for any
+# other reason does not belong here — it belongs fixed.
+#
+# The suite exits non-zero for an unexpected failure AND for a stale entry (one
+# listed here that has started passing), so this file cannot quietly rot. When a
+# scenario here starts passing, delete its line; that is the suite telling you
+# the reason below expired.
+#
+# Deliberately NOT listed, so they stay gates rather than excuses:
+#   server-accepts-multiple-post-streams — a real defect, fixed. It sends its
+#     concurrent POSTs carrying `MCP-Protocol-Version: 2025-03-26`, the
+#     protocol's compatibility sentinel, and those were being answered 400.
+#   initialize, ping, tools-list, resources-list, resources-subscribe,
+#     resources-unsubscribe, dns-rebinding-protection — passing today.
+
+server:
+  # ── FIXTURE SURFACE ──────────────────────────────────────────────────────
+  # The suite drives a reference server that exposes a fixed set of test tools
+  # and resources (`test_simple_text`, `test://static-text`, …). Decenza serves
+  # its own 66 espresso tools, so these scenarios fail with "Unknown tool" /
+  # "Unknown resource" without ever reaching protocol behaviour.
+  #
+  # Registering the fixtures was considered and rejected. Two of them would
+  # exercise code we already have; the other ten would mean building content
+  # kinds we never emit (image, audio, embedded resource), a progress-
+  # notification feature we do not have, and Sampling/Elicitation — features we
+  # declined and which 2026-07-28 deprecates. Fixture tools would also land on
+  # the live `tools/list`, which every client fetches on every connection and
+  # real clients truncate; scripts/check_mcp_tool_budget.py caps that list at 80
+  # and we are at 66.
+  - tools-call-simple-text
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+  - tools-call-error
+  - tools-call-with-progress
+  - tools-call-sampling
+  - tools-call-elicitation
+  - elicitation-sep1034-defaults
+  - elicitation-sep1330-enums
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+
+  # ── CAPABILITY NOT DECLARED ──────────────────────────────────────────────
+  # `initialize` declares exactly two server capabilities, `tools` and
+  # `resources`. A server implements what it declares; the suite runs these
+  # regardless of the handshake rather than gating on it, so they fail on a
+  # capability we never claimed.
+  #
+  # Implementing any of them to turn a line green would be building a feature
+  # whose only caller is the harness. Note also that Logging is DEPRECATED as of
+  # 2026-07-28 and `logging/setLevel` is removed outright there, so the two
+  # logging entries below will never be worth clearing.
+  - prompts-list
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image
+  - completion-complete
+  - logging-set-level
+  - tools-call-with-logging
