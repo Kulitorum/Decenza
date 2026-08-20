@@ -252,6 +252,21 @@ above. Legacy behaviour changes wherever it disagreed with the spec. That is a
 real risk to a working client and it is taken deliberately: clients are written
 against the spec, so converging on the spec is converging on them.
 
+*What it does NOT buy, measured rather than assumed:* the suite covers two of
+the four revisions we advertise. `--spec-version 2024-11-05` is rejected as an
+unknown version, and `2025-03-26` selects zero scenarios; only 2025-06-18 and
+2025-11-25 have any. So a green run says nothing about half the advertised list,
+and the two oldest revisions remain verified by our own tests alone. Say that
+plainly wherever the result is reported — "legacy conforms" would be a broader
+claim than the evidence.
+
+*And what it did not find:* every deviation this plan predicted the suite would
+flag — the auto-recovery branch, un-tombstoned reaper sessions, absent
+`Last-Event-ID` replay, event IDs that do not encode their stream, batch
+accepted at every revision — went unchallenged. One defect was found, and it was
+not on the list. Read that as the suite not probing those areas, not as their
+being cleared.
+
 ### A deviation the suite flags is re-derived, not automatically fixed
 
 Each conformance failure is triaged into a defect or a deliberate deviation, and

@@ -3,9 +3,13 @@
 ### Requirement: The Server Conforms To Every Protocol Revision It Advertises
 
 Advertising a protocol revision is a claim to implement it. The server SHALL
-conform to every revision it advertises, legacy revisions included, and that
-conformance SHALL be verified against the protocol's own conformance suite
-rather than against this project's tests alone.
+conform to every revision it advertises, legacy revisions included.
+
+Where the protocol's own conformance suite covers a revision, conformance SHALL
+be verified against it rather than against this project's tests alone. Where it
+does not — the suite does not cover every revision this server advertises — a
+green run SHALL NOT be reported as evidence about the revisions it did not
+exercise.
 
 Where the server deviates from a revision it advertises, the deviation SHALL be
 deliberate, SHALL be recorded at the point in the code where it occurs, and
@@ -16,8 +20,13 @@ A revision the server cannot conform to SHALL NOT be advertised.
 
 #### Scenario: An advertised revision is exercised
 
-- **WHEN** the conformance suite is run against the server for any revision the server advertises
+- **WHEN** the conformance suite is run against the server for a revision the suite covers
 - **THEN** every requirement of that revision either passes, or fails at a point the code documents as a deliberate deviation
+
+#### Scenario: An advertised revision the suite does not cover
+
+- **WHEN** the server advertises a revision the conformance suite has no scenarios for
+- **THEN** its conformance is reported as unverified rather than implied by the other revisions' results
 
 #### Scenario: A deviation protects a client the spec would break
 
