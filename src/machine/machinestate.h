@@ -1,5 +1,7 @@
 #pragma once
 
+#include "samplestreak.h"
+
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
@@ -136,7 +138,7 @@ public:
     void onFlowSample(double flowRate, double deltaTime);
 
     // Tare the scale (call from MainController when first user frame starts)
-    Q_INVOKABLE void tareScale();
+    Q_INVOKABLE void tareScale(double triggerWeight = -1e18);
 
     // #1161: true iff stop-at-volume (SAV) ended the current/just-ended
     // shot. Set in checkStopAtVolume; reset by updatePhase at the START OF
@@ -192,11 +194,13 @@ private slots:
     void onDE1StateChanged();
     void onDE1SubStateChanged();
     void onScaleWeightChanged(double weight);
-    void evaluateAutoTare(double weight);
+    void onScaleWeightSampleReceived(double weight);
     void onShotTimerTick();
     void onTimingControllerTareComplete();
 
 private:
+    void resetAutoTareGates();
+    void issueAutoTare();
     static MachineState *s_qmlInstance;
 
     // Install the serving-scale provider on SettingsCalibration, which resolves the SAW
@@ -254,18 +258,30 @@ private:
     // Throttled debug logging for scale weight during active phases
     qint64 m_lastWeightLogMs = 0;
 
-    // Auto-tare during "flow before" phase (cup placed during preheat)
-    qint64 m_lastAutoTareTime = 0;
+    // Auto-tare during "flow before" phase (cup placed during preheat).
+    // There is deliberately no wall-clock holdoff here any more: m_awaitingTareEffect
+    // below is the event-based interlock that replaced it.
+    double m_autoTareLastSample = 0.0;
 
-    // Auto-tare settle gate and post-tare zero verification (#1840). See the
-    // block in onScaleWeightChanged() for what each one defends against; both are
-    // consecutive-sample counters rather than timers, so they scale with whatever
-    // rate the scale actually reports at.
-    double m_autoTareLastWeight = 0.0;
-    int m_autoTareStableCount = 0;      // consecutive samples inside the settle band
-    bool m_autoTareHasLastWeight = false;
-    int m_zeroDriftCount = 0;           // consecutive samples showing a drifted zero
-    int m_retareAttempts = 0;           // re-tares issued this pre-flow window
+    // Auto-tare settle gate and post-tare zero verification. See
+    // onScaleWeightSampleReceived() for what each one defends against; all of them
+    // are consecutive-sample measures rather than timers, so they scale with
+    // whatever rate the scale actually reports at.
+    SampleStreak::Window m_autoTareWindow{3};   // spread of the last N samples
+    SampleStreak::Counter m_zeroDriftStreak;    // consecutive samples showing a drifted zero
+    SampleStreak::Counter m_unsettledCupStreak; // consecutive samples a cup sat unsettled
+    // Reset whenever the pre-flow window is left, so it really is per-window.
+    int m_retareAttempts = 0;
+    // Set when a tare command goes out, cleared when the scale is OBSERVED to zero.
+    // This is the event-based interlock that replaces the old wall-clock holdoff: a
+    // scale that has not yet processed the last tare cannot be sent another one.
+    bool m_awaitingTareEffect = false;
+    // A lift/placement is a STEP; a bad zero is a gradual drift. Set on a large
+    // negative step so the drift gate cannot mistake a lifted cup for a bad tare,
+    // whatever the cup weighs.
+    bool m_liftSuspected = false;
+    bool m_retareIssuedThisWindow = false;  // so recovery can be reported once
+    bool m_settleWaitLogged = false;        // latch for the once-per-streak notice
 
     // Hot water fire-and-forget tare: baseline weight at tare time.
     // SAW uses (scale_weight - baseline) so it works whether or not the BLE tare executes.

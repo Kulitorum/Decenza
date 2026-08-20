@@ -1,5 +1,7 @@
 #pragma once
 
+#include "samplestreak.h"
+
 #include <QObject>
 #include <QThread>
 #include <QList>
@@ -150,7 +152,7 @@ private:
     // Auto-resets after 3 consecutive rejections to handle legitimate shifts.
     double m_lastRawWeight = 0;
     bool m_hasLastWeight = false;
-    int m_consecutiveRejections = 0;
+    SampleStreak::Counter m_consecutiveRejections;
     // Held from startExtraction()/resetForRetare() until the tare is observed to
     // have landed at the scale. The step from a loaded portafilter to zero is the
     // app's own doing, not corruption — see processWeight(). Cleared by a near-zero
@@ -164,7 +166,7 @@ private:
     // support sixteen scale types whose behaviour around a tare is unmeasured — so one
     // packet must not be able to consume the exemption. Costs ~200 ms during preheat.
     static constexpr int kTareLandedConfirmations = 2;
-    int m_tareLandedSamples = 0;
+    SampleStreak::Counter m_tareLandedSamples;
 
     // Scale-feed liveness (in-shot backstop). Evaluated on the DE1 tick so a
     // fully-silent scale is still detected. 2000ms mirrors the de-jitter
@@ -202,7 +204,7 @@ private:
 
     // Oscillation recovery (e.g. Bookoo mid-shot tare reset)
     bool m_oscillationDetected = false;  // true while waiting for scale to re-settle after oscillation
-    int m_settleCount = 0;               // consecutive near-zero readings since oscillation detected
+    SampleStreak::Counter m_settleCount;               // consecutive near-zero readings since oscillation detected
 
     // De-jitter: compensates for main thread event batching (see processWeight comments)
     qint64 m_lastWallClockMs = 0;       // Wall-clock time of last processWeight() call
@@ -268,7 +270,7 @@ private:
     // reading can't revive a streak the real tare-confirmed zero already broke.
     // Event-based debounce (consecutive samples, not elapsed time) for the
     // untared-cup popup against a stale pre-tare-confirmation sample.
-    int m_highWeightStreakSamples = 0;
+    SampleStreak::Counter m_highWeightStreakSamples;
 
     // Configuration (set at shot start; m_targetWeight may be updated mid-shot via setTargetWeight)
     double m_targetWeight = 0;

@@ -6,6 +6,13 @@
 #include "../ble/scaledevice.h"
 #include "../ble/scales/scaletypeids.h"
 #include "../ble/scales/scalelogging.h"
+
+// Alias rather than hand-typing "AutoTare" at each call site — a repeated tag is a
+// drift opportunity, and every other multi-site tag in this subsystem is aliased the
+// same way (SCALEFEED_LOG in weightprocessor.cpp, SIMSCALE_LOG in simulatedscale.cpp).
+#define SCALE_AUTOTARE_LOG(msg)  SCALE_LOG_STDERR_TAGGED("AutoTare", msg)
+#define SCALE_AUTOTARE_INFO(msg) SCALE_INFO_STDERR_TAGGED("AutoTare", msg)
+#define SCALE_AUTOTARE_WARN(msg) SCALE_WARN_STDERR_TAGGED("AutoTare", msg)
 #include "../core/settings.h"
 #include "../core/settings_calibration.h"  // currentScaleType()/setServingScale() — settings.h
                                            // only forward-declares the domain sub-objects
@@ -186,9 +193,10 @@ void MachineState::setScale(ScaleDevice* scale) {
     if (m_scale) {
         connect(m_scale, &ScaleDevice::weightChanged,
                 this, &MachineState::onScaleWeightChanged);
-        // Auto-tare runs off sample ARRIVALS, not value changes — see evaluateAutoTare().
+        // Auto-tare runs off sample ARRIVALS, not value changes — see the comment on
+        // onScaleWeightSampleReceived().
         connect(m_scale, &ScaleDevice::weightSampleReceived,
-                this, &MachineState::evaluateAutoTare);
+                this, &MachineState::onScaleWeightSampleReceived);
         // Relay weight changes to QML via scaleWeightChanged signal (throttled to 10Hz)
         // LSLR flow rate is computed by WeightProcessor on a worker thread
         // and cached via updateCachedFlowRates()
@@ -526,11 +534,7 @@ void MachineState::updatePhase() {
                 m_hotWaterTareTimeMs = 0;
                 m_hotWaterMaxEffectiveWeight = 0.0;
                 m_hotWaterSawTriggerWeight = -1.0;
-                m_lastAutoTareTime = 0;  // Reset holdoff for new flow cycle
-                m_autoTareHasLastWeight = false;
-                m_autoTareStableCount = 0;
-                m_zeroDriftCount = 0;
-                m_retareAttempts = 0;
+                resetAutoTareGates();  // new flow cycle
                 m_preinfusionVolume = 0.0;
                 m_pourVolume = 0.0;
                 m_cumulativeVolume = 0.0;
@@ -711,11 +715,7 @@ void MachineState::updatePhase() {
         if (isInEspresso && !wasInEspresso) {
             m_shotTime = 0.0;
             m_shotStartTime = 0;  // Mark as invalid so preinfusion properly starts it
-            m_lastAutoTareTime = 0;  // Reset holdoff for new espresso cycle
-            m_autoTareHasLastWeight = false;
-            m_autoTareStableCount = 0;
-            m_zeroDriftCount = 0;
-            m_retareAttempts = 0;
+            resetAutoTareGates();  // new espresso cycle
             emit shotTimeChanged();  // Update UI to show 0 during preheating
 
             // Reset scale timer at cycle start (like de1app's on_major_state_change).
@@ -793,55 +793,79 @@ void MachineState::updatePhase() {
     }
 }
 
-// Auto-tare and its two safety gates. Driven by weightSampleReceived — every
-// sample ARRIVAL — not by weightChanged, which ScaleDevice::setWeight dedupes on
-// value (scaledevice.cpp:168). Both gates below count consecutive samples, and a
-// scale holding a genuinely constant reading emits no weightChanged at all: on the
-// deduped signal a perfectly still cup would never accumulate a settle streak and
+// Clears every auto-tare gate. One definition, called from each site that starts a
+// fresh flow cycle and from the pre-flow window exit — the four counters used to be
+// re-listed at each of those, which is how m_retareAttempts came to be reset at some
+// of them and not others.
+void MachineState::resetAutoTareGates() {
+    m_autoTareWindow.reset();
+    m_zeroDriftStreak.reset();
+    m_unsettledCupStreak.reset();
+    m_retareAttempts = 0;
+    m_awaitingTareEffect = false;
+    m_liftSuspected = false;
+    m_retareIssuedThisWindow = false;
+    m_settleWaitLogged = false;
+}
+
+// Auto-tare and its safety gates. Driven by weightSampleReceived — every sample
+// ARRIVAL — not by weightChanged, which ScaleDevice::setWeight dedupes on value
+// (the `if (m_weight != weight)` guard; scaledevice.cpp:168 at the time of writing,
+// but go by the guard, not the line). The gates below measure consecutive samples,
+// and a scale holding a genuinely constant reading emits no weightChanged at all:
+// on the deduped signal a perfectly still cup would never fill a settle window and
 // could never be tared. Constant-weight windows are real on this hardware — the
 // scale-feed liveness detector exists precisely because they are (#1176).
-void MachineState::evaluateAutoTare(double weight) {
+void MachineState::onScaleWeightSampleReceived(double weight) {
     // Auto-tare during "flow before" phase (like de1app: heating substates before water flows)
     // Handles forgotten-cup scenario for both Espresso and HotWater
     constexpr double AUTO_TARE_THRESHOLD = 2.0;  // grams (de1app uses 0.04g, 2g avoids noise)
-    constexpr qint64 AUTO_TARE_HOLDOFF_MS = 1000;  // 1s between tares (matches de1app)
 
     // A tare zeroes the scale on whatever the load cell reads at that instant, so
-    // taring while the cell is still ringing from cup placement bakes the transient
-    // in as the new zero — and every reading for the rest of the shot is off by it,
-    // silently, with `tare= true` in the log the whole way.
+    // taring while the cell is still moving bakes the transient in as the new zero —
+    // and every reading for the rest of the shot is off by it, silently, with
+    // `tare= true` in the log the whole way.
     //
-    // Shot 1111 (2026-08-20 9:37 AM) is the worked example. The auto-tare fired 8 ms
-    // after WeightProcessor had already logged "Scale oscillation detected
-    // (weight=-6.80 g)" on a cell swinging -6.8 -> +8.3 g in 13 ms. The scale
-    // acknowledged with 0.00 g, then drifted to -20.6 g at rest before extraction
-    // started. SAW spent the shot chasing a 36 g target that was really 56.6 g and
-    // stopped 23 g late; the grind detector then read the 59.4 g yield as a loose
-    // puck and told the user to grind finer. Nothing in the pipeline disagreed.
+    // The worked example is the 2026-08-20 9:37 AM shot (id 1111 in the local shot
+    // database; not reproducible from this repo). Its log shows a -6.8 g reading and
+    // an +8.3 g reading 13 ms apart, with WeightProcessor's "Scale oscillation
+    // detected" warning between them, and the auto-tare firing on the second. Note
+    // 13 ms is far tighter than the 2-10 Hz these scales nominally report, so those
+    // two lines are best read as a burst or as two log sites observing one
+    // disturbance — the exact sample cadence was never established. What IS on the
+    // record and is what matters here: the scale acknowledged the tare with 0.00 g,
+    // then read -20.6 g at rest before extraction started. SAW spent the shot
+    // chasing a 36 g target that was really 56.6 g and stopped 23 g late; the grind
+    // detector then read the 59.4 g yield as a loose puck and told the user to grind
+    // finer. Nothing in the pipeline disagreed.
     //
-    // Two independent gates, because they fail differently:
+    // Two gates, because they fail differently:
     //   1. SETTLE — do not tare a moving reading. Prevention.
     //   2. ZERO VERIFICATION — after taring, confirm the zero HELD. Detection, and
     //      the one that actually guarantees correctness: a hardware tare can settle
     //      badly even when issued at a perfectly still moment, and only watching the
     //      result can catch that.
-    // Both are consecutive-sample counters, not timers, so they track whatever rate
-    // the scale reports at (3 samples is 300 ms at 10 Hz, 1.5 s at 2 Hz).
-    constexpr double AUTO_TARE_SETTLE_BAND_G = 1.0;   // max sample-to-sample drift to call it still
-    constexpr int AUTO_TARE_SETTLE_SAMPLES = 3;       // consecutive still samples before taring
+    //
+    // Settle is measured as the SPREAD across a window, not as a per-sample delta.
+    // That distinction is load-bearing: the -20.6 g drift above moved roughly 0.47 g
+    // per sample, so a per-step band of 1 g would have called it still and tared
+    // anyway — the gate would not have caught the bug it was written for.
+    constexpr double AUTO_TARE_SETTLE_BAND_G = 1.0;   // max spread across the window
     constexpr double ZERO_DRIFT_G = -2.0;             // below this, the zero did not hold
-    // Below THIS the cup was lifted off, not mis-tared. The bound is set by the
-    // LIGHTEST cup in service, not by how large a bad tare can get: this user's
-    // smallest espresso cup is 50 g, so -35 g leaves 15 g of margin before a lift
-    // could be mistaken for a drifted zero. Lower it further if a lighter cup
-    // appears. The two errors are not symmetric, which is why the margin goes on
-    // this side — a bad tare larger than 35 g simply goes uncorrected (the shot is
-    // wrong, as it is today), whereas re-taring a lifted cup zeroes an empty
-    // platform and the returning cup reads as yield, stopping the next shot almost
-    // immediately. Fail toward doing nothing.
-    constexpr double ZERO_DRIFT_FLOOR_G = -35.0;
     constexpr int ZERO_DRIFT_SAMPLES = 3;             // consecutive drifted samples before re-taring
     constexpr int MAX_RETARE_ATTEMPTS = 3;            // give up rather than loop on a sick scale
+    // A cup being lifted off is a STEP — a whole cup mass inside one or two samples.
+    // A bad zero is a gradual drift. Discriminating by SHAPE rather than by magnitude
+    // is what lets this work for a cup of any weight; an earlier revision used a
+    // -35 g floor derived from the author's lightest cup, which silently re-tared an
+    // empty platform for anyone using a 20-30 g glass. Re-taring a lifted cup is the
+    // one way this gate can make things worse than doing nothing: the returning cup
+    // then reads as yield and stops the next shot almost immediately.
+    constexpr double LIFT_STEP_G = -8.0;
+    // If the reading never settles we still have to tare, or a cup on a permanently
+    // noisy scale is never tared at all — the forgotten-cup failure that the
+    // auto-tare exists to prevent (#299/#303). Sample-counted, not timed.
+    constexpr int UNSETTLED_CUP_FALLBACK_SAMPLES = 50;
 
     bool isFlowBefore = false;
 
@@ -856,93 +880,136 @@ void MachineState::evaluateAutoTare(double weight) {
     }
 
     if (!isFlowBefore) {
-        // Outside the pre-flow window neither gate applies. Drop both streaks so a
-        // stale one cannot authorise a tare on the next cycle's first sample, and so
+        // Outside the pre-flow window no gate applies. Clear everything so a stale
+        // streak cannot authorise a tare on the next window's first sample, and so
         // weight legitimately arriving in the cup during a pour is never mistaken for
-        // a drifted zero.
-        m_autoTareHasLastWeight = false;
-        m_autoTareStableCount = 0;
-        m_zeroDriftCount = 0;
-    } else {
-        // Track stillness by sample-to-sample DRIFT, not absolute value — the reading
-        // being tared away is a cup that may weigh hundreds of grams.
-        if (m_autoTareHasLastWeight
-            && qAbs(weight - m_autoTareLastWeight) <= AUTO_TARE_SETTLE_BAND_G) {
-            ++m_autoTareStableCount;
+        // a drifted zero. m_retareAttempts is cleared here too — it is documented as
+        // per-window, and leaving it set was making the gate die permanently for a
+        // user who repeatedly started and cancelled hot water.
+        resetAutoTareGates();
+        return;
+    }
+
+    // A step this large is a cup arriving or leaving, not a zero drifting. Latch it
+    // until the reading comes back up, so the drift gate cannot fire while a cup is
+    // off the scale.
+    if (!m_autoTareWindow.isEmpty() && (weight - m_autoTareLastSample) <= LIFT_STEP_G)
+        m_liftSuspected = true;
+    if (weight > ZERO_DRIFT_G)
+        m_liftSuspected = false;
+    m_autoTareLastSample = weight;
+
+    m_autoTareWindow.add(weight);
+    const bool scaleSettled = m_autoTareWindow.withinBand(AUTO_TARE_SETTLE_BAND_G);
+
+    // The tare interlock. A tare command is only "spent" once the scale is seen to
+    // zero; until then no further tare goes out. This replaces a 1 s wall-clock
+    // holdoff, which CLAUDE.md bans as a guard and which could not tell "the tare I
+    // sent has not been processed yet" from "the tare was processed and came out
+    // wrong" — on a slow-tare scale that difference is three queued BLE tares, one
+    // of which can land mid-extraction and zero away the shot.
+    if (m_awaitingTareEffect) {
+        if (qAbs(weight) <= AUTO_TARE_THRESHOLD) {
+            m_awaitingTareEffect = false;
+            m_zeroDriftStreak.reset();
         } else {
-            m_autoTareStableCount = 0;
-        }
-        m_autoTareLastWeight = weight;
-        m_autoTareHasLastWeight = true;
-
-        const bool scaleSettled = m_autoTareStableCount >= AUTO_TARE_SETTLE_SAMPLES;
-        const qint64 now = QDateTime::currentMSecsSinceEpoch();
-        const bool holdoffElapsed = (now - m_lastAutoTareTime) >= AUTO_TARE_HOLDOFF_MS;
-
-        // Gate 2's trigger. Nothing lands in the cup before flow starts, so a reading
-        // that has drifted below zero here can only mean the zero itself is wrong.
-        // Floored at ZERO_DRIFT_FLOOR_G: a swing that large is the cup being lifted
-        // off, and re-taring THAT would zero an empty scale — then the cup coming back
-        // reads as yield and SAW stops the next shot almost immediately.
-        const bool zeroDrifted = m_tareCompleted
-                                 && weight < ZERO_DRIFT_G
-                                 && weight > ZERO_DRIFT_FLOOR_G;
-        m_zeroDriftCount = zeroDrifted ? m_zeroDriftCount + 1 : 0;
-
-        // Gate 1's trigger: the original forgotten-cup path.
-        const bool cupPlaced = m_tareCompleted && weight > AUTO_TARE_THRESHOLD;
-
-        if (cupPlaced && holdoffElapsed) {
-            if (!scaleSettled) {
-                // Not an error — the cup has only just landed. Say so once per settle
-                // streak so a log reader can tell "waiting for the cell to stop
-                // ringing" apart from "the auto-tare never fired at all".
-                if (m_autoTareStableCount == 0) {
-                    SCALE_LOG_STDERR_TAGGED("AutoTare",
-                        QStringLiteral("Cup placed during %1 (weight %2 g) — holding tare until "
-                                       "the reading settles (%3 still samples needed)")
-                            .arg(phaseString()).arg(weight, 0, 'f', 1)
-                            .arg(AUTO_TARE_SETTLE_SAMPLES));
-                }
-            } else {
-                m_lastAutoTareTime = now;
-                m_autoTareStableCount = 0;  // the tare itself moves the reading
-                m_zeroDriftCount = 0;
-                qDebug() << "=== AUTO-TARE: Cup placed during" << phaseString()
-                         << "(weight:" << weight << "g) ===";
-                tareScale();
-                emit flowBeforeAutoTare();
-            }
-        } else if (m_zeroDriftCount >= ZERO_DRIFT_SAMPLES && holdoffElapsed && scaleSettled) {
-            if (m_retareAttempts >= MAX_RETARE_ATTEMPTS) {
-                // Warn once, on the attempt that crosses the cap, then stay quiet.
-                // The advisory names the consequence because this log is what a
-                // remote reader (or the user's own AI) has to diagnose from: an
-                // uncorrected offset here does not announce itself later — it just
-                // makes SAW stop at the wrong weight and every downstream detector
-                // reason from a yield that never happened.
-                if (m_retareAttempts == MAX_RETARE_ATTEMPTS) {
-                    ++m_retareAttempts;  // latch so this fires exactly once
-                    SCALE_WARN_STDERR_TAGGED("AutoTare",
-                        QStringLiteral("Zero still off by %1 g after %2 re-tares — giving up. "
-                                       "The scale is reporting a bad zero; this shot's weights "
-                                       "and any stop-at-weight will be off by roughly that much.")
-                            .arg(weight, 0, 'f', 1).arg(MAX_RETARE_ATTEMPTS));
-                }
-            } else {
-                ++m_retareAttempts;
-                m_lastAutoTareTime = now;
-                m_zeroDriftCount = 0;
-                m_autoTareStableCount = 0;
-                SCALE_WARN_STDERR_TAGGED("AutoTare",
-                    QStringLiteral("Zero did not hold — scale settled at %1 g with nothing in "
-                                   "the cup, re-taring (attempt %2 of %3)")
-                        .arg(weight, 0, 'f', 1).arg(m_retareAttempts).arg(MAX_RETARE_ATTEMPTS));
-                tareScale();
-                emit flowBeforeAutoTare();
-            }
+            return;  // still waiting for the previous tare to show up
         }
     }
+
+    // Zero verification. Nothing lands in the cup before flow starts, so a reading
+    // that has drifted below zero here can only mean the zero itself is wrong.
+    //
+    // Espresso only. Hot water tares fire-and-forget and SAW works from
+    // (weight - m_hotWaterTareBaseline), so a non-zero raw reading there is expected
+    // and already compensated — reading it as a bad zero would re-tare needlessly and
+    // then claim, falsely, that the shot's weights are off.
+    const bool zeroDrifted = m_tareCompleted
+                             && m_phase == Phase::EspressoPreheating
+                             && !m_liftSuspected
+                             && weight < ZERO_DRIFT_G;
+    m_zeroDriftStreak.update(zeroDrifted);
+
+    // Report the recovery, not just the fault. A re-tare that WORKS used to log
+    // nothing at all, so a submitted log showed the warnings and no resolution and
+    // read as "the weights were wrong" when they had in fact been fixed. INFO because
+    // this is the user-visible tier (LOGGING.md).
+    if (m_retareIssuedThisWindow && !zeroDrifted && qAbs(weight) <= AUTO_TARE_THRESHOLD) {
+        m_retareIssuedThisWindow = false;
+        SCALE_AUTOTARE_INFO(
+            QStringLiteral("Zero held after re-tare %1 — scale now reads %2 g, weights are good")
+                .arg(m_retareAttempts).arg(weight, 0, 'f', 1));
+    }
+
+    const bool cupPlaced = m_tareCompleted && weight > AUTO_TARE_THRESHOLD;
+    m_unsettledCupStreak.update(cupPlaced && !scaleSettled);
+
+    if (cupPlaced) {
+        // Tare once the reading is still — or, if it never becomes still, once we
+        // have waited long enough that never taring is the worse outcome.
+        const bool fallback = m_unsettledCupStreak.reached(UNSETTLED_CUP_FALLBACK_SAMPLES);
+        if (!scaleSettled && !fallback) {
+            if (!m_settleWaitLogged) {
+                m_settleWaitLogged = true;
+                SCALE_AUTOTARE_LOG(
+                    QStringLiteral("Cup placed during %1 (weight %2 g) — holding tare until the "
+                                   "reading settles (spread under %3 g across %4 samples)")
+                        .arg(phaseString()).arg(weight, 0, 'f', 1)
+                        .arg(AUTO_TARE_SETTLE_BAND_G).arg(m_autoTareWindow.size()));
+            }
+            return;
+        }
+        if (fallback) {
+            SCALE_AUTOTARE_WARN(
+                QStringLiteral("Cup reading never settled over %1 samples (now %2 g) — taring "
+                               "anyway rather than leaving the cup untared; expect the zero to "
+                               "be a little off")
+                    .arg(UNSETTLED_CUP_FALLBACK_SAMPLES).arg(weight, 0, 'f', 1));
+        }
+        SCALE_AUTOTARE_INFO(QStringLiteral("Cup placed during %1 (weight %2 g) — taring")
+                                .arg(phaseString()).arg(weight, 0, 'f', 1));
+        issueAutoTare();
+        return;
+    }
+
+    if (m_zeroDriftStreak.reached(ZERO_DRIFT_SAMPLES) && scaleSettled) {
+        if (m_retareAttempts >= MAX_RETARE_ATTEMPTS) {
+            // Warn once, on the attempt that crosses the cap, then stay quiet.
+            // The advisory names the consequence because this log is what a remote
+            // reader (or the user's own AI) has to diagnose from: an uncorrected
+            // offset here does not announce itself later — it just makes SAW stop at
+            // the wrong weight and every downstream detector reason from a yield that
+            // never happened.
+            if (m_retareAttempts == MAX_RETARE_ATTEMPTS) {
+                ++m_retareAttempts;  // latch so this fires exactly once
+                SCALE_AUTOTARE_WARN(
+                    QStringLiteral("Zero still off by %1 g after %2 re-tares — giving up. "
+                                   "The scale is reporting a bad zero; this shot's weights "
+                                   "and any stop-at-weight will be off by roughly that much.")
+                        .arg(weight, 0, 'f', 1).arg(MAX_RETARE_ATTEMPTS));
+            }
+            return;
+        }
+        ++m_retareAttempts;
+        m_retareIssuedThisWindow = true;
+        SCALE_AUTOTARE_WARN(
+            QStringLiteral("Zero did not hold — scale settled at %1 g with nothing in the cup, "
+                           "re-taring (attempt %2 of %3)")
+                .arg(weight, 0, 'f', 1).arg(m_retareAttempts).arg(MAX_RETARE_ATTEMPTS));
+        issueAutoTare();
+    }
+}
+
+// The one place a tare goes out from the auto-tare gates, so the interlock and the
+// window reset can never be set at one call site and forgotten at another.
+void MachineState::issueAutoTare() {
+    m_awaitingTareEffect = true;
+    m_autoTareWindow.reset();   // the tare itself moves the reading
+    m_zeroDriftStreak.reset();
+    m_unsettledCupStreak.reset();
+    m_settleWaitLogged = false;
+    tareScale(m_autoTareLastSample);
+    emit flowBeforeAutoTare();
 }
 
 void MachineState::onScaleWeightChanged(double weight) {
@@ -1310,7 +1377,12 @@ void MachineState::updateCachedFlowRates(double flowRate, double flowRateShort) 
     }
 }
 
-void MachineState::tareScale() {
+// `triggerWeight` is the sample that prompted the tare. The hot-water branch needs
+// it because auto-tare now runs on weightSampleReceived, which ScaleDevice::setWeight
+// emits BEFORE assigning m_weight — so m_scale->weight() would hand back the PREVIOUS
+// sample. A negative default keeps every other caller (QML, manual tare) on the
+// property read they already used.
+void MachineState::tareScale(double triggerWeight) {
     // Delegate to timing controller if available (new centralized timing)
     if (m_timingController && m_phase != Phase::HotWater) {
         m_timingController->tare();
@@ -1323,7 +1395,7 @@ void MachineState::tareScale() {
     // When the scale does tare, onScaleWeightChanged detects the drop and clears
     // the baseline so SAW switches to using absolute weight.
     if (m_phase == Phase::HotWater && m_scale && m_scale->isConnected()) {
-        m_hotWaterTareBaseline = m_scale->weight();
+        m_hotWaterTareBaseline = (triggerWeight > -1e9) ? triggerWeight : m_scale->weight();
         m_hotWaterTareTimeMs = QDateTime::currentMSecsSinceEpoch();
         m_scale->tare();
         m_scale->resetFlowCalculation();
