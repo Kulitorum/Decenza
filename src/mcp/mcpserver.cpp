@@ -92,6 +92,11 @@ McpServer::McpServer(QObject* parent)
     connect(m_rateLimitTimer, &QTimer::timeout, this, [this]() {
         for (auto* session : std::as_const(m_sessions))
             session->resetControlCalls();
+        // The modern era's per-peer budget expires by window rather than by
+        // reset, but its map still needs emptying when traffic stops — pruning
+        // happens on record, and after the last request nothing records. Same
+        // tick, same reason the legacy counter resets here.
+        m_modernControlCalls.pruneNow();
     });
     m_rateLimitTimer->start();
 
@@ -2542,7 +2547,7 @@ void McpServer::sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& resul
     }
 
     QByteArray body = QJsonDocument(response).toJson(QJsonDocument::Compact);
-    sendHttpResponse(socket, 200, body, "application/json", sessionId);
+    sendHttpResponse(socket, 200, body, "application/json", sessionId, {}, protocolVersion);
 }
 
 void McpServer::sendJsonRpcError(QTcpSocket* socket, int code, const QString& message,
@@ -2571,7 +2576,8 @@ static const char* httpStatusText(int code)
 void McpServer::sendHttpResponse(QTcpSocket* socket, int statusCode,
                                   const QByteArray& body, const QString& contentType,
                                   const QString& sessionId,
-                                  const QList<QPair<QByteArray, QByteArray>>& extraHeaders)
+                                  const QList<QPair<QByteArray, QByteArray>>& extraHeaders,
+                                  const QString& protocolVersion)
 {
     // Every response leaves through here, so a silent drop here is a request the
     // client never hears about at all — the async paths log their drops, this one
@@ -2600,11 +2606,17 @@ void McpServer::sendHttpResponse(QTcpSocket* socket, int statusCode,
     if (!sessionId.isEmpty()) {
         response.append("Mcp-Session-Id: " + sessionId.toUtf8() + "\r\n");
         response.append("Mcp-Session: " + sessionId.toUtf8() + "\r\n");
-        // Echo the negotiated protocol version so clients can detect server
-        // choice on raw HTTP debugging. Per 2025-06-18 the header is required
-        // on requests; emitting it on responses is informational.
-        if (auto* s = m_sessions.value(sessionId, nullptr))
-            response.append("MCP-Protocol-Version: " + s->protocolVersion().toUtf8() + "\r\n");
+        // The version this response was FRAMED under — not necessarily the
+        // session's. They diverge when a supported header is honoured for one
+        // request, and reporting the session's made the response announce a
+        // revision whose fields it had just withheld.
+        QString reported = protocolVersion;
+        if (reported.isEmpty()) {
+            if (auto* s = m_sessions.value(sessionId, nullptr))
+                reported = s->protocolVersion();
+        }
+        if (!reported.isEmpty())
+            response.append("MCP-Protocol-Version: " + reported.toUtf8() + "\r\n");
     }
 
     // Echo the validated request Origin back if one was supplied; otherwise

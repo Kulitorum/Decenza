@@ -53,7 +53,20 @@ public:
     // applies to — a fresh listener owes nobody a carried-over count.
     void clear() { m_windows.clear(); }
 
-    // Test seam: how many keys are currently tracked.
+    // Drop windows that can no longer affect any decision, WITHOUT recording an
+    // event. Call it from whatever periodic tick the owner already has.
+    //
+    // This exists because pruning on record alone is not enough, and the comment
+    // that replaced McpRemoteAccess's reaper loop overstated it: records prune,
+    // but after traffic STOPS nothing calls record, so whatever keys were live
+    // at the last event stay resident for the process lifetime. The old reaper
+    // ran regardless of traffic and emptied the map within a window of the last
+    // attempt. That property was lost in the migration and is restored here.
+    void pruneNow() { pruneStaleWindows(QDateTime::currentDateTimeUtc()); }
+
+    // How many keys are currently tracked. Asserted by the test that pins
+    // pruneNow(), so it is a real observation rather than the unused "test seam"
+    // it was first introduced as.
     int trackedKeyCount() const { return static_cast<int>(m_windows.size()); }
 
 private:

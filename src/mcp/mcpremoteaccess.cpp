@@ -754,10 +754,12 @@ void McpRemoteAccess::onReaperTick()
             socket->close();
     }
 
-    // Expired failed-attempt windows are pruned by McpRateWindow itself on each
-    // record, so the per-source map cannot grow unbounded from many distinct (or
-    // spoofed) source addresses over uptime. This used to be a second prune loop
-    // here; it went with the mechanism.
+    // Expired failed-attempt windows. McpRateWindow prunes on every record, but
+    // that only bounds the map while traffic CONTINUES — after a token spray
+    // stops, whatever keys were live at the last attempt would stay resident for
+    // the process lifetime. The reaper tick is what empties it, which is what the
+    // hand-rolled loop here used to do before the mechanism was shared.
+    m_failedAttempts.pruneNow();
 
     // Recover from a dropped listener (e.g. interface flap) while still enabled,
     // rebinding with the correct interface for the active mode.

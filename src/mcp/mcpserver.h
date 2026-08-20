@@ -325,10 +325,19 @@ private:
                              const QString& protocolVersion);
     void sendJsonRpcError(QTcpSocket* socket, int code, const QString& message,
                           const QVariant& id, const QString& sessionId = QString());
+    // `protocolVersion`, when given, is the version this response was actually
+    // FRAMED under, and is what the `MCP-Protocol-Version` response header
+    // reports. Empty falls back to the session's negotiated version.
+    //
+    // The two differ whenever a supported header is honoured for one request:
+    // the body is built for the header's revision while the session keeps its
+    // own. Reporting the session's there made the response contradict itself —
+    // it announced a version whose fields it had deliberately withheld.
     void sendHttpResponse(QTcpSocket* socket, int statusCode,
                           const QByteArray& body, const QString& contentType,
                           const QString& sessionId = QString(),
-                          const QList<QPair<QByteArray, QByteArray>>& extraHeaders = {});
+                          const QList<QPair<QByteArray, QByteArray>>& extraHeaders = {},
+                          const QString& protocolVersion = QString());
 
     // Tool result construction. Always emits a `content[]` text block (works
     // for every protocol version). Spec-versioned additions are gated on the

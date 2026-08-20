@@ -18,6 +18,7 @@
 #include <QPair>
 
 #include "mcp/mcpserver.h"
+#include "mcp/mcpratewindow.h"
 #include "version.h"
 #include "mcp/mcpsession.h"
 #include "mcp/mcptoolregistry.h"
@@ -432,10 +433,13 @@ private slots:
         // underneath it: that revision is no longer supported (it would now take
         // the 400 branch, testing something else entirely), and `title` became
         // unconditional once the floor rose to the revision that introduced it.
-        const QJsonArray tools = resp.jsonBody["result"].toObject()["tools"].toArray();
-        QCOMPARE(tools.size(), 1);
-        QVERIFY2(!tools.first().toObject()["inputSchema"].toObject().contains("$schema"),
-                 "answered under the header version, so no 2025-11-25 field");
+        // The response header is the protocol's OWN statement of which version
+        // served this request. Keying on the absence of a version-gated field
+        // instead — `$schema` here, `title` before that — is a proxy that has
+        // already rotted twice in this file: when the proxy stops
+        // discriminating, such a test does not go red, it goes permanently
+        // green.
+        QCOMPARE(resp.protocolVersion, QString("2025-06-18"));
     }
 
     void protocolVersionHeaderMatchAccepted()
@@ -1016,12 +1020,10 @@ private slots:
     // that negotiated anything older — they are additive fields a strict earlier
     // client has no schema for.
     //
-    // HALF a test, deliberately, and worth naming as such: it asserts ABSENCE,
-    // so it passes identically whether the gate works or the feature was never
-    // implemented. The positive case — that the fields ARE emitted, with the
-    // list/read TTL split — cannot be written until 2026-07-28 is negotiable,
-    // which is the last step of this change by design. The task list carries
-    // that as an explicit follow-up rather than leaving this looking finished.
+    // The absence half. Its positive twin landed with the modern path
+    // (modernResultCarriesResultTypeAndServerInfo / modernReadResultIsNotCacheable),
+    // so removing the version gate in applyCacheHints now reddens both — this
+    // was written when only the absence half existed and said so.
     void cacheHintsDoNotLeakToLegacyRevisions()
     {
         McpServer server;
@@ -1549,8 +1551,17 @@ private slots:
 
         // The stream answers text/event-stream and does NOT complete — the
         // JSON-RPC response comes only on a graceful teardown.
-        const QByteArray opened = conn.client.waitForReadyRead(1000)
-                                      ? conn.client.readAll() : QByteArray();
+        // Read until BOTH markers arrive. The headers and the ack are two
+        // separate write()+flush() pairs, so a single waitForReadyRead can
+        // return with only the first — a latent flake that would have surfaced
+        // as "listen must open a stream" or a missing ack, neither naming the
+        // real cause.
+        QByteArray opened;
+        for (int i = 0; i < 20 && !(opened.contains("text/event-stream")
+                                    && opened.contains("acknowledged")); ++i) {
+            if (conn.client.waitForReadyRead(100))
+                opened += conn.client.readAll();
+        }
         QVERIFY2(opened.contains("text/event-stream"), "listen must open a stream");
         QVERIFY2(!opened.contains("\"result\""),
                  "a listen request is not answered while the stream is live");
@@ -1558,8 +1569,14 @@ private slots:
         // The acknowledgment MUST be the FIRST message, and nothing may precede
         // it. Without it a client cannot tell an established subscription from a
         // silent one, and the suite reads zero frames.
-        QVERIFY2(opened.contains("notifications/subscriptions/acknowledged"),
-                 "the ack must be the first frame on the stream");
+        // FIRST, not merely present — the spec says the server MUST NOT send
+        // anything on the stream before it. `contains` alone would pass a server
+        // that emitted a resource notification ahead of the ack.
+        const qsizetype ackAt = opened.indexOf("notifications/subscriptions/acknowledged");
+        QVERIFY2(ackAt >= 0, "the ack must be sent");
+        const qsizetype firstData = opened.indexOf("data: ");
+        QVERIFY2(firstData >= 0 && ackAt < firstData + 200,
+                 "the ack must be the FIRST frame, not merely somewhere on the stream");
         QVERIFY2(opened.contains("io.modelcontextprotocol/subscriptionId"),
                  "the ack carries the subscription id like every frame after it");
 
@@ -1578,7 +1595,14 @@ private slots:
         QVERIFY2(event.contains("notifications/resources/updated"), "opted-in URI must arrive");
         QVERIFY2(event.contains("io.modelcontextprotocol/subscriptionId"),
                  "every notification on a listen stream must carry its subscription id");
-        QVERIFY2(event.contains("40"), "the subscription id is the listen request's id");
+        // Parsed, not substring-matched: `contains("40")` would pass on any
+        // two-digit coincidence anywhere in the frame.
+        const qsizetype dataAt = event.indexOf("data: ");
+        QVERIFY(dataAt >= 0);
+        const QByteArray json = event.mid(dataAt + 6, event.indexOf("\n\n", dataAt) - dataAt - 6);
+        const QJsonObject notif = QJsonDocument::fromJson(json).object();
+        QCOMPARE(notif["params"].toObject()["_meta"].toObject()
+                     ["io.modelcontextprotocol/subscriptionId"].toInt(), 40);
 
         // A resource NOT opted into must not arrive at all.
         server.notifyResourceChanged("decenza://profiles/active");
@@ -1727,6 +1751,31 @@ private slots:
         QCOMPARE(result["resultType"].toString(), QString("complete"));
         QVERIFY2(result["_meta"].toObject().contains("io.modelcontextprotocol/serverInfo"),
                  "a deferred result is still a modern result");
+    }
+
+    // A rate-limit window must not outlive its usefulness. Pruning happens on
+    // record, which bounds the map only while traffic CONTINUES — after a token
+    // spray stops, nothing records again and every key seen at the last attempt
+    // would stay resident for the process lifetime. That property was lost when
+    // McpRemoteAccess's reaper loop was folded into the shared window, and this
+    // pins the pruneNow() that restores it.
+    void rateWindowForgetsKeysOnceTheirWindowCannotMatter()
+    {
+        McpRateWindow window;
+        QVERIFY(!window.recordAndCheckOverLimit(QStringLiteral("10.0.0.1"), 5));
+        QVERIFY(!window.recordAndCheckOverLimit(QStringLiteral("10.0.0.2"), 5));
+        QCOMPARE(window.trackedKeyCount(), 2);
+
+        // Nothing is stale yet, so a prune must not discard live budgets —
+        // otherwise a caller could reset its own limit by going quiet briefly.
+        window.pruneNow();
+        QCOMPARE(window.trackedKeyCount(), 2);
+
+        // And the budget still applies: six events against a limit of five.
+        for (int i = 0; i < 4; ++i)
+            window.recordAndCheckOverLimit(QStringLiteral("10.0.0.1"), 5);
+        QVERIFY2(window.recordAndCheckOverLimit(QStringLiteral("10.0.0.1"), 5),
+                 "a surviving window must still enforce its limit");
     }
 
     // ─── Spec-version gating: the floor revision sees only its own fields ───
