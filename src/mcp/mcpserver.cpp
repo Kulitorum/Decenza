@@ -129,8 +129,6 @@ const QStringList& McpServer::supportedProtocolVersions()
     static const QStringList versions = {
         QStringLiteral("2025-11-25"),
         QStringLiteral("2025-06-18"),
-        QStringLiteral("2025-03-26"),
-        QStringLiteral("2024-11-05"),
     };
     return versions;
 }
@@ -369,9 +367,13 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
         }
     }
 
-    // Text content block is always emitted: it's the only payload that
-    // 2024-11-05 / 2025-03-26 clients read, and 2025-06-18+ clients ignore it
-    // once they consume `structuredContent` below.
+    // Text content block is always emitted because `content` is REQUIRED on a
+    // tool result at every revision — `structuredContent` is additive to it,
+    // never a replacement.
+    //
+    // This previously read as "the only payload 2024-11-05 / 2025-03-26 clients
+    // read", which was never the reason and would have read as a licence to
+    // delete the block once those revisions were dropped. It is not optional.
     QJsonObject textBlock;
     textBlock["type"] = "text";
     textBlock["text"] = QString::fromUtf8(QJsonDocument(sanitized).toJson(QJsonDocument::Compact));
@@ -455,20 +457,19 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         socket->setProperty("mcpOrigin", originHeader);
 
     if (method == "POST") {
-        // JSON-RPC request. The body is either a single message object or a
-        // batch array.
+        // JSON-RPC request. The body must be a single message object.
         //
-        // Batching is required by exactly ONE of the four revisions we negotiate:
-        // 2025-03-26, whose base protocol says implementations "MUST support
-        // receiving JSON-RPC batches". It does NOT exist in 2024-11-05 (no
-        // mention in the spec, no batch arm in that schema), and it was REMOVED
-        // in 2025-06-18 and stays absent from 2025-11-25.
+        // Batching is defined by exactly ONE revision, 2025-03-26, whose base
+        // protocol says implementations "MUST support receiving JSON-RPC
+        // batches". It does NOT exist in 2024-11-05, was REMOVED in 2025-06-18,
+        // stays absent from 2025-11-25, and is absent again in 2026-07-28. We no
+        // longer serve 2025-03-26, so no revision this server supports defines
+        // the shape and the dispatch for it has been deleted.
         //
-        // Accepted unconditionally rather than gated on the negotiated version:
-        // the cost is one branch, and a 2025-03-26 client may legitimately send
-        // one. Stated precisely because the first version of this comment claimed
-        // two base protocols required it, which was wrong about the older of the
-        // two and silent about the removal in the newer two.
+        // An array is refused explicitly rather than ignored. It parses fine, so
+        // it would otherwise fall through to `doc.object()` and be handled as an
+        // empty request — a client would see a confusing "method not found"
+        // instead of the truth.
         QJsonParseError parseError;
         QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
         if (parseError.error != QJsonParseError::NoError
@@ -485,7 +486,12 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         }
 
         if (doc.isArray()) {
-            handleJsonRpcBatch(socket, doc.array(), sessionHeader, protocolHeader, remote);
+            MCP_WARN_TAGGED("Server", QStringLiteral("Refused a JSON-RPC batch — no supported "
+                                                     "revision defines batching"));
+            sendJsonRpcError(socket, -32600,
+                             QStringLiteral("Batched requests are not supported. Send one "
+                                            "JSON-RPC message per request."),
+                             QVariant());  // null id, see the parse-error note above
             return;
         }
 
@@ -771,31 +777,6 @@ bool McpServer::isTerminatedSession(const QString& sessionId) const
     return true;
 }
 
-// Whether handling this message would DEFER its response — an in-app confirmation
-// or an async tool/resource, both of which answer later by writing a complete HTTP
-// body of their own.
-//
-// This must be answerable WITHOUT dispatching, which is the whole point: the batch
-// path used to detect deferral from the `_deferred` key in handleJsonRpc's return,
-// by which time the tool had already run. A batched `shots_delete` deleted the row
-// and was then told it had been refused; a batched machine_start_* put the
-// confirmation dialog on the machine and superseded anyone else's pending one, and
-// tapping Confirm started a shot the client believed had not been dispatched — and
-// then wrote a second complete HTTP response onto a socket that had already been
-// answered.
-bool McpServer::willDeferResponse(const QJsonObject& request) const
-{
-    const QString method = request["method"].toString();
-    const QJsonObject params = request["params"].toObject();
-    if (method == QLatin1String("tools/call")) {
-        const QString toolName = params["name"].toString();
-        return needsInAppConfirmation(toolName, params["arguments"].toObject())
-               || m_toolRegistry->isAsyncTool(toolName);
-    }
-    if (method == QLatin1String("resources/read"))
-        return m_resourceRegistry->isAsyncResource(params["uri"].toString());
-    return false;
-}
 
 McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObject& request,
                                                                  const QString& sessionHeader,
@@ -883,8 +864,9 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
     // - Skip on `initialize` itself: handled by the early return above.
     // - Skip on uninitialized sessions: clients legitimately may not
     //   know the version yet (e.g. on `notifications/initialized`).
-    // - When absent, the spec says assume `2025-03-26` — sessions
-    //   default to that, so no action needed.
+    // - When absent, sessions carry the lowest supported revision. The spec
+    //   names `2025-03-26` here, which we no longer serve — see
+    //   McpSession::protocolVersion() for that deliberate deviation.
     if (!protocolHeader.isEmpty() && session->initialized()
         && protocolHeader != session->protocolVersion()) {
         MCP_WARN_TAGGED("Server", QStringLiteral("Protocol version mismatch — header %1, "
@@ -905,137 +887,6 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
     return out;
 }
 
-void McpServer::handleJsonRpcBatch(QTcpSocket* socket, const QJsonArray& batch,
-                                   const QString& sessionHeader, const QString& protocolHeader,
-                                   bool remote)
-{
-    // JSON-RPC 2.0: an empty array is an Invalid Request, not an empty batch.
-    if (batch.isEmpty()) {
-        sendJsonRpcError(socket, -32600, "Invalid Request", QVariant());  // null id, see above
-        return;
-    }
-
-    // Resolve the session ONCE, before any element runs, from the first object
-    // element in the batch.
-    //
-    // Not per element, which is what this did first, and which was wrong twice
-    // over. (a) Every element carries the SAME headers, so an unrecognized
-    // session id took the auto-create branch once per element — and since each
-    // creation leaves the pool at != 1, it never converges: a large batch walks
-    // the session pool up to MaxTotalSessions, evicting as it goes, synchronously
-    // on the main thread. (b) An HTTP-level outcome discovered at element N threw
-    // away the responses of elements 0..N-1 whose handlers had ALREADY RUN — so a
-    // `[initialize, tools/call]` batch with a mismatched protocol header created
-    // a session, ran a tool, and answered `text/plain 400`, leaving the client
-    // unable to learn either.
-    //
-    // Resolving on the first element gets the `initialize` exemption right for the
-    // realistic batch shapes: `[initialize, …]` creates the session and the rest
-    // ride on it.
-    QJsonObject firstRequest;
-    for (const QJsonValue& element : batch) {
-        if (element.isObject()) {
-            firstRequest = element.toObject();
-            break;
-        }
-    }
-    const SessionResolution resolved =
-        resolveSessionForMessage(firstRequest, sessionHeader, protocolHeader);
-
-    // An HTTP-level answer — terminated session, protocol-version mismatch —
-    // is about the request as a whole. Reached before any element has run, so
-    // there is nothing to discard.
-    if (resolved.httpStatus != 0) {
-        sendHttpResponse(socket, resolved.httpStatus, resolved.httpBody, "text/plain",
-                         resolved.session ? resolved.session->id() : QString());
-        return;
-    }
-
-    McpSession* session = resolved.session;
-    const QString sessionId = session ? session->id()
-                                      : (resolved.rpcErrorCode != 0 ? sessionHeader : QString());
-    if (session) {
-        session->touch();
-        if (remote)
-            session->setRemote(true);
-    }
-
-    QJsonArray responses;
-
-    for (const QJsonValue& element : batch) {
-        if (!element.isObject()) {
-            responses.append(makeJsonRpcError(-32600, QStringLiteral("Invalid Request"),
-                                              QVariant()));
-            continue;
-        }
-        const QJsonObject request = element.toObject();
-        const QVariant requestId = request["id"].toVariant();
-
-        // A session-level refusal ("Too many sessions", "Session not initialized")
-        // applies to every element, but is a JSON-RPC error rather than an HTTP
-        // one, so each id-bearing element gets its own slot.
-        if (resolved.rpcErrorCode != 0) {
-            if (request.contains("id"))
-                responses.append(makeJsonRpcError(resolved.rpcErrorCode,
-                                                  resolved.rpcErrorMessage, requestId));
-            continue;
-        }
-
-        // Notifications produce no entry in the response array (JSON-RPC 2.0).
-        if (!request.contains("id"))
-            continue;
-
-        // Refused BEFORE dispatch, which is the only point at which refusing
-        // means anything. A deferred handler answers later by writing a complete
-        // HTTP body of its own, which cannot be folded into this array — and
-        // which would arrive on a socket this batch has already answered. The
-        // earlier version tested handleJsonRpc's `_deferred` return, i.e. after
-        // the tool had run: the row was deleted, the confirmation dialog was on
-        // the machine, and the "refusal" was a lie the client acted on.
-        //
-        // Logged because no client here has ever batched such a call: if this
-        // line appears, a real client wants it and the refusal is worth revisiting.
-        if (willDeferResponse(request)) {
-            MCP_WARN_TAGGED("Server",
-                            QStringLiteral("Batched %1 refused before dispatch — it defers "
-                                           "its response")
-                                .arg(request["method"].toString()));
-            responses.append(makeJsonRpcError(
-                -32600,
-                QStringLiteral("This call cannot be batched: its response is delivered "
-                               "separately. Send it as a single request."),
-                requestId));
-            continue;
-        }
-
-        const QJsonObject result = handleJsonRpc(request, session, socket, requestId);
-
-        // Nothing here can return `_deferred` — willDeferResponse() covers every
-        // path that produces it. Assert rather than trust: a new deferring path
-        // added without teaching that predicate would otherwise reintroduce the
-        // double-response silently.
-        Q_ASSERT(!result.contains("_deferred"));
-
-        QJsonObject response;
-        response["jsonrpc"] = "2.0";
-        response["id"] = QJsonValue::fromVariant(requestId);
-        if (result.contains("error"))
-            response["error"] = result["error"];
-        else
-            response["result"] = result;
-        responses.append(response);
-    }
-
-    // A batch of nothing but notifications gets 202 with no body, matching what
-    // a single notification gets.
-    if (responses.isEmpty()) {
-        sendHttpResponse(socket, 202, "", "application/json", sessionId);
-        return;
-    }
-
-    sendHttpResponse(socket, 200, QJsonDocument(responses).toJson(QJsonDocument::Compact),
-                     "application/json", sessionId);
-}
 
 QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* session,
                                      QTcpSocket* socket, const QVariant& requestId)
@@ -1132,13 +983,11 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     // for those clients this handshake string is the only carrier of the
     // rule, and it costs nothing per call.
     //
-    // The `instructions` field was introduced in MCP revision 2025-03-26
-    // and is absent from the 2024-11-05 InitializeResult. Gate it on the
-    // negotiated version so strict 2024-11-05 clients don't reject the
-    // response — the same discipline buildToolCallResponse() applies to
-    // structuredContent / resource_link.
-    if (negotiatedVersion >= QStringLiteral("2025-03-26")) {
-        result["instructions"] = QStringLiteral(
+    // Unconditional: `instructions` arrived in 2025-03-26 and every revision
+    // this server still serves is newer than that. It was gated while
+    // 2024-11-05 was supported, since that revision's InitializeResult has no
+    // such field and a strict client would reject the response.
+    result["instructions"] = QStringLiteral(
             "When you refer to one of the user's espresso shots in a reply, "
             "identify it by its local date and time — the handle shown in the "
             "app's Shot History — for example \"your May 10, 9:04 AM shot\". "
@@ -1148,8 +997,7 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
             "dialing_get_context (dialInSessions, bestRecentShot) and "
             "shots_list, each carrying a local ISO `timestamp` — render it "
             "the way a person reads a clock. Use the numeric `id` only as an "
-            "opaque argument to other tools.");
-    }
+        "opaque argument to other tools.");
     return result;
 }
 
@@ -1159,7 +1007,7 @@ QJsonObject McpServer::handleToolsList(const QJsonObject& params, McpSession* se
 
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
     const QString protocolVersion = session ? session->protocolVersion()
-                                            : QStringLiteral("2024-11-05");
+                                            : QStringLiteral("2025-06-18");
 
     QJsonObject result;
     result["tools"] = m_toolRegistry->listTools(accessLevel, protocolVersion);
@@ -1174,7 +1022,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
 
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
     const QString protocolVersion = session ? session->protocolVersion()
-                                            : QStringLiteral("2024-11-05");
+                                            : QStringLiteral("2025-06-18");
 
     // Rate limiting for control + settings tools. Resolved from the ARGUMENTS, not
     // the tool name: a merged tool's read verb must not spend the control budget its
@@ -1274,7 +1122,7 @@ QJsonObject McpServer::handleResourcesList(const QJsonObject& params, McpSession
     Q_UNUSED(params)
 
     const QString protocolVersion = session ? session->protocolVersion()
-                                            : QStringLiteral("2024-11-05");
+                                            : QStringLiteral("2025-06-18");
 
     QJsonObject result;
     result["resources"] = m_resourceRegistry->listResources(protocolVersion);

@@ -26,10 +26,19 @@ public:
     bool initialized() const { return m_initialized; }
     void setInitialized(bool v) { m_initialized = v; }
 
-    // Negotiated MCP protocol version for this session. The default — applied
-    // to legacy/auto-recovered sessions that never observed an `initialize` —
-    // matches the spec's compatibility rule: assume `2025-03-26` for clients
-    // that pre-date the `MCP-Protocol-Version` request header requirement.
+    // Negotiated MCP protocol version for this session. The default is applied
+    // to sessions that never observed an `initialize` — auto-recovered ones, and
+    // requests arriving with no `MCP-Protocol-Version` header.
+    //
+    // The spec's compatibility rule names `2025-03-26` as the version to assume
+    // when that header is absent. We no longer serve `2025-03-26`, so it cannot
+    // be assumed: assuming a version we would refuse is not a coherent state.
+    // The lowest SUPPORTED revision is used instead.
+    //
+    // Deliberate deviation from a SHOULD, and the safe direction — the lowest
+    // supported revision emits strictly fewer optional fields than any above it,
+    // so a client that omits the header is under-served rather than sent fields
+    // its own revision does not define.
     QString protocolVersion() const { return m_protocolVersion; }
     void setProtocolVersion(const QString& v) { m_protocolVersion = v; }
 
@@ -91,5 +100,5 @@ private:
     QSet<QString> m_subscribedResources;
     int m_controlCallCount = 0;
     bool m_remote = false;
-    QString m_protocolVersion = QStringLiteral("2025-03-26");
+    QString m_protocolVersion = QStringLiteral("2025-06-18");
 };

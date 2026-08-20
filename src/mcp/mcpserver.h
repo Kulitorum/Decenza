@@ -36,7 +36,10 @@ struct PendingConfirmation {
     QString toolName;
     QJsonObject arguments;
     int accessLevel;
-    QString protocolVersion = QStringLiteral("2024-11-05");  // captured at request time; default to legacy gating so a missed assignment never silently emits 2025-spec fields
+    // Captured at request time. Defaults to the LOWEST supported revision so a
+    // missed assignment under-reports rather than emitting fields the client's
+    // revision does not define.
+    QString protocolVersion = QStringLiteral("2025-06-18");
 };
 
 // The MCP server's own version, reported as `serverInfo.version` at initialize.
@@ -138,13 +141,6 @@ private:
     // JSON-RPC dispatch
     QJsonObject handleJsonRpc(const QJsonObject& request, McpSession* session,
                               QTcpSocket* socket, const QVariant& requestId);
-    // A POST body that is a JSON array. Answers with an array of the responses
-    // for `id`-bearing elements, or 202 when the batch is all notifications.
-    // See handleHttpRequest's POST branch for which revisions require this — it
-    // is exactly one of the four we negotiate, not the two it first claimed.
-    void handleJsonRpcBatch(QTcpSocket* socket, const QJsonArray& batch,
-                            const QString& sessionHeader, const QString& protocolHeader,
-                            bool remote);
     QJsonObject handleInitialize(const QJsonObject& params, McpSession* session);
     QJsonObject handleToolsList(const QJsonObject& params, McpSession* session);
     QJsonObject handleToolsCall(const QJsonObject& params, McpSession* session,
@@ -174,11 +170,6 @@ private:
     // Whether this server ended `sessionId` itself. One rule, consulted from
     // every verb — see the definition.
     bool isTerminatedSession(const QString& sessionId) const;
-
-    // Whether handling this message would defer its response (in-app
-    // confirmation, or an async tool/resource). Answerable WITHOUT dispatching,
-    // which is the point — see the definition.
-    bool willDeferResponse(const QJsonObject& request) const;
 
     // Session management
     McpSession* findOrCreateSession(const QString& sessionHeader);

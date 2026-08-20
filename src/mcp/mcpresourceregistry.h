@@ -59,7 +59,7 @@ public:
     // than was negotiated (matching the same hazard fixed for tools/list).
     QJsonArray listResources(const QString& protocolVersion) const
     {
-        const bool emitTitle = protocolVersion >= QStringLiteral("2025-06-18");
+        // `title` is unconditional — see McpToolRegistry::listTools.
         const bool emitIcons = protocolVersion >= QStringLiteral("2025-11-25");
 
         QJsonArray result;
@@ -68,12 +68,10 @@ public:
             QJsonObject resJson;
             resJson["uri"] = res.uri;
             resJson["name"] = res.name;
-            if (emitTitle) {
-                // MCP 2025-06-18: separate human-readable `title` from `name`.
-                // Existing registrations already use a display-name-y string in
-                // `name` (e.g. "Machine State"), so reuse it here.
-                resJson["title"] = res.name;
-            }
+            // MCP 2025-06-18: separate human-readable `title` from `name`.
+            // Existing registrations already use a display-name-y string in
+            // `name` (e.g. "Machine State"), so reuse it here.
+            resJson["title"] = res.name;
             resJson["description"] = res.description;
             resJson["mimeType"] = res.mimeType;
 
