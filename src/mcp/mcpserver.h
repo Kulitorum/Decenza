@@ -136,6 +136,15 @@ public:
 
     int activeSessionCount() const { return static_cast<int>(m_sessions.size()); }
 
+    // "This resource changed — tell whoever asked to hear about it."
+    //
+    // The semantic entry point for a resource update, public because it is what
+    // the change MEANS rather than how it travels. Both eras hang below it and
+    // reach their subscribers differently: legacy over its GET stream, modern
+    // over `subscriptions/listen`. Named for the event rather than the transport
+    // since 2026-07-28 gave it a second transport.
+    void notifyResourceChanged(const QString& resourceUri);
+
     // Register all tools and resources — called after dependencies are set
     void registerAllTools();
     void registerAllResources();
@@ -395,7 +404,31 @@ private:
     // than QSet because QPointer has no qHash overload and the list is
     // bounded by MaxSseConnections (4) — linear scans are trivial.
     QList<QPointer<QTcpSocket>> m_sseClients;
-    void broadcastSseNotification(const QString& resourceUri);
+
+    // A modern client's `subscriptions/listen` stream.
+    //
+    // The transport is the same SSE the legacy GET stream uses — 2026-07-28
+    // removed the GET ENDPOINT, not server-sent events — so this is a POST that
+    // answers `text/event-stream` and never completes. What changed is that the
+    // client now says up front what it wants: the server MUST NOT send a
+    // notification type the client did not opt into, which the legacy stream had
+    // no way to express.
+    struct ModernSubscription {
+        QPointer<QTcpSocket> socket;
+        QVariant requestId;              // becomes `io.modelcontextprotocol/subscriptionId`
+        QSet<QString> resourceUris;      // empty = opted in to no resource updates
+        bool resourcesListChanged = false;
+        bool toolsListChanged = false;
+        bool promptsListChanged = false;
+    };
+    QList<ModernSubscription> m_modernSubscriptions;
+
+    // Opens one. Returns a `_deferred` marker: the response to a listen request
+    // is sent only when the server tears the stream down, so the envelope must
+    // not answer it now.
+    QJsonObject handleSubscriptionsListen(const QJsonObject& params, QTcpSocket* socket,
+                                          const QVariant& requestId);
+    void broadcastToModernSubscriptions(const QString& resourceUri);
 
     // Cached set of allowed Origin values, populated once at construction
     // from loopback addresses and the host's LAN IPs. Each entry is a

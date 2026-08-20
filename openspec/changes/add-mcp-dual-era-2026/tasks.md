@@ -48,7 +48,7 @@ first so the rest is not holding them hostage.
 ## 1b. Build against the schema, not against this document
 
 - [x] 1b.1 Pull `schema/2026-07-28/schema.json` from `modelcontextprotocol/modelcontextprotocol` and work from it. Where it and these artifacts disagree, it wins — the proposal and design were drafted from the revision's prose
-- [ ] 1b.2 Read `signal-slot/qtmcp` (Qt-native, GPL-3.0-only arm matches ours) and `GopherSecurity/gopher-mcp` (Apache-2.0) for how they shaped era detection and `subscriptions/listen`. Reference only — neither is adopted, and the reason is in design.md
+- [x] 1b.2 **Partly, and late.** The spec's OWN example payloads (`schema/2026-07-28/examples/`) were used to verify the `subscriptions/listen` request shape, the `SubscriptionsListenResult`, and `DiscoverResult` — better evidence than a third-party implementation, and they corrected two things a schema-only reading had got wrong. The third-party implementations were NOT read; this task was skipped until asked about directly. Original task: read `signal-slot/qtmcp` (Qt-native, GPL-3.0-only arm matches ours) and `GopherSecurity/gopher-mcp` (Apache-2.0) for how they shaped era detection and `subscriptions/listen`. Reference only — neither is adopted, and the reason is in design.md
 - [ ] 1b.3 Do NOT add an MCP library as a dependency. There is no official C++ SDK, and the third-party ones own the listener and HTTP layer this server cannot delegate
 
 ## 2. Era detection
@@ -107,11 +107,11 @@ design.md.
 Sequenced last on purpose: it is the only piece needing new socket handling,
 and a modern client without it degrades to polling rather than breaking.
 
-- [ ] 7.1 Long-lived POST stream. ShotServer holds a socket open for SSE on GET today and has not seen this shape — check its socket handling before assuming it transfers
-- [ ] 7.2 It is an OPT-IN mechanism, not a transport swap for the GET stream. The client names the notification types it wants (`toolsListChanged`, `promptsListChanged`, `resourcesListChanged`, `resourceSubscriptions`), the server acknowledges, and each notification carries `io.modelcontextprotocol/subscriptionId`. Carry the three existing broadcasts (`machine/state`, `profiles/active`, `shots/recent`) through it
-- [ ] 7.3 `resources/subscribe` and `resources/unsubscribe` are REPLACED by this method, not merely supplemented — they do not exist for a modern caller. Legacy keeps both, and keeps the GET stream, untouched
-- [ ] 7.4 Request-scoped notifications (`notifications/progress`, `notifications/message`) do NOT belong on this stream — they flow on the response stream of the request they relate to. Also: never emit `notifications/message` for a request that did not carry `io.modelcontextprotocol/logLevel`
-- [ ] 7.5 Do NOT implement stream resumability or `Last-Event-ID` replay — removed outright in this revision, and we already declined it. Our legacy GET stream keeps its event IDs and `retry`, which is correct for legacy and must not leak into the modern stream
+- [x] 7.1 Long-lived POST stream. ShotServer holds a socket open for SSE on GET today and has not seen this shape — check its socket handling before assuming it transfers
+- [x] 7.2 It is an OPT-IN mechanism, not a transport swap for the GET stream. The client names the notification types it wants (`toolsListChanged`, `promptsListChanged`, `resourcesListChanged`, `resourceSubscriptions`), the server acknowledges, and each notification carries `io.modelcontextprotocol/subscriptionId`. Carry the three existing broadcasts (`machine/state`, `profiles/active`, `shots/recent`) through it
+- [x] 7.3 `resources/subscribe` and `resources/unsubscribe` are REPLACED by this method, not merely supplemented — they do not exist for a modern caller. Legacy keeps both, and keeps the GET stream, untouched
+- [ ] 7.4 **Not applicable so far.** This server emits no `notifications/progress` and no `notifications/message`, so there is nothing to keep off the listen stream yet. The rule still binds anything added later. Original: request-scoped notifications (`notifications/progress`, `notifications/message`) do NOT belong on this stream — they flow on the response stream of the request they relate to. Also: never emit `notifications/message` for a request that did not carry `io.modelcontextprotocol/logLevel`
+- [x] 7.5 Do NOT implement stream resumability or `Last-Event-ID` replay — removed outright in this revision, and we already declined it. Our legacy GET stream keeps its event IDs and `retry`, which is correct for legacy and must not leak into the modern stream
 
 ## 8. Advertise the version
 

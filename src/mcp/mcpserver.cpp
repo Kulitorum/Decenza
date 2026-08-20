@@ -255,27 +255,47 @@ void McpServer::connectSseNotifications()
     // Phase change → decenza://machine/state
     if (m_machineState) {
         connect(m_machineState, &MachineState::phaseChanged, this, [this]() {
-            broadcastSseNotification("decenza://machine/state");
+            notifyResourceChanged("decenza://machine/state");
         });
     }
 
     // Profile changed → decenza://profiles/active
     if (m_profileManager) {
         connect(m_profileManager, &ProfileManager::currentProfileChanged, this, [this]() {
-            broadcastSseNotification("decenza://profiles/active");
+            notifyResourceChanged("decenza://profiles/active");
         });
     }
 
     // Shot saved → decenza://shots/recent
     if (m_shotHistory) {
         connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this]() {
-            broadcastSseNotification("decenza://shots/recent");
+            notifyResourceChanged("decenza://shots/recent");
         });
     }
 }
 
-void McpServer::broadcastSseNotification(const QString& resourceUri)
+namespace {
+// `_meta` keys the modern era defines. Spelled once — they appear in the
+// discriminator, the version check and the response framing, and a typo in one
+// copy would be a silently different protocol.
+constexpr const char* kMetaKey            = "_meta";
+constexpr const char* kMetaProtocolVersion = "io.modelcontextprotocol/protocolVersion";
+constexpr const char* kMetaClientInfo      = "io.modelcontextprotocol/clientInfo";
+constexpr const char* kMetaServerInfo      = "io.modelcontextprotocol/serverInfo";
+constexpr const char* kMetaSubscriptionId  = "io.modelcontextprotocol/subscriptionId";
+
+// MCP-reserved error codes, renumbered into -32020..-32099 by 2026-07-28.
+constexpr int kErrHeaderMismatch             = -32020;
+constexpr int kErrUnsupportedProtocolVersion = -32022;
+}  // namespace
+
+void McpServer::notifyResourceChanged(const QString& resourceUri)
 {
+    // Modern subscribers first, and unconditionally: they are tracked separately
+    // and an early return on an empty legacy client list would silently skip
+    // them.
+    broadcastToModernSubscriptions(resourceUri);
+
     if (m_sseClients.isEmpty()) return;
 
     QJsonObject notification;
@@ -310,6 +330,22 @@ void McpServer::broadcastSseNotification(const QString& resourceUri)
             dead.append(clientPtr);
             continue;
         }
+
+        // Skip sockets belonging to a MODERN subscription. They are in
+        // m_sseClients because that list means "holds an open event stream",
+        // which they do — it is what the connection cap and the keepalive GC
+        // count. But delivery is era-specific, and this loop's rule is legacy's:
+        // a stream with no per-resource subscriptions receives EVERYTHING, for
+        // backward compatibility. Applied to a modern stream that rule breaks the
+        // one guarantee 2026-07-28 adds — the server MUST NOT send a notification
+        // type the client did not opt into — and it did exactly that until a test
+        // asked for one resource and received another.
+        bool isModernStream = false;
+        for (const ModernSubscription& sub : std::as_const(m_modernSubscriptions)) {
+            if (sub.socket.data() == client) { isModernStream = true; break; }
+        }
+        if (isModernStream)
+            continue;
 
         // Check if the SSE client's session has subscribed to this URI
         bool shouldSend = true;
@@ -503,19 +539,6 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
     return result;
 }
 
-namespace {
-// `_meta` keys the modern era defines. Spelled once — they appear in the
-// discriminator, the version check and the response framing, and a typo in one
-// copy would be a silently different protocol.
-constexpr const char* kMetaKey            = "_meta";
-constexpr const char* kMetaProtocolVersion = "io.modelcontextprotocol/protocolVersion";
-constexpr const char* kMetaClientInfo      = "io.modelcontextprotocol/clientInfo";
-constexpr const char* kMetaServerInfo      = "io.modelcontextprotocol/serverInfo";
-
-// MCP-reserved error codes, renumbered into -32020..-32099 by 2026-07-28.
-constexpr int kErrHeaderMismatch             = -32020;
-constexpr int kErrUnsupportedProtocolVersion = -32022;
-}  // namespace
 
 bool McpServer::isModernRequest(const QJsonObject& request)
 {
@@ -1214,6 +1237,127 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
                      "application/json");
 }
 
+// Opens a `subscriptions/listen` stream.
+//
+// Replaces the HTTP GET endpoint AND `resources/subscribe`/`unsubscribe` in one
+// method: what used to be a stream plus separate per-resource subscribe calls is
+// now a single request that declares everything it wants.
+//
+// The stream answers `text/event-stream` and never completes. Its JSON-RPC
+// response exists but is sent only if the server tears the subscription down
+// gracefully; an abrupt transport close carries no response at all.
+QJsonObject McpServer::handleSubscriptionsListen(const QJsonObject& params, QTcpSocket* socket,
+                                                 const QVariant& requestId)
+{
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState)
+        return makeErrorResult(-32603, QStringLiteral("No connection to hold open"));
+
+    // Opt-in, and strictly so: "the server MUST NOT send notification types the
+    // client has not explicitly requested". A filter naming nothing is legal and
+    // yields a stream that carries nothing — which is a client's business, not
+    // an error.
+    const QJsonObject filter = params.value(QLatin1String("notifications")).toObject();
+
+    ModernSubscription sub;
+    sub.socket = socket;
+    sub.requestId = requestId;
+    sub.resourcesListChanged = filter.value(QLatin1String("resourcesListChanged")).toBool();
+    sub.toolsListChanged = filter.value(QLatin1String("toolsListChanged")).toBool();
+    sub.promptsListChanged = filter.value(QLatin1String("promptsListChanged")).toBool();
+    for (const QJsonValue& uri : filter.value(QLatin1String("resourceSubscriptions")).toArray())
+        sub.resourceUris.insert(uri.toString());
+
+    // Same headers the legacy stream sends, minus the session bits — a modern
+    // stream has no session to name. No `retry` and no priming event either:
+    // both exist for SSE RESUMPTION, which 2026-07-28 removed outright along
+    // with `Last-Event-ID`. A broken stream is re-opened as a new request, not
+    // resumed, so priming a client with an event id would be telling it
+    // something it must not act on.
+    QByteArray headers;
+    headers.append("HTTP/1.1 200 OK\r\n");
+    headers.append("Content-Type: text/event-stream\r\n");
+    headers.append("Cache-Control: no-cache\r\n");
+    headers.append("Connection: keep-alive\r\n");
+    headers.append("\r\n");
+    socket->write(headers);
+    socket->flush();
+
+    m_modernSubscriptions.append(sub);
+    m_sseClients.append(QPointer<QTcpSocket>(socket));
+
+    connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
+        for (qsizetype i = m_modernSubscriptions.size() - 1; i >= 0; --i) {
+            if (m_modernSubscriptions[i].socket.data() == socket)
+                m_modernSubscriptions.removeAt(i);
+        }
+        m_sseClients.removeAll(QPointer<QTcpSocket>(socket));
+        MCP_INFO_TAGGED("Server", QStringLiteral("subscriptions/listen stream closed, "
+                                                 "remaining: %1")
+                                      .arg(m_modernSubscriptions.size()));
+    });
+
+    MCP_INFO_TAGGED("Server", QStringLiteral("subscriptions/listen opened — %1 resource(s), "
+                                             "listChanged tools=%2 resources=%3")
+                                  .arg(sub.resourceUris.size())
+                                  .arg(sub.toolsListChanged)
+                                  .arg(sub.resourcesListChanged));
+
+    // Deferred forever, in the normal case. The envelope must not frame a result
+    // now — the client is reading an event stream on this socket, and a JSON body
+    // written into it would be parsed as an event.
+    QJsonObject deferred;
+    deferred["_deferred"] = true;
+    return deferred;
+}
+
+// The modern half of a resource-update broadcast.
+//
+// Separate from the legacy loop in notifyResourceChanged rather than folded in: the
+// two decide who receives an event by different rules. Legacy sends to a session
+// with no subscriptions (its backward-compatible "everything" case); modern
+// sends only what was explicitly opted into, and has no such fallback. Merging
+// them would mean one predicate with an era flag threaded through it, which is
+// the shape that quietly grows a wrong branch.
+void McpServer::broadcastToModernSubscriptions(const QString& resourceUri)
+{
+    if (m_modernSubscriptions.isEmpty())
+        return;
+
+    for (qsizetype i = m_modernSubscriptions.size() - 1; i >= 0; --i) {
+        const ModernSubscription& sub = m_modernSubscriptions[i];
+        QTcpSocket* client = sub.socket.data();
+        if (!client || client->state() != QAbstractSocket::ConnectedState) {
+            m_modernSubscriptions.removeAt(i);
+            continue;
+        }
+        if (!sub.resourceUris.contains(resourceUri))
+            continue;
+
+        // Every notification on a listen stream MUST carry the subscription id,
+        // so a client holding more than one stream can tell them apart. The
+        // value is the JSON-RPC id of the request that opened this stream.
+        QJsonObject meta;
+        meta[QLatin1String(kMetaSubscriptionId)] = QJsonValue::fromVariant(sub.requestId);
+
+        QJsonObject notificationParams;
+        notificationParams["uri"] = resourceUri;
+        notificationParams[QLatin1String(kMetaKey)] = meta;
+
+        QJsonObject notification;
+        notification["jsonrpc"] = "2.0";
+        notification["method"] = "notifications/resources/updated";
+        notification["params"] = notificationParams;
+
+        QByteArray event;
+        event.append("event: message\n");
+        event.append("data: ");
+        event.append(QJsonDocument(notification).toJson(QJsonDocument::Compact));
+        event.append("\n\n");
+        client->write(event);
+        client->flush();
+    }
+}
+
 QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* session,
                                      QTcpSocket* socket, const QVariant& requestId,
                                      const QString& protocolVersion)
@@ -1237,6 +1381,13 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
         return makeErrorResult(-32601, "Method not found in this protocol era: " + method);
     }
 
+    if (method == QLatin1String("subscriptions/listen")) {
+        // Modern-only: legacy reaches the same notifications through its GET
+        // stream and the two subscribe verbs, all of which still work there.
+        if (!isModernProtocolVersion(protocolVersion))
+            return makeErrorResult(-32601, "Method not found: " + method);
+        return handleSubscriptionsListen(params, socket, requestId);
+    }
     if (method == QLatin1String("server/discover")) {
         // Modern-only: a legacy client has `initialize` for the same job, and
         // this method does not exist in any revision it can negotiate.
@@ -1290,17 +1441,24 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
 //     is actively wrong. Zero means "immediately stale", which is the honest
 //     answer for every resource this server serves.
 //
-// `cacheScope` is "private" everywhere. tools/list is filtered by the caller's
-// access level, so a shared intermediary cache could serve one caller another's
-// tool set; resource reads carry the user's own shot data. Nothing here is
-// intended for a shared cache, and "public" is the failure that leaks.
+// `cacheScope` defaults to "private" and that is right for everything a CALLER
+// can influence: tools/list is filtered by the caller's access level, so a
+// shared intermediary cache could serve one caller another's tool set, and
+// resource reads carry the user's own shot data. "public" is the failure that
+// leaks, so it is opt-in per call site rather than the default.
+//
+// `server/discover` is the one genuine exception and passes it explicitly — its
+// payload is the server's identity, version list and instructions, identical for
+// every caller and filtered by nothing. The spec's own DiscoverResult example
+// marks it public. Blanket-private was the first answer here, justified by
+// access filtering that discover has none of.
 static void applyCacheHints(QJsonObject& result, const QString& protocolVersion,
-                            int ttlMs)
+                            int ttlMs, const char* cacheScope = "private")
 {
     if (protocolVersion < QStringLiteral("2026-07-28"))
         return;
     result["ttlMs"] = ttlMs;
-    result["cacheScope"] = QStringLiteral("private");
+    result["cacheScope"] = QString::fromLatin1(cacheScope);
 }
 
 // Registered once at startup, never changed while the app runs.
@@ -1357,10 +1515,16 @@ QJsonObject McpServer::handleServerDiscover(const QString& protocolVersion)
         versions.append(v);
     result["supportedVersions"] = versions;
 
-    // Same capabilities the legacy handshake reports. `subscribe` describes the
-    // legacy per-resource verbs; the modern era reaches the same notifications
-    // through `subscriptions/listen`, which is not implemented yet — declaring
-    // it here before it exists would be the lie this comment prevents.
+    // `resources.subscribe` survives into 2026-07-28 and still means "this
+    // server supports subscribing to resource updates" — what changed is the
+    // mechanism, from `resources/subscribe` to `subscriptions/listen`'s
+    // `resourceSubscriptions`. Declared true because that is now implemented;
+    // this said the opposite while it was not, and the claim had to move with
+    // the code rather than be left as a stale hedge.
+    //
+    // No `listChanged` on either: tools and resources are registered once at
+    // startup and never change while the app runs, so the server could not
+    // usefully send one.
     QJsonObject resourcesCap;
     resourcesCap["subscribe"] = true;
     result["capabilities"] = QJsonObject{{"tools", QJsonObject{}},
@@ -1375,7 +1539,7 @@ QJsonObject McpServer::handleServerDiscover(const QString& protocolVersion)
     // DiscoverResult extends CacheableResult — the fields are required on it
     // exactly as on a list result, which the proposal missed. The identity and
     // version list change only across app versions, so a list TTL is right.
-    applyCacheHints(result, protocolVersion, CacheTtlListMs);
+    applyCacheHints(result, protocolVersion, CacheTtlListMs, "public");
     return result;
 }
 

@@ -1422,7 +1422,11 @@ private slots:
         // Modern framing applies here too — discover is a modern method.
         QCOMPARE(result["resultType"].toString(), QString("complete"));
         QVERIFY(result.contains("ttlMs"));
-        QCOMPARE(result["cacheScope"].toString(), QString("private"));
+        // "public", unlike every other result. Discover's payload is the
+        // server's identity, version list and instructions — identical for every
+        // caller and filtered by nothing — which is why the spec's own example
+        // marks it public. Everything a caller can influence stays private.
+        QCOMPARE(result["cacheScope"].toString(), QString("public"));
 
         // A modern client never handshakes, so this is its only carrier for the
         // shot-citation rule every legacy client is told at initialize.
@@ -1506,6 +1510,60 @@ private slots:
         McpServer server;
         const QString sid = openSession(server, "2025-11-25");
         auto resp = sendHttp(server, "POST", rpcBody("server/discover", {}, 26), sid);
+        QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32601);
+    }
+
+    // `subscriptions/listen` is opt-in, and strictly: "the server MUST NOT send
+    // notification types the client has not explicitly requested". The request
+    // shape here matches the spec's own example payload
+    // (schema/2026-07-28/examples/SubscriptionsListenRequest).
+    void subscriptionsListenDeliversOnlyOptedInResources()
+    {
+        McpServer server;
+        server.resourceRegistry()->registerResource(
+            "decenza://machine/state", "State", "d", "application/json",
+            []() -> QJsonObject { return QJsonObject{}; });
+
+        HeldConnection conn;
+        QVERIFY(conn.open());
+
+        QJsonObject filter;
+        filter["resourceSubscriptions"] = QJsonArray{"decenza://machine/state"};
+        QJsonObject args;
+        args["notifications"] = filter;
+        conn.send(server, modernBody("subscriptions/listen", args, 40));
+
+        // The stream answers text/event-stream and does NOT complete — the
+        // JSON-RPC response comes only on a graceful teardown.
+        const QByteArray opened = conn.client.waitForReadyRead(1000)
+                                      ? conn.client.readAll() : QByteArray();
+        QVERIFY2(opened.contains("text/event-stream"), "listen must open a stream");
+        QVERIFY2(!opened.contains("\"result\""),
+                 "a listen request is not answered while the stream is live");
+
+        // An opted-in resource arrives, tagged with the subscription id.
+        server.notifyResourceChanged("decenza://machine/state");
+        conn.client.waitForReadyRead(1000);
+        const QByteArray event = conn.client.readAll();
+        QVERIFY2(event.contains("notifications/resources/updated"), "opted-in URI must arrive");
+        QVERIFY2(event.contains("io.modelcontextprotocol/subscriptionId"),
+                 "every notification on a listen stream must carry its subscription id");
+        QVERIFY2(event.contains("40"), "the subscription id is the listen request's id");
+
+        // A resource NOT opted into must not arrive at all.
+        server.notifyResourceChanged("decenza://profiles/active");
+        conn.client.waitForReadyRead(200);
+        QVERIFY2(!conn.client.readAll().contains("profiles/active"),
+                 "the server MUST NOT send what the client did not ask for");
+    }
+
+    // The legacy GET stream and the two subscribe verbs are untouched — this era
+    // reaches the same notifications the way it always did.
+    void legacyEraHasNoSubscriptionsListen()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+        auto resp = sendHttp(server, "POST", rpcBody("subscriptions/listen", {}, 41), sid);
         QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32601);
     }
 
