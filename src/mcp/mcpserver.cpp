@@ -1350,6 +1350,44 @@ QJsonObject McpServer::handleSubscriptionsListen(const QJsonObject& params, QTcp
     m_modernSubscriptions.append(sub);
     m_sseClients.append(QPointer<QTcpSocket>(socket));
 
+    // The acknowledgment MUST be the first message on the stream, and the server
+    // MUST NOT send any notification before it. It reports which of the
+    // requested types were actually AGREED — "only includes notification types
+    // the server actually supports; if the client requested an unsupported type
+    // it is omitted".
+    //
+    // So this is a negotiation result, not an echo. `resourceSubscriptions` is
+    // honoured. The three listChanged types are NOT: tools and resources are
+    // registered once at startup and never change while the app runs, and there
+    // are no prompts at all — so agreeing to them would promise notifications
+    // that can never arrive. Omitting them tells the client the truth up front
+    // instead of leaving it waiting.
+    QJsonObject agreed;
+    if (!sub.resourceUris.isEmpty()) {
+        QJsonArray uris;
+        for (const QString& uri : sub.resourceUris)
+            uris.append(uri);
+        agreed["resourceSubscriptions"] = uris;
+    }
+
+    QJsonObject ackMeta;
+    ackMeta[QLatin1String(kMetaSubscriptionId)] = QJsonValue::fromVariant(requestId);
+    QJsonObject ackParams;
+    ackParams["notifications"] = agreed;
+    ackParams[QLatin1String(kMetaKey)] = ackMeta;
+    QJsonObject ack;
+    ack["jsonrpc"] = "2.0";
+    ack["method"] = "notifications/subscriptions/acknowledged";
+    ack["params"] = ackParams;
+
+    QByteArray ackEvent;
+    ackEvent.append("event: message\n");
+    ackEvent.append("data: ");
+    ackEvent.append(QJsonDocument(ack).toJson(QJsonDocument::Compact));
+    ackEvent.append("\n\n");
+    socket->write(ackEvent);
+    socket->flush();
+
     connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
         for (qsizetype i = m_modernSubscriptions.size() - 1; i >= 0; --i) {
             if (m_modernSubscriptions[i].socket.data() == socket)

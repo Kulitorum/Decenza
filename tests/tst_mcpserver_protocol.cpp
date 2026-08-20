@@ -1541,6 +1541,22 @@ private slots:
         QVERIFY2(!opened.contains("\"result\""),
                  "a listen request is not answered while the stream is live");
 
+        // The acknowledgment MUST be the FIRST message, and nothing may precede
+        // it. Without it a client cannot tell an established subscription from a
+        // silent one, and the suite reads zero frames.
+        QVERIFY2(opened.contains("notifications/subscriptions/acknowledged"),
+                 "the ack must be the first frame on the stream");
+        QVERIFY2(opened.contains("io.modelcontextprotocol/subscriptionId"),
+                 "the ack carries the subscription id like every frame after it");
+
+        // It reports what was AGREED, not what was asked. listChanged types are
+        // omitted because this server can never send them — tools and resources
+        // are registered once at startup — so promising them would leave a
+        // client waiting forever.
+        QVERIFY2(opened.contains("resourceSubscriptions"), "the honoured type is reported");
+        QVERIFY2(!opened.contains("toolsListChanged"),
+                 "a type the server cannot send must be omitted from the ack");
+
         // An opted-in resource arrives, tagged with the subscription id.
         server.notifyResourceChanged("decenza://machine/state");
         conn.client.waitForReadyRead(1000);
