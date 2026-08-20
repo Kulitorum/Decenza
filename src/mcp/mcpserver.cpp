@@ -1017,7 +1017,7 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
     if (method == "resources/list")
         return handleResourcesList(params, protocolVersion);
     if (method == "resources/read")
-        return handleResourcesRead(params, session, socket, requestId);
+        return handleResourcesRead(params, session, socket, requestId, protocolVersion);
     if (method == "resources/subscribe")
         return handleResourcesSubscribe(params, session);
     if (method == "resources/unsubscribe")
@@ -1028,6 +1028,49 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
     // Unknown method
     return makeErrorResult(-32601, "Method not found: " + method);
 }
+
+// `ttlMs` + `cacheScope`, required on every list and read result from
+// 2026-07-28 (`CacheableResult`, which ListToolsResult, ListResourcesResult,
+// ReadResourceResult and DiscoverResult all extend — none of the fields is
+// optional there).
+//
+// Emitted ONLY at 2026-07-28 and above. They are additive fields a strict
+// earlier client has no schema for, and no revision below the modern era
+// defines them. Note what that means for this change's own framing: cacheable
+// results were listed among the "era-independent wins with a payoff today", and
+// they are not — gated this way there is no payoff until 2026-07-28 is
+// negotiable, which is deliberately the LAST step.
+//
+// Two different lifetimes, and collapsing them to one number would be wrong in
+// the direction that matters:
+//
+//   - LIST results are fixed for the process lifetime. Tools and resources are
+//     registered once at startup and never change while the app runs — this
+//     server declares no `listChanged` capability precisely because it could
+//     never usefully send one. An hour is a hint, not a promise, and a client
+//     re-fetches on reconnect anyway.
+//   - READ results are LIVE. `decenza://machine/state` is telemetry from a
+//     machine that is heating water; a cached one is not stale-but-harmless, it
+//     is actively wrong. Zero means "immediately stale", which is the honest
+//     answer for every resource this server serves.
+//
+// `cacheScope` is "private" everywhere. tools/list is filtered by the caller's
+// access level, so a shared intermediary cache could serve one caller another's
+// tool set; resource reads carry the user's own shot data. Nothing here is
+// intended for a shared cache, and "public" is the failure that leaks.
+static void applyCacheHints(QJsonObject& result, const QString& protocolVersion,
+                            int ttlMs)
+{
+    if (protocolVersion < QStringLiteral("2026-07-28"))
+        return;
+    result["ttlMs"] = ttlMs;
+    result["cacheScope"] = QStringLiteral("private");
+}
+
+// Registered once at startup, never changed while the app runs.
+static constexpr int CacheTtlListMs = 3600000;   // 1 hour
+// Live machine telemetry — a cached read is actively wrong, not merely stale.
+static constexpr int CacheTtlReadMs = 0;
 
 QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* session)
 {
@@ -1142,6 +1185,7 @@ QJsonObject McpServer::handleToolsList(const QJsonObject& params, const QString&
 
     QJsonObject result;
     result["tools"] = m_toolRegistry->listTools(accessLevel, protocolVersion);
+    applyCacheHints(result, protocolVersion, CacheTtlListMs);
     return result;
 }
 
@@ -1254,11 +1298,13 @@ QJsonObject McpServer::handleResourcesList(const QJsonObject& params,
 
     QJsonObject result;
     result["resources"] = m_resourceRegistry->listResources(protocolVersion);
+    applyCacheHints(result, protocolVersion, CacheTtlListMs);
     return result;
 }
 
 QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession* session,
-                                            QTcpSocket* socket, const QVariant& requestId)
+                                            QTcpSocket* socket, const QVariant& requestId,
+                                            const QString& protocolVersion)
 {
     QString uri = params["uri"].toString();
 
@@ -1290,7 +1336,8 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
     // MCP `ResourceContents` schema defines — `structuredContent` is NOT one of
     // them (it exists on `CallToolResult` alone), and the same JSON it used to
     // duplicate is already in `text`.
-    const auto buildContents = [](const QString& resourceUri, const QJsonObject& resourceData) {
+    const auto buildContents = [protocolVersion](const QString& resourceUri,
+                                                 const QJsonObject& resourceData) {
         QJsonObject content;
         content["uri"] = resourceUri;
         content["mimeType"] = "application/json";
@@ -1299,6 +1346,7 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
         contents.append(content);
         QJsonObject result;
         result["contents"] = contents;
+        applyCacheHints(result, protocolVersion, CacheTtlReadMs);
         return result;
     };
 

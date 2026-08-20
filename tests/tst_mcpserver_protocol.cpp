@@ -931,6 +931,53 @@ private slots:
         QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32602);
     }
 
+    // `ttlMs` / `cacheScope` are 2026-07-28 fields and must not leak to a client
+    // that negotiated anything older — they are additive fields a strict earlier
+    // client has no schema for.
+    //
+    // HALF a test, deliberately, and worth naming as such: it asserts ABSENCE,
+    // so it passes identically whether the gate works or the feature was never
+    // implemented. The positive case — that the fields ARE emitted, with the
+    // list/read TTL split — cannot be written until 2026-07-28 is negotiable,
+    // which is the last step of this change by design. The task list carries
+    // that as an explicit follow-up rather than leaving this looking finished.
+    void cacheHintsDoNotLeakToLegacyRevisions()
+    {
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "shots_get_detail", "Test tool",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; }, "read");
+        server.resourceRegistry()->registerResource(
+            "decenza://shots/42", "Shot 42", "A test shot", "application/json",
+            []() -> QJsonObject { return QJsonObject{{"id", 42}}; });
+
+        for (const QString& version : {QStringLiteral("2025-06-18"),
+                                       QStringLiteral("2025-11-25")}) {
+            const QString sid = openSession(server, version);
+            QVERIFY(!sid.isEmpty());
+
+            for (const char* method : {"tools/list", "resources/list"}) {
+                auto resp = sendHttp(server, "POST",
+                                     rpcBody(QString::fromLatin1(method), {}, 2), sid);
+                QCOMPARE(resp.statusCode, 200);
+                const QJsonObject result = resp.jsonBody["result"].toObject();
+                QVERIFY2(!result.contains("ttlMs"),
+                         qPrintable(QStringLiteral("%1 at %2 must omit ttlMs")
+                                        .arg(QString::fromLatin1(method), version)));
+                QVERIFY2(!result.contains("cacheScope"),
+                         qPrintable(QStringLiteral("%1 at %2 must omit cacheScope")
+                                        .arg(QString::fromLatin1(method), version)));
+            }
+
+            QJsonObject readParams;
+            readParams["uri"] = "decenza://shots/42";
+            auto read = sendHttp(server, "POST", rpcBody("resources/read", readParams, 3), sid);
+            QCOMPARE(read.statusCode, 200);
+            QVERIFY(!read.jsonBody["result"].toObject().contains("ttlMs"));
+        }
+    }
+
     // `resources/list` must not emit in QHash order. Qt randomizes the hash seed
     // per process, so an unsorted listing is stable within a run and different
     // across restarts — which is exactly the shape that defeats a client cache

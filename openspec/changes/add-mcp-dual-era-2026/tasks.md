@@ -35,11 +35,15 @@ Neither needs a modern client to exist, and both have a payoff today. Land
 first so the rest is not holding them hostage.
 
 - [x] 1.1 `McpToolRegistry::listTools` sorts by tool name — **already done**, and by `(tier, name)` rather than name alone, which is stronger. Landed with the tool-budget change for a different reason (a truncating client should always lose the same niche tail); the cache-stability argument below is a second reason for the same code. Nothing to do
-- [ ] 1.2 Same for `McpResourceRegistry::listResources`, which is still raw `QHash` order. The registry is a `QHash` and Qt randomizes the hash seed per process (`qtbase/src/corelib/tools/qhash.cpp:121-127`, `:178`), so the order is stable within a run and different across restarts — the worst shape for a client cache, because nothing looks wrong until two runs are compared
-- [ ] 1.3 Test: list resources twice across two `McpResourceRegistry` instances, assert identical order. Must be seen RED — and note that a single-instance test CANNOT fail, because the seed is per process. Tools are already covered by the ordering assertions that came with the tier sort
-- [ ] 1.4 `ttlMs` + `cacheScope` on `tools/list`, `resources/list`, `resources/read`. **Required fields in the modern era, not optional** — the revision defines a `CacheableResult` interface and every one of those results carries it. (`prompts/list` and `resources/templates/list` are in the same list; we serve neither)
-- [ ] 1.5 A listing that reflects the caller's access level is NOT `"public"` — 96 tools filtered by `accessLevel` means a shared cache would serve one caller another's tool set
-- [ ] 1.6 Gate both on the negotiated version so legacy clients that pre-date these fields do not receive them
+- [x] 1.2 Same for `McpResourceRegistry::listResources`, which is still raw `QHash` order. The registry is a `QHash` and Qt randomizes the hash seed per process (`qtbase/src/corelib/tools/qhash.cpp:121-127`, `:178`), so the order is stable within a run and different across restarts — the worst shape for a client cache, because nothing looks wrong until two runs are compared
+- [x] 1.3 Test: list resources twice across two `McpResourceRegistry` instances, assert identical order. Must be seen RED — and note that a single-instance test CANNOT fail, because the seed is per process. Tools are already covered by the ordering assertions that came with the tier sort
+- [x] 1.4 `ttlMs` + `cacheScope` on `tools/list`, `resources/list`, `resources/read`. **Required fields in the modern era, not optional** — the revision defines a `CacheableResult` interface and every one of those results carries it. (`prompts/list` and `resources/templates/list` are in the same list; we serve neither)
+- [x] 1.5 A listing that reflects the caller's access level is NOT `"public"` — 96 tools filtered by `accessLevel` means a shared cache would serve one caller another's tool set
+- [x] 1.6 Gate both on the negotiated version so legacy clients that pre-date these fields do not receive them
+
+- [ ] 1.7 **Follow-up, blocked on section 8.** The cache-hint test asserts only that the fields do NOT leak to a legacy revision, which passes identically whether the gate works or the feature was never implemented. The positive case — fields present, `cacheScope: "private"` everywhere, and the list/read TTL split — needs `2026-07-28` negotiable, which is deliberately the last step. Write it there, not here
+- [ ] 1.8 **The proposal's framing needs correcting.** Cacheable results are listed among the "era-independent wins with a payoff today". Gated on the version they are neither: nothing is emitted until `2026-07-28` is negotiable. The deterministic ordering IS an era-independent win; this one is not, and the proposal should say so
+- [ ] 1.9 `server/discover` also extends `CacheableResult` in the schema (`DiscoverResult`), which the proposal did not note. Apply the same hints when section 4 builds it
 
 ## 1b. Build against the schema, not against this document
 

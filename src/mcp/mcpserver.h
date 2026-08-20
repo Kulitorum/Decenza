@@ -151,7 +151,8 @@ private:
                                 const QString& protocolVersion);
     QJsonObject handleResourcesList(const QJsonObject& params, const QString& protocolVersion);
     QJsonObject handleResourcesRead(const QJsonObject& params, McpSession* session,
-                                    QTcpSocket* socket, const QVariant& requestId);
+                                    QTcpSocket* socket, const QVariant& requestId,
+                                    const QString& protocolVersion);
     QJsonObject handleResourcesSubscribe(const QJsonObject& params, McpSession* session);
     QJsonObject handleResourcesUnsubscribe(const QJsonObject& params, McpSession* session);
 
