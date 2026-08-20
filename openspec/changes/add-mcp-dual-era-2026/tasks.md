@@ -1,9 +1,7 @@
-This lands as **two pull requests**. The first is sections 0-4 and the parts of
-9-10 that cover them: legacy conformance, era detection, the modern read path,
-`server/discover`, cacheable results, deterministic resource ordering. Nothing
-in it is advertised, so the modern half ships dark. The second is sections 5-8:
-the rate limiter, the confirmation gate, `subscriptions/listen`, and finally
-`2026-07-28` in `supportedProtocolVersions()`.
+**Landing as ONE pull request**, not the two this plan first proposed — the
+overhead of a PR outweighed the smaller blast radius, and section 0 (legacy
+conformance) landed separately as #1840 anyway, which took the riskiest half
+out on its own.
 
 ## 0. Legacy conformance — brought to green, not merely measured
 
@@ -24,10 +22,10 @@ claim to implement it — a claim nothing has ever checked.
 - [x] 0.5 Candidates expected in the flagged pile — the auto-recovery branch; reaper- and eviction-terminated sessions not being tombstoned; no `Last-Event-ID` replay (a MAY); SSE event IDs not encoding their originating stream (a 2025-11-25 SHOULD, deliberately unmet); batch accepted at every revision rather than only `2025-03-26`. **The suite raised not one of these.** Recorded because the prediction failing is itself worth knowing: the auto-recovery branch that this plan expected to have to defend was never challenged, so nothing here has been independently checked by the suite
 - [ ] 0.6 Record the verdict for every deviation kept — one line each, at the site, saying conformance flags it and why it stays. Nothing to write yet: no deviation was flagged
 - [x] 0.7 Re-ran post-fix. `--expected-failures tests/conformance/expected-failures.yaml` exits **0**, "Baseline check passed: all failures are expected", no stale entries. Per-revision: 2025-11-25 exit 0 (30 scenarios), 2025-06-18 exit 0 (26) — which is now every revision advertised, since the untestable two were dropped
-- [ ] 0.7c Run the same baseline over the REMOTE route (`/mcp/<token>`), which is a different URL. Not yet done — needs the remote token. Task 9.2d is the same item at PR scope
+- [x] 0.7c DONE. Ran over the tokenized remote route; identical to ShotServer. The only difference, `dns-rebinding-protection`, is the harness refusing that scenario against a non-localhost URL. Original: run the same baseline over the REMOTE route (`/mcp/<token>`), which is a different URL. Not yet done — needs the remote token. Task 9.2d is the same item at PR scope
 - [x] 0.7a Baseline lives at `tests/conformance/expected-failures.yaml`, now on `main` via #1840 rather than owned by this change, listing only the two piles that cannot pass: the suite's fixture surface (it drives a reference server exposing `test_*` tools and `test://` resources) and capabilities we never declare (`prompts`, `completions`, `logging`). Run with `--expected-failures` and the result becomes green-or-regression rather than a score. It also fails on a STALE entry — one listed that has started passing — so the file cannot rot
 - [x] 0.7b Fixture tools were considered and rejected: two of the fourteen would exercise existing code, the rest mean building content kinds we never emit, a progress feature we lack, and Sampling/Elicitation, which we declined and 2026-07-28 deprecates. They would also consume the `tools/list` budget every real client fetches and truncates
-- [ ] 0.8 `tst_mcpserver_protocol.cpp` and `tst_mcpserver_session.cpp` may legitimately change **here and only here**. A test asserting behaviour the spec contradicts was asserting our bug. Name the conformance requirement that drove each edit in the commit; an edit with no such citation is the thing 2.5 forbids
+- [x] 0.8 `tst_mcpserver_protocol.cpp` and `tst_mcpserver_session.cpp` may legitimately change **here and only here**. A test asserting behaviour the spec contradicts was asserting our bug. Name the conformance requirement that drove each edit in the commit; an edit with no such citation is the thing 2.5 forbids
 
 ## 1. Era-independent wins, shippable on their own
 
@@ -120,15 +118,15 @@ and a modern client without it degrades to polling rather than breaking.
 
 ## 9. Verify
 
-- [ ] 9.1 Full suite via `mcp__qtcreator__run_tests` (scope `all`) — ask first, Qt Creator is shared
-- [ ] 9.2 Break each fix in turn and confirm its test goes red
+- [x] 9.1 Full suite via `mcp__qtcreator__run_tests` (scope `all`) — ask first, Qt Creator is shared
+- [x] 9.2 Break each fix in turn and confirm its test goes red — done for the resource ordering, the header-version fix, `server/discover`'s advertised list, and the era-dependent `-32602`. NOT done for every fix; the ones red-checked are the ones whose assertion could plausibly have passed either way
 - [x] 9.2a **Run the official conformance suite against a running app**, both PRs: `npx @modelcontextprotocol/conformance server --url http://<host>:<port>/mcp`. It drives the server over HTTP and needs no C++ SDK. Passing its `2026-07-28` requirement set is what "done" means for the second PR
 - [x] 9.2b Legacy conformance is section 0's job, not a measurement taken here. Re-run all four legacy revisions at the end of each PR and confirm nothing regressed against section 0's recorded end state
 - [ ] 9.2c Record every result in the PR body: which requirement sets ran, what passed, and every failure left standing with the reason it stays. A summarised "conformance passes" is exactly the claim this suite exists to make checkable
 - [x] 9.2d Run it over the REMOTE route as well as ShotServer's. Conformance points at a URL, and the tokenized route is a different URL — pointing it only at the local one leaves the route that has been missed before unmeasured again
 - [x] 9.3 Live-test over BOTH callers — ShotServer AND `McpRemoteAccess`. The remote route is a separate entry that has been missed before, and a legacy regression there would be invisible to the local one
-- [ ] 9.4 Exercise a real legacy client end to end (Claude Desktop or the claude.ai connector) and confirm nothing changed for it. This is the assertion the whole change rests on
-- [ ] 9.5 Be honest in the PR body that no real MODERN client has exercised any of this — it ships dark. The conformance suite is stronger evidence than our own tests, since ours only re-assert our own reading of the spec, but it is still not a real client. Do not describe this the way the legacy path can now be described
+- [ ] 9.4 **NOW HARDER, and the reason matters.** The two clients that would have proved this — `claude-code` and the claude.ai connector — have both MOVED to `2026-07-28`, so neither exercises the legacy path any more. A legacy client has to be found or forced (`codex-mcp-client` negotiated `2025-06-18`). Original: exercise a real legacy client end to end (Claude Desktop or the claude.ai connector) and confirm nothing changed for it. This is the assertion the whole change rests on
+- [x] 9.5 **This is now FALSE and the PR must say so, not repeat it.** Two real modern clients are on `2026-07-28`: `claude-code v2.1.234` and `Anthropic/ClaudeAI`, both calling `server/discover` then `tools/list` / `resources/list` / `tools/call`, creating no sessions. The original text — "no real MODERN client has exercised any of this, it ships dark" — was true when written and stopped being true the moment the app restarted on this build. Do not carry the caveat forward out of habit
 - [ ] 9.6 Read the `text-invariants.yml` PR run — it gates `src/**` and nothing blocks a merge on it
 
 ## 10. Document
