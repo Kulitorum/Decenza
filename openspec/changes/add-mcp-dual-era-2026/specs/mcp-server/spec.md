@@ -19,8 +19,14 @@ conformance suite fails on.
 Honouring the header SHALL NOT alter the session's negotiated version: it
 answers one request, it does not re-version a live session.
 
-When the header is absent, the server SHALL assume `2025-03-26` per the
-protocol's compatibility rule.
+A request naming `2025-03-26` is neither of those cases: it SHALL be accepted
+and treated as an ABSENT header, selecting nothing, so the session's version
+stands. That value and a supported version SHALL NOT be handled alike — the
+former selects nothing, the latter selects itself. Honouring `2025-03-26` as a
+version would claim semantics the server does not implement.
+
+When the header is absent, the server SHALL assume the lowest revision it
+supports.
 
 #### Scenario: Header matches negotiated version
 
@@ -46,10 +52,20 @@ than as one scenario disappearing and an unrelated one appearing.
 - **WHEN** a client sends one request under a supported header differing from its negotiated version, then a further request with no header
 - **THEN** the second request is answered under the originally negotiated version
 
+#### Scenario: Compatibility sentinel in the header
+
+- **WHEN** a client that negotiated a newer revision POSTs with `MCP-Protocol-Version: 2025-03-26`
+- **THEN** the request is served under the negotiated version — neither rejected nor answered under the header
+
+#### Scenario: The sentinel does not make the revision negotiable
+
+- **WHEN** a client sends `initialize` with `protocolVersion: "2025-03-26"`
+- **THEN** the server still answers with its preferred version, as for any unsupported revision
+
 #### Scenario: Header absent on legacy client
 
-- **WHEN** a client negotiates `2025-03-26` and POSTs subsequent requests without an `MCP-Protocol-Version` header
-- **THEN** the server processes the request normally, assuming `2025-03-26`
+- **WHEN** a client negotiates a supported revision and POSTs subsequent requests without an `MCP-Protocol-Version` header
+- **THEN** the server processes the request normally, under the version that session negotiated
 
 ## ADDED Requirements
 

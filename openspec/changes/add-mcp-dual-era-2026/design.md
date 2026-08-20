@@ -2,8 +2,9 @@
 
 `McpServer::handleHttpRequest` is the single entry point for both callers —
 ShotServer's `/mcp` route and `McpRemoteAccess`'s tokenized remote route. It
-currently implements one thing: the handshake-based era, `2024-11-05` through
-`2025-11-25`, with `m_sessions` at its centre. That pool is referenced 23 times
+currently implements one thing: the handshake-based era — `2025-06-18` and
+`2025-11-25` since #1840 dropped the two older revisions — with `m_sessions` at
+its centre. That pool is referenced 23 times
 in the file and carries a session-idle reaper, an orphan reaper inside
 `findOrCreateSession`, `MaxTotalSessions` eviction, two ceilings, a tombstone
 set, and an auto-recovery branch whose own comment records that it exists
@@ -300,6 +301,26 @@ two methods exempted from the "session not initialized" check in
 nothing needs undoing — but a reader who finds the exemption and the modern
 path's rejection at different times will otherwise read them as contradicting
 each other.
+
+### A supported header selects a version; the compatibility sentinel selects nothing
+
+`2025-03-26` in the header and a supported version in the header take DIFFERENT
+paths, and collapsing them would be wrong in a way that is easy to miss.
+
+*Why:* #1840 kept `2025-03-26` accepted after making it non-negotiable, because
+it is the value the spec tells a server to assume when no header arrives and
+clients emit it for the same reason. It means "I do not know". A supported
+header means "answer me under this". So the sentinel maps to the SESSION's
+version and a supported header maps to ITSELF.
+
+*What breaks if they are merged:* honouring the sentinel as a version would have
+the server claim to serve `2025-03-26` semantics — batching among them — which
+it no longer implements at all. Answering the supported header with the session's
+version instead would reintroduce the defect the conformance suite caught.
+
+*Consequence for the modern era:* the same asymmetry has to survive into the
+per-request version handling. `_meta`'s protocol version is a selection, not a
+sentinel, so it never takes the sentinel path.
 
 ## Risks / Trade-offs
 

@@ -991,7 +991,6 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
             out.headerProtocolVersion = protocolHeader;
         }
     }
-    }
 
     if (!session->initialized() && rpcMethod != "notifications/initialized"
         && rpcMethod != "ping") {
