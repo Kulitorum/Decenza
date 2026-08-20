@@ -86,8 +86,20 @@ descriptions on every single connection.
   per-revision requirement sets including the 2026-07-28 stateless lifecycle,
   which is the only way to check this work against the spec before a real
   modern client exists.
-- **NOT BREAKING for any current client.** Every legacy revision we negotiate
-  today keeps its exact behaviour. That is the point of the shape.
+- **The four legacy revisions are brought to conformance too, first.** We
+  advertise `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`, and
+  advertising a revision is a claim to implement it — a claim nothing has ever
+  checked. Failures get fixed, not recorded: measuring legacy and shipping it
+  red would convert an unknown defect into a known one and change nothing else.
+  It lands before any modern code exists, because afterwards a legacy fix and a
+  modern regression are indistinguishable.
+- **Legacy behaviour changes only where it disagreed with the spec.** That is a
+  narrowing of the original "keeps its exact behaviour" promise, taken
+  deliberately: clients are written against the spec, so converging on it is
+  converging on them. Every deviation the suite flags is re-derived rather than
+  reflexively fixed — some exist because a real client needed them, and the
+  auto-recovery branch that keeps `mcp-remote` working is one the suite will
+  flag and we will keep.
 
 Explicit non-goals: we do not adopt the Tasks extension, MRTR
 (`input_required`), the MCP Apps extension, or OpenTelemetry trace context.
@@ -145,7 +157,10 @@ conformance suite, not the transport.
   socket handling has not seen before.
 - `tests/tst_mcpserver_protocol.cpp`, `tests/tst_mcpserver_session.cpp` — the
   existing suite becomes the legacy-era regression net and must keep passing
-  untouched; modern coverage is added beside it.
+  untouched; modern coverage is added beside it. Two carve-outs, both stated at
+  the point they occur: the legacy-conformance work, where a test may turn out
+  to have been asserting our bug, and the confirmation-gate change, which
+  reworks a mechanism legacy uses.
 - `docs/CLAUDE_MD/MCP_SERVER.md` — which era a client gets and why, and what
   a contributor must do to a tool so it works in both.
 - **Wire-visible only to clients that opt into modern.** No client speaks

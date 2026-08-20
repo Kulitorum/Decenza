@@ -1,5 +1,34 @@
 ## ADDED Requirements
 
+### Requirement: The Server Conforms To Every Protocol Revision It Advertises
+
+Advertising a protocol revision is a claim to implement it. The server SHALL
+conform to every revision it advertises, legacy revisions included, and that
+conformance SHALL be verified against the protocol's own conformance suite
+rather than against this project's tests alone.
+
+Where the server deviates from a revision it advertises, the deviation SHALL be
+deliberate, SHALL be recorded at the point in the code where it occurs, and
+SHALL state what it protects. A deviation that exists to keep a real client
+working is permitted; an unexamined one is not.
+
+A revision the server cannot conform to SHALL NOT be advertised.
+
+#### Scenario: An advertised revision is exercised
+
+- **WHEN** the conformance suite is run against the server for any revision the server advertises
+- **THEN** every requirement of that revision either passes, or fails at a point the code documents as a deliberate deviation
+
+#### Scenario: A deviation protects a client the spec would break
+
+- **WHEN** conformance requires behaviour that would leave a known real client unable to recover
+- **THEN** the deviation is kept, and the code records which client it protects and why
+
+#### Scenario: A revision that cannot be served
+
+- **WHEN** the server cannot conform to a revision
+- **THEN** that revision is absent from the list of versions the server advertises
+
 ### Requirement: Session Requirements Govern The Legacy Era Only
 
 Every requirement in this capability concerning sessions — how a session

@@ -35,9 +35,12 @@ the in-app confirmation gate (`m_pendingConfirmation`, which stores a
 **Goals:**
 
 - One endpoint serves both eras, with era selected per request.
-- Every legacy revision behaves **byte-identically** to today. The existing
-  protocol and session test files are the regression net and must pass
-  untouched.
+- **Every legacy revision conforms to the spec it claims to implement**, and is
+  otherwise unchanged. This is deliberately not the "byte-identical to today"
+  goal this document first stated — see the decision below on why measuring
+  legacy and then leaving it red was the wrong shape. Outside the deviations
+  section 0 fixes or knowingly keeps, the existing protocol and session test
+  files are the regression net and must pass untouched.
 - Control-category tools are rate-limited in the modern era before they are
   reachable in the modern era. Not after.
 - Both eras work over **both** callers — `McpRemoteAccess` as well as
@@ -227,6 +230,49 @@ schema and the conformance suite as the actual dependency.
 names and shapes. Where this design and that schema disagree, the schema wins —
 this document was drafted from the revision's prose, and the prose is a summary.
 
+### Legacy conformance is brought to green, not measured and left
+
+The suite is run against the four advertised legacy revisions first, and the
+failures it finds are fixed. It is not a baseline taken to protect the modern
+work from blame.
+
+*Why:* `supportedProtocolVersions()` advertises four revisions, and advertising
+one is a claim to implement it. Nothing has ever checked that claim. Running the
+suite, writing down what is red and shipping anyway would convert an unknown
+into a known defect and change nothing else — the worst of the three available
+outcomes, because it puts the failure in a document instead of in the code.
+
+*Why first, before any modern code exists:* a legacy fix landed afterwards
+cannot be distinguished from a modern regression. The entire change rests on
+being able to say legacy did not move, and that sentence is only checkable
+against a legacy baseline that is already green.
+
+*What this costs:* the "byte-identical" goal, which is why it has been restated
+above. Legacy behaviour changes wherever it disagreed with the spec. That is a
+real risk to a working client and it is taken deliberately: clients are written
+against the spec, so converging on the spec is converging on them.
+
+### A deviation the suite flags is re-derived, not automatically fixed
+
+Each conformance failure is triaged into a defect or a deliberate deviation, and
+a deliberate one is re-argued from its written reason rather than defended or
+silently "fixed".
+
+*Why:* some deviations here exist because a real client needed them, and the
+auto-recovery branch is the one that must survive contact with this rule. It is
+more permissive than the spec on purpose: `mcp-remote` cannot re-initialize
+itself, so answering it strictly leaves a client, in that code's own words,
+permanently broken until restart. The suite flagging it is the suite being right
+about the spec and wrong about the client. "Conformance said so" is not on its
+own a reason to change behaviour.
+
+*Why not the reverse — keep every deviation that has a comment:* a written
+reason is evidence the deviation was once deliberate, not evidence it is still
+correct. Several were written against a design that has since moved. Re-deriving
+each one is the same discipline this project applies to a stale optimisation
+comment, and the outcome is recorded at the site either way, so the next person
+inherits the argument rather than the conclusion.
+
 ### `ping` disappears in the modern era, and that is not a compatibility break
 
 `ping`, `logging/setLevel` and `notifications/roots/list_changed` are removed by
@@ -245,6 +291,17 @@ each other.
 - **Era misdetection breaks a working client** → The ambiguous case defaults to
   legacy, and the existing test files must pass unmodified. Any diff to them is
   a signal the legacy path moved, not that a test needed updating.
+- **Fixing legacy conformance breaks a working client**, which is a sharper
+  version of the same risk and the price of section 0 → Three defences, in
+  order. A flagged deviation is re-derived before it is touched, so the ones
+  that exist to keep a real client working are kept. The live end-to-end test
+  over a real legacy client (task 9.4) is what would catch a fix that is
+  spec-correct and client-fatal. And section 0 lands alone, first, so a
+  regression it causes is attributable to it rather than to the modern path.
+  Note what is NOT a defence: the existing test files, which section 0 is
+  permitted to change — a test asserting behaviour the spec contradicts was
+  asserting our bug, and that is exactly the case where the regression net is
+  the thing being corrected.
 - **The modern path doubles the surface `McpServer` must get right**, and this
   is a file where a review already found a batch element being dispatched before
   its refusal → Share the dispatch layer (`handleJsonRpc` and below) between

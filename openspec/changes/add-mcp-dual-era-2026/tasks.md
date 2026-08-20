@@ -1,9 +1,29 @@
-This lands as **two pull requests**. The first is sections 1-4 and the parts of
-9-10 that cover them: era detection, the modern read path, `server/discover`,
-cacheable results, deterministic resource ordering. Nothing in it is advertised,
-so it ships dark. The second is sections 5-8: the rate limiter, the confirmation
-gate, `subscriptions/listen`, and finally `2026-07-28` in
-`supportedProtocolVersions()`.
+This lands as **two pull requests**. The first is sections 0-4 and the parts of
+9-10 that cover them: legacy conformance, era detection, the modern read path,
+`server/discover`, cacheable results, deterministic resource ordering. Nothing
+in it is advertised, so the modern half ships dark. The second is sections 5-8:
+the rate limiter, the confirmation gate, `subscriptions/listen`, and finally
+`2026-07-28` in `supportedProtocolVersions()`.
+
+## 0. Legacy conformance — brought to green, not merely measured
+
+Sequenced FIRST, before any modern code exists. Two reasons, and the second is
+the one that matters: a legacy fix landed after the modern path exists cannot be
+told apart from a modern regression, and the whole change rests on being able to
+say legacy did not move.
+
+We have never run a conformance suite against this server. Four revisions are
+advertised in `supportedProtocolVersions()`, and advertising a revision is a
+claim to implement it — a claim nothing has ever checked.
+
+- [ ] 0.1 Run `npx @modelcontextprotocol/conformance server --url <url>` against the app as it is on `main`, for every advertised revision (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`). Capture the full output before changing a line
+- [ ] 0.2 Triage every failure into one of two piles, in writing: **defect** (we are wrong and did not mean to be) or **deliberate deviation** (we are wrong and there is a written reason at the site)
+- [ ] 0.3 Fix the defects. This is the part that changes legacy behaviour on purpose, and the reason the "byte-identical" goal is now stated as "identical except where it disagreed with the spec it claims to implement" — see design.md
+- [ ] 0.4 For each deliberate deviation, **re-derive the reason rather than defending it**. Several are documented in `mcpserver.cpp` and at least one must survive: the auto-recovery branch is more permissive than the spec on purpose, because `mcp-remote` cannot re-initialize itself and 404ing it leaves a client "permanently broken until restart". Conformance flagging that is conformance being right about the spec and wrong about the client, and the deviation stays
+- [ ] 0.5 Known candidates to expect in the flagged pile, so they are recognised rather than rediscovered: the auto-recovery branch; reaper- and eviction-terminated sessions not being tombstoned (`m_terminatedSessions` documents why only DELETE records); no `Last-Event-ID` replay (a MAY); SSE event IDs not encoding their originating stream (a 2025-11-25 SHOULD, deliberately unmet); batch accepted at every revision rather than only `2025-03-26`
+- [ ] 0.6 Record the verdict for every deviation kept — one line each, at the site, saying conformance flags it and why it stays. A deviation nobody re-derives is how a bad decision keeps getting re-approved
+- [ ] 0.7 Re-run all four revisions and record the result. Anything still red is either a kept deviation with a written reason or an unfinished task; there is no third pile
+- [ ] 0.8 `tst_mcpserver_protocol.cpp` and `tst_mcpserver_session.cpp` may legitimately change **here and only here**. A test asserting behaviour the spec contradicts was asserting our bug. Name the conformance requirement that drove each edit in the commit; an edit with no such citation is the thing 2.5 forbids
 
 ## 1. Era-independent wins, shippable on their own
 
@@ -29,7 +49,7 @@ first so the rest is not holding them hostage.
 - [ ] 2.2 `MCP-Protocol-Version` alone is NOT a discriminator — legacy has sent it since 2025-06-18. Write that at the site; it is the mistake this decision exists to prevent
 - [ ] 2.3 Ambiguous → legacy. The failure modes are asymmetric: mis-routing legacy to modern breaks a working client with no recovery, while mis-routing modern to legacy produces the error the modern client's own detection is specified to fall back from
 - [ ] 2.4 Test: every existing legacy shape still routes to legacy — `initialize`, a post-handshake `tools/call`, a notification, a batch array, a bare GET for SSE
-- [ ] 2.5 **The existing `tst_mcpserver_protocol.cpp` and `tst_mcpserver_session.cpp` must pass UNTOUCHED.** A diff to either is evidence the legacy path moved, not that a test needed updating
+- [ ] 2.5 **From this section onward, `tst_mcpserver_protocol.cpp` and `tst_mcpserver_session.cpp` must pass UNTOUCHED.** A diff to either is evidence the legacy path moved, not that a test needed updating. Two carve-outs, both deliberate and both stated where they occur: section 0, where a conformance defect may prove a test was asserting our bug, and section 6, which changes the confirmation mechanism on purpose. Outside those two, the rule is absolute — and note that section 0 lands first precisely so its edits are already in the baseline this rule is measured against
 
 ## 3. Modern request path — read-category only
 
@@ -95,8 +115,9 @@ and a modern client without it degrades to polling rather than breaking.
 - [ ] 9.1 Full suite via `mcp__qtcreator__run_tests` (scope `all`) — ask first, Qt Creator is shared
 - [ ] 9.2 Break each fix in turn and confirm its test goes red
 - [ ] 9.2a **Run the official conformance suite against a running app**, both PRs: `npx @modelcontextprotocol/conformance server --url http://<host>:<port>/mcp`. It drives the server over HTTP and needs no C++ SDK. Passing its `2026-07-28` requirement set is what "done" means for the second PR
-- [ ] 9.2b Run it against the LEGACY revisions too, before touching anything. A baseline taken first is the only way to tell a pre-existing legacy failure from one this change introduced — and legacy conformance has never been measured here
-- [ ] 9.2c Record both results in the PR body: which requirement sets ran, what passed, and every failure left standing with the reason. A summarised "conformance passes" is the claim this suite exists to make checkable
+- [ ] 9.2b Legacy conformance is section 0's job, not a measurement taken here. Re-run all four legacy revisions at the end of each PR and confirm nothing regressed against section 0's recorded end state
+- [ ] 9.2c Record every result in the PR body: which requirement sets ran, what passed, and every failure left standing with the reason it stays. A summarised "conformance passes" is exactly the claim this suite exists to make checkable
+- [ ] 9.2d Run it over the REMOTE route as well as ShotServer's. Conformance points at a URL, and the tokenized route is a different URL — pointing it only at the local one leaves the route that has been missed before unmeasured again
 - [ ] 9.3 Live-test over BOTH callers — ShotServer AND `McpRemoteAccess`. The remote route is a separate entry that has been missed before, and a legacy regression there would be invisible to the local one
 - [ ] 9.4 Exercise a real legacy client end to end (Claude Desktop or the claude.ai connector) and confirm nothing changed for it. This is the assertion the whole change rests on
 - [ ] 9.5 Be honest in the PR body that no real MODERN client has exercised any of this — it ships dark. The conformance suite is stronger evidence than our own tests, since ours only re-assert our own reading of the spec, but it is still not a real client. Do not describe this the way the legacy path can now be described
