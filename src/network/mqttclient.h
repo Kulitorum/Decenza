@@ -165,13 +165,14 @@ private:
     // rather than every 15 minutes for as long as the broker stays away.
     bool m_slowRetryAnnounced = false;
 
-    // One line per window while a repeating message is unchanged; a changed
-    // message emits at once. 10 min: a broker that is down stays down for hours,
-    // and the retry ladder already has its own one-shot "backing off" warning, so
-    // this only decides how often "still down, same reason" is restated.
+    // Nothing while a repeating message is unchanged; a changed message emits at once. A broker
+    // that is down stays down for hours with one unvarying reason, and the retry ladder already has
+    // its own one-shot "backing off" warning — so restating "still down, same reason" on any
+    // cadence adds a line count, not a diagnosis. The first failure prints, the recovery prints,
+    // and the recovery carries how many attempts fell in between.
     // Episodic: a run is one connection attempt sequence. Flushed on a successful connect in
     // onConnected() — the only caller that got this right before the others were audited.
-    LogCollapse m_logCollapse{10 * 60 * 1000};
+    LogCollapse m_logCollapse{LogCollapse::kChangesOnly};
     // A stop the user asked for is not a fault, so it must not re-arm the retry loop.
     //
     // INVARIANT: this may only be true while a disconnect callback is actually pending.

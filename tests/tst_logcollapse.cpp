@@ -4,10 +4,15 @@
 
 #include "core/logcollapse.h"
 
-// LogCollapse decides whether a repeating log line is worth printing. Three periodic sources share
-// it (the MMR keepalive, the memory sampler, the ShotServer request log), which is exactly why the
-// rules are pinned here: a change that makes it slightly more eager to suppress would go unnoticed
-// in the app and quietly cost the next log reader the line they needed.
+// LogCollapse decides whether a repeating log line is worth printing. Every periodic source in the
+// tree shares it (the MMR keepalive, the memory sampler, the battery poll, the ShotServer request
+// log, MQTT's retry ladder), which is exactly why the rules are pinned here: a change that makes it
+// slightly more eager to suppress would go unnoticed in the app and quietly cost the next log
+// reader the line they needed.
+//
+// Two modes, and both are pinned. kChangesOnly is what those five use — an unchanged line never
+// repeats at any spacing — while a finite window remains for the one caller whose repeats are
+// themselves evidence (BleGattQueue's dispatch line, gated on a foreign-wait threshold).
 //
 // The clock is a parameter, not a QElapsedTimer, so every case below is exact and instant.
 class tst_LogCollapse : public QObject
@@ -44,6 +49,52 @@ private slots:
         // Count resets after being reported, so it is a per-window figure and never cumulative.
         QVERIFY(!c.shouldLog("k", "same", 61'000, &c2));
         QVERIFY(c.shouldLog("k", "same", 120'000, &c2));
+        QCOMPARE(c2.suppressed, 1);
+    }
+
+    // kChangesOnly: no elapsed time is ever enough to re-print an unchanged line. The failure this
+    // guards is a regression to window semantics via some "sensible maximum" clamp — which would
+    // look harmless, pass every other case here, and put a keepalive back in the log every N hours.
+    void changesOnlyNeverRepeatsAnUnchangedLine()
+    {
+        LogCollapse c(LogCollapse::kChangesOnly);
+        LogCollapse::Collapsed c2;
+        QVERIFY(c.shouldLog("k", "same", 0, &c2));
+
+        // Ten hours, a day, and a week later: still nothing.
+        QVERIFY(!c.shouldLog("k", "same", 10LL * 60 * 60 * 1000, &c2));
+        QVERIFY(!c.shouldLog("k", "same", 24LL * 60 * 60 * 1000, &c2));
+        QVERIFY(!c.shouldLog("k", "same", 7LL * 24 * 60 * 60 * 1000, &c2));
+    }
+
+    // ...and the tally is not lost by that silence. This is what makes kChangesOnly safe for the
+    // two callers that never flush (the memory sampler, the battery poll): the count and the span
+    // ride out on the next line whose text differs, which is the line a reader wanted anyway.
+    void changesOnlyStillReportsTheTallyOnTheNextChange()
+    {
+        LogCollapse c(LogCollapse::kChangesOnly);
+        LogCollapse::Collapsed c2;
+        QVERIFY(c.shouldLog("k", "before", 0, &c2));
+
+        constexpr qint64 kMinute = 60'000;
+        for (int i = 1; i <= 180; ++i)
+            QVERIFY(!c.shouldLog("k", "before", i * kMinute, &c2));
+
+        QVERIFY(c.shouldLog("k", "after", 181 * kMinute, &c2));
+        QCOMPARE(c2.suppressed, 180);
+        QCOMPARE(c2.spanMs, 181 * kMinute);
+    }
+
+    // The finite window still behaves exactly as it did. BleGattQueue depends on it, and the
+    // sentinel is a comparison against m_windowMs — get that branch wrong and every windowed caller
+    // silently becomes changes-only, which no case above would catch.
+    void finiteWindowIsUnaffectedByTheSentinel()
+    {
+        LogCollapse c(60'000);
+        LogCollapse::Collapsed c2;
+        QVERIFY(c.shouldLog("k", "same", 0, &c2));
+        QVERIFY(!c.shouldLog("k", "same", 59'999, &c2));
+        QVERIFY(c.shouldLog("k", "same", 60'000, &c2));
         QCOMPARE(c2.suppressed, 1);
     }
 

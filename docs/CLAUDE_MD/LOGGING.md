@@ -108,6 +108,30 @@ are the same thing. (They were.)
 Anything genuinely model-specific — which characteristic, which extra notification —
 stays a literal at the call site.
 
+### A periodic line that says nothing must say nothing
+
+A line whose text is unchanged carries no more information an hour later than it did
+a minute later, so the question is not how often it may repeat — it is whether the
+repeat is worth a line at all. For a source reporting that things are normal, it is
+not. Route it through `LogCollapse` constructed with `LogCollapse::kChangesOnly`
+(`src/core/logcollapse.h`): a CHANGE prints at once and carries the count of
+identical lines it stood for, and nothing prints in between.
+
+Every periodic source in the tree is on it — the MMR charger keepalive, the memory
+sampler, the battery poll, the ShotServer request log, MQTT's retry ladder, and the
+two elided-write lines. A finite window is for the one case where the repeat is
+itself evidence: `BleGattQueue`'s dispatch line only speaks above a foreign-wait
+threshold, and a window is what separates two operations inside one stall.
+
+Two things to get right, both of which have been got wrong here:
+
+- **An episodic source must flush at its run end**, or its pending tally is stapled
+  onto the next run's first line hours later with a span dated to now. Periodic
+  sources need no flush — the tally rides out on the next line whose text differs.
+- **Key it by what makes two lines the same event.** The elided-write lines key on
+  the whole message, so a different CALLER eliding the same value still prints:
+  "who tried and was ignored" is the entire content of that line.
+
 ## Four failure modes to avoid
 
 These are the ones that actually happened, repeatedly.

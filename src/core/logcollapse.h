@@ -5,8 +5,13 @@
 #include <QPair>
 #include <QString>
 
-// Collapses a repeating log line to one entry per window, carrying the count of what it stood in
-// for.
+#include <limits>
+
+// Collapses a repeating log line, carrying the count of what it stood in for.
+//
+// Two modes, and kChangesOnly is the one a periodic source wants: an unchanged line never repeats,
+// however long it has been. A window (the other mode) is for a source already gated on a problem,
+// where the repeat is itself evidence. See kChangesOnly for which is which and why.
 //
 // WHY THIS EXISTS AS ONE CLASS
 // ----------------------------
@@ -52,9 +57,33 @@ public:
     // compiler said so (-Wunused-private-field). An enum nobody reads is a comment with a type, so
     // this is the comment.
 
+    // A window meaning "an unchanged line is never worth repeating, at any spacing".
+    //
+    // This is the DEFAULT for a periodic source, and every periodic caller in the tree uses it. A
+    // window was the original design and it was the wrong unit: it asks "how often may this line
+    // repeat" when the question is "does a repeat carry anything". For a source whose text is
+    // unchanged the answer does not improve with elapsed time — a byte-identical charger keepalive
+    // an hour after the last one tells a reader exactly what the last one did, and costs a line of
+    // a ring buffer that has to hold everything else. Six lines an hour is not noticeably better
+    // than six hundred when none of them say anything.
+    //
+    // What replaces the periodic reassurance is the pair that always did the work: a CHANGED line,
+    // which emits at once, and the run-end flush, which prints the tally. Between them the reader
+    // gets the transition and the count it stood for, and nothing in between. The cost is that
+    // silence no longer distinguishes "healthy" from "stopped" until the flush — accepted
+    // deliberately, because for all five callers a death is visible in lines this one does not own
+    // (a disconnect, a broker error, a server stop).
+    //
+    // A source that is already gated on a PROBLEM does not want this and must keep a real window:
+    // its repeats are evidence, not reassurance. BleGattQueue's dispatch line is the one such
+    // caller — it speaks only above a foreign-wait threshold, within episodes lasting under a
+    // second, so a window is what separates two operations inside one stall.
+    static constexpr qint64 kChangesOnly = std::numeric_limits<qint64>::max();
+
     // `windowMs` is the minimum spacing between emitted lines for a given key while the text is
-    // unchanged. A CHANGED text always emits immediately regardless of the window — a value that
-    // moved is the interesting event, and holding it back is how a collapser turns into a bug.
+    // unchanged, or kChangesOnly to never repeat one. A CHANGED text always emits immediately
+    // regardless of the window — a value that moved is the interesting event, and holding it back
+    // is how a collapser turns into a bug.
     explicit LogCollapse(qint64 windowMs) : m_windowMs(windowMs) {}
 
 
@@ -75,7 +104,12 @@ public:
     {
         Entry& e = m_entries[key];
         const bool changed = (e.text != text);
-        const bool windowElapsed = (nowMs - e.lastEmitMs) >= m_windowMs;
+        // Spelled as an explicit branch rather than leaning on kChangesOnly being unreachably
+        // large. The comparison would in fact never fire, but a sentinel that works by arithmetic
+        // accident is one refactor away from a subtraction that wraps, and this reads as what it
+        // means at no cost.
+        const bool windowElapsed =
+            (m_windowMs != kChangesOnly) && (nowMs - e.lastEmitMs) >= m_windowMs;
 
         if (!e.everEmitted || changed || windowElapsed) {
             if (out)

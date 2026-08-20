@@ -1302,7 +1302,8 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
     resultMeta[QLatin1String(kMetaServerInfo)] =
         QJsonObject{{"name", "Decenza MCP Server"},
                     {"version", QString::fromLatin1(McpSurfaceVersion)},
-                    {"appVersion", QStringLiteral(VERSION_STRING)}};
+                    {"appVersion", QStringLiteral(VERSION_STRING)},
+                    {"buildNumber", versionCode()}};
     result[QLatin1String(kMetaKey)] = resultMeta;
 
     QJsonObject response{{"jsonrpc", "2.0"},
@@ -1696,6 +1697,7 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     // identical across the change that halved its tool list.
     serverInfo["version"] = QString::fromLatin1(McpSurfaceVersion);
     serverInfo["appVersion"] = QStringLiteral(VERSION_STRING);
+    serverInfo["buildNumber"] = versionCode();
 
     // Negotiate protocol version — accept what the client requests if we support it,
     // otherwise return our preferred version (the first entry).

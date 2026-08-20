@@ -193,6 +193,22 @@ void DE1Device::onTransportDisconnected() {
                     .arg(address, LogCollapse::suffix(collapsed)));
     }
 
+    // The water-level filter's run ends here too. Re-seeding on the next connect is what stops the
+    // reconnect showing the tank refilling from wherever the last session left the average, and
+    // clearing the log endpoints stops the first line of the new session claiming a delta measured
+    // against the old one.
+    m_waterLevelSeeded = false;
+    m_lastLoggedWaterLevelMm = -1000.0;
+    m_lastLoggedWaterLevelMl = -1;
+
+    // Elided-write runs end here as well. Keyed by the message text, which this function does not
+    // enumerate, so flushAll() — and the key IS the line to print, under its own tag.
+    const qint64 skipFlushMs = QDateTime::currentMSecsSinceEpoch();
+    for (const auto& [text, collapsed] : m_mmrSkipLog.flushAll(skipFlushMs))
+        MMR_LOG(text + LogCollapse::suffix(collapsed));
+    for (const auto& [text, collapsed] : m_shotSettingsSkipLog.flushAll(skipFlushMs))
+        SHOTSETTINGS_LOG(text + LogCollapse::suffix(collapsed));
+
     // Tier by whether the machine was BUSY, because that is what separates a
     // fault from a shutdown, and nothing else here can.
     //
@@ -599,10 +615,13 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     bool subStateChanged = (newSubState != m_subState);
 
     if (stateChanged) {
-        PHASE_LOG(QStringLiteral("%1 → %2 (water raw=%3 mm, displayed=%4 mm, %5 ml)")
+        // Water carried here so a phase change is self-contained. Only the corrected figure: the
+        // "raw" half was this same number minus the constant sensor offset, reconstructed inline
+        // rather than read from anywhere, which is as clear a demonstration as there could be that
+        // it carried nothing.
+        PHASE_LOG(QStringLiteral("%1 → %2 (water %3 mm, %4 ml)")
                       .arg(DE1::stateToString(m_state))
                       .arg(DE1::stateToString(newState))
-                      .arg(m_waterLevelMm - 5.0, 0, 'f', 1)
                       .arg(m_waterLevelMm, 0, 'f', 1)
                       .arg(m_waterLevelMl));
     }
@@ -682,7 +701,16 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
 
     // Apply sensor offset correction (sensor is mounted 5mm above water intake)
     constexpr double SENSOR_OFFSET = 5.0;
-    m_waterLevelMm = rawMm + SENSOR_OFFSET;
+    const double sampleMm = rawMm + SENSOR_OFFSET;
+
+    // Low-pass the sample before anything reads it. See WATER_LEVEL_SMOOTHING_ALPHA in the header
+    // for why this is a filter and not a bigger threshold.
+    if (!m_waterLevelSeeded) {
+        m_waterLevelMm = sampleMm;
+        m_waterLevelSeeded = true;
+    } else {
+        m_waterLevelMm += WATER_LEVEL_SMOOTHING_ALPHA * (sampleMm - m_waterLevelMm);
+    }
 
     // Lookup table from de1app CAD data (mm index → ml volume)
     static const int mmToMl[] = {
@@ -715,14 +743,41 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
     if (qAbs(m_waterLevel - m_lastEmittedWaterLevel) >= 0.5
         || m_waterLevelMl != m_lastEmittedWaterLevelMl) {
         // Log on a coarser gate than the emit — see m_lastLoggedWaterLevelMm. 2 mm is above the
-        // sensor's idle dither and below anything a person would call a change in level: a refill,
-        // a shot's worth of draw, or the tank running down all clear it within a line or two.
+        // smoothed signal's residual dither and below anything a person would call a change in
+        // level: a refill, a shot's worth of draw, or the tank running down all clear it.
         if (qAbs(m_waterLevelMm - m_lastLoggedWaterLevelMm) >= WATER_LEVEL_LOG_HYSTERESIS_MM) {
-            WATER_LOG(QStringLiteral("raw=%1 mm displayed=%2 mm %3 ml")
-                          .arg(rawMm, 0, 'f', 1)
-                          .arg(m_waterLevelMm, 0, 'f', 1)
-                          .arg(m_waterLevelMl));
+            // What the line has to answer is "what happened to the water", and neither a bare
+            // reading nor a pair of readings answers it — 564 ml is not a fact anyone can act on
+            // without knowing it was 732 ml a moment ago and that the machine was pulling a shot.
+            // So: the move, and the state that caused it.
+            //
+            // `raw` is deliberately gone. It was `displayed` minus a compile-time constant
+            // (SENSOR_OFFSET), so the two could never disagree and printing both doubled the width
+            // of every line to say one thing twice. The Phase line proved it by reconstructing raw
+            // as `m_waterLevelMm - 5.0` rather than reading a stored value.
+            //
+            // The state is the machine's, NOT a classification of the event. The tempting version
+            // of this line tags a large positive delta "[refill]" — but that is a guess with a
+            // threshold behind it, and a reader given "+616 ml [Idle]" can draw the same conclusion
+            // from evidence instead of being told it.
+            if (m_lastLoggedWaterLevelMl < 0) {
+                WATER_LOG(QStringLiteral("%1 ml (%2 mm) first reading [%3]")
+                              .arg(m_waterLevelMl)
+                              .arg(m_waterLevelMm, 0, 'f', 1)
+                              .arg(DE1::stateToString(m_state)));
+            } else {
+                const int deltaMl = m_waterLevelMl - m_lastLoggedWaterLevelMl;
+                WATER_LOG(QStringLiteral("%1 -> %2 ml (%3%4 ml, %5 -> %6 mm) [%7]")
+                              .arg(m_lastLoggedWaterLevelMl)
+                              .arg(m_waterLevelMl)
+                              .arg(deltaMl >= 0 ? QStringLiteral("+") : QString())
+                              .arg(deltaMl)
+                              .arg(m_lastLoggedWaterLevelMm, 0, 'f', 1)
+                              .arg(m_waterLevelMm, 0, 'f', 1)
+                              .arg(DE1::stateToString(m_state)));
+            }
             m_lastLoggedWaterLevelMm = m_waterLevelMm;
+            m_lastLoggedWaterLevelMl = m_waterLevelMl;
         }
         m_lastEmittedWaterLevel = m_waterLevel;
         m_lastEmittedWaterLevelMl = m_waterLevelMl;
@@ -1625,10 +1680,15 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     const bool valueUnchanged = (it != m_lastMMRValues.constEnd() && it.value() == value);
 
     if (!force && valueUnchanged) {
-        MMR_LOG(QStringLiteral("write skipped: 0x%1 unchanged (%2)%3")
-                    .arg(address, 6, 16, QLatin1Char('0'))
-                    .arg(value)
-                    .arg(reasonSuffix));
+        // Once per distinct (register, value, caller) per session — see m_writeSkippedLog.
+        const QString text = QStringLiteral("write skipped: 0x%1 unchanged (%2)%3")
+                                 .arg(address, 6, 16, QLatin1Char('0'))
+                                 .arg(value)
+                                 .arg(reasonSuffix);
+        LogCollapse::Collapsed collapsed;
+        if (m_mmrSkipLog.shouldLog(text, text, QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+            MMR_LOG(text + LogCollapse::suffix(collapsed));
+        }
         return;
     }
 
@@ -1926,7 +1986,8 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     // attributes the elided call to its origin so we can see which convergent
     // signal fired.
     if (data == m_lastShotSettingsPayload) {
-        SHOTSETTINGS_LOG(QStringLiteral(
+        // Once per distinct (payload, caller) per session — see m_writeSkippedLog.
+        const QString text = QStringLiteral(
             "write skipped: payload unchanged "
             "(steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C)%6")
             .arg(steamTemp, 0, 'f', 1)
@@ -1934,7 +1995,12 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
             .arg(hotWaterTemp, 0, 'f', 1)
             .arg(hotWaterVolume)
             .arg(groupTemp, 0, 'f', 2)
-            .arg(reasonSuffix));
+            .arg(reasonSuffix);
+        LogCollapse::Collapsed collapsed;
+        if (m_shotSettingsSkipLog.shouldLog(text, text, QDateTime::currentMSecsSinceEpoch(),
+                                            &collapsed)) {
+            SHOTSETTINGS_LOG(text + LogCollapse::suffix(collapsed));
+        }
         return;
     }
 

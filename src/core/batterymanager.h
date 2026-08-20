@@ -182,9 +182,11 @@ private:
     int  m_chargingMismatchCount = 0;
     bool m_chargingMismatch      = false;  // true while mismatch signal is active
 
-    // One line per window while the poll result is unchanged; a change emits at
-    // once. 15 min: the poll runs every ~60 s and a plugged-in tablet never
-    // varies, so the window only decides how often "still the same" is restated.
-    // Periodic: polls for the process lifetime, so there is no run end and nothing to flush.
-    LogCollapse m_pollCollapse{15 * 60 * 1000};
+    // Nothing while the poll result is unchanged; a change emits at once, carrying the count of
+    // identical polls it stood for. The poll runs every ~60 s and a plugged-in tablet never varies
+    // — the 643 byte-identical lines cited above were 2.5% of a user's log, and a window only chose
+    // how many of them survived rather than whether any of them said anything.
+    // Periodic: polls for the process lifetime, so there is no run end and nothing to flush. The
+    // pending tally is not lost by that: it rides out on the next line whose text differs.
+    LogCollapse m_pollCollapse{LogCollapse::kChangesOnly};
 };

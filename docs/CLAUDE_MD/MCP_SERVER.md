@@ -353,7 +353,7 @@ the `refresh()` / `rotateToken()` invokables.
 | Tool | Description | Category |
 |------|-------------|----------|
 | `machine_get_state` | Phase, connection, readiness, heating status, water level (ml + mm), firmware version, active profile name. Platform/OS info has moved to `app_get_info` (#988) to keep tight polling responses small. | read |
-| `app_get_info` | App and device info: appVersion, qtVersion, OS, kernel, architecture, deviceModel, screen size/DPI, devicePixelRatio. Diagnostics-grade — call once per session. | read |
+| `app_get_info` | App and device info: appVersion, **buildNumber**, qtVersion, OS, kernel, architecture, deviceModel, screen size/DPI, devicePixelRatio. Diagnostics-grade — call once per session. `buildNumber` (`versionCode()`) is what identifies a build: one `appVersion` can ship many, since pre-releases are re-cut against a rolling version — v2.0.4 shipped as 3552, 3553 and 3554. Ask for it before concluding whether a fix is present in a field report. | read |
 | `machine_get_telemetry` | Live pressure, flow, temp, weight, goal values. During a shot, also returns the current shot's time-series data so far (not just the latest sample) so the AI can detect channeling or stalling mid-shot. | read |
 | `steam_get_health` | Detailed steam-system health: baseline + current pressure/temperature, flow-restriction progress toward warn thresholds, status, and recommendation. Used for steam-wand cleaning / descaling guidance. | read |
 
