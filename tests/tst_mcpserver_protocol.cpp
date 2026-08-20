@@ -931,6 +931,47 @@ private slots:
         QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32602);
     }
 
+    // `resources/list` must not emit in QHash order. Qt randomizes the hash seed
+    // per process, so an unsorted listing is stable within a run and different
+    // across restarts — which is exactly the shape that defeats a client cache
+    // while looking fine in any single run. 2026-07-28 makes deterministic order
+    // an explicit SHOULD.
+    //
+    // Asserting ascending URI order rather than comparing two runs, because two
+    // registries in ONE process share the seed and would agree even unsorted —
+    // a same-process comparison cannot fail. Removing the sort therefore reddens
+    // this with probability 1 - 1/n!, which at eight resources is 1 - 1/40320.
+    // Not a certainty, and said out loud rather than implied.
+    void resourcesListIsOrderedByUriNotHashOrder()
+    {
+        McpServer server;
+        // Registered in deliberately non-alphabetical order.
+        const QStringList uris{
+            "decenza://shots/recent", "decenza://machine/state", "decenza://profiles/active",
+            "decenza://tools/steam", "decenza://beans/current", "decenza://water/vessel",
+            "decenza://equipment/grinder", "decenza://ai/knowledge"};
+        for (const QString& uri : uris) {
+            server.resourceRegistry()->registerResource(
+                uri, "N", "D", "application/json",
+                []() -> QJsonObject { return QJsonObject{}; });
+        }
+
+        const QString sid = openSession(server, "2025-11-25");
+        auto resp = sendHttp(server, "POST", rpcBody("resources/list", {}, 2), sid);
+        QCOMPARE(resp.statusCode, 200);
+
+        const QJsonArray resources = resp.jsonBody["result"].toObject()["resources"].toArray();
+        QCOMPARE(resources.size(), uris.size());
+
+        QStringList got;
+        for (const QJsonValue& v : resources)
+            got << v.toObject()["uri"].toString();
+
+        QStringList expected = uris;
+        expected.sort();
+        QCOMPARE(got, expected);
+    }
+
     // ─── Spec-version gating: the floor revision sees only its own fields ───
     //
     // A strict validator rejects a response carrying fields introduced after the
