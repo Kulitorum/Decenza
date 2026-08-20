@@ -18,6 +18,11 @@
 #define SAWW_INFO(msg) SAW_INFO_STDERR("Worker", msg)
 #define SAWW_WARN(msg) SAW_WARN_STDERR("Worker", msg)
 
+// Largest pre-shot zero we will treat as drift and subtract. Measured drift is
+// 0.1-0.5 g; 2 g leaves room for a worse scale while staying far below any cup, so a
+// forgotten untared cup can never be mistaken for a zero offset and silently erased.
+constexpr double kMaxPreShotZeroOffsetG = 2.0;
+
 namespace {
 qint64 monotonicMsNow()
 {
@@ -163,6 +168,18 @@ void WeightProcessor::processWeight(double weight)
     const bool sampleValueUnchanged = m_hasLastWeight && weight == m_lastRawWeight;
     m_hasLastWeight = true;
     m_lastRawWeight = weight;
+
+    // Correct for the zero the scale actually had when flow started. A tare leaves a
+    // small residual and it creeps during preheat -- measured at -0.1 to -0.5 g across
+    // six shots. It is a BIAS, not noise: a zero sitting 0.4 g low makes every reading
+    // 0.4 g low, so SAW stops late by that much and the recorded weight is short by it,
+    // every shot, same direction. Systematic error does not average out.
+    //
+    // Deliberately BELOW the spike filter and the m_lastRawWeight store above.
+    // m_lastRawWeight has to keep holding what the scale actually sent -- three log
+    // lines print it as the raw reading. The filter is indifferent: it compares deltas,
+    // and a constant offset cancels.
+    weight -= m_preShotZeroOffset;
 
     // De-jitter: BLE events arrive on the main thread via QueuedConnection, and when
     // the main thread is busy (QML rendering), multiple events queue up and are
@@ -898,6 +915,7 @@ void WeightProcessor::startExtraction()
     m_weightSamples.clear();
 
     m_lastRawWeight = 0;
+    setPreShotZeroOffset(0.0);
     m_hasLastWeight = false;
     m_consecutiveRejections = 0;
     m_awaitingTare = true;  // Cleared when the scale is seen to reach zero
@@ -924,6 +942,14 @@ void WeightProcessor::startExtraction()
     resetStallTracking();
     resetShotDiagnostics();
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
+}
+
+void WeightProcessor::setPreShotZeroOffset(double offsetG)
+{
+    if (m_preShotZeroOffset == offsetG)
+        return;
+    m_preShotZeroOffset = offsetG;
+    emit preShotZeroOffsetChanged(offsetG);
 }
 
 void WeightProcessor::markExtractionStart()
@@ -954,7 +980,27 @@ void WeightProcessor::markExtractionStart()
     // extractionElapsed > 5 s, and extractionElapsed is 0 while m_extractionStartTime
     // is 0 — so the hold-off costs nothing there. It is the per-frame weight exit that
     // needed protecting in the meantime, and that has its own !m_awaitingTare gate.
+    // Read BEFORE the clear below: it is the only state that says whether the reading
+    // we are about to adopt is a settled POST-tare zero or a value from before the
+    // tare landed. Clearing first would silently discard that distinction.
+    const bool tareWasObserved = !m_awaitingTare;
     m_awaitingTare = false;
+
+    // Bounded to kMaxPreShotZeroOffsetG, and only adopted if the tare was seen to
+    // land: otherwise m_lastRawWeight may still be a PRE-tare reading, and adopting
+    // one that happens to fall inside the bound would skew the yield and the SAW stop
+    // by it. Skipping is the safe direction — no correction is what this code did
+    // before the offset existed.
+    const double offset = (tareWasObserved && m_hasLastWeight
+                           && qAbs(m_lastRawWeight) <= kMaxPreShotZeroOffsetG)
+                              ? m_lastRawWeight
+                              : 0.0;
+    setPreShotZeroOffset(offset);
+    if (qAbs(offset) >= 0.05) {
+        SAWW_INFO(QStringLiteral("Pre-shot zero was %1 g - correcting every weight this "
+                                 "shot, including the final weight, by that much")
+                      .arg(offset, 0, 'f', 2));
+    }
 }
 
 void WeightProcessor::endShotCycle()
@@ -1027,6 +1073,7 @@ void WeightProcessor::resetForRetare()
     m_weightSamples.clear();
 
     m_lastRawWeight = 0;
+    setPreShotZeroOffset(0.0);
     m_hasLastWeight = false;
     m_consecutiveRejections = 0;
     m_awaitingTare = true;  // Retare moves the zero point again — same reasoning

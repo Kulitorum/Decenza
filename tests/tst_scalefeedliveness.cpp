@@ -57,6 +57,27 @@ private slots:
         QCOMPARE(changeSpy.count(), 1);
     }
 
+    // The other half of the chokepoint contract: weight() is CURRENT inside a
+    // weightSampleReceived handler. setWeight() used to emit that signal before
+    // assigning m_weight, so a handler reading the getter saw the previous sample --
+    // which silently recorded the wrong hot-water tare baseline. Nothing in the app
+    // pinned the ordering, so nothing failed.
+    void getterIsCurrentInsideTheSampleHandler() {
+        MockScaleDevice scale;
+        QVector<QPair<double, double>> seen;   // (emitted sample, weight() at that moment)
+        QObject::connect(&scale, &ScaleDevice::weightSampleReceived,
+                         &scale, [&](double sample) {
+                             seen.append({sample, scale.weight()});
+                         });
+
+        for (double w : {12.0, 12.0, 30.5, -4.25})
+            scale.mockSetWeight(w);
+
+        QCOMPARE(seen.count(), 4);
+        for (const auto& [sample, getter] : seen)
+            QCOMPARE(getter, sample);
+    }
+
     // Regression: a constant weight stream through a 15 s preheat-style dwell,
     // wired the FIXED way (weightSampleReceived → processWeight), must NOT trip
     // any scale-feed stall — the scale is alive, it just isn't changing.

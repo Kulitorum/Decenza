@@ -5,11 +5,13 @@
 #include "../ble/de1device.h"
 #include "../ble/scaledevice.h"
 #include "../ble/scales/scaletypeids.h"
+#include "../ble/scales/scalelogging.h"
 #include "../core/settings.h"
 #include "../core/settings_calibration.h"  // currentScaleType()/setServingScale() — settings.h
                                            // only forward-declares the domain sub-objects
 #include "../core/settings_brew.h"
 #include "../controllers/shottimingcontroller.h"
+#include <algorithm>
 #include <QDateTime>
 #include <QDebug>
 #include <QMetaEnum>
@@ -181,10 +183,23 @@ void MachineState::setScale(ScaleDevice* scale) {
     }
 
     m_scale = scale;
+    // The window describes ONE device's sample stream; carrying it across a swap
+    // would mix two scales' readings into one stillness verdict.
+    resetAutoTareWindow();
 
     if (m_scale) {
         connect(m_scale, &ScaleDevice::weightChanged,
                 this, &MachineState::onScaleWeightChanged);
+        // Separate slot on purpose. The settle window counts sample ARRIVALS, and
+        // ScaleDevice::setWeight dedupes weightChanged on value (the
+        // `if (m_weight != weight)` guard) — so a cup sitting perfectly still emits
+        // nothing and would never fill the window. Constant-weight windows are real
+        // here; the scale-feed liveness detector exists because of them (#1176).
+        // Routing weightSampleReceived into onScaleWeightChanged instead would run
+        // that whole slot twice per changed sample — MQTT relay, hot-water baseline
+        // burst log and all — which scaledevice.cpp:165-167 documents it must not.
+        connect(m_scale, &ScaleDevice::weightSampleReceived,
+                this, &MachineState::onScaleWeightSample);
         // Relay weight changes to QML via scaleWeightChanged signal (throttled to 10Hz)
         // LSLR flow rate is computed by WeightProcessor on a worker thread
         // and cached via updateCachedFlowRates()
@@ -322,6 +337,21 @@ void MachineState::onDE1SubStateChanged() {
     updatePhase();
 }
 
+namespace {
+// The substates that mean "the machine is heating and water has NOT reached the
+// puck yet". Shared deliberately: updatePhase() uses it to decide
+// Phase::EspressoPreheating, and the auto-tare gate re-checks the substate directly
+// because m_phase lags behind BLE state changes. That second read is only sound
+// while both agree — as two hand-written copies they could drift apart, and the
+// failure would be silent: a substate added here alone re-opens the window in which
+// a tare can fire on a moving cell.
+bool isPreFlowSubState(DE1::SubState subState) {
+    return subState == DE1::SubState::Heating ||
+           subState == DE1::SubState::FinalHeating ||
+           subState == DE1::SubState::Stabilising;
+}
+}  // namespace
+
 void MachineState::updatePhase() {
     if (!m_device || !m_device->isConnected()) {
         // A BLE drop mid-steam must disarm the steam flow-stop event WITHOUT
@@ -402,9 +432,7 @@ void MachineState::updatePhase() {
             break;
 
         case DE1::State::Espresso:
-            if (subState == DE1::SubState::Heating ||
-                subState == DE1::SubState::FinalHeating ||
-                subState == DE1::SubState::Stabilising) {
+            if (isPreFlowSubState(subState)) {
                 m_phase = Phase::EspressoPreheating;  // Use specific phase for espresso preheating
             } else if (subState == DE1::SubState::Preinfusion) {
                 m_phase = Phase::Preinfusion;
@@ -781,6 +809,104 @@ void MachineState::updatePhase() {
     }
 }
 
+// Negative until the window has filled — an unmeasured reading is not a still one.
+double MachineState::autoTareSpread() const {
+    if (m_autoTareCount < kAutoTareSettleSamples)
+        return -1.0;
+    const auto [lo, hi] = std::minmax_element(m_autoTareWindow,
+                                              m_autoTareWindow + kAutoTareSettleSamples);
+    return *hi - *lo;
+}
+
+void MachineState::resetAutoTareWindow() {
+    m_autoTareCount = 0;
+    m_settleWaitLogged = false;
+}
+
+// Every sample the scale reports, including repeats of an identical reading.
+// onScaleWeightChanged is deduped on value and cannot see a perfectly still cup;
+// the settle window below needs those repeats, so it lives here instead.
+void MachineState::onScaleWeightSample(double weight) {
+    // Auto-tare during "flow before" phase (like de1app: heating substates before water flows)
+    // Handles forgotten-cup scenario for both Espresso and HotWater
+    constexpr double AUTO_TARE_THRESHOLD = 2.0;  // grams (de1app uses 0.04g, 2g avoids noise)
+    constexpr qint64 AUTO_TARE_HOLDOFF_MS = 1000;  // 1s between tares (matches de1app)
+
+    // Substate, not m_phase: m_phase lags behind BLE state changes, and taring after
+    // water has started flowing is the failure this guards.
+    const bool isFlowBefore =
+        (m_phase == Phase::EspressoPreheating || m_phase == Phase::HotWater) && m_device
+        && isPreFlowSubState(m_device->subState());
+
+    // Wait for the reading to hold still before taring. A tare zeroes the scale on
+    // whatever the load cell reads at that instant, so taring mid-disturbance bakes
+    // the transient in as the new zero — and every reading for the rest of the shot
+    // is off by it, silently, with `tare= true` in the log the whole way. Observed
+    // once, on the 2026-08-20 9:37 AM shot: the zero landed at -20.6 g and
+    // stop-at-weight ran 23 g late.
+    //
+    // Stillness is the SPREAD across the window, not a per-sample delta, and the
+    // window must be long enough that the spread exceeds the band at the drift rate
+    // we care about. The observed drift ran roughly 0.47 g/sample (20.6 g over the
+    // ~4.4 s to the first at-rest reading, at the 10 Hz this scale reports), and a
+    // window of N samples only ever sees (N-1) steps — so N must satisfy
+    // (N-1) * 0.47 > kAutoTareSettleBandG. N=3 gives 0.94 g and would still call that
+    // drift "still"; N=4 gives 1.41 g and rejects it. Both a per-sample band and a
+    // 3-sample window were tried and both let it through. Calibrated on a 10 Hz
+    // scale: four samples span 0.3 s there and 1.5 s on a 2 Hz scale, so treat these
+    // two constants as one pair, never edited alone.
+    //
+    // Deliberately NOT here: verifying afterwards that the zero held, detecting a
+    // lifted cup, an interlock on the outstanding tare. Each was built and each only
+    // defended against a problem the previous one introduced.
+    if (!isFlowBefore) {
+        resetAutoTareWindow();
+        return;
+    }
+
+    // Order within the window is irrelevant — only min and max are read — so a
+    // wrapping index beats shifting the contents.
+    m_autoTareWindow[m_autoTareCount++ % kAutoTareSettleSamples] = weight;
+
+    if (!m_tareCompleted || weight <= AUTO_TARE_THRESHOLD)
+        return;
+
+    const double spread = autoTareSpread();
+    if (spread < 0.0 || spread > kAutoTareSettleBandG) {
+        // Not an error: the cup has only just landed. Logged once per window, and at
+        // INFO because the connections views filter DEBUG out — a scale whose noise
+        // floor never fits the band would otherwise never auto-tare, with nothing
+        // anywhere saying why.
+        if (!m_settleWaitLogged) {
+            m_settleWaitLogged = true;
+            SCALE_INFO_STDERR_TAGGED("AutoTare",
+                QStringLiteral("Cup placed during %1 (weight %2 g) — holding tare until the "
+                               "reading settles (spread %3 g, needs under %4 g across "
+                               "%5 samples)")
+                    .arg(phaseString()).arg(weight, 0, 'f', 1)
+                    .arg(spread < 0.0 ? QStringLiteral("not yet measured")
+                                      : QString::number(spread, 'f', 2))
+                    .arg(kAutoTareSettleBandG, 0, 'f', 1)
+                    .arg(kAutoTareSettleSamples));
+        }
+        return;
+    }
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // The holdoff is what retries a tare whose BLE packet was dropped, and this file
+    // documents that WriteWithoutResponse drops packets.
+    if (now - m_lastAutoTareTime < AUTO_TARE_HOLDOFF_MS)
+        return;
+
+    m_lastAutoTareTime = now;
+    resetAutoTareWindow();  // the tare itself moves the reading
+    SCALE_INFO_STDERR_TAGGED("AutoTare",
+        QStringLiteral("Cup placed during %1 (weight %2 g) — taring")
+            .arg(phaseString()).arg(weight, 0, 'f', 1));
+    tareScale();
+    emit flowBeforeAutoTare();
+}
+
 void MachineState::onScaleWeightChanged(double weight) {
     // Check if tare completed (scale reported near-zero after tare command)
     if (m_waitingForTare && qAbs(weight) < 1.0) {
@@ -837,33 +963,6 @@ void MachineState::onScaleWeightChanged(double weight) {
     }
 
 
-    // Auto-tare during "flow before" phase (like de1app: heating substates before water flows)
-    // Handles forgotten-cup scenario for both Espresso and HotWater
-    constexpr double AUTO_TARE_THRESHOLD = 2.0;  // grams (de1app uses 0.04g, 2g avoids noise)
-    constexpr qint64 AUTO_TARE_HOLDOFF_MS = 1000;  // 1s between tares (matches de1app)
-
-    bool isFlowBefore = false;
-
-    // Both Espresso preheat and HotWater heating use the same substates before flow.
-    // Check substate directly (not just m_phase) because m_phase can lag behind
-    // BLE state changes — avoids taring after water has already started flowing.
-    if ((m_phase == Phase::EspressoPreheating || m_phase == Phase::HotWater) && m_device) {
-        DE1::SubState subState = m_device->subState();
-        isFlowBefore = (subState == DE1::SubState::Heating ||
-                        subState == DE1::SubState::FinalHeating ||
-                        subState == DE1::SubState::Stabilising);
-    }
-
-    if (isFlowBefore && m_tareCompleted && weight > AUTO_TARE_THRESHOLD) {
-        qint64 now = QDateTime::currentMSecsSinceEpoch();
-        if (now - m_lastAutoTareTime >= AUTO_TARE_HOLDOFF_MS) {
-            m_lastAutoTareTime = now;
-            qDebug() << "=== AUTO-TARE: Cup placed during" << phaseString()
-                     << "(weight:" << weight << "g) ===";
-            tareScale();
-            emit flowBeforeAutoTare();
-        }
-    }
 
     if (!m_device) return;
     DE1::State state = m_device->state();
@@ -1142,7 +1241,11 @@ double MachineState::scaleWeight() const {
     if (m_hotWaterFrozenWeight >= 0.0)
         return m_hotWaterFrozenWeight;
 
-    double raw = m_scale->weight();
+    // Same correction WeightProcessor applies to the SAW series and the saved final
+    // weight. Applied to the OFFSET, not by routing this through the corrected series:
+    // that series is spike-filtered and de-jittered, so a rejected sample would freeze
+    // the readout mid-pour.
+    double raw = m_scale->weight() - m_preShotZeroOffset;
 
     // During hot water, return effective weight (accounting for fire-and-forget baseline).
     // This ensures the UI shows water added, not cup+water, on slow-tare scales.
@@ -1160,6 +1263,13 @@ double MachineState::scaleFlowRate() const {
 // These methods return cached values updated via updateCachedFlowRates().
 double MachineState::smoothedScaleFlowRate() const {
     return m_cachedFlowRate;
+}
+
+void MachineState::updatePreShotZeroOffset(double offsetG) {
+    if (m_preShotZeroOffset == offsetG)
+        return;
+    m_preShotZeroOffset = offsetG;
+    emit scaleWeightChanged();
 }
 
 void MachineState::updateCachedFlowRates(double flowRate, double flowRateShort) {

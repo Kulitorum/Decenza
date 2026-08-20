@@ -34,6 +34,16 @@ private:
         }
     };
 
+    // Puts the fixture in the pre-flow window with a completed tare, which is the
+    // only state in which either gate is live.
+    void armPreheat(TestFixture& f) {
+        f.scale.mockSetConnected(true);
+        f.setDE1State(DE1::State::Espresso, DE1::SubState::Heating);
+        f.state.m_tareCompleted = true;
+        f.state.m_waitingForTare = false;
+        f.scale.resetTareCount();
+    }
+
 private slots:
     void init() { QTest::failOnWarning(); }
 
@@ -622,6 +632,86 @@ private slots:
         f.settings.setScaleName("Renamed");        // Settings::scaleNameChanged
         QVERIFY2(spy.count() >= 1, "renaming the saved scale must notify activeScaleName");
     }
+
+    // ==========================================
+    // Auto-tare settle gate
+    // ==========================================
+    //
+    // Field case: the 2026-08-20 9:37 AM shot tared while the cell was still moving.
+    // The scale acknowledged 0.00 g and then read -20.6 g at rest, so every weight
+    // that shot was 20.6 g low and stop-at-weight fired 23 g late, while the log said
+    // `tare= true` throughout. Nothing downstream could tell.
+
+    void autoTareWaitsForTheCellToStopRinging() {
+        TestFixture f;
+        armPreheat(f);
+
+        // The ring from the field log: alternating sign, tens of grams apart. The
+        // pre-fix code tared on the first sample over the threshold.
+        for (double w : {8.3, -6.8, 9.1, -4.2, 7.7})
+            f.scale.mockSetWeight(w);
+        QCOMPARE(f.scale.tareCount(), 0);
+
+        // Cup now sitting still: the window fills and the tare goes out.
+        for (double w : {302.0, 302.3, 302.1, 302.2, 302.15})
+            f.scale.mockSetWeight(w);
+        QCOMPARE(f.scale.tareCount(), 1);
+    }
+
+    void aSlowRampIsNotMistakenForStillness_data() {
+        QTest::addColumn<double>("gramsPerSample");
+        QTest::addColumn<int>("expectedTares");
+        // A window of N samples spans (N-1) steps, so at N=4 and a 1.0 g band any
+        // ramp above 1.0/3 = 0.333 g/sample is rejected. 0.47 is the field rate --
+        // the case a per-sample band AND a 3-sample window both let through, which
+        // is why this row exists at exactly that number.
+        QTest::newRow("field rate 0.47") << 0.47 << 0;
+        QTest::newRow("faster 1.0") << 1.0 << 0;
+        // Below the bound the ramp is genuinely indistinguishable from a still
+        // reading at this window size, and it tares. Asserted rather than left
+        // unstated so the limit is on the record instead of being rediscovered.
+        QTest::newRow("under the bound 0.2") << 0.2 << 1;
+    }
+
+    void aSlowRampIsNotMistakenForStillness() {
+        QFETCH(double, gramsPerSample);
+        QFETCH(int, expectedTares);
+        TestFixture f;
+        armPreheat(f);
+
+        double w = 300.0;
+        for (int i = 0; i < 10; ++i) { f.scale.mockSetWeight(w); w += gramsPerSample; }
+        QCOMPARE(f.scale.tareCount(), expectedTares);
+    }
+
+    void aStillCupIsTaredEvenWhenTheReadingNeverChanges() {
+        TestFixture f;
+        armPreheat(f);
+
+        // ScaleDevice::setWeight dedupes weightChanged on value, so an identical
+        // repeated reading emits nothing on that signal. The window would never fill
+        // and a perfectly still cup would never be tared at all. This is why the
+        // auto-tare is wired to weightSampleReceived instead.
+        for (int i = 0; i < 6; ++i)
+            f.scale.mockSetWeight(250.0);
+        QCOMPARE(f.scale.tareCount(), 1);
+    }
+
+    void autoTareIgnoresSamplesOutsideThePreFlowWindow() {
+        TestFixture f;
+        armPreheat(f);
+        f.setDE1State(DE1::State::Espresso, DE1::SubState::Pouring);
+
+        // Deliberately STILL samples, well above AUTO_TARE_THRESHOLD -- a cup mid-pour
+        // reads exactly like this. The settle gate is satisfied here, so it is not what
+        // rules the tare out; only the pre-flow window check is. An earlier version of
+        // this test stepped 5 g at a time, which the settle band rejected on its own --
+        // so it passed with the window check deleted and asserted nothing.
+        for (int i = 0; i < 6; ++i)
+            f.scale.mockSetWeight(25.0 + i * 0.1);
+        QCOMPARE(f.scale.tareCount(), 0);
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_MachineState)

@@ -131,6 +131,10 @@ public:
 
     // Called by WeightProcessor (via signal) to update cached flow rate
     void updateCachedFlowRates(double flowRate, double flowRateShort);
+    // WeightProcessor adopted (or cleared) the shot's post-tare zero. Public for the
+    // same reason updateCachedFlowRates() is: it is wired from main.cpp across the
+    // worker-thread boundary.
+    void updatePreShotZeroOffset(double offsetG);
 
     // Called by MainController when shot samples arrive
     void onFlowSample(double flowRate, double deltaTime);
@@ -192,6 +196,7 @@ private slots:
     void onDE1StateChanged();
     void onDE1SubStateChanged();
     void onScaleWeightChanged(double weight);
+    void onScaleWeightSample(double weight);
     void onShotTimerTick();
     void onTimingControllerTareComplete();
 
@@ -255,6 +260,21 @@ private:
 
     // Auto-tare during "flow before" phase (cup placed during preheat)
     qint64 m_lastAutoTareTime = 0;
+    // Mirror of WeightProcessor::m_preShotZeroOffset, so scaleWeight() reports the
+    // same number SAW stops on and the shot record saves. Without it the live readout,
+    // MQTT and MCP would each be low by the drift while the saved yield was not.
+    double m_preShotZeroOffset = 0.0;
+    // Settle window: the tare waits until the last kAutoTareSettleSamples readings sit
+    // inside kAutoTareSettleBandG. ONE PAIR bound by (N-1) * drift > band — never edit
+    // either alone; the derivation is in onScaleWeightSample().
+    static constexpr int kAutoTareSettleSamples = 4;
+    static constexpr double kAutoTareSettleBandG = 1.0;
+    double m_autoTareWindow[kAutoTareSettleSamples] = {};
+    int m_autoTareCount = 0;  // total samples seen; index wraps via % kAutoTareSettleSamples
+    bool m_settleWaitLogged = false;
+    // Spread (max-min) across the filled window, or -1 while it is still filling.
+    double autoTareSpread() const;
+    void resetAutoTareWindow();
 
     // Hot water fire-and-forget tare: baseline weight at tare time.
     // SAW uses (scale_weight - baseline) so it works whether or not the BLE tare executes.

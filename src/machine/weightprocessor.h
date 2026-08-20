@@ -82,6 +82,11 @@ signals:
     void skipFrame(int frameNumber);
     void flowRatesReady(double weight, double flowRate, double flowRateShort);
     void untaredCupDetected();
+    // The scale's post-tare zero as it stood when flow began, adopted for this shot
+    // and subtracted from every weight below. Published so the surfaces that read the
+    // scale directly — the live readout, MQTT, MCP — can subtract the same number and
+    // agree with what SAW stops on and what is saved as finalWeightG. 0 clears it.
+    void preShotZeroOffsetChanged(double offsetG);
     // Scale-agnostic in-shot liveness (BLE connection-priority backstop).
     // Emitted when, during an active tared extraction, the scale stopped
     // delivering weight samples for > kScaleStaleMs — evaluated on the DE1
@@ -149,6 +154,12 @@ private:
     // Scoped to active extractions via m_active — see processWeight().
     // Auto-resets after 3 consecutive rejections to handle legitimate shifts.
     double m_lastRawWeight = 0;
+    // The scale's zero as it actually stood when flow began, subtracted from every
+    // sample for the rest of the shot. See markExtractionStart(). Write it only
+    // through setPreShotZeroOffset() -- every reset site must notify, or the surfaces
+    // mirroring it keep subtracting last shot's number.
+    double m_preShotZeroOffset = 0.0;
+    void setPreShotZeroOffset(double offsetG);
     bool m_hasLastWeight = false;
     int m_consecutiveRejections = 0;
     // Held from startExtraction()/resetForRetare() until the tare is observed to

@@ -11,7 +11,7 @@ public:
 
     // Pure virtual implementations (no-ops)
     void connectToDevice(const QBluetoothDeviceInfo&) override {}
-    void tare() override {}
+    void tare() override { ++m_tareCount; }
 
     // Configurable behavior
     bool isFlowScale() const override { return m_isFlowScale; }
@@ -21,6 +21,10 @@ public:
     // Test helpers — expose protected setters
     void mockSetConnected(bool connected) { setConnected(connected); }
     void mockSetWeight(double weight) { setWeight(weight); }
+    // Number of tare() commands issued. Callers that gate WHEN a tare may be sent
+    // need to assert on "no tare was sent", which no signal can express.
+    int tareCount() const { return m_tareCount; }
+    void resetTareCount() { m_tareCount = 0; }
 
     // Test configuration
     void setIsFlowScale(bool flow) { m_isFlowScale = flow; }
@@ -31,5 +35,6 @@ public:
 
 private:
     bool m_isFlowScale = false;
+    int m_tareCount = 0;
     QString m_type = QStringLiteral("mock");
 };
