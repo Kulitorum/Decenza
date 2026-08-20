@@ -192,6 +192,7 @@ private slots:
     void onDE1StateChanged();
     void onDE1SubStateChanged();
     void onScaleWeightChanged(double weight);
+    void evaluateAutoTare(double weight);
     void onShotTimerTick();
     void onTimingControllerTareComplete();
 
@@ -255,6 +256,16 @@ private:
 
     // Auto-tare during "flow before" phase (cup placed during preheat)
     qint64 m_lastAutoTareTime = 0;
+
+    // Auto-tare settle gate and post-tare zero verification (#1840). See the
+    // block in onScaleWeightChanged() for what each one defends against; both are
+    // consecutive-sample counters rather than timers, so they scale with whatever
+    // rate the scale actually reports at.
+    double m_autoTareLastWeight = 0.0;
+    int m_autoTareStableCount = 0;      // consecutive samples inside the settle band
+    bool m_autoTareHasLastWeight = false;
+    int m_zeroDriftCount = 0;           // consecutive samples showing a drifted zero
+    int m_retareAttempts = 0;           // re-tares issued this pre-flow window
 
     // Hot water fire-and-forget tare: baseline weight at tare time.
     // SAW uses (scale_weight - baseline) so it works whether or not the BLE tare executes.
