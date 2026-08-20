@@ -143,6 +143,28 @@ bool McpServer::isModernProtocolVersion(const QString& version)
 // under). Two hand-rolled filters would be free to drift, and the drift would be
 // silent — one of them accepting a modern version is precisely the bug this
 // comment exists because of.
+// The modern subset of supportedProtocolVersions(), newest first. What a modern
+// request's `_meta` may name, and the list `server/discover` advertises.
+//
+// Deliberately NOT the full supported list. A client is told to "choose a
+// version from this list for use in subsequent requests", and every subsequent
+// request it makes will be modern-shaped — so advertising a legacy revision
+// would invite a modern request naming a version that has no modern semantics.
+// The same list answers UnsupportedProtocolVersionError for the same reason: it
+// is what the client retries with.
+const QStringList& McpServer::modernProtocolVersions()
+{
+    static const QStringList modern = [] {
+        QStringList out;
+        for (const QString& v : supportedProtocolVersions()) {
+            if (isModernProtocolVersion(v))
+                out << v;
+        }
+        return out;
+    }();
+    return modern;
+}
+
 const QStringList& McpServer::legacyProtocolVersions()
 {
     static const QStringList legacy = [] {
@@ -1101,12 +1123,18 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
         return;
     }
 
-    if (!supportedProtocolVersions().contains(metaVersion)) {
+    // A MODERN version, not merely a supported one. A modern-shaped request
+    // naming `2025-06-18` is incoherent — that revision has no per-request
+    // `_meta`, no `server/discover`, and a handshake this request did not
+    // perform. Serving it would invent semantics no revision defines. Same
+    // class of mistake as honouring a modern header on a legacy request, which
+    // this change made once already.
+    if (!modernProtocolVersions().contains(metaVersion)) {
         // UnsupportedProtocolVersionError carries the list a client retries
         // from, so a client that invoked a method directly — rather than
         // calling server/discover first — can recover without a second probe.
         QJsonArray supported;
-        for (const QString& v : supportedProtocolVersions())
+        for (const QString& v : modernProtocolVersions())
             supported.append(v);
 
         MCP_WARN_TAGGED("Server", QStringLiteral("Modern request names unsupported protocol %1")
@@ -1208,6 +1236,13 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
         return makeErrorResult(-32601, "Method not found in this protocol era: " + method);
     }
 
+    if (method == QLatin1String("server/discover")) {
+        // Modern-only: a legacy client has `initialize` for the same job, and
+        // this method does not exist in any revision it can negotiate.
+        if (!isModernProtocolVersion(protocolVersion))
+            return makeErrorResult(-32601, "Method not found: " + method);
+        return handleServerDiscover(protocolVersion);
+    }
     if (method == "initialize")
         return handleInitialize(params, session);
     if (method == "tools/list")
@@ -1271,6 +1306,77 @@ static void applyCacheHints(QJsonObject& result, const QString& protocolVersion,
 static constexpr int CacheTtlListMs = 3600000;   // 1 hour
 // Live machine telemetry — a cached read is actively wrong, not merely stale.
 static constexpr int CacheTtlReadMs = 0;
+
+// The server-level `instructions` string (#1162), spelled once.
+//
+// Carried by BOTH eras and by two different mechanisms: the legacy `initialize`
+// result, and `server/discover` for a modern client that never handshakes. It
+// was inline in handleInitialize until the second caller appeared — a second
+// copy would have been free to drift, and the drift would be invisible, since
+// no client sees both.
+static QString shotCitationInstructions()
+{
+    return QStringLiteral(
+        "When you refer to one of the user's espresso shots in a reply, "
+        "identify it by its local date and time — the handle shown in the "
+        "app's Shot History — for example \"your May 10, 9:04 AM shot\". "
+        "Never cite the numeric shot `id`: it is an internal database key "
+        "with no user-facing counterpart, and a user told to look at "
+        "\"shot 5188\" cannot find it anywhere. Shots appear in "
+        "dialing_get_context (dialInSessions, bestRecentShot) and "
+        "shots_list, each carrying a local ISO `timestamp` — render it "
+        "the way a person reads a clock. Use the numeric `id` only as an "
+        "opaque argument to other tools.");
+}
+
+// `server/discover` — the modern era's replacement for learning what a server is
+// without a handshake. A server MUST implement it; a client MAY call it.
+//
+// Both client routes have to work, and the one this makes obvious is NOT the
+// likelier one: a client may call this up front, or it may invoke a method
+// directly, take `UnsupportedProtocolVersionError` and retry from the
+// `supported` list it carries. The second path is the one a client written
+// against a different server will take, and testing only the first would leave
+// it uncovered.
+//
+// Note this request carries `_meta` with a protocol version like any other —
+// `RequestParams._meta` is required, with no exemption for discovery. That is
+// not circular: a client naming a version we do not serve gets -32022, and that
+// error carries the same list this result would have. Two routes, one answer.
+QJsonObject McpServer::handleServerDiscover(const QString& protocolVersion)
+{
+    QJsonObject result;
+
+    // The list is a PROMISE: every version named here must actually be served.
+    // Built from the same accessor the request path validates against, so the
+    // two cannot disagree — advertising a version we would then reject is the
+    // failure this shares a source with rather than guards against.
+    QJsonArray versions;
+    for (const QString& v : modernProtocolVersions())
+        versions.append(v);
+    result["supportedVersions"] = versions;
+
+    // Same capabilities the legacy handshake reports. `subscribe` describes the
+    // legacy per-resource verbs; the modern era reaches the same notifications
+    // through `subscriptions/listen`, which is not implemented yet — declaring
+    // it here before it exists would be the lie this comment prevents.
+    QJsonObject resourcesCap;
+    resourcesCap["subscribe"] = true;
+    result["capabilities"] = QJsonObject{{"tools", QJsonObject{}},
+                                         {"resources", resourcesCap}};
+
+    // Optional, and the same string the legacy handshake carries. A modern
+    // client performs no handshake, so without this it would never see the
+    // shot-citation rule (#1162) that every legacy client is told at
+    // initialize.
+    result["instructions"] = shotCitationInstructions();
+
+    // DiscoverResult extends CacheableResult — the fields are required on it
+    // exactly as on a list result, which the proposal missed. The identity and
+    // version list change only across app versions, so a list TTL is right.
+    applyCacheHints(result, protocolVersion, CacheTtlListMs);
+    return result;
+}
 
 QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* session)
 {
@@ -1369,17 +1475,7 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     // claimed 2024-11-05 lacked the field and a strict client would reject it;
     // that was false when written, and this comment restated it verbatim
     // through a review before anyone opened the schema.
-    result["instructions"] = QStringLiteral(
-            "When you refer to one of the user's espresso shots in a reply, "
-            "identify it by its local date and time — the handle shown in the "
-            "app's Shot History — for example \"your May 10, 9:04 AM shot\". "
-            "Never cite the numeric shot `id`: it is an internal database key "
-            "with no user-facing counterpart, and a user told to look at "
-            "\"shot 5188\" cannot find it anywhere. Shots appear in "
-            "dialing_get_context (dialInSessions, bestRecentShot) and "
-            "shots_list, each carrying a local ISO `timestamp` — render it "
-            "the way a person reads a clock. Use the numeric `id` only as an "
-        "opaque argument to other tools.");
+    result["instructions"] = shotCitationInstructions();
     return result;
 }
 

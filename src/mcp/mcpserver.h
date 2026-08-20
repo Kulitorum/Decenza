@@ -137,6 +137,10 @@ public:
     // Whether a revision is modern (handshake-less, per-request `_meta`).
     static bool isModernProtocolVersion(const QString& version);
 
+    // The modern subset of supportedProtocolVersions(), newest first. What a
+    // modern request may name and what `server/discover` advertises.
+    static const QStringList& modernProtocolVersions();
+
     // The handshake-based subset of supportedProtocolVersions(), newest first.
     // What `initialize` may negotiate, and what a legacy request's
     // `MCP-Protocol-Version` header may name.
@@ -178,6 +182,8 @@ private:
                               QTcpSocket* socket, const QVariant& requestId,
                               const QString& protocolVersion);
     QJsonObject handleInitialize(const QJsonObject& params, McpSession* session);
+    // `server/discover` — a server MUST implement it, a client MAY call it.
+    QJsonObject handleServerDiscover(const QString& protocolVersion);
     QJsonObject handleToolsList(const QJsonObject& params, const QString& protocolVersion);
     QJsonObject handleToolsCall(const QJsonObject& params, McpSession* session,
                                 QTcpSocket* socket, const QVariant& requestId,

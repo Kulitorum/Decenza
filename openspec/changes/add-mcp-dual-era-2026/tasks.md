@@ -41,42 +41,42 @@ first so the rest is not holding them hostage.
 - [x] 1.5 A listing that reflects the caller's access level is NOT `"public"` — 96 tools filtered by `accessLevel` means a shared cache would serve one caller another's tool set
 - [x] 1.6 Gate both on the negotiated version so legacy clients that pre-date these fields do not receive them
 
-- [ ] 1.7 **Follow-up, blocked on section 8.** The cache-hint test asserts only that the fields do NOT leak to a legacy revision, which passes identically whether the gate works or the feature was never implemented. The positive case — fields present, `cacheScope: "private"` everywhere, and the list/read TTL split — needs `2026-07-28` negotiable, which is deliberately the last step. Write it there, not here
+- [x] 1.7 **Follow-up, blocked on section 8.** The cache-hint test asserts only that the fields do NOT leak to a legacy revision, which passes identically whether the gate works or the feature was never implemented. The positive case — fields present, `cacheScope: "private"` everywhere, and the list/read TTL split — needs `2026-07-28` negotiable, which is deliberately the last step. Write it there, not here
 - [ ] 1.8 **The proposal's framing needs correcting.** Cacheable results are listed among the "era-independent wins with a payoff today". Gated on the version they are neither: nothing is emitted until `2026-07-28` is negotiable. The deterministic ordering IS an era-independent win; this one is not, and the proposal should say so
-- [ ] 1.9 `server/discover` also extends `CacheableResult` in the schema (`DiscoverResult`), which the proposal did not note. Apply the same hints when section 4 builds it
+- [x] 1.9 `server/discover` also extends `CacheableResult` in the schema (`DiscoverResult`), which the proposal did not note. Apply the same hints when section 4 builds it
 
 ## 1b. Build against the schema, not against this document
 
-- [ ] 1b.1 Pull `schema/2026-07-28/schema.json` from `modelcontextprotocol/modelcontextprotocol` and work from it. Where it and these artifacts disagree, it wins — the proposal and design were drafted from the revision's prose
+- [x] 1b.1 Pull `schema/2026-07-28/schema.json` from `modelcontextprotocol/modelcontextprotocol` and work from it. Where it and these artifacts disagree, it wins — the proposal and design were drafted from the revision's prose
 - [ ] 1b.2 Read `signal-slot/qtmcp` (Qt-native, GPL-3.0-only arm matches ours) and `GopherSecurity/gopher-mcp` (Apache-2.0) for how they shaped era detection and `subscriptions/listen`. Reference only — neither is adopted, and the reason is in design.md
 - [ ] 1b.3 Do NOT add an MCP library as a dependency. There is no official C++ SDK, and the third-party ones own the listener and HTTP layer this server cannot delegate
 
 ## 2. Era detection
 
-- [ ] 2.1 Add the era discriminator in `handleHttpRequest`, before anything else runs. Decisive signal is the modern-only header set (`Mcp-Method`, `Mcp-Name`) plus `_meta.io.modelcontextprotocol/protocolVersion` in the body
-- [ ] 2.2 `MCP-Protocol-Version` alone is NOT a discriminator — legacy has sent it since 2025-06-18. Write that at the site; it is the mistake this decision exists to prevent
-- [ ] 2.3 Ambiguous → legacy. The failure modes are asymmetric: mis-routing legacy to modern breaks a working client with no recovery, while mis-routing modern to legacy produces the error the modern client's own detection is specified to fall back from
-- [ ] 2.4 Test: every existing legacy shape still routes to legacy — `initialize`, a post-handshake `tools/call`, a notification, a batch array, a bare GET for SSE
-- [ ] 2.5 **From this section onward, `tst_mcpserver_protocol.cpp` and `tst_mcpserver_session.cpp` must pass UNTOUCHED.** A diff to either is evidence the legacy path moved, not that a test needed updating. Two carve-outs, both deliberate and both stated where they occur: section 0, where a conformance defect may prove a test was asserting our bug, and section 6, which changes the confirmation mechanism on purpose. Outside those two, the rule is absolute — and note that section 0 lands first precisely so its edits are already in the baseline this rule is measured against
+- [x] 2.1 **Discriminator narrowed to `_meta` alone.** The schema makes `io.modelcontextprotocol/protocolVersion` REQUIRED on every modern request and no legacy revision defines it, so its presence is decisive by itself. The `Mcp-Method` / `Mcp-Name` headers were dropped from the signal: requiring them would reject a modern request whose proxy stripped them — a needless false negative — and they are transport decoration while `_meta` is the request itself
+- [x] 2.2 `MCP-Protocol-Version` alone is NOT a discriminator — legacy has sent it since 2025-06-18. Write that at the site; it is the mistake this decision exists to prevent
+- [x] 2.3 Ambiguous → legacy. The failure modes are asymmetric: mis-routing legacy to modern breaks a working client with no recovery, while mis-routing modern to legacy produces the error the modern client's own detection is specified to fall back from
+- [x] 2.4 Test: every existing legacy shape still routes to legacy — `initialize`, a post-handshake `tools/call`, a notification, a batch array, a bare GET for SSE
+- [x] 2.5 **From this section onward, `tst_mcpserver_protocol.cpp` and `tst_mcpserver_session.cpp` must pass UNTOUCHED.** A diff to either is evidence the legacy path moved, not that a test needed updating. Two carve-outs, both deliberate and both stated where they occur: section 0, where a conformance defect may prove a test was asserting our bug, and section 6, which changes the confirmation mechanism on purpose. Outside those two, the rule is absolute — and note that section 0 lands first precisely so its edits are already in the baseline this rule is measured against
 
 ## 3. Modern request path — read-category only
 
-- [ ] 3.1 Route a modern request to the shared dispatch layer (`handleJsonRpc` and below) without creating a session. Only the envelope forks: version resolution, session lookup, response framing
-- [ ] 3.2 If a fix has to be made in two places, the fork is in the wrong place — say so at the fork
-- [ ] 3.3 Read protocol version per request; reject a request whose header and body disagree (`-32020`)
-- [ ] 3.4 `UnsupportedProtocolVersionError` (`-32022`) carrying `supported` and `requested`
-- [ ] 3.5 Resource-not-found is `-32602` in the modern era; `-32002` stays for legacy. Both correct, per revision
-- [ ] 3.6 **Refuse control- and settings-category tools on the modern path** until section 5 lands. Structural, so the unsafe state cannot be reached by forgetting
-- [ ] 3.7 Stamp `resultType` on every modern result. `"complete"` always — `"input_required"` is MRTR, which is a non-goal. Required by the revision on ALL results, so put it where a result cannot leave without it rather than at each handler
-- [ ] 3.8 Emit `io.modelcontextprotocol/serverInfo` in each modern result's `_meta`. Same identity the legacy handshake reports (`McpSurfaceVersion` + app version); a stateless client has no handshake to learn it from
-- [ ] 3.9 `ping`, `logging/setLevel` and `notifications/roots/list_changed` are removed in the modern era — they reach the shared dispatch as unknown methods. Legacy keeps all three, including `ping`'s exemption from the not-initialized check in `resolveSessionForMessage`, which is legacy-only by construction
-- [ ] 3.10 Tests: a modern read tool works; a modern control tool is refused; header/body mismatch is rejected; an unsupported version returns the supported list; every modern result carries `resultType`; `ping` is unknown to a modern caller and still served to a legacy one
+- [x] 3.1 Route a modern request to the shared dispatch layer (`handleJsonRpc` and below) without creating a session. Only the envelope forks: version resolution, session lookup, response framing
+- [x] 3.2 If a fix has to be made in two places, the fork is in the wrong place — say so at the fork
+- [x] 3.3 Read protocol version per request; reject a request whose header and body disagree (`-32020`)
+- [x] 3.4 `UnsupportedProtocolVersionError` (`-32022`) carrying `supported` and `requested`
+- [ ] 3.5 **STILL OPEN.** Resource-not-found is `-32602` in the modern era; `-32002` stays for legacy. Both correct, per revision
+- [x] 3.6 **Refuse control- and settings-category tools on the modern path** until section 5 lands. Structural, so the unsafe state cannot be reached by forgetting
+- [x] 3.7 Stamp `resultType` on every modern result. `"complete"` always — `"input_required"` is MRTR, which is a non-goal. Required by the revision on ALL results, so put it where a result cannot leave without it rather than at each handler
+- [x] 3.8 Emit `io.modelcontextprotocol/serverInfo` in each modern result's `_meta`. Same identity the legacy handshake reports (`McpSurfaceVersion` + app version); a stateless client has no handshake to learn it from
+- [x] 3.9 `ping`, `logging/setLevel` and `notifications/roots/list_changed` are removed in the modern era — they reach the shared dispatch as unknown methods. Legacy keeps all three, including `ping`'s exemption from the not-initialized check in `resolveSessionForMessage`, which is legacy-only by construction
+- [x] 3.10 Tests: a modern read tool works; a modern control tool is refused; header/body mismatch is rejected; an unsupported version returns the supported list; every modern result carries `resultType`; `ping` is unknown to a modern caller and still served to a legacy one
 
 ## 4. `server/discover`
 
-- [ ] 4.1 Implement it — a server MUST, a client MAY call it
-- [ ] 4.2 Test BOTH client routes: discovery up front, and inline invocation that hits `-32022` and retries. The second is the likelier one and would be the easier to leave uncovered
-- [ ] 4.3 Assert the advertised list and the served versions are the same list, not two lists that happen to agree today
+- [x] 4.1 Implement it — a server MUST, a client MAY call it
+- [x] 4.2 Test BOTH client routes: discovery up front, and inline invocation that hits `-32022` and retries. The second is the likelier one and would be the easier to leave uncovered
+- [x] 4.3 Assert the advertised list and the served versions are the same list, not two lists that happen to agree today
 
 ## 5. Session-independent rate limiting — the gate
 

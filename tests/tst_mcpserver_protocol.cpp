@@ -1281,6 +1281,112 @@ private slots:
                  "initialize must answer with a handshake-based revision");
     }
 
+    // A server MUST implement server/discover. Both fields it requires, plus the
+    // cache hints DiscoverResult inherits from CacheableResult — which the
+    // change's own proposal missed until the schema was read.
+    void serverDiscoverAdvertisesVersionsAndCapabilities()
+    {
+        McpServer server;
+        auto resp = sendHttp(server, "POST", modernBody("server/discover", {}, 20));
+        QCOMPARE(resp.statusCode, 200);
+
+        const QJsonObject result = resp.jsonBody["result"].toObject();
+        const QJsonArray versions = result["supportedVersions"].toArray();
+        QVERIFY(!versions.isEmpty());
+
+        QVERIFY(result["capabilities"].toObject().contains("tools"));
+        QVERIFY(result["capabilities"].toObject().contains("resources"));
+
+        // Modern framing applies here too — discover is a modern method.
+        QCOMPARE(result["resultType"].toString(), QString("complete"));
+        QVERIFY(result.contains("ttlMs"));
+        QCOMPARE(result["cacheScope"].toString(), QString("private"));
+
+        // A modern client never handshakes, so this is its only carrier for the
+        // shot-citation rule every legacy client is told at initialize.
+        QVERIFY(result["instructions"].toString().contains("date and time"));
+    }
+
+    // The advertised list is a PROMISE. Every version named must actually be
+    // served, and no LEGACY version may appear — a client is told to pick from
+    // this list for subsequent requests, and every subsequent request it makes
+    // will be modern-shaped.
+    void serverDiscoverAdvertisesOnlyServableModernVersions()
+    {
+        McpServer server;
+        auto resp = sendHttp(server, "POST", modernBody("server/discover", {}, 21));
+        const QJsonArray versions =
+            resp.jsonBody["result"].toObject()["supportedVersions"].toArray();
+
+        QVERIFY(!versions.isEmpty());
+        for (const QJsonValue& v : versions) {
+            const QString version = v.toString();
+            QVERIFY2(McpServer::isModernProtocolVersion(version),
+                     qPrintable(QStringLiteral("advertised a legacy version: %1").arg(version)));
+
+            // Served, not merely listed: the same request under that version
+            // must not come back as unsupported.
+            auto probe = sendHttp(server, "POST", modernBody("server/discover", {}, 22, version));
+            QVERIFY2(!probe.jsonBody.contains("error"),
+                     qPrintable(QStringLiteral("advertised but not served: %1").arg(version)));
+        }
+    }
+
+    // The route a client written against another server actually takes: invoke a
+    // method directly, get UnsupportedProtocolVersionError, retry from the list
+    // it carries. Testing only the up-front discovery path would leave the
+    // likelier one uncovered.
+    void unsupportedVersionErrorCarriesAListThatWorksOnRetry()
+    {
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "shots_get_detail", "Test tool",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; }, "read");
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Modern request names unsupported protocol"));
+        auto refused = sendHttp(server, "POST",
+                                modernBody("tools/list", {}, 23, QStringLiteral("2030-01-01")));
+        const QJsonObject error = refused.jsonBody["error"].toObject();
+        QCOMPARE(error["code"].toInt(), -32022);
+
+        const QJsonArray supported = error["data"].toObject()["supported"].toArray();
+        QVERIFY(!supported.isEmpty());
+
+        // Retry with the first offering, exactly as a client would.
+        auto retried = sendHttp(server, "POST",
+                                modernBody("tools/list", {}, 24, supported.first().toString()));
+        QCOMPARE(retried.statusCode, 200);
+        QVERIFY2(retried.jsonBody.contains("result"),
+                 "the list a client is told to retry from must actually work");
+    }
+
+    // A modern-shaped request naming a LEGACY version is incoherent: that
+    // revision has no per-request _meta, no server/discover, and a handshake
+    // this request never performed. Serving it would invent semantics no
+    // revision defines.
+    void modernRequestNamingALegacyVersionIsRefused()
+    {
+        McpServer server;
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Modern request names unsupported protocol "
+                                                "2025-11-25"));
+        auto resp = sendHttp(server, "POST",
+                             modernBody("tools/list", {}, 25, QStringLiteral("2025-11-25")));
+        QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32022);
+    }
+
+    // server/discover does not exist for a legacy client — `initialize` is that
+    // era's answer to the same question.
+    void legacyEraHasNoServerDiscover()
+    {
+        McpServer server;
+        const QString sid = openSession(server, "2025-11-25");
+        auto resp = sendHttp(server, "POST", rpcBody("server/discover", {}, 26), sid);
+        QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32601);
+    }
+
     // ─── Spec-version gating: the floor revision sees only its own fields ───
     //
     // A strict validator rejects a response carrying fields introduced after the
