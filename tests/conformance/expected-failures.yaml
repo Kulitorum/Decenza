@@ -4,6 +4,22 @@
 #     --url http://<host>:<port>/mcp \
 #     --expected-failures tests/conformance/expected-failures.yaml
 #
+# BUT the published package cannot test 2026-07-28. npm's latest is 0.1.16,
+# which rejects that spec version outright ("Valid versions: 2025-03-26,
+# 2025-06-18, 2025-11-25, draft, extension") and has zero scenarios under
+# `draft`. The requirement set exists only in the source tree
+# (requirements/2026-07-28.yaml, repo HEAD 0.2.0-alpha.11), so the modern era
+# needs a source build:
+#
+#   git clone --depth 1 https://github.com/modelcontextprotocol/conformance
+#   cd conformance && npm ci && npm run build
+#   node dist/index.js server --url <url> --spec-version 2026-07-28 \
+#     --expected-failures <this file>
+#
+# Written down because concluding "no 2026-07-28 coverage exists" from the
+# published CLI is exactly the dead end this file's author walked into. Drop
+# this note once 0.2.0 publishes.
+#
 # Every entry is a scenario that CANNOT pass against this server and is not a
 # defect. Two reasons only, both marked below. A scenario that fails for any
 # other reason does not belong here — it belongs fixed.

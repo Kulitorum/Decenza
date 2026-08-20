@@ -2709,24 +2709,39 @@ T.ApplicationWindow {
     // MCP confirmation dialog — shown when an AI assistant triggers a machine start operation
     McpConfirmDialog {
         id: mcpConfirmDialog
-        onConfirmed: function(sessionId) {
-            McpServer.confirmationResolved(sessionId, true)
+        onConfirmed: function(confirmationId) {
+            McpServer.confirmationResolved(confirmationId, true)
         }
-        onDenied: function(sessionId) {
-            McpServer.confirmationResolved(sessionId, false)
+        onDenied: function(confirmationId) {
+            McpServer.confirmationResolved(confirmationId, false)
         }
     }
 
     Connections {
         target: McpServer
-        function onConfirmationRequested(toolName, toolDescription, sessionId) {
+        // The server gave up on a confirmation — connection closed, session
+        // ended, or superseded. Close the dialog, because the answer can no
+        // longer go anywhere and leaving it up invites a tap that does nothing.
+        function onConfirmationCancelled(confirmationId, reason) {
+            if (!mcpConfirmDialog.visible)
+                return
+            if (mcpConfirmDialog.confirmationId !== confirmationId)
+                return
+            // Suppress the denied signal: the C++ side has already answered the
+            // client, and a second answer would be written onto a socket that
+            // is usually gone.
+            mcpConfirmDialog.userResponded = true
+            mcpConfirmDialog.close()
+        }
+
+        function onConfirmationRequested(toolName, toolDescription, confirmationId) {
             if (mcpConfirmDialog.visible) {
                 // Suppress denied signal for the superseded request (C++ already handled it)
                 mcpConfirmDialog.userResponded = true
                 mcpConfirmDialog.close()
             }
             mcpConfirmDialog.toolDescription = toolDescription
-            mcpConfirmDialog.sessionId = sessionId
+            mcpConfirmDialog.confirmationId = confirmationId
             mcpConfirmDialog.open()
         }
     }

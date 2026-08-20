@@ -7,6 +7,8 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QHash>
+#include <QList>
+#include <algorithm>
 #include <functional>
 
 using McpResourceReader = std::function<QJsonObject()>;
@@ -61,9 +63,25 @@ public:
     {
         const bool emitIcons = protocolVersion >= QStringLiteral("2025-11-25");
 
+        // Emission order is by URI, never hash order. `m_resources` is a QHash
+        // and Qt randomizes the hash seed per process
+        // (qtbase/src/corelib/tools/qhash.cpp:121-127, :178), so the order is
+        // stable within a run and DIFFERENT across restarts — the worst shape
+        // for a client cache, because nothing looks wrong until two runs are
+        // compared. 2026-07-28 makes deterministic list order an explicit
+        // SHOULD; tools/list has sorted by (tier, name) for longer.
+        QList<const McpResourceDefinition*> ordered;
+        ordered.reserve(m_resources.size());
+        for (auto it = m_resources.constBegin(); it != m_resources.constEnd(); ++it)
+            ordered.append(&it.value());
+        std::sort(ordered.begin(), ordered.end(),
+                  [](const McpResourceDefinition* a, const McpResourceDefinition* b) {
+                      return a->uri < b->uri;
+                  });
+
         QJsonArray result;
-        for (auto it = m_resources.constBegin(); it != m_resources.constEnd(); ++it) {
-            const auto& res = it.value();
+        for (const McpResourceDefinition* resPtr : ordered) {
+            const auto& res = *resPtr;
             QJsonObject resJson;
             resJson["uri"] = res.uri;
             resJson["name"] = res.name;
