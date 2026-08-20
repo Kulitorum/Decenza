@@ -368,14 +368,12 @@ private slots:
         QVERIFY(resp.jsonBody.contains("result"));
     }
 
-    // `2025-03-26` is the protocol's compatibility sentinel — the value a client
-    // sends when it does not know the version — so it must be accepted even
-    // though that revision is no longer negotiable, and treated as if absent.
-    //
-    // Dropping it from supportedProtocolVersions() without this turned the
-    // ecosystem's own fallback into a 400. Caught by the official conformance
-    // suite, whose server-accepts-multiple-post-streams scenario negotiates
-    // 2025-11-25 and then sends concurrent POSTs carrying exactly this header.
+    // `2025-03-26` is accepted even though that revision is no longer
+    // negotiable, and treated as if absent. Dropping it from
+    // supportedProtocolVersions() without this turned the ecosystem's own
+    // fallback into a 400. Caught by the official conformance suite, whose
+    // server-accepts-multiple-post-streams scenario negotiates 2025-11-25 and
+    // then sends concurrent POSTs carrying exactly this header.
     void compatSentinelHeaderIsAcceptedNotRejected()
     {
         McpServer server;
@@ -394,15 +392,52 @@ private slots:
 
         QCOMPARE(resp.statusCode, 200);
 
-        // Treated as absent, so the SESSION's version governs — not the sentinel.
-        // `icons` is a 2025-11-25 field: serving under 2025-03-26 (or under the
-        // 2025-06-18 floor) would drop it, and the request would still be 200.
-        // Without this the test would pass for "accepted but downgraded", which
-        // is a different and wrong behaviour.
+        // Treated as absent, so the SESSION's version governs. This is the line
+        // that separates the sentinel from a supported header: a supported one
+        // is honoured AS a version (see the sibling test below), the sentinel
+        // selects nothing. `$schema` is a 2025-11-25 field, so serving under
+        // either 2025-03-26 or the floor would drop it and still return 200.
         const QJsonArray tools = resp.jsonBody["result"].toObject()["tools"].toArray();
         QCOMPARE(tools.size(), 1);
         QVERIFY2(tools.first().toObject()["inputSchema"].toObject().contains("$schema"),
                  "the sentinel must not downgrade the session's negotiated version");
+    }
+
+    void supportedHeaderDoesNotReVersionTheSession()
+    {
+        // Honouring a supported header answers ONE request; it must not write
+        // back to the session. Otherwise a single stray header from a confused
+        // client silently downgrades every later request, including those that
+        // send no header at all — a failure that would look like the server
+        // spontaneously forgetting what it negotiated.
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "shots_get_detail",
+            "Test tool",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; },
+            "read");
+
+        const QString sid = openSession(server, "2025-11-25");
+        QVERIFY(!sid.isEmpty());
+
+        // One request under the older supported header. `$schema` is the only
+        // field distinguishing the two negotiable revisions, so its absence is
+        // what proves the header was honoured.
+        auto older = sendHttp(server, "POST", rpcBody("tools/list", {}, 1), sid,
+                              {{"MCP-Protocol-Version", "2025-06-18"}});
+        QCOMPARE(older.statusCode, 200);
+        QVERIFY2(!older.jsonBody["result"].toObject()["tools"].toArray()
+                      .first().toObject()["inputSchema"].toObject().contains("$schema"),
+                 "answered under the header version");
+
+        // The next request carries no header at all, so it falls back to the
+        // session — which must still be what initialize negotiated.
+        auto after = sendHttp(server, "POST", rpcBody("tools/list", {}, 2), sid);
+        QCOMPARE(after.statusCode, 200);
+        QVERIFY2(after.jsonBody["result"].toObject()["tools"].toArray()
+                     .first().toObject()["inputSchema"].toObject().contains("$schema"),
+                 "the session must not have been re-versioned by the earlier header");
     }
 
     void protocolVersionHeaderAbsentAccepted()

@@ -1,3 +1,56 @@
+## MODIFIED Requirements
+
+### Requirement: MCP-Protocol-Version Request Header
+
+For every HTTP request other than `initialize`, the server SHALL accept the
+`MCP-Protocol-Version` request header.
+
+A request naming a version the server does not support SHALL be rejected with
+HTTP 400. A request naming a version the server DOES support SHALL be served,
+whether or not it matches the version negotiated for the session, and SHALL be
+answered under the version the header names.
+
+This narrows a previous requirement that rejected any header differing from the
+negotiated version. The protocol licenses 400 for an "invalid or unsupported"
+version only, and makes matching the negotiated one a client-side SHOULD; the
+old rule refused versions the server plainly serves, which the official
+conformance suite fails on.
+
+Honouring the header SHALL NOT alter the session's negotiated version: it
+answers one request, it does not re-version a live session.
+
+When the header is absent, the server SHALL assume `2025-03-26` per the
+protocol's compatibility rule.
+
+#### Scenario: Header matches negotiated version
+
+- **WHEN** a client POSTs `tools/call` with `MCP-Protocol-Version: 2025-11-25` after negotiating `2025-11-25`
+- **THEN** the server processes the request normally
+
+#### Scenario: Header mismatch
+
+- **WHEN** a client POSTs `tools/call` with `MCP-Protocol-Version: 2024-11-05` after negotiating `2025-11-25`
+- **THEN** the request is served, and the response carries only the fields the header's version defines
+
+Note the outcome reverses the previous version of this scenario, which required
+HTTP 400 here. The name is kept so the change is visible as a reversal rather
+than as one scenario disappearing and an unrelated one appearing.
+
+#### Scenario: Header names an unsupported version
+
+- **WHEN** a client POSTs `tools/call` with an `MCP-Protocol-Version` the server does not support
+- **THEN** the server returns HTTP 400 naming the unsupported version
+
+#### Scenario: A supported header does not re-version the session
+
+- **WHEN** a client sends one request under a supported header differing from its negotiated version, then a further request with no header
+- **THEN** the second request is answered under the originally negotiated version
+
+#### Scenario: Header absent on legacy client
+
+- **WHEN** a client negotiates `2025-03-26` and POSTs subsequent requests without an `MCP-Protocol-Version` header
+- **THEN** the server processes the request normally, assuming `2025-03-26`
+
 ## ADDED Requirements
 
 ### Requirement: The Server Conforms To Every Protocol Revision It Advertises
