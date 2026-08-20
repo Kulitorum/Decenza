@@ -281,8 +281,14 @@ private slots:
 
     // ─── MCP-Protocol-Version request header validation ────────────────────
 
-    void protocolVersionHeaderMismatchReturns400()
+    void protocolVersionHeaderUnsupportedReturns400()
     {
+        // 400 is licensed for exactly one case: "If the server receives a request
+        // with an invalid or unsupported MCP-Protocol-Version, it MUST respond
+        // with 400 Bad Request" (2025-06-18 basic/transports, Protocol Version
+        // Header). 2026-07-28 is a real revision we do not yet negotiate, and is
+        // the value real clients are already sending — see the sibling test for
+        // what must NOT be 400'd.
         McpServer server;
         const QString sid = openSession(server, "2025-11-25");
         QVERIFY(!sid.isEmpty());
@@ -292,13 +298,63 @@ private slots:
         // here rather than tolerated — init()'s failOnWarning() would otherwise
         // fail this test for the server doing exactly what it should.
         QTest::ignoreMessage(QtWarningMsg,
-                             "[MCP][Server] Protocol version mismatch — header 2024-11-05, "
+                             "[MCP][Server] Unsupported protocol version — header 2026-07-28, "
                              "session 2025-11-25");
         auto resp = sendHttp(server, "POST", rpcBody("tools/list", {}, 99), sid,
-                             {{"MCP-Protocol-Version", "2024-11-05"}});
+                             {{"MCP-Protocol-Version", "2026-07-28"}});
 
         QCOMPARE(resp.statusCode, 400);
-        QVERIFY(resp.rawBody.contains("Protocol version mismatch"));
+        QVERIFY(resp.rawBody.contains("Unsupported MCP-Protocol-Version"));
+    }
+
+    void protocolVersionHeaderSupportedButNotNegotiatedIsServed()
+    {
+        // This test replaces one that asserted the opposite, and the old
+        // assertion was our bug rather than the spec's rule. Matching the
+        // negotiated version is a CLIENT SHOULD — "the protocol version sent by
+        // the client SHOULD be the one negotiated during initialization" — and a
+        // client SHOULD is not a server gate. 2024-11-05 is in
+        // supportedProtocolVersions(), so refusing it was refusing a version we
+        // plainly serve.
+        //
+        // Found by the official conformance suite: its
+        // server-accepts-multiple-post-streams scenario negotiates 2025-11-25 and
+        // then sends concurrent POSTs carrying `MCP-Protocol-Version:
+        // 2025-03-26`. All three were answered 400.
+        McpServer server;
+        // One inline tool so tools/list has something whose shape can be read.
+        // A bare server registers nothing, and an empty array would let this pass
+        // for either behaviour.
+        server.toolRegistry()->registerTool(
+            "shots_get_detail",
+            "Test tool",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; },
+            "read");
+
+        const QString sid = openSession(server, "2025-11-25");
+        QVERIFY(!sid.isEmpty());
+
+        auto resp = sendHttp(server, "POST", rpcBody("tools/list", {}, 99), sid,
+                             {{"MCP-Protocol-Version", "2025-06-18"}});
+
+        QCOMPARE(resp.statusCode, 200);
+        QVERIFY(resp.jsonBody.contains("result"));
+
+        // Served under the HEADER's version, not the session's. With only two
+        // negotiable revisions the ONLY field separating them is the 2025-11-25
+        // `$schema` dialect, so its absence distinguishes "answered under the
+        // header" from "answered 200 under the negotiated 2025-11-25 with the
+        // header ignored".
+        //
+        // This keyed on `title` at 2024-11-05 when written. Both premises moved
+        // underneath it: that revision is no longer supported (it would now take
+        // the 400 branch, testing something else entirely), and `title` became
+        // unconditional once the floor rose to the revision that introduced it.
+        const QJsonArray tools = resp.jsonBody["result"].toObject()["tools"].toArray();
+        QCOMPARE(tools.size(), 1);
+        QVERIFY2(!tools.first().toObject()["inputSchema"].toObject().contains("$schema"),
+                 "answered under the header version, so no 2025-11-25 field");
     }
 
     void protocolVersionHeaderMatchAccepted()

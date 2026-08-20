@@ -571,7 +571,9 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             return;
         }
 
-        QJsonObject result = handleJsonRpc(request, session, socket, request["id"].toVariant());
+        QJsonObject result = handleJsonRpc(
+            request, session, socket, request["id"].toVariant(),
+            effectiveProtocolVersion(session, resolved.headerProtocolVersion));
 
         // If in-app confirmation is pending, response will be sent later by confirmationResolved()
         if (result.contains("_deferred"))
@@ -827,6 +829,20 @@ bool McpServer::isTerminatedSession(const QString& sessionId) const
 }
 
 
+QString McpServer::effectiveProtocolVersion(const McpSession* session,
+                                            const QString& headerProtocolVersion)
+{
+    if (!headerProtocolVersion.isEmpty())
+        return headerProtocolVersion;
+    // `session` cannot be null: the sole call site takes it from a resolution
+    // that already dereferenced it (session->touch()) before dispatch, so a null
+    // would have crashed there first. Asserted rather than defaulted — a
+    // fallback here would silently serve a guessed protocol version instead of
+    // surfacing that the session had been lost.
+    Q_ASSERT(session);
+    return session->protocolVersion();
+}
+
 McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObject& request,
                                                                  const QString& sessionHeader,
                                                                  const QString& protocolHeader)
@@ -845,6 +861,11 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
             out.rpcErrorCode = -32000;
             out.rpcErrorMessage = QStringLiteral("Too many sessions");
         }
+        // headerProtocolVersion deliberately left empty: an `initialize` names
+        // its version in the body and negotiates it, so the header has nothing
+        // to add. Later elements of an `[initialize, …]` batch are answered
+        // under whatever that negotiation wrote to the session, which
+        // effectiveProtocolVersion() reads live.
         return out;
     }
 
@@ -908,61 +929,68 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
     }
     out.session = session;
 
-    // `2025-03-26` in the header is ACCEPTED even though the revision is no
-    // longer negotiable, and is treated exactly as an absent header.
+    // The `MCP-Protocol-Version` header, in three cases that must stay distinct.
     //
-    // This is a deliberate deviation from a MUST, stated plainly because the
-    // first version of this comment framed it as spec-ALIGNED: "if the server
-    // receives a request with an invalid or unsupported MCP-Protocol-Version,
-    // it MUST respond with 400 Bad Request" (2025-06-18 basic/transports), and
-    // after the drop 2025-03-26 is unsupported. We accept it anyway.
+    // 400 is licensed for ONE of them, and it is narrower than the word
+    // "mismatch" suggests: "If the server receives a request with an invalid or
+    // unsupported MCP-Protocol-Version, it MUST respond with 400 Bad Request"
+    // (2025-06-18 basic/transports). Matching the NEGOTIATED version is a SHOULD
+    // on the CLIENT — "the protocol version sent by the client SHOULD be the one
+    // negotiated during initialization" — and a client SHOULD is not a server
+    // gate. This used to 400 on any difference, which refused versions we
+    // plainly serve; the conformance suite's server-accepts-multiple-post-streams
+    // scenario is what caught it.
     //
-    // Why: it is the value the spec tells a SERVER to assume when no header
-    // arrives, and clients emit it for the same reason — the official
-    // conformance suite sends it on concurrent POSTs after negotiating
-    // 2025-11-25. Refusing it turns the ecosystem's own fallback into a hard
-    // 400. Note the spec has no notion of a client-sent sentinel; that reading
-    // is ours, and it is an inference from observed client behaviour, not a
-    // rule anyone wrote down.
+    //   1. `2025-03-26` — the value the spec tells a SERVER to assume when no
+    //      header arrives, and which clients emit for the same reason. Accepted
+    //      and treated as ABSENT: it means "I do not know", so it selects
+    //      nothing and the session's version stands. Note this is a deliberate
+    //      deviation from the MUST above, since that revision is no longer
+    //      negotiable — and note the spec defines no client-sent sentinel at
+    //      all; that reading is ours, inferred from client behaviour.
+    //   2. A version we support — honoured FOR THIS MESSAGE. That is what the
+    //      header is for: it exists "allowing the MCP server to respond based on
+    //      the MCP protocol version". The session's negotiated version is not
+    //      touched, so a stray header answers one request rather than
+    //      re-versioning a live session.
+    //   3. Anything else — 400, per the MUST.
     //
-    // Accepted is not served: a client cannot NEGOTIATE 2025-03-26 (the two
-    // adoption sites above both gate on supportedProtocolVersions()), so it
-    // never gets that revision's semantics — notably batching, which only that
-    // revision defines and which this server no longer implements.
+    // Cases 1 and 2 must not be collapsed. The sentinel maps to the SESSION; a
+    // supported header maps to ITSELF. Honouring the sentinel as a version would
+    // claim to serve 2025-03-26 semantics — batching among them — which this
+    // server does not implement.
     const bool headerIsCompatSentinel =
         protocolHeader == QLatin1String("2025-03-26");
 
-    // MCP-Protocol-Version header check (required by 2025-06-18 for
-    // every non-initialize HTTP request after the session is set up).
-    // - Skip on `initialize` itself: handled by the early return above.
-    // - Skip on uninitialized sessions: clients legitimately may not
-    //   know the version yet (e.g. on `notifications/initialized`).
-    // - When absent, sessions carry the lowest supported revision. The spec
-    //   names `2025-03-26` here, which we no longer serve — see
-    //   McpSession::protocolVersion() for that deliberate deviation.
-    if (headerIsCompatSentinel && session->initialized()) {
-        // DEBUG, not WARN: the conformance suite sends this on every concurrent
-        // POST, so WARN would be noise in the connections views. But not silent
-        // either — `2025-03-26` is an overloaded value, and a client that really
-        // believes it speaks that revision is the one population that will then
-        // send a batch. Without this line, the batch refusal below appears in a
-        // submitted log with nothing connecting it to the header that predicted
-        // it.
-        MCP_LOG_TAGGED("Server", QStringLiteral("MCP-Protocol-Version 2025-03-26 treated as "
-                                                "absent (not negotiable) — session %1 stays on %2")
-                                     .arg(session->id(), session->protocolVersion()));
+    if (!protocolHeader.isEmpty() && session->initialized()) {
+        if (headerIsCompatSentinel) {
+            // DEBUG, not WARN: the conformance suite sends this on every
+            // concurrent POST, so WARN would be noise in the connections views.
+            // Not silent either — `2025-03-26` is overloaded, and a client that
+            // really believes it speaks that revision is the one population that
+            // then sends a batch. Without this line the batch refusal appears in
+            // a submitted log with nothing connecting it to the header that
+            // predicted it.
+            MCP_LOG_TAGGED("Server", QStringLiteral("MCP-Protocol-Version 2025-03-26 treated as "
+                                                    "absent (not negotiable) — session %1 stays "
+                                                    "on %2")
+                                         .arg(session->id(), session->protocolVersion()));
+        } else if (!supportedProtocolVersions().contains(protocolHeader)) {
+            MCP_WARN_TAGGED("Server", QStringLiteral("Unsupported protocol version — header %1, "
+                                                     "session %2")
+                                          .arg(protocolHeader, session->protocolVersion()));
+            out.httpStatus = 400;
+            out.httpBody = "Unsupported MCP-Protocol-Version: " + protocolHeader.toUtf8();
+            return out;
+        } else {
+            if (protocolHeader != session->protocolVersion()) {
+                MCP_LOG_TAGGED("Server", QStringLiteral("Answering under header version %1 rather "
+                                                        "than negotiated %2")
+                                             .arg(protocolHeader, session->protocolVersion()));
+            }
+            out.headerProtocolVersion = protocolHeader;
+        }
     }
-
-    if (!protocolHeader.isEmpty() && !headerIsCompatSentinel && session->initialized()
-        && protocolHeader != session->protocolVersion()) {
-        MCP_WARN_TAGGED("Server", QStringLiteral("Protocol version mismatch — header %1, "
-                                                 "session %2")
-                                      .arg(protocolHeader, session->protocolVersion()));
-        out.httpStatus = 400;
-        out.httpBody = "Protocol version mismatch (negotiated "
-                       + session->protocolVersion().toUtf8()
-                       + ", header " + protocolHeader.toUtf8() + ")";
-        return out;
     }
 
     if (!session->initialized() && rpcMethod != "notifications/initialized"
@@ -975,7 +1003,8 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
 
 
 QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* session,
-                                     QTcpSocket* socket, const QVariant& requestId)
+                                     QTcpSocket* socket, const QVariant& requestId,
+                                     const QString& protocolVersion)
 {
     QString method = request["method"].toString();
     QJsonObject params = request["params"].toObject();
@@ -983,11 +1012,11 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
     if (method == "initialize")
         return handleInitialize(params, session);
     if (method == "tools/list")
-        return handleToolsList(params, session);
+        return handleToolsList(params, protocolVersion);
     if (method == "tools/call")
-        return handleToolsCall(params, session, socket, requestId);
+        return handleToolsCall(params, session, socket, requestId, protocolVersion);
     if (method == "resources/list")
-        return handleResourcesList(params, session);
+        return handleResourcesList(params, protocolVersion);
     if (method == "resources/read")
         return handleResourcesRead(params, session, socket, requestId);
     if (method == "resources/subscribe")
@@ -1106,17 +1135,11 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     return result;
 }
 
-QJsonObject McpServer::handleToolsList(const QJsonObject& params, McpSession* session)
+QJsonObject McpServer::handleToolsList(const QJsonObject& params, const QString& protocolVersion)
 {
     Q_UNUSED(params)
 
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
-    // `session` cannot be null: handleJsonRpc's only caller dereferences it
-    // (session->touch()) before dispatching, so a null would already have
-    // crashed there. A fallback here would have silently served a guessed
-    // protocol version instead of surfacing that the session was lost.
-    Q_ASSERT(session);
-    const QString protocolVersion = session->protocolVersion();
 
     QJsonObject result;
     result["tools"] = m_toolRegistry->listTools(accessLevel, protocolVersion);
@@ -1124,18 +1147,13 @@ QJsonObject McpServer::handleToolsList(const QJsonObject& params, McpSession* se
 }
 
 QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* session,
-                                       QTcpSocket* socket, const QVariant& requestId)
+                                       QTcpSocket* socket, const QVariant& requestId,
+                                       const QString& protocolVersion)
 {
     QString toolName = params["name"].toString();
     QJsonObject arguments = params["arguments"].toObject();
 
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
-    // `session` cannot be null: handleJsonRpc's only caller dereferences it
-    // (session->touch()) before dispatching, so a null would already have
-    // crashed there. A fallback here would have silently served a guessed
-    // protocol version instead of surfacing that the session was lost.
-    Q_ASSERT(session);
-    const QString protocolVersion = session->protocolVersion();
 
     // Rate limiting for control + settings tools. Resolved from the ARGUMENTS, not
     // the tool name: a merged tool's read verb must not spend the control budget its
@@ -1230,16 +1248,10 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     return buildToolCallResponse(toolResult, protocolVersion);
 }
 
-QJsonObject McpServer::handleResourcesList(const QJsonObject& params, McpSession* session)
+QJsonObject McpServer::handleResourcesList(const QJsonObject& params,
+                                           const QString& protocolVersion)
 {
     Q_UNUSED(params)
-
-    // `session` cannot be null: handleJsonRpc's only caller dereferences it
-    // (session->touch()) before dispatching, so a null would already have
-    // crashed there. A fallback here would have silently served a guessed
-    // protocol version instead of surfacing that the session was lost.
-    Q_ASSERT(session);
-    const QString protocolVersion = session->protocolVersion();
 
     QJsonObject result;
     result["resources"] = m_resourceRegistry->listResources(protocolVersion);

@@ -138,14 +138,18 @@ public slots:
     void confirmationResolved(const QString& sessionId, bool accepted);
 
 private:
-    // JSON-RPC dispatch
+    // JSON-RPC dispatch. `protocolVersion` is the version THIS message is
+    // answered under, resolved once by resolveSessionForMessage — handlers must
+    // use it rather than reading it back off the session, which can differ.
     QJsonObject handleJsonRpc(const QJsonObject& request, McpSession* session,
-                              QTcpSocket* socket, const QVariant& requestId);
+                              QTcpSocket* socket, const QVariant& requestId,
+                              const QString& protocolVersion);
     QJsonObject handleInitialize(const QJsonObject& params, McpSession* session);
-    QJsonObject handleToolsList(const QJsonObject& params, McpSession* session);
+    QJsonObject handleToolsList(const QJsonObject& params, const QString& protocolVersion);
     QJsonObject handleToolsCall(const QJsonObject& params, McpSession* session,
-                                QTcpSocket* socket, const QVariant& requestId);
-    QJsonObject handleResourcesList(const QJsonObject& params, McpSession* session);
+                                QTcpSocket* socket, const QVariant& requestId,
+                                const QString& protocolVersion);
+    QJsonObject handleResourcesList(const QJsonObject& params, const QString& protocolVersion);
     QJsonObject handleResourcesRead(const QJsonObject& params, McpSession* session,
                                     QTcpSocket* socket, const QVariant& requestId);
     QJsonObject handleResourcesSubscribe(const QJsonObject& params, McpSession* session);
@@ -166,7 +170,27 @@ private:
         QByteArray httpBody;
         int rpcErrorCode = 0;      // non-zero → this message gets a JSON-RPC error
         QString rpcErrorMessage;
+        // The `MCP-Protocol-Version` header, when it names a version we support.
+        // Empty otherwise — including when the header is absent, which is the
+        // common case. NOT the version to answer under on its own: combine it
+        // with the session through effectiveProtocolVersion(). See
+        // resolveSessionForMessage for why a supported header wins.
+        QString headerProtocolVersion;
     };
+
+    // Which version a message is answered under. The header wins when it names
+    // something we support; otherwise the session's negotiated version.
+    //
+    // Deliberately a live read of the session rather than a value captured at
+    // resolve time. A batch resolves ONCE, from its first object element, and
+    // `[initialize, tools/list]` is a realistic shape: the initialize element
+    // negotiates and writes the result to the session, so a captured copy would
+    // answer every later element under the PRE-negotiation default. Empty
+    // version strings are worse than they look — every
+    // `protocolVersion >= "2025-06-18"` gate in the registries reads one as
+    // older than everything.
+    static QString effectiveProtocolVersion(const McpSession* session,
+                                            const QString& headerProtocolVersion);
     SessionResolution resolveSessionForMessage(const QJsonObject& request,
                                                const QString& sessionHeader,
                                                const QString& protocolHeader);
