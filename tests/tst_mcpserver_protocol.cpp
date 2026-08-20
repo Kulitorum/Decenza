@@ -1204,6 +1204,7 @@ private slots:
                                         QJsonObject{{"uri", "decenza://shots/42"}}, 8));
         QCOMPARE(resp.statusCode, 200);
         const QJsonObject result = resp.jsonBody["result"].toObject();
+        QVERIFY2(result.contains("ttlMs"), "an absent ttlMs also reads 0");
         QCOMPARE(result["ttlMs"].toInt(), 0);
         QCOMPARE(result["cacheScope"].toString(), QString("private"));
     }
@@ -1214,9 +1215,7 @@ private slots:
     void modernUnsupportedVersionReturnsSupportedList()
     {
         McpServer server;
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression("Modern request names unsupported protocol "
-                                                "2099-01-01"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing modern tools/list"));
         auto resp = sendHttp(server, "POST",
                              modernBody("tools/list", {}, 9, QStringLiteral("2099-01-01")));
 
@@ -1238,11 +1237,15 @@ private slots:
     void modernHeaderBodyVersionMismatchIsRejected()
     {
         McpServer server;
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression("Modern request header/body version mismatch"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing modern tools/list"));
         auto resp = sendHttp(server, "POST", modernBody("tools/list", {}, 10), QString(),
                              {{"MCP-Protocol-Version", "2025-11-25"}});
         QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32020);
+        // The spec MUST this test's own comment quotes. It was quoted and then
+        // not asserted: the entire modern status mapping had no coverage, so
+        // replacing modernHttpStatusForError's body with `return 200;` — exactly
+        // the defect conformance found — left the suite green.
+        QCOMPARE(resp.statusCode, 400);
     }
 
     // Removed by 2026-07-28, or replaced by subscriptions/listen — but all still
@@ -1262,8 +1265,10 @@ private slots:
     {
         QFETCH(QString, method);
         McpServer server;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing modern "));
         auto resp = sendHttp(server, "POST", modernBody(method, {}, 11));
         QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32601);
+        QCOMPARE(resp.statusCode, 404);
     }
 
     // `ping` must keep working for a LEGACY caller — the refusal above is scoped
@@ -1308,6 +1313,11 @@ private slots:
         QCOMPARE(resp.statusCode, 200);
         QVERIFY2(!resp.jsonBody.contains("error"), "a control tool is no longer refused");
         QCOMPARE(*ran, 1);
+        // Served as MODERN, not merely served. Legacy auto-creates a session and
+        // runs the same tool with the same observable result, so without this the
+        // test passes with era detection stubbed to `return false`.
+        QCOMPARE(resp.jsonBody["result"].toObject()["resultType"].toString(),
+                 QString("complete"));
     }
 
     // Over the budget, the caller is refused — and the tool does not run. A
@@ -1336,6 +1346,7 @@ private slots:
 
         QTest::ignoreMessage(QtWarningMsg,
                              QRegularExpression("Rate limit exceeded .* refusing control calls"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing modern tools/call"));
 
         bool sawRefusal = false;
         for (int i = 0; i < McpServer::RateLimitPerMinute + 5; ++i) {
@@ -1369,6 +1380,10 @@ private slots:
             auto resp = sendHttp(server, "POST", modernBody("tools/call", params, 200 + i));
             QVERIFY2(!resp.jsonBody.contains("error"),
                      "a read verb must not be charged against the control budget");
+            // As above: legacy does not rate-limit reads either, so the era has
+            // to be asserted or this passes under legacy routing.
+            QCOMPARE(resp.jsonBody["result"].toObject()["resultType"].toString(),
+                     QString("complete"));
         }
     }
 
@@ -1470,12 +1485,12 @@ private slots:
             QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
             [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; }, "read");
 
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression("Modern request names unsupported protocol"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing modern tools/list"));
         auto refused = sendHttp(server, "POST",
                                 modernBody("tools/list", {}, 23, QStringLiteral("2030-01-01")));
         const QJsonObject error = refused.jsonBody["error"].toObject();
         QCOMPARE(error["code"].toInt(), -32022);
+        QCOMPARE(refused.statusCode, 400);
 
         const QJsonArray supported = error["data"].toObject()["supported"].toArray();
         QVERIFY(!supported.isEmpty());
@@ -1495,12 +1510,11 @@ private slots:
     void modernRequestNamingALegacyVersionIsRefused()
     {
         McpServer server;
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression("Modern request names unsupported protocol "
-                                                "2025-11-25"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing modern tools/list"));
         auto resp = sendHttp(server, "POST",
                              modernBody("tools/list", {}, 25, QStringLiteral("2025-11-25")));
         QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32022);
+        QCOMPARE(resp.statusCode, 400);
     }
 
     // server/discover does not exist for a legacy client — `initialize` is that
@@ -1596,15 +1610,123 @@ private slots:
                                        QJsonObject{{"uri", "decenza://nope"}}, 50), sid);
         QCOMPARE(legacy.jsonBody["error"].toObject()["code"].toInt(), -32002);
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing modern resources/read"));
         auto modern = sendHttp(server, "POST",
                                modernBody("resources/read",
                                           QJsonObject{{"uri", "decenza://nope"}}, 51));
         QCOMPARE(modern.jsonBody["error"].toObject()["code"].toInt(), -32602);
+        QCOMPARE(modern.statusCode, 400);
 
         // The URI stays in `data` in both eras — it is what makes the error
         // actionable, and only the code moved.
         QCOMPARE(modern.jsonBody["error"].toObject()["data"].toObject()["uri"].toString(),
                  QString("decenza://nope"));
+    }
+
+    // `_meta` validation had no coverage at all, and could not have had any:
+    // modernBody() always writes every required field, so none of the three
+    // -32602 branches had ever executed under test. Conformance found them; the
+    // commit that fixed them added no test, which is the same blindness twice.
+    void modernMetaValidation_data()
+    {
+        QTest::addColumn<QJsonObject>("params");
+        QTest::addColumn<bool>("expectRefusal");
+
+        const QString v = QStringLiteral("2026-07-28");
+
+        // No _meta at all. Reached because a modern-ONLY method is proof of era,
+        // which is exactly why it must be validated rather than assumed.
+        QTest::newRow("no _meta") << QJsonObject{} << true;
+
+        QTest::newRow("no protocolVersion")
+            << QJsonObject{{"_meta", QJsonObject{
+                   {"io.modelcontextprotocol/clientCapabilities", QJsonObject{}}}}}
+            << true;
+
+        QTest::newRow("no clientCapabilities")
+            << QJsonObject{{"_meta", QJsonObject{
+                   {"io.modelcontextprotocol/protocolVersion", v}}}}
+            << true;
+
+        // clientInfo absent is VALID — spec PR #3002 demoted it to a SHOULD.
+        // This is the negative case that most needs pinning: making it required
+        // would break every conforming client and pass everything else.
+        QTest::newRow("no clientInfo (legal)")
+            << QJsonObject{{"_meta", QJsonObject{
+                   {"io.modelcontextprotocol/protocolVersion", v},
+                   {"io.modelcontextprotocol/clientCapabilities", QJsonObject{}}}}}
+            << false;
+    }
+
+    void modernMetaValidation()
+    {
+        QFETCH(QJsonObject, params);
+        QFETCH(bool, expectRefusal);
+
+        McpServer server;
+        QJsonObject req{{"jsonrpc", "2.0"}, {"id", 60},
+                        {"method", "server/discover"}, {"params", params}};
+
+        if (expectRefusal) {
+            QTest::ignoreMessage(QtWarningMsg,
+                                 QRegularExpression("Refusing modern server/discover"));
+        }
+        auto resp = sendHttp(server, "POST",
+                             QJsonDocument(req).toJson(QJsonDocument::Compact));
+
+        if (expectRefusal) {
+            QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32602);
+            QCOMPARE(resp.statusCode, 400);
+        } else {
+            QCOMPARE(resp.statusCode, 200);
+            QVERIFY2(resp.jsonBody.contains("result"),
+                     "clientInfo is a SHOULD; requiring it would break conforming clients");
+        }
+    }
+
+    // The era-detection rule itself, as opposed to its exception. A modern-only
+    // method with NO session and NO _meta must be validated as modern (-32602),
+    // not answered "method not found" — the exception (a live legacy session
+    // gets -32601) is covered by legacyEraHasNoServerDiscover.
+    void modernOnlyMethodWithoutSessionIsValidatedAsModern()
+    {
+        McpServer server;
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Refusing modern subscriptions/listen"));
+        QJsonObject req{{"jsonrpc", "2.0"}, {"id", 61},
+                        {"method", "subscriptions/listen"}, {"params", QJsonObject{}}};
+        auto resp = sendHttp(server, "POST",
+                             QJsonDocument(req).toJson(QJsonDocument::Compact));
+
+        QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32602);
+        QCOMPARE(resp.statusCode, 400);
+    }
+
+    // A deferred response must carry modern framing too. handleModernRequest
+    // stamps only what it answers synchronously, and its comment claimed
+    // otherwise — 22 async tools and every confirmation outcome went around it,
+    // returning results the schema does not permit.
+    void deferredModernResponseIsStillFramedAsModern()
+    {
+        McpServer server;
+        server.toolRegistry()->registerAsyncTool(
+            "shots_list", "An async tool",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+                respond(QJsonObject{{"ok", true}});
+            },
+            "read");
+
+        QJsonObject params;
+        params["name"] = "shots_list";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", modernBody("tools/call", params, 62));
+
+        QCOMPARE(resp.statusCode, 200);
+        const QJsonObject result = resp.jsonBody["result"].toObject();
+        QCOMPARE(result["resultType"].toString(), QString("complete"));
+        QVERIFY2(result["_meta"].toObject().contains("io.modelcontextprotocol/serverInfo"),
+                 "a deferred result is still a modern result");
     }
 
     // ─── Spec-version gating: the floor revision sees only its own fields ───
@@ -2354,8 +2476,8 @@ private slots:
 
         // Answering a confirmation that is already gone must do nothing at all.
         QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression("confirmationResolved but no pending "
-                                                "confirmation"));
+                             QRegularExpression("confirmationResolved for .* but nothing is "
+                                                "pending"));
         server.confirmationResolved(spy.at(0).at(2).toString(), true);
         QVERIFY2(!*ran,
                  "a confirmation whose requester is gone must not still be answerable");

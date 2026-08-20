@@ -2719,6 +2719,21 @@ T.ApplicationWindow {
 
     Connections {
         target: McpServer
+        // The server gave up on a confirmation — connection closed, session
+        // ended, or superseded. Close the dialog, because the answer can no
+        // longer go anywhere and leaving it up invites a tap that does nothing.
+        function onConfirmationCancelled(confirmationId, reason) {
+            if (!mcpConfirmDialog.visible)
+                return
+            if (mcpConfirmDialog.confirmationId !== confirmationId)
+                return
+            // Suppress the denied signal: the C++ side has already answered the
+            // client, and a second answer would be written onto a socket that
+            // is usually gone.
+            mcpConfirmDialog.userResponded = true
+            mcpConfirmDialog.close()
+        }
+
         function onConfirmationRequested(toolName, toolDescription, confirmationId) {
             if (mcpConfirmDialog.visible) {
                 // Suppress denied signal for the superseded request (C++ already handled it)

@@ -188,6 +188,17 @@ signals:
     void confirmationRequested(const QString& toolName, const QString& toolDescription,
                                const QString& confirmationId);
 
+    // A pending confirmation was abandoned server-side — its connection closed,
+    // its session ended, or a newer request superseded it. The UI MUST close the
+    // dialog on this, because the answer can no longer go anywhere.
+    //
+    // Without it the dialog stays on the machine's screen after the server has
+    // given up, the user taps Confirm, and nothing happens: confirmationResolved
+    // finds nothing pending and returns. That was survivable while abandonment
+    // only came from a 30-minute reaper; it stopped being so when abandonment
+    // was wired to the requesting socket closing, which is routine.
+    void confirmationCancelled(const QString& confirmationId, const QString& reason);
+
 public slots:
     void confirmationResolved(const QString& confirmationId, bool accepted);
 
@@ -305,8 +316,13 @@ private:
     QString confirmationActionId(const QString& toolName, const QJsonObject& arguments) const;
 
     // Response helpers
+    // `protocolVersion` decides the ERA this response is framed for. It is a
+    // required argument rather than a defaulted one on purpose: a deferred
+    // response reaches here long after its request, and every caller that
+    // forgot it shipped a modern result framed as legacy.
     void sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& result,
-                             const QVariant& id, const QString& sessionId);
+                             const QVariant& id, const QString& sessionId,
+                             const QString& protocolVersion);
     void sendJsonRpcError(QTcpSocket* socket, int code, const QString& message,
                           const QVariant& id, const QString& sessionId = QString());
     void sendHttpResponse(QTcpSocket* socket, int statusCode,

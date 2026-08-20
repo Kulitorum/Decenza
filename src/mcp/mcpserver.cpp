@@ -729,7 +729,8 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         if (result.contains("_deferred"))
             return;
 
-        sendJsonRpcResponse(socket, result, request["id"].toVariant(), session->id());
+        sendJsonRpcResponse(socket, result, request["id"].toVariant(), session->id(),
+                            effectiveProtocolVersion(session, resolved.headerProtocolVersion));
 
     } else if (method == "GET") {
         // Check if client wants SSE (Accept: text/event-stream)
@@ -1050,7 +1051,7 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
             // recovered client whose prior negotiation differed from the
             // session's. Mirrors the auto-create branch.
             if (!protocolHeader.isEmpty()
-                && supportedProtocolVersions().contains(protocolHeader)
+                && legacyProtocolVersions().contains(protocolHeader)
                 && protocolHeader != session->protocolVersion()) {
                 session->setProtocolVersion(protocolHeader);
             }
@@ -1072,7 +1073,7 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
             // attacker can't push the gate into an unspec'd state.
             session->setInitialized(true);
             if (!protocolHeader.isEmpty()
-                && supportedProtocolVersions().contains(protocolHeader)) {
+                && legacyProtocolVersions().contains(protocolHeader)) {
                 session->setProtocolVersion(protocolHeader);
             }
         }
@@ -1176,7 +1177,8 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
     // when the header is present at all. An absent header cannot disagree.
     // One place frames a modern error, so its HTTP status and JSON-RPC code can
     // never disagree — they did on eight checks when each site wrote its own 200.
-    const auto sendModernError = [this, socket, requestId](int code, const QString& message,
+    const auto sendModernError = [this, socket, requestId, &request](int code,
+                                                                   const QString& message,
                                                            const QJsonObject& data = {}) {
         QJsonObject error{{"code", code}, {"message", message}};
         if (!data.isEmpty())
@@ -1184,6 +1186,16 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
         QJsonObject response{{"jsonrpc", "2.0"},
                              {"id", QJsonValue::fromVariant(requestId)},
                              {"error", error}};
+        // Logged HERE rather than at each call site, because three of the five
+        // refusals below had no log at all — and they are the LIKELIEST ones: a
+        // bare `server/discover` routes to this path precisely BECAUSE it has no
+        // `_meta`, so a misconfigured client got a 400 and the submitted log
+        // recorded nothing to correlate it against.
+        MCP_WARN_TAGGED("Server", QStringLiteral("Refusing modern %1 — %2 (%3)")
+                                      .arg(sanitizeForLog(request.value(QLatin1String("method"))
+                                                              .toString()),
+                                           message)
+                                      .arg(code));
         sendHttpResponse(socket, modernHttpStatusForError(code),
                          QJsonDocument(response).toJson(QJsonDocument::Compact),
                          "application/json");
@@ -1209,10 +1221,6 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
     }
 
     if (!protocolHeader.isEmpty() && protocolHeader != metaVersion) {
-        MCP_WARN_TAGGED("Server", QStringLiteral("Modern request header/body version mismatch — "
-                                                 "header %1, _meta %2")
-                                      .arg(sanitizeForLog(protocolHeader),
-                                           sanitizeForLog(metaVersion)));
         sendModernError(kErrHeaderMismatch,
                         QStringLiteral("MCP-Protocol-Version header does not match the "
                                        "protocol version in _meta"));
@@ -1232,9 +1240,6 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
         QJsonArray supported;
         for (const QString& v : modernProtocolVersions())
             supported.append(v);
-
-        MCP_WARN_TAGGED("Server", QStringLiteral("Modern request names unsupported protocol %1")
-                                      .arg(sanitizeForLog(metaVersion)));
 
         sendModernError(kErrUnsupportedProtocolVersion,
                         QStringLiteral("Unsupported protocol version"),
@@ -1314,8 +1319,24 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
 QJsonObject McpServer::handleSubscriptionsListen(const QJsonObject& params, QTcpSocket* socket,
                                                  const QVariant& requestId)
 {
-    if (!socket || socket->state() != QAbstractSocket::ConnectedState)
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
+        MCP_WARN_TAGGED("Server", QStringLiteral("subscriptions/listen refused — no live "
+                                                 "connection to hold open"));
         return makeErrorResult(-32603, QStringLiteral("No connection to hold open"));
+    }
+
+    // The same ceiling the legacy GET stream enforces. These streams live in
+    // m_sseClients too, so without this they both escape the cap themselves AND
+    // consume it — four of them would lock out every legacy SSE client while a
+    // fifth modern stream was still accepted.
+    int liveStreams = 0;
+    for (const QPointer<QTcpSocket>& p : std::as_const(m_sseClients))
+        if (!p.isNull()) ++liveStreams;
+    if (liveStreams >= MaxSseConnections) {
+        MCP_WARN_TAGGED("Server", QStringLiteral("subscriptions/listen refused — %1 streams "
+                                                 "already open").arg(liveStreams));
+        return makeErrorResult(-32000, QStringLiteral("Too many concurrent streams"));
+    }
 
     // Opt-in, and strictly so: "the server MUST NOT send notification types the
     // client has not explicitly requested". A filter naming nothing is legal and
@@ -1558,7 +1579,7 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
 static void applyCacheHints(QJsonObject& result, const QString& protocolVersion,
                             int ttlMs, const char* cacheScope = "private")
 {
-    if (protocolVersion < QStringLiteral("2026-07-28"))
+    if (!McpServer::isModernProtocolVersion(protocolVersion))
         return;
     result["ttlMs"] = ttlMs;
     result["cacheScope"] = QString::fromLatin1(cacheScope);
@@ -1769,15 +1790,6 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
     const bool modern = isModernProtocolVersion(protocolVersion);
 
-    // Control- and settings-category tools are UNREACHABLE in the modern era
-    // until a session-independent rate limiter exists. `controlCallCount()` is
-    // the only thing between a client and unbounded machine_start_* calls, and a
-    // stateless request has no session to count against.
-    //
-    // Structural, not procedural: the refusal sits ahead of every dispatch path
-    // below, so the unsafe intermediate state cannot be reached by forgetting to
-    // add a check somewhere. An unlimited control surface on a machine that
-    // heats water to 90 °C is worse than those tools being unavailable.
     if (modern) {
         // Control and settings tools ARE reachable now, because there is a
         // session-independent limiter to charge them against. The key is the
@@ -1994,17 +2006,19 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
         QPointer<QTcpSocket> socketPtr(socket);
         QVariant reqId = requestId;
         QString sessId = session ? session->id() : QString();
+        const QString protoVer = protocolVersion;
 
         QString error;
         McpRegistryFailure failure = McpRegistryFailure::None;
         bool dispatched = m_resourceRegistry->readAsyncResource(uri, error,
-            [this, socketPtr, reqId, sessId, uri, buildContents](QJsonObject resourceData) {
+            [this, socketPtr, reqId, sessId, protoVer, uri, buildContents](QJsonObject resourceData) {
                 if (!socketPtr || socketPtr->state() != QAbstractSocket::ConnectedState) {
                     MCP_WARN_TAGGED("Server", QStringLiteral("async resource response dropped "
                                                              "(socket disconnected)"));
                     return;
                 }
-                sendJsonRpcResponse(socketPtr, buildContents(uri, resourceData), reqId, sessId);
+                sendJsonRpcResponse(socketPtr, buildContents(uri, resourceData), reqId, sessId,
+                                    protoVer);
             }, &failure);
 
         if (!dispatched)
@@ -2264,6 +2278,13 @@ void McpServer::abandonPendingConfirmation(const QString& reason)
 
     MCP_WARN_TAGGED("Server", QStringLiteral("Pending confirmation for %1 abandoned — %2")
                                   .arg(pending.toolName, reason));
+
+    // Tell the UI, or the dialog outlives the confirmation it belongs to. The
+    // user then taps Confirm, confirmationResolved finds nothing pending, and
+    // the machine does not start — with nothing on screen explaining why. That
+    // was survivable while abandonment meant a 30-minute reaper; wiring it to
+    // the requesting socket closing made it routine.
+    emit confirmationCancelled(pending.confirmationId, reason);
     if (!pending.socket || pending.socket->state() != QAbstractSocket::ConnectedState)
         return;
 
@@ -2271,13 +2292,17 @@ void McpServer::abandonPendingConfirmation(const QString& reason)
     payload["error"] = "Confirmation for " + pending.toolName + " was not completed — " + reason;
     sendJsonRpcResponse(pending.socket,
                         buildToolCallResponse(payload, pending.protocolVersion),
-                        pending.requestId, pending.sessionId);
+                        pending.requestId, pending.sessionId, pending.protocolVersion);
 }
 
 void McpServer::confirmationResolved(const QString& confirmationId, bool accepted)
 {
     if (!m_pendingConfirmation.has_value()) {
-        MCP_WARN_TAGGED("Server", QStringLiteral("confirmationResolved but no pending confirmation"));
+        // Names the handle so a stale tap is traceable to the abandonment that
+        // preceded it — without it the log says only that something arrived late.
+        MCP_WARN_TAGGED("Server", QStringLiteral("confirmationResolved for %1 but nothing is "
+                                                 "pending — it was already abandoned")
+                                      .arg(confirmationId));
         return;
     }
 
@@ -2308,7 +2333,7 @@ void McpServer::confirmationResolved(const QString& confirmationId, bool accepte
         // `isError` is set by buildToolCallResponse off the `error` key above.
         sendJsonRpcResponse(pending.socket,
                             buildToolCallResponse(deniedPayload, pending.protocolVersion),
-                            pending.requestId, pending.sessionId);
+                            pending.requestId, pending.sessionId, pending.protocolVersion);
         return;
     }
 
@@ -2327,7 +2352,7 @@ void McpServer::confirmationResolved(const QString& confirmationId, bool accepte
             }, &failure);
         if (!dispatched) {
             sendJsonRpcResponse(pending.socket, registryErrorResult(error, failure),
-                                pending.requestId, pending.sessionId);
+                                pending.requestId, pending.sessionId, pending.protocolVersion);
         }
         return;
     }
@@ -2340,13 +2365,13 @@ void McpServer::confirmationResolved(const QString& confirmationId, bool accepte
 
     if (!error.isEmpty()) {
         sendJsonRpcResponse(pending.socket, registryErrorResult(error, failure),
-                            pending.requestId, pending.sessionId);
+                            pending.requestId, pending.sessionId, pending.protocolVersion);
         return;
     }
 
     sendJsonRpcResponse(pending.socket,
                         buildToolCallResponse(toolResult, pending.protocolVersion),
-                        pending.requestId, pending.sessionId);
+                        pending.requestId, pending.sessionId, pending.protocolVersion);
 }
 
 void McpServer::sendAsyncToolResponse(QPointer<QTcpSocket> socket, const QVariant& requestId,
@@ -2359,7 +2384,7 @@ void McpServer::sendAsyncToolResponse(QPointer<QTcpSocket> socket, const QVarian
     }
 
     sendJsonRpcResponse(socket, buildToolCallResponse(toolResult, protocolVersion),
-                        requestId, sessionId);
+                        requestId, sessionId, protocolVersion);
 }
 
 bool McpServer::needsInAppConfirmation(const QString& toolName, const QJsonObject&) const
@@ -2469,7 +2494,8 @@ QString McpServer::confirmationDescription(const QString& toolName,
 }
 
 void McpServer::sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& result,
-                                     const QVariant& id, const QString& sessionId)
+                                     const QVariant& id, const QString& sessionId,
+                                     const QString& protocolVersion)
 {
     QJsonObject response;
     response["jsonrpc"] = "2.0";
@@ -2498,7 +2524,21 @@ void McpServer::sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& resul
     if (result.contains("error")) {
         response["error"] = result["error"];
     } else {
-        response["result"] = result;
+        // Modern framing, applied HERE because this is the one place every response
+    // actually passes through — including the deferred ones. handleModernRequest
+    // stamps only what it answers synchronously, and its comment claiming
+    // otherwise was false for 22 async tools and every confirmation outcome.
+    QJsonObject framed = result;
+    if (isModernProtocolVersion(protocolVersion) && !framed.contains(QLatin1String("error"))) {
+        framed["resultType"] = QStringLiteral("complete");
+        QJsonObject fmeta = framed.value(QLatin1String("_meta")).toObject();
+        fmeta[QLatin1String(kMetaServerInfo)] =
+            QJsonObject{{"name", "Decenza MCP Server"},
+                        {"version", QString::fromLatin1(McpSurfaceVersion)},
+                        {"appVersion", QStringLiteral(VERSION_STRING)}};
+        framed[QLatin1String("_meta")] = fmeta;
+    }
+    response["result"] = framed;
     }
 
     QByteArray body = QJsonDocument(response).toJson(QJsonDocument::Compact);
