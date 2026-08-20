@@ -485,10 +485,34 @@ private:
     // Keepalive writes re-assert an unchanged value every 60 s forever (BatteryManager's USB-charger
     // refresh — the DE1 auto-disables the port after 10 minutes, so the re-assert is load-bearing
     // and cannot be dropped). Its LOG line, repeated 3,042 times in a 48-hour capture for 15% of the
-    // whole log, can be. One line per 10 minutes carrying the count; a value CHANGE still prints
-    // immediately, because that is the event worth seeing.
+    // whole log, can be, and now is not printed at all while the value holds. The events that remain
+    // are the ones that carry something: a value CHANGE, which prints at once with the count of
+    // re-asserts it stood for, and the disconnect flush. A 0 -> 1 or 1 -> 0 on this register is the
+    // charger actually being commanded, and it is the only thing here a reader has ever needed.
     // Episodic: a run is one connected session. Flushed in onTransportDisconnected().
-    LogCollapse m_keepaliveLog{10 * 60 * 1000};
+    LogCollapse m_keepaliveLog{LogCollapse::kChangesOnly};
+
+    // Elided writes — the MMR per-register cache and the ShotSettings payload compare, both above.
+    //
+    // The line has one real use, and it is worth keeping exactly once: it answers "I changed that
+    // setting and the machine ignored it" by showing the write was dropped as redundant and naming
+    // the caller. What has no use is the repeat. Convergent callers re-apply the same values at
+    // every phase transition and page activation, so one field session carried 65 of these, in
+    // bursts of four, every burst byte-identical to the last — the answer to a question nobody had
+    // asked yet, restated until it buried the writes that did go out.
+    //
+    // Keyed by the message TEXT, so the unit that prints once is the whole tuple (register or
+    // payload, value, calling reason). A different caller eliding the same value is a different
+    // line and still prints; the fortieth identical one does not.
+    //
+    // TWO instances, not one keyed across both. The key is the message text and the flush prints
+    // its keys, so a shared table would have to pick one helper for lines belonging to two
+    // different tags — sending [ShotSettings] text out under [MMR], which is precisely the
+    // "one grep returns the whole subsystem" invariant the marker gate exists to hold. Splitting
+    // the table is what keeps the flush able to name the right one.
+    // Episodic: a run is one connected session. Both flushed in onTransportDisconnected().
+    LogCollapse m_mmrSkipLog{LogCollapse::kChangesOnly};
+    LogCollapse m_shotSettingsSkipLog{LogCollapse::kChangesOnly};
     // Pending one-shot MMR reads keyed by address — covers both the
     // post-connect informational reads issued via issueMMRReadWithRetry().
     // Cleared when parseMMRResponse() sees a response for that address,
@@ -509,17 +533,45 @@ private:
     static constexpr int MMR_READ_TIMEOUT_MS = 4000;
     static constexpr int MMR_READ_MAX_RETRIES = 2;
     double m_waterLevel = 0.0;
-    double m_waterLevelMm = 0.0;  // Raw mm value (with sensor offset applied)
+    double m_waterLevelMm = 0.0;  // Smoothed mm value (sensor offset applied) — see parseWaterLevel
     int m_waterLevelMl = 0;       // Volume in ml (from CAD lookup table)
     double m_lastEmittedWaterLevel = -1.0;  // Throttle: only emit when change >= 0.5%
     int m_lastEmittedWaterLevelMl = -1;    // Throttle: also emit when ml changes (color thresholds)
-    // Last water level LOGGED, which is not the last one EMITTED. The signal has to follow the
-    // sensor closely (the refill warning and the tank colour band key off it), but the sensor
-    // dithers roughly +/-1 mm continuously and each 1 mm step is a ~28 ml step in the CAD table, so
-    // "changed" is true about twice a second forever: 2,828 log lines in a 48-hour capture, 14% of
-    // the whole log, describing a tank nobody touched. Logging gets its own hysteresis; emitting
-    // keeps the old behaviour.
+
+    // WHY THE LEVEL IS SMOOTHED AT ALL, and why a hysteresis alone was not enough.
+    //
+    // Two different disturbances ride on this sensor and only one of them was ever accounted for.
+    // The comment here used to describe "roughly +/-1 mm" of continuous dither, which is what the
+    // tank does at IDLE, and a 2 mm hysteresis is comfortably above it. Under the pump it sloshes,
+    // and a field log measured swings of 5.5 mm to 33.5 mm inside four seconds — every one of them
+    // clearing 2 mm, so during the only period anyone reads these lines the gate passed on
+    // essentially every sample. 220 lines in one 3.7-hour session, consecutive readings
+    // contradicting each other by 10 mm.
+    //
+    // Raising the threshold is the tempting fix and it is the wrong one: it would have to exceed
+    // the slosh amplitude, at which point it also swallows a slow drawdown, which is the one
+    // trend worth having. The disturbance differs from the signal in FREQUENCY, not amplitude —
+    // slosh is a second or two, a refill or a drawdown is not — so filter on that and leave the
+    // threshold where it was. An EMA at this alpha has a time constant near 3 s at the observed
+    // ~4 Hz sample rate: slosh is attenuated below the 2 mm gate, a refill still resolves within a
+    // few seconds, and a drawdown is untouched.
+    //
+    // The smoothed value feeds the PROPERTY as well as the log, deliberately. The refill warning
+    // and the tank colour band key off it, and both were being driven by a figure that swung a
+    // third of the tank twice a second while the machine ran. Stability is what they wanted; the
+    // cost is that a genuine step (tank lifted out) is reported ~3 s late, which no reading of a
+    // water tank depends on.
+    static constexpr double WATER_LEVEL_SMOOTHING_ALPHA = 0.08;
+    // Seeded from the first sample rather than ramped from zero — otherwise every connect shows the
+    // tank filling from empty over the filter's settling time.
+    bool m_waterLevelSeeded = false;
+
+    // Last water level LOGGED, which is not the last one EMITTED: the property follows every
+    // smoothed sample, the log speaks only on a 2 mm move. Both endpoints are kept so the line can
+    // state the DELTA it represents — a bare instantaneous reading cannot tell a reader whether
+    // 168 ml left the tank through the group or was never there.
     double m_lastLoggedWaterLevelMm = -1000.0;
+    int m_lastLoggedWaterLevelMl = -1;
     static constexpr double WATER_LEVEL_LOG_HYSTERESIS_MM = 2.0;
     QString m_firmwareVersion;
     int m_firmwareBuildNumber = 0;

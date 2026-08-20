@@ -75,10 +75,14 @@ private:
     int m_lastQObjectCount = 0;
     bool m_firstSample = true;
 
-    // Collapses the per-sample log line while a plateau holds — see onSampleTimerTick(). Sampling
-    // itself is untouched; this only decides whether the sample is worth a line.
-    // Periodic: samples for the process lifetime, so there is no run end and nothing to flush.
-    LogCollapse m_logCollapse{10 * 60 * 1000};
+    // Silences the per-sample log line while a plateau holds — see onSampleTimerTick(). Sampling
+    // itself is untouched; this only decides whether the sample is worth a line, and a plateau is
+    // not: an RSS figure identical to the last one is what "nothing is leaking" looks like, and it
+    // does not become news by being restated 60 times an hour.
+    // Periodic: samples for the process lifetime, so there is no run end and nothing to flush. That
+    // is not a lost tally under kChangesOnly — the count and span ride out on the next line whose
+    // text DIFFERS, which for a memory sampler is exactly the sample a reader came for.
+    LogCollapse m_logCollapse{LogCollapse::kChangesOnly};
     // RSS as of the last line PRINTED — the anchor the 5 MB band is measured from, so a value
     // sitting on a fixed bucket edge cannot oscillate across it. Negative until the first line.
     double m_lastLoggedRssMB = -1.0;

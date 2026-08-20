@@ -171,13 +171,20 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
     // unchanging fields per response (#988).
     registry->registerTool(
         "app_get_info",
-        "Get app and device info: appVersion, qtVersion, OS, kernel, architecture, "
-        "deviceModel, screen size/DPI, devicePixelRatio. Diagnostics-grade — call once "
-        "per session, not every poll. machine_get_state used to embed this block.",
+        "Get app and device info: appVersion, buildNumber, qtVersion, OS, kernel, "
+        "architecture, deviceModel, screen size/DPI, devicePixelRatio. buildNumber is "
+        "what identifies a build — one appVersion can ship many. Diagnostics-grade — "
+        "call once per session, not every poll.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [](const QJsonObject&) -> QJsonObject {
             QJsonObject platform;
             platform["appVersion"] = QString(VERSION_STRING);
+            // appVersion alone does not identify a build. v2.0.4 shipped three times
+            // (3552, 3553, 3554) with materially different code -- pre-releases are
+            // re-cut against a rolling version, and the release notes already carry a
+            // `Build:` line for exactly this reason. Without it, a field diagnosis over
+            // MCP cannot tell whether a fix under investigation is even present.
+            platform["buildNumber"] = versionCode();
             platform["qtVersion"] = QString(qVersion());
             platform["os"] = QSysInfo::prettyProductName().simplified();
             platform["osType"] = QSysInfo::productType();

@@ -330,6 +330,12 @@ private slots:
         QVERIFY2(info["version"].toString() != info["appVersion"].toString()
                      || QString::fromLatin1(McpSurfaceVersion) == QString(VERSION_STRING),
                  "surface version and app version are separate facts");
+        // The build, which appVersion does NOT carry: v2.0.4 shipped as 3552, 3553 and
+        // 3554. Without this a client cannot tell which code it is talking to, and a
+        // field diagnosis cannot establish whether the fix under investigation is even
+        // present -- which is exactly what happened before this field existed.
+        QCOMPARE(info["buildNumber"].toInt(), versionCode());
+        QVERIFY2(info["buildNumber"].toInt() > 0, "buildNumber must be a real build");
     }
 
     // The server-level `instructions` field (#1162) is emitted unconditionally,

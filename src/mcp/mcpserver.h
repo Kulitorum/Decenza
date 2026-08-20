@@ -73,7 +73,11 @@ struct PendingConfirmation {
 // action added to a merged tool, an argument that changes meaning. It is not the app
 // version and does not follow it: 2.0.2 shipped a 97-tool server and then a 66-tool
 // one, and a client reporting the app version would have shown the same string for
-// both. `serverInfo.appVersion` carries the build alongside it.
+// both. `serverInfo.appVersion` carries the app version alongside it, and
+// `serverInfo.buildNumber` the build -- appVersion is NOT the build and never was:
+// v2.0.4 shipped as 3552, 3553 and 3554, because a pre-release is re-cut against a
+// rolling version. This comment used to say appVersion carried the build; a field
+// diagnosis was then unable to tell whether the fix it was chasing was present.
 //
 // This is a correctness obligation before it is anything else. The handshake is
 // where a server states what it is, and a server whose surface has changed while
@@ -93,7 +97,7 @@ struct PendingConfirmation {
 // scripts/check_mcp_tool_budget.py fingerprints the registered tools and their
 // actions and fails the PR if the surface moved without this string moving, so the
 // rule above is enforced rather than remembered.
-inline constexpr const char* McpSurfaceVersion = "1.2.0";
+inline constexpr const char* McpSurfaceVersion = "1.3.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "8ada4d203b66";

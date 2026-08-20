@@ -149,11 +149,14 @@ private slots:
     void onThemeChanged();
 
 private:
-    // Collapses repeated identical request lines — see handleRequest(). One minute, not the ten
-    // used by the periodic samplers: a request is user-driven, so a path that has been quiet
-    // should log the moment it comes back.
-    // Episodic: a run is one server lifetime. Flushed in stop().
-    LogCollapse m_requestLog{60 * 1000};
+    // Collapses repeated identical request lines — see handleRequest(). Keyed BY the line, so a
+    // path is logged the first time it is requested in a server run and not again; a different
+    // path is a different key and prints at once. That is the whole value of the line — which
+    // endpoints this run touched — and a poller re-fetching one of them every 5 s adds nothing to
+    // it however long it keeps going.
+    // Episodic: a run is one server lifetime. Flushed in stop(), which is where the per-path counts
+    // are reported.
+    LogCollapse m_requestLog{LogCollapse::kChangesOnly};
 
     void handleRequest(QTcpSocket* socket, const QByteArray& request);
     void sendResponse(QTcpSocket* socket, int statusCode, const QString& contentType,

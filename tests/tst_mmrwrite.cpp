@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QRegularExpression>
 
+#include <utility>
+
 #include "ble/de1device.h"
 #include "ble/protocol/de1characteristics.h"
 #include "mocks/MockTransport.h"
@@ -23,6 +25,44 @@ private:
         TestFixture() {
             device.setTransport(&transport);
         }
+    };
+
+    // Counts emitted debug lines containing `needle`, for the cases whose whole point is HOW MANY
+    // lines came out.
+    //
+    // QTest::ignoreMessage cannot express that. It consumes one message per call, so "exactly one"
+    // has to be written as one ignoreMessage plus a silent hope that a second never arrived —
+    // unhandled debug output is not a failure. burstDeduplication was written the other way round,
+    // queueing 29 ignoreMessages, and that shape only ever fails when TOO FEW lines arrive: it
+    // pinned the noisy behaviour as the expected one and would have passed unchanged had the count
+    // gone to 300. Counting fails in both directions.
+    class MessageCounter {
+    public:
+        explicit MessageCounter(QString needle) : m_needle(std::move(needle)) {
+            s_active = this;
+            m_prev = qInstallMessageHandler(&MessageCounter::handle);
+        }
+        ~MessageCounter() {
+            qInstallMessageHandler(m_prev);
+            s_active = nullptr;
+        }
+        MessageCounter(const MessageCounter&) = delete;
+        MessageCounter& operator=(const MessageCounter&) = delete;
+        int count() const { return m_count; }
+
+    private:
+        static void handle(QtMsgType type, const QMessageLogContext& ctx, const QString& msg) {
+            if (s_active && msg.contains(s_active->m_needle)) {
+                s_active->m_count++;
+                return;  // swallowed, so it cannot also read as unexpected output
+            }
+            if (s_active && s_active->m_prev)
+                s_active->m_prev(type, ctx, msg);
+        }
+        QString m_needle;
+        int m_count = 0;
+        QtMessageHandler m_prev = nullptr;
+        static inline MessageCounter* s_active = nullptr;
     };
 
 private slots:
@@ -87,21 +127,42 @@ private slots:
     }
 
     void burstDeduplication() {
-        // Emulate the applyFlushSettings burst: 30 identical calls should
-        // produce exactly 1 BLE write and 29 skip log lines. Suppress all 29
-        // — QTest::ignoreMessage matches only the next emission per call, so
-        // without a loop the remaining 28 would print as unexpected-debug
-        // noise.
+        // Emulate the applyFlushSettings burst: 30 identical calls, one BLE write.
+        //
+        // And ONE log line, not 29. The elided-write line answers "the machine ignored my setting
+        // because the value was already that" — true and useful the first time, and unchanged by
+        // being restated 28 more times in the same burst. A field session carried 65 of these in
+        // bursts of four, every burst byte-identical to the last.
+        //
+        // Both counts are asserted because the two failure modes are opposite and a test that
+        // checks one hides the other: collapsing too little puts the noise back, and collapsing
+        // the WRITE would break the machine.
         TestFixture f;
-        for (int i = 0; i < 29; ++i) {
-            QTest::ignoreMessage(QtDebugMsg,
-                QRegularExpression("\\[MMR\\] write skipped"));
-        }
+        MessageCounter skips(QStringLiteral("[MMR] write skipped"));
 
         for (int i = 0; i < 30; ++i) {
             f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);
         }
         QCOMPARE(f.transport.writes.size(), 1);
+        QCOMPARE(skips.count(), 1);
+    }
+
+    // The collapse is per (register, value, caller), not per register: a DIFFERENT caller eliding
+    // the same value is a different answer to "who tried and was ignored", and that is the whole
+    // content of the line. Losing it would make the surviving line name whichever caller happened
+    // to be first.
+    void skipLineDistinguishesCallers() {
+        TestFixture f;
+        MessageCounter skips(QStringLiteral("[MMR] write skipped"));
+
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150, QStringLiteral("applySteamSettings"));
+        for (int i = 0; i < 5; ++i)
+            f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150, QStringLiteral("applySteamSettings"));
+        for (int i = 0; i < 5; ++i)
+            f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150, QStringLiteral("steampage-activated"));
+
+        QCOMPARE(f.transport.writes.size(), 1);
+        QCOMPARE(skips.count(), 2);  // one per caller, not one per call and not one overall
     }
 
     // ===== Force path (USB charger keepalive semantics) =====
