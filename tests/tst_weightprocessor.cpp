@@ -63,10 +63,95 @@ private:
         wp.setTareComplete(true);
     }
 
+    // Arm a shot whose scale sits at `zero` when flow starts. The sample COUNT is the
+    // point: markExtractionStart() only adopts an offset once the tare has been
+    // observed to land, which takes kTareLandedConfirmations near-zero samples. Written
+    // once so raising that constant does not quietly stop these tests from arming --
+    // the two that expect NO correction would still pass, for the wrong reason.
+    void armWithPreShotZero(WeightProcessor& wp, double zero, int samples = 2) {
+        wp.startExtraction();
+        feedConstant(wp, zero, samples, 100);
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+    }
+
 private slots:
 
     void init() { QTest::failOnWarning();
         m_fakeClock = 1000000;  // Reset for each test
+    }
+
+    // ==========================================
+    // Pre-shot zero correction
+    // ==========================================
+    //
+    // A tare leaves a small residual and the zero keeps creeping through preheat --
+    // measured at -0.1 to -0.5 g across six shots. It is a BIAS, not noise: every
+    // reading that shot is low by the same amount, so stop-at-weight stops late by it
+    // and the saved final weight is short by it, always in the same direction.
+
+    void preShotZeroIsSubtractedFromEveryWeight() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        armWithPreShotZero(wp, -0.4);  // the drifted zero, as it stands at flow start
+
+        // A cup that really holds 36.0 g reads 35.6 on a zero sitting 0.4 g low.
+        // What reaches SAW and the saved final weight must be the true 36.0.
+        wp.processWeight(35.6);
+        QVERIFY(!spy.isEmpty());
+        QCOMPARE(spy.last().at(0).toDouble(), 36.0);
+    }
+
+    void preShotZeroIgnoresAReadingTooLargeToBeAZero() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        // 5 g is not a drifted zero -- it is something sitting on the platter. Only
+        // the bound rules it out: it is well under the 50 g the untared-cup detector
+        // reacts to, so nothing else in processWeight() would catch it. Subtracting
+        // it would under-report the yield by 5 g and stop the shot 5 g heavy.
+        armWithPreShotZero(wp, 5.0);
+
+        wp.processWeight(36.0);
+        QVERIFY(!spy.isEmpty());
+        QCOMPARE(spy.last().at(0).toDouble(), 36.0);
+    }
+
+    void preShotZeroIsNotCapturedWhenTheTareWasNeverObserved() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        // ONE near-zero sample: below kTareLandedConfirmations, so the tare is never
+        // confirmed to have landed. -1.8 g sits inside the 2 g bound, so only the
+        // observed-tare gate can reject it -- if it were adopted, every weight this
+        // shot would be 1.8 g heavy and the shot would stop 1.8 g light.
+        armWithPreShotZero(wp, -1.8, 1);
+
+        wp.processWeight(36.0);
+        QVERIFY(!spy.isEmpty());
+        QCOMPARE(spy.last().at(0).toDouble(), 36.0);
+    }
+
+    void retareRecapturesThePreShotZero() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy spy(&wp, &WeightProcessor::flowRatesReady);
+
+        armWithPreShotZero(wp, -0.4);
+
+        // A re-tare moves the zero, so the old offset must not survive it.
+        wp.resetForRetare();
+        feedConstant(wp, 0.9, 2, 100);
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+
+        wp.processWeight(36.9);        // 0.9 offset now, not -0.4
+        QVERIFY(!spy.isEmpty());
+        QCOMPARE(spy.last().at(0).toDouble(), 36.0);
     }
 
     // ==========================================

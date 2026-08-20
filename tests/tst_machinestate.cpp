@@ -1,6 +1,5 @@
 #include <QtTest>
 #include <QSignalSpy>
-#include <QRegularExpression>
 
 #include "machine/machinestate.h"
 #include "ble/de1device.h"
@@ -635,12 +634,12 @@ private slots:
     }
 
     // ==========================================
-    // Auto-tare gates
+    // Auto-tare settle gate
     // ==========================================
     //
     // Field case: the 2026-08-20 9:37 AM shot tared while the cell was still moving.
     // The scale acknowledged 0.00 g and then read -20.6 g at rest, so every weight
-    // that shot was 20.6 g low and SAW stopped 23 g late while the log said
+    // that shot was 20.6 g low and stop-at-weight fired 23 g late, while the log said
     // `tare= true` throughout. Nothing downstream could tell.
 
     void autoTareWaitsForTheCellToStopRinging() {
@@ -654,119 +653,48 @@ private slots:
         QCOMPARE(f.scale.tareCount(), 0);
 
         // Cup now sitting still: the window fills and the tare goes out.
-        for (double w : {302.0, 302.3, 302.1, 302.2})
+        for (double w : {302.0, 302.3, 302.1, 302.2, 302.15})
             f.scale.mockSetWeight(w);
         QCOMPARE(f.scale.tareCount(), 1);
+    }
+
+    void aSlowRampIsNotMistakenForStillness_data() {
+        QTest::addColumn<double>("gramsPerSample");
+        QTest::addColumn<int>("expectedTares");
+        // A window of N samples spans (N-1) steps, so at N=4 and a 1.0 g band any
+        // ramp above 1.0/3 = 0.333 g/sample is rejected. 0.47 is the field rate --
+        // the case a per-sample band AND a 3-sample window both let through, which
+        // is why this row exists at exactly that number.
+        QTest::newRow("field rate 0.47") << 0.47 << 0;
+        QTest::newRow("faster 1.0") << 1.0 << 0;
+        // Below the bound the ramp is genuinely indistinguishable from a still
+        // reading at this window size, and it tares. Asserted rather than left
+        // unstated so the limit is on the record instead of being rediscovered.
+        QTest::newRow("under the bound 0.2") << 0.2 << 1;
     }
 
     void aSlowRampIsNotMistakenForStillness() {
+        QFETCH(double, gramsPerSample);
+        QFETCH(int, expectedTares);
         TestFixture f;
         armPreheat(f);
 
-        // THE case the settle gate exists for, and the one a per-sample band misses:
-        // the field drift moved ~0.47 g per sample, so every individual step sat
-        // inside a 1 g band while the reading travelled 20 g. Only bounding the
-        // SPREAD across the window rejects it.
         double w = 300.0;
-        for (int i = 0; i < 8; ++i) { f.scale.mockSetWeight(w); w += 0.47; }
-        QCOMPARE(f.scale.tareCount(), 0);
+        for (int i = 0; i < 10; ++i) { f.scale.mockSetWeight(w); w += gramsPerSample; }
+        QCOMPARE(f.scale.tareCount(), expectedTares);
     }
 
-    void aDriftedZeroIsRetared() {
+    void aStillCupIsTaredEvenWhenTheReadingNeverChanges() {
         TestFixture f;
         armPreheat(f);
 
-        // Nothing is in the cup — the DE1 has not started flowing — so a reading
-        // this far below zero can only mean the tare itself landed wrong.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Zero did not hold"));
-        for (double w : {-20.3, -20.5, -20.6, -20.4})
-            f.scale.mockSetWeight(w);
-        QCOMPARE(f.scale.tareCount(), 1);
-        QCOMPARE(f.state.m_retareAttempts, 1);
-    }
-
-    void aLiftedCupIsNotRetared_data() {
-        QTest::addColumn<double>("cupWeight");
-        // Discrimination is by SHAPE, not magnitude, so it must hold for a cup of
-        // any mass. 25 g is the case the previous -35 g floor got wrong: it sat
-        // inside the re-tare band and would have zeroed an empty platform.
-        QTest::newRow("25 g glass") << 25.0;
-        QTest::newRow("50 g cup") << 50.0;
-        QTest::newRow("286 g mug") << 286.0;
-    }
-
-    void aLiftedCupIsNotRetared() {
-        QFETCH(double, cupWeight);
-        TestFixture f;
-        armPreheat(f);
-
-        // Cup sitting on the scale post-tare, then lifted off in one step.
-        for (int i = 0; i < 4; ++i)
-            f.scale.mockSetWeight(0.1 * i);
+        // ScaleDevice::setWeight dedupes weightChanged on value, so an identical
+        // repeated reading emits nothing on that signal. The window would never fill
+        // and a perfectly still cup would never be tared at all. This is why the
+        // auto-tare is wired to weightSampleReceived instead.
         for (int i = 0; i < 6; ++i)
-            f.scale.mockSetWeight(-cupWeight + 0.1 * i);
-        QCOMPARE(f.scale.tareCount(), 0);
-    }
-
-    void retaringGivesUpRatherThanLooping() {
-        TestFixture f;
-        armPreheat(f);
-        f.state.m_retareAttempts = 3;   // MAX_RETARE_ATTEMPTS already spent
-
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("giving up"));
-        for (double w : {-20.3, -20.5, -20.6, -20.4, -20.5, -20.3})
-            f.scale.mockSetWeight(w);
-        QCOMPARE(f.scale.tareCount(), 0);   // no further BLE tare commands
-    }
-
-    void aSecondTareWaitsForTheFirstToLand() {
-        TestFixture f;
-        armPreheat(f);
-
-        // Drifted zero -> one re-tare goes out.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Zero did not hold"));
-        for (double w : {-20.3, -20.5, -20.6, -20.4})
-            f.scale.mockSetWeight(w);
+            f.scale.mockSetWeight(250.0);
         QCOMPARE(f.scale.tareCount(), 1);
-
-        // Scale has NOT processed it yet — it keeps reporting the old offset. No
-        // further tare may go out, however long the drift persists. Without this
-        // interlock a slow-tare scale collects a queue of tares, and one of them
-        // lands mid-extraction and zeroes away the shot.
-        for (int i = 0; i < 30; ++i)
-            f.scale.mockSetWeight(-20.3 - 0.01 * i);
-        QCOMPARE(f.scale.tareCount(), 1);
-        QCOMPARE(f.state.m_retareAttempts, 1);
-    }
-
-    void anUnsettlableCupIsStillTared() {
-        TestFixture f;
-        armPreheat(f);
-
-        // A scale that never settles must not leave the cup untared for the whole
-        // preheat — that is the forgotten-cup failure the auto-tare exists to
-        // prevent. Alternating well outside the band, so the window never qualifies.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("never settled"));
-        for (int i = 0; i < 60; ++i)
-            f.scale.mockSetWeight(200.0 + (i % 2 ? 6.0 : 0.0) + i * 0.001);
-        QCOMPARE(f.scale.tareCount(), 1);
-    }
-
-    void hotWaterIsExemptFromZeroVerification() {
-        TestFixture f;
-        f.scale.mockSetConnected(true);
-        f.setDE1State(DE1::State::HotWater, DE1::SubState::Heating);
-        f.state.m_tareCompleted = true;
-        f.state.m_waitingForTare = false;
-        f.scale.resetTareCount();
-
-        // Hot water tares fire-and-forget and SAW works from
-        // (weight - m_hotWaterTareBaseline), so a steady negative raw reading is
-        // expected and already compensated. Re-taring here would be pointless, and
-        // the warning would tell the user their weights are wrong when they are not.
-        for (double w : {-20.3, -20.5, -20.6, -20.4, -20.5, -20.3})
-            f.scale.mockSetWeight(w);
-        QCOMPARE(f.scale.tareCount(), 0);
     }
 
     void autoTareIgnoresSamplesOutsideThePreFlowWindow() {
@@ -774,28 +702,14 @@ private slots:
         armPreheat(f);
         f.setDE1State(DE1::State::Espresso, DE1::SubState::Pouring);
 
-        // Deliberately STILL samples, well above AUTO_TARE_THRESHOLD — a cup mid-pour
+        // Deliberately STILL samples, well above AUTO_TARE_THRESHOLD -- a cup mid-pour
         // reads exactly like this. The settle gate is satisfied here, so it is not what
         // rules the tare out; only the pre-flow window check is. An earlier version of
-        // this test stepped 5 g at a time, which the settle band rejected on its own —
+        // this test stepped 5 g at a time, which the settle band rejected on its own --
         // so it passed with the window check deleted and asserted nothing.
         for (int i = 0; i < 6; ++i)
             f.scale.mockSetWeight(25.0 + i * 0.1);
         QCOMPARE(f.scale.tareCount(), 0);
-    }
-
-    void leavingThePreFlowWindowRefillsTheRetareBudget() {
-        TestFixture f;
-        armPreheat(f);
-        f.state.m_retareAttempts = 3;
-
-        // Cancelling out of the pre-flow window must clear the budget. It used not
-        // to, so a user who started and cancelled hot water a few times left the
-        // zero-verification gate permanently dead AND silent, since the once-only
-        // give-up warning had already been spent.
-        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
-        f.scale.mockSetWeight(0.0);
-        QCOMPARE(f.state.m_retareAttempts, 0);
     }
 
 };

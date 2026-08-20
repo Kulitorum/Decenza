@@ -159,16 +159,22 @@ void ScaleDevice::setConnected(bool connected) {
 }
 
 void ScaleDevice::setWeight(double weight) {
+    // m_weight is assigned BEFORE either signal, so weight() is current inside every
+    // handler. It used to be assigned after weightSampleReceived, which left the
+    // getter one sample stale for anything on the arrival path — a trap that costs a
+    // silently wrong number, not a crash: MachineState's auto-tare recorded the
+    // PREVIOUS sample as the hot-water tare baseline that way. Fixing it at the one
+    // caller would have left the next one to find it again.
+    const bool changed = (m_weight != weight);
+    m_weight = weight;
     // Unconditional: a sample arrived. Drives the scale-feed stall detector and
     // SAW de-jitter, which must track sample arrival, not value change (#1176).
     emit weightSampleReceived(weight);
     // Deduped: only on a genuine value change. Drives the `weight` Q_PROPERTY
     // and QML bindings (and onScaleWeightChanged, which feeds MQTT) — a
     // constant reading must not churn those.
-    if (m_weight != weight) {
-        m_weight = weight;
+    if (changed)
         emit weightChanged(weight);
-    }
 }
 
 void ScaleDevice::setFlowRate(double rate) {

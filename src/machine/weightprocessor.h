@@ -1,7 +1,5 @@
 #pragma once
 
-#include "samplestreak.h"
-
 #include <QObject>
 #include <QThread>
 #include <QList>
@@ -84,6 +82,11 @@ signals:
     void skipFrame(int frameNumber);
     void flowRatesReady(double weight, double flowRate, double flowRateShort);
     void untaredCupDetected();
+    // The scale's post-tare zero as it stood when flow began, adopted for this shot
+    // and subtracted from every weight below. Published so the surfaces that read the
+    // scale directly — the live readout, MQTT, MCP — can subtract the same number and
+    // agree with what SAW stops on and what is saved as finalWeightG. 0 clears it.
+    void preShotZeroOffsetChanged(double offsetG);
     // Scale-agnostic in-shot liveness (BLE connection-priority backstop).
     // Emitted when, during an active tared extraction, the scale stopped
     // delivering weight samples for > kScaleStaleMs — evaluated on the DE1
@@ -151,8 +154,14 @@ private:
     // Scoped to active extractions via m_active — see processWeight().
     // Auto-resets after 3 consecutive rejections to handle legitimate shifts.
     double m_lastRawWeight = 0;
+    // The scale's zero as it actually stood when flow began, subtracted from every
+    // sample for the rest of the shot. See markExtractionStart(). Write it only
+    // through setPreShotZeroOffset() -- every reset site must notify, or the surfaces
+    // mirroring it keep subtracting last shot's number.
+    double m_preShotZeroOffset = 0.0;
+    void setPreShotZeroOffset(double offsetG);
     bool m_hasLastWeight = false;
-    SampleStreak::Counter m_consecutiveRejections;
+    int m_consecutiveRejections = 0;
     // Held from startExtraction()/resetForRetare() until the tare is observed to
     // have landed at the scale. The step from a loaded portafilter to zero is the
     // app's own doing, not corruption — see processWeight(). Cleared by a near-zero
@@ -166,7 +175,7 @@ private:
     // support sixteen scale types whose behaviour around a tare is unmeasured — so one
     // packet must not be able to consume the exemption. Costs ~200 ms during preheat.
     static constexpr int kTareLandedConfirmations = 2;
-    SampleStreak::Counter m_tareLandedSamples;
+    int m_tareLandedSamples = 0;
 
     // Scale-feed liveness (in-shot backstop). Evaluated on the DE1 tick so a
     // fully-silent scale is still detected. 2000ms mirrors the de-jitter
@@ -204,7 +213,7 @@ private:
 
     // Oscillation recovery (e.g. Bookoo mid-shot tare reset)
     bool m_oscillationDetected = false;  // true while waiting for scale to re-settle after oscillation
-    SampleStreak::Counter m_settleCount;               // consecutive near-zero readings since oscillation detected
+    int m_settleCount = 0;               // consecutive near-zero readings since oscillation detected
 
     // De-jitter: compensates for main thread event batching (see processWeight comments)
     qint64 m_lastWallClockMs = 0;       // Wall-clock time of last processWeight() call
@@ -270,7 +279,7 @@ private:
     // reading can't revive a streak the real tare-confirmed zero already broke.
     // Event-based debounce (consecutive samples, not elapsed time) for the
     // untared-cup popup against a stale pre-tare-confirmation sample.
-    SampleStreak::Counter m_highWeightStreakSamples;
+    int m_highWeightStreakSamples = 0;
 
     // Configuration (set at shot start; m_targetWeight may be updated mid-shot via setTargetWeight)
     double m_targetWeight = 0;

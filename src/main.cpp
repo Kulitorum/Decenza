@@ -1490,6 +1490,12 @@ int main(int argc, char *argv[])
                          machineState.updateCachedFlowRates(flowRate, flowRateShort);
                      });
 
+    // WeightProcessor → MachineState: the shot's post-tare zero offset, so the live
+    // readout, MQTT and MCP report the same weight SAW stops on and the shot record
+    // saves. &machineState as context puts it on the main thread.
+    QObject::connect(&weightProcessor, &WeightProcessor::preShotZeroOffsetChanged,
+                     &machineState, &MachineState::updatePreShotZeroOffset);
+
     // Forward frame number updates from shot samples to worker thread.
     // With &weightProcessor as context, Qt auto-uses QueuedConnection (cross-thread).
     QObject::connect(&timingController, &ShotTimingController::sampleReady,

@@ -18,6 +18,11 @@
 #define SAWW_INFO(msg) SAW_INFO_STDERR("Worker", msg)
 #define SAWW_WARN(msg) SAW_WARN_STDERR("Worker", msg)
 
+// Largest pre-shot zero we will treat as drift and subtract. Measured drift is
+// 0.1-0.5 g; 2 g leaves room for a worse scale while staying far below any cup, so a
+// forgotten untared cup can never be mistaken for a zero offset and silently erased.
+constexpr double kMaxPreShotZeroOffsetG = 2.0;
+
 namespace {
 qint64 monotonicMsNow()
 {
@@ -71,7 +76,7 @@ void WeightProcessor::processWeight(double weight)
     // smaller surface than leaving the spike filter itself off.
     if (m_active && m_hasLastWeight && qAbs(weight - m_lastRawWeight) > 100.0) {
         if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG
-            && m_tareLandedSamples.update(true) >= kTareLandedConfirmations) {
+            && ++m_tareLandedSamples >= kTareLandedConfirmations) {
             // The tare landing, CONFIRMED. One packet is deliberately not enough.
             //
             // To be clear about the evidence: the observed "weight= 0 last= 364.6"
@@ -87,8 +92,8 @@ void WeightProcessor::processWeight(double weight)
             // exists to prevent. Same shape as the oscillation detector's settle
             // count, and it costs ~200 ms of preheat.
             m_awaitingTare = false;
-            m_tareLandedSamples.reset();
-            m_consecutiveRejections.reset();
+            m_tareLandedSamples = 0;
+            m_consecutiveRejections = 0;
         } else if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG) {
             // Near zero but unconfirmed. Hold it: do NOT let it become the baseline,
             // or a spurious zero still displaces a real pre-tare reading.
@@ -110,11 +115,11 @@ void WeightProcessor::processWeight(double weight)
             SAWW_LOG(QStringLiteral("Tare candidate held (unconfirmed): weight=%1 g last=%2 g "
                                     "confirmations=%3/%4")
                          .arg(weight, 0, 'f', 2).arg(m_lastRawWeight, 0, 'f', 2)
-                         .arg(m_tareLandedSamples.count()).arg(kTareLandedConfirmations));
+                         .arg(m_tareLandedSamples).arg(kTareLandedConfirmations));
             m_lastWallClockMs = wallClock;  // keep de-jitter timing accurate
             return;
-        } else if (m_consecutiveRejections.update(true) < 3) {
-            m_tareLandedSamples.reset();  // not near zero — any run of them is broken
+        } else if (++m_consecutiveRejections < 3) {
+            m_tareLandedSamples = 0;  // not near zero — any run of them is broken
             m_lastWallClockMs = wallClock;  // Keep de-jitter timing accurate
             // This rejected sample itself reads near zero — real evidence against
             // a heavy cup, even though the step got it filtered. Without this, an
@@ -124,7 +129,7 @@ void WeightProcessor::processWeight(double weight)
             // updated by the rejected sample) is then accepted and revives the
             // streak (#1837 review finding).
             if (qAbs(weight) <= 50.0) {
-                m_highWeightStreakSamples.reset();
+                m_highWeightStreakSamples = 0;
             }
             // WARN. Measured, not assumed: zero occurrences across 22,265 log
             // lines and five sessions, so this is not a spam source, and a
@@ -138,22 +143,22 @@ void WeightProcessor::processWeight(double weight)
         } else {
             SAWW_WARN(QStringLiteral("Spike filter reset after %1 consecutive rejections "
                                      "— accepting new baseline: %2 g")
-                          .arg(m_consecutiveRejections.count()).arg(weight, 0, 'f', 2));
-            m_consecutiveRejections.reset();
+                          .arg(m_consecutiveRejections).arg(weight, 0, 'f', 2));
+            m_consecutiveRejections = 0;
         }
     } else {
         // A near-zero reading with no big step (the common case — the scale was already
         // at zero) still satisfies the tare we were waiting for, and is confirmed the
         // same way. Samples here are accepted normally either way; only the flag waits.
         if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG) {
-            if (m_tareLandedSamples.update(true) >= kTareLandedConfirmations) {
+            if (++m_tareLandedSamples >= kTareLandedConfirmations) {
                 m_awaitingTare = false;
-                m_tareLandedSamples.reset();
+                m_tareLandedSamples = 0;
             }
         } else {
-            m_tareLandedSamples.reset();
+            m_tareLandedSamples = 0;
         }
-        m_consecutiveRejections.reset();
+        m_consecutiveRejections = 0;
     }
     // Captured before the overwrite below: pre-#1176, a sample equal to the
     // previous one was dropped by ScaleDevice's weightChanged dedup, so a
@@ -163,6 +168,18 @@ void WeightProcessor::processWeight(double weight)
     const bool sampleValueUnchanged = m_hasLastWeight && weight == m_lastRawWeight;
     m_hasLastWeight = true;
     m_lastRawWeight = weight;
+
+    // Correct for the zero the scale actually had when flow started. A tare leaves a
+    // small residual and it creeps during preheat -- measured at -0.1 to -0.5 g across
+    // six shots. It is a BIAS, not noise: a zero sitting 0.4 g low makes every reading
+    // 0.4 g low, so SAW stops late by that much and the recorded weight is short by it,
+    // every shot, same direction. Systematic error does not average out.
+    //
+    // Deliberately BELOW the spike filter and the m_lastRawWeight store above.
+    // m_lastRawWeight has to keep holding what the scale actually sent -- three log
+    // lines print it as the raw reading. The filter is indifferent: it compares deltas,
+    // and a constant offset cancels.
+    weight -= m_preShotZeroOffset;
 
     // De-jitter: BLE events arrive on the main thread via QueuedConnection, and when
     // the main thread is busy (QML rendering), multiple events queue up and are
@@ -518,7 +535,7 @@ void WeightProcessor::processWeight(double weight)
     if (m_tareComplete && weight < -5.0) {
         m_tareComplete = false;
         m_oscillationDetected = true;
-        m_settleCount.reset();
+        m_settleCount = 0;
         m_weightSamples.clear();  // Discard oscillation samples from LSLR
 
         m_hasLastWeight = false;  // Accept first reading at any weight after recovery
@@ -532,16 +549,16 @@ void WeightProcessor::processWeight(double weight)
     // This mirrors de1app's _tare_awaiting_zero / on_tare_seen mechanism.
     if (!m_tareComplete && m_oscillationDetected) {
         if (qAbs(weight) < 2.0) {
-            if (m_settleCount.update(true) >= 3) {
+            if (++m_settleCount >= 3) {
                 m_tareComplete = true;
                 m_oscillationDetected = false;
-                m_settleCount.reset();
+                m_settleCount = 0;
                 m_weightSamples.clear();  // Fresh LSLR baseline from post-settle readings
                 m_hasLastWeight = false;  // Accept first reading at any weight after recovery
                 SAWW_LOG(QStringLiteral("Scale settled after oscillation, stop-at-weight re-armed"));
             }
         } else {
-            m_settleCount.reset();  // Reset counter if weight leaves the near-zero band
+            m_settleCount = 0;  // Reset counter if weight leaves the near-zero band
         }
     }
 
@@ -555,7 +572,7 @@ void WeightProcessor::processWeight(double weight)
         // Tare is not currently trusted (fresh extraction, or mid-oscillation-recovery
         // above), so a streak accumulated before this state can't be trusted either —
         // matches the reset below for any other sample that isn't a heavy-cup reading.
-        m_highWeightStreakSamples.reset();
+        m_highWeightStreakSamples = 0;
         return;
     }
 
@@ -568,7 +585,7 @@ void WeightProcessor::processWeight(double weight)
         // and be silently swallowed, never firing the popup at all. A streak can
         // still only START inside the window (m_highWeightStreakSamples == 0 gates
         // that below).
-        bool withinWindow = extractionTime < 3.0 || m_highWeightStreakSamples.count() > 0;
+        bool withinWindow = extractionTime < 3.0 || m_highWeightStreakSamples > 0;
         if (withinWindow && weight > 50.0) {
             SAWW_WARN(QStringLiteral("Sanity check: weight %1 g at %2 s into extraction — "
                                      "skipping stop-at-weight (likely untared cup)")
@@ -586,13 +603,13 @@ void WeightProcessor::processWeight(double weight)
             // all three with one sample of margin.
             constexpr int UNTARED_CUP_CONFIRM_SAMPLES = 4;
             if (!m_untaredCupSignalled &&
-                m_highWeightStreakSamples.update(true) >= UNTARED_CUP_CONFIRM_SAMPLES) {
+                ++m_highWeightStreakSamples >= UNTARED_CUP_CONFIRM_SAMPLES) {
                 m_untaredCupSignalled = true;
                 emit untaredCupDetected();
             }
             return;
         }
-        m_highWeightStreakSamples.reset();
+        m_highWeightStreakSamples = 0;
     }
 
     // Suppress SAW during preinfusion frames (matches de1app: SAW only after
@@ -883,7 +900,7 @@ void WeightProcessor::setTareComplete(bool complete)
         // Confirm tare clears any pending oscillation recovery — ensures SAW is
         // re-armed if called mid-shot (e.g. physical scale reconnects after a BLE drop).
         m_oscillationDetected = false;
-        m_settleCount.reset();
+        m_settleCount = 0;
         m_hasLastWeight = false;  // Tare shifts weight baseline — accept first post-tare reading
     }
 }
@@ -898,20 +915,21 @@ void WeightProcessor::startExtraction()
     m_weightSamples.clear();
 
     m_lastRawWeight = 0;
+    setPreShotZeroOffset(0.0);
     m_hasLastWeight = false;
-    m_consecutiveRejections.reset();
+    m_consecutiveRejections = 0;
     m_awaitingTare = true;  // Cleared when the scale is seen to reach zero
-    m_tareLandedSamples.reset();
+    m_tareLandedSamples = 0;
     m_currentFrame = -1;
     m_tareComplete = false;
     m_oscillationDetected = false;
-    m_settleCount.reset();
+    m_settleCount = 0;
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
     m_lastConstantSampleLogMs = 0;
     m_flowBecameValidLogged = false;
     m_untaredCupSignalled = false;
-    m_highWeightStreakSamples.reset();
+    m_highWeightStreakSamples = 0;
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
     m_uncalibratedBatchWarned = false;
@@ -924,6 +942,14 @@ void WeightProcessor::startExtraction()
     resetStallTracking();
     resetShotDiagnostics();
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
+}
+
+void WeightProcessor::setPreShotZeroOffset(double offsetG)
+{
+    if (m_preShotZeroOffset == offsetG)
+        return;
+    m_preShotZeroOffset = offsetG;
+    emit preShotZeroOffsetChanged(offsetG);
 }
 
 void WeightProcessor::markExtractionStart()
@@ -954,7 +980,27 @@ void WeightProcessor::markExtractionStart()
     // extractionElapsed > 5 s, and extractionElapsed is 0 while m_extractionStartTime
     // is 0 — so the hold-off costs nothing there. It is the per-frame weight exit that
     // needed protecting in the meantime, and that has its own !m_awaitingTare gate.
+    // Read BEFORE the clear below: it is the only state that says whether the reading
+    // we are about to adopt is a settled POST-tare zero or a value from before the
+    // tare landed. Clearing first would silently discard that distinction.
+    const bool tareWasObserved = !m_awaitingTare;
     m_awaitingTare = false;
+
+    // Bounded to kMaxPreShotZeroOffsetG, and only adopted if the tare was seen to
+    // land: otherwise m_lastRawWeight may still be a PRE-tare reading, and adopting
+    // one that happens to fall inside the bound would skew the yield and the SAW stop
+    // by it. Skipping is the safe direction — no correction is what this code did
+    // before the offset existed.
+    const double offset = (tareWasObserved && m_hasLastWeight
+                           && qAbs(m_lastRawWeight) <= kMaxPreShotZeroOffsetG)
+                              ? m_lastRawWeight
+                              : 0.0;
+    setPreShotZeroOffset(offset);
+    if (qAbs(offset) >= 0.05) {
+        SAWW_INFO(QStringLiteral("Pre-shot zero was %1 g - correcting every weight this "
+                                 "shot, including the final weight, by that much")
+                      .arg(offset, 0, 'f', 2));
+    }
 }
 
 void WeightProcessor::endShotCycle()
@@ -1027,10 +1073,11 @@ void WeightProcessor::resetForRetare()
     m_weightSamples.clear();
 
     m_lastRawWeight = 0;
+    setPreShotZeroOffset(0.0);
     m_hasLastWeight = false;
-    m_consecutiveRejections.reset();
+    m_consecutiveRejections = 0;
     m_awaitingTare = true;  // Retare moves the zero point again — same reasoning
-    m_tareLandedSamples.reset();
+    m_tareLandedSamples = 0;
     m_extractionStartTime = 0;  // Will be set when extraction actually starts
     m_stopTriggered = false;
     m_frameWeightSkipSent.clear();
@@ -1045,7 +1092,7 @@ void WeightProcessor::resetForRetare()
     m_lastLowFlowLogMs = 0;
     m_lastConstantSampleLogMs = 0;
     m_flowBecameValidLogged = false;
-    m_highWeightStreakSamples.reset();
+    m_highWeightStreakSamples = 0;
     // A retare mid-preheat (cup placed during preheat, #299) can follow a popup
     // that already fired for an earlier stale reading this same extraction —
     // without this, a genuinely new untared-cup condition later in the same
