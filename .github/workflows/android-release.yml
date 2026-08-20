@@ -73,9 +73,26 @@ jobs:
       - name: Install minimal host dependencies
         run: sudo apt-get install -y --no-install-recommends libegl1 libgl1 ninja-build
 
+      # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
+      # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
+      # them -- it then tries to read a 7z as a zip and dies with
+      # `BadZipFile: Bad offset for central directory`. It took out the Qt 6.11.2
+      # aarch64 qtdeclarative archive and with it every Linux ARM64 release build.
+      # The detection fix is python/cpython#72680, first shipped in Python 3.14, so
+      # 3.14 is the MINIMUM that works rather than merely the newest.
+      # Set on all six workflows deliberately: which Python aqt gets should be one
+      # answer, not six accidental ones. Remove when aqtinstall ships a fix --
+      # tracking https://github.com/miurahr/aqtinstall/issues/1042
+      - name: Pin Python for aqtinstall (aqtinstall#1042)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
       - name: Install Qt for Android
         uses: jurplel/install-qt-action@v4
         with:
+          # aqt runs on the Python pinned above, not one this action installs.
+          setup-python: false
           version: ${{ env.QT_VERSION }}
           target: 'android'
           arch: 'android_arm64_v8a'
