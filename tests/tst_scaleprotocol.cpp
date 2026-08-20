@@ -1541,8 +1541,7 @@ private slots:
         QVERIFY(!queue.isBusy());
         QCOMPARE(queue.pendingCount(), qsizetype(1));
 
-        QTest::qWait(20);
-        QVERIFY(issued);
+        QTRY_VERIFY(issued);
         QVERIFY(t.holdsGattSlot());
     }
 
@@ -1555,17 +1554,14 @@ private slots:
                               [&issued]() { ++issued; });
         t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("second"),
                               [&issued]() { ++issued; });
-        QTest::qWait(20);
+        QTRY_COMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
 
         // The second is not issued under the first.
         QCOMPARE(issued, 1);
-        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
 
         t.completeGattOperation(DE1::Characteristic::STATE_INFO);
-        QTest::qWait(20);
-
+        QTRY_COMPARE(queue.inFlightKey(), DE1::Characteristic::SHOT_SAMPLE);
         QCOMPARE(issued, 2);
-        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::SHOT_SAMPLE);
     }
 
     // Failure is terminal, not a retry: these transports carry no retry budget,
@@ -1578,13 +1574,11 @@ private slots:
 
         t.submitGattOperation(DE1::Characteristic::STATE_INFO, QStringLiteral("op"),
                               [&issued]() { ++issued; });
-        QTest::qWait(20);
+        QTRY_COMPARE(issued, 1);
 
         t.failGattOperation();
-        QTest::qWait(20);
-
+        QTRY_VERIFY(!queue.isBusy());
         QCOMPARE(issued, 1);
-        QVERIFY(!queue.isBusy());
     }
 
     // A guard that returns before reaching the platform must still release. This
@@ -1600,9 +1594,7 @@ private slots:
         t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("next"),
                               [&secondIssued]() { secondIssued = true; });
 
-        QTest::qWait(30);
-
-        QVERIFY(secondIssued);
+        QTRY_VERIFY(secondIssued);
     }
 
     // A late or duplicate reply for a characteristic the sequence has already
@@ -1619,13 +1611,13 @@ private slots:
                               [&issued]() { ++issued; });
         t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("second"),
                               [&issued]() { ++issued; });
-        QTest::qWait(20);
-        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
+        QTRY_COMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
 
         // A reply for the one that has not been issued yet.
         t.completeGattOperation(DE1::Characteristic::SHOT_SAMPLE);
-        QTest::qWait(20);
-
+        QTest::qWait(20);   // a NEGATIVE assertion: nothing must change, so this
+                            // waits rather than polls — there is no state to
+                            // poll toward, and QTRY_ would pass instantly.
         QCOMPARE(issued, 1);
         QCOMPARE(queue.inFlightKey(), DE1::Characteristic::STATE_INFO);
     }
@@ -1644,20 +1636,26 @@ private slots:
                               []() {}, /*timeoutMs=*/30);
         t.submitGattOperation(DE1::Characteristic::SHOT_SAMPLE, QStringLiteral("next"),
                               [&secondIssued]() { secondIssued = true; });
-        QTest::qWait(20);
-        QVERIFY(t.holdsGattSlot());
+        QTRY_VERIFY(t.holdsGattSlot());
         QVERIFY(!secondIssued);
 
         // Self-contained and WARN, per LOGGING.md: the reader has to be told the
         // radio was held for the whole interval, not just that one device failed.
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(QStringLiteral("The BLE radio was held for that whole time")));
-        QTest::qWait(80);
 
         // The slot moved on. Not `!holdsGattSlot()` — this same transport owns
         // the next operation, so it holds the slot again immediately; what must
         // be true is that the unanswered one no longer does.
-        QCOMPARE(queue.inFlightKey(), DE1::Characteristic::SHOT_SAMPLE);
+        //
+        // QTRY_, not qWait: the 30 ms timeout only starts the sequence. It calls
+        // noteFailed, and the queue POSTS the next dispatch with a queued
+        // connection, so the successor is issued on a LATER event-loop turn. A
+        // fixed wait asserts at whatever moment it happens to return, and under
+        // a loaded parallel run that moment landed between the timeout and the
+        // posted dispatch — nothing in flight, and a red test with no bug behind
+        // it. Polling waits for the turn instead of betting on it.
+        QTRY_COMPARE(queue.inFlightKey(), DE1::Characteristic::SHOT_SAMPLE);
         QVERIFY(secondIssued);
     }
 
