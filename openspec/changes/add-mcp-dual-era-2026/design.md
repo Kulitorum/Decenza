@@ -99,17 +99,71 @@ would put an unlimited control surface on a machine that heats water to 90 °C
 and this is not a theoretical objection — the limiter was added because it was
 needed.
 
-*Preferred key:* the transport-level caller identity each route already has —
-the remote-access token for `McpRemoteAccess`, the peer address for ShotServer.
-Both are per-caller and neither requires retained protocol state.
+*Key:* the peer address, on both routes, with a per-minute window. This is not
+a new mechanism — `McpRemoteAccess::failedTokenOverLimit` already keys a
+per-minute budget on `socket->peerAddress()` for failed token attempts, and the
+modern limiter is the same shape applied to a different budget.
 
-*Alternative considered:* a global limiter with no key. Rejected — one client
-could then starve another, which is the failure the per-session counter was
-shaped to avoid.
+*Why the peer address and not the remote-access token:* there is exactly one
+`remoteMcpToken` for the whole app, so every remote caller presents the same
+one. Keying on it would produce a global limiter for the entire remote route —
+precisely the starvation the per-session counter was shaped to avoid.
+
+*On the NAT objection:* ShotServer's route is LAN-only, where peers are
+distinct devices, and the remote route's callers arrive over the tunnel with
+distinct addresses. A shared key would require two callers behind one NAT on
+the LAN route, which is not a shape this server sees.
+
+*Alternative considered:* a global limiter with no key. Rejected for the
+starvation reason above.
 
 *Alternative considered:* let modern requests borrow a hidden session keyed on
 transport identity. Rejected — that is a session by another name, reintroduces
 every reaper, and the resulting behaviour would be neither era's.
+
+### The confirmation gate gets its own identity, and both eras use it
+
+`PendingConfirmation` mints a `confirmationId` of its own. The QML dialog is
+handed that id and echoes it back to `confirmationResolved`. **Legacy moves
+onto the same mechanism**; the modern era does not get a parallel one beside
+it.
+
+*Why:* the `sessionId` stored on `PendingConfirmation` is not a session lookup
+and never was. Nothing calls `findSession` on it. It is an opaque correlation
+token round-tripped through QML, plus a value handed to `sendJsonRpcResponse`
+for the response header, plus a string three cleanup sites compare against a
+dying session's id. Only the second and third of those are genuinely about
+sessions. Giving the confirmation its own id separates the correlation concern
+from the session concern, and leaves `sessionId` meaning one thing: which
+legacy session owns this, empty when none does.
+
+*Why not simply refuse confirmation-gated tools on the modern path:* that is a
+defensible interim posture and a bad destination. The end state of this plan is
+legacy dropped; on that day, refusal would make `machine_start_*` unreachable
+to every client. A rule that becomes unacceptable exactly when the plan
+completes is not the design, and building the parallel-mechanism version first
+means writing the migration twice.
+
+### A pending confirmation's lifetime is scoped to its socket
+
+`QTcpSocket::disconnected` abandons the pending confirmation, in both eras.
+
+*Why:* it states the actual invariant — a confirmation whose requester is gone
+cannot be meaningfully answered — and it is event-based, so it needs no timer.
+It is also the only backstop available in the modern era, which has no session
+and therefore no idle reaper.
+
+*Consequence for legacy, which is an improvement rather than a cost:* today a
+dead socket is noticed only when the user finally answers the dialog, and the
+session reaper is what eventually clears an abandoned one up to thirty minutes
+later. After this change the disconnect clears it immediately and the reaper
+becomes a redundant secondary trigger.
+
+*Consequence for the regression net:* this deliberately changes a mechanism
+legacy uses, so `tst_mcpserver_session.cpp` may need updating in the second PR.
+That is a real weakening of the "existing tests pass untouched" rule, which
+applies in full to the first PR and is knowingly relaxed here for this one
+mechanism.
 
 ### Modern subscriptions are additive, and may lag
 
@@ -146,6 +200,46 @@ hash seed per process unless `QT_HASH_SEED=0`
 stable within a run and different across restarts — which is the worst case for
 a client cache, because nothing looks wrong until you compare two runs.
 
+### The official conformance suite is the verification gate, not our tests alone
+
+`modelcontextprotocol/conformance` is run against the modern path, and passing
+it is what "done" means for the second PR.
+
+*Why:* no real modern client speaks to us, so without it the only evidence this
+revision is implemented correctly is a test suite written by the same reading of
+the spec that produced the implementation — an error in that reading is
+invisible to both. The suite is language-agnostic by construction (it drives a
+server over an HTTP URL, and drives clients by command line), so the absence of
+a C++ SDK does not exclude us from it, and it carries per-revision requirement
+sets that fix which scenarios apply to `2026-07-28` specifically.
+
+*Why not adopt a library instead:* there is no official C++ SDK; the ten
+official SDKs are TypeScript, Python, C#, Go, Java, Rust, Ruby, Swift, PHP and
+Kotlin. Two third-party implementations do carry `2026-07-28` — `qtmcp`
+(Qt-native, and its GPL-3.0-only arm matches this project's licence) and
+`gopher-mcp` (Apache-2.0) — but both own their listener and HTTP layer, which is
+the part this server structurally cannot delegate: `McpServer` has no socket of
+its own, ShotServer routes `/mcp` into it, and `McpRemoteAccess` adds a
+tokenized route and a tunnel above that. Read them for the shapes; take the
+schema and the conformance suite as the actual dependency.
+
+*Consequence:* `schema/2026-07-28/schema.json` is the source of truth for field
+names and shapes. Where this design and that schema disagree, the schema wins —
+this document was drafted from the revision's prose, and the prose is a summary.
+
+### `ping` disappears in the modern era, and that is not a compatibility break
+
+`ping`, `logging/setLevel` and `notifications/roots/list_changed` are removed by
+the revision. Modern requests naming them get "method not found"; legacy keeps
+all three exactly as today.
+
+*Why it is worth stating:* `ping` is not just a handler here, it is one of the
+two methods exempted from the "session not initialized" check in
+`resolveSessionForMessage`. That exemption is legacy-only by construction, so
+nothing needs undoing — but a reader who finds the exemption and the modern
+path's rejection at different times will otherwise read them as contradicting
+each other.
+
 ## Risks / Trade-offs
 
 - **Era misdetection breaks a working client** → The ambiguous case defaults to
@@ -164,9 +258,16 @@ a client cache, because nothing looks wrong until you compare two runs.
   Sequenced last; a modern client without it degrades to polling rather than
   breaking.
 - **We implement a revision no client speaks to us yet, so bugs sit undiscovered**
-  → It ships dark by construction. Treat the test suite as the only evidence
-  until a real modern client appears, and do not claim field validation the way
-  the legacy path now has it.
+  → The official conformance suite is the answer to this and is why it is a gate
+  rather than a nice-to-have; our own tests alone would only re-assert our own
+  reading of the spec. Even so, do not claim field validation the way the legacy
+  path now has it: conformance is not a real client.
+- **The design was drafted from the revision's prose, and prose summarises**
+  → Five requirements were missing from the first draft and were found only by
+  reading the changelog against the code: mandatory `resultType`, the removal of
+  `ping`, `ttlMs`/`cacheScope` being required rather than optional, the opt-in
+  shape of `subscriptions/listen`, and `serverInfo` in each result's `_meta`.
+  Build against `schema.json`, and expect this list not to be complete either.
 - **The simplification everyone wants does not arrive with this change** →
   Deleting the session machinery needs legacy *dropped*, which is a separate
   decision years out. Stated here so the change is not undersold as a cleanup.
@@ -191,15 +292,10 @@ already speak modern.
 
 ## Open Questions
 
-- **What is the right rate-limit key for ShotServer's route?** The peer address
-  is available, but a LAN behind one NAT collapses to a single key. The remote
-  route has a token and is unambiguous. Worth deciding against real client
-  shapes rather than in the abstract.
-- **Does the in-app confirmation gate need a modern form at all?** It stores a
-  `sessionId` to route the answer back. A stateless caller has none, so either
-  the modern path refuses confirmation-gated tools (defensible — they are the
-  `machine_start_*` family) or the gate learns a request-scoped handle. Not
-  decided here; step 2 excludes those tools anyway.
 - **When does legacy get dropped?** Not this change, and not soon. Worth a note
   in `MCP_SERVER.md` recording that the answer is "when no client needs it",
   so the question is not re-litigated every time the session code annoys someone.
+
+Two questions that were open here have been decided and moved into Decisions
+above: the rate-limit key, and whether the confirmation gate needs a modern
+form.

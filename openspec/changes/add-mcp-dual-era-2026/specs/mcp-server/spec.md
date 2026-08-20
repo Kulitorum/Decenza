@@ -22,9 +22,10 @@ there is not a gap in conformance.
 
 ### Requirement: List Results Are Returned In A Deterministic Order
 
-`tools/list` SHALL return its entries in an order that is stable across
-process restarts for an unchanged set of tools, so that a client may cache the
-result and so that a repeated listing does not defeat prompt caching.
+`tools/list` and `resources/list` SHALL each return their entries in an order
+that is stable across process restarts for an unchanged set of entries, so that
+a client may cache the result and so that a repeated listing does not defeat
+prompt caching.
 
 The order SHALL NOT depend on the iteration order of an unordered container.
 
@@ -32,6 +33,11 @@ The order SHALL NOT depend on the iteration order of an unordered container.
 
 - **WHEN** a client lists tools, the server restarts with the same tools registered, and the client lists tools again
 - **THEN** the two responses carry the tools in the same order
+
+#### Scenario: Two runs return the same resource order
+
+- **WHEN** a client lists resources, the server restarts with the same resources registered, and the client lists resources again
+- **THEN** the two responses carry the resources in the same order
 
 #### Scenario: Order is independent of registration order
 
@@ -43,6 +49,9 @@ The order SHALL NOT depend on the iteration order of an unordered container.
 `tools/list`, `resources/list` and `resources/read` SHALL carry a freshness
 hint stating how long the result may be reused, and a scope stating whether
 the result may be cached beyond the requesting caller.
+
+In the modern era these SHALL be present on every such result; they are not
+optional there.
 
 A result whose content depends on the caller's access level SHALL NOT be
 marked cacheable beyond that caller.

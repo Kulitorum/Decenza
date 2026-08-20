@@ -95,6 +95,44 @@ request whose header and body disagree SHALL be rejected.
 - **WHEN** a modern request declares one protocol version in its transport header and a different one in its body
 - **THEN** the request is rejected rather than served under either
 
+### Requirement: A Method Removed By The Modern Era Is Not Served To A Modern Caller
+
+Methods the modern revision removes — the liveness check, the log-level setter,
+and the roots-list-changed notification — SHALL NOT be served to a modern
+caller, and SHALL continue to be served to a legacy caller exactly as before.
+
+#### Scenario: A modern caller invokes a removed method
+
+- **WHEN** a modern request names a method the modern revision removed
+- **THEN** it is answered as an unknown method
+
+#### Scenario: A legacy caller invokes the same method
+
+- **WHEN** a legacy client invokes that method
+- **THEN** it is served exactly as it was before the modern era existed
+
+### Requirement: Every Modern Result States Its Type And Its Origin
+
+Every result served to a modern caller SHALL declare its result type, and SHALL
+carry the server's own identity in its metadata.
+
+The server SHALL always declare the type meaning a complete result. It SHALL
+NOT declare the type reserved for interim results awaiting further client
+input, because it never returns one.
+
+The identity SHALL be the same identity the legacy handshake reports, since a
+modern caller performs no handshake and has no other occasion to learn it.
+
+#### Scenario: An ordinary modern result
+
+- **WHEN** a modern client receives any result
+- **THEN** that result declares itself complete, and names the server
+
+#### Scenario: Legacy results are unchanged
+
+- **WHEN** a legacy client receives any result
+- **THEN** it carries neither field, exactly as before
+
 ### Requirement: Both Eras Are Served On Every Route That Reaches The Server
 
 Every caller that dispatches HTTP requests into the MCP server SHALL serve

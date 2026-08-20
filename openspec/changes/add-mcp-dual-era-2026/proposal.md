@@ -45,20 +45,47 @@ descriptions on every single connection.
   control-category tools at all. **This is the gating item, not a detail** — an
   unlimited control path on a machine that brews coffee is worse than the
   complexity sessions cost.
+- **Every modern result carries `resultType`.** Required on all results:
+  `"complete"` for an ordinary one, `"input_required"` for an MRTR interim
+  result. We never return the second — see the non-goals — but the field is not
+  optional, so `"complete"` is stamped on every modern result. Adopting the
+  field is not adopting MRTR.
+- **Modern results carry `serverInfo` in `_meta`.** A `SHOULD` in the revision
+  (`io.modelcontextprotocol/serverInfo`), and cheap: it is the same identity the
+  legacy handshake already reports, moved to where a stateless client can see
+  it.
+- **`ping`, `logging/setLevel` and `notifications/roots/list_changed` do not
+  exist in the modern era.** We serve `ping` today and special-case it in
+  session resolution; in the modern era it is simply an unknown method. Legacy
+  keeps it.
 - **Resource-update notifications move to `subscriptions/listen` for modern
   clients.** Our three SSE broadcasts (`machine/state`, `profiles/active`,
   `shots/recent`) are pushed today over the HTTP GET stream that the modern era
-  removes. Legacy clients keep the GET stream unchanged.
-- **List results become cacheable.** `tools/list`, `resources/list` and
-  `resources/read` gain `ttlMs` and `cacheScope`, so clients stop re-fetching
-  96 tool descriptions per connection.
-- **`tools/list` returns a deterministic order.** A `SHOULD` in the new
-  revision, and one we fail today for an unrelated reason: the registry is a
-  `QHash`, whose iteration order Qt randomizes per process. Applies to both
-  eras and is worth taking regardless of the rest.
+  removes — and so are `resources/subscribe`/`resources/unsubscribe`, which that
+  one method replaces outright. It is not a transport swap: a client opts into
+  named notification types (`resourcesListChanged`, `resourceSubscriptions`, …),
+  the server acknowledges, and each notification is tagged with
+  `io.modelcontextprotocol/subscriptionId`. Legacy keeps the GET stream and both
+  subscribe verbs unchanged.
+- **List results become cacheable — required, not optional.** `ttlMs` and
+  `cacheScope` are mandatory on `tools/list`, `resources/list` and
+  `resources/read` (and on `prompts/list` and `resources/templates/list`, which
+  we do not serve), so clients stop re-fetching 96 tool descriptions per
+  connection.
+- **`resources/list` returns a deterministic order.** A `SHOULD` in the new
+  revision. `tools/list` already satisfies it — it sorts by `(tier, name)`,
+  landed with the tool-budget work for a different reason — but the resource
+  registry is still a `QHash`, whose iteration order Qt randomizes per process.
+  Applies to both eras and is worth taking regardless of the rest.
 - **Modern-era error codes.** Resource-not-found becomes `-32602` for modern
   requests (`-32002` stays correct for legacy), and the MCP-reserved range
   moves to `-32020`+.
+- **The official conformance suite becomes the verification gate.**
+  `modelcontextprotocol/conformance` tests a server over an HTTP URL and is
+  language-agnostic — no C++ SDK required, and none exists. It carries
+  per-revision requirement sets including the 2026-07-28 stateless lifecycle,
+  which is the only way to check this work against the spec before a real
+  modern client exists.
 - **NOT BREAKING for any current client.** Every legacy revision we negotiate
   today keeps its exact behaviour. That is the point of the shape.
 
@@ -66,7 +93,20 @@ Explicit non-goals: we do not adopt the Tasks extension, MRTR
 (`input_required`), the MCP Apps extension, or OpenTelemetry trace context.
 None is required of a server, and MRTR in particular does not replace our
 in-app confirmation — that asks the user **at the machine**, not the client, so
-it is not an elicitation and has no modern equivalent to migrate to.
+it is not an elicitation and has no modern equivalent to migrate to. Note that
+declining MRTR still leaves `resultType` mandatory: we always answer
+`"complete"`, and never `"input_required"`.
+
+Also a non-goal: **adopting an MCP library.** There is no official C++ SDK —
+the ten official SDKs are TypeScript, Python, C#, Go, Java, Rust, Ruby, Swift,
+PHP and Kotlin. Two third-party options do implement `2026-07-28`
+(`signal-slot/qtmcp`, Qt-native and licence-compatible with this GPL-3.0
+project; `GopherSecurity/gopher-mcp`, Apache-2.0), and both are worth reading.
+Neither is adoptable here: each brings its own listener and HTTP layer, and
+that is the one part this server cannot hand over — `McpServer` owns no socket,
+ShotServer routes `/mcp` into it, and `McpRemoteAccess` adds a tokenized route
+and a tunnel on top. What we take from the ecosystem is the schema and the
+conformance suite, not the transport.
 
 ## Capabilities
 
@@ -78,7 +118,8 @@ it is not an elicitation and has no modern equivalent to migrate to.
   behaviour is unchanged.
 - `mcp-stateless-requests`: what a modern request may rely on without a
   session — rate limiting, resource subscriptions, and the confirmation gate,
-  each of which is keyed on the session today.
+  each of which is keyed on the session today. Also what a modern result must
+  carry that a legacy one does not: `resultType`, and the server's own identity.
 
 ### Modified Capabilities
 
@@ -95,7 +136,8 @@ it is not an elicitation and has no modern equivalent to migrate to.
 - `src/mcp/mcpsession.h` — unchanged in behaviour; the rate-limit counter it
   owns gains a session-independent sibling for the modern path.
 - `src/mcp/mcptoolregistry.h`, `src/mcp/mcpresourceregistry.h` — deterministic
-  ordering, `ttlMs`/`cacheScope` on list results.
+  ordering (tools already have it; resources do not), `ttlMs`/`cacheScope` on
+  list results.
 - `src/mcp/mcpremoteaccess.cpp` — the second caller into `handleHttpRequest`;
   both eras must work over the remote surface, not just ShotServer's.
 - `src/network/shotserver.cpp` — routes `/mcp` and is era-agnostic, but the
