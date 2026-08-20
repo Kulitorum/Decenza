@@ -81,10 +81,10 @@ first so the rest is not holding them hostage.
 ## 5. Session-independent rate limiting — the gate
 
 - [x] 5.1 Key decided: **peer address**, both routes, per-minute window. Not the remote-access token — there is one token for the whole app, so it would produce a global limiter for the entire remote route. Reasoning in design.md
-- [ ] 5.2 Implement per-caller, not global — one caller must not be able to starve another, which is what the per-session counter was shaped to avoid. `McpRemoteAccess::failedTokenOverLimit` is the existing per-peer-address per-minute window in this codebase; follow its shape rather than inventing a second one, and extract if the two turn out to be the same thing
-- [ ] 5.3 Open control/settings categories on the modern path only once 5.1-5.2 are done
-- [ ] 5.4 Tests: a caller over the limit is refused; a second caller is unaffected
-- [ ] 5.5 Leave `McpSession::controlCallCount()` alone — legacy still uses it
+- [x] 5.2 Implemented per-caller in `McpRateWindow` (`src/mcp/mcpratewindow.h`), and `McpRemoteAccess::failedTokenOverLimit` was MIGRATED onto it in the same pass rather than left as a second copy — same key/window/count shape, only the budget differs. Its separate prune loop went with the mechanism. Original task text: implement per-caller, not global — one caller must not be able to starve another, which is what the per-session counter was shaped to avoid. `McpRemoteAccess::failedTokenOverLimit` is the existing per-peer-address per-minute window in this codebase; follow its shape rather than inventing a second one, and extract if the two turn out to be the same thing
+- [x] 5.3 Open control/settings categories on the modern path only once 5.1-5.2 are done
+- [x] 5.4 Tests: a caller over the limit is refused; a second caller is unaffected
+- [x] 5.5 Leave `McpSession::controlCallCount()` alone — legacy still uses it
 
 ## 6. Confirmation-gated tools in the modern era
 

@@ -2,6 +2,8 @@
 
 #include <QObject>
 #include <QHash>
+
+#include "mcpratewindow.h"
 #include <QSet>
 #include <QByteArray>
 #include <QDateTime>
@@ -173,12 +175,10 @@ private:
     QHash<QTcpSocket*, PendingRequest> m_pending;
     QSet<QTcpSocket*> m_sockets;
 
-    struct FailWindow {
-        int count = 0;
-        bool suppressionLogged = false;  // one "further requests dropped" line per window
-        QDateTime windowStart;
-    };
-    QHash<QString, FailWindow> m_failedAttempts;
+    // Per-source failed-token budget. The window mechanism is shared with the
+    // modern MCP era's control-call limiter — same key/window/count shape, only
+    // the budget differs — rather than hand-rolled a second time here.
+    McpRateWindow m_failedAttempts;
 
     static constexpr int MaxHeaderSize = 64 * 1024;
     static constexpr int MaxBodySize = 1 * 1024 * 1024;   // MCP JSON is tiny

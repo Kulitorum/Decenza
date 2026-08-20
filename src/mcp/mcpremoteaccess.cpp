@@ -636,9 +636,7 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
             // keep-alive connection so a scanner must reconnect (bounded by
             // MaxConnections) instead of pipelining guesses on one socket, and log
             // the transition exactly once per window rather than going silent.
-            FailWindow& window = m_failedAttempts[source];
-            if (!window.suppressionLogged) {
-                window.suppressionLogged = true;
+            if (m_failedAttempts.takeSuppressionLogSlot(source)) {
                 MCP_WARN_TAGGED("RemoteAccess",
                                 QStringLiteral("further unauthorized requests from %1 will be "
                                                "dropped for the rest of this minute").arg(source));
@@ -684,15 +682,7 @@ bool McpRemoteAccess::tokenMatches(const QByteArray& candidate) const
 
 bool McpRemoteAccess::failedTokenOverLimit(const QString& source)
 {
-    const QDateTime now = QDateTime::currentDateTimeUtc();
-    FailWindow& window = m_failedAttempts[source];
-    if (!window.windowStart.isValid() || window.windowStart.secsTo(now) >= 60) {
-        window.windowStart = now;
-        window.count = 0;
-        window.suppressionLogged = false;
-    }
-    window.count++;
-    return window.count > MaxFailedPerMinute;
+    return m_failedAttempts.recordAndCheckOverLimit(source, MaxFailedPerMinute);
 }
 
 void McpRemoteAccess::sendBare404(QTcpSocket* socket)
@@ -764,14 +754,10 @@ void McpRemoteAccess::onReaperTick()
             socket->close();
     }
 
-    // Prune expired failed-attempt windows so the per-source map can't grow
-    // unbounded from many distinct (or spoofed) source addresses over uptime.
-    for (auto it = m_failedAttempts.begin(); it != m_failedAttempts.end();) {
-        if (!it.value().windowStart.isValid() || it.value().windowStart.secsTo(now) >= 60)
-            it = m_failedAttempts.erase(it);
-        else
-            ++it;
-    }
+    // Expired failed-attempt windows are pruned by McpRateWindow itself on each
+    // record, so the per-source map cannot grow unbounded from many distinct (or
+    // spoofed) source addresses over uptime. This used to be a second prune loop
+    // here; it went with the mechanism.
 
     // Recover from a dropped listener (e.g. interface flap) while still enabled,
     // rebinding with the correct interface for the active mode.

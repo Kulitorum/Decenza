@@ -1226,28 +1226,98 @@ private slots:
         QVERIFY(resp.jsonBody.contains("result"));
     }
 
-    // Control and settings tools are unreachable in the modern era until a
-    // session-independent rate limiter exists. `controlCallCount()` is the only
-    // thing between a client and unbounded machine_start_* calls, and a
-    // stateless request has no session to count against.
-    void modernEraRefusesControlCategoryTools()
+    // Control tools ARE reachable in the modern era now that a
+    // session-independent limiter exists to charge them against — and they are
+    // charged, which is the half that matters. A read verb must not spend the
+    // control budget.
+    void modernEraServesControlToolsAndChargesThem()
     {
         McpServer server;
-        auto ran = std::make_shared<bool>(false);
+        // Control tools need an access level that permits them; without Settings
+        // the level is 0 (Monitor) and the call is denied before the limiter is
+        // ever consulted, which would make this test green for the wrong reason.
+        Settings settings;
+        settings.mcp()->setMcpAccessLevel(2);
+        settings.mcp()->setMcpConfirmationLevel(0);
+        server.setSettings(&settings);
+
+        auto ran = std::make_shared<int>(0);
         server.toolRegistry()->registerTool(
             "machine_wake", "A control tool",
             QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-            [ran](const QJsonObject&) -> QJsonObject { *ran = true; return QJsonObject{}; },
+            [ran](const QJsonObject&) -> QJsonObject { ++*ran; return QJsonObject{}; },
             "control");
 
         QJsonObject params;
         params["name"] = "machine_wake";
         params["arguments"] = QJsonObject{};
-        auto resp = sendHttp(server, "POST", modernBody("tools/call", params, 13));
 
-        QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32601);
-        QVERIFY2(!*ran, "a refused control tool must not have run — refusing it after it has "
-                        "taken effect is not refusing it");
+        auto resp = sendHttp(server, "POST", modernBody("tools/call", params, 13));
+        QCOMPARE(resp.statusCode, 200);
+        QVERIFY2(!resp.jsonBody.contains("error"), "a control tool is no longer refused");
+        QCOMPARE(*ran, 1);
+    }
+
+    // Over the budget, the caller is refused — and the tool does not run. A
+    // limiter that refuses after dispatch is not a limiter.
+    void modernControlCallsAreRateLimitedPerCaller()
+    {
+        McpServer server;
+        // Control tools need an access level that permits them; without Settings
+        // the level is 0 (Monitor) and the call is denied before the limiter is
+        // ever consulted, which would make this test green for the wrong reason.
+        Settings settings;
+        settings.mcp()->setMcpAccessLevel(2);
+        settings.mcp()->setMcpConfirmationLevel(0);
+        server.setSettings(&settings);
+
+        auto ran = std::make_shared<int>(0);
+        server.toolRegistry()->registerTool(
+            "machine_wake", "A control tool",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [ran](const QJsonObject&) -> QJsonObject { ++*ran; return QJsonObject{}; },
+            "control");
+
+        QJsonObject params;
+        params["name"] = "machine_wake";
+        params["arguments"] = QJsonObject{};
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Rate limit exceeded .* refusing control calls"));
+
+        bool sawRefusal = false;
+        for (int i = 0; i < McpServer::RateLimitPerMinute + 5; ++i) {
+            auto resp = sendHttp(server, "POST", modernBody("tools/call", params, 100 + i));
+            if (resp.jsonBody.contains("error")) {
+                QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32000);
+                sawRefusal = true;
+                break;
+            }
+        }
+        QVERIFY2(sawRefusal, "an unbounded control surface is the thing this exists to prevent");
+        QVERIFY2(*ran <= McpServer::RateLimitPerMinute,
+                 "a refused call must not have run");
+    }
+
+    // A read verb must not spend the control budget. Without this the limiter
+    // would look correct while throttling harmless calls.
+    void modernReadToolsDoNotSpendTheControlBudget()
+    {
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "shots_get_detail", "A read tool",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; }, "read");
+
+        QJsonObject params;
+        params["name"] = "shots_get_detail";
+        params["arguments"] = QJsonObject{};
+
+        for (int i = 0; i < McpServer::RateLimitPerMinute + 5; ++i) {
+            auto resp = sendHttp(server, "POST", modernBody("tools/call", params, 200 + i));
+            QVERIFY2(!resp.jsonBody.contains("error"),
+                     "a read verb must not be charged against the control budget");
+        }
     }
 
     // A modern notification gets 202 with no body, same as legacy.

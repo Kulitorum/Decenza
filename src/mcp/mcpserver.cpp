@@ -1511,16 +1511,38 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     // add a check somewhere. An unlimited control surface on a machine that
     // heats water to 90 °C is worse than those tools being unavailable.
     if (modern) {
+        // Control and settings tools ARE reachable now, because there is a
+        // session-independent limiter to charge them against. The key is the
+        // peer address — read from the socket rather than threaded through the
+        // dispatch signature, since the socket is already here.
+        //
+        // Resolved from the ARGUMENTS, not the tool name: a merged tool's read
+        // verb must not spend the budget its write verbs share.
         const QString modernCategory = m_toolRegistry->categoryFor(toolName, arguments);
         if (modernCategory == QLatin1String("control")
             || modernCategory == QLatin1String("settings")) {
-            return makeErrorResult(-32601,
-                                   QStringLiteral("Tool '%1' is not available to this protocol "
-                                                  "era yet: control and settings tools require a "
-                                                  "rate limit that does not exist for stateless "
-                                                  "requests.").arg(toolName));
+            // A socket with no peer address is not a real caller shape — it
+            // means a test harness or a torn-down connection. Bucketed under one
+            // key rather than skipping the limit, so an unkeyable caller is
+            // still bounded rather than unlimited.
+            const QString callerKey = (socket && !socket->peerAddress().isNull())
+                                          ? socket->peerAddress().toString()
+                                          : QStringLiteral("(unknown-peer)");
+            if (m_modernControlCalls.recordAndCheckOverLimit(callerKey, RateLimitPerMinute)) {
+                // One line per window, not per refused call. The assistant is
+                // told; the user is not, so without this nothing anywhere
+                // explains why the machine ignored a command it was asked for.
+                if (m_modernControlCalls.takeSuppressionLogSlot(callerKey)) {
+                    MCP_WARN_TAGGED("Server",
+                                    QStringLiteral("Rate limit exceeded (%1/min) for %2 — "
+                                                   "refusing control calls for the rest of this "
+                                                   "minute")
+                                        .arg(RateLimitPerMinute).arg(callerKey));
+                }
+                return makeErrorResult(-32000, QStringLiteral("Rate limit exceeded"));
+            }
         }
-        // Confirmation-gated tools likewise. The gate routes its answer back
+        // Confirmation-gated tools stay refused. The gate routes its answer back
         // through a sessionId a stateless caller does not have; giving it an
         // identity of its own is a separate piece of work. Refused with a reason
         // rather than served ungated — never the latter.

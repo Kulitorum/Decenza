@@ -12,6 +12,8 @@
 #include <QSet>
 #include <optional>
 
+#include "mcpratewindow.h"
+
 class McpSession;
 class McpToolRegistry;
 class McpResourceRegistry;
@@ -344,6 +346,20 @@ private:
 
     // Rate limiting
     QTimer* m_rateLimitTimer;
+
+    // Modern-era rate limiting, keyed on the caller's peer address.
+    //
+    // A stateless request has no session, so McpSession::controlCallCount() —
+    // which legacy still uses, untouched — has nothing to count against. The
+    // peer address is the transport-level caller identity BOTH routes already
+    // have, and McpRemoteAccess has keyed a per-minute budget on it for failed
+    // token attempts since long before this.
+    //
+    // Not the remote-access token: there is exactly one for the whole app, so
+    // every remote caller presents the same one and keying on it would produce a
+    // single global limiter for the entire remote route — precisely the
+    // starvation the per-session counter exists to avoid.
+    McpRateWindow m_modernControlCalls;
 
     // SSE clients. Stored as QPointer so that if ShotServer destroys the
     // underlying socket without us seeing the disconnected signal first
