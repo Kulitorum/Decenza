@@ -1850,13 +1850,18 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
     // resources and "our fault" for tools — exactly the wrong-code-by-fall-through
     // that McpRegistryFailure exists to prevent, reproduced one level up.
     //
-    // Forward note: spec revision 2026-07-28 makes -32602 a MUST for
-    // resource-not-found, keeping -32002 as a compatibility accept. Correct as
-    // written for every revision this server negotiates; revisit on the next bump.
-    const auto readErrorResult = [&uri](const QString& message, McpRegistryFailure failure) {
+    // That bump has now happened: 2026-07-28 makes -32602 a MUST for
+    // resource-not-found, aligning it with JSON-RPC's Invalid Params, and keeps
+    // -32002 only as a compatibility accept. So the code is era-dependent —
+    // -32602 for a modern caller, -32002 for a legacy one, both correct for the
+    // revision they are sent under. The forward note this replaces said to
+    // revisit on the next bump, which is the only reason it was found.
+    const bool modernErrorCodes = isModernProtocolVersion(protocolVersion);
+    const auto readErrorResult = [&uri, modernErrorCodes](const QString& message,
+                                                          McpRegistryFailure failure) {
         if (failure != McpRegistryFailure::NotFound)
             return makeErrorResult(-32603, message);
-        QJsonObject result = makeErrorResult(-32002, message);
+        QJsonObject result = makeErrorResult(modernErrorCodes ? -32602 : -32002, message);
         QJsonObject errorObj = result["error"].toObject();
         errorObj["data"] = QJsonObject{{"uri", uri}};
         result["error"] = errorObj;

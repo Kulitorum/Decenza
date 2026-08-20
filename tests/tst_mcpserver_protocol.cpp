@@ -1567,6 +1567,30 @@ private slots:
         QCOMPARE(resp.jsonBody["error"].toObject()["code"].toInt(), -32601);
     }
 
+    // Resource-not-found is era-dependent from 2026-07-28: -32602 (Invalid
+    // Params) there, -32002 for legacy. Both correct for the revision they are
+    // sent under, which is why this is a fork rather than a change.
+    void resourceNotFoundCodeIsEraDependent()
+    {
+        McpServer server;
+
+        const QString sid = openSession(server, "2025-11-25");
+        auto legacy = sendHttp(server, "POST",
+                               rpcBody("resources/read",
+                                       QJsonObject{{"uri", "decenza://nope"}}, 50), sid);
+        QCOMPARE(legacy.jsonBody["error"].toObject()["code"].toInt(), -32002);
+
+        auto modern = sendHttp(server, "POST",
+                               modernBody("resources/read",
+                                          QJsonObject{{"uri", "decenza://nope"}}, 51));
+        QCOMPARE(modern.jsonBody["error"].toObject()["code"].toInt(), -32602);
+
+        // The URI stays in `data` in both eras — it is what makes the error
+        // actionable, and only the code moved.
+        QCOMPARE(modern.jsonBody["error"].toObject()["data"].toObject()["uri"].toString(),
+                 QString("decenza://nope"));
+    }
+
     // ─── Spec-version gating: the floor revision sees only its own fields ───
     //
     // A strict validator rejects a response carrying fields introduced after the

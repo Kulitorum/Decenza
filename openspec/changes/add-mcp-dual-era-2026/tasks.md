@@ -42,7 +42,7 @@ first so the rest is not holding them hostage.
 - [x] 1.6 Gate both on the negotiated version so legacy clients that pre-date these fields do not receive them
 
 - [x] 1.7 **Follow-up, blocked on section 8.** The cache-hint test asserts only that the fields do NOT leak to a legacy revision, which passes identically whether the gate works or the feature was never implemented. The positive case — fields present, `cacheScope: "private"` everywhere, and the list/read TTL split — needs `2026-07-28` negotiable, which is deliberately the last step. Write it there, not here
-- [ ] 1.8 **The proposal's framing needs correcting.** Cacheable results are listed among the "era-independent wins with a payoff today". Gated on the version they are neither: nothing is emitted until `2026-07-28` is negotiable. The deterministic ordering IS an era-independent win; this one is not, and the proposal should say so
+- [x] 1.8 **The proposal's framing needs correcting.** Cacheable results are listed among the "era-independent wins with a payoff today". Gated on the version they are neither: nothing is emitted until `2026-07-28` is negotiable. The deterministic ordering IS an era-independent win; this one is not, and the proposal should say so
 - [x] 1.9 `server/discover` also extends `CacheableResult` in the schema (`DiscoverResult`), which the proposal did not note. Apply the same hints when section 4 builds it
 
 ## 1b. Build against the schema, not against this document
@@ -65,7 +65,7 @@ first so the rest is not holding them hostage.
 - [x] 3.2 If a fix has to be made in two places, the fork is in the wrong place — say so at the fork
 - [x] 3.3 Read protocol version per request; reject a request whose header and body disagree (`-32020`)
 - [x] 3.4 `UnsupportedProtocolVersionError` (`-32022`) carrying `supported` and `requested`
-- [ ] 3.5 **STILL OPEN.** Resource-not-found is `-32602` in the modern era; `-32002` stays for legacy. Both correct, per revision
+- [x] 3.5 **STILL OPEN.** Resource-not-found is `-32602` in the modern era; `-32002` stays for legacy. Both correct, per revision
 - [x] 3.6 **Refuse control- and settings-category tools on the modern path** until section 5 lands. Structural, so the unsafe state cannot be reached by forgetting
 - [x] 3.7 Stamp `resultType` on every modern result. `"complete"` always — `"input_required"` is MRTR, which is a non-goal. Required by the revision on ALL results, so put it where a result cannot leave without it rather than at each handler
 - [x] 3.8 Emit `io.modelcontextprotocol/serverInfo` in each modern result's `_meta`. Same identity the legacy handshake reports (`McpSurfaceVersion` + app version); a stateless client has no handshake to learn it from
@@ -115,8 +115,8 @@ and a modern client without it degrades to polling rather than breaking.
 
 ## 8. Advertise the version
 
-- [ ] 8.1 Add `2026-07-28` to `supportedProtocolVersions()` — **last**. That list is what `server/discover` promises; adding it earlier makes the server lie
-- [ ] 8.2 Confirm the legacy negotiation still picks a legacy version for a legacy client rather than the new highest
+- [x] 8.1 **Done EARLY, not last, and deliberately.** The plan said last so the list never promises what is unbuilt; in practice sections 2-7 would then have had no test able to reach any of them. It is servable but NOT negotiable — `initialize` filters it out — so the list promises nothing false. Original: add `2026-07-28` to `supportedProtocolVersions()` — **last**. That list is what `server/discover` promises; adding it earlier makes the server lie
+- [x] 8.2 Confirm the legacy negotiation still picks a legacy version for a legacy client rather than the new highest
 
 ## 9. Verify
 
@@ -133,9 +133,9 @@ and a modern client without it degrades to polling rather than breaking.
 
 ## 10. Document
 
-- [ ] 10.1 `docs/CLAUDE_MD/MCP_SERVER.md`: which era a client gets and how that is decided, and what a contributor must do to a new tool so it works in both
-- [ ] 10.2 Record that the session machinery is NOT deleted by this change and why — it is legacy's, and legacy stays. Written down so it is not re-litigated every time that code annoys someone
-- [ ] 10.3 Record the answer to "when do we drop legacy": when no client needs it, backed by the revision's twelve-month minimum deprecation windows
-- [ ] 10.4 No wiki manual change — MCP protocol eras are not a user-visible app surface
+- [x] 10.1 `docs/CLAUDE_MD/MCP_SERVER.md`: which era a client gets and how that is decided, and what a contributor must do to a new tool so it works in both
+- [x] 10.2 Record that the session machinery is NOT deleted by this change and why — it is legacy's, and legacy stays. Written down so it is not re-litigated every time that code annoys someone
+- [x] 10.3 Record the answer to "when do we drop legacy": when no client needs it, backed by the revision's twelve-month minimum deprecation windows
+- [x] 10.4 No wiki manual change — MCP protocol eras are not a user-visible app surface
 - [ ] 10.5 Open the PR, then run `/pr-review-toolkit:review-pr`
 - [ ] 10.6 Archive the change + spec sync as the final commit on the same PR

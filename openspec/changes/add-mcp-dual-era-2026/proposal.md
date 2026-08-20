@@ -70,8 +70,13 @@ descriptions on every single connection.
 - **List results become cacheable — required, not optional.** `ttlMs` and
   `cacheScope` are mandatory on `tools/list`, `resources/list` and
   `resources/read` (and on `prompts/list` and `resources/templates/list`, which
-  we do not serve), so clients stop re-fetching 96 tool descriptions per
-  connection.
+  we do not serve), plus `server/discover`.
+  **This is NOT an era-independent win, and an earlier draft of this list said it
+  was.** The fields are gated on `2026-07-28`, so nothing emits them until a
+  client actually speaks modern — and none does. "Clients stop re-fetching 96
+  tool descriptions per connection" is the eventual payoff, not a present one.
+  Deterministic ordering below IS era-independent; this is not, and grouping the
+  two oversold it.
 - **`resources/list` returns a deterministic order.** A `SHOULD` in the new
   revision. `tools/list` already satisfies it — it sorts by `(tier, name)`,
   landed with the tool-budget work for a different reason — but the resource

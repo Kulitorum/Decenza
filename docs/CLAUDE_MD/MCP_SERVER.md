@@ -643,6 +643,87 @@ setters build their response *before* the setters run, so a clamp or rejection
 cannot reach it — real, but with no identified failing key, and the fix is a
 90-setter refactor. Left alone deliberately.
 
+### Two protocol eras, one endpoint
+
+The server is **dual-era**: it speaks the handshake-based revisions (`2025-06-18`,
+`2025-11-25`) and the handshake-less `2026-07-28` on the same endpoint, with the
+era chosen per request.
+
+**Which era a request gets, and how.** The discriminator is
+`params._meta["io.modelcontextprotocol/protocolVersion"]`. The 2026-07-28 schema
+makes it REQUIRED on every modern request and no legacy revision defines it, so
+its presence is decisive on its own. It is deliberately NOT the `Mcp-Method` /
+`Mcp-Name` headers, which are also required of a modern POST: requiring those
+here would reject a modern request whose proxy stripped them. And it is NOT
+`MCP-Protocol-Version`, which legacy has sent since 2025-06-18.
+
+**An ambiguous request is served as legacy**, and that is not a neutral default.
+Mis-routing a legacy request to the modern path breaks a client that works today
+and gives it no recovery — the handshake that would have negotiated a fallback is
+the thing 2026-07-28 removed. Mis-routing a modern request to legacy produces the
+error a modern client's own detection is specified to fall back from.
+
+**Version sets are accessors, never inline filters.** `supportedProtocolVersions()`
+is everything servable; `legacyProtocolVersions()` and `modernProtocolVersions()`
+are the two halves. Use them:
+
+| Question | Accessor |
+|---|---|
+| What may `initialize` negotiate, or fall back to? | `legacyProtocolVersions()` |
+| What may a legacy request's `MCP-Protocol-Version` header name? | `legacyProtocolVersions()` |
+| What may a modern request's `_meta` name? | `modernProtocolVersions()` |
+| What does `server/discover` advertise? | `modernProtocolVersions()` |
+
+Treating "supported" as one set produced the same bug **four times** during this
+work: a legacy request honouring a modern header; a modern request accepted under
+a legacy version; `server/discover` advertising legacy versions to clients that
+could not use them; and a modern subscription stream receiving legacy's
+"everything" broadcast. Each was a hand-rolled filter that drifted from its
+sibling. Hence accessors.
+
+**`2025-03-26` is accepted as a header value** though not negotiable — it is what
+the spec tells a client to send when it cannot identify the version. Treated as an
+absent header: it selects nothing and the session's version stands. A supported
+header selects *itself*. Do not collapse those two cases.
+
+### Adding a tool so it works in both eras
+
+Most tools need nothing — dispatch below `handleJsonRpc` is shared, and only the
+envelope forks. Four things do differ:
+
+1. **Category decides modern reachability.** `control` and `settings` tools are
+   rate-limited per peer address in the modern era (`McpRateWindow`), because a
+   stateless request has no session to count against. Read tools are not charged.
+2. **Confirmation-gated tools work in both eras.** The gate carries its own
+   `confirmationId`, not a session id. If you add one, do not reintroduce a
+   session dependency.
+3. **A method the modern era removed must be refused BY ERA, not deleted** —
+   `ping`, `logging/setLevel`, `resources/subscribe`, `resources/unsubscribe` and
+   `initialize` are all still correct for legacy.
+4. **Modern results are framed centrally.** `resultType` and `serverInfo` are
+   stamped where every modern result passes through, so a handler cannot forget
+   them. Do not add them per handler.
+
+**Error codes are era-dependent where the revision changed them.**
+Resource-not-found is `-32602` for a modern caller and `-32002` for a legacy one —
+both correct for the revision they are sent under.
+
+### The session machinery is NOT deleted by dual-era support
+
+Sessions, the reapers, the ceilings, the tombstone set and the auto-recovery
+branch all remain, because **legacy needs every one of them**. The simplification
+the modern era offers is only realised the day legacy is dropped.
+
+Stated here so it is not re-litigated each time that code annoys someone: a
+modern request creates no session and passes `nullptr`, and that is the whole of
+its interaction with the pool.
+
+**When does legacy get dropped?** When no client needs it. The revision's own
+feature-lifecycle policy sets a twelve-month minimum deprecation window, and the
+clients this server actually sees — `claude-code`, the claude.ai connector,
+`codex-mcp-client` — are all legacy today. Not soon, and not a decision to take
+because the session code is inconvenient.
+
 ### Supported protocol revisions
 
 `supportedProtocolVersions()` (`src/mcp/mcpserver.cpp`) lists **`2025-11-25`
