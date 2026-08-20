@@ -309,14 +309,36 @@ McpServer::~McpServer()
     qDeleteAll(m_sessions);
 }
 
+// Untrusted strings from the network — cap length and strip newlines so a
+// hostile or buggy client can't forge log lines or DoS log volume.
+//
+// File-scope rather than a lambda inside handleInitialize: the batch refusal in
+// handleHttpRequest logs client-supplied method names and needs the same
+// treatment, and two copies of a sanitiser is how one of them quietly stops
+// matching the other.
+static QString sanitizeForLog(QString s)
+{
+    if (s.size() > 64) s.truncate(64);
+    s.replace(QChar('\n'), QChar(' '));
+    s.replace(QChar('\r'), QChar(' '));
+    return s;
+}
+
 QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
                                               const QString& protocolVersion) const
 {
-    // `structuredContent` and the `resource_link` content block type were
-    // introduced in 2025-06-18. Strict 2024-11-05 clients reject the response
-    // when either appears, so both are gated on the negotiated version.
-    const bool emitStructured = protocolVersion >= QStringLiteral("2025-06-18");
-    const bool emitResourceLinks = protocolVersion >= QStringLiteral("2025-06-18");
+    // `structuredContent` and the `resource_link` content block type arrived in
+    // 2025-06-18, which is now the LOWEST revision this server serves, so both
+    // are emitted unconditionally. They were gated while older revisions were
+    // negotiable.
+    //
+    // Both gates read `>= 2025-06-18` — the same threshold as the `title` gates
+    // in the two registries, which were collapsed when those revisions were
+    // dropped. These two were missed in that pass, and their comment went on
+    // asserting a live defence for "strict 2024-11-05 clients" after
+    // 2024-11-05 stopped being negotiable. Recorded because the gate and the
+    // stale justification survived a review together.
+    Q_UNUSED(protocolVersion)
 
     // Pull out optional `_resourceLinks` array — tools that want to attach
     // resource_link content blocks declare them as a side-channel here so the
@@ -327,7 +349,7 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
 
     QJsonArray content;
 
-    if (emitResourceLinks) {
+    {
         // Resource link blocks first — they're cheap to render and let clients
         // that subscribe to resource updates correlate the result with a URI.
         for (const QJsonValue& v : std::as_const(resourceLinks)) {
@@ -367,13 +389,22 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
         }
     }
 
-    // Text content block is always emitted because `content` is REQUIRED on a
-    // tool result at every revision — `structuredContent` is additive to it,
-    // never a replacement.
+    // Two independent reasons, and BOTH must hold for this block to stay:
     //
-    // This previously read as "the only payload 2024-11-05 / 2025-03-26 clients
-    // read", which was never the reason and would have read as a licence to
-    // delete the block once those revisions were dropped. It is not optional.
+    //   1. `content` is REQUIRED on a CallToolResult at every revision —
+    //      2024-11-05 through 2026-07-28. `structuredContent` is optional and
+    //      additive, never a replacement.
+    //   2. Its CONTENT is the serialized structured payload because the tools
+    //      spec says so: "For backwards compatibility, a tool that returns
+    //      structured content SHOULD also return the serialized JSON in a
+    //      TextContent block" (2025-06-18 server/tools, Structured Content;
+    //      identical in 2025-11-25).
+    //
+    // Reason 1 alone would permit putting anything in the block. Reason 2 is
+    // what pins it to this payload. An earlier version of this comment cited
+    // only old clients, and the correction that replaced it asserted backwards
+    // compatibility "was never the reason" — also wrong, and in the more
+    // dangerous direction, since it reads as licence to change what goes in.
     QJsonObject textBlock;
     textBlock["type"] = "text";
     textBlock["text"] = QString::fromUtf8(QJsonDocument(sanitized).toJson(QJsonDocument::Compact));
@@ -381,8 +412,7 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
 
     QJsonObject result;
     result["content"] = content;
-    if (emitStructured)
-        result["structuredContent"] = sanitized;
+    result["structuredContent"] = sanitized;
 
     // A tool reports failure by returning a top-level `error` key — ~283 sites
     // across src/mcp/mcptools_*.cpp do exactly that, and none uses a different
@@ -486,12 +516,26 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         }
 
         if (doc.isArray()) {
-            MCP_WARN_TAGGED("Server", QStringLiteral("Refused a JSON-RPC batch — no supported "
-                                                     "revision defines batching"));
+            // Named in full because this line is the decision record for whether
+            // dropping batching was right: if a real client batches, the log has
+            // to say which methods, or nobody can tell an `[initialize, …]`
+            // startup lockout from two harmless pings. The deleted per-element
+            // refusal logged its method for exactly this reason.
+            const QJsonArray refusedBatch = doc.array();
+            QStringList refusedMethods;
+            for (const QJsonValue& element : refusedBatch) {
+                refusedMethods << sanitizeForLog(element.toObject().value("method")
+                                                     .toString(QStringLiteral("(non-object)")));
+            }
+            MCP_WARN_TAGGED("Server", QStringLiteral("Refused a JSON-RPC batch of %1 (%2) — no "
+                                                     "supported revision defines batching")
+                                          .arg(refusedBatch.size())
+                                          .arg(refusedMethods.join(QStringLiteral(", "))));
             sendJsonRpcError(socket, -32600,
                              QStringLiteral("Batched requests are not supported. Send one "
                                             "JSON-RPC message per request."),
-                             QVariant());  // null id, see the parse-error note above
+                             QVariant(),  // null id, see the parse-error note above
+                             sessionHeader);
             return;
         }
 
@@ -700,9 +744,14 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
     }
 }
 
-// One place builds a JSON-RPC error object. sendJsonRpcError writes it to a
-// socket; the batch path folds it into an array slot instead, and the two must
-// not be free to drift into different shapes.
+// One place builds a JSON-RPC error object.
+//
+// Extracted when there were two consumers — sendJsonRpcError and the batch path,
+// which folded it into an array slot — and the anti-drift argument was about
+// keeping those two shapes identical. The batch path is gone, so this now has a
+// single caller and that argument has expired. Kept because the shape it builds
+// is the JSON-RPC error envelope and having one place that spells it is still
+// worth a function, not because two things must agree.
 static QJsonObject makeJsonRpcError(int code, const QString& message, const QVariant& id)
 {
     QJsonObject error;
@@ -859,23 +908,27 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
     }
     out.session = session;
 
-    // `2025-03-26` in the header is the protocol's COMPATIBILITY SENTINEL, not a
-    // version request, and is accepted even though we no longer negotiate that
-    // revision. The spec names it as the value to assume "if the server does not
-    // receive an MCP-Protocol-Version header, and has no other way to identify
-    // the version" — and clients send it explicitly for the same reason: it is
-    // what you put on the wire when you do not know. It therefore carries no
-    // information and is treated exactly as an absent header.
+    // `2025-03-26` in the header is ACCEPTED even though the revision is no
+    // longer negotiable, and is treated exactly as an absent header.
     //
-    // Dropping 2025-03-26 from the negotiable set without this turned the
-    // ecosystem's own fallback value into a 400. Found by the official
-    // conformance suite: server-accepts-multiple-post-streams negotiates
-    // 2025-11-25 and then sends its concurrent POSTs carrying this header.
+    // This is a deliberate deviation from a MUST, stated plainly because the
+    // first version of this comment framed it as spec-ALIGNED: "if the server
+    // receives a request with an invalid or unsupported MCP-Protocol-Version,
+    // it MUST respond with 400 Bad Request" (2025-06-18 basic/transports), and
+    // after the drop 2025-03-26 is unsupported. We accept it anyway.
     //
-    // Accepted as a header is NOT the same as served: a client cannot negotiate
-    // 2025-03-26, so it never gets that revision's semantics — notably batching,
-    // which only that revision defines and which this server no longer
-    // implements. It gets the session's version, as if it had sent nothing.
+    // Why: it is the value the spec tells a SERVER to assume when no header
+    // arrives, and clients emit it for the same reason — the official
+    // conformance suite sends it on concurrent POSTs after negotiating
+    // 2025-11-25. Refusing it turns the ecosystem's own fallback into a hard
+    // 400. Note the spec has no notion of a client-sent sentinel; that reading
+    // is ours, and it is an inference from observed client behaviour, not a
+    // rule anyone wrote down.
+    //
+    // Accepted is not served: a client cannot NEGOTIATE 2025-03-26 (the two
+    // adoption sites above both gate on supportedProtocolVersions()), so it
+    // never gets that revision's semantics — notably batching, which only that
+    // revision defines and which this server no longer implements.
     const bool headerIsCompatSentinel =
         protocolHeader == QLatin1String("2025-03-26");
 
@@ -887,6 +940,19 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
     // - When absent, sessions carry the lowest supported revision. The spec
     //   names `2025-03-26` here, which we no longer serve — see
     //   McpSession::protocolVersion() for that deliberate deviation.
+    if (headerIsCompatSentinel && session->initialized()) {
+        // DEBUG, not WARN: the conformance suite sends this on every concurrent
+        // POST, so WARN would be noise in the connections views. But not silent
+        // either — `2025-03-26` is an overloaded value, and a client that really
+        // believes it speaks that revision is the one population that will then
+        // send a batch. Without this line, the batch refusal below appears in a
+        // submitted log with nothing connecting it to the header that predicted
+        // it.
+        MCP_LOG_TAGGED("Server", QStringLiteral("MCP-Protocol-Version 2025-03-26 treated as "
+                                                "absent (not negotiable) — session %1 stays on %2")
+                                     .arg(session->id(), session->protocolVersion()));
+    }
+
     if (!protocolHeader.isEmpty() && !headerIsCompatSentinel && session->initialized()
         && protocolHeader != session->protocolVersion()) {
         MCP_WARN_TAGGED("Server", QStringLiteral("Protocol version mismatch — header %1, "
@@ -967,18 +1033,33 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     QString negotiatedVersion = supportedVersions.contains(clientVersion)
         ? clientVersion : supportedVersions.first();
 
+    const QJsonObject clientInfo = params["clientInfo"].toObject();
+    // A client asking for something we do not serve is answered with our latest,
+    // per "the server MUST respond with another protocol version it supports.
+    // This SHOULD be the latest version supported by the server" (2025-06-18
+    // lifecycle, Version Negotiation). The client SHOULD then disconnect if it
+    // cannot speak it.
+    //
+    // Logged at WARN because dropping 2024-11-05 and 2025-03-26 is what made
+    // this branch reachable, and the INFO line below reports it in a format
+    // identical to a successful negotiation — two fields differing, easy to read
+    // past. This is the line that explains a "my client stopped working after
+    // the update" report. At most one per session.
+    //
+    // Note the direction is UP, to the newest revision, which is the opposite of
+    // what the header-absent default does. Both are correct: the spec mandates
+    // latest here, and there is no negotiation to appeal to there. See
+    // McpSession::protocolVersion().
+    if (!clientVersion.isEmpty() && !supportedVersions.contains(clientVersion)) {
+        MCP_WARN_TAGGED("Server", QStringLiteral("Client requested unsupported protocol %1 — "
+                                                 "answering %2. It will receive fields that "
+                                                 "revision does not define.")
+                                      .arg(sanitizeForLog(clientVersion), negotiatedVersion));
+    }
+
     if (session)
         session->setProtocolVersion(negotiatedVersion);
 
-    const QJsonObject clientInfo = params["clientInfo"].toObject();
-    auto sanitizeForLog = [](QString s) {
-        // Untrusted strings from the network — cap length and strip newlines so
-        // a hostile or buggy client can't forge log lines or DoS log volume.
-        if (s.size() > 64) s.truncate(64);
-        s.replace(QChar('\n'), QChar(' '));
-        s.replace(QChar('\r'), QChar(' '));
-        return s;
-    };
     MCP_INFO_TAGGED("Server", QStringLiteral("initialize — client=%1 v%2 requested=%3 "
                                              "negotiated=%4 session=%5")
                                   .arg(sanitizeForLog(clientInfo["name"].toString()),
@@ -1003,10 +1084,14 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     // for those clients this handshake string is the only carrier of the
     // rule, and it costs nothing per call.
     //
-    // Unconditional: `instructions` arrived in 2025-03-26 and every revision
-    // this server still serves is newer than that. It was gated while
-    // 2024-11-05 was supported, since that revision's InitializeResult has no
-    // such field and a strict client would reject the response.
+    // Unconditional, and the gate this replaces was never needed.
+    //
+    // `instructions` has been an optional field of `InitializeResult` since the
+    // FIRST revision — `schema/2024-11-05/schema.ts` declares `instructions?:
+    // string;` with the same docblock as every later one. The removed gate
+    // claimed 2024-11-05 lacked the field and a strict client would reject it;
+    // that was false when written, and this comment restated it verbatim
+    // through a review before anyone opened the schema.
     result["instructions"] = QStringLiteral(
             "When you refer to one of the user's espresso shots in a reply, "
             "identify it by its local date and time — the handle shown in the "
@@ -1026,8 +1111,12 @@ QJsonObject McpServer::handleToolsList(const QJsonObject& params, McpSession* se
     Q_UNUSED(params)
 
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
-    const QString protocolVersion = session ? session->protocolVersion()
-                                            : QStringLiteral("2025-06-18");
+    // `session` cannot be null: handleJsonRpc's only caller dereferences it
+    // (session->touch()) before dispatching, so a null would already have
+    // crashed there. A fallback here would have silently served a guessed
+    // protocol version instead of surfacing that the session was lost.
+    Q_ASSERT(session);
+    const QString protocolVersion = session->protocolVersion();
 
     QJsonObject result;
     result["tools"] = m_toolRegistry->listTools(accessLevel, protocolVersion);
@@ -1041,8 +1130,12 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     QJsonObject arguments = params["arguments"].toObject();
 
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
-    const QString protocolVersion = session ? session->protocolVersion()
-                                            : QStringLiteral("2025-06-18");
+    // `session` cannot be null: handleJsonRpc's only caller dereferences it
+    // (session->touch()) before dispatching, so a null would already have
+    // crashed there. A fallback here would have silently served a guessed
+    // protocol version instead of surfacing that the session was lost.
+    Q_ASSERT(session);
+    const QString protocolVersion = session->protocolVersion();
 
     // Rate limiting for control + settings tools. Resolved from the ARGUMENTS, not
     // the tool name: a merged tool's read verb must not spend the control budget its
@@ -1141,8 +1234,12 @@ QJsonObject McpServer::handleResourcesList(const QJsonObject& params, McpSession
 {
     Q_UNUSED(params)
 
-    const QString protocolVersion = session ? session->protocolVersion()
-                                            : QStringLiteral("2025-06-18");
+    // `session` cannot be null: handleJsonRpc's only caller dereferences it
+    // (session->touch()) before dispatching, so a null would already have
+    // crashed there. A fallback here would have silently served a guessed
+    // protocol version instead of surfacing that the session was lost.
+    Q_ASSERT(session);
+    const QString protocolVersion = session->protocolVersion();
 
     QJsonObject result;
     result["resources"] = m_resourceRegistry->listResources(protocolVersion);
@@ -1690,7 +1787,7 @@ void McpServer::sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& resul
     // What CANNOT reach this branch is a WRAPPED tool payload. buildToolCallResponse
     // returns only {content, structuredContent, isError}, so once a tool has run,
     // its own `error` key is one level down — inside `structuredContent` at
-    // 2025-06-18+, and at older versions surviving only as text inside the
+    // 2025-06-18+, and surviving as text inside the
     // serialized JSON of the text block. Do not "fix" that by unwrapping here: a
     // tool that ran and failed is a successful protocol exchange carrying a failed
     // tool result, so it must stay a JSON-RPC `result` with `isError: true` (set at

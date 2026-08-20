@@ -63,9 +63,17 @@ revision does not define.
 (gated `>= 2025-06-18`) become unconditional, because every revision still
 served defines them.
 
-`structuredContent` and `resource_link` (`2025-06-18`), `$schema` dialect
-stamping and `icons` (`2025-11-25`) all keep their gates: both revisions in the
-supported set are still distinguishable by them.
+`structuredContent` and `resource_link` are ALSO collapsed. Their gate reads
+`>= 2025-06-18`, which is the floor, so it was as unreachable as `title`'s —
+this was missed in the first pass of the change and the artifacts asserted the
+opposite in four places, claiming the surviving revisions were "distinguishable
+by them". They are not. Only `$schema` dialect stamping and `icons`
+(`2025-11-25`) still gate anything, and only those keep their conditionals.
+
+Recorded rather than quietly corrected: the false claim was written into
+design.md, tasks.md, the docs and a code comment in one pass, and survived to an
+open PR. It is the exact shape this project warns about — a stale premise
+re-approved because nobody re-derived it.
 
 The always-emitted text content block stays, and its comment is corrected. It
 currently justifies itself as "the only payload that 2024-11-05 / 2025-03-26

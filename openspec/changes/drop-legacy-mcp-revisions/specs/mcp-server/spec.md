@@ -70,7 +70,9 @@ only the version it names has changed.
 
 ### Requirement: Structured Tool Output
 
-Every successful `tools/call` response SHALL include a `structuredContent` field carrying the tool's result payload as a JSON object. The `content` array with a text content block SHALL also be emitted, because `content` is required on a tool result at every supported revision and `structuredContent` is additive to it rather than a replacement.
+Every successful `tools/call` response SHALL include a `structuredContent` field carrying the tool's result payload as a JSON object. This SHALL NOT be conditional on the negotiated version: the field is defined at the lowest revision the server serves, so no negotiable revision lacks it.
+
+The `content` array with a text content block SHALL also be emitted, for two independent reasons that both hold: `content` is required on a tool result at every revision, and the protocol separately states that a tool returning structured content SHOULD also return the serialized JSON in a text block for backwards compatibility. Either reason alone would leave the current behaviour under-specified.
 
 #### Scenario: Tool returns structured payload
 - **WHEN** a client calls a tool that returns a JSON payload

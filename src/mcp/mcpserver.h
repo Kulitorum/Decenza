@@ -152,10 +152,14 @@ private:
     QJsonObject handleResourcesUnsubscribe(const QJsonObject& params, McpSession* session);
 
     // Which session serves one JSON-RPC message, and why it can't be served if
-    // it can't. The helper deliberately writes NOTHING to the socket: a
-    // single-message POST and one element of a batch reach the same decision but
-    // emit it differently — an HTTP status answers the whole request, a JSON-RPC
-    // error fills one array slot — so the two callers do the emitting.
+    // it can't. The helper deliberately writes NOTHING to the socket, so the caller decides
+    // whether the outcome becomes an HTTP status or a JSON-RPC error body.
+    //
+    // That split existed because a batch element and a single-message POST
+    // reached the same decision and emitted it differently. Batching is gone and
+    // there is now ONE caller, so the separation buys less than it did — kept
+    // because resolving and answering are still different jobs, not because two
+    // callers must agree.
     struct SessionResolution {
         McpSession* session = nullptr;
         int httpStatus = 0;        // non-zero → answer at the HTTP level, no JSON-RPC body
@@ -212,8 +216,8 @@ private:
     // Tool result construction. Always emits a `content[]` text block (works
     // for every protocol version). Spec-versioned additions are gated on the
     // negotiated protocol version: `structuredContent` and `resource_link`
-    // content blocks are 2025-06-18 features, so 2024-11-05 clients see only
-    // the text block. If the tool result carries a `_resourceLinks` array,
+    // content blocks arrived in 2025-06-18, which is now the lowest revision
+    // served, so both are emitted unconditionally. If the tool result carries a `_resourceLinks` array,
     // those entries are stripped from `structuredContent` and (when the
     // version permits) emitted as `resource_link` blocks.
     QJsonObject buildToolCallResponse(const QJsonObject& toolResult,

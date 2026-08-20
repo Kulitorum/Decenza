@@ -568,7 +568,7 @@ MCP tool responses are consumed by LLMs (Claude, ChatGPT, etc.) which cannot rel
 - **Scales in field names**: Bounded values indicate their range — `enjoyment0to100` (0-100 rating)
 - **Human-readable enums**: Machine phases, editor types, and states are returned as strings (`"idle"`, `"pouring"`, `"dflow"`), not numeric codes
 - **`stoppedBy` marks whether a yield is a real outcome** (#1161): shots in `dialing_get_context` (`dialInSessions[].shots[]`, `bestRecentShot`) and `shots_list` carry a sparse `stoppedBy` ∈ `"weight"` (stop-at-weight) / `"volume"` (stop-at-volume) / `"manual"` (user tapped Stop). It is **omitted** when the profile ran to completion or the DE1's own button was used (the BLE protocol can't distinguish those) — the AI then falls back to `yieldG` vs `targetWeightG`. A `"manual"` shot's yield/ratio/duration are user-chosen, not extraction outcomes, so the shared `shotAnalysisSystemPrompt` instructs the AI not to diagnose grind/ratio from them; an absent `stoppedBy` with `yieldG` well below `targetWeightG` is treated the same. Classified in `MainController::onShotEnded` (SAW/SAV C++ state is ground truth; QML's resolved `stopReason` supplies "manual" via `reportShotStopReason`), persisted in `shots.stopped_by` (migration 17).
-- **Shot identity in prose is date/time, never the numeric `id`** (#1162): the per-shot `id` is an internal DB primary key with no user-facing counterpart — Shot History and every user surface key shots by date/time. The AI must cite shots to the user by their local `timestamp` ("your May 10, 9:04 AM shot"), using `id` only as an opaque argument to other tools. This rule is delivered to MCP clients via the server-level `instructions` string in the `initialize` result (retained for the whole session, beverage-agnostic, zero per-call cost) and reinforced in the shared `shotAnalysisSystemPrompt` (`## How to Read Structured Fields`). Two carriers because the full system prompt only reaches MCP clients that call `ai_advisor_invoke` (always carries it) or `dialing_get_context` with `includeFullKnowledge: true` (opt-in since #1164); for a client that does neither, the handshake `instructions` is the only carrier. The `instructions` field is emitted unconditionally: it arrived in `2025-03-26`, and every revision this server still negotiates is newer than that. It was version-gated while `2024-11-05` was supported, since that revision has no such field and a strict client rejects an `initialize` response carrying unknown ones.
+- **Shot identity in prose is date/time, never the numeric `id`** (#1162): the per-shot `id` is an internal DB primary key with no user-facing counterpart — Shot History and every user surface key shots by date/time. The AI must cite shots to the user by their local `timestamp` ("your May 10, 9:04 AM shot"), using `id` only as an opaque argument to other tools. This rule is delivered to MCP clients via the server-level `instructions` string in the `initialize` result (retained for the whole session, beverage-agnostic, zero per-call cost) and reinforced in the shared `shotAnalysisSystemPrompt` (`## How to Read Structured Fields`). Two carriers because the full system prompt only reaches MCP clients that call `ai_advisor_invoke` (always carries it) or `dialing_get_context` with `includeFullKnowledge: true` (opt-in since #1164); for a client that does neither, the handshake `instructions` is the only carrier. The `instructions` field is emitted unconditionally, and the gate it used to carry rested on a false premise: `schema/2024-11-05/schema.ts` already declares `instructions?: string;` on `InitializeResult`, with the same docblock as every later revision. It was optional and present from the first revision, so it was never version-sensitive.
 
 When adding new MCP tool responses, never return raw numbers that require domain knowledge to interpret. An AI seeing `"pressure": 9.0` doesn't know if that's bar, PSI, or kPa. Use `"pressureBar": 9.0` instead.
 
@@ -662,21 +662,27 @@ that a real client here actually uses.
 Two consequences worth knowing before touching version-gated code:
 
 - **`2025-03-26` is still ACCEPTED as a header value**, though it is not
-  negotiable. It is the protocol's compatibility sentinel — the value a client
-  sends when it cannot identify the version — so it means "I do not know", not
-  "I want 2025-03-26", and is treated exactly as an absent header. Dropping it
-  from the negotiable set without this turned the ecosystem's own fallback into
-  a hard 400; the conformance suite caught it within a minute. Accepting the
-  header does not grant that revision's semantics, batching included.
+  negotiable, and this is a **deliberate deviation from a MUST** — the transport
+  spec says an unsupported `MCP-Protocol-Version` MUST get a 400. We accept it
+  because it is the value the spec tells a *server* to assume when no header
+  arrives, and clients emit it for the same reason; the conformance suite sends
+  it on concurrent POSTs after negotiating 2025-11-25. Refusing it turns the
+  ecosystem's own fallback into a hard 400. Note the spec defines no
+  client-sent sentinel — that reading is ours, inferred from client behaviour.
+  Accepting the header does not grant that revision's semantics, batching
+  included, and it is logged at DEBUG rather than passing silently.
 - **The header-absent assumption is `2025-06-18`, not the `2025-03-26` the spec
   names.** A version we refuse cannot be assumed. This is a deliberate deviation
   from a SHOULD and the safe direction — the floor emits strictly fewer optional
   fields, so a header-less client is under-served rather than sent fields its
   revision does not define. See `McpSession::protocolVersion()`.
-- **`title` and `instructions` are no longer gated**, because both arrived at or
-  below the new floor. `structuredContent` / `resource_link` (2025-06-18) and
-  `$schema` dialect / `icons` (2025-11-25) still are — the two surviving
-  revisions are distinguishable by exactly those.
+- **`title`, `instructions`, `structuredContent` and `resource_link` are no
+  longer gated.** All four are defined at or below the floor, so no negotiable
+  revision lacks them. Only `$schema` dialect and `icons` (both 2025-11-25) are
+  still gated — they are the *only* fields that distinguish the two surviving
+  revisions. An earlier version of this section claimed `structuredContent` /
+  `resource_link` distinguished them too; both are `>= 2025-06-18`, which is the
+  floor, so they never did.
 
 ### Wire conformance: what the MCP spec requires that is easy to miss
 

@@ -397,9 +397,6 @@ public:
     QJsonArray listTools(int accessLevel, const QString& protocolVersion) const
     {
         static const char* levelNames[] = {"Monitor", "Control", "Full"};
-        // `title` is unconditional: it arrived in 2025-06-18, which is now the
-        // lowest revision this server serves. Was gated while older revisions
-        // were supported, since a strict client rejects unknown fields.
         const bool emitSchemaDialect = protocolVersion >= QStringLiteral("2025-11-25");
 
         QList<const McpToolDefinition*> ordered;
@@ -423,7 +420,9 @@ public:
             QJsonObject toolJson;
             toolJson["name"] = tool.name;
             // MCP 2025-06-18: human-readable display name distinct from the
-            // programmatic `name`. Auto-derived from snake_case.
+            // programmatic `name`, auto-derived from snake_case. Unconditional —
+            // it arrived at what is now the lowest revision this server serves,
+            // so no version it can negotiate lacks the field.
             toolJson["title"] = McpRegistryHelpers::deriveTitle(tool.name);
             if (required > accessLevel) {
                 int reqClamped = qBound(0, required, 2);

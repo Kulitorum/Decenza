@@ -9,9 +9,12 @@
 # other reason does not belong here — it belongs fixed.
 #
 # The suite exits non-zero for an unexpected failure AND for a stale entry (one
-# listed here that has started passing), so this file cannot quietly rot. When a
-# scenario here starts passing, delete its line; that is the suite telling you
-# the reason below expired.
+# listed here that has started passing). So a RUN cannot quietly pass over a
+# stale entry — but nothing in this repo runs the suite: no CMake target, no
+# CTest entry, no workflow. It needs a live server and `npx`, so it is a manual
+# gate, and this file rots exactly as long as nobody runs it. When a scenario
+# here starts passing, delete its line; that is the suite telling you the reason
+# below expired.
 #
 # Deliberately NOT listed, so they stay gates rather than excuses:
 #   server-accepts-multiple-post-streams — a real defect, fixed. It sends its
