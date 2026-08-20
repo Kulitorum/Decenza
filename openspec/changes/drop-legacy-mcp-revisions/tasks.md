@@ -28,7 +28,7 @@
 ## 5. Verify
 
 - [x] 5.1 `mcp__qtcreator__run_tests` — ask first, Qt Creator is shared. Named scope is enough for the MCP tests; a full run before the PR
-- [x] 5.2 Conformance against a running app with the checked-in baseline. Expect the same green, and note the suite has no scenarios for either dropped revision — so it cannot confirm the removal either way. It CAN confirm nothing else regressed, which is the point of running it
+- [x] 5.2 Conformance against a running app with the checked-in baseline: **exit 0**, 9 passed, 22 expected failures, no stale entries, scenario-by-scenario identical to the pre-drop run. The suite has no scenarios for either dropped revision, so it cannot confirm the removal either way — what it confirms is that nothing else regressed. New log lines verified live on the built binary, not only under test
 - [ ] 5.3 Live-check over both callers, ShotServer and `McpRemoteAccess`
 - [x] 5.4 No wiki manual change — protocol revisions are not a user-visible app surface
 - [x] 5.5 Open the PR, then run `/pr-review-toolkit:review-pr`
