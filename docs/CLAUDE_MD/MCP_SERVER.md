@@ -661,6 +661,13 @@ that a real client here actually uses.
 
 Two consequences worth knowing before touching version-gated code:
 
+- **`2025-03-26` is still ACCEPTED as a header value**, though it is not
+  negotiable. It is the protocol's compatibility sentinel — the value a client
+  sends when it cannot identify the version — so it means "I do not know", not
+  "I want 2025-03-26", and is treated exactly as an absent header. Dropping it
+  from the negotiable set without this turned the ecosystem's own fallback into
+  a hard 400; the conformance suite caught it within a minute. Accepting the
+  header does not grant that revision's semantics, batching included.
 - **The header-absent assumption is `2025-06-18`, not the `2025-03-26` the spec
   names.** A version we refuse cannot be assumed. This is a deliberate deviation
   from a SHOULD and the safe direction — the floor emits strictly fewer optional

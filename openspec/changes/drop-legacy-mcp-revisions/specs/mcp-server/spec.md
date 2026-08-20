@@ -38,6 +38,13 @@ deliberate deviation, and it is the safe direction: the lowest supported version
 emits strictly fewer optional fields than any above it, so a client that omits
 the header is under-served rather than sent fields its revision does not define.
 
+A header carrying that same `2025-03-26` value SHALL be accepted rather than
+rejected, and SHALL be treated exactly as an absent header. It is the value the
+protocol tells a client to use when it cannot identify the version, so it
+conveys no version request and SHALL NOT be read as one. Accepting it as a
+header SHALL NOT make that revision negotiable, and a client sending it SHALL
+NOT receive that revision's semantics.
+
 #### Scenario: Header matches negotiated version
 - **WHEN** a client POSTs `tools/call` with `MCP-Protocol-Version: 2025-11-25` after negotiating `2025-11-25`
 - **THEN** the server processes the request normally
@@ -45,6 +52,14 @@ the header is under-served rather than sent fields its revision does not define.
 #### Scenario: Header mismatch
 - **WHEN** a client POSTs `tools/call` with `MCP-Protocol-Version: 2024-11-05` after negotiating `2025-11-25`
 - **THEN** the server returns HTTP 400 with body indicating protocol version mismatch
+
+#### Scenario: Compatibility sentinel in the header
+- **WHEN** a client that negotiated `2025-11-25` POSTs with `MCP-Protocol-Version: 2025-03-26`
+- **THEN** the request is served under the negotiated version, not rejected and not downgraded
+
+#### Scenario: The sentinel does not make the revision negotiable
+- **WHEN** a client sends `initialize` with `protocolVersion: "2025-03-26"`
+- **THEN** the server still answers with its preferred version, as for any unsupported revision
 
 #### Scenario: Header absent on legacy client
 - **WHEN** a client negotiates `2025-06-18` and POSTs subsequent requests without an `MCP-Protocol-Version` header

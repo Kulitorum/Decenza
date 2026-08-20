@@ -22,7 +22,8 @@
 ## 4. Record the deviation
 
 - [ ] 4.1 The protocol says assume `2025-03-26` when the header is absent. We cannot assume a version we refuse, so the floor becomes `2025-06-18`. Write that at the site as a knowing deviation from a SHOULD, with the reason it is the safe direction — the floor emits strictly fewer optional fields
-- [ ] 4.2 `docs/CLAUDE_MD/MCP_SERVER.md`: the supported set, and that batching is gone
+- [x] 4.2 **`2025-03-26` stays accepted as a HEADER value** while not being negotiable. It is the protocol's compatibility sentinel — the value a client sends when it cannot identify the version — so it conveys no version request and is treated as an absent header. Dropping it from the negotiable set without this turned the ecosystem's own fallback into a 400, which the conformance suite caught immediately. Accepting the header does NOT grant that revision's semantics: batching in particular is gone regardless
+- [ ] 4.3 `docs/CLAUDE_MD/MCP_SERVER.md`: the supported set, the sentinel, and that batching is gone
 
 ## 5. Verify
 

@@ -75,6 +75,30 @@ replacement. The block was never actually there for the old revisions; the
 comment was wrong before this change and would have read as a reason to delete
 it after.
 
+### Dropping a revision from the NEGOTIABLE set is not dropping it from the wire
+
+`2025-03-26` remains accepted as an `MCP-Protocol-Version` header value.
+
+*Why:* the protocol designates it as the value to assume when the version cannot
+be identified, and clients send it explicitly for that reason — it means "I do
+not know", not "I want 2025-03-26". Treating it as a version request and
+refusing it converted the ecosystem's own compatibility mechanism into a hard
+400 for any client using it.
+
+This was not predicted here; the conformance suite found it within a minute of
+the change being built, on the same scenario that found the earlier
+header-handling defect. It is the clearest argument so far for the suite being a
+gate rather than a report.
+
+*What it does NOT mean:* the revision is still not negotiable, and a client
+sending the sentinel gets the session's version, not 2025-03-26's semantics. In
+particular it does not resurrect batching, which only that revision defines.
+
+*Consequence for the dual-era change:* its rule that "a supported header wins"
+must not honour the sentinel as a version — the sentinel maps to the session, a
+supported header maps to itself. Two different behaviours for two different
+kinds of header value.
+
 ## Risks / Trade-offs
 
 - **A client requesting a dropped revision breaks.** It receives `2025-11-25`

@@ -859,6 +859,26 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
     }
     out.session = session;
 
+    // `2025-03-26` in the header is the protocol's COMPATIBILITY SENTINEL, not a
+    // version request, and is accepted even though we no longer negotiate that
+    // revision. The spec names it as the value to assume "if the server does not
+    // receive an MCP-Protocol-Version header, and has no other way to identify
+    // the version" — and clients send it explicitly for the same reason: it is
+    // what you put on the wire when you do not know. It therefore carries no
+    // information and is treated exactly as an absent header.
+    //
+    // Dropping 2025-03-26 from the negotiable set without this turned the
+    // ecosystem's own fallback value into a 400. Found by the official
+    // conformance suite: server-accepts-multiple-post-streams negotiates
+    // 2025-11-25 and then sends its concurrent POSTs carrying this header.
+    //
+    // Accepted as a header is NOT the same as served: a client cannot negotiate
+    // 2025-03-26, so it never gets that revision's semantics — notably batching,
+    // which only that revision defines and which this server no longer
+    // implements. It gets the session's version, as if it had sent nothing.
+    const bool headerIsCompatSentinel =
+        protocolHeader == QLatin1String("2025-03-26");
+
     // MCP-Protocol-Version header check (required by 2025-06-18 for
     // every non-initialize HTTP request after the session is set up).
     // - Skip on `initialize` itself: handled by the early return above.
@@ -867,7 +887,7 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
     // - When absent, sessions carry the lowest supported revision. The spec
     //   names `2025-03-26` here, which we no longer serve — see
     //   McpSession::protocolVersion() for that deliberate deviation.
-    if (!protocolHeader.isEmpty() && session->initialized()
+    if (!protocolHeader.isEmpty() && !headerIsCompatSentinel && session->initialized()
         && protocolHeader != session->protocolVersion()) {
         MCP_WARN_TAGGED("Server", QStringLiteral("Protocol version mismatch — header %1, "
                                                  "session %2")
