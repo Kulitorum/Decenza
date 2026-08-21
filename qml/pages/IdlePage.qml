@@ -142,11 +142,17 @@ T.Page {
         Math.max(0, idlePage.height - Theme.statusBarHeight - Theme.bottomBarHeight - Theme.scaled(120))
 
     // Un-offset extents of the movable idle content (read raw so the test can't
-    // feed back into the offset it produces). lowerMidBar (when visible) reaches
-    // bottomBar.top; the center column's top is its own y.
+    // feed back into the offset it produces). The center column's top is its own y.
+    //
+    // The band's bottom is bottomBar.top plus the user's zone Y-offset, not
+    // bottomBar.top alone: its anchors.bottomMargin is the NEGATED offset (see the
+    // Rectangle), so a positive offset pushes the bottom edge down. Reading
+    // bottomBar.y flat under-measured the content by that offset and short-changed
+    // the clearance a picker popup asked for. Unaffected by the squeeze, which
+    // shrinks the band from the top.
     readonly property real _idleContentBottom: {
         var colBottom = centerContent.y + centerContent.height
-        var bandBottom = lowerMidBarVisible ? bottomBar.y : 0
+        var bandBottom = lowerMidBarVisible ? (bottomBar.y + idlePage.lowerMidBarYOffset) : 0
         return Math.max(colBottom, bandBottom)
     }
     readonly property real _idleContentTop: centerContent.y
@@ -178,19 +184,37 @@ T.Page {
     // Weather, …) off the screen for as long as the carousel stayed open.
     //
     // The BAND yields instead, and by exactly the amount it is actually crowded by
-    // (lowerMidBarCrowding, below). Nothing above the band ever moves or resizes,
-    // and the band itself keeps its full size until something genuinely needs the
-    // room, so a layout whose column never reaches it is untouched in both states.
+    // (lowerMidBarCrowding, below). The SQUEEZE moves nothing above the band: the
+    // band is bottom-anchored, so shrinking moves only its own top edge, and the
+    // centre column reads nothing from it. A layout whose column never reaches the
+    // band is untouched in both states. (Sizing centre-zone readouts to their
+    // content — LayoutCenterZone's Layout.preferredHeight — does re-flow the column,
+    // once and at rest. That is a separate change in this branch, not this one.)
     //
-    // Fallback for what the squeeze cannot recover (a very short viewport, a tall
-    // band, a tall preset row): the band is HIDDEN (faded out) rather than shoved
-    // down — it sits on bottomBar.top (modulo the user's zone Y-offset), so "down"
-    // runs it into the bottom action bar. One-way: reads the column's un-offset
-    // bottom against the band's static top.
+    // Fallback for the crowding the squeeze cannot absorb: the band is HIDDEN
+    // (faded out) rather than shoved down — it sits on bottomBar.top (modulo the
+    // user's zone Y-offset), so "down" runs it into the bottom action bar.
+    //
+    // Asks whether the squeeze has BOTTOMED OUT rather than comparing against the
+    // band's rendered top, and that is not a stylistic choice. lowerMidBar.height
+    // animates (Behavior, below) and so does the preset row that drives the column
+    // (Layout.preferredHeight, likewise), with independent lag. A predicate reading
+    // the rendered lowerMidBar.y therefore goes transiently true mid-animation while
+    // the band is still on its way down, which starts the very fade the squeeze
+    // exists to avoid — a flash on every carousel open. Comparing the two VALUES is
+    // lag-free, and says what is actually meant: fade only once the band cannot give
+    // up any more height.
+    //
+    // Still gated on an open carousel, which leaves one asymmetry worth knowing:
+    // lowerMidBarCrowding is not so gated, so a centre column tall enough to crowd
+    // the band with no preset row open squeezes it to the minimum and then simply
+    // overlaps, with no fade. Extending the fade there would change the resting idle
+    // screen, which this change deliberately does not touch.
     readonly property bool carouselOverlapsBand: {
         if (idlePage.activePresetFunction === "" || !idlePage.lowerMidBarVisible)
             return false
-        return (centerContent.y + centerContent.height + Theme.spacingMedium) > lowerMidBar.y
+        return idlePage.lowerMidBarCrowding
+            > (idlePage.lowerMidBarRestHeight - idlePage.lowerMidBarMinHeight)
     }
 
     Component.onCompleted: {
@@ -1481,12 +1505,25 @@ T.Page {
     readonly property int lowerMidBarYOffset: layoutConfig.offsets ? (layoutConfig.offsets.lowerMidBar || 0) : 0
     readonly property real lowerMidBarScale: layoutConfig.scales ? (layoutConfig.scales.lowerMidBar || 1.0) : 1.0
     readonly property bool lowerMidBarHasItems: idlePage.lowerMidBarItems.length > 0
-    // Auto-grow: the band fits its content (large item-size makes it taller),
-    // never smaller than the standard bar height. This is the band's size when
-    // nothing is crowding it, and the baseline everything below measures against.
+    // Auto-grow: the band fits its content (large item-size makes it taller). This
+    // is the band's size when nothing is crowding it, and the baseline every figure
+    // below measures against — NOT a floor on what it renders at, which is
+    // lowerMidBarMinHeight. The scaled(82) is this zone's own minimum and is not
+    // Theme.bottomBarHeight, which is scaled(70) (Theme.qml:1034) and is separately
+    // applied to lmbZone.implicitHeight by LayoutBarZone.qml:44.
     readonly property real lowerMidBarRestHeight: Math.max(Theme.scaled(82), lmbZone.implicitHeight)
-    // How far the band may be squeezed before the fade takes over instead.
-    readonly property real lowerMidBarMinHeight: Theme.scaled(44)
+    // Floor on the squeeze. Past this the band stops giving up height; with a
+    // carousel open carouselOverlapsBand then fades it, and with none open it simply
+    // overlaps (see that property for why the two differ).
+    //
+    // PROPORTIONAL, because the content scales with the height: a flat floor against
+    // a content-driven rest height means the scale bottoms out at floor/restHeight,
+    // which is ~0.5 for a default band but ~0.2 for a tall one (itemSize "large", or
+    // a user zone scale). That range is present-but-unreadable, with every tap target
+    // inside it well under Theme.touchTargetMin. Capping the squeeze at 40% of the
+    // band keeps it legible and lets the fade take over while it still is.
+    readonly property real lowerMidBarMinHeight: Math.max(
+        Theme.touchTargetMin, idlePage.lowerMidBarRestHeight * 0.6)
 
     // Where the band's top edge would sit at full size. anchors.bottomMargin is the
     // NEGATED zone Y-offset (see the Rectangle), so the offset adds to the bottom.
@@ -1500,31 +1537,43 @@ T.Page {
     // Loop-free by construction, and the constraint is tighter than it looks. Every
     // input is independent of the band's rendered size: the centre column does not
     // read the band at all, bottomBar is anchored to the page, and REST height comes
-    // from lmbZone.implicitHeight, which is content-driven (itemsRow is
-    // verticalCenter-anchored, so it never measures its parent). That last one is
-    // why the squeeze may NOT run through the zone's zoneScale, however natural that
-    // looks — zoneScale feeds implicitHeight, so scaling the content there would put
-    // the band's size on both sides of its own binding. It is applied as a render
-    // transform on the zone instead, which layout ignores.
+    // from lmbZone.implicitHeight, which is content-driven — LayoutBarZone.qml:44
+    // computes it from itemsRow.implicitHeight, and itemsRow anchors to its parent's
+    // verticalCenter/left/right (LayoutBarZone.qml:49-51), so it measures the
+    // parent's WIDTH but never its height.
+    //
+    // That is why the squeeze may NOT run through the zone's zoneScale, however
+    // natural that looks — zoneScale is the other factor in that same
+    // LayoutBarZone.qml:44 expression, so scaling the content there would put the
+    // band's size on both sides of its own binding. It is applied as a render
+    // transform on the zone instead: QQuickItem::setScale only marks BasicTransform
+    // dirty and emits no geometry change (qtdeclarative/src/quick/items/
+    // qquickitem.cpp:6442-6454), so anchors, width and height never see it.
     readonly property real lowerMidBarCrowding: {
         if (!idlePage.lowerMidBarVisible) return 0
         var columnBottom = centerContent.y + centerContent.height + Theme.spacingMedium
         return Math.max(0, columnBottom - idlePage.lowerMidBarRestTop)
     }
 
-    readonly property real lowerMidBarFullHeight: Math.max(
+    // NOT named "full height": LayoutPreview.qml carries a lowerMidFullHeight that
+    // means the UN-squeezed height, i.e. this file's lowerMidBarRestHeight. Two
+    // mirrored surfaces using one name for opposite quantities is how they drift.
+    readonly property real lowerMidBarCurrentHeight: Math.max(
         idlePage.lowerMidBarMinHeight,
         idlePage.lowerMidBarRestHeight - idlePage.lowerMidBarCrowding)
     // Render scale for the band's contents, so a squeezed band shrinks what it holds
     // instead of clipping it. 1.0 whenever nothing is crowding the band.
     readonly property real lowerMidBarContentScale: idlePage.lowerMidBarRestHeight > 0
-        ? idlePage.lowerMidBarFullHeight / idlePage.lowerMidBarRestHeight
+        ? idlePage.lowerMidBarCurrentHeight / idlePage.lowerMidBarRestHeight
         : 1.0
-    // Deliberately the REST height, not the squeezed one. Gating on the squeezed
-    // height would let a viewport too short for the band at rest pass the test the
-    // moment a carousel opened, so the band would appear only while a preset row
-    // was open — backwards. Whether the band exists is a property of the viewport,
-    // not of what the user has open.
+    // Deliberately the REST height, not the squeezed one, and that is a hard
+    // requirement rather than a preference: lowerMidBarCrowding reads
+    // lowerMidBarVisible, so gating this on the squeezed height closes the cycle
+    // fits → visible → crowding → fullHeight → fits and QML reports a binding loop
+    // with the values latching non-deterministically.
+    //
+    // It is also the right semantics. Whether the band exists at all is a property
+    // of the viewport, not of what the user happens to have open.
     readonly property bool lowerMidBarFits:
         (idlePage.height - Theme.statusBarHeight - Theme.bottomBarHeight - lowerMidBarRestHeight) >= Theme.scaled(220)
     readonly property bool lowerMidBarVisible: lowerMidBarHasItems && lowerMidBarFits
@@ -1537,7 +1586,7 @@ T.Page {
         // Negative offset (the editor's "up") lifts the band off the bottom bar.
         anchors.bottomMargin: -idlePage.lowerMidBarYOffset
         visible: idlePage.lowerMidBarVisible
-        height: visible ? idlePage.lowerMidBarFullHeight : 0
+        height: visible ? idlePage.lowerMidBarCurrentHeight : 0
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
         color: Theme.zoneBackgroundColor(idlePage.lowerMidBarOptions.style)
         // Fade out (rather than overlap the bottom action bar) when the center-zone
@@ -1560,8 +1609,12 @@ T.Page {
         // intent; do not rely on it alone to hide anything.
         //
         // `visible: false` is the only construct that genuinely removes a subtree
-        // from the accessibility tree, but it collapses the band's height (see the
-        // binding above) and so moves the layout.
+        // from the accessibility tree. It is not used here because it would collapse
+        // the band's painted area outright, where the fade keeps the band's place
+        // while it is unreachable. Note it would NOT disturb the rest of the page:
+        // nothing anchors to this Rectangle — carouselOverlapsBand's read is the
+        // only reference to it in the file — and the band's height already varies
+        // by design (lowerMidBarCurrentHeight) with nothing above it moving.
         Accessible.ignored: idlePage.carouselOverlapsBand
         Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
         // Slides UP with the center content to clear a bottom-zone picker popup.
@@ -1571,10 +1624,13 @@ T.Page {
         }
 
         // Laid out at the band's REST height and scaled down to whatever height the
-        // band currently has. Deliberately not anchors.fill: filling would make the
-        // zone's own geometry follow the squeezed height, and its implicitHeight is
-        // the baseline the squeeze is computed from. Scale is a render transform, so
-        // layout never sees it and the baseline stays put.
+        // band currently has, so scale alone carries the squeeze.
+        //
+        // Deliberately not anchors.fill, and the reason is double application rather
+        // than any feedback: filling would already size the zone to the squeezed
+        // height, itemsRow would centre its natural-size content in that, and the
+        // scale below would then shrink it a second time. (It would be harmless to
+        // implicitHeight, which never measures this item — see lowerMidBarCrowding.)
         LayoutBarZone {
             id: lmbZone
             anchors.left: parent.left
@@ -1586,7 +1642,18 @@ T.Page {
             scale: idlePage.lowerMidBarContentScale
             // Shrinks towards the bottom bar, so the band's top edge is what moves
             // and its contents stay put against the bar below them.
-            transformOrigin: Item.Bottom
+            //
+            // A uniform scale shrinks x as well as y, so the origin is pinned to the
+            // zone's ALIGNMENT edge — the same rule, and the same reason, as
+            // LayoutBarZone.qml:54-58 applies to its own zoneScale. With plain
+            // Item.Bottom a left- or right-aligned band's contents would slide inward
+            // by (1 - scale) * width / 2 as it squeezed.
+            transformOrigin: {
+                var a = idlePage.lowerMidBarOptions.alignment || "center"
+                if (a === "left") return Item.BottomLeft
+                if (a === "right") return Item.BottomRight
+                return Item.Bottom
+            }
             Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
             zoneName: "lowerMidBar"
             items: idlePage.lowerMidBarItems
