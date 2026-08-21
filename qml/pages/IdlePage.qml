@@ -188,6 +188,22 @@ T.Page {
     readonly property bool squeezeForCarousel:
         idlePage.activePresetFunction !== "" && idlePage.lowerMidBarHasItems
 
+    // The centre column is centred on the WHOLE page, so it ignores the
+    // bottom-anchored lower-mid band completely and an open carousel grows
+    // straight into it. Centre it in the space above the band instead: with the
+    // status and bottom bars the same height, that is exactly a lift of half the
+    // band's height. The column then has symmetric room and the two stay apart by
+    // construction, leaving the squeeze and the fade to cover only what an
+    // unusually tall preset row adds on top.
+    //
+    // Deliberately the UN-SQUEEZED band height. Keying this to the squeezed height
+    // would shift the whole column the moment a carousel opened — the jumping the
+    // squeeze exists to avoid — and would also put lowerMidBarFullHeight on both
+    // sides of its own binding.
+    readonly property real centerColumnBandLift: idlePage.lowerMidBarVisible
+        ? Math.max(Theme.scaled(82), lmbZone.implicitHeight) / 2
+        : 0
+
     // Fallback for what the squeeze cannot recover (a very short viewport, a tall
     // band, a tall preset row): the band is HIDDEN (faded out) rather than shoved
     // down — it sits on bottomBar.top (modulo the user's zone Y-offset), so "down"
@@ -900,7 +916,7 @@ T.Page {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: Theme.scaled(50)
+        anchors.verticalCenterOffset: Theme.scaled(50) - idlePage.centerColumnBandLift
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
         // Tightens while a carousel is open so the expanded column stops crowding
