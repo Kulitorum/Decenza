@@ -129,7 +129,21 @@ Item {
                 // past the screen edge; capped, the text wraps and elides inside.
                 Layout.maximumWidth: modelData.type === "shotPlan"
                     ? root.availableWidth : Number.POSITIVE_INFINITY
-                Layout.preferredHeight: modelData.type === "spacer" ? -1 : root.buttonHeight
+                // Mirrors Layout.preferredWidth above: an auto-sized type sizes to its
+                // CONTENT in both axes. Only action buttons take the fixed cell.
+                //
+                // This used to exempt "spacer" alone, so every readout — the shot plan,
+                // the clock, the temperature — claimed a full buttonHeight cell and
+                // painted a line or two of text centred in it. The leftover was invisible
+                // buffer that still counted as layout height, which made the zone, and the
+                // whole centre column, measure taller than anything on screen. Anything
+                // reasoning about where the column ENDS (see IdlePage's
+                // carouselOverlapsBand) was then reading padding rather than content, and
+                // hid the lower-mid band over a gap the user could plainly see was empty.
+                //
+                // isAutoSized already covers "spacer", so this subsumes the old case
+                // exactly rather than dropping it.
+                Layout.preferredHeight: root.isAutoSized(modelData.type) ? -1 : root.buttonHeight
                 Layout.fillWidth: modelData.type === "spacer"
             }
         }
