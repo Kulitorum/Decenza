@@ -49,6 +49,21 @@ public:
         return true;
     }
 
+    // Events recorded against `key` in the current window, 0 if none is live.
+    // For a caller that logs by count rather than only by over/under — the
+    // running total is what tells a submitted log a stray probe from a scanner
+    // at thousands a minute, and going over the budget alone does not carry it.
+    //
+    // Read it straight after recordAndCheckOverLimit(), which prunes and rolls
+    // the window first. On its own it reports whatever count is still resident,
+    // which for an expired window is the old one — it does no pruning of its own
+    // because a const accessor that mutates the map would be the worse surprise.
+    int countInWindow(const QString& key) const
+    {
+        const auto it = m_windows.constFind(key);
+        return it == m_windows.constEnd() ? 0 : it->count;
+    }
+
     // Forget every key. For a caller tearing down the surface the budget
     // applies to — a fresh listener owes nobody a carried-over count.
     void clear() { m_windows.clear(); }

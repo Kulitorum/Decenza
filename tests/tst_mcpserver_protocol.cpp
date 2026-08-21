@@ -164,7 +164,8 @@ private:
                                  const QByteArray& method,
                                  const QByteArray& body,
                                  const QString& sessionId = QString(),
-                                 const QList<QPair<QByteArray, QByteArray>>& extraHeaders = {})
+                                 const QList<QPair<QByteArray, QByteArray>>& extraHeaders = {},
+                                 const QString& callerLabel = QString())
     {
         HttpResponse out;
 
@@ -183,7 +184,8 @@ private:
         for (const auto& kv : extraHeaders)
             headers += kv.first + ": " + kv.second + "\r\n";
 
-        server.handleHttpRequest(serverSocket, method, "/mcp", headers, body);
+        server.handleHttpRequest(serverSocket, method, "/mcp", headers, body,
+                                 /*remote=*/!callerLabel.isEmpty(), callerLabel);
 
         client.waitForReadyRead(1000);
         out = parseHttpResponse(client.readAll());
@@ -1368,6 +1370,45 @@ private slots:
         QVERIFY2(sawRefusal, "an unbounded control surface is the thing this exists to prevent");
         QVERIFY2(*ran <= McpServer::RateLimitPerMinute,
                  "a refused call must not have run");
+    }
+
+    // The refusal must name the caller the connector gave us, not the loopback
+    // address a tunnel-proxied request arrives on. Every public client shares
+    // that address, so a line reporting it reads to the next person as the
+    // user's own on-device traffic — the exact misreading that let an overnight
+    // scan look like self-inflicted noise.
+    void modernRateLimitReportsTheConnectorSuppliedCaller()
+    {
+        McpServer server;
+        Settings settings;
+        settings.mcp()->setMcpAccessLevel(2);
+        settings.mcp()->setMcpConfirmationLevel(0);
+        server.setSettings(&settings);
+
+        server.toolRegistry()->registerTool(
+            "machine_wake", "A control tool",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; }, "control");
+
+        QJsonObject params;
+        params["name"] = "machine_wake";
+        params["arguments"] = QJsonObject{};
+        const QString label = QStringLiteral("Funnel (public internet)");
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Rate limit exceeded .* for Funnel \\(public internet\\)"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Refusing modern tools/call"));
+
+        bool sawRefusal = false;
+        for (int i = 0; i < McpServer::RateLimitPerMinute + 5; ++i) {
+            auto resp = sendHttp(server, "POST", modernBody("tools/call", params, 300 + i),
+                                 QString(), {}, label);
+            if (resp.jsonBody.contains("error")) {
+                sawRefusal = true;
+                break;
+            }
+        }
+        QVERIFY(sawRefusal);
     }
 
     // A read verb must not spend the control budget. Without this the limiter
