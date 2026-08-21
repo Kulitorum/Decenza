@@ -3,7 +3,10 @@
 //   - capability token generation / rotation / constant-time comparison
 //   - dedicated-listener route gating (non-MCP path → 404, wrong token → 404,
 //     valid token → dispatched to McpServer)
-//   - failed-token per-source rate limiting
+//   - failed-token per-source rate limiting, and the bound it puts on how much
+//     debug log an unauthenticated caller can cause
+//   - tunnel-proxied requests are logged as Funnel rather than as the loopback
+//     address they arrive on, and are dropped without a reply
 //   - end-to-end initialize → notifications/initialized → tools/call through
 //     the real loopback listener
 //   - access-level enforcement is identical for remote sessions
@@ -63,6 +66,49 @@ void registerMcpResources(McpResourceRegistry*, DE1Device*, MachineState*, Profi
 void registerAgentTools(McpToolRegistry*) {}
 void registerAITools(McpToolRegistry*, MainController*) {}
 
+// Counts the connector's unauthorized-request warnings while installed. A
+// handler rather than QTest::ignoreMessage because the assertion is on HOW MANY
+// lines a rejected caller can cause, which ignoreMessage cannot express.
+static int s_unauthorizedWarnings = 0;
+static int s_milestoneWarnings = 0;
+static QString s_lastMilestoneWarning;
+static void countUnauthorizedWarnings(QtMsgType type, const QMessageLogContext&, const QString& msg)
+{
+    if (type != QtWarningMsg || !msg.contains(QLatin1String("unauthorized request")))
+        return;
+    ++s_unauthorizedWarnings;
+    // The line that carries the running count, so a submitted log can still tell
+    // a stray probe from sustained hammering. Matched on "still being dropped",
+    // which only the milestone says: "this minute" appears in the transition
+    // line too ("...for the rest of this minute"), and matching that counted
+    // both and made this assertion fail for a reason that was not the product's.
+    if (msg.contains(QLatin1String("still being dropped"))) {
+        ++s_milestoneWarnings;
+        s_lastMilestoneWarning = msg;
+    }
+}
+
+// Installs the counting handler and puts the previous one back on EVERY exit,
+// including the early return QTest performs when an assertion inside the scope
+// fails. A leaked handler would swallow warnings for the rest of the binary and
+// break every later QTest::ignoreMessage with a cause unrelated to the failure.
+class WarningCounterGuard {
+public:
+    WarningCounterGuard()
+        : m_prior(qInstallMessageHandler(&countUnauthorizedWarnings))
+    {
+        s_unauthorizedWarnings = 0;
+        s_milestoneWarnings = 0;
+        s_lastMilestoneWarning.clear();
+    }
+    ~WarningCounterGuard() { qInstallMessageHandler(m_prior); }
+    WarningCounterGuard(const WarningCounterGuard&) = delete;
+    WarningCounterGuard& operator=(const WarningCounterGuard&) = delete;
+
+private:
+    QtMessageHandler m_prior;
+};
+
 class tst_McpRemoteAccess : public QObject {
     Q_OBJECT
 
@@ -117,6 +163,13 @@ class tst_McpRemoteAccess : public QObject {
             }
             if (headerEnd >= 0 && contentLength >= 0
                 && buf.size() >= headerEnd + 4 + contentLength)
+                break;
+            // Answered with nothing and hung up — the deliberate no-reply drop.
+            // Without this the caller waits out the full timeout for a response
+            // that is never coming, which is seconds per request in any test
+            // that exercises the drop path. Guarded on an empty buffer so a
+            // server that replies and then closes is still read to completion.
+            if (buf.isEmpty() && sock.state() == QAbstractSocket::UnconnectedState)
                 break;
         }
 
@@ -327,12 +380,108 @@ private slots:
     {
         McpRemoteAccess remote;
         // Under the per-minute budget: not limited.
-        for (int i = 0; i < 20; ++i)
+        for (int i = 0; i < McpRemoteAccess::MaxFailedPerMinute; ++i)
             QVERIFY(!remote.failedTokenOverLimit("1.2.3.4"));
-        // The 21st failure in the window trips the limit.
+        // The next failure in the window trips the limit.
         QVERIFY(remote.failedTokenOverLimit("1.2.3.4"));
         // A different source has its own budget.
         QVERIFY(!remote.failedTokenOverLimit("5.6.7.8"));
+
+        // The budget is what bounds how much log an unauthenticated caller can
+        // write, so it is pinned at a value small enough to matter. Twenty (the
+        // value this replaced) let one source emit twenty warnings a minute,
+        // which is enough to evict every other subsystem from the debug buffer.
+        QVERIFY(McpRemoteAccess::MaxFailedPerMinute <= 5);
+    }
+
+    // ── Tunnel-proxied requests are named as such, and get no reply ───────
+    // Behind an embedded tunnel every remote client arrives as 127.0.0.1, so an
+    // untagged log line invites the reader to dismiss a real scan as their own
+    // on-device traffic. Driven through startListener() directly rather than
+    // refresh(), so the assertion holds in builds compiled without tsnet.
+    void tunnelProxiedRequestsAreTaggedAndUnanswered()
+    {
+        SettingsMcp settings;
+        McpServer server;
+        McpRemoteAccess remote;
+        settings.setMcpEnabled(true);
+        settings.setRemoteMcpPort(0);   // ephemeral
+        settings.rotateRemoteMcpToken();
+        remote.setMcpServer(&server);
+        remote.setSettings(&settings);
+        remote.startListener(/*bindLoopbackOnly=*/true);
+        const quint16 port = static_cast<quint16>(remote.listenPort());
+        QVERIFY(port != 0);
+
+        // The loopback peer address is NOT what the line reports.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("rejected unauthorized request from Funnel \\(public internet\\)"));
+        Resp wrong = fetch(port, httpRequest("POST", "/mcp/not-the-real-token", rpc("initialize")));
+        // No status line and no body: the connection was closed without a
+        // reply, so nothing confirms a live service to whoever guessed.
+        QCOMPARE(wrong.status, 0);
+        QVERIFY(wrong.rawBody.isEmpty());
+
+        // Same for malformed framing from a STRANGER, refused before any token
+        // is parsed: Mode C answers these 404 (contentLengthValidation), a
+        // tunnel says nothing.
+        const QByteArray malformed =
+            "POST /mcp/x HTTP/1.1\r\nHost: x\r\nContent-Length: notanumber\r\n\r\n";
+        QCOMPARE(fetch(port, malformed).status, 0);
+
+        // But the same framing failure from a client that DOES hold the token
+        // still gets its 404. Silence there is indistinguishable from a dropped
+        // network, so a legitimate client would retry a request that can never
+        // succeed — and someone who already knows the token learns nothing from
+        // the reply. The request line carries the token even though the framing
+        // is bad, which is what makes the two cases separable.
+        const QByteArray malformedFromHolder =
+            "POST /mcp/" + settings.remoteMcpToken().toUtf8()
+            + " HTTP/1.1\r\nHost: x\r\nContent-Length: notanumber\r\n\r\n";
+        QCOMPARE(fetch(port, malformedFromHolder).status, 404);
+
+        // A valid token still works through the same listener — the silence is
+        // for failed authorization only, not for the route itself.
+        Resp ok = fetch(port, httpRequest("POST", "/mcp/" + settings.remoteMcpToken().toUtf8(),
+                                          rpc("initialize", initParams())));
+        QCOMPARE(ok.status, 200);
+    }
+
+    // ── A rejected caller cannot keep writing to the log ──────────────────
+    // Counts the warnings the REAL listener emits, not a re-derivation of its
+    // decision tree: an unauthenticated caller who keeps knocking must stop
+    // costing log lines, or it can evict every other subsystem's evidence from
+    // the fixed-size debug buffer.
+    void sustainedRejectionStopsCostingLogLines()
+    {
+        SettingsMcp settings;
+        McpServer server;
+        McpRemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote);
+        QVERIFY(port != 0);
+
+        // Past the first milestone (100), so the branch that keeps recording
+        // SCALE after per-request logging stops is actually exercised. Stopping
+        // at a handful would leave that code able to be deleted with the suite
+        // still green, and it is the whole reason the bound is not just silence.
+        const int requests = 105;
+        {
+            WarningCounterGuard counting;
+            for (int i = 0; i < requests; ++i)
+                fetch(port, httpRequest("POST", "/mcp/not-the-real-token", rpc("initialize")));
+        }
+
+        // One line per request while under budget, one transition line, and one
+        // milestone at 100 — never one per request.
+        QCOMPARE(s_unauthorizedWarnings, McpRemoteAccess::MaxFailedPerMinute + 2);
+        QVERIFY2(s_unauthorizedWarnings < requests,
+                 "a rejected caller must not cost a log line per request");
+        QCOMPARE(s_milestoneWarnings, 1);
+        // The count itself is the payload — a milestone line that did not say
+        // how many would bound the log without preserving the thing the bound
+        // costs us.
+        QVERIFY2(s_lastMilestoneWarning.contains(QLatin1String("100 unauthorized requests")),
+                 qPrintable(s_lastMilestoneWarning));
     }
 
     // ── Route gating through the real listener ────────────────────────────

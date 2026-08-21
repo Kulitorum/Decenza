@@ -21,10 +21,13 @@ class QNetworkReply;
 // Coordinator for the remote MCP connector (public-internet reachability for
 // Claude / ChatGPT mobile custom connectors). Owns a dedicated TCP listener,
 // separate from ShotServer, that serves ONLY the tokenized MCP route
-// `POST/GET/DELETE /mcp/<token>` and returns a bare 404 for everything else —
-// so ShotServer's web editor, REST API, and data-migration endpoints are never
-// reachable through the public surface. Matching requests are forwarded
-// in-process to the existing McpServer dispatch with the session flagged
+// `POST/GET/DELETE /mcp/<token>` and refuses everything else — so ShotServer's
+// web editor, REST API, and data-migration endpoints are never reachable
+// through the public surface. A request that fails the token check gets a bare
+// 404 in Mode C and NO reply at all behind an embedded tunnel (see
+// routeRequest); anything reached with a valid token gets the bare 404 either
+// way, since its caller already knows the service is there. Matching requests
+// are forwarded in-process to the existing McpServer dispatch with the session flagged
 // remote; access-level and confirmation gating are unchanged.
 //
 // Authorization is the unguessable path segment (capability URL). Rotation is
@@ -143,6 +146,25 @@ private:
     // Constant-time comparison of a candidate token segment against the stored
     // token. Length mismatch always returns false without leaking timing.
     bool tokenMatches(const QByteArray& candidate) const;
+    // How a request's origin is named in the log AND keyed in the failed-token
+    // limiter — one definition, so the label a reader sees and the bucket the
+    // budget counts can never drift apart.
+    QString describeSource(const QTcpSocket* socket) const;
+    // The reply given to a refused request — unterminated headers, oversized
+    // request, malformed Content-Length, wrong or missing token. Behind an
+    // embedded tunnel a caller that does NOT hold the token gets no reply at all
+    // and the socket closes; everyone else, and every caller in Mode C, gets the
+    // bare 404 with keep-alive intact. The framing checks fire before any token
+    // is parsed, so they pass the flag rather than assuming the worst: a valid
+    // client that trips the body cap must not be left retrying a silent drop.
+    void refuseRequest(QTcpSocket* socket, bool callerHoldsToken);
+    // Whether a path names the current token on an exact `/mcp/<token>` route.
+    bool pathCarriesToken(const QString& path) const;
+    // The same question asked of a partially-read request, from its first line.
+    // The request line arrives before the header block terminates, which is what
+    // lets even the unterminated-header refusal tell a token holder apart from a
+    // stranger. No complete first line means no claim to the token.
+    bool bufferedRequestCarriesToken(const QByteArray& buffer) const;
     // Per-source failed-token limiter. Returns true when the source is over
     // budget for the current window; the caller then drops the connection
     // (forcing a reconnect) and suppresses further per-request log lines.
@@ -162,6 +184,10 @@ private:
     quint64 m_probeGeneration = 0;
     int m_probeFailCount = 0;             // consecutive failed probes (for surfacing an error)
     QTimer* m_reaper = nullptr;
+    // True while the listener is the loopback one an embedded tunnel proxies
+    // into (Mode A). Set by startListener() from the same bind decision, so it
+    // cannot describe a different listener than the one that is up.
+    bool m_tunnelProxiedListener = false;
 
     Status m_status = Off;
     QString m_statusDetail;
@@ -183,7 +209,13 @@ private:
     static constexpr int MaxHeaderSize = 64 * 1024;
     static constexpr int MaxBodySize = 1 * 1024 * 1024;   // MCP JSON is tiny
     static constexpr int MaxConnections = 8;
-    static constexpr int MaxFailedPerMinute = 20;
+    // Failed token attempts tolerated per source per minute before the socket is
+    // dropped instead of 404ed. Deliberately small: a valid client never fails
+    // this check, and a person who pasted a truncated connector URL retries once
+    // or twice — there is no action attempt #4 unlocks that #1 did not, so
+    // spending twenty of them only buys a scanner nineteen more free guesses and
+    // nineteen more log lines. Was 20.
+    static constexpr int MaxFailedPerMinute = 3;
     static constexpr int IdleTimeoutSeconds = 60;
     static constexpr int ReaperIntervalMs = 30000;
 

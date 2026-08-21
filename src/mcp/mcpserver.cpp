@@ -590,7 +590,8 @@ static int modernHttpStatusForError(int code)
 
 void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
                                    const QString& path, const QByteArray& headers,
-                                   const QByteArray& body, bool remote)
+                                   const QByteArray& body, bool remote,
+                                   const QString& callerLabel)
 {
     Q_UNUSED(path)
 
@@ -693,7 +694,7 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         const bool hasLegacySession =
             !sessionHeader.isEmpty() && findSession(sessionHeader) != nullptr;
         if (isModernRequest(request, hasLegacySession)) {
-            handleModernRequest(socket, request, protocolHeader);
+            handleModernRequest(socket, request, protocolHeader, callerLabel);
             return;
         }
 
@@ -728,7 +729,7 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
 
         QJsonObject result = handleJsonRpc(
             request, session, socket, request["id"].toVariant(),
-            effectiveProtocolVersion(session, resolved.headerProtocolVersion));
+            effectiveProtocolVersion(session, resolved.headerProtocolVersion), callerLabel);
 
         // If in-app confirmation is pending, response will be sent later by confirmationResolved()
         if (result.contains("_deferred"))
@@ -1170,7 +1171,7 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
 // created, and how the result is framed. Everything below `handleJsonRpc` is the
 // same code legacy runs.
 void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& request,
-                                    const QString& protocolHeader)
+                                    const QString& protocolHeader, const QString& callerLabel)
 {
     const QVariant requestId = request.value(QLatin1String("id")).toVariant();
     const QJsonObject params = request.value(QLatin1String("params")).toObject();
@@ -1273,7 +1274,7 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
     // on transport identity would be a session by another name, would
     // reintroduce every reaper, and would behave like neither era.
     QJsonObject result = handleJsonRpc(request, /*session=*/nullptr, socket, requestId,
-                                       metaVersion);
+                                       metaVersion, callerLabel);
 
     if (result.contains(QLatin1String("_deferred")))
         return;
@@ -1490,7 +1491,7 @@ void McpServer::broadcastToModernSubscriptions(const QString& resourceUri)
 
 QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* session,
                                      QTcpSocket* socket, const QVariant& requestId,
-                                     const QString& protocolVersion)
+                                     const QString& protocolVersion, const QString& callerLabel)
 {
     QString method = request["method"].toString();
     QJsonObject params = request["params"].toObject();
@@ -1530,7 +1531,7 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
     if (method == "tools/list")
         return handleToolsList(params, protocolVersion);
     if (method == "tools/call")
-        return handleToolsCall(params, session, socket, requestId, protocolVersion);
+        return handleToolsCall(params, session, socket, requestId, protocolVersion, callerLabel);
     if (method == "resources/list")
         return handleResourcesList(params, protocolVersion);
     if (method == "resources/read")
@@ -1787,9 +1788,30 @@ QJsonObject McpServer::handleToolsList(const QJsonObject& params, const QString&
     return result;
 }
 
+namespace {
+// How a caller is named in a rate-limiter key and in the line that reports the
+// refusal. `label` is the remote connector's answer, supplied because only it
+// knows whether its listener is the loopback one an embedded tunnel proxies
+// into — there every remote client arrives as 127.0.0.1, so keying and logging
+// the peer address collapses every public caller into one bucket that reads,
+// to anyone later, as the user's own on-device traffic.
+//
+// A socket with no peer address is not a real caller shape — it means a test
+// harness or a torn-down connection. Bucketed under one key rather than
+// skipping the limit, so an unkeyable caller is still bounded, not unlimited.
+QString callerKeyFor(const QTcpSocket* socket, const QString& label)
+{
+    if (!label.isEmpty())
+        return label;
+    return (socket && !socket->peerAddress().isNull())
+               ? socket->peerAddress().toString()
+               : QStringLiteral("(unknown-peer)");
+}
+}  // namespace
+
 QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* session,
                                        QTcpSocket* socket, const QVariant& requestId,
-                                       const QString& protocolVersion)
+                                       const QString& protocolVersion, const QString& callerLabel)
 {
     QString toolName = params["name"].toString();
     QJsonObject arguments = params["arguments"].toObject();
@@ -1808,13 +1830,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         const QString modernCategory = m_toolRegistry->categoryFor(toolName, arguments);
         if (modernCategory == QLatin1String("control")
             || modernCategory == QLatin1String("settings")) {
-            // A socket with no peer address is not a real caller shape — it
-            // means a test harness or a torn-down connection. Bucketed under one
-            // key rather than skipping the limit, so an unkeyable caller is
-            // still bounded rather than unlimited.
-            const QString callerKey = (socket && !socket->peerAddress().isNull())
-                                          ? socket->peerAddress().toString()
-                                          : QStringLiteral("(unknown-peer)");
+            const QString callerKey = callerKeyFor(socket, callerLabel);
             if (m_modernControlCalls.recordAndCheckOverLimit(callerKey, RateLimitPerMinute)) {
                 // One line per window, not per refused call. The assistant is
                 // told; the user is not, so without this nothing anywhere

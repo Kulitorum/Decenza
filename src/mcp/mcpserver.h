@@ -128,9 +128,16 @@ public:
     // tokenized remote connector route. When `remote` is true the session that
     // handles this request is flagged remote (informational only — the same
     // access-level and confirmation gates apply either way).
+    //
+    // `callerLabel` is how this caller is named in logs and rate-limiter keys.
+    // The connector supplies it because only the connector knows whether its
+    // listener is the one an embedded tunnel proxies into, where EVERY remote
+    // client arrives as 127.0.0.1 and the peer address names nobody. Empty for a
+    // direct LAN client, whose peer address is the answer.
     void handleHttpRequest(QTcpSocket* socket, const QString& method,
                            const QString& path, const QByteArray& headers,
-                           const QByteArray& body, bool remote = false);
+                           const QByteArray& body, bool remote = false,
+                           const QString& callerLabel = QString());
 
     // Called by ShotServer to keep SSE-aware code paths in sync with raw HTTP
     // socket handling. ShotServer owns the QTcpSocket; McpServer just tracks
@@ -225,21 +232,21 @@ private:
     // response framing. Dispatch below this is SHARED with legacy — if a fix has
     // to be made twice, the fork is in the wrong place.
     void handleModernRequest(QTcpSocket* socket, const QJsonObject& request,
-                             const QString& protocolHeader);
+                             const QString& protocolHeader, const QString& callerLabel);
 
     // JSON-RPC dispatch. `protocolVersion` is the version THIS message is
     // answered under, resolved once by resolveSessionForMessage — handlers must
     // use it rather than reading it back off the session, which can differ.
     QJsonObject handleJsonRpc(const QJsonObject& request, McpSession* session,
                               QTcpSocket* socket, const QVariant& requestId,
-                              const QString& protocolVersion);
+                              const QString& protocolVersion, const QString& callerLabel);
     QJsonObject handleInitialize(const QJsonObject& params, McpSession* session);
     // `server/discover` — a server MUST implement it, a client MAY call it.
     QJsonObject handleServerDiscover(const QString& protocolVersion);
     QJsonObject handleToolsList(const QJsonObject& params, const QString& protocolVersion);
     QJsonObject handleToolsCall(const QJsonObject& params, McpSession* session,
                                 QTcpSocket* socket, const QVariant& requestId,
-                                const QString& protocolVersion);
+                                const QString& protocolVersion, const QString& callerLabel);
     QJsonObject handleResourcesList(const QJsonObject& params, const QString& protocolVersion);
     QJsonObject handleResourcesRead(const QJsonObject& params, McpSession* session,
                                     QTcpSocket* socket, const QVariant& requestId,
