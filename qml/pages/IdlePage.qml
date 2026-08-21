@@ -177,19 +177,11 @@ T.Page {
     // used to simply fade out when they met — taking the widgets in it (Grind,
     // Weather, …) off the screen for as long as the carousel stayed open.
     //
-    // The BAND yields instead: while a carousel is open it scales its content down
-    // and drops to a shorter height, freeing the room the column needs. The centre
-    // column is not touched. That is the whole point — nothing above the band moves
-    // or resizes, so the button the user is reaching for stays exactly where it was
-    // and the idle screen at rest is unchanged.
+    // The BAND yields instead, and by exactly the amount it is actually crowded by
+    // (lowerMidBarCrowding, below). Nothing above the band ever moves or resizes,
+    // and the band itself keeps its full size until something genuinely needs the
+    // room, so a layout whose column never reaches it is untouched in both states.
     //
-    // Deliberately geometry-free. A squeeze that measured the overlap it is
-    // correcting would feed back into the height it produces, which is a binding
-    // loop. carouselOverlapsBand below MAY read geometry because it drives opacity
-    // and enabled only, never a size.
-    readonly property bool squeezeForCarousel:
-        idlePage.activePresetFunction !== "" && idlePage.lowerMidBarHasItems
-
     // Fallback for what the squeeze cannot recover (a very short viewport, a tall
     // band, a tall preset row): the band is HIDDEN (faded out) rather than shoved
     // down — it sits on bottomBar.top (modulo the user's zone Y-offset), so "down"
@@ -1490,22 +1482,44 @@ T.Page {
     readonly property real lowerMidBarScale: layoutConfig.scales ? (layoutConfig.scales.lowerMidBar || 1.0) : 1.0
     readonly property bool lowerMidBarHasItems: idlePage.lowerMidBarItems.length > 0
     // Auto-grow: the band fits its content (large item-size makes it taller),
-    // never smaller than the standard bar height.
-    // Squeezed height while a carousel is open. Set directly rather than read from
-    // lmbZone.implicitHeight, which floors at Theme.bottomBarHeight and so cannot
-    // express a band shorter than a normal bar — which is exactly what is wanted
-    // here. The band's content is scaled by lowerMidBarSqueeze to match, and
-    // itemsRow is verticalCenter-anchored inside the zone, so the shorter band
-    // keeps its contents centred instead of clipping them.
-    //
-    // Both constants are the tuning knobs for this feature: raise the scale for a
-    // more legible squeezed band, lower the height for more room for the column.
-    readonly property real lowerMidBarSqueeze: 0.72
-    readonly property real lowerMidBarSqueezedHeight: Theme.scaled(52)
+    // never smaller than the standard bar height. This is the band's size when
+    // nothing is crowding it, and the baseline everything below measures against.
     readonly property real lowerMidBarRestHeight: Math.max(Theme.scaled(82), lmbZone.implicitHeight)
-    readonly property real lowerMidBarFullHeight: idlePage.squeezeForCarousel
-        ? idlePage.lowerMidBarSqueezedHeight
-        : idlePage.lowerMidBarRestHeight
+    // How far the band may be squeezed before the fade takes over instead.
+    readonly property real lowerMidBarMinHeight: Theme.scaled(44)
+
+    // Where the band's top edge would sit at full size. anchors.bottomMargin is the
+    // NEGATED zone Y-offset (see the Rectangle), so the offset adds to the bottom.
+    readonly property real lowerMidBarRestTop:
+        bottomBar.y + idlePage.lowerMidBarYOffset - idlePage.lowerMidBarRestHeight
+
+    // How much the centre column actually intrudes on the band, in pixels. Zero
+    // whenever the column stops short of it, which is the normal case and the whole
+    // point: the band shrinks by what it is crowded by and not one pixel more.
+    //
+    // Loop-free by construction, and the constraint is tighter than it looks. Every
+    // input is independent of the band's rendered size: the centre column does not
+    // read the band at all, bottomBar is anchored to the page, and REST height comes
+    // from lmbZone.implicitHeight, which is content-driven (itemsRow is
+    // verticalCenter-anchored, so it never measures its parent). That last one is
+    // why the squeeze may NOT run through the zone's zoneScale, however natural that
+    // looks — zoneScale feeds implicitHeight, so scaling the content there would put
+    // the band's size on both sides of its own binding. It is applied as a render
+    // transform on the zone instead, which layout ignores.
+    readonly property real lowerMidBarCrowding: {
+        if (!idlePage.lowerMidBarVisible) return 0
+        var columnBottom = centerContent.y + centerContent.height + Theme.spacingMedium
+        return Math.max(0, columnBottom - idlePage.lowerMidBarRestTop)
+    }
+
+    readonly property real lowerMidBarFullHeight: Math.max(
+        idlePage.lowerMidBarMinHeight,
+        idlePage.lowerMidBarRestHeight - idlePage.lowerMidBarCrowding)
+    // Render scale for the band's contents, so a squeezed band shrinks what it holds
+    // instead of clipping it. 1.0 whenever nothing is crowding the band.
+    readonly property real lowerMidBarContentScale: idlePage.lowerMidBarRestHeight > 0
+        ? idlePage.lowerMidBarFullHeight / idlePage.lowerMidBarRestHeight
+        : 1.0
     // Deliberately the REST height, not the squeezed one. Gating on the squeezed
     // height would let a viewport too short for the band at rest pass the test the
     // moment a carousel opened, so the band would appear only while a preset row
@@ -1524,6 +1538,7 @@ T.Page {
         anchors.bottomMargin: -idlePage.lowerMidBarYOffset
         visible: idlePage.lowerMidBarVisible
         height: visible ? idlePage.lowerMidBarFullHeight : 0
+        Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
         color: Theme.zoneBackgroundColor(idlePage.lowerMidBarOptions.style)
         // Fade out (rather than overlap the bottom action bar) when the center-zone
         // carousel expands down into the band; `enabled:false` also stops the hidden
@@ -1555,21 +1570,31 @@ T.Page {
             Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
         }
 
+        // Laid out at the band's REST height and scaled down to whatever height the
+        // band currently has. Deliberately not anchors.fill: filling would make the
+        // zone's own geometry follow the squeezed height, and its implicitHeight is
+        // the baseline the squeeze is computed from. Scale is a render transform, so
+        // layout never sees it and the baseline stays put.
         LayoutBarZone {
             id: lmbZone
-            anchors.fill: parent
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
             anchors.leftMargin: Theme.spacingMedium
             anchors.rightMargin: Theme.spacingMedium
+            height: idlePage.lowerMidBarRestHeight
+            scale: idlePage.lowerMidBarContentScale
+            // Shrinks towards the bottom bar, so the band's top edge is what moves
+            // and its contents stay put against the bar below them.
+            transformOrigin: Item.Bottom
+            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
             zoneName: "lowerMidBar"
             items: idlePage.lowerMidBarItems
             distribution: idlePage.lowerMidBarOptions.distribution || "packed"
             alignment: idlePage.lowerMidBarOptions.alignment || "center"
             zoneStyle: idlePage.lowerMidBarOptions.style || "standard"
             itemSize: idlePage.lowerMidBarOptions.itemSize || "compact"
-            // Multiplies the user's own zone scale, so a squeeze is relative to
-            // whatever size they chose rather than overriding it.
             zoneScale: idlePage.lowerMidBarScale
-                * (idlePage.squeezeForCarousel ? idlePage.lowerMidBarSqueeze : 1.0)
         }
     }
 
