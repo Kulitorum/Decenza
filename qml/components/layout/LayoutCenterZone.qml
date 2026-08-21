@@ -145,7 +145,7 @@ Item {
                 // children, so a zone containing any action button is unchanged; what
                 // shrinks is a readout-only zone, and that is enough to make the whole
                 // centre column measure taller than anything on screen. Anything reasoning
-                // about where the column ENDS — IdlePage's lowerMidBarCrowding, and the
+                // about where the column ENDS — IdlePage's lowerMidBarColumnBottom, and the
                 // carouselOverlapsBand fallback behind it — was then reading padding rather
                 // than content, and hid the lower-mid band over a gap the user could
                 // plainly see was empty.
