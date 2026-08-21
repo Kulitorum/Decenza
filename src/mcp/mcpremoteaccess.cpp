@@ -523,7 +523,7 @@ void McpRemoteAccess::readFromSocket(QTcpSocket* socket)
     pending.buffer.append(socket->readAll());
 
     if (pending.buffer.size() > MaxHeaderSize + MaxBodySize) {
-        refuseUnauthenticated(socket);
+        refuseRequest(socket, bufferedRequestCarriesToken(pending.buffer));
         socket->close();
         return;
     }
@@ -545,7 +545,7 @@ void McpRemoteAccess::processBuffer(QTcpSocket* socket)
                 // body so a client that never terminates the headers can't buffer
                 // unbounded data on one connection.
                 if (pending.buffer.size() > MaxHeaderSize) {
-                    refuseUnauthenticated(socket);
+                    refuseRequest(socket, bufferedRequestCarriesToken(pending.buffer));
                     socket->close();
                     return;
                 }
@@ -568,7 +568,7 @@ void McpRemoteAccess::processBuffer(QTcpSocket* socket)
                 }
             }
             if (pending.contentLength < 0 || pending.contentLength > MaxBodySize) {
-                refuseUnauthenticated(socket);
+                refuseRequest(socket, bufferedRequestCarriesToken(pending.buffer));
                 socket->close();
                 return;
             }
@@ -627,19 +627,7 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
 {
     const QString source = describeSource(socket);
 
-    // Strip any query string, then require an exact `/mcp/<token>` path with no
-    // trailing segments.
-    QString cleanPath = path;
-    const qsizetype q = cleanPath.indexOf('?');
-    if (q >= 0)
-        cleanPath = cleanPath.left(q);
-
-    bool authorized = false;
-    if (cleanPath.startsWith(QStringLiteral("/mcp/"))) {
-        const QString candidate = cleanPath.mid(5);
-        if (!candidate.isEmpty() && !candidate.contains('/'))
-            authorized = tokenMatches(candidate.toUtf8());
-    }
+    const bool authorized = pathCarriesToken(path);
 
     if (!authorized) {
         const bool overLimit = failedTokenOverLimit(source);
@@ -658,7 +646,7 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
         if (!overLimit) {
             MCP_WARN_TAGGED("RemoteAccess",
                             QStringLiteral("rejected unauthorized request from %1").arg(source));
-            refuseUnauthenticated(socket);
+            refuseRequest(socket, /*callerHoldsToken=*/false);
         } else {
             // Over the failed-attempt budget for this source this minute. Drop the
             // keep-alive connection so a scanner must reconnect (bounded by
@@ -700,12 +688,12 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
                                    headerBlock, body, /*remote=*/true, source);
 }
 
-void McpRemoteAccess::refuseUnauthenticated(QTcpSocket* socket)
+void McpRemoteAccess::refuseRequest(QTcpSocket* socket, bool callerHoldsToken)
 {
-    // Behind an embedded tunnel, answer nothing at all. A bare 404 is still a
-    // reply, and a reply confirms that the URL fronts a live service worth
-    // guessing at; a dropped connection tells a scanner nothing. The socket is
-    // closed rather than left silently open, which would hold one of
+    // Behind an embedded tunnel, answer a STRANGER nothing at all. A bare 404 is
+    // still a reply, and a reply confirms that the URL fronts a live service
+    // worth guessing at; a dropped connection tells a scanner nothing. The
+    // socket is closed rather than left silently open, which would hold one of
     // MaxConnections until the idle reaper for a caller owed nothing.
     //
     // This does NOT make the endpoint invisible, and must not be sold as if it
@@ -713,17 +701,58 @@ void McpRemoteAccess::refuseUnauthenticated(QTcpSocket* socket)
     // that hangs up, so the hostname stays visibly configured. What stops is US
     // confirming anything about what is behind it.
     //
-    // Mode C keeps the 404 and the keep-alive: there the reply goes to the
-    // user's own reverse proxy, where a silent drop reads as a broken backend.
+    // `callerHoldsToken` is why the framing refusals pass a flag rather than
+    // inheriting the silence: those checks fire BEFORE any token is parsed, so
+    // without it a legitimate client that trips the body cap gets a closed
+    // socket — indistinguishable from a dropped network, and therefore retried
+    // forever on a request that can never succeed. Someone who already knows the
+    // token learns nothing from a 404, so there is no reason to withhold it.
     //
-    // One function because four sites refuse an unauthenticated caller —
-    // unterminated headers, oversized request, malformed Content-Length, bad
-    // token — and a policy about whether we answer strangers must not be free to
-    // drift between them.
-    if (m_tunnelProxiedListener)
+    // Mode C keeps the 404 and the keep-alive either way: there the reply goes
+    // to the user's own reverse proxy, where a silent drop reads as a broken
+    // backend.
+    //
+    // One function because four sites refuse a request — unterminated headers,
+    // oversized request, malformed Content-Length, bad token — and a policy
+    // about whether we answer strangers must not be free to drift between them.
+    if (m_tunnelProxiedListener && !callerHoldsToken)
         socket->close();
     else
         sendBare404(socket);
+}
+
+bool McpRemoteAccess::pathCarriesToken(const QString& path) const
+{
+    // Strip any query string, then require an exact `/mcp/<token>` path with no
+    // trailing segments.
+    QString cleanPath = path;
+    const qsizetype q = cleanPath.indexOf('?');
+    if (q >= 0)
+        cleanPath = cleanPath.left(q);
+
+    if (!cleanPath.startsWith(QStringLiteral("/mcp/")))
+        return false;
+    const QString candidate = cleanPath.mid(5);
+    if (candidate.isEmpty() || candidate.contains('/'))
+        return false;
+    return tokenMatches(candidate.toUtf8());
+}
+
+bool McpRemoteAccess::bufferedRequestCarriesToken(const QByteArray& buffer) const
+{
+    // The request line is the FIRST line, so it is readable long before the
+    // header block terminates — which is what lets even the unterminated-header
+    // refusal tell a token holder from a stranger. No complete line yet means no
+    // claim to the token: the conservative answer, and the one that keeps a
+    // scanner from buying a reply by sending a fragment.
+    const qsizetype lineEnd = buffer.indexOf("\r\n");
+    if (lineEnd < 0)
+        return false;
+
+    const QList<QByteArray> parts = buffer.left(lineEnd).split(' ');
+    if (parts.size() < 2)
+        return false;
+    return pathCarriesToken(QString::fromLatin1(parts[1]));
 }
 
 QString McpRemoteAccess::describeSource(const QTcpSocket* socket) const

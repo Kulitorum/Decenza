@@ -70,11 +70,44 @@ void registerAITools(McpToolRegistry*, MainController*) {}
 // handler rather than QTest::ignoreMessage because the assertion is on HOW MANY
 // lines a rejected caller can cause, which ignoreMessage cannot express.
 static int s_unauthorizedWarnings = 0;
+static int s_milestoneWarnings = 0;
+static QString s_lastMilestoneWarning;
 static void countUnauthorizedWarnings(QtMsgType type, const QMessageLogContext&, const QString& msg)
 {
-    if (type == QtWarningMsg && msg.contains(QLatin1String("unauthorized request")))
-        ++s_unauthorizedWarnings;
+    if (type != QtWarningMsg || !msg.contains(QLatin1String("unauthorized request")))
+        return;
+    ++s_unauthorizedWarnings;
+    // The line that carries the running count, so a submitted log can still tell
+    // a stray probe from sustained hammering. Matched on "still being dropped",
+    // which only the milestone says: "this minute" appears in the transition
+    // line too ("...for the rest of this minute"), and matching that counted
+    // both and made this assertion fail for a reason that was not the product's.
+    if (msg.contains(QLatin1String("still being dropped"))) {
+        ++s_milestoneWarnings;
+        s_lastMilestoneWarning = msg;
+    }
 }
+
+// Installs the counting handler and puts the previous one back on EVERY exit,
+// including the early return QTest performs when an assertion inside the scope
+// fails. A leaked handler would swallow warnings for the rest of the binary and
+// break every later QTest::ignoreMessage with a cause unrelated to the failure.
+class WarningCounterGuard {
+public:
+    WarningCounterGuard()
+        : m_prior(qInstallMessageHandler(&countUnauthorizedWarnings))
+    {
+        s_unauthorizedWarnings = 0;
+        s_milestoneWarnings = 0;
+        s_lastMilestoneWarning.clear();
+    }
+    ~WarningCounterGuard() { qInstallMessageHandler(m_prior); }
+    WarningCounterGuard(const WarningCounterGuard&) = delete;
+    WarningCounterGuard& operator=(const WarningCounterGuard&) = delete;
+
+private:
+    QtMessageHandler m_prior;
+};
 
 class tst_McpRemoteAccess : public QObject {
     Q_OBJECT
@@ -389,12 +422,23 @@ private slots:
         QCOMPARE(wrong.status, 0);
         QVERIFY(wrong.rawBody.isEmpty());
 
-        // Same for malformed framing, which is refused before any token is even
-        // looked at: Mode C answers these 404 (contentLengthValidation), a
+        // Same for malformed framing from a STRANGER, refused before any token
+        // is parsed: Mode C answers these 404 (contentLengthValidation), a
         // tunnel says nothing.
         const QByteArray malformed =
             "POST /mcp/x HTTP/1.1\r\nHost: x\r\nContent-Length: notanumber\r\n\r\n";
         QCOMPARE(fetch(port, malformed).status, 0);
+
+        // But the same framing failure from a client that DOES hold the token
+        // still gets its 404. Silence there is indistinguishable from a dropped
+        // network, so a legitimate client would retry a request that can never
+        // succeed — and someone who already knows the token learns nothing from
+        // the reply. The request line carries the token even though the framing
+        // is bad, which is what makes the two cases separable.
+        const QByteArray malformedFromHolder =
+            "POST /mcp/" + settings.remoteMcpToken().toUtf8()
+            + " HTTP/1.1\r\nHost: x\r\nContent-Length: notanumber\r\n\r\n";
+        QCOMPARE(fetch(port, malformedFromHolder).status, 404);
 
         // A valid token still works through the same listener — the silence is
         // for failed authorization only, not for the route itself.
@@ -416,19 +460,28 @@ private slots:
         const quint16 port = startRemote(settings, server, remote);
         QVERIFY(port != 0);
 
-        s_unauthorizedWarnings = 0;
-        QtMessageHandler prior = qInstallMessageHandler(&countUnauthorizedWarnings);
-        // Kept a few short of MaxConnections: a socket the previous fetch left
-        // for the event loop to reap must not be what fails this.
-        const int requests = McpRemoteAccess::MaxFailedPerMinute + 2;
-        for (int i = 0; i < requests; ++i)
-            fetch(port, httpRequest("POST", "/mcp/not-the-real-token", rpc("initialize")));
-        qInstallMessageHandler(prior);
+        // Past the first milestone (100), so the branch that keeps recording
+        // SCALE after per-request logging stops is actually exercised. Stopping
+        // at a handful would leave that code able to be deleted with the suite
+        // still green, and it is the whole reason the bound is not just silence.
+        const int requests = 105;
+        {
+            WarningCounterGuard counting;
+            for (int i = 0; i < requests; ++i)
+                fetch(port, httpRequest("POST", "/mcp/not-the-real-token", rpc("initialize")));
+        }
 
-        // One line per request while under budget, then exactly one transition
-        // line for the rest of the minute — never one per request.
-        QCOMPARE(s_unauthorizedWarnings, McpRemoteAccess::MaxFailedPerMinute + 1);
-        QVERIFY(s_unauthorizedWarnings < requests);
+        // One line per request while under budget, one transition line, and one
+        // milestone at 100 — never one per request.
+        QCOMPARE(s_unauthorizedWarnings, McpRemoteAccess::MaxFailedPerMinute + 2);
+        QVERIFY2(s_unauthorizedWarnings < requests,
+                 "a rejected caller must not cost a log line per request");
+        QCOMPARE(s_milestoneWarnings, 1);
+        // The count itself is the payload — a milestone line that did not say
+        // how many would bound the log without preserving the thing the bound
+        // costs us.
+        QVERIFY2(s_lastMilestoneWarning.contains(QLatin1String("100 unauthorized requests")),
+                 qPrintable(s_lastMilestoneWarning));
     }
 
     // ── Route gating through the real listener ────────────────────────────

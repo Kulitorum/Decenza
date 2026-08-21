@@ -9,12 +9,20 @@ cryptographically random value generated on-device. Token comparison
 SHALL be constant-time.
 
 A request that does not carry the current token — wrong token, missing
-token, or framing malformed enough that no token is ever read — SHALL
-be refused without revealing that an MCP server exists. Behind an
+token, or malformed framing on a request line that names neither —
+SHALL be refused without revealing that an MCP server exists. Behind an
 embedded tunnel the refusal SHALL be no response at all, with the
 connection closed; on a bring-your-own-proxy listener it SHALL be a
 bare HTTP `404`, because there the response goes to the user's own
 reverse proxy, where a silent drop reads as a broken backend.
+
+Whether the caller holds the token SHALL be decided from the request
+line, which arrives before the header block terminates. A framing
+failure is therefore NOT by itself grounds for silence: a request line
+carrying the current token SHALL receive the `404` in either mode,
+since a silent drop is indistinguishable from a network failure and
+would leave a legitimate client retrying forever, while a caller who
+already knows the token learns nothing from the reply.
 
 Silence here SHALL NOT be described as making the endpoint invisible.
 The tunnel edge terminates TLS and serves its own error for a backend
@@ -46,9 +54,13 @@ nothing but a confused client.
 - **WHEN** a client POSTs to `/mcp/<other>` on a listener fronted by the user's own reverse proxy
 - **THEN** the server returns `404` with no MCP-identifying headers or body
 
-#### Scenario: Malformed framing behind a tunnel
-- **WHEN** a request arrives with headers that never terminate, a body over the cap, or a non-numeric `Content-Length`
-- **THEN** the refusal is the same as for a wrong token — no reply behind a tunnel, `404` otherwise — since no token was ever read
+#### Scenario: Malformed framing from a stranger
+- **WHEN** a request whose request line does not carry the current token arrives with headers that never terminate, a body over the cap, or a non-numeric `Content-Length`
+- **THEN** the refusal is the same as for a wrong token — no reply behind a tunnel, `404` otherwise
+
+#### Scenario: Malformed framing from a token holder
+- **WHEN** the same framing failure arrives on a request line that DOES carry the current token
+- **THEN** the server returns `404` in either mode, because a silent drop is indistinguishable from a dropped network and would leave a legitimate client retrying a request that can never succeed
 
 #### Scenario: Valid token, unserved method
 - **WHEN** a client sends a method other than `POST`, `GET` or `DELETE` to `/mcp/<token>` with the current token

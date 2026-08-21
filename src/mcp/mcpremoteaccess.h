@@ -150,11 +150,21 @@ private:
     // limiter — one definition, so the label a reader sees and the bucket the
     // budget counts can never drift apart.
     QString describeSource(const QTcpSocket* socket) const;
-    // The reply given to a caller that has NOT proved it knows the token —
-    // unterminated headers, oversized request, malformed Content-Length, wrong
-    // or missing token. Behind an embedded tunnel that is no reply at all (and
-    // the socket closes); in Mode C it is the bare 404, keep-alive intact.
-    void refuseUnauthenticated(QTcpSocket* socket);
+    // The reply given to a refused request — unterminated headers, oversized
+    // request, malformed Content-Length, wrong or missing token. Behind an
+    // embedded tunnel a caller that does NOT hold the token gets no reply at all
+    // and the socket closes; everyone else, and every caller in Mode C, gets the
+    // bare 404 with keep-alive intact. The framing checks fire before any token
+    // is parsed, so they pass the flag rather than assuming the worst: a valid
+    // client that trips the body cap must not be left retrying a silent drop.
+    void refuseRequest(QTcpSocket* socket, bool callerHoldsToken);
+    // Whether a path names the current token on an exact `/mcp/<token>` route.
+    bool pathCarriesToken(const QString& path) const;
+    // The same question asked of a partially-read request, from its first line.
+    // The request line arrives before the header block terminates, which is what
+    // lets even the unterminated-header refusal tell a token holder apart from a
+    // stranger. No complete first line means no claim to the token.
+    bool bufferedRequestCarriesToken(const QByteArray& buffer) const;
     // Per-source failed-token limiter. Returns true when the source is over
     // budget for the current window; the caller then drops the connection
     // (forcing a reconnect) and suppresses further per-request log lines.
