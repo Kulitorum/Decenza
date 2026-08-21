@@ -21,32 +21,46 @@ name: Prune stale compiler caches
 # strands stale entries.
 #
 # That gate applies to three of the four steps. The keep-1 dedupe step runs
-# UNGATED, because waiting is what was costing us the thing the gate protects.
+# UNGATED, and the reason is a timing one, so state it precisely: the gate does
+# not stop the cleanup from happening, it delays it past the point where the
+# damage is already done and irreversible.
 #
-# Measured 2026-08-21. A release fires all six builds at once; each saves a
-# second copy of its prefix while the gate holds prune off, and the repo goes
-# over the 10 GB cap mid-release — 11.10 GB across 19 entries, of which 2.7 GB
-# was four duplicate pairs (macOS 1843+1777, Android 646+622, Windows sccache
-# 241+225, Linux arm64 77+63). Four prune runs fired during that window and all
-# four skipped: "5 build workflow(s) still active", then 4, 3, 2. GitHub evicts
-# to get back under the cap, and what it takes is the least recently used LIVE
-# entry — always `ccache-sanitizers-*`, because every other entry is tag-scoped
-# and rewritten on each release while the nightly's two are touched once every
-# 24 h. The 2026-08-20 release ran 20:25-20:33; by 04:57 the next morning the
-# ubsan leg restored "No cache found." and built cold at 9.45% hits (83/878,
-# 0 direct) against asan's 74.37%. There was no garbage to collect either — that
-# night's prune reported 0 superseded-tag and 0 main-scoped entries. The cleanup
-# was not failing to find stale caches; it was gated off exactly when the cap
-# was exceeded.
+# A release fires all six builds at once and each saves a SECOND copy of its
+# prefix. For the ~14 minutes until the last one finishes, the gate holds prune
+# off and the store carries every duplicate at once — over GitHub's 10 GB cap.
+# GitHub evicts to get back under it, and what it takes is the least recently
+# used LIVE entry. That is always a `ccache-sanitizers-*` entry: every other
+# entry is tag-scoped and rewritten on each release, while the nightly's two are
+# touched once every 24 h. Eviction is not undone by the prune that follows.
 #
-# Then it happened again while that was being written, on the opposite leg. The
-# v2.0.4 release fired 16:10-16:21 the same day; the store peaked at 11.10 GB,
-# GitHub evicted, and the ASAN entry (1199 MB) went while ubsan's survived. At
-# 16:30 the store held 9.98 GB with 3031 MB of collectable duplicates still in
-# it — android 593, iOS 470, linux-arm64 60, macOS 1694, Windows sccache 214 —
-# because one build was still in progress and the gate was still holding. The
-# duplicates and the eviction are the same event; which sanitizer leg pays is
-# arbitrary.
+# Two evictions, two different legs, on consecutive days:
+#
+#   2026-08-20  v2.0.4 builds created 20:20, finished 20:25-20:34 (run times,
+#               not cache save times). Prune 32414785391 fired at 20:34 once
+#               the last build was done, said "No build workflows active —
+#               pruning" and collected the duplicates — but by then the store
+#               had been over cap for fourteen minutes. Next morning at 04:57
+#               the nightly's UBSAN leg restored "No cache found." and built
+#               cold: 83/878 hits (9.45%, 0 direct) against asan's 653/878
+#               (74.37%). Nothing in THIS workflow removed it — the keep-1 step
+#               only collects an entry that has a newer sibling, and the
+#               main-scope step excludes `ccache-sanitizers-*` by name. It was
+#               evicted, and the over-cap window is the only thing that evicts.
+#
+#   2026-08-21  v2.0.4 re-tagged, builds created 16:10, finishing 16:14-16:21.
+#               Store peaked at 11.10 GB across 19 entries, 2.7 GB of it four
+#               duplicate pairs (macOS 1843+1777, Android 646+622, Windows
+#               sccache 241+225, Linux arm64 77+63). Four prunes fired inside
+#               the window and all four skipped: "5 build workflow(s) still
+#               active", then 4, 3, 2. This time ASAN's 1199 MB entry was
+#               evicted and ubsan's survived; which leg pays is arbitrary. At
+#               16:30, with one build still running, the store still held
+#               9.98 GB and 3031 MB of collectable duplicates.
+#
+# Neither night had any garbage to collect: those prunes reported 0 entries on
+# superseded tags and 0 main-scoped platform entries. The cleanup was not
+# failing to find stale caches. It was standing down for the fourteen minutes
+# in which the cap was exceeded, and cleaning up afterwards.
 #
 # Keep-1 is safe ungated because it is self-limiting: it deletes only where a
 # NEWER entry of the same (prefix, ref) already exists, so a build that has not
@@ -72,8 +86,13 @@ on:
       - 'Linux ARM64 AppImage Build'
       # Added when the sanitizer nightly gained a ccache: it now writes two
       # timestamped entries a night, so it needs pruning like any other. It is
-      # also in the gate regex below, so a prune cannot run while it is still
-      # building and miss the cache it is about to save.
+      # also in the gate regex below — which now covers only the three gated
+      # steps. The keep-1 dedupe step CAN run while the nightly is building, and
+      # is safe there for its own reason rather than the gate's: the two legs
+      # use distinct key prefixes (`sanitizers-asan-…`, `sanitizers-ubsan-…`),
+      # so a leg that has not saved yet has a single entry in its group and
+      # nothing is deleted for it. Do not restore "a prune cannot run while it
+      # is still building" here; it stopped being true.
       - 'Nightly sanitizers'
     types: [completed]
   # Nearly all builds run on TAG pushes, and GitHub's docs don't clearly
@@ -90,7 +109,15 @@ permissions:
 
 concurrency:
   group: prune-caches
-  cancel-in-progress: true
+  # NOT cancel-in-progress. That was right while every run during a release
+  # exited at the gate in ~2 s and the only pass that did work was the last one.
+  # The keep-1 dedupe step now runs on every trigger, and cancelling a run
+  # mid-delete-loop is exactly the pass that would have reclaimed space early —
+  # two builds finishing in the same minute (16:15 twice on 2026-08-21) is
+  # enough to lose one. Queueing instead serialises them, which also means two
+  # prunes never race to delete the same entry. Each pass is ~10 s and
+  # idempotent, so a queue of six during a release costs nothing.
+  cancel-in-progress: false
 
 jobs:
   prune:
@@ -147,6 +174,13 @@ jobs:
             echo "::error::Could not list caches — the keep-1 dedupe did NOT run."
             exit 1
           fi
+          # --limit 500 is gh's ceiling and truncation is invisible. The listing
+          # is ordered by last-accessed descending, so what falls off the end is
+          # precisely the superseded copies this step collects — it would report
+          # a clean store while the duplicates sat below the cut.
+          if [ "$(printf '%s' "$RAW" | jq length)" -ge 500 ]; then
+            echo "::warning::Cache listing hit the 500-entry limit; this dedupe may be partial."
+          fi
           ROWS=$(printf '%s' "$RAW" | jq -r --argjson keep "$KEEP" --arg ts "$TS" '
                    map(select(.key | test($ts)))
                    | group_by((.key | sub($ts; "")) + "@@" + .ref)
@@ -182,6 +216,14 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
 
       # Compiler caches left behind by release tags that have SHIPPED.
+      #
+      # `!cancelled()` on this and the two steps below, not a bare skip check:
+      # the keep-1 step above is ungated and exits 1 if it cannot list the
+      # cache, and a step that fails would otherwise skip everything after it.
+      # These three collect different things and depend on nothing that step
+      # produces, so one transient `gh cache list` failure during a release must
+      # not also stand down the superseded-tag, main-scope and dead-ref passes.
+      # `!cancelled()` rather than `always()` so a cancelled job still stops.
       #
       # The step above keeps one copy per (prefix, ref) and is right to. What it
       # cannot see is that a shipped tag stops being a ref anyone builds: the
@@ -221,7 +263,7 @@ jobs:
       # shape. The newest tag is still fully protected, stable keys included:
       # those are what make a re-tag's Qt install fast.
       - name: Drop caches for superseded release tags
-        if: ${{ steps.gate.outputs.skip == 'false' }}
+        if: ${{ !cancelled() && steps.gate.outputs.skip == 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -347,7 +389,7 @@ jobs:
       # exists to fix. Stable-key entries (qt-*, openssl-*, gradle-*) carry no
       # timestamp and are excluded by TS, as everywhere else here.
       - name: Drop main-scoped platform compiler caches
-        if: ${{ steps.gate.outputs.skip == 'false' }}
+        if: ${{ !cancelled() && steps.gate.outputs.skip == 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -422,7 +464,7 @@ jobs:
       #     step deletes on a liveness signal and a tag is always live, so a
       #     misfire here would be silent.
       - name: Drop caches for deleted branches and closed PRs
-        if: ${{ steps.gate.outputs.skip == 'false' }}
+        if: ${{ !cancelled() && steps.gate.outputs.skip == 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
