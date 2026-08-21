@@ -19,6 +19,47 @@ name: Prune stale compiler caches
 # is already saved when we prune, so keeping exactly 1 copy per (prefix, ref)
 # group is safe. The last build to finish re-triggers us, so the skip never
 # strands stale entries.
+#
+# That gate applies to three of the four steps. The keep-1 dedupe step runs
+# UNGATED, because waiting is what was costing us the thing the gate protects.
+#
+# Measured 2026-08-21. A release fires all six builds at once; each saves a
+# second copy of its prefix while the gate holds prune off, and the repo goes
+# over the 10 GB cap mid-release — 11.10 GB across 19 entries, of which 2.7 GB
+# was four duplicate pairs (macOS 1843+1777, Android 646+622, Windows sccache
+# 241+225, Linux arm64 77+63). Four prune runs fired during that window and all
+# four skipped: "5 build workflow(s) still active", then 4, 3, 2. GitHub evicts
+# to get back under the cap, and what it takes is the least recently used LIVE
+# entry — always `ccache-sanitizers-*`, because every other entry is tag-scoped
+# and rewritten on each release while the nightly's two are touched once every
+# 24 h. The 2026-08-20 release ran 20:25-20:33; by 04:57 the next morning the
+# ubsan leg restored "No cache found." and built cold at 9.45% hits (83/878,
+# 0 direct) against asan's 74.37%. There was no garbage to collect either — that
+# night's prune reported 0 superseded-tag and 0 main-scoped entries. The cleanup
+# was not failing to find stale caches; it was gated off exactly when the cap
+# was exceeded.
+#
+# Then it happened again while that was being written, on the opposite leg. The
+# v2.0.4 release fired 16:10-16:21 the same day; the store peaked at 11.10 GB,
+# GitHub evicted, and the ASAN entry (1199 MB) went while ubsan's survived. At
+# 16:30 the store held 9.98 GB with 3031 MB of collectable duplicates still in
+# it — android 593, iOS 470, linux-arm64 60, macOS 1694, Windows sccache 214 —
+# because one build was still in progress and the gate was still holding. The
+# duplicates and the eviction are the same event; which sanitizer leg pays is
+# arbitrary.
+#
+# Keep-1 is safe ungated because it is self-limiting: it deletes only where a
+# NEWER entry of the same (prefix, ref) already exists, so a build that has not
+# saved yet leaves its prefix with a single entry and nothing is deleted for it.
+# Deleting macOS's previous copy once macOS has saved its new one cannot strand
+# a restore — and a build still running restored at its start, before this
+# workflow was even triggered. The gate's own comment justifies itself against
+# the OLD keep-2 heuristic ("it had to keep 2 copies per group"), which did need
+# to know whether a save was outstanding. Keep-1 does not.
+#
+# The other three steps stay gated. They delete on a liveness signal — a tag
+# being superseded, a branch being gone, a ref nothing seeds — and none of those
+# facts is self-limiting the way "a newer copy already exists" is.
 
 on:
   workflow_run:
@@ -79,8 +120,12 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Deliberately NOT gated on steps.gate — see the header. This is the step
+      # that has to run DURING a release, because that is when the duplicates
+      # exist and when the cap is exceeded. It deletes only entries that already
+      # have a newer sibling in the same (prefix, ref) group, so it cannot take
+      # the copy a still-running build will restore from next time.
       - name: Prune stale ccache/sccache entries
-        if: ${{ steps.gate.outputs.skip == 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -93,23 +138,48 @@ jobs:
           # --argjson, so pipe to real jq.
           KEEP=1
           TS='-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$'
-          gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
-            --json id,key,createdAt,ref \
-            | jq -r --argjson keep "$KEEP" --arg ts "$TS" '
-                map(select(.key | test($ts)))
-                | group_by((.key | sub($ts; "")) + "@@" + .ref)
-                | map(sort_by(.createdAt) | reverse | .[$keep:])
-                | flatten
-                | .[] | "\(.id)\t\(.key)"
-              ' \
-            | while IFS=$'\t' read -r id key; do
+
+          # Listing checked separately from "found nothing", like the three
+          # steps below. This step now carries the load during a release, so
+          # "Reclaimed 0 MB" has to be distinguishable from "never looked".
+          if ! RAW=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+                       --json id,key,createdAt,ref,sizeInBytes); then
+            echo "::error::Could not list caches — the keep-1 dedupe did NOT run."
+            exit 1
+          fi
+          ROWS=$(printf '%s' "$RAW" | jq -r --argjson keep "$KEEP" --arg ts "$TS" '
+                   map(select(.key | test($ts)))
+                   | group_by((.key | sub($ts; "")) + "@@" + .ref)
+                   | map(sort_by(.createdAt) | reverse | .[$keep:])
+                   | flatten
+                   | .[] | "\(.id)\t\(.sizeInBytes)\t\(.key)"
+                 ')
+          if [ -z "$ROWS" ]; then
+            echo "Listed $(printf '%s' "$RAW" | jq length) caches; no duplicate (prefix, ref) groups."
+            exit 0
+          fi
+
+          # Here-string, not a pipe: the loop must run in this shell or the
+          # counters accumulate in a subshell and are discarded. That trap is
+          # already recorded on the dead-ref step below; this step had the same
+          # pipe and got away with it only because nothing read a counter.
+          freed=0
+          deleted=0
+          candidates=$(printf '%s\n' "$ROWS" | grep -c . || true)
+          while IFS=$'\t' read -r id size key; do
                 [ -n "$id" ] || continue
-                if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
-                  echo "- deleted \`$key\` (id $id)" >> "$GITHUB_STEP_SUMMARY"
+                mb=$(( size / 1024 / 1024 ))
+                if err=$(gh cache delete "$id" --repo "$GITHUB_REPOSITORY" 2>&1); then
+                  echo "- deleted \`$key\` (${mb} MB) — superseded by a newer copy of the same prefix" \
+                    >> "$GITHUB_STEP_SUMMARY"
+                  freed=$(( freed + mb ))
+                  deleted=$(( deleted + 1 ))
                 else
-                  echo "::warning::Failed to delete cache $key (id $id)"
+                  echo "::warning::Failed to delete cache $key (id $id): $err"
                 fi
-              done
+          done <<< "$ROWS"
+          echo "Reclaimed ${freed} MB from ${deleted}/${candidates} duplicate entries." \
+            >> "$GITHUB_STEP_SUMMARY"
 
       # Compiler caches left behind by release tags that have SHIPPED.
       #
