@@ -129,7 +129,33 @@ Item {
                 // past the screen edge; capped, the text wraps and elides inside.
                 Layout.maximumWidth: modelData.type === "shotPlan"
                     ? root.availableWidth : Number.POSITIVE_INFINITY
-                Layout.preferredHeight: modelData.type === "spacer" ? -1 : root.buttonHeight
+                // Mirrors Layout.preferredWidth above: an auto-sized type sizes to its
+                // CONTENT in both axes, and anything outside isAutoSized takes the fixed
+                // cell. That is NOT the same as "only action buttons" — the quick-selects,
+                // doseWeight, milkWeight, profileName, lastShot, separator, discuss and the
+                // screensaver widgets are all outside the list too, so a zone holding only
+                // one of those still measures a full cell. Whether they belong in
+                // isAutoSized is a live question; the list governs width as well, so it is
+                // not a free change.
+                //
+                // This used to exempt "spacer" alone, so every readout — the shot plan,
+                // the clock, the temperature — claimed a full buttonHeight cell and painted
+                // a line or two of text centred in it. The leftover was invisible buffer
+                // that still counted as layout height. A RowLayout takes the MAX over its
+                // children, so a zone containing any action button is unchanged; what
+                // shrinks is a readout-only zone, and that is enough to make the whole
+                // centre column measure taller than anything on screen. Anything reasoning
+                // about where the column ENDS — IdlePage's lowerMidBarCrowding, and the
+                // carouselOverlapsBand fallback behind it — was then reading padding rather
+                // than content, and hid the lower-mid band over a gap the user could
+                // plainly see was empty.
+                //
+                // isAutoSized already covers "spacer", so this subsumes the old case
+                // exactly rather than dropping it.
+                Layout.preferredHeight: root.isAutoSized(modelData.type) ? -1 : root.buttonHeight
+                // Stays spacer-only on purpose, despite the line above having just
+                // folded its spacer test into isAutoSized: a readout must size to its
+                // content, not expand to fill the row.
                 Layout.fillWidth: modelData.type === "spacer"
             }
         }
