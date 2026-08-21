@@ -40,8 +40,15 @@ Item {
     }
     readonly property bool fillRow: fillWidthMode || hasSpacer
 
+    // What the zone's items actually PAINT, without the bar-height floor below.
+    // implicitHeight deliberately reports a full bar even for a short row, so a
+    // caller reasoning about where the zone's content begins — as IdlePage does
+    // when deciding whether the centre column reaches the lower-mid band — would
+    // otherwise measure padding nothing draws in and act on empty space.
+    readonly property real contentImplicitHeight: itemsRow.implicitHeight * root.zoneScale
+
     // Grow to fit large-style / scaled items; bar height otherwise.
-    implicitHeight: Math.max(Theme.bottomBarHeight, itemsRow.implicitHeight * root.zoneScale)
+    implicitHeight: Math.max(Theme.bottomBarHeight, root.contentImplicitHeight)
     implicitWidth: itemsRow.implicitWidth * root.zoneScale
 
     RowLayout {
