@@ -172,11 +172,27 @@ T.Page {
         idlePage.topPanelClearance = 0
     }
 
-    // Center-zone inline carousel: when the expanded center column would reach
-    // the bottom-anchored lower-mid band, the band is HIDDEN (faded out) rather
-    // than shoved down — the band sits on bottomBar.top (modulo the user's zone
-    // Y-offset), so "down" runs it into the bottom action bar. One-way: reads the column's
-    // un-offset bottom against the band's static top.
+    // Center-zone inline carousel: an open carousel grows the vertically-centred
+    // centre column until it reaches the bottom-anchored lower-mid band. SQUEEZE
+    // first — tighten the centre column's row spacing and let the band sit at its
+    // content height instead of its taller idle floor. On a 1280x800 tablet that
+    // recovers more than the overlap a carousel introduces, so the band (Grind,
+    // Weather, …) stays on screen instead of vanishing the moment a preset row
+    // opens. Only while a carousel is open: with none open the page keeps its
+    // roomier idle spacing.
+    //
+    // Deliberately geometry-free. A squeeze that measured the overlap it is
+    // correcting would feed back into the spacing and height it produces, which is
+    // a binding loop. carouselOverlapsBand below MAY read geometry because it
+    // drives opacity and enabled only, never a size.
+    readonly property bool squeezeForCarousel:
+        idlePage.activePresetFunction !== "" && idlePage.lowerMidBarHasItems
+
+    // Fallback for what the squeeze cannot recover (a very short viewport, a tall
+    // band, a tall preset row): the band is HIDDEN (faded out) rather than shoved
+    // down — it sits on bottomBar.top (modulo the user's zone Y-offset), so "down"
+    // runs it into the bottom action bar. One-way: reads the column's un-offset
+    // bottom against the band's static top.
     readonly property bool carouselOverlapsBand: {
         if (idlePage.activePresetFunction === "" || !idlePage.lowerMidBarVisible)
             return false
@@ -887,7 +903,11 @@ T.Page {
         anchors.verticalCenterOffset: Theme.scaled(50)
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
-        spacing: Theme.scaled(20)
+        // Tightens while a carousel is open so the expanded column stops crowding
+        // the lower-mid band off the screen. Animated over the same 200 ms the
+        // preset row itself expands in, so the rows above do not jump.
+        spacing: Theme.scaled(idlePage.squeezeForCarousel ? 8 : 20)
+        Behavior on spacing { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
         // Transient slide to clear a picker popup: up for a lower-half popup,
         // down for an upper-half one (restores to 0 on close).
         transform: Translate {
@@ -1473,7 +1493,14 @@ T.Page {
     readonly property bool lowerMidBarHasItems: idlePage.lowerMidBarItems.length > 0
     // Auto-grow: the band fits its content (large item-size makes it taller),
     // never smaller than the standard bar height.
-    readonly property real lowerMidBarFullHeight: Math.max(Theme.scaled(82), lmbZone.implicitHeight)
+    // scaled(82) is an idle-only floor that pads the band above its content. While a
+    // carousel is open the band gives that padding back and sits at its content
+    // height, moving its top edge down and out of the growing column's way.
+    // LayoutBarZone's own Theme.bottomBarHeight floor still applies underneath, so
+    // this never collapses the band below a normal bar.
+    readonly property real lowerMidBarFullHeight: idlePage.squeezeForCarousel
+        ? lmbZone.implicitHeight
+        : Math.max(Theme.scaled(82), lmbZone.implicitHeight)
     readonly property bool lowerMidBarFits:
         (idlePage.height - Theme.statusBarHeight - Theme.bottomBarHeight - lowerMidBarFullHeight) >= Theme.scaled(220)
     readonly property bool lowerMidBarVisible: lowerMidBarHasItems && lowerMidBarFits
