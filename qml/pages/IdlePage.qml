@@ -144,12 +144,15 @@ T.Page {
     // Un-offset extents of the movable idle content (read raw so the test can't
     // feed back into the offset it produces). The center column's top is its own y.
     //
-    // lowerMidBarBottom is the extraction of an expression this already carried; the
-    // value is unchanged. It is one named property so the offset convention is
-    // explained and applied in a single place — the band's bottom edge carries the
-    // user's zone Y-offset, signed, so reading bottomBar.y flat mis-measures in
-    // whichever direction that offset points. Unaffected by the squeeze, which
-    // shrinks the band from the top.
+    // lowerMidBarBottom is SOLVED, not a constant: it is the band's rest position
+    // (bottomBar.y displaced by the user's signed zone Y-offset) except when the
+    // centre column crowds the band, where it descends toward the bar. So this
+    // extent moves with crowding, by up to the whole offset — reading bottomBar.y
+    // flat would mis-measure in whichever direction that offset points, and reading
+    // a fixed rest position would mis-measure whenever the band has slid.
+    //
+    // The squeeze itself still does not affect it: shrinking moves the band's TOP
+    // edge, and this is its bottom.
     //
     // This is the band's BOX bottom, not the bottom of what it paints — the very
     // distinction the squeeze turns on elsewhere. Deliberate here: over-requesting
@@ -167,8 +170,9 @@ T.Page {
     // half of the page the popup sits in.
     //
     // topPanelClearance has a second effect: it slides the centre column DOWN while
-    // the bottom-anchored band stays put, so lowerMidBarColumnBottom counts it and an
-    // upper-half picker squeezes the band as well as moving the column.
+    // the band's own Translate does not carry that term, so lowerMidBarColumnBottom
+    // counts it and an upper-half picker makes the band yield too — descending first,
+    // then shrinking, exactly as a carousel does.
     function requestPanelClearance(panelTop: real, panelHeight: real) {
         var panelBottom = panelTop + panelHeight
         if ((panelTop + panelBottom) / 2 >= idlePage.height / 2) {
@@ -191,8 +195,9 @@ T.Page {
     // used to simply fade out when they met — taking the widgets in it (Grind,
     // Weather, …) off the screen for as long as the carousel stayed open.
     //
-    // The BAND yields instead, down to the tallest height at which its content still
-    // clears the column (lowerMidBarClearHeight, below). The SQUEEZE moves nothing
+    // The BAND yields instead, cheapest first: it descends into the empty gap under
+    // it (lowerMidBarBottom), then shrinks to the tallest height at which its content
+    // still clears the column (lowerMidBarClearHeight), then fades. The SQUEEZE moves nothing
     // above the band: the band is bottom-anchored, so shrinking moves only its own
     // top edge, and the
     // centre column reads nothing from it. A layout whose column never reaches the
@@ -200,9 +205,11 @@ T.Page {
     // content — LayoutCenterZone's Layout.preferredHeight — does re-flow the column,
     // once and at rest. That landed in #1848, in LayoutCenterZone.qml.)
     //
-    // Fallback for the crowding the squeeze cannot absorb: the band is HIDDEN
-    // (faded out) rather than shoved down — it sits on bottomBar.top (modulo the
-    // user's zone Y-offset), so "down" runs it into the bottom action bar.
+    // Last resort, once the band has spent both cheaper responses. It is shoved down
+    // FIRST (lowerMidBarBottom reclaims the user's upward zone Y-offset, which is
+    // empty space) and shrunk SECOND; only when the descent has reached the bottom
+    // bar and the height has reached its floor is there nothing left to give, and
+    // the band is then HIDDEN rather than left overlapping the column.
     //
     // Asks whether the TALLEST clearing height (lowerMidBarClearHeight) has fallen
     // below the smallest the band may render at, rather than comparing against the
@@ -211,7 +218,8 @@ T.Page {
     // (Layout.preferredHeight, likewise), with independent lag. A predicate reading
     // the rendered lowerMidBar.y therefore goes transiently true mid-animation while
     // the band's top edge is still on its way down, which starts the very fade the
-    // squeeze exists to avoid — a flash on every carousel open. Comparing VALUES
+    // squeeze exists to avoid — a flash on every carousel open. The band's
+    // anchors.bottomMargin animates too now, which only widens that trap. Comparing VALUES
     // removes the lag on the band's side. The column's own growth still animates, but
     // on an OPEN it runs in one direction only, so the predicate crosses once. A
     // SWITCH straight from one preset row to a shorter one (LayoutActions assigns
@@ -1533,27 +1541,73 @@ T.Page {
     readonly property color lowerMidBarFill: Theme.zoneBackgroundColor(idlePage.lowerMidBarStyle)
 
     readonly property real lowerMidBarRestHeight: Math.max(Theme.scaled(82), lmbZone.implicitHeight)
-    // Floor on the squeeze. Past this the band stops giving up height; with a
-    // carousel open carouselOverlapsBand then fades it, and with none open it simply
-    // overlaps (see that property for why the two differ).
+    // Floor on the squeeze: the smallest the band may render. Past it the band stops
+    // giving up height; with a carousel open carouselOverlapsBand then fades it, and
+    // with none open it simply overlaps (see that property for why the two differ).
     //
-    // PROPORTIONAL, because the content scales with the height: a flat floor against
-    // a content-driven rest height means the scale bottoms out at floor/restHeight,
-    // which is ~0.5 for a default band but ~0.2 for a tall one (itemSize "large", or
-    // a user zone scale). That range is present-but-unreadable, with every tap target
-    // inside it well under Theme.touchTargetMin. Capping the squeeze at 40% of the
-    // band keeps it legible and lets the fade take over while it still is.
-    // touchTargetMin is a defensive bound that the rest height's own scaled(82)
-    // floor currently makes unreachable — 82 * 0.6 already exceeds 44. Kept so the
-    // floor stays correct if that one is ever lowered, not because it governs today.
-    readonly property real lowerMidBarMinHeight: Math.max(
-        Theme.touchTargetMin, idlePage.lowerMidBarRestHeight * 0.6)
+    // It does TWO jobs, and saying so matters because an earlier version of this
+    // comment claimed one "rather than" the other: it floors the rendered height
+    // (lowerMidBarCurrentHeight) AND it is the fade threshold (carouselOverlapsBand).
+    // With no carousel open the fade is gated off, so there it does only the first.
+    //
+    // What it does NOT do is keep the widgets tappable, though it is easy to write
+    // that — and this comment previously did. The
+    // squeeze is a render scale on the zone, and QQuickItem::scale transforms hit
+    // testing along with painting, so a widget's tap area shrinks with
+    // lowerMidBarContentScale = currentHeight / restHeight. Flooring currentHeight
+    // bounds the BOX; the tap targets inside still scale, and the taller the band's
+    // rest height the smaller they get at the floor.
+    //
+    // Flat rather than proportional, and the cost is real: at restHeight scaled(82)
+    // the worst content scale is ~0.54, but a tall band (itemSize "large", or a user
+    // zone scale) reaches ~0.31, where a compact widget's tap area is well under
+    // Theme.touchTargetMin. The previous max(touchTargetMin, restHeight * 0.6) bought
+    // a 0.6 worst case — and bought it by hiding the band instead, which is the worse
+    // failure. A band too small to tap can still be read, and its widgets remain
+    // reachable from their own pages; a band that is not there tells the user
+    // nothing. Small beats absent.
+    //
+    // NOT justified by the SM-X210 Steam-row case that prompted it: the slide below
+    // resolves that one on its own (clear 69.07 against even the old 65.4 floor).
+    // This stands or falls on the argument above.
+    readonly property real lowerMidBarMinHeight: Theme.touchTargetMin
 
-    // The band's bottom edge. anchors.bottomMargin is the NEGATED zone Y-offset
-    // (see the Rectangle), so the offset adds to the bottom. Pinned: the band only
-    // ever shrinks upwards from here.
-    readonly property real lowerMidBarBottom:
+    // Where the band would sit if nothing were crowding it: bottomBar.top displaced
+    // by the user's signed zone Y-offset, so the offset adds to the bottom. The
+    // Rectangle's anchors.bottomMargin is this offset's negation AT REST only — once
+    // the band slides the margin follows the solved edge instead.
+    readonly property real lowerMidBarRestBottom:
         bottomBar.y + idlePage.lowerMidBarYOffset
+    // The lowest it may sit. Below the rest position only for a NEGATIVE offset — a
+    // lift, with genuinely empty space underneath it — and there the limit is the
+    // bottom bar. A positive offset already pushes the band down over the bar, so
+    // maxBottom collapses to restBottom and there is no slide to be had.
+    readonly property real lowerMidBarMaxBottom:
+        Math.max(idlePage.lowerMidBarRestBottom, bottomBar.y)
+
+    // The band's bottom edge, solved rather than fixed — the FIRST thing it gives up
+    // when crowded, and the cheapest.
+    //
+    // A user's upward offset is a decorative gap: reclaiming it costs a slide into
+    // space that was empty anyway, and buys real height at 1/k per unit. Shrinking,
+    // by contrast, costs legibility, and fading costs the widgets entirely. So the
+    // order is slide, then shrink, then fade, and this is the first step: descend
+    // only as far as full height requires, never past the bar, never above the
+    // user's chosen position. With nothing crowding the band the solve returns the
+    // rest position exactly, so a layout that never needs the room never moves.
+    //
+    // On the measured SM-X210 case, with the Steam preset row open: the offset is
+    // -40, worth 40/k = 43 units of height. Clearing the fade threshold needed 33 of
+    // them (clear was 25.9 against a floor of 59), so the slide saves the band — and
+    // full height would have needed 83, so it does NOT restore it to full size. The
+    // band ends at 69 of 109, scale 0.64. Both halves of that matter: the slide is
+    // what makes it visible, and the shrink is what it still costs.
+    readonly property real lowerMidBarBottom: {
+        var wantFullHeight = idlePage.lowerMidBarColumnBottom
+            + idlePage.lowerMidBarRestHeight * idlePage.lowerMidBarContentTopFactor
+        return Math.max(idlePage.lowerMidBarRestBottom,
+                        Math.min(idlePage.lowerMidBarMaxBottom, wantFullHeight))
+    }
 
     // The height at which the band's CONTENT clears the centre column, solved
     // directly rather than by subtracting an intrusion.
@@ -1634,12 +1688,23 @@ T.Page {
     //     dependency. itemsRow anchors to its parent's verticalCenter/left/right
     //     (LayoutBarZone.qml:56-58), so it measures the parent's WIDTH but never its
     //     height;
-    //   - topPanelClearance looks like the dangerous one, because its writer
-    //     requestPanelClearance reads _idleContentBottom, which reads
-    //     lowerMidBarBottom — the other half of the subtraction below. It is not:
-    //     lowerMidBarBottom is bottomBar.y plus the zone offset, with no term in the
-    //     band's height, and requestPanelClearance is an imperative function writing
-    //     a plain property, so it cannot participate in a binding loop at all.
+    //   - topPanelClearance is the dangerous-looking one, and the danger is REAL now
+    //     in a way it was not before this property was solved. lowerMidBarBottom used
+    //     to be bottomBar.y plus the offset and carried no clearance term; it now
+    //     solves from bottomBar.y, the zone offset, lowerMidBarColumnBottom (which
+    //     ADDS topPanelClearance), lowerMidBarRestHeight and
+    //     lowerMidBarContentTopFactor. So the path lowerMidBarBottom →
+    //     _idleContentBottom → requestPanelClearance → topPanelClearance →
+    //     lowerMidBarColumnBottom → lowerMidBarBottom now closes.
+    //
+    //     Two things break it, and both are worth knowing before touching
+    //     requestPanelClearance. It is an imperative function writing a plain
+    //     property, not a binding, so it cannot form a binding loop at all. And the
+    //     branch that reads _idleContentBottom writes only bottomPanelClearance,
+    //     which does not appear in lowerMidBarColumnBottom (it cancels against the
+    //     band's own Translate); the branch that writes topPanelClearance reads
+    //     _idleContentTop, which never touches the band. None of the five inputs
+    //     carries a term in the band's RENDERED height.
     //
     // That last point is why the squeeze may NOT run through the zone's zoneScale,
     // however natural that looks — zoneScale is the other factor in both of those
@@ -1683,7 +1748,13 @@ T.Page {
         anchors.right: parent.right
         anchors.bottom: bottomBar.top
         // Negative offset (the editor's "up") lifts the band off the bottom bar.
-        anchors.bottomMargin: -idlePage.lowerMidBarYOffset
+        // Follows the SOLVED bottom edge (lowerMidBarBottom), which equals
+        // bottomBar.y + yOffset at rest and descends toward the bar only when the
+        // band would otherwise have to shrink or hide.
+        anchors.bottomMargin: bottomBar.y - idlePage.lowerMidBarBottom
+        Behavior on anchors.bottomMargin {
+            NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
+        }
         visible: idlePage.lowerMidBarVisible
         height: visible ? idlePage.lowerMidBarCurrentHeight : 0
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
@@ -1739,8 +1810,9 @@ T.Page {
             anchors.rightMargin: Theme.spacingMedium
             height: idlePage.lowerMidBarRestHeight
             scale: idlePage.lowerMidBarContentScale
-            // Shrinks towards the bottom bar, so the band's top edge is what moves
-            // and its contents stay put against the bar below them.
+            // Shrinks towards the band's own bottom edge, so within a squeeze the top
+            // edge is what moves. That edge is itself solved and descends during a
+            // slide, so the contents stay put relative to the BAND, not to the bar.
             //
             // A uniform scale shrinks x as well as y, so the origin is pinned to the
             // zone's ALIGNMENT edge — the same rule, and the same reason, as
