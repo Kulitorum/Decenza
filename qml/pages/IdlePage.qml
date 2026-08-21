@@ -1540,20 +1540,49 @@ T.Page {
     // PROPORTIONAL, because the content scales with the height: a flat floor against
     // a content-driven rest height means the scale bottoms out at floor/restHeight,
     // which is ~0.5 for a default band but ~0.2 for a tall one (itemSize "large", or
-    // a user zone scale). That range is present-but-unreadable, with every tap target
-    // inside it well under Theme.touchTargetMin. Capping the squeeze at 40% of the
-    // band keeps it legible and lets the fade take over while it still is.
-    // touchTargetMin is a defensive bound that the rest height's own scaled(82)
-    // floor currently makes unreachable — 82 * 0.6 already exceeds 44. Kept so the
-    // floor stays correct if that one is ever lowered, not because it governs today.
-    readonly property real lowerMidBarMinHeight: Math.max(
-        Theme.touchTargetMin, idlePage.lowerMidBarRestHeight * 0.6)
+    // Floor on the squeeze: the smallest the band may render before the fade takes
+    // over instead. Theme.touchTargetMin, and nothing more.
+    //
+    // This was max(touchTargetMin, restHeight * 0.6), on the reasoning that a fixed
+    // floor against a tall band scales its content to something unreadable. That
+    // reasoning is sound and the constant was still wrong, because it decides when
+    // the band DISAPPEARS rather than how small it may get. Measured on an SM-X210:
+    // with the Steam preset row open the band needed 64.75 and the 0.6 floor stood at
+    // 65.4, so it was refused its last two thirds of a unit and vanished — trading a
+    // slightly smaller band for no band at all. A floor exists to keep the widgets
+    // tappable; past that, small beats absent.
+    readonly property real lowerMidBarMinHeight: Theme.touchTargetMin
 
-    // The band's bottom edge. anchors.bottomMargin is the NEGATED zone Y-offset
-    // (see the Rectangle), so the offset adds to the bottom. Pinned: the band only
-    // ever shrinks upwards from here.
-    readonly property real lowerMidBarBottom:
+    // Where the band would sit if nothing were crowding it: bottomBar.top displaced
+    // by the user's zone Y-offset (anchors.bottomMargin is its NEGATION, see the
+    // Rectangle, so the offset adds to the bottom).
+    readonly property real lowerMidBarRestBottom:
         bottomBar.y + idlePage.lowerMidBarYOffset
+    // The lowest it may sit: on the bottom bar. Only below the rest position for a
+    // NEGATIVE offset — a lift, with genuinely empty space underneath it. A positive
+    // offset already pushes the band down over the bar and gets nothing back.
+    readonly property real lowerMidBarMaxBottom:
+        Math.max(idlePage.lowerMidBarRestBottom, bottomBar.y)
+
+    // The band's bottom edge, solved rather than fixed — the FIRST thing it gives up
+    // when crowded, and the cheapest.
+    //
+    // A user's upward offset is a decorative gap: reclaiming it costs a slide into
+    // space that was empty anyway, and buys real height at 1/k per unit. Shrinking,
+    // by contrast, costs legibility, and fading costs the widgets entirely. So the
+    // order is slide, then shrink, then fade, and this is the first step: descend
+    // only as far as full height requires, never past the bar, never above the
+    // user's chosen position. With nothing crowding the band the solve returns the
+    // rest position exactly, so a layout that never needs the room never moves.
+    //
+    // On the measured SM-X210 case that is decisive: the offset is -40, worth
+    // 40/k = 43 units of height, against a shortfall of 0.65.
+    readonly property real lowerMidBarBottom: {
+        var wantFullHeight = idlePage.lowerMidBarColumnBottom
+            + idlePage.lowerMidBarRestHeight * idlePage.lowerMidBarContentTopFactor
+        return Math.max(idlePage.lowerMidBarRestBottom,
+                        Math.min(idlePage.lowerMidBarMaxBottom, wantFullHeight))
+    }
 
     // The height at which the band's CONTENT clears the centre column, solved
     // directly rather than by subtracting an intrusion.
@@ -1637,9 +1666,10 @@ T.Page {
     //   - topPanelClearance looks like the dangerous one, because its writer
     //     requestPanelClearance reads _idleContentBottom, which reads
     //     lowerMidBarBottom — the other half of the subtraction below. It is not:
-    //     lowerMidBarBottom is bottomBar.y plus the zone offset, with no term in the
-    //     band's height, and requestPanelClearance is an imperative function writing
-    //     a plain property, so it cannot participate in a binding loop at all.
+    //     lowerMidBarBottom solves from bottomBar.y, the zone offset, the column and
+    //     the REST height, none of which carries a term in the band's rendered
+    //     height, and requestPanelClearance is an imperative function writing a plain
+    //     property, so it cannot participate in a binding loop at all.
     //
     // That last point is why the squeeze may NOT run through the zone's zoneScale,
     // however natural that looks — zoneScale is the other factor in both of those
@@ -1662,6 +1692,7 @@ T.Page {
         Math.min(idlePage.lowerMidBarRestHeight, idlePage.lowerMidBarClearHeight))
     // Render scale for the band's contents, so a squeezed band shrinks what it holds
     // instead of clipping it. 1.0 whenever nothing is crowding the band.
+
     readonly property real lowerMidBarContentScale: idlePage.lowerMidBarRestHeight > 0
         ? idlePage.lowerMidBarCurrentHeight / idlePage.lowerMidBarRestHeight
         : 1.0
@@ -1683,7 +1714,13 @@ T.Page {
         anchors.right: parent.right
         anchors.bottom: bottomBar.top
         // Negative offset (the editor's "up") lifts the band off the bottom bar.
-        anchors.bottomMargin: -idlePage.lowerMidBarYOffset
+        // Follows the SOLVED bottom edge (lowerMidBarBottom), which equals
+        // bottomBar.y + yOffset at rest and descends toward the bar only when the
+        // band would otherwise have to shrink or hide.
+        anchors.bottomMargin: bottomBar.y - idlePage.lowerMidBarBottom
+        Behavior on anchors.bottomMargin {
+            NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
+        }
         visible: idlePage.lowerMidBarVisible
         height: visible ? idlePage.lowerMidBarCurrentHeight : 0
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
