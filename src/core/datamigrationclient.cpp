@@ -631,23 +631,32 @@ void DataMigrationClient::onAIConversationsReply()
             // we get here it is filled, and startImport() clears it at the top
             // of every run so a previous run's map can never stand in.
             //
-            // Empty means no map, so every turn's shotId is cleared. Three ways
-            // to get there and all want the same answer: the user imported
-            // conversations WITHOUT shots, the shot import FAILED, or it was
-            // REFUSED. In each case the ids name the source device's database,
-            // which this device does not have — keeping them is the bug.
-            const QHash<qint64, qint64>* idMap =
-                m_shotImport.shotIdMap.isEmpty() ? nullptr : &m_shotImport.shotIdMap;
-            const AIConversation::ImportTally tally =
-                AIConversation::importConversationsStatic(settings, doc.array(), idMap);
-            m_aiConversationsImported += tally.conversations;
+            // A REFUSAL is its own case and must NOT import. The guards fire
+            // on a transient condition, so the user's next move is to run the
+            // migration again — and importing now with every id cleared makes
+            // that retry useless, because the keys would already exist and the
+            // retry skips them as duplicates.
+            if (m_shotImport.refused()) {
+                qWarning() << "DataMigrationClient: shot import was refused, so AI conversations"
+                           << "were NOT imported — retry the migration rather than lose their"
+                           << "shot links";
+            } else {
+                // No map means every turn's shotId is cleared: the user imported
+                // conversations WITHOUT shots, or the shot import failed. Either
+                // way the ids name the source device's database, which this
+                // device does not have — keeping them is the bug.
+                const AIConversation::ImportTally tally =
+                    AIConversation::importConversationsStatic(settings, doc.array(),
+                                                              m_shotImport.idMapOrNull());
+                m_aiConversationsImported += tally.conversationsImported;
 
-            if (tally.conversations > 0 && m_aiManager)
-                m_aiManager->reloadConversations();
+                if (tally.conversationsImported > 0 && m_aiManager)
+                    m_aiManager->reloadConversations();
 
-            qDebug() << "DataMigrationClient: Imported" << m_aiConversationsImported
-                     << "AI conversations;" << tally.turnsRemapped
-                     << "shot reference(s) remapped," << tally.turnsCleared << "cleared";
+                qDebug() << "DataMigrationClient: Imported" << m_aiConversationsImported
+                         << "AI conversations;" << tally.turnsRemapped
+                         << "shot reference(s) remapped," << tally.turnsCleared << "cleared";
+            }
         }
     }
 
@@ -665,12 +674,22 @@ void DataMigrationClient::startNextImport()
     }
 
     if (m_importQueue.isEmpty()) {
-        // All done
+        // All done. "Complete" only when nothing failed — the dialog renders
+        // importComplete's summary in the success colour and errorMessage in
+        // red, and printing both leaves the user reading "Shots were not
+        // imported" directly above a green "Import complete".
         m_importing = false;
         setProgress(1.0);
-        setCurrentOperation(tr("Import complete"));
+        const bool clean = m_errorMessage.isEmpty();
+        setCurrentOperation(clean ? tr("Import complete")
+                                  : tr("Import finished with errors"));
         emit isImportingChanged();
-        emit importComplete(m_settingsImported, m_profilesImported, m_shotsImported, m_mediaImported, m_aiConversationsImported);
+        if (clean) {
+            emit importComplete(m_settingsImported, m_profilesImported, m_shotsImported,
+                                m_mediaImported, m_aiConversationsImported);
+        } else {
+            qWarning() << "DataMigrationClient: import finished with errors -" << m_errorMessage;
+        }
         return;
     }
 

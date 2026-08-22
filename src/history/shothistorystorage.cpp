@@ -4284,9 +4284,14 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // — a reference to that source shot must point at the copy we already
             // have, not be cleared as though the shot were missing.
             //
-            // Two guards around this read, both of which exist because a field
-            // restore logged "Found 0 existing shots" against a database the app
-            // had opened with 1058 shots, seconds earlier.
+            // Two guards around this read. A 2026-08-21 field restore that
+            // logged "Found 0 existing shots" prompted the audit that found
+            // them — but that incident is NOT evidence for either guard, and
+            // this comment used to claim it was. `sqlite_sequence` showed the
+            // destination's shots table had been dropped and recreated, so it
+            // was genuinely empty and the pre-read was right (see design.md;
+            // do not go looking for a failing SELECT there). Each guard stands
+            // on its own reasoning, stated at each one.
             QHash<QString, qint64> existingByUuid;
             if (merge) {
                 QSqlQuery uuidQuery(destDb);
@@ -4322,10 +4327,10 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // and proceeding would re-insert the shots it never saw.
                 //
                 // This replaced a weaker `destShotsBefore > 0 && isEmpty()`
-                // check, which that same UNIQUE NOT NULL constraint makes
-                // unreachable: no honest destination can count rows and yield
-                // zero keys. The equality covers that case as a subset and
-                // covers the partial read the old form let through.
+                // check. That form was reachable only by a read truncated at
+                // row 0 — a strict subset of what the equality catches, since
+                // UNIQUE NOT NULL means a COMPLETE read always yields exactly
+                // COUNT(*) keys.
                 //
                 // Merge mode only — replace mode DELETEs first, so empty is expected.
                 QSqlQuery countQuery(destDb);
@@ -4561,16 +4566,18 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
 
                 qint64 oldId = srcShots.value("id").toLongLong();
                 qint64 newId = insert.lastInsertId().toLongLong();
-                if (newId <= 0) {
-                    // A mapping to 0 is worse than no mapping: absent means
-                    // "clear the reference", which is correct, while 0 is an
-                    // entry that exists and names nothing. Count the row failed
-                    // and leave it out.
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: driver reported no insert id for shot"
-                               << uuid << "- not mapping it";
-                    failed++;
-                    continue;
-                }
+                // No `newId <= 0` guard here, deliberately. `shots.id` is
+                // INTEGER PRIMARY KEY and the exec() above returned true, so
+                // SQLite has assigned a rowid and reports it; there is no
+                // honest path to 0. A guard was added here during review and
+                // removed again: it `continue`d AFTER a committed INSERT,
+                // leaving a shot with no samples and no phases, counted
+                // `failed` while present in the database, absent from the map
+                // (which means "clear the reference" for a shot that exists),
+                // and — in replace mode — skipping the rollback every other
+                // insert-side failure performs. It made the log and the
+                // database disagree to guard a state the schema forbids.
+                //
                 // The renumbering, recorded. Everything that referenced oldId
                 // outside this database has to follow it to newId.
                 tally.shotIdMap.insert(oldId, newId);
@@ -4711,9 +4718,14 @@ cleanup:
     }
     QSqlDatabase::removeDatabase(srcConnName);
     QSqlDatabase::removeDatabase(destConnName);
-    // One copy-out for every path that reaches here. On a refusal the caller
-    // gets an empty map, which is the correct instruction: nothing was
-    // renumbered because nothing was written.
+    // One copy-out for every path that reaches here.
+    //
+    // On an INTEGRITY REFUSAL the map is empty — both guards fire before the
+    // first INSERT. On a mid-import abort it is NOT: a replace-mode INSERT
+    // failure rolls back with shotIdMap already holding every row inserted
+    // before it, naming destination ids the rollback erased. Rather than leave
+    // that trap for the three callers to each guard differently, the producer
+    // clears it below.
     //
     // NOT every path reaches here: the two database-open failures above return
     // directly, before `cleanup`. They are the only exits that leave outResult
@@ -4721,6 +4733,11 @@ cleanup:
     // meaningful only when this returned true — and why DataMigrationClient,
     // the one caller holding an ImportResult as a member, resets it at the top
     // of each run rather than trusting it to be overwritten.
+    // A failed import's map names ids that do not exist. Clearing it here makes
+    // every caller correct by construction, whichever way each phrases its own
+    // "do we have a map" test. Counts are kept — they are diagnostic and true.
+    if (!result)
+        tally.shotIdMap.clear();
     if (outResult)
         *outResult = tally;
     return result;
@@ -4755,7 +4772,10 @@ std::optional<QSet<qint64>> ShotHistoryStorage::existingShotIds(const QSet<qint6
     //                 32 ids  median 0.045 ms   worst 0.150 ms
     //
     // Flat against a 4x row count and a 2.5x file, which is the point: the cost
-    // tracks the id count, not the table's bytes.
+    // tracks the id count, not the table's bytes. (The 4x copy was made by
+    // re-INSERTing the shots table three times over with fresh uuids, carrying
+    // every column including the blobs; it grows the file only 2.5x because
+    // SQLite reuses freed pages and the index overhead does not triple.)
     //
     // The first row is the odd one and is NOT explained: 0.178 ms is 7-10x every
     // other median, and a median over 200 runs is not a cold-cache artefact the
@@ -4772,10 +4792,17 @@ std::optional<QSet<qint64>> ShotHistoryStorage::existingShotIds(const QSet<qint6
     // Three callers reach this, none of them a binding or a per-sample path:
     // AIConversation::loadFromStorage via switchConversation (a tap in
     // ConversationOverlay.qml), via AIManager::loadMostRecentConversation at
-    // startup, and via the MCP ai_advisor_invoke completion. The startup one is
-    // free today because m_shotHistory is still null in the AIManager
-    // constructor and is wired later from MainController — a wiring-order
-    // dependency worth knowing before you move that wiring earlier.
+    // startup, and via the MCP ai_advisor_invoke completion.
+    //
+    // The startup one used to skip this read entirely, because m_shotHistory is
+    // still null in the AIManager constructor and is wired later from
+    // MainController. An earlier version of this comment recorded that as the
+    // read being "free" at startup. It was not free, it was a HOLE: the most
+    // recently used conversation — the one the user is most likely to continue
+    // — loaded unrepaired on every launch. AIManager::setShotHistoryStorage now
+    // repairs the already-loaded conversation when the wiring arrives, so this
+    // read happens once more per launch. That is the cost, and it is the
+    // measured one below.
     // Re-derive if this ever moves onto a repeating path.
     QStringList placeholders;
     placeholders.reserve(ids.size());

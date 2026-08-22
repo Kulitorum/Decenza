@@ -4795,6 +4795,15 @@ T.ApplicationWindow {
     Connections {
         target: MainController.shotHistory
         function onErrorOccurred(message) {
+            // An advisor metadata write emits errorOccurred ("please try again")
+            // and THEN shotMetadataCaptureFailed, both in the same block. Showing
+            // the first would be overwritten visually by the second, but
+            // storageErrorToast.show() also announces assertively — so a
+            // screen-reader user heard the wrong advice in full, spoken first, and
+            // "try again" cannot work for a shot that does not exist. Let the
+            // advisor handler below own that case.
+            if (MainController.aiManager && MainController.aiManager.hasPendingShotMetadataWrite())
+                return
             storageErrorToast.show(message)
         }
     }
@@ -4813,7 +4822,7 @@ T.ApplicationWindow {
     // that. Say what was lost instead of offering a remedy that does not work.
     Tr {
         id: trAdvisorMetadataLost
-        key: "ai.error.shot_metadata_not_saved"
+        key: "ai.error.shotMetadataNotSaved"
         fallback: "What you told the advisor wasn't saved to that shot"
         visible: false
     }

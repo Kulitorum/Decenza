@@ -794,6 +794,14 @@ void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
 
     m_shotHistory = storage;
 
+    // The manager loads the most recent conversation in its own constructor,
+    // which runs BEFORE MainController wires the storage — so that conversation
+    // reached repairStaleTurnShotIds with nothing to check against and was left
+    // holding whatever stale ids it had. It is the conversation the user is most
+    // likely to continue, so the repair has to catch up as soon as we can check.
+    if (m_shotHistory && m_conversation)
+        m_conversation->repairStaleTurnShotIds();
+
     // Watch the outcome of OUR OWN metadata writes. The storage layer already
     // reported the outcome through this signal — ShotHistoryExporter has been
     // connected to it for a long time — but nothing acted on the FAILURE case

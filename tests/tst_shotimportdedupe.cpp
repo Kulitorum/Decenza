@@ -408,6 +408,21 @@ private slots:
         QCOMPARE(r.imported, 0);
         // The destination is untouched: still the one row it started with.
         QCOMPARE(countShots(destPath), 1);
+        QVERIFY(r.refused());
+        // A refused import hands back no map, so idMapOrNull() says "clear every
+        // stored id" and every caller agrees without needing its own invariant.
+        //
+        // Honest limit: this does NOT exercise the `if (!result) shotIdMap.clear()`
+        // in the producer. Both guards fire before the first INSERT, so the map
+        // is empty here whatever that line does — mutating it away leaves this
+        // slot green. The state it actually guards is a replace-mode INSERT
+        // failure PART-WAY through, which rolls back with the map already
+        // populated; reaching that needs a row to succeed and a later one to
+        // fail, which no honest fixture produces. The line stays (it is one
+        // statement and it makes the three callers correct by construction) and
+        // is recorded as untested rather than covered by this assertion.
+        QVERIFY(r.shotIdMap.isEmpty());
+        QVERIFY(r.idMapOrNull() == nullptr);
     }
 
     // Replace mode DELETEs first, so an empty pre-read is expected there and
@@ -432,6 +447,7 @@ private slots:
         ShotHistoryStorage::ImportResult r;
         QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/false, &r));
         QVERIFY(r.integrityFailure.isEmpty());
+        QVERIFY(!r.refused());
         QCOMPARE(countShots(destPath), 2);   // replaced, not merged
         // Replace mode never measures the destination, and "not measured" must
         // stay distinguishable from "the destination was empty".

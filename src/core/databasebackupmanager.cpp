@@ -1146,23 +1146,33 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     // climb, each stale one eventually resolves to a real but
                     // unrelated shot.
                     //
-                    // shotsImported false covers three cases and all want the
-                    // same answer: the archive had no shots, the import failed,
-                    // or it was REFUSED. No map, so every id is cleared. (In
-                    // merge mode a refusal does not stop the restore — profiles,
-                    // settings and media still land — so this branch is reached
-                    // with the user's own shot history intact and untouched.)
-                    const QHash<qint64, qint64>* idMap =
-                        shotsImported ? &shotImport.shotIdMap : nullptr;
-                    const AIConversation::ImportTally convTally =
-                        AIConversation::importConversationsStatic(qsettings, conversations, idMap);
+                    // A REFUSAL is not "no shots came with these". The guards
+                    // fire on a transient condition, so the user's next move is
+                    // to run the restore again — and importing now with every id
+                    // cleared makes that retry useless, because the keys would
+                    // then already exist and the retry skips them. Leave the
+                    // conversations in the archive for the retry to do properly.
+                    if (shotImport.refused()) {
+                        qWarning() << "DatabaseBackupManager: shot import was refused, so AI"
+                                   << "conversations were NOT imported — retry the restore"
+                                   << "rather than lose their shot links";
+                    } else {
+                        // Otherwise: shots landed (use the map), or the archive
+                        // had none / the import failed (no map, every id
+                        // cleared — those ids name a database this device does
+                        // not have).
+                        const AIConversation::ImportTally convTally =
+                            AIConversation::importConversationsStatic(
+                                qsettings, conversations,
+                                shotsImported ? shotImport.idMapOrNull() : nullptr);
 
-                    if (convTally.conversations > 0) {
-                        qsettings.sync();
-                        qDebug() << "DatabaseBackupManager: Imported" << convTally.conversations
-                                 << "AI conversations;" << convTally.turnsRemapped
-                                 << "shot reference(s) remapped," << convTally.turnsCleared
-                                 << "cleared";
+                        if (convTally.conversationsImported > 0) {
+                            qsettings.sync();
+                            qDebug() << "DatabaseBackupManager: Imported" << convTally.conversationsImported
+                                     << "AI conversations;" << convTally.turnsRemapped
+                                     << "shot reference(s) remapped," << convTally.turnsCleared
+                                     << "cleared";
+                        }
                     }
                 }
             }

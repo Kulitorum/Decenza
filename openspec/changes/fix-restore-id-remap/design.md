@@ -68,7 +68,9 @@ The cost is losing shot linkage on conversations imported alone. That linkage wa
 Two additions where the de-duplication pre-read happens:
 
 1. Check `uuidQuery.exec()`. On failure, roll back and return a failure naming the pre-read — do not proceed with an empty set.
-2. Independently `SELECT COUNT(*) FROM shots` on the destination. If the pre-read returned zero and the count is non-zero, roll back and report both numbers.
+2. Independently `SELECT COUNT(*) FROM shots` on the destination and require it to EQUAL the number of uuids read back; roll back and report both numbers otherwise.
+
+   **Revised during review.** As first written this compared "pre-read returned zero" against "count is non-zero", which `shots.uuid TEXT UNIQUE NOT NULL` makes reachable only by a read truncated at row 0. The equality covers that as a subset and also catches a read truncated anywhere later — `next()` returning false is how end-of-rows and a mid-scan error look the same, and a mid-scan `SQLITE_BUSY` during a restore is a mechanism that can actually occur.
 
 Both are cheap (one indexed count) and sit next to the read they guard, so the guard cannot be separated from what it protects. Merge mode only — replace mode clears the destination first and an empty pre-read is expected there.
 
@@ -76,7 +78,9 @@ Both are cheap (one indexed count) and sit next to the read they guard, so the g
 
 ### Stale ids are resolved when a conversation loads, not by rewriting stored data
 
-`AIConversation::loadFromStorage` resolves the distinct shot ids in the loaded turns against the database once and treats the unresolvable ones as absent **in memory**. Nothing is written back.
+`AIConversation::repairStaleTurnShotIds` resolves the distinct shot ids in the loaded turns against the database once and treats the unresolvable ones as absent.
+
+**Two corrections from review, both material.** (1) "Nothing is written back" was wrong: `saveToStorage` persists `m_messages`, so the drop becomes permanent at the next save — acceptable only because the id is known not to resolve, which is why an unanswerable lookup now leaves the data alone instead of clearing it. It also had to survive `saveToStorage`'s reconcile branch, which adopts another writer's on-disk copy and was silently restoring the stale ids. (2) The repair was a private step inside `loadFromStorage`, which `AIManager` calls from its own constructor — before any storage is wired — so the most recently used conversation loaded unrepaired on every launch. It is now a named method called again from `setShotHistoryStorage`.
 
 This is a bounded read on a discrete user action: at most ~16 turns per conversation, distinct ids, a single `SELECT id FROM shots WHERE id IN (...)`. Inline is appropriate under `CLAUDE.md`'s threading rule; the task list requires the measurement be recorded at the call site rather than asserted here.
 

@@ -3348,7 +3348,7 @@ private slots:
         const auto tally = AIConversation::importConversationsStatic(
             settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
 
-        QCOMPARE(tally.conversations, 1);
+        QCOMPARE(tally.conversationsImported, 1);
         QCOMPARE(tally.turnsRemapped, 4);   // two turn pairs
         QCOMPARE(tally.turnsCleared, 0);
 
@@ -3482,6 +3482,9 @@ private slots:
         ShotHistoryStorage::ImportResult r;
         QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r));
         QCOMPARE(r.imported, 40);
+        // Makes the literal 60 below self-checking rather than a remembered
+        // number: if the padding ever collapses, this fails here and says so.
+        QCOMPARE(r.destShotsBefore.value_or(-1), 60);
         // Every source id lands past the 60 already here, so nothing maps to
         // itself and a turn left un-remapped is detectable by value alone.
         for (qint64 sid : std::as_const(srcIds))
@@ -3533,9 +3536,11 @@ private slots:
         const qint64 liveId = storage.importShotRecord(rec, false);
         QVERIFY(liveId > 0);
 
-        // Construct the manager BEFORE writing the conversation: Settings and
-        // AIManager both touch the store on construction, and a conversation
-        // written ahead of them does not survive.
+        // Construct the manager BEFORE writing the conversation: AIManager's ctor
+        // runs the one-time clearAllConversationsOnce migration (aimanager.cpp),
+        // which wipes the whole ai/conversations group when its marker key is
+        // absent — and the preceding slots' settings.clear() removes that marker,
+        // so it fires here on every run.
         QNetworkAccessManager nam;
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
@@ -3572,13 +3577,14 @@ private slots:
     // The same pass must LEAVE THE DATA ALONE when the database cannot answer.
     // An un-initialized storage returns nullopt, not an empty set; if the two
     // were collapsed, every reference here would be deleted — and, since
-    // saveToStorage writes m_messages verbatim, deleted permanently at the next
-    // save. This is the slot that goes red if existingShotIds ever regresses to
+    // saveToStorage persists the result, so the drop is permanent. This is the slot that goes red if existingShotIds ever regresses to
     // returning a bare QSet.
     void loadFromStorageLeavesTurnIdsAloneWhenTheDatabaseCannotAnswer()
     {
         ShotHistoryStorage notReady;   // never initialize()d
 
+        // Manager first, for the same reason as the slot above:
+        // clearAllConversationsOnce wipes ai/conversations on construction.
         QNetworkAccessManager nam;
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
@@ -3641,10 +3647,17 @@ private slots:
         storage.close();
     }
 
-    // Two writes for one shot id arrive on one reply (a rating and bean
-    // metadata). m_pendingMetadataWrites was a QSet, so the first outcome
-    // consumed the only entry and the second — possibly the failing one — was
+    // One reply drives TWO metadata writes for the same shot — a rating and a
+    // bean correction, called back-to-back from AIConversation. That premise is
+    // why m_pendingMetadataWrites is a refcount: as a QSet the first outcome
+    // consumed the only entry and the second, possibly the failing one, was
     // discarded as "not ours" by the very filter added to catch failures.
+    //
+    // Driven through both PRODUCERS, not by poking the map. An earlier version
+    // wrote `m_pendingMetadataWrites[8473] += 2` by hand, which covered the
+    // decrement arithmetic but would have stayed green if either producer
+    // stopped registering its write at all — and the bean-correction producer
+    // had no other coverage.
     void twoWritesToOneShotBothReportTheirOutcome()
     {
         QTemporaryDir dir;
@@ -3659,17 +3672,131 @@ private slots:
 
         QSignalSpy failed(&mgr, &AIManager::shotMetadataCaptureFailed);
 
-        mgr.m_pendingMetadataWrites[8473] += 2;
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
-        QMetaObject::invokeMethod(&storage, [&storage]() {
-            emit storage.shotMetadataUpdated(8473, false);
-            emit storage.shotMetadataUpdated(8473, false);
-        }, Qt::DirectConnection);
+        const QString prior = QStringLiteral("How did this taste?");
+        const QString reply = QStringLiteral("82, actually the roast is dark");
 
-        QCOMPARE(failed.count(), 2);
+        mgr.maybePersistRatingFromReply(reply, prior, 8473);
+        mgr.maybePersistBeanCorrectionFromReply(reply, prior, 8473);
+        // The premise of the refcount, asserted rather than assumed: both
+        // producers registered a write against the same shot id.
+        QCOMPARE(mgr.m_pendingMetadataWrites.value(8473), 2);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("No shot with id 8473 to update"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("No shot with id 8473 to update"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
+
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 2, 5000);
         QVERIFY(!mgr.m_pendingMetadataWrites.contains(8473));
 
+        storage.close();
+    }
+
+    // The shared importer skips a conversation whose key this device already
+    // has, rather than merging or overwriting. Untested until now: every other
+    // tally slot clears settings first, so existingKeys was always empty and the
+    // branch was dead in the suite. It is a user-data-overwrite shape on code
+    // that was just collapsed from three hand-written copies.
+    void anExistingConversationIsSkippedWholeNotOverwritten()
+    {
+        AppSettings settings;
+        settings.clear();
+        const QString mine = QStringLiteral("mine_key");
+        const QString fresh = QStringLiteral("fresh_key");
+
+        // What this device already holds, with its own turn text.
+        QJsonArray liveMsgs = turnsWithShotIds({1052});
+        QJsonObject firstTurn = liveMsgs.at(0).toObject();
+        firstTurn["content"] = QStringLiteral("the copy already on this device");
+        liveMsgs[0] = firstTurn;
+        settings.setValue("ai/conversations/" + mine + "/messages",
+                          QJsonDocument(liveMsgs).toJson(QJsonDocument::Compact));
+        settings.setValue(QStringLiteral("ai/conversations/index"),
+                          QJsonDocument(QJsonArray{QJsonObject{{"key", mine}}})
+                              .toJson(QJsonDocument::Compact));
+
+        // The archive carries an older copy of that same conversation, plus one
+        // this device has never seen.
+        QJsonArray incoming = oneConversation(mine, turnsWithShotIds({1109}));
+        for (const QJsonValue& v : oneConversation(fresh, turnsWithShotIds({1109})))
+            incoming.append(v);
+
+        QHash<qint64, qint64> map{{1109, 1052}};
+        const auto tally = AIConversation::importConversationsStatic(settings, incoming, &map);
+
+        QCOMPARE(tally.conversationsImported, 1);
+        // Only the fresh conversation's turns were touched.
+        QCOMPARE(tally.turnsRemapped, 2);
+
+        QCOMPARE(storedTurns(settings, mine).at(0).toObject().value("content").toString(),
+                 QStringLiteral("the copy already on this device"));
+        QCOMPARE(storedTurns(settings, fresh).size(), qsizetype(2));
+
+        // The index gained the new key and kept the old one.
+        const QJsonArray index = QJsonDocument::fromJson(
+            settings.value(QStringLiteral("ai/conversations/index")).toByteArray()).array();
+        QSet<QString> keys;
+        for (const QJsonValue& v : index) keys.insert(v.toObject().value("key").toString());
+        QCOMPARE(keys, QSet<QString>({mine, fresh}));
+
+        settings.clear();
+    }
+
+    // A repaired conversation must STAY repaired when saveToStorage reconciles
+    // against another writer's on-disk copy. That copy predates the repair and
+    // still carries the stale ids, and adopting it verbatim silently undid the
+    // whole thing — on exactly the installs that have a second writer, i.e. MCP
+    // ai_advisor_invoke.
+    void aRepairedConversationStaysRepairedAcrossAReconcilingSave()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(dir.filePath("reconcile.db")));
+
+        ShotRecord rec;
+        rec.summary.uuid = QStringLiteral("reconcile-shot");
+        rec.summary.timestamp = 1765400000;
+        rec.summary.profileName = QStringLiteral("R");
+        rec.summary.beverageType = QStringLiteral("espresso");
+        rec.pressure.append(QPointF(0.0, 6.0));
+        const qint64 liveId = storage.importShotRecord(rec, false);
+        QVERIFY(liveId > 0);
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        mgr.setShotHistoryStorage(&storage);
+
+        AppSettings settings;
+        const QString key = QStringLiteral("reconcile_key");
+        settings.setValue("ai/conversations/" + key + "/messages",
+                          QJsonDocument(turnsWithShotIds({liveId, 987654})).toJson(QJsonDocument::Compact));
+        settings.sync();
+
+        AIConversation conv(&mgr);
+        conv.setStorageKey(key);
+        conv.loadFromStorage();
+        QCOMPARE(conv.m_messages.size(), qsizetype(4));
+
+        // Another writer appends to the same key while we hold the repaired
+        // copy — the ai_advisor_invoke path. Its array still carries 987654.
+        QJsonArray onDisk = turnsWithShotIds({liveId, 987654});
+        onDisk.append(QJsonObject{{"role", "user"}, {"content", "appended elsewhere"}});
+        settings.setValue("ai/conversations/" + key + "/messages",
+                          QJsonDocument(onDisk).toJson(QJsonDocument::Compact));
+        settings.sync();
+
+        conv.saveToStorage();
+
+        AppSettings after;
+        for (const QJsonValue& v : storedTurns(after, key)) {
+            const QJsonObject msg = v.toObject();
+            if (!msg.contains("shotId")) continue;
+            QCOMPARE(static_cast<qint64>(msg.value("shotId").toDouble()), liveId);
+        }
+
+        settings.clear();
         storage.close();
     }
 

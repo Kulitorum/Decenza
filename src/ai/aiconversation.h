@@ -154,6 +154,20 @@ public:
     Q_INVOKABLE void loadFromStorage();
 
     /**
+     * Drop turn `shotId`s that no longer name a shot in this device's database.
+     *
+     * Called by loadFromStorage, and again by AIManager::setShotHistoryStorage
+     * for the conversation the manager loaded in its own constructor — before
+     * any storage was wired. Without that second call the most recently used
+     * conversation, the one the user is most likely to continue, loads
+     * unrepaired on every launch.
+     *
+     * A no-op when no storage is wired yet, and when the database cannot answer
+     * (see ShotHistoryStorage::existingShotIds). Safe to call repeatedly.
+     */
+    void repairStaleTurnShotIds();
+
+    /**
      * Check if there's a saved conversation
      */
     Q_INVOKABLE bool hasSavedConversation() const;
@@ -222,10 +236,9 @@ public:
      * loadFromStorage) and applies the same qualifying-turn filter.
      * Used by `ai_advisor_invoke` to derive recentAdvice for the
      * resolved shot's bean+profile conversation key.
-     */
-    /**
-     * Reads turns straight out of QSettings, so it does NOT go through
-     * loadFromStorage's stale-id repair — on an install carrying pre-remap
+     *
+     * Reading QSettings directly means it does NOT go through
+     * repairStaleTurnShotIds — on an install carrying pre-remap
      * conversations the ids here can still name the source database.
      *
      * That is bounded, not fixed: DialingBlocks::buildRecentAdviceBlock, the
@@ -266,14 +279,17 @@ public:
 
     /**
      * What importConversationsStatic did. Note the units differ: the first
-     * three count CONVERSATIONS, the last two count TURNS.
+     * field counts CONVERSATIONS, the last two count TURNS.
+     *
+     * Skipped-as-duplicate and malformed entries are counted inside the
+     * importer and go to its own log line, not here: a field only its producer
+     * reads is weight on a shared type, and no caller has anywhere to show
+     * them.
      */
     struct ImportTally {
-        int conversations = 0;       // written
-        int conversationsSkipped = 0;// a conversation with this key already existed
-        int conversationsMalformed = 0;// no key at all — a damaged archive entry
-        int turnsRemapped = 0;       // turn shotIds rewritten to a destination id
-        int turnsCleared = 0;        // turn shotIds dropped — source shot not in the map
+        int conversationsImported = 0;  // written to storage
+        int turnsRemapped = 0;          // turn shotIds rewritten to a destination id
+        int turnsCleared = 0;           // turn shotIds dropped, source shot not in the map
     };
 
     /**
@@ -298,6 +314,14 @@ public:
      * the same rule, not an exception to it: an absent map is the degenerate
      * case of an absent entry. Keeping the ids there would leave every turn
      * pointing into a database this device does not have.
+     *
+     * DO NOT call this at all when the shot import was REFUSED
+     * (ShotHistoryStorage::ImportResult::refused()). A refusal is provoked by a transient
+     * condition — a mid-scan SQLITE_BUSY — so the user's natural response is
+     * to run the restore again. Importing the conversations now with every id
+     * cleared makes that retry useless: the keys are already present, the
+     * retry skips them as duplicates, and the linkage is gone permanently.
+     * Import nothing and let the retry do it properly.
      *
      * Callers keep their own policy: replace-mode pre-clearing, sync(), and
      * reloading the live conversation all stay with the caller.
@@ -439,6 +463,11 @@ private:
     // and by ask()/clearHistory()/resetInMemory() (starting over — nothing
     // pending to splice).
     QJsonArray m_unsyncedMessages;
+
+    // Turn shotIds repairStaleTurnShotIds() dropped this session. Kept so
+    // saveToStorage can strip them again after reconciling against another
+    // writer's on-disk copy, which still carries them.
+    QSet<qint64> m_forgottenShotIds;
     // Latch for setShotIdForCurrentTurn: when non-zero, the next
     // addAssistantMessage call stamps the same shotId onto the new
     // assistant entry so the user/assistant pair shares it. Reset after

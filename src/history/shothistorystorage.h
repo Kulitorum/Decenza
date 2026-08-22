@@ -479,6 +479,21 @@ public:
         // disagreed; callers pair it with a translated lead-in rather than
         // reproducing the detail. Empty on success and on plain I/O failure.
         QString integrityFailure;
+
+        // True when the import STOPPED to protect the existing history, as
+        // opposed to failing or finding nothing to do.
+        bool refused() const { return !integrityFailure.isEmpty(); }
+
+        // The map to hand AIConversation::importConversationsStatic, or nullptr
+        // meaning "clear every stored shotId".
+        //
+        // One definition because the answer is a POLICY, and it was previously
+        // spelled three different ways at three call sites, each resting on a
+        // different local invariant. Callers must still check refused() FIRST
+        // and skip the conversation import entirely — see the note there.
+        const QHash<qint64, qint64>* idMapOrNull() const {
+            return shotIdMap.isEmpty() ? nullptr : &shotIdMap;
+        }
     };
 
     // Thread-safe import: opens separate connections for source and destination.
@@ -504,15 +519,16 @@ public:
     // conversation's turns (at most a couple of dozen), and the query is a
     // primary-key IN over that set. Not for open-ended membership scans.
     //
-    // `nullopt` means COULD NOT ANSWER — the database is not ready, or the
-    // query failed — and is deliberately NOT the same value as an empty set.
+    // `nullopt` means COULD NOT ANSWER — the database is not ready, the query
+    // failed, or the read stopped early — and is deliberately NOT the same
+    // value as an empty set.
     // The caller's response to "this id resolves to nothing" is to DELETE the
     // reference, so collapsing the two would let one transient SQLITE_BUSY
     // strip every advisor-to-shot link on the device. That is the same
     // inference importDatabaseStatic's GUARD 1 refuses: a failed read is not
     // evidence of an empty table. On `nullopt` the caller must leave the data
     // alone, not clear it.
-    std::optional<QSet<qint64>> existingShotIds(const QSet<qint64>& ids) const;
+    [[nodiscard]] std::optional<QSet<qint64>> existingShotIds(const QSet<qint64>& ids) const;
 
 signals:
     void readyChanged();

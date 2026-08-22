@@ -848,15 +848,25 @@ QString ShotServer::generateRestorePage() const
                         // a line inside a green "Restore complete". Reporting it
                         // as a success is what let a user whose whole history was
                         // refused read the result as if it had worked.
-                        var shotProblem = r.shotsRefused || r.error;
-                        if (shotProblem) {
-                            showStatus("error", "Shot history was not restored: " + shotProblem
-                                       + (parts.length ? " (" + parts.join(", ") + ")" : ""));
+                        //
+                        // `success` is the server's own verdict and is the gate;
+                        // shotsRefused/error only supply the wording, so the two
+                        // representations cannot drift into disagreeing.
+                        if (r.success === false) {
+                            var why = r.shotsRefused || r.error || "the server did not say why";
+                            showStatus("error", "Shot history was not restored: " + why
+                                       + " (" + parts.join(", ") + ")");
                         } else {
                             showStatus("success", "Restore complete: " + parts.join(", "));
                         }
                     } catch (e) {
-                        showStatus("success", "Restore complete");
+                        // Do NOT report success here. Everything above — including
+                        // the refusal check — runs inside this try, so a parse
+                        // failure or a renamed field used to land on a green
+                        // "Restore complete" and undo the whole check one path over.
+                        console.error("restore response could not be read:", e);
+                        showStatus("error", "The restore finished but its result could not be read"
+                                   + " — check Shot History before restoring again.");
                     }
                 } else {
                     try {
@@ -1169,27 +1179,26 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                                               mediaImported, mediaSkipped, aiConversationsImported,
                                               pendingConversations]() mutable {
                 if (*destroyed) {
-                    // The conversations stashed from the entry loop have not been
-                    // written yet — moving them here is what made the id map
-                    // available — so a bare `return` would DROP them, where the
-                    // old in-loop write kept them. Write them, without the map,
-                    // then leave: reloadConversations() and the response both
-                    // need the server, this does not.
-                    if (!pendingConversations.isEmpty()) {
-                        AppSettings settings;
-                        (void)AIConversation::importConversationsStatic(settings, pendingConversations, nullptr);
-                        settings.sync();
-                    }
-                    qDebug() << "ShotServer: Restore response dropped (server destroyed);"
-                             << "AI conversations written with shot references cleared";
+                    // Nothing to rescue here, and an attempt to rescue was
+                    // removed: it wrote the stashed conversations with a NULL id
+                    // map while `success` and `shotImport` were both in scope,
+                    // so on a successful import it stripped links the map right
+                    // there could have preserved — and worse than dropping them,
+                    // because a written conversation consumes its key and the
+                    // next restore skips it as already present.
+                    //
+                    // It could not run in any case: this is delivered queued to
+                    // `this`, and ~QObject removes posted events for a destroyed
+                    // receiver, so the lambda never executes once *destroyed is
+                    // true. Conversations from an archive whose restore was
+                    // still in flight at teardown are simply not imported; the
+                    // archive is unchanged and can be restored again.
+                    qDebug() << "ShotServer: Restore response dropped (server destroyed)";
                     return;
                 }
 
                 // Named for the field it feeds below; also avoids shadowing the
                 // outer shotsRestored, which serves the synchronous path.
-                // This continuation only ever runs when the archive contained a
-                // shots.db, so an attempt was always made here.
-                const bool shotsImportAttempted = true;
                 bool shotsImported = success;
                 if (success && m_storage) {
                     m_storage->refreshTotalShots();
@@ -1204,17 +1213,25 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                 // A failed shot import leaves an empty map, which the importer
                 // reads as "clear every stored id" — correct, since the shots
                 // those ids name are not here.
-                if (!pendingConversations.isEmpty() && m_aiManager) {
+                if (shotImport.refused()) {
+                    // Not the same as "no shots came with these". The guards fire
+                    // on a transient condition, so the user's next move is to
+                    // upload the archive again — and importing now with every id
+                    // cleared makes that retry useless, because the keys would
+                    // already exist and the retry skips them as duplicates.
+                    qWarning() << "ShotServer: shot import was refused, so AI conversations were"
+                               << "NOT imported — restore again rather than lose their shot links";
+                } else if (!pendingConversations.isEmpty() && m_aiManager) {
                     AppSettings settings;
-                    const QHash<qint64, qint64>* idMap =
-                        (success && !shotImport.shotIdMap.isEmpty()) ? &shotImport.shotIdMap : nullptr;
                     const AIConversation::ImportTally tally =
-                        AIConversation::importConversationsStatic(settings, pendingConversations, idMap);
-                    aiConversationsImported += tally.conversations;
-                    if (tally.conversations > 0) {
+                        AIConversation::importConversationsStatic(
+                            settings, pendingConversations,
+                            success ? shotImport.idMapOrNull() : nullptr);
+                    aiConversationsImported += tally.conversationsImported;
+                    if (tally.conversationsImported > 0) {
                         settings.sync();
                         m_aiManager->reloadConversations();
-                        qDebug() << "ShotServer: Imported" << tally.conversations
+                        qDebug() << "ShotServer: Imported" << tally.conversationsImported
                                  << "AI conversations;" << tally.turnsRemapped
                                  << "shot reference(s) remapped," << tally.turnsCleared
                                  << "cleared";
@@ -1231,10 +1248,10 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     QJsonObject result;
                     // `success` used to be an unconditional true, so a restore
                     // whose entire shot history was refused answered with a
-                    // green "Restore complete". The archive carried shots and
-                    // they did not land: that is not a success, whether the
-                    // cause was a refusal or plain I/O.
-                    result["success"] = shotsImportAttempted ? shotsImported : true;
+                    // green "Restore complete". This continuation only runs when
+                    // the archive HAD a shots.db, so an attempt was always made
+                    // and `shotsImported` is the whole answer.
+                    result["success"] = shotsImported;
                     result["settings"] = settingsRestored;
                     result["shotsImported"] = shotsImported;
                     // A refusal is reported, not folded into shotsImported:false,
@@ -1242,7 +1259,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     // shots". Absent on success and on plain I/O failure.
                     if (!shotImport.integrityFailure.isEmpty())
                         result["shotsRefused"] = shotImport.integrityFailure;
-                    else if (shotsImportAttempted && !shotsImported)
+                    else if (!shotsImported)
                         result["error"] = QStringLiteral(
                             "The shot history in this backup could not be imported. "
                             "Your existing shots were not changed.");
@@ -1270,11 +1287,11 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
         AppSettings settings;
         const AIConversation::ImportTally tally =
             AIConversation::importConversationsStatic(settings, pendingConversations, nullptr);
-        aiConversationsImported += tally.conversations;
-        if (tally.conversations > 0) {
+        aiConversationsImported += tally.conversationsImported;
+        if (tally.conversationsImported > 0) {
             settings.sync();
             m_aiManager->reloadConversations();
-            qDebug() << "ShotServer: Imported" << tally.conversations
+            qDebug() << "ShotServer: Imported" << tally.conversationsImported
                      << "AI conversations (no shots in archive —" << tally.turnsCleared
                      << "shot reference(s) cleared)";
         }
@@ -1286,9 +1303,22 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
              << "media:" << mediaImported << "(skipped:" << mediaSkipped << ")"
              << "aiConversations:" << aiConversationsImported;
 
-    // Build response
+    // Build response.
+    //
+    // This path runs when the archive had no shots.db — or had one with no
+    // storage wired to import it into. The second case used to answer
+    // success:true with shotsImported:false and no error, which the page reads
+    // as a clean restore: the archive carried a shot history and none of it
+    // landed.
     QJsonObject result;
-    result["success"] = true;
+    const bool shotsLost = hasShotsDb && !m_storage;
+    result["success"] = !shotsLost;
+    if (shotsLost) {
+        qWarning() << "ShotServer: archive carried shots but no storage is wired to import them";
+        result["error"] = QStringLiteral(
+            "The shot history in this backup could not be imported — shot storage is not "
+            "available. Your existing shots were not changed.");
+    }
     result["settings"] = settingsRestored;
     result["shotsImported"] = shotsRestored;
     result["profilesImported"] = profilesImported;
