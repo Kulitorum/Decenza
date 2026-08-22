@@ -200,9 +200,17 @@ package), which scales up a per-key leak and a per-key dead end alike.
       fixture forms no pairs, so `coffeeAnchor` is never emitted) and was rewritten to assert the
       exclusion directly.
 - [x] 8.2 `openspec validate filter-advisor-history-by-equipment --strict` — valid.
-- [ ] 8.3 Open the advisor on a shot from each of two packages and confirm by eye: history is
-      package-scoped, the Setup header names the right basket, and the conversation starts fresh
-      rather than resuming a pre-upgrade thread.
+- [x] 8.3 Done on the running macOS build, twice (once per build). Asked the in-app advisor
+      directly which shots it was comparing against: it named only same-package shots and left
+      out the other package's, which are the same bean, same profile, same grinder, same basket
+      and CLOSER in time. The one-time wipe fired at startup (`cleared all conversations for
+      migration "equipment_scoped_conversations_v1"`, index reloaded with 0 entries) and the two
+      packages produced two distinct stored keys matching the computed hashes, with neither the
+      legacy nor the unpackaged-bucket key present. Opening from the Shot Review page — the
+      `clonePersistedShot` path — landed on the same package key, so no third orphan key. NOT
+      confirmed: the `### Setup:` prose header and the no-history block; every in-app path
+      reachable here sends the JSON shot-data envelope instead, so `emitRecentShotContext` is
+      covered by unit tests only.
 - [x] 8.4 Open a PR (never push to `main`) — [#1852](https://github.com/Kulitorum/Decenza/pull/1852)
       — then run the automated `/pr-review-toolkit:review-pr` before merging. Run 1 found four
       critical defects; all fixes are recorded in section 5b and section 7 above.
