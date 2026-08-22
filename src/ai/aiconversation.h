@@ -281,7 +281,9 @@ public:
      * in the app is Clear, which DELETES the turns written here. Pass an empty
      * string only when that is the intended outcome (an MCP caller supplying its
      * own one-off `systemPromptOverride`, which must not become the thread's
-     * durable prompt); it is logged as a warning either way.
+     * durable prompt). Doing so is logged as a warning when the key has no
+     * prompt of its own — which is the case that strands the thread; appending
+     * an empty prompt to a key that already has one is silent and harmless.
      *
      * Note this is not necessarily the prompt the turn was GENERATED under —
      * see the persist-vs-run distinction at the mcptools_ai.cpp call site.
@@ -381,6 +383,13 @@ signals:
     void contextLabelChanged();
     void providerChanged();
     void savedConversationChanged();
+
+    // A thread was just WRITTEN to disk under this object's storage key.
+    // Distinct from savedConversationChanged(), which is the NOTIFY for
+    // hasSavedConversation and therefore also fires on load and on clear —
+    // states in which nothing was written and the live identity may not yet
+    // match the key. Only saveToStorage() emits this one.
+    void conversationPersisted();
 
 private slots:
     void onAnalysisComplete(const QString& response);

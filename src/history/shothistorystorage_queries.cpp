@@ -738,6 +738,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
                COALESCE((SELECT p.model FROM equipment_items p
                          WHERE p.package_id = s.equipment_id AND p.kind = 'puckprep'
                          ORDER BY p.id LIMIT 1), '') AS puck_prep,
+               COALESCE(s.equipment_id, 0) AS equipment_bucket,
                s.grinder_setting, s.drink_tds, s.drink_ey, s.enjoyment,
                s.espresso_notes, s.roast_date, s.temperature_override, s.yield_override, s.profile_json, s.beverage_type,
                s.stopped_by,
@@ -786,6 +787,11 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             shot["grinderModel"] = query.value("grinder_model").toString();
             shot["grinderBrand"] = query.value("grinder_brand").toString();
             shot["grinderBurrs"] = query.value("grinder_burrs").toString();
+            // Projected so ShotProjection::equipmentId is TRUE on these rows.
+            // Without it every projection from this loader read 0 — "unpackaged"
+            // — for shots that are on a package, a silently false field waiting
+            // for the first caller that reaches for it.
+            shot["equipmentId"] = query.value("equipment_bucket").toLongLong();
             // Basket + puck prep feed the dialInSessions identity hoist, so the
             // session context can name the equipment its shots were pulled on.
             // Sparse-emit, matching the storage-lifecycle fields below.

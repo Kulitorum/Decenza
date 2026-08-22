@@ -74,7 +74,13 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
                     {"beanType", entry.beanType},
                     {"profileName", entry.profileName},
                     {"messageCount", msgCount},
-                    {"lastUpdated", lastUpdated}
+                    {"lastUpdated", lastUpdated},
+                    // The equipment package the thread is keyed on (0 = none).
+                    // Two threads on the same bean and profile but different
+                    // gear are otherwise identical rows here — and a value that
+                    // disagrees with the key it sits on is a defect nobody could
+                    // see until this field was reported.
+                    {"equipmentPackageId", static_cast<double>(entry.equipmentId)}
                 };
                 if (corrupted) convObj["corrupted"] = true;
                 conversations.append(convObj);

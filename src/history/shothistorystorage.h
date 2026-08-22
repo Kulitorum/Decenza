@@ -313,8 +313,15 @@ public:
     // This list is what the advisor uses to judge whether a proposed setting is
     // plausible for the user's grinder, so pooling across packages presents two
     // baskets' dials as one continuous range and a setting that is absurd on one
-    // reads as reasonable. Absent = no equipment scoping (the pre-existing
-    // behaviour, for callers with no same-gear contract).
+    // reads as reasonable. Absent = no equipment scoping, which pools every
+    // package the user owns and publishes the result as one observed range.
+    //
+    // That default is a hazard, not a feature, and it survives only because
+    // making the parameter required costs 15 test call-site rewrites for no
+    // user-visible change. Every PRODUCTION caller passes a real bucket
+    // (dialing_blocks.cpp, aimanager.cpp). A new caller that omits it is almost
+    // certainly wrong — see the follow-up note in the
+    // filter-advisor-history-by-equipment change.
     //
     // `stepSize` and `rpmStepSize` are NOT equipment-scoped even when a bucket
     // is given: they are the grinder's mechanical resolution, unchanged by a

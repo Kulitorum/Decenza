@@ -1158,6 +1158,7 @@ void AIConversation::saveToStorage()
         m_messages = toWrite;
 
     emit savedConversationChanged();
+    emit conversationPersisted();
     qDebug() << "AIConversation: Saved conversation with" << m_messages.size() << "messages to key:" << m_storageKey;
 }
 

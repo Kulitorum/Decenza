@@ -129,9 +129,13 @@ inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     // identity and link the shot to it. The per-shot grind setting stays on the
     // row. An empty identity leaves equipment_id NULL.
     qint64 equipmentId = 0;
-    const bool hasGear = !(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty()
-                           && r.grinderBurrs.isEmpty() && r.basketBrand.isEmpty()
-                           && r.basketModel.isEmpty() && r.puckPrep.isEmpty());
+    // trimmed(), matching the production helpers: they trim before deciding
+    // whether a component is present, so a whitespace-only fixture field would
+    // otherwise take this branch and build a package with no grinder item, no
+    // basket item and no prep — a shape no production path produces.
+    const bool hasGear = !(r.grinderBrand.trimmed().isEmpty() && r.grinderModel.trimmed().isEmpty()
+                           && r.grinderBurrs.trimmed().isEmpty() && r.basketBrand.trimmed().isEmpty()
+                           && r.basketModel.trimmed().isEmpty() && r.puckPrep.trimmed().isEmpty());
     if (hasGear) {
         // Find-or-create on the FULL identity — grinder AND basket AND puck prep
         // — using the production lookup's own arguments rather than a

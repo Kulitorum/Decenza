@@ -144,14 +144,17 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
 
                     if (shot.isValid()) {
                         // The shot record is loaded and valid, and carries this
-                        // shot's package — so every scoped query and the
-                        // conversation key below read one value from one row,
-                        // with no second lookup to disagree with. An earlier
-                        // draft called equipmentBucketForShot here and claimed
-                        // "one resolution for this whole block" while three of
-                        // the four builders below went on to resolve it again
-                        // themselves; they now take it from the record too.
-                        // 0 = unpackaged, a real bucket.
+                        // shot's package. 0 = unpackaged, a real bucket.
+                        //
+                        // This is NOT a single resolution for the whole block,
+                        // and an earlier draft claimed it was. Of the four
+                        // builders below, `grinderContext` takes this value and
+                        // `bestRecentShot` takes it off the same record; the
+                        // other two resolve their own from the same row —
+                        // `buildDialInSessionsBlock` via equipmentBucketForShot,
+                        // `buildGrinderCalibrationBlock` via its own
+                        // loadShotRecordStatic. Same connection, same row, so
+                        // they agree in practice; they are just not one read.
                         const qint64 equipmentBucket = shot.equipmentId;
 
                         // Same dialing-context blocks the in-app advisor
@@ -217,24 +220,24 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         return;
                     }
 
-                    QString systemPrompt;
-                    if (!systemPromptOverride.isEmpty()) {
-                        systemPrompt = systemPromptOverride;
-                    } else {
-                        const QString bevType = shot.beverageType.isEmpty()
-                            ? QStringLiteral("espresso") : shot.beverageType;
-                        QString profileType;
-                        if (!shot.profileJson.isEmpty()) {
-                            const QJsonObject pj = QJsonDocument::fromJson(shot.profileJson.toUtf8()).object();
-                            profileType = pj.value("type").toString();
-                        }
+                    const QString bevType = shot.beverageType.isEmpty()
+                        ? QStringLiteral("espresso") : shot.beverageType;
+                    QString profileType;
+                    if (!shot.profileJson.isEmpty()) {
+                        const QJsonObject pj = QJsonDocument::fromJson(shot.profileJson.toUtf8()).object();
+                        profileType = pj.value("type").toString();
+                    }
+
+                    QString systemPrompt = systemPromptOverride;
+                    if (systemPrompt.isEmpty()) {
                         systemPrompt = ShotSummarizer::shotAnalysisSystemPrompt(
                             bevType, shot.profileName, profileType, shot.profileKbId);
                     }
 
                     // What gets PERSISTED with the turn, which is a different
-                    // question from what this call runs under. Two reasons it is
-                    // not `systemPrompt`:
+                    // question from what this call runs under. It is always the
+                    // multi-shot prompt, never `systemPrompt`, for two reasons
+                    // that pull the same way:
                     //
                     //  - `systemPromptOverride` is an arbitrary caller-supplied
                     //    MCP argument. Persisting it would make it the durable
@@ -242,25 +245,26 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     //    thread — a prompt the user never chose, cannot see
                     //    anywhere in the UI, and can only clear by deleting the
                     //    conversation. An override stays scoped to its own call.
-                    //  - Without an override, `shotAnalysisSystemPrompt` is the
-                    //    SINGLE-shot prompt. The in-app advisor runs threads
-                    //    under `multiShotSystemPrompt` (that prompt plus a
-                    //    Multi-Shot Context section). Since the thread now loads
-                    //    with history, the overlay takes the followUp() branch
-                    //    for the rest of its life and never calls ask(), so
-                    //    whatever is stored here is what it keeps. Storing the
-                    //    single-shot prompt would silently narrow the thread —
-                    //    the exact harm the write-if-absent rule was meant to
-                    //    prevent, arriving from the other direction.
+                    //  - `shotAnalysisSystemPrompt` is the SINGLE-shot prompt.
+                    //    The in-app advisor runs threads under
+                    //    `multiShotSystemPrompt` (that prompt plus a Multi-Shot
+                    //    Context section). Since the thread now loads with
+                    //    history, the overlay takes the followUp() branch for the
+                    //    rest of its life and never calls ask(), so whatever is
+                    //    stored here is what it keeps. Storing the single-shot
+                    //    prompt would silently narrow the thread — the exact harm
+                    //    the write-if-absent rule was meant to prevent, arriving
+                    //    from the other direction.
+                    //
+                    // What it must NOT be is empty. An override used to suppress
+                    // this, which left the thread with turns and no stored prompt
+                    // — visible in the app, and refusing every follow-up with
+                    // "Please start a new conversation first", with Clear (which
+                    // deletes the turns) as the only way out. The override governs
+                    // this call; it says nothing about what the thread should be
+                    // continuable under.
                     QString promptToPersist;
-                    if (systemPromptOverride.isEmpty() && aiLive->conversation()) {
-                        const QString bevType = shot.beverageType.isEmpty()
-                            ? QStringLiteral("espresso") : shot.beverageType;
-                        QString profileType;
-                        if (!shot.profileJson.isEmpty()) {
-                            const QJsonObject pj = QJsonDocument::fromJson(shot.profileJson.toUtf8()).object();
-                            profileType = pj.value("type").toString();
-                        }
+                    if (aiLive->conversation()) {
                         promptToPersist = aiLive->conversation()->multiShotSystemPrompt(
                             bevType, shot.profileName, profileType, shot.profileKbId);
                     }
@@ -404,9 +408,10 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                                 // CONTINUE this thread in the app. Without it
                                 // followUp() refuses the thread outright and the
                                 // only way forward is Clear, which deletes these
-                                // turns — see appendAssistantTurnForKey. Empty
-                                // when the caller supplied an override, which is
-                                // deliberately not persisted.
+                                // turns — see appendAssistantTurnForKey. This is
+                                // always the multi-shot prompt, never a caller's
+                                // `systemPromptOverride`; empty only when there
+                                // is no live AIConversation to build it from.
                                 AIConversation::appendAssistantTurnForKey(
                                     convKey, resolvedShotId,
                                     userPrompt, response, structured, promptToPersist);

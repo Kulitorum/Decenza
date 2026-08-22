@@ -761,7 +761,7 @@ T.Page {
     // enumerable key — only Q_INVOKABLE methods are skipped, and the source
     // says so in as many words ("We don't return methods, ie. they are not
     // visible when iterating", qtdeclarative/src/qml/qml/qqmlvaluetypewrapper
-    // .cpp:448). So Object.assign would have copied these fields.
+    // .cpp:449). So Object.assign would have copied these fields.
     //
     // The SYMPTOMS the old comment lists were real (the AI Advice / Discuss /
     // Re-Upload buttons vanishing on the `durationSec > 0` predicate, the

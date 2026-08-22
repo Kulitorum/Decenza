@@ -1234,7 +1234,8 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // landed within 10% of stop-at-weight target OR has a refractometer
     // reading). Replaces the old "≥5g, no-badge-only" filter that admitted
     // undershoot/aborted experiments and corrupted the medians.
-    // `cur` was loaded and validated 55 lines above, and carries this shot's
+    // `cur` came from loadShotRecordStatic and passed isValid() at the top of
+    // this function, and carries this shot's
     // package. An earlier draft re-queried the bucket here and FAILED CLOSED
     // when the second read came back empty — a branch that needed the one-column
     // lookup to fail on a connection that had just succeeded a whole

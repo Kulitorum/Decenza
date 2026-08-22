@@ -62,8 +62,17 @@ public:
         // Equipment package the thread belongs to (0 = none recorded). Carried
         // so a conversation list can tell apart two threads that share a bean
         // and profile but were pulled on different gear — without it they are
-        // indistinguishable rows. Absent on entries saved before equipment
-        // became part of the key; those read as 0 and are simply unreferenced.
+        // indistinguishable rows. Reported as `equipmentPackageId` by
+        // `ai_conversations list`. Absent on entries saved before equipment
+        // became part of the key; those read as 0.
+        //
+        // DEVICE-LOCAL. Package ids are renumbered on import, and this one is
+        // not remapped — nor could the QSettings key it belongs to be, since
+        // that key is a hash of the SOURCE device's id. A conversation restored
+        // from another device therefore keeps a source-side id and will not be
+        // matched to the same shot on this device; it stays visible and readable
+        // in the list, it just starts a fresh thread. See the follow-up note in
+        // the filter-advisor-history-by-equipment change.
         qint64 equipmentId = 0;
         qint64 timestamp;
 
@@ -112,7 +121,7 @@ public:
     // stops matching, gives every user a clean thread on first use after
     // upgrading with no migration step.
     Q_INVOKABLE QString switchConversation(const QString& beanBrand, const QString& beanType,
-                                           const QString& profileName, qint64 equipmentId = 0);
+                                           const QString& profileName, qint64 equipmentId);
     Q_INVOKABLE void loadMostRecentConversation();
     Q_INVOKABLE void clearCurrentConversation();
     // Accepts QVariant (not const ShotProjection&) so QML can pass either a
@@ -122,8 +131,12 @@ public:
     // coerceShot() in the .cpp.
     Q_INVOKABLE bool isMistakeShot(const QVariant& shotData) const;
     Q_INVOKABLE bool isSupportedBeverageType(const QString& beverageType) const;
+    // No default on `equipmentId`: omitting it for a shot that IS on a package
+    // would silently file the thread under the unpackaged bucket's key, mixing
+    // it with every shot the user has that carries no equipment at all. Every
+    // caller has the value; make them say it.
     static QString conversationKey(const QString& beanBrand, const QString& beanType,
-                                   const QString& profileName, qint64 equipmentId = 0);
+                                   const QString& profileName, qint64 equipmentId);
 
     // Builds the AI user-prompt envelope for a finished / historical shot,
     // returned as a `QJsonObject` so DB-scoped callers (`ai_advisor_invoke`'s
@@ -433,13 +446,18 @@ private:
                              const QString& beanType, const QString& profileName,
                              qint64 equipmentId);
 
-    // A thread has just been written to disk under the live conversation's key:
-    // make sure the index names it. This is the ONLY place a "Clear, then keep
-    // talking about the same shot" thread gets indexed — `clearCurrentConversation`
-    // drops the entry but leaves the conversation on its key, and the send path
-    // calls `switchConversation` BEFORE `ask()`, so at switch time there is
-    // nothing yet to point at. Indexing at write time rather than at
-    // key-selection time is what keeps that fix from manufacturing ghosts.
+    // Make sure the index names the live conversation's key, IF that key has a
+    // stored thread behind it. Two callers, for two different moments:
+    //
+    //  - the `conversationPersisted` wiring, for "Clear, then keep talking about
+    //    the same shot". `clearCurrentConversation` drops the entry but leaves
+    //    the conversation on its key, and the send path calls
+    //    `switchConversation` BEFORE `ask()`, so at switch time there is nothing
+    //    yet to point at.
+    //  - `switchConversation` itself, for a thread the MCP `ai_advisor_invoke`
+    //    path wrote directly to QSettings, which the in-app index has never seen.
+    //
+    // The on-disk gate is what keeps both from manufacturing ghosts.
     void indexStoredConversation();
 
     // Identity of the conversation `m_conversation` is currently on, remembered
@@ -485,8 +503,19 @@ private:
         const QJsonArray& recentAdvice = QJsonArray(),
         // English description of the current shot's equipment package. Only
         // consulted when the history came back empty, to state which equipment
-        // set the shots were matched on instead of emitting nothing.
-        const QString& equipmentLabel = QString());
+        // set the shots were matched on instead of emitting nothing. May be
+        // empty for a package whose component rows are all missing, which is
+        // why it is not the thing the empty-history branch discriminates on.
+        const QString& equipmentLabel = QString(),
+        // Did the equipment read succeed, and what did it return? The history
+        // is scoped on a SEPARATE connection that resolves the bucket itself,
+        // so a failure here does NOT mean the history came back unscoped — it
+        // means shots were excluded and this side cannot say by what. Passing
+        // the fact rather than inferring it from `equipmentLabel` is what keeps
+        // "no package, nothing was filtered" apart from "filtered, but the
+        // equipment could not be read".
+        bool equipmentBucketKnown = false,
+        qint64 equipmentBucket = 0);
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;

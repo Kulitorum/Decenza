@@ -144,8 +144,11 @@ thing to watch for, not the individual bugs.
       ever had — which `loadMostRecentConversation()` then restored. The migration handed back the
       most cross-contaminated thread in the store, silently, logging "Migrating legacy
       conversation to keyed storage" as if it had succeeded. The wipe now removes the singular
-      `ai/conversation/*` keys too, which also stops it recurring on every later launch (the
-      marker suppresses the wipe but not the legacy migration).
+      `ai/conversation/*` keys too, which is what makes the wipe stick at all (the marker
+      suppresses the wipe on later launches, but not the migration that undoes it). Note the
+      re-seed fires ONCE per wipe, not once per launch — the migration writes
+      `ai/conversations/index` itself, so its own guard shuts it off afterwards. The earlier
+      "recurring on every later launch" wording here was wrong; once was already enough.
 - [x] 5d.2 **Fail-open and fail-closed on the same signal, two lines apart.**
       `queryGrinderContext` appended its predicate only `if (bucket.has_value())`, so an
       unresolved bucket published `settingsObserved` and "range explored" pooled across every
@@ -171,10 +174,11 @@ thing to watch for, not the individual bugs.
       key was SELECTED meant Clear-then-reopen (no send) indexed a key with no stored thread:
       `ai_conversations list` reports `messageCount: 0` while `get` answers "Conversation not
       found", and the placeholder occupies one of five LRU slots, evicting a real transcript. The
-      entry is now created when a thread is WRITTEN (`indexStoredConversation`, wired to
-      `savedConversationChanged` and gated on the key having stored messages), which fixes the
-      original Clear-then-send leak without inventing the ghost. As a side effect it also indexes
-      an MCP-written thread the first time the app switches to it.
+      entry is now created when a thread is WRITTEN (`indexStoredConversation`, gated on the key
+      having stored messages), which fixes the original Clear-then-send leak without inventing
+      the ghost. It also indexes an MCP-written thread the first time the app switches to it.
+      Round three found this fix only half-applied and the signal wiring wrong — see 5e.1 and
+      5e.2.
 - [x] 5d.5 **`ShotDetailPage.onShotBadgesUpdated` reverted.** The change swapped a synchronous
       four-field patch for a full async row re-read (debug-log blob, every curve array, profile
       JSON) to arrive at data `onShotReady` had just delivered, and re-ran `returnToBounds()`
@@ -184,7 +188,7 @@ thing to watch for, not the individual bugs.
       `QQmlValueTypeWrapperOwnPropertyKeyIterator::next` walks `mo->propertyCount()` and returns
       every Q_PROPERTY as an own enumerable key; only Q_INVOKABLE methods are skipped
       ("We don't return methods, ie. they are not visible when iterating",
-      qtdeclarative/src/qml/qml/qqmlvaluetypewrapper.cpp:448). `clonePersistedShot`'s docstring
+      qtdeclarative/src/qml/qml/qqmlvaluetypewrapper.cpp:449). `clonePersistedShot`'s docstring
       asserted the opposite, unsourced, and is what licensed 5d.5 — so the docstring now says the
       mechanism is NOT established and that the whitelist is kept because it works. The
       round-one whitelist fix stands on its own: a whitelist genuinely drops unlisted fields,
@@ -202,6 +206,136 @@ thing to watch for, not the individual bugs.
       "without a migration step" and "Deleting saved conversations" corrected against D4; the
       deliberate fail-closed/degrade-unscoped split recorded. tasks.md 8.3's stated reason was
       wrong and is replaced with an honest "reason not established".
+
+## 5e. Third review round — defects in the round-two fixes
+
+Five agents over `0924d9cd..HEAD`. Three of them independently reached the same top three, which
+is why those are listed first. Round two's fixes contained new defects of round one's shapes, as
+round two's did of round one's.
+
+- [x] 5e.1 **The index entry was stamped with the PREVIOUS conversation's identity.**
+      `switchConversation` set `m_live*` three lines AFTER `loadFromStorage()`, and
+      `loadFromStorage()` emits `savedConversationChanged` — so `indexStoredConversation()` ran
+      with the new key and the old bean/type/profile/package. `noteConversationUse` only touches
+      an entry that already exists, so the correct call two lines later could not repair it: the
+      wrong label was permanent. Reachable exactly where 5d.4 advertised a benefit — an
+      MCP-written thread, on the first switch to it — and on the first switch of a session it
+      stamped empty strings. Fixed by hoisting the four assignments above the load.
+- [x] 5e.2 **Every app launch silently re-dated the newest thread.**
+      `loadMostRecentConversation()` calls `loadFromStorage()`, whose emit reached
+      `indexStoredConversation` → `touchConversationEntry` → `timestamp = now` + move-to-front,
+      with no user action. `lastUpdated` is the only recency signal the conversation list and
+      `ai_conversations list` have. Root cause is that `savedConversationChanged` is the NOTIFY
+      for `hasSavedConversation` and therefore also fires on load and on clear; indexing is now
+      wired to a new `AIConversation::conversationPersisted()` emitted only from
+      `saveToStorage()`. `loadMostRecentConversation()` also populates `m_live*` now, so a
+      Clear-then-send on a restored thread cannot re-index it blank.
+- [x] 5e.3 **The ghost fix was only half applied.** `switchConversation`'s full path still called
+      `noteConversationUse` unconditionally, so opening the advisor on any new (bean, profile,
+      equipment) triple and sending nothing created the ghost 5d.4 says it prevents — and
+      equipment scoping multiplies how many distinct triples a user has. It now calls
+      `indexStoredConversation()`, which is gated on the key having a stored thread, so the
+      MCP-thread pickup is kept and the ghost is not. The existing test could not see this: its
+      own first `switchConversation` manufactured the ghost it was asserting against.
+- [x] 5e.4 **An MCP `systemPromptOverride` produced a thread the app refuses to continue.**
+      5d.3 stopped persisting the override — by persisting nothing, which left turns on disk with
+      no system prompt. `followUp()` then refuses the thread ("Please start a new conversation
+      first") and Clear, which deletes those turns, is the only way out. The `qWarning` added in
+      the same round fired on this intended path, which is how a warning gets trained away.
+      The override governs the CALL; it says nothing about what the thread should be continuable
+      under, so `promptToPersist` is now always the multi-shot prompt. The warning becomes
+      unreachable in production, which is what makes it worth keeping.
+- [x] 5e.5 **`loadQualifiedShots` was the surviving degrade-to-unscoped site.** 5d.2 removed the
+      unresolved case from four places and not from the advisor's own history query, which still
+      resolved the bucket through `equipmentBucketForShot` and dropped the predicate on
+      `nullopt` — leaving the history pooled across every package on the failure path, the exact
+      shape 5d.2 condemned. The bucket now comes from the step-1 row read
+      (`SELECT timestamp, COALESCE(equipment_id, 0)`), so the predicate is unconditional and
+      there is no policy to pick.
+- [x] 5e.6 **An empty equipment label meant three different things, and two of them took the
+      "deliberate silence" branch.** The no-history block discriminated on the label string. An
+      empty label means: the shot has no package (silence is right), OR the row query failed, OR
+      the package's component rows are all gone — and in the last two the history WAS scoped, on
+      `loadQualifiedShots`'s own connection, so shots were excluded and nothing said so. A model
+      with no anchor invents one; that is the failure this change came from.
+      `emitRecentShotContext` now takes `equipmentBucketKnown` / `equipmentBucket` and branches
+      on the fact: unreadable says so, bucket > 0 states the absence (naming the set generically
+      when the label is empty), bucket 0 stays silent.
+- [x] 5e.7 **The clamp reached the hash but not the data.** `conversationKey` folded a negative
+      `equipmentId` to 0 while `switchConversation` stored the raw value, so a `-1` produced an
+      index entry claiming `-1` under a key computed on 0 — the entry/key disagreement the backup
+      carry-through exists to prevent, arriving from inside, and self-healing only across a
+      save/reload because `toJson` drops `<= 0`. Normalized once, at the `switchConversation`
+      boundary. The `= 0` defaults on `conversationKey` and `switchConversation` are also gone:
+      no caller used them, and omitting the argument silently files a packaged shot under the
+      unpackaged thread.
+- [x] 5e.8 **`ConversationEntry::equipmentId` had no reader.** Its declaration promised a
+      conversation list that could tell two threads apart; no list read it, so a value that
+      disagreed with its key was undetectable. `ai_conversations list` now reports
+      `equipmentPackageId`.
+- [x] 5e.9 **`clearAllConversationsOnce` stamped its marker without checking the wipe landed.**
+      A whole-file `QSettings` failure self-heals, but the asymmetric case (marker persisted,
+      removals not) leaves every pre-upgrade cross-equipment thread in place with the migration
+      permanently suppressed. Now checks `status()` before stamping, following the four existing
+      call sites in the settings classes. The completion line moved from `qDebug` to `qInfo`:
+      it records an irreversible deletion of every advisor thread the user owns, and the
+      connections views default to INFO.
+- [x] 5e.10 **`loadRecentShotsByKbIdStatic` never projected `equipment_id`**, so every
+      `ShotProjection` it built carried a false `equipmentId` of 0 — "unpackaged" — for packaged
+      shots. Harmless today because nothing reads it there; a landmine for the first caller that
+      does. Now projected.
+- [x] 5e.11 `mcptools_dialing` used `shotData.equipmentId` with no `isValid()` check on the
+      record it had just loaded. A failed load yields 0, which is a REAL bucket, so the grinder
+      context would have been scoped to unpackaged shots rather than skipped — masked only by
+      the empty `grinderModel` from the same failed record short-circuiting first. The whole
+      block is now guarded on the load.
+- [x] 5e.12 Comment corrections, all of them claims that were believed and could not be:
+      the wipe's "recurs on every later launch" rationale (false — the migration writes the index
+      itself); `indexStoredConversation`'s emitter list (named `resetInMemory`, which does not
+      emit, and omitted `loadFromStorage`, which does and was the bug); "no second lookup to
+      disagree with" in `mcptools_ai.cpp` (two of the four builders still resolve their own);
+      "they cannot disagree" on the grinder-context query (true within that query, false against
+      the history load on its other connection); the puck-prep enrichment note (an enrichment
+      that matches an existing package merges into it, so it CAN move the package); the
+      "logged as a warning either way" claim on `appendAssistantTurnForKey` (only when the key
+      has no prompt of its own); a hard line-distance in `dialing_blocks.cpp`; and
+      `qqmlvaluetypewrapper.cpp:448` → `:449`, verified in `~/Qt/6.11.2/Src`.
+- [x] 5e.13 Test fixes: `clearThenWrite_...`'s persistence assertion was vacuous (an absent
+      settings key is an empty `QByteArray`, which contains no `"[]"` either, so it passed with
+      `saveConversationIndex()` deleted) — it now asserts the key is present; the ghost test
+      gained the fresh-key case it could not see; `ShotRowFixtures::hasGear` now trims, matching
+      the production helpers, so a whitespace-only fixture field cannot build a package shape
+      production never produces. New slots: `switchToAnMcpWrittenThread_indexesItUnderItsOwnShot`,
+      `launch_doesNotRedateTheRestoredThread`,
+      `switchConversation_normalizesTheNoPackageSentinelInTheEntryToo`,
+      `emitRecentShotContext_unreadableEquipmentSaysSoRatherThanGoingSilent`,
+      `emitRecentShotContext_packagedShotWithNoLabelStillStatesTheAbsence`,
+      `emitRecentShotContext_emptyHistoryOnNoPackageStaysSilent`,
+      `importedConversationKeepsItsEquipmentPackage`,
+      `importedPreEquipmentConversationReadsAsUnpackaged`.
+
+### 5e deferred, deliberately, with the reason
+
+- [ ] 5e.14 **Two `std::optional<qint64> equipmentBucket = std::nullopt` parameters survive**, on
+      `ShotHistoryStorage::queryGrinderContext` and `DialingBlocks::buildGrinderContextBlock`,
+      and `buildDialInSessionsBlock` still resolves its own bucket through
+      `equipmentBucketForShot`. Every PRODUCTION caller passes a real value, so the
+      degrade-to-unscoped branch is unreachable without fault injection — which by this project's
+      own rule is a stop sign saying the branch should not exist. Making the parameters required
+      costs 15 + 14 test call-site rewrites for no user-visible change, so it is recorded here
+      rather than done inside a review round. The header on `queryGrinderContext` now says the
+      default is a hazard rather than blessing it as "the pre-existing behaviour". Doing this
+      would leave `equipmentBucketForShot` with no production caller, at which point the
+      tri-state disappears rather than being modelled better.
+- [ ] 5e.15 **A conversation restored from ANOTHER device is not matched to its shot.** Package
+      ids are renumbered on import (`packageIdMap`, applied to shots, bags and recipes), and a
+      conversation's QSettings key is a hash of the SOURCE device's id — so it cannot be remapped
+      without also rehashing and moving the stored group, and `packageIdMap` is a block-local
+      that `ImportResult` does not expose. The restored thread stays visible and readable in the
+      conversation list; it just starts fresh when the user opens that shot. This is a
+      consequence of putting the package in the key and did not exist before this change. Stated
+      on `ConversationEntry::equipmentId` so the next reader inherits the fact rather than the
+      surprise.
 
 ## 6. Prompt rules
 
@@ -281,8 +415,13 @@ thing to watch for, not the individual bugs.
       side are unverified by the suite. Adding the TU would pull in `MainController`; 7.15's
       pairing test covers the one property the key depends on, and the rest is covered only by
       the by-eye run in 8.3.
-- [ ] 8.1 Full suite via the Qt Creator MCP. First run **113 passed, 0 failed**; re-run after the
-      review fixes above — **113 passed, 0 failed, 0 warnings**, with all five new slots
+- [x] 8.1 Full suite via the Qt Creator MCP. Latest run after the round-three fixes:
+      **113 passed, 1 failed, 0 warnings** — the one failure was `tst_decentscalewifi`
+      (`sleepWithDisconnectedSocketDoesNotLeakLatch`, plus three
+      `QNativeSocketEngine::write() was not called in ConnectedState` warnings on the
+      `0.0.0.1:80` probes), which passed on an immediate re-run and touches nothing in this
+      change. Earlier runs: first run **113 passed, 0 failed**; after the round-two fixes
+      **113 passed, 0 failed, 0 warnings**, with all five new slots
       confirmed executed in `LastTest.log` (a passing binary count says nothing about whether a
       new slot compiled in). The six pre-existing
       `tst_dialing_blocks` failures seen on the first run were the `std::optional` defect in 1.3
@@ -301,15 +440,16 @@ thing to watch for, not the individual bugs.
       confirmed: the `### Setup:` prose header and the no-history block — not observed in the
       app, reason NOT established. The explanation first recorded here ("every in-app path sends
       the JSON shot-data envelope instead") is wrong: `requestRecentShotContext` is called at
-      ConversationOverlay.qml:189, lands in `historicalContext` at :251 and is prepended to the
-      outgoing message at :719, so `emitRecentShotContext` IS on the live in-app path — which
+      ConversationOverlay.qml:191, lands in `historicalContext` at :253 and is prepended to the
+      outgoing message at :721, so `emitRecentShotContext` IS on the live in-app path — which
       design.md says too, and switching to the envelope is an explicit non-goal there. The
       likeliest explanation is misreading the prompt log, which renders a multi-turn request as
       "[Conversation with N messages]" rather than showing the body. A wrong reason in a
       verification record is worse than an unexplained gap: the next reader stops looking.
 - [x] 8.4 Open a PR (never push to `main`) — [#1852](https://github.com/Kulitorum/Decenza/pull/1852)
       — then run the automated `/pr-review-toolkit:review-pr` before merging. Run 1 found four
-      critical defects; all fixes are recorded in section 5b and section 7 above.
+      critical defects; all fixes are recorded in section 5b and section 7 above. Runs 2 and 3
+      are recorded in sections 5d and 5e.
 - [x] 8.5 No wiki manual entry — this changes how the advisor selects its own context and
       surfaces nothing the user must be told exists. Recorded here so the omission is a decision
       rather than an oversight.

@@ -119,16 +119,26 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // one-shot in-app advisor and ai_advisor_invoke still
                     // build it inline because they have no follow-up
                     // tool-call channel.
-                    dbResult.dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                        db, dbResult.profileKbId, resolvedShotId, historyLimit);
-                    dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
-                        db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
-                    // Bucket from the record already loaded above, not a second
-                    // lookup: one row read, one answer to "which gear is this".
-                    dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
-                        db, dbResult.shotData.grinderModel,
-                        dbResult.shotData.beverageType, dbResult.shotData.beanBrand,
-                        dbResult.shotData.equipmentId);
+                    // Guard the whole group on the load: a failed
+                    // loadShotRecordStatic yields a default projection whose
+                    // equipmentId is 0, and 0 is a REAL bucket — it would scope
+                    // the grinder context to unpackaged shots rather than skip
+                    // it. That is currently masked because the same failed
+                    // record also has an empty grinderModel, which
+                    // buildGrinderContextBlock short-circuits on; that is a
+                    // coincidence, not a guard.
+                    if (dbResult.shotData.isValid()) {
+                        dbResult.dialInSessions = DialingBlocks::buildDialInSessionsBlock(
+                            db, dbResult.profileKbId, resolvedShotId, historyLimit);
+                        dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
+                            db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
+                        // Bucket from the record already loaded above, not a
+                        // second lookup for THIS block.
+                        dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
+                            db, dbResult.shotData.grinderModel,
+                            dbResult.shotData.beverageType, dbResult.shotData.beanBrand,
+                            dbResult.shotData.equipmentId);
+                    }
                 });
 
                 // --- Deliver results to main thread for final assembly ---
