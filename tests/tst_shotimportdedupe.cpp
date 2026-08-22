@@ -16,6 +16,8 @@
 #include <QThread>
 #include <QPointF>
 #include <QSqlQuery>
+#include <QSqlDatabase>
+#include <QVariantList>
 #include <QRegularExpression>
 
 #include "history/shothistorystorage.h"
@@ -270,6 +272,48 @@ private slots:
         return ShotHistoryStorage::getShotCountStatic(dbPath);
     }
 
+    // Read straight from the file. The id-preservation assertions are about
+    // what SQLite actually holds, so they must not go through the same import
+    // code they are checking.
+    static QVariantList queryColumn(const QString& dbPath, const QString& sql)
+    {
+        QVariantList out;
+        const QString conn = QStringLiteral("tst_keepid_%1").arg(reinterpret_cast<quintptr>(&out));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+            db.setDatabaseName(dbPath);
+            if (db.open()) {
+                QSqlQuery q(db);
+                if (q.exec(sql))
+                    while (q.next()) out << q.value(0);
+            }
+        }
+        QSqlDatabase::removeDatabase(conn);
+        return out;
+    }
+
+    static QList<qint64> shotIds(const QString& dbPath)
+    {
+        QList<qint64> ids;
+        for (const QVariant& v : queryColumn(dbPath, QStringLiteral("SELECT id FROM shots ORDER BY id")))
+            ids << v.toLongLong();
+        return ids;
+    }
+
+    static qint64 sequenceFor(const QString& dbPath)
+    {
+        const QVariantList v = queryColumn(
+            dbPath, QStringLiteral("SELECT seq FROM sqlite_sequence WHERE name='shots'"));
+        return v.isEmpty() ? -1 : v.first().toLongLong();
+    }
+
+    static qint64 shotIdForUuid(const QString& dbPath, const QString& uuid)
+    {
+        const QVariantList v = queryColumn(
+            dbPath, QStringLiteral("SELECT id FROM shots WHERE uuid='%1'").arg(uuid));
+        return v.isEmpty() ? -1 : v.first().toLongLong();
+    }
+
     // A genuinely empty destination is not the refused case — it must import.
     void merge_into_empty_destination_imports()
     {
@@ -452,6 +496,89 @@ private slots:
         // Replace mode never measures the destination, and "not measured" must
         // stay distinguishable from "the destination was empty".
         QVERIFY(!r.destShotsBefore.has_value());
+    }
+
+    // A restore must not renumber. Two halves of one rule:
+    //   replace — the database comes back with the ids it was backed up with;
+    //   merge   — existing rows stay put, incoming rows keep their own id.
+    //
+    // Before this, the INSERT omitted `id` entirely, so AUTOINCREMENT renumbered
+    // every imported row. Replace mode clears with DELETE, which does not reset
+    // sqlite_sequence, so restoring a backup into the database it came from
+    // moved every shot to a fresh id block — and a renumbered shot is exactly
+    // what makes an outside reference to it go stale.
+    void replace_restores_the_original_ids_and_the_sequence()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString srcPath = makeSourceDb("mi_src_keepid.db", 3, 1766000000);
+
+        // Give the destination MORE shots than the source, so its sequence sits
+        // above anything the source can offer: renumbering would be obvious.
+        const QString destPath = m_dir.filePath("mi_dest_keepid.db");
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            for (int i = 0; i < 9; i++)
+                QVERIFY(dest.importShotRecord(makeShot(QStringLiteral("k-%1").arg(i),
+                                               1766900000 + i * 3600,
+                                               QStringLiteral("K %1").arg(i), QString()), false) > 0);
+            dest.close();
+            drain();
+        }
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/false, &r));
+        QCOMPARE(r.imported, 3);
+
+        // The source's ids are 1..3 and they come back as 1..3, not 10..12.
+        QCOMPARE(shotIds(destPath), (QList<qint64>{1, 2, 3}));
+        for (auto it = r.shotIdMap.constBegin(); it != r.shotIdMap.constEnd(); ++it)
+            QCOMPARE(it.key(), it.value());   // identity: nothing was renumbered
+
+        // And the sequence matches, so the next new shot continues the restored
+        // history instead of skipping past the pre-restore high-water mark.
+        QCOMPARE(sequenceFor(destPath), qint64(3));
+    }
+
+    void merge_keeps_incoming_ids_that_are_free_and_only_moves_collisions()
+    {
+        QVERIFY(m_dir.isValid());
+        // Source ids 1..3.
+        const QString srcPath = makeSourceDb("mi_src_freeid.db", 3, 1767000000);
+
+        // Destination occupies id 1 and 2 with DIFFERENT shots, leaving 3 free.
+        const QString destPath = m_dir.filePath("mi_dest_freeid.db");
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            for (int i = 0; i < 2; i++)
+                QVERIFY(dest.importShotRecord(makeShot(QStringLiteral("occupied-%1").arg(i),
+                                               1767900000 + i * 3600,
+                                               QStringLiteral("Occ %1").arg(i), QString()), false) > 0);
+            dest.close();
+            drain();
+        }
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/true, &r));
+        QCOMPARE(r.imported, 3);
+
+        // The existing two are exactly where they were.
+        QCOMPARE(shotIdForUuid(destPath, QStringLiteral("occupied-0")), qint64(1));
+        QCOMPARE(shotIdForUuid(destPath, QStringLiteral("occupied-1")), qint64(2));
+
+        // Source id 3 was free, so that shot kept it. 1 and 2 were taken, so
+        // those two moved — and the map is what records where they went.
+        QCOMPARE(r.shotIdMap.value(3), qint64(3));
+        // The two collisions land past every id either side uses. The specific
+        // values are not the contract; not landing on 3 is — an earlier
+        // relocation must not consume an id a later source row still owns,
+        // which is what letting AUTOINCREMENT choose did.
+        QVERIFY2(r.shotIdMap.value(1) > 3, "a relocated id must not take a free source id");
+        QVERIFY2(r.shotIdMap.value(2) > 3, "a relocated id must not take a free source id");
+        const QList<qint64> dest = r.shotIdMap.values();
+        QCOMPARE(QSet<qint64>(dest.begin(), dest.end()).size(), qsizetype(3));  // no two shots share an id
+        QCOMPARE(countShots(destPath), 5);
     }
 
     // existingShotIds is what decides whether a stored conversation reference

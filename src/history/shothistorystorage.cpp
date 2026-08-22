@@ -4293,6 +4293,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // do not go looking for a failing SELECT there). Each guard stands
             // on its own reasoning, stated at each one.
             QHash<QString, qint64> existingByUuid;
+            QSet<qint64> occupiedIds;
             if (merge) {
                 QSqlQuery uuidQuery(destDb);
                 // GUARD 1: a failed read is NOT evidence of an empty destination.
@@ -4310,8 +4311,13 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     destDb.rollback();
                     goto cleanup;
                 }
-                while (uuidQuery.next())
+                while (uuidQuery.next()) {
                     existingByUuid.insert(uuidQuery.value(0).toString(), uuidQuery.value(1).toLongLong());
+                    // Which ids are already taken. Free, from the row we are
+                    // already reading — see the id-preservation note at the
+                    // INSERT for why an incoming shot keeps its own id.
+                    occupiedIds.insert(uuidQuery.value(1).toLongLong());
+                }
 
                 // GUARD 2: a read that STOPPED EARLY is not evidence either.
                 // `next()` returning false is how end-of-rows and a mid-scan
@@ -4376,6 +4382,18 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             int& imported = tally.imported;
             int& skipped = tally.skipped;
             int& failed = tally.failed;
+
+            // Where a colliding row goes. Past the highest id EITHER side uses,
+            // so it can never take an id a later source row is entitled to.
+            qint64 nextRelocatedId = 1;
+            {
+                QSqlQuery maxQuery(srcDb);
+                if (maxQuery.exec("SELECT IFNULL(MAX(id), 0) FROM shots") && maxQuery.next())
+                    nextRelocatedId = maxQuery.value(0).toLongLong() + 1;
+                for (qint64 id : std::as_const(occupiedIds))
+                    nextRelocatedId = std::max(nextRelocatedId, id + 1);
+            }
+
             QSqlQuery srcShots(srcDb);
             if (!srcShots.exec("SELECT * FROM shots")) {
                 qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to query source:" << srcShots.lastError().text();
@@ -4446,7 +4464,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
 
                 QSqlQuery insert(destDb);
                 insert.prepare(R"(
-                    INSERT INTO shots (uuid, timestamp, profile_name, profile_json, beverage_type,
+                    INSERT INTO shots (id, uuid, timestamp, profile_name, profile_json, beverage_type,
                         duration_seconds, final_weight, dose_weight,
                         bean_brand, bean_type, roast_date, roast_level,
                         grinder_setting, equipment_id, rpm,
@@ -4461,8 +4479,37 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         bag_id, frozen_date, defrost_date, storage_hint, opened_date,
                         taste_balance, taste_body,
                         recipe_id, steam_json, hot_water_json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
+
+                // KEEP THE SHOT'S OWN ID wherever it is free.
+                //
+                // This used to omit `id` entirely, so AUTOINCREMENT renumbered
+                // every imported row — and since replace mode clears with
+                // `DELETE`, which does not reset sqlite_sequence, restoring your
+                // own backup into an empty table moved 1135 shots from ids
+                // 1..1172 to 1173..2307. Nothing needed those new numbers. The
+                // renumbering is what makes an external reference to a shot go
+                // stale, which is the entire defect this file's ImportResult
+                // exists to work around; not renumbering removes most of it at
+                // the source rather than following it afterwards.
+                //
+                // Replace mode: the table was just cleared, so every source id
+                // is free and the database comes back exactly as backed up.
+                // Merge mode: existing rows are never touched, and an incoming
+                // shot keeps its id unless that id is already taken — only then
+                // does it get a new one, which is what shotIdMap is still for.
+                // Binding NULL lets AUTOINCREMENT assign, as before.
+                // A relocated row takes an id ABOVE everything either database
+                // uses, rather than letting AUTOINCREMENT pick the next free
+                // one. Otherwise relocating an early collision consumes an id
+                // that a LATER source row still owns: with destination ids 1-2
+                // and source ids 1-3, auto-assign moved source 1 to 3, and
+                // source 3 — whose own id was free — was pushed to 5. Handing
+                // out ids past both maxima cannot collide with a kept id.
+                const qint64 srcId = srcShots.value("id").toLongLong();
+                const bool keepId = srcId > 0 && !occupiedIds.contains(srcId);
+                insert.addBindValue(keepId ? QVariant(srcId) : QVariant(nextRelocatedId++));
 
                 insert.addBindValue(uuid);
                 insert.addBindValue(srcShots.value("timestamp"));
@@ -4564,8 +4611,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     continue;
                 }
 
-                qint64 oldId = srcShots.value("id").toLongLong();
-                qint64 newId = insert.lastInsertId().toLongLong();
+                const qint64 oldId = srcId;
+                const qint64 newId = insert.lastInsertId().toLongLong();
                 // No `newId <= 0` guard here, deliberately. `shots.id` is
                 // INTEGER PRIMARY KEY and the exec() above returned true, so
                 // SQLite has assigned a rowid and reports it; there is no
@@ -4578,8 +4625,16 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // insert-side failure performs. It made the log and the
                 // database disagree to guard a state the schema forbids.
                 //
-                // The renumbering, recorded. Everything that referenced oldId
-                // outside this database has to follow it to newId.
+                // Reserve it so a later source row cannot claim the same id.
+                // (A well-formed source cannot contain a duplicate id, but this
+                // set is also what the NEXT row's `keepId` test reads, and a
+                // source that has been hand-edited should not silently collide.)
+                occupiedIds.insert(newId);
+
+                // The renumbering, recorded — now usually an identity mapping.
+                // Everything that referenced oldId outside this database has to
+                // follow it to newId, which is the same value whenever the id
+                // was free.
                 tally.shotIdMap.insert(oldId, newId);
 
                 // Import samples
@@ -4688,9 +4743,26 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // lane covers imported shots too.
                 QSqlQuery beanbaseBackfill(destDb);
                 if (!beanbaseBackfill.exec("UPDATE shots SET beanbase_id = json_extract(beanbase_json, '$.id') "
-                                           "WHERE beanbase_id IS NULL AND beanbase_json IS NOT NULL"))
+                                           "WHERE beanbase_id IS NULL AND beanbase_json IS NOT NULL "
+                                           "AND json_valid(beanbase_json)"))
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: beanbase_id backfill failed:"
                                << beanbaseBackfill.lastError().text();
+                // Replace mode restores the DATABASE, so the id sequence should
+                // match the backup as well as the rows. DELETE does not reset
+                // sqlite_sequence (verified: three inserts then DELETE leaves
+                // the next id at 4; only DROP returns it to 1), so without this
+                // the next new shot after a restore skips past the old
+                // high-water mark instead of continuing the restored history.
+                // Merge mode must NOT do this — the destination's own sequence
+                // is still authoritative there.
+                if (!merge) {
+                    QSqlQuery seqFix(destDb);
+                    if (!seqFix.exec("UPDATE sqlite_sequence SET seq = "
+                                     "(SELECT IFNULL(MAX(id), 0) FROM shots) WHERE name = 'shots'"))
+                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: could not realign"
+                                   << "sqlite_sequence after replace:" << seqFix.lastError().text();
+                }
+
                 // Pre-bag sources also have no bag_id — adopt their shots
                 // into existing bags by identity (idempotent, NULL-only).
                 CoffeeBagStorage::linkOrphanShotsStatic(destDb);
