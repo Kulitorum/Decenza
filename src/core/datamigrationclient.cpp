@@ -8,6 +8,7 @@
 #include "../history/shothistorystorage.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../ai/aimanager.h"
+#include "../ai/aiconversation.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -611,56 +612,31 @@ void DataMigrationClient::onAIConversationsReply()
         QJsonDocument doc = QJsonDocument::fromJson(data);
         if (doc.isArray()) {
             AppSettings settings;
-            QJsonArray conversations = doc.array();
 
-            // Load existing index to know which keys to skip
-            QJsonArray existingIndex;
-            QByteArray existingIndexData = settings.value("ai/conversations/index").toByteArray();
-            if (!existingIndexData.isEmpty()) {
-                QJsonDocument indexDoc = QJsonDocument::fromJson(existingIndexData);
-                if (indexDoc.isArray()) existingIndex = indexDoc.array();
-            }
-            QSet<QString> existingKeys;
-            for (const QJsonValue& v : existingIndex) {
-                existingKeys.insert(v.toObject()["key"].toString());
-            }
+            // Same importer the backup restore uses. This loop used to be a
+            // second hand-written copy of it; the two were identical only by
+            // luck, and the shotId remap below is exactly the kind of change
+            // that would have landed in one and not the other.
+            //
+            // The map comes from the `shots` step of this same import run —
+            // importAll() queues shots before ai_conversations, so by the time
+            // we get here it is filled. When the user imported conversations
+            // WITHOUT shots (importOnlyAIConversations, or deselecting shots),
+            // it is empty: no map, so every turn's shotId is cleared. Those ids
+            // name the source device's database, which this device does not
+            // have — keeping them is the bug, not the feature.
+            const QHash<qint64, qint64>* idMap =
+                m_shotImport.shotIdMap.isEmpty() ? nullptr : &m_shotImport.shotIdMap;
+            const AIConversation::ImportTally tally =
+                AIConversation::importConversationsStatic(settings, doc.array(), idMap);
+            m_aiConversationsImported += tally.conversations;
 
-            for (const QJsonValue& val : conversations) {
-                QJsonObject conv = val.toObject();
-                QString key = conv["key"].toString();
-                if (key.isEmpty() || existingKeys.contains(key)) continue;
+            if (tally.conversations > 0 && m_aiManager)
+                m_aiManager->reloadConversations();
 
-                // Write conversation data to QSettings
-                QString prefix = "ai/conversations/" + key + "/";
-                settings.setValue(prefix + "systemPrompt", conv["systemPrompt"].toString());
-                settings.setValue(prefix + "messages",
-                    QJsonDocument(conv["messages"].toArray()).toJson(QJsonDocument::Compact));
-                settings.setValue(prefix + "timestamp", conv["timestamp"].toString());
-                settings.setValue(prefix + "contextLabel", conv["contextLabel"].toString());
-
-                // Add to index
-                QJsonObject indexEntry;
-                indexEntry["key"] = key;
-                indexEntry["beanBrand"] = conv["beanBrand"].toString();
-                indexEntry["beanType"] = conv["beanType"].toString();
-                indexEntry["profileName"] = conv["profileName"].toString();
-                indexEntry["timestamp"] = conv["indexTimestamp"].toVariant().toLongLong();
-                existingIndex.append(indexEntry);
-                existingKeys.insert(key);
-
-                m_aiConversationsImported++;
-            }
-
-            // Save updated index and reload
-            if (m_aiConversationsImported > 0) {
-                settings.setValue("ai/conversations/index",
-                    QJsonDocument(existingIndex).toJson(QJsonDocument::Compact));
-
-                if (m_aiManager)
-                    m_aiManager->reloadConversations();
-            }
-
-            qDebug() << "DataMigrationClient: Imported" << m_aiConversationsImported << "AI conversations";
+            qDebug() << "DataMigrationClient: Imported" << m_aiConversationsImported
+                     << "AI conversations;" << tally.referencesRemapped
+                     << "shot reference(s) remapped," << tally.referencesCleared << "cleared";
         }
     }
 
@@ -1088,7 +1064,8 @@ void DataMigrationClient::onShotsReply()
     auto destroyed = m_destroyed;
 
     QThread* thread = QThread::create([this, destDbPath, tempDbPath, beforeCount, destroyed]() {
-        bool success = ShotHistoryStorage::importDatabaseStatic(destDbPath, tempDbPath, true);
+        ShotHistoryStorage::ImportResult shotImport;
+        bool success = ShotHistoryStorage::importDatabaseStatic(destDbPath, tempDbPath, true, &shotImport);
 
         // Count shots on background thread right after import (no signal race)
         int afterCount = success ? ShotHistoryStorage::getShotCountStatic(destDbPath) : 0;
@@ -1096,16 +1073,26 @@ void DataMigrationClient::onShotsReply()
         // Clean up temp file on background thread (safe even if object is destroyed)
         QFile::remove(tempDbPath);
 
-        QMetaObject::invokeMethod(this, [this, success, beforeCount, afterCount, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, success, beforeCount, afterCount, shotImport, destroyed]() {
             if (*destroyed) {
                 qDebug() << "DataMigrationClient: Shots import callback dropped (object destroyed)";
                 return;
             }
 
+            // Held for the ai_conversations step, which importAll() queues after
+            // this one and which must remap its stored shot ids through this map.
+            if (success)
+                m_shotImport = shotImport;
+
             if (success && m_shotHistory) {
                 m_shotsImported = afterCount > beforeCount ? afterCount - beforeCount : 0;
                 qDebug() << "DataMigrationClient: Imported" << m_shotsImported << "new shots";
                 m_shotHistory->refreshTotalShots();
+            } else if (!shotImport.integrityFailure.isEmpty()) {
+                // A refusal, not a transfer fault. Say which, and say that the
+                // existing history is intact — otherwise the user cannot tell
+                // whether the migration damaged what was already here.
+                setError(tr("Shots were not imported: %1").arg(shotImport.integrityFailure));
             }
 
             startNextImport();

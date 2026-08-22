@@ -10,6 +10,8 @@
 #include <QTemporaryDir>
 #include <QList>
 #include <QPair>
+
+#include "../history/shothistorystorage.h"
 #include <QHostAddress>
 #include <QTimer>
 #include <QPointer>
@@ -262,6 +264,12 @@ private:
     int m_shotsImported = 0;
     int m_mediaImported = 0;
     int m_aiConversationsImported = 0;
+
+    // Shot id map from the `shots` step, consumed by the `ai_conversations`
+    // step that importAll() queues after it. Empty when shots were not
+    // imported this run — which the conversation import reads as "clear every
+    // stored shot id", since those ids name the SOURCE device's database.
+    ShotHistoryStorage::ImportResult m_shotImport;
 
     // Pending downloads
     QList<ProfileDownload> m_pendingProfiles;

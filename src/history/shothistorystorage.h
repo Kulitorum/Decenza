@@ -445,14 +445,66 @@ public:
     // Safe to call from any thread (does not use m_db).
     static QString createBackupStatic(const QString& dbPath, const QString& destPath);
 
+    // What an import did, beyond succeeded/failed.
+    //
+    // shotIdMap is the reason this struct exists. Every imported shot gets a
+    // NEW id (`shots.id` is AUTOINCREMENT and the import re-INSERTs each row),
+    // exactly as equipment packages, bags and recipes do — and those three
+    // already hand a map to the next importer so foreign keys land on
+    // destination ids. Shot ids had no map, so references living OUTSIDE
+    // shots.db (AI advisor conversation turns) kept naming the source
+    // database's ids after a restore. A stale id is not inert: ids are handed
+    // out in increasing order, so it eventually becomes a valid id belonging
+    // to an unrelated shot and a write meant for one shot lands on another.
+    //
+    // Keyed by source id. A skipped duplicate maps to the id of the
+    // destination row it matched; a row that failed to insert is ABSENT, and
+    // absent means "clear the reference", never "leave it alone".
+    //
+    // The counts distinguish outcomes that used to log identically: merging
+    // into an empty destination and merging into a populated one both printed
+    // "N imported, 0 skipped, 0 failed".
+    struct ImportResult {
+        QHash<qint64, qint64> shotIdMap;
+        int destShotsBefore = 0;      // destination row count before the import
+        int imported = 0;
+        int skipped = 0;              // already present, matched by uuid
+        int failed = 0;
+        int referencesRemapped = 0;   // filled in by the caller that remaps
+        int referencesCleared = 0;    // source shot absent from shotIdMap
+
+        // Why the import refused, when it refused for an integrity reason
+        // rather than an I/O one. English, already specific about which counts
+        // disagreed; callers pair it with a translated lead-in rather than
+        // reproducing the detail. Empty on success and on plain I/O failure.
+        QString integrityFailure;
+    };
+
     // Thread-safe import: opens separate connections for source and destination.
     // Safe to call from any thread (does not use m_db).
     // Caller must invoke refreshTotalShots() on the main thread afterward.
-    static bool importDatabaseStatic(const QString& destDbPath, const QString& srcFilePath, bool merge);
+    //
+    // Pass `outResult` to receive the shot id map; a caller that carries any
+    // reference to a shot id across this call MUST remap it through that map
+    // (see remapConversationShotIds). Callers that import nothing referencing
+    // shots may leave it null.
+    static bool importDatabaseStatic(const QString& destDbPath, const QString& srcFilePath, bool merge,
+                                     ImportResult* outResult = nullptr);
 
     // Thread-safe shot count: opens a temporary connection.
     // Safe to call from any thread (does not use m_db).
     static int getShotCountStatic(const QString& dbPath);
+
+    // Which of `ids` name a shot that actually exists. Used to decide whether a
+    // stored reference still resolves, so a stale id is never read back as live.
+    //
+    // Bounded by construction: the caller passes the DISTINCT ids of one
+    // conversation's turns (at most a couple of dozen), and the query is a
+    // primary-key IN over that set. Not for open-ended membership scans.
+    // Returns an empty set when not ready, which callers must read as
+    // "resolves nothing" — the conservative direction, since the alternative is
+    // acting on an id that may not exist.
+    QSet<qint64> existingShotIds(const QSet<qint64>& ids) const;
 
 signals:
     void readyChanged();

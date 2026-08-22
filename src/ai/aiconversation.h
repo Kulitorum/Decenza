@@ -2,6 +2,8 @@
 
 #include <QObject>
 #include <QJsonArray>
+#include <QHash>
+#include <QSet>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <optional>
@@ -9,6 +11,7 @@
 
 class AIManager;
 class TranslationManager;
+class AppSettings;
 
 /**
  * AIConversation - Manages a multi-turn conversation with an AI provider
@@ -248,6 +251,65 @@ public:
         const QString& userPrompt,
         const QString& assistantResponse,
         const std::optional<QJsonObject>& structuredNext);
+
+    /** What importConversationsStatic did. */
+    struct ImportTally {
+        int conversations = 0;       // written (an existing key is skipped, not merged)
+        int referencesRemapped = 0;  // turn shotIds rewritten to a destination id
+        int referencesCleared = 0;   // turn shotIds dropped — source shot not in the map
+    };
+
+    /**
+     * Import conversations from a backup or a peer device into QSettings.
+     *
+     * ONE definition. This loop was hand-written twice — once in
+     * DatabaseBackupManager (restore), once in DataMigrationClient (LAN
+     * migration) — and the copies were identical only by luck. Adding the
+     * shotId remap below to one and not the other was the obvious next
+     * failure, which is why they were collapsed before it was added.
+     *
+     * `shotIdMap` maps SOURCE shot ids to the ids those shots received in
+     * THIS device's database, as produced by
+     * ShotHistoryStorage::importDatabaseStatic. Each turn's `shotId` is
+     * rewritten through it. A source id the map does not contain has its
+     * `shotId` REMOVED, leaving the turn in the documented null state (no
+     * key) rather than holding an id that names a foreign database.
+     *
+     * Passing nullptr means "no shots came with these conversations" — the
+     * conversations-only import path — and clears every `shotId`. That is
+     * the same rule, not an exception to it: an absent map is the degenerate
+     * case of an absent entry. Keeping the ids there would leave every turn
+     * pointing into a database this device does not have.
+     *
+     * Callers keep their own policy: replace-mode pre-clearing, sync(), and
+     * reloading the live conversation all stay with the caller.
+     *
+     * @param settings   open settings object to write through
+     * @param conversations  the incoming array, as carried by the backup
+     *                       archive or the migration endpoint
+     * @param shotIdMap  source->destination shot ids, or nullptr
+     */
+    static ImportTally importConversationsStatic(
+        AppSettings& settings,
+        const QJsonArray& conversations,
+        const QHash<qint64, qint64>* shotIdMap);
+
+    /**
+     * Drop `shotId` from every turn that names a shot the database does not
+     * have, so a stale id is never read back as a live one.
+     *
+     * Repairs conversations imported before the remap above existed: those
+     * hold ids from the source database, and shot ids only ever increase, so
+     * an untouched stale id eventually becomes a VALID id belonging to an
+     * unrelated shot. Returns how many it cleared.
+     *
+     * In-memory only — nothing is written back. The right destination id for
+     * an already-broken install is unknowable, so the only honest repair is
+     * to forget the reference, and forgetting by read is reversible where
+     * forgetting by rewrite is not.
+     */
+    static int dropUnresolvableShotIds(QJsonArray& messages,
+                                       const QSet<qint64>& existingShotIds);
 
 signals:
     void responseReceived(const QString& response);

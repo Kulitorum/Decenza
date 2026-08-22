@@ -3,6 +3,7 @@
 #include "webdebuglogger.h"
 #include "webtemplates.h"
 #include "../history/shothistorystorage.h"
+#include "../ai/aiconversation.h"
 #include "../core/dbutils.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
@@ -951,6 +952,9 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
     int mediaImported = 0;
     int mediaSkipped = 0;
     int aiConversationsImported = 0;
+    // Held back from the entry loop until the shot import has produced its id
+    // map — see the ai_conversations.json case below.
+    QJsonArray pendingConversations;
 
     for (quint32 i = 0; i < entryCount; i++) {
         // Read name length
@@ -1114,54 +1118,19 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
             }
         }
         else if (name == "ai_conversations.json") {
+            // STASHED, not imported here. This entry is read before the archive's
+            // shots.db is imported, and those shots are about to be renumbered —
+            // so the id map that every stored shotId must be remapped through
+            // does not exist yet at this point in the loop. Importing now is what
+            // left conversations pointing at the SOURCE database's ids.
+            //
+            // The actual import happens after the shot import, in the main-thread
+            // continuation below (and, when the archive carries no shots.db, on
+            // the synchronous path further down with no map — clearing the ids).
             if (m_aiManager) {
                 QJsonDocument doc = QJsonDocument::fromJson(entryData);
-                if (doc.isArray()) {
-                    AppSettings settings;
-                    // Load existing index to merge
-                    QJsonDocument existingDoc = QJsonDocument::fromJson(
-                        settings.value("ai/conversations/index").toByteArray());
-                    QJsonArray existingIndex = existingDoc.isArray() ? existingDoc.array() : QJsonArray();
-                    QSet<QString> existingKeys;
-                    for (const QJsonValue& v : existingIndex) {
-                        existingKeys.insert(v.toObject()["key"].toString());
-                    }
-
-                    QJsonArray conversations = doc.array();
-                    for (const QJsonValue& val : conversations) {
-                        QJsonObject conv = val.toObject();
-                        QString key = conv["key"].toString();
-                        if (key.isEmpty() || existingKeys.contains(key)) continue;
-
-                        // Write conversation data to QSettings
-                        QString prefix = "ai/conversations/" + key + "/";
-                        settings.setValue(prefix + "systemPrompt", conv["systemPrompt"].toString());
-                        settings.setValue(prefix + "contextLabel", conv["contextLabel"].toString());
-                        settings.setValue(prefix + "timestamp", conv["timestamp"].toString());
-                        QJsonArray messages = conv["messages"].toArray();
-                        settings.setValue(prefix + "messages",
-                            QJsonDocument(messages).toJson(QJsonDocument::Compact));
-
-                        // Add to index
-                        QJsonObject indexEntry;
-                        indexEntry["key"] = key;
-                        indexEntry["beanBrand"] = conv["beanBrand"].toString();
-                        indexEntry["beanType"] = conv["beanType"].toString();
-                        indexEntry["profileName"] = conv["profileName"].toString();
-                        indexEntry["timestamp"] = conv["indexTimestamp"].toVariant().toLongLong();
-                        existingIndex.append(indexEntry);
-                        existingKeys.insert(key);
-                        aiConversationsImported++;
-                    }
-
-                    if (aiConversationsImported > 0) {
-                        settings.setValue("ai/conversations/index",
-                            QJsonDocument(existingIndex).toJson(QJsonDocument::Compact));
-                        settings.sync();
-                        m_aiManager->reloadConversations();
-                        qDebug() << "ShotServer: Imported" << aiConversationsImported << "AI conversations";
-                    }
-                }
+                if (doc.isArray())
+                    pendingConversations = doc.array();
             }
         }
     }
@@ -1175,8 +1144,9 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
         QThread* thread = QThread::create([this, dbPath, shotsTempPath, socketGuard, destroyed,
                                            settingsRestored, profilesImported, profilesSkipped,
                                            mediaImported, mediaSkipped, aiConversationsImported,
-                                           tempPathToCleanup]() {
-            bool success = ShotHistoryStorage::importDatabaseStatic(dbPath, shotsTempPath, true);
+                                           pendingConversations, tempPathToCleanup]() {
+            ShotHistoryStorage::ImportResult shotImport;
+            bool success = ShotHistoryStorage::importDatabaseStatic(dbPath, shotsTempPath, true, &shotImport);
             QFile::remove(shotsTempPath);
 
             // Cleanup uploaded backup temp file on background thread (safe even if object is destroyed)
@@ -1184,9 +1154,10 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                 QFile::remove(tempPathToCleanup);
             }
 
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, success,
+            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, success, shotImport,
                                               settingsRestored, profilesImported, profilesSkipped,
-                                              mediaImported, mediaSkipped, aiConversationsImported]() {
+                                              mediaImported, mediaSkipped, aiConversationsImported,
+                                              pendingConversations]() mutable {
                 if (*destroyed) {
                     qDebug() << "ShotServer: Restore response dropped (server destroyed)";
                     return;
@@ -1200,6 +1171,31 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     qDebug() << "ShotServer: Imported shots from backup (async)";
                 }
 
+                // Now — and only now — the conversations stashed from the entry
+                // loop can be written: the shot import above has renumbered the
+                // shots they reference and handed back the map to follow. On the
+                // main thread, which is where reloadConversations() must run.
+                //
+                // A failed shot import leaves an empty map, which the importer
+                // reads as "clear every stored id" — correct, since the shots
+                // those ids name are not here.
+                if (!pendingConversations.isEmpty() && m_aiManager) {
+                    AppSettings settings;
+                    const QHash<qint64, qint64>* idMap =
+                        (success && !shotImport.shotIdMap.isEmpty()) ? &shotImport.shotIdMap : nullptr;
+                    const AIConversation::ImportTally tally =
+                        AIConversation::importConversationsStatic(settings, pendingConversations, idMap);
+                    aiConversationsImported += tally.conversations;
+                    if (tally.conversations > 0) {
+                        settings.sync();
+                        m_aiManager->reloadConversations();
+                        qDebug() << "ShotServer: Imported" << tally.conversations
+                                 << "AI conversations;" << tally.referencesRemapped
+                                 << "shot reference(s) remapped," << tally.referencesCleared
+                                 << "cleared";
+                    }
+                }
+
                 qDebug() << "ShotServer: Restore complete - settings:" << settingsRestored
                          << "shots:" << shotsImported
                          << "profiles:" << profilesImported << "(skipped:" << profilesSkipped << ")"
@@ -1211,6 +1207,11 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     result["success"] = true;
                     result["settings"] = settingsRestored;
                     result["shotsImported"] = shotsImported;
+                    // A refusal is reported, not folded into shotsImported:false,
+                    // which a client cannot distinguish from "the archive had no
+                    // shots". Absent on success and on plain I/O failure.
+                    if (!shotImport.integrityFailure.isEmpty())
+                        result["shotsRefused"] = shotImport.integrityFailure;
                     result["profilesImported"] = profilesImported;
                     result["profilesSkipped"] = profilesSkipped;
                     result["mediaImported"] = mediaImported;
@@ -1226,6 +1227,23 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
         return;
+    }
+
+    // No shots.db in this archive, so the async path above never ran and there
+    // is no id map. Every stored shotId is cleared: those ids name the source
+    // device's database, and the shots they point at did not come with them.
+    if (!pendingConversations.isEmpty() && m_aiManager) {
+        AppSettings settings;
+        const AIConversation::ImportTally tally =
+            AIConversation::importConversationsStatic(settings, pendingConversations, nullptr);
+        aiConversationsImported += tally.conversations;
+        if (tally.conversations > 0) {
+            settings.sync();
+            m_aiManager->reloadConversations();
+            qDebug() << "ShotServer: Imported" << tally.conversations
+                     << "AI conversations (no shots in archive —" << tally.referencesCleared
+                     << "shot reference(s) cleared)";
+        }
     }
 
     qDebug() << "ShotServer: Restore complete - settings:" << settingsRestored

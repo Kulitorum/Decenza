@@ -400,6 +400,9 @@ void AIManager::maybePersistRatingFromReply(const QString& userReply,
     qDebug() << "AIManager: conversational rating capture — writing"
              << parsed->score << "to shot" << shotId
              << "(notes" << (parsed->notes.isEmpty() ? "absent" : "present") << ")";
+    // Same reason as the bean-metadata capture below: this is the user's own
+    // rating, so a write that lands nowhere must not pass unnoticed.
+    m_pendingMetadataWrites.insert(shotId);
     m_shotHistory->requestUpdateShotMetadata(shotId, metadata);
 }
 
@@ -674,6 +677,9 @@ void AIManager::maybePersistBeanCorrectionFromReply(const QString& userReply,
 
     qDebug() << "AIManager: conversational bean-metadata capture — writing"
              << metadata.keys() << "to shot" << shotId;
+    // Tracked so the outcome is read. This write carries something the USER
+    // just said; losing it silently is the defect this replaces.
+    m_pendingMetadataWrites.insert(shotId);
     m_shotHistory->requestUpdateShotMetadata(shotId, metadata);
 }
 
@@ -782,7 +788,29 @@ void AIManager::enrichUserPromptObject(QJsonObject& payload,
 
 void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
 {
+    if (m_shotHistory == storage) return;
+    if (m_shotHistory)
+        disconnect(m_shotHistory, &ShotHistoryStorage::shotMetadataUpdated, this, nullptr);
+
     m_shotHistory = storage;
+
+    // Watch the outcome of OUR OWN metadata writes. The storage layer already
+    // reported failure through this signal; nothing listened, so a write to a
+    // shot that does not exist logged one warning and the user's answer was
+    // gone. Filtering on m_pendingMetadataWrites keeps this to writes this
+    // class initiated — every other subsystem's writes come through here too.
+    if (m_shotHistory) {
+        connect(m_shotHistory, &ShotHistoryStorage::shotMetadataUpdated, this,
+                [this](qint64 shotId, bool success) {
+            if (m_pendingMetadataWrites.remove(shotId) == 0) return;  // not ours
+            if (success) return;
+            qWarning() << "AIManager: metadata write to shot" << shotId
+                       << "FAILED — that shot does not exist, so what the user told the "
+                          "advisor was not saved. A conversation turn most likely still "
+                          "names a shot id from a database this device no longer has.";
+            emit shotMetadataCaptureFailed(shotId);
+        });
+    }
 }
 
 // File-scope helper: runs on a background thread with its own SQLite connection.

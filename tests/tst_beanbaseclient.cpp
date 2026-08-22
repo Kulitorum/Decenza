@@ -646,22 +646,42 @@ private slots:
         client.setVisualizerBaseUrl(server.baseUrl());
 
         QSignalSpy fail(&client, &BeanBaseClient::searchFailed);
+
+        // Counts terminal signals for the DISPLACED query only. Declared here
+        // because both the wait below and the final assertion need it.
+        const auto ethiopiaTerminals = [&fail]() {
+            int n = 0;
+            for (const QList<QVariant>& sig : fail)
+                if (sig.at(0).toString() == QString("ethiopia")) ++n;
+            return n;
+        };
+
         client.search("ethiopia");
-        QTest::qWait(600);                    // debounce fires; A sent and hung
-        QCOMPARE(server.requestCount(), 1);   // A really is in flight
+        // Wait for the CONDITION (A reached the wire), not for a fixed slice of
+        // time. The server hangs deliberately, so there is no signal to spy on
+        // for this step — polling requestCount is the observable. A bare
+        // qWait(600) here was a timer standing in for an event: it held on an
+        // idle machine and failed under a loaded parallel suite, where the
+        // 350 ms debounce plus scheduling ran past the window and this read 0.
+        QTRY_COMPARE_WITH_TIMEOUT(server.requestCount(), qsizetype(1), 5000);
 
         client.search("colombia");            // distinct query supersedes A
-        QTest::qWait(600);                    // debounce fires; doSend aborts A
+        // Again the condition, not a duration: the displaced query's terminal
+        // signal is the thing being waited for.
+        QTRY_VERIFY_WITH_TIMEOUT(ethiopiaTerminals() >= 1, 5000);
 
-        int ethiopiaTerminals = 0;
+        // Proving the ABSENCE of a second signal does need a settle window —
+        // that is inherent to a negative, unlike the two waits above. Short and
+        // explicit: abort()'s spurious finished() would land synchronously,
+        // long before this elapses.
+        QTest::qWait(200);
+
         QString status;
-        for (const QList<QVariant>& sig : fail) {
-            if (sig.at(0).toString() == QString("ethiopia")) {
-                ++ethiopiaTerminals;
+        for (const QList<QVariant>& sig : fail)
+            if (sig.at(0).toString() == QString("ethiopia"))
                 status = sig.at(1).toString();
-            }
-        }
-        QCOMPARE(ethiopiaTerminals, 1);       // abort stayed silent
+
+        QCOMPARE(ethiopiaTerminals(), 1);     // abort stayed silent
         QCOMPARE(status, QString("superseded"));
     }
 

@@ -3295,6 +3295,149 @@ private slots:
 
         settings.clear();
     }
+
+    // ---- conversation import remaps shot references (fix-restore-id-remap) --
+    //
+    // Importing a backup re-INSERTs every shot, so each gets a NEW id. The
+    // conversations in that same backup name the OLD ones. Before this, they
+    // were written through verbatim: on the reporting device the Aug 19 shot was
+    // id 1052 while the conversation discussing it still said 1109. Ids only
+    // climb, so a stale one eventually names a real but unrelated shot and the
+    // advisor's write-back lands on the wrong row.
+
+    static QJsonArray turnsWithShotIds(const QList<qint64>& ids)
+    {
+        QJsonArray msgs;
+        for (qint64 id : ids) {
+            QJsonObject u{{"role", "user"}, {"content", "q"}};
+            QJsonObject a{{"role", "assistant"}, {"content", "a"}};
+            if (id > 0) {
+                u["shotId"] = static_cast<double>(id);
+                a["shotId"] = static_cast<double>(id);
+            }
+            msgs.append(u);
+            msgs.append(a);
+        }
+        return msgs;
+    }
+
+    static QJsonArray storedTurns(AppSettings& s, const QString& key)
+    {
+        return QJsonDocument::fromJson(
+            s.value("ai/conversations/" + key + "/messages").toByteArray()).array();
+    }
+
+    static QJsonArray oneConversation(const QString& key, const QJsonArray& msgs)
+    {
+        return QJsonArray{ QJsonObject{
+            {"key", key}, {"systemPrompt", "sys"}, {"contextLabel", "l"},
+            {"timestamp", "2026-08-22T09:00:00"}, {"messages", msgs},
+            {"beanBrand", "B"}, {"beanType", "T"}, {"profileName", "P"}} };
+    }
+
+    void importedTurnsFollowTheShotRenumbering()
+    {
+        AppSettings settings;
+        settings.clear();
+        const QString key = QStringLiteral("remap_key");
+
+        QHash<qint64, qint64> map{{1109, 1052}, {1096, 1041}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
+
+        QCOMPARE(tally.conversations, 1);
+        QCOMPARE(tally.referencesRemapped, 4);   // two turn pairs
+        QCOMPARE(tally.referencesCleared, 0);
+
+        const QJsonArray out = storedTurns(settings, key);
+        QCOMPARE(out.size(), 4);
+        for (const QJsonValue& v : out) {
+            const qint64 id = static_cast<qint64>(v.toObject().value("shotId").toDouble());
+            QVERIFY2(id == 1052 || id == 1041, "every turn must name a destination id");
+        }
+        settings.clear();
+    }
+
+    void aTurnWhoseShotDidNotComeAcrossLosesItsShotId()
+    {
+        AppSettings settings;
+        settings.clear();
+        const QString key = QStringLiteral("clear_key");
+
+        QHash<qint64, qint64> map{{1109, 1052}};   // 1096 absent — did not import
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
+
+        QCOMPARE(tally.referencesRemapped, 2);
+        QCOMPARE(tally.referencesCleared, 2);
+
+        const QJsonArray out = storedTurns(settings, key);
+        int withId = 0, withoutId = 0;
+        for (const QJsonValue& v : out) {
+            if (v.toObject().contains("shotId")) {
+                withId++;
+                QCOMPARE(static_cast<qint64>(v.toObject().value("shotId").toDouble()), qint64(1052));
+            } else {
+                withoutId++;
+            }
+        }
+        QCOMPARE(withId, 2);
+        // Absent, not shotId:0 — omission is this field's documented null state.
+        QCOMPARE(withoutId, 2);
+        settings.clear();
+    }
+
+    void conversationsImportedWithoutShotsHaveEveryIdCleared()
+    {
+        AppSettings settings;
+        settings.clear();
+        const QString key = QStringLiteral("noshots_key");
+
+        // No map: the conversations-only import path. Those ids name a database
+        // this device does not have, so keeping them is the defect.
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), nullptr);
+
+        QCOMPARE(tally.referencesRemapped, 0);
+        QCOMPARE(tally.referencesCleared, 4);
+        for (const QJsonValue& v : storedTurns(settings, key))
+            QVERIFY(!v.toObject().contains("shotId"));
+        settings.clear();
+    }
+
+    void turnsThatNeverCarriedAShotIdAreLeftAlone()
+    {
+        AppSettings settings;
+        settings.clear();
+        const QString key = QStringLiteral("freeform_key");
+
+        QHash<qint64, qint64> map{{1109, 1052}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(key, turnsWithShotIds({0})), &map);
+
+        QCOMPARE(tally.referencesRemapped, 0);
+        QCOMPARE(tally.referencesCleared, 0);
+        for (const QJsonValue& v : storedTurns(settings, key))
+            QVERIFY2(!v.toObject().contains("shotId"),
+                     "a free-form turn must not have linkage invented for it");
+        settings.clear();
+    }
+
+    void dropUnresolvableShotIdsForgetsIdsWithNoMatchingShot()
+    {
+        QJsonArray msgs = turnsWithShotIds({1109, 1052});
+        const QSet<qint64> live{1052};
+
+        QCOMPARE(AIConversation::dropUnresolvableShotIds(msgs, live), 2);
+
+        int kept = 0;
+        for (const QJsonValue& v : std::as_const(msgs)) {
+            if (!v.toObject().contains("shotId")) continue;
+            kept++;
+            QCOMPARE(static_cast<qint64>(v.toObject().value("shotId").toDouble()), qint64(1052));
+        }
+        QCOMPARE(kept, 2);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_AIManager)
