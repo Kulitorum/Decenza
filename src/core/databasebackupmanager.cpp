@@ -1176,7 +1176,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                             qDebug() << "DatabaseBackupManager: Imported" << convTally.conversationsImported
                                      << "AI conversations;" << convTally.turnsRemapped
                                      << "shot reference(s) remapped," << convTally.turnsCleared
-                                     << "cleared";
+                                     << "cleared;" << convTally.conversationsUnkeyed
+                                     << "not linked to an equipment package on this device";
                         }
                     }
                 }

@@ -590,6 +590,14 @@ private slots:
     // whose emit did the indexing, so the entry was stamped with whichever
     // conversation was open before — permanently, because the corrected call two
     // lines later only touches an entry that already exists.
+    //
+    // What this slot pins TODAY is the explicit indexStoredConversation() call in
+    // switchConversation's full path: delete that line and the size assertion
+    // below fails. It does NOT pin the m_live* ordering any more — under the
+    // conversationPersisted wiring, loadFromStorage() no longer reaches the
+    // indexer, so moving those four assignments back below the load leaves this
+    // green. Said plainly because a comment describing the original defect reads
+    // like a guarantee against it.
     void switchToAnMcpWrittenThread_indexesItUnderItsOwnShot()
     {
         AppSettings settings;
@@ -870,9 +878,11 @@ private slots:
                  "the block must tell the model not to invent an anchor");
     }
 
-    // A shot on NO package filtered nothing — bucket 0 matches every unpackaged
-    // shot — so there is no absence to state and the block stays silent, exactly
-    // as it did before equipment scoping existed.
+    // A shot on NO package has no equipment set to name, so the block stays
+    // silent rather than emitting a sentence with an empty parenthetical —
+    // exactly as it did before equipment scoping existed. (Silence here is a
+    // choice, not a claim that nothing was filtered: bucket 0 still excludes
+    // packaged shots for a user who has both kinds.)
     void emitRecentShotContext_emptyHistoryOnNoPackageStaysSilent()
     {
         QNetworkAccessManager nam;
@@ -4083,39 +4093,6 @@ private slots:
         return QJsonArray{ o };
     }
 
-    // The restored index entry has to name the same package the key it carries
-    // was hashed on. Without the carry-through the entry reads "no package" for
-    // a thread keyed on a real one — a row whose label disagrees with the
-    // conversation behind it, and nothing anywhere would say so.
-    void importedConversationKeepsItsEquipmentPackage()
-    {
-        AppSettings settings;
-        settings.clear();
-        const QString key = QStringLiteral("equip_key");
-
-        // Constructed first so the one-time wipe spends its marker before the
-        // import runs — otherwise it deletes what this test restores.
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
-
-        const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({7}), /*equipmentId=*/12),
-            nullptr, nullptr);
-        QCOMPARE(tally.conversationsImported, 1);
-        mgr.loadConversationIndex();
-
-        bool found = false;
-        for (const auto& e : mgr.m_conversationIndex) {
-            if (e.key != key) continue;
-            found = true;
-            QCOMPARE(e.equipmentId, 12);
-        }
-        QVERIFY2(found, "the imported conversation must be in the index");
-
-        settings.clear();
-    }
-
     // A conversation restored from ANOTHER device carries the source device's
     // package id inside its key — an SHA1 of bean|type|profile|equipmentId. The
     // equipment import renumbers packages, so restoring the key verbatim leaves
@@ -4172,8 +4149,11 @@ private slots:
 
     // No equipment import came with the conversations, so there is nothing to
     // map to. The thread is still restored and readable — dropping it would be
-    // worse — but it keeps its source key, is reported as unkeyed, and is
-    // honestly NOT resumable from the shot.
+    // worse — but it keeps its source key, is reported as unkeyed, and its
+    // equipmentId is reset to 0 rather than carrying the SOURCE device's id: the
+    // field is device-local by contract and is reported over MCP, where a
+    // foreign id would name whichever unrelated local package holds that
+    // integer.
     void importedConversationWithNoPackageMapIsCountedAsUnkeyed()
     {
         AppSettings settings;
@@ -4194,7 +4174,7 @@ private slots:
         mgr.loadConversationIndex();
         QCOMPARE(mgr.m_conversationIndex.size(), 1);
         QCOMPARE(mgr.m_conversationIndex.first().key, srcKey);
-        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 12);
+        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 0);
 
         settings.clear();
     }
@@ -4266,30 +4246,135 @@ private slots:
         settings.clear();
     }
 
-    // An archive written before equipment joined the key has no field at all.
-    // It must read as 0 rather than failing the import.
-    void importedPreEquipmentConversationReadsAsUnpackaged()
+    // The history read FAILING is not the same as the user having no history,
+    // and the block that states an absence must not state one it cannot know.
+    void emitRecentShotContext_unreadableHistoryDoesNotClaimThereAreNoShots()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
+                                  QJsonObject(), QJsonArray(),
+                                  QStringLiteral("Niche Zero in a Graph Coffee basket"),
+                                  /*equipmentBucketKnown=*/true, /*equipmentBucket=*/7,
+                                  /*historyReadable=*/false);
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY(payload.contains(QStringLiteral("could not be read")));
+        QVERIFY2(!payload.contains(QStringLiteral("No prior shots")),
+                 "a failed read must not be reported as an absence of shots");
+        QVERIFY2(payload.contains(QStringLiteral("Do NOT conclude")),
+                 "and must tell the model not to infer one");
+    }
+
+    // The rekey is only "the same thread, moved" if the archived key really is
+    // the hash of the archived fields. The exporters copy the key and the
+    // bean/profile fields out of the index entry independently, so an entry
+    // written inconsistently — which the identity defects fixed earlier in this
+    // change produced, and which an older archive still contains — must NOT be
+    // moved to a third key naming nothing on either device.
+    void importedConversationWithAKeyThatDoesNotMatchItsFieldsIsNotRekeyed()
     {
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("old_key");
 
         QNetworkAccessManager nam;
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
 
-        const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({7})), nullptr, nullptr);
-        QCOMPARE(tally.conversationsImported, 1);
-        mgr.loadConversationIndex();
+        // A key that does not derive from this entry's own fields: hashed on a
+        // DIFFERENT bean than the entry carries.
+        const QString inconsistentKey = AIManager::conversationKey(
+            QStringLiteral("Someone Else"), QStringLiteral("T"), QStringLiteral("P"), 12);
+        const QString wouldBeRekeyedTo = AIManager::conversationKey(
+            QStringLiteral("B"), QStringLiteral("T"), QStringLiteral("P"), 41);
 
-        bool found = false;
-        for (const auto& e : mgr.m_conversationIndex) {
-            if (e.key != key) continue;
-            found = true;
-            QCOMPARE(e.equipmentId, 0);
-        }
-        QVERIFY2(found, "the imported conversation must be in the index");
+        const QHash<qint64, qint64> packageMap{{12, 41}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(inconsistentKey, turnsWithShotIds({7}), 12),
+            nullptr, &packageMap);
+
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(tally.conversationsUnkeyed, 1);
+        QVERIFY2(settings.value("ai/conversations/" + wouldBeRekeyedTo + "/messages")
+                      .toByteArray().isEmpty(),
+                 "an entry whose key does not describe it must not be moved onto a "
+                 "key derived from fields it disagrees with");
+        QVERIFY2(!settings.value("ai/conversations/" + inconsistentKey + "/messages")
+                      .toByteArray().isEmpty(),
+                 "it is still restored, under the key it arrived with");
+
+        settings.clear();
+    }
+
+    // An MCP-written thread is on disk with NO index entry — appendAssistantTurnForKey
+    // never touches the index. An import whose recomputed key lands on it must not
+    // blind-overwrite it; the recompute aims at exactly the key this device uses,
+    // so the collision is the normal case, not a freak one.
+    void importedConversationDoesNotClobberAnUnindexedMcpThread()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString bean = QStringLiteral("B");
+        const QString type = QStringLiteral("T");
+        const QString profile = QStringLiteral("P");
+        const qint64 destPackage = 41;
+        const QString destKey = AIManager::conversationKey(bean, type, profile, destPackage);
+
+        // Written the MCP way ONLY — deliberately no switchConversation, so the
+        // index never learns about it.
+        AIConversation::appendAssistantTurnForKey(
+            destKey, 99, QStringLiteral("mcp u"), QStringLiteral("mcp a"),
+            std::nullopt, QStringLiteral("sys"));
+        QVERIFY(mgr.m_conversationIndex.isEmpty());
+
+        const QString srcKey = AIManager::conversationKey(bean, type, profile, 12);
+        const QHash<qint64, qint64> packageMap{{12, destPackage}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(srcKey, turnsWithShotIds({7}), 12),
+            nullptr, &packageMap);
+
+        QCOMPARE(tally.conversationsImported, 0);
+        QVERIFY2(settings.value("ai/conversations/" + destKey + "/messages")
+                      .toByteArray().contains("mcp a"),
+                 "the MCP-written thread must survive an import aimed at its key");
+
+        settings.clear();
+    }
+
+    // A valid-but-EMPTY messages array is a ghost: two bytes on disk that are not
+    // an empty QByteArray, so it would survive the on-disk gate and be re-indexed
+    // as a real thread. Pre-fix archives carry exactly this shape.
+    void importedConversationWithNoTurnsIsRejectedAsMalformed()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString key = QStringLiteral("empty_key");
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(key, QJsonArray()), nullptr, nullptr);
+
+        QCOMPARE(tally.conversationsImported, 0);
+        QVERIFY2(settings.value("ai/conversations/" + key + "/messages")
+                      .toByteArray().isEmpty(),
+                 "an empty thread must not be written at all");
+        mgr.loadConversationIndex();
+        QVERIFY2(mgr.m_conversationIndex.isEmpty(),
+                 "and must not produce an index entry");
 
         settings.clear();
     }

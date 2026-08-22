@@ -66,13 +66,16 @@ public:
         // `ai_conversations list`. Absent on entries saved before equipment
         // became part of the key; those read as 0.
         //
-        // DEVICE-LOCAL. Package ids are renumbered on import, and this one is
-        // not remapped — nor could the QSettings key it belongs to be, since
-        // that key is a hash of the SOURCE device's id. A conversation restored
-        // from another device therefore keeps a source-side id and will not be
-        // matched to the same shot on this device; it stays visible and readable
-        // in the list, it just starts a fresh thread. See the follow-up note in
-        // the filter-advisor-history-by-equipment change.
+        // DEVICE-LOCAL, and kept that way on import. Package ids are renumbered
+        // when a database is imported, so AIConversation::importConversationsStatic
+        // remaps this field through the equipment package map AND recomputes the
+        // QSettings key from the mapped id — the key is a hash that includes it,
+        // so moving one without the other would leave a thread nothing can
+        // address. When no map is available (conversations restored without an
+        // equipment import), the entry keeps its source key and this field is
+        // reset to 0 rather than holding a foreign id: it is reported over MCP as
+        // `equipmentPackageId`, where a source-device id would name whichever
+        // unrelated local package happens to hold that integer.
         qint64 equipmentId = 0;
         qint64 timestamp;
 
@@ -482,10 +485,16 @@ private:
     // `friend class tst_AIManager` can assert the equipment scoping on a real
     // database — the scoping is the whole point of this function, and there is
     // no other seam that reaches its query.
+    // `outHistoryReadable` (optional) reports whether the queries actually ran.
+    // An empty return means "no qualifying shots" OR "the read failed", and the
+    // caller cannot treat those alike: it turns the first into an explicit
+    // statement to the model that no prior shots exist on this equipment, which
+    // is a fabricated fact if the truth is that the query errored.
     static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
         const QString& dbPath,
         const QString& beanBrand, const QString& beanType,
-        const QString& profileName, int excludeShotId);
+        const QString& profileName, int excludeShotId,
+        bool* outHistoryReadable = nullptr);
 
     // Render the recent-shot-context prose from already-loaded data and
     // emit `recentShotContextReady` (or an empty string when stale).
@@ -515,7 +524,12 @@ private:
         // "no package, nothing was filtered" apart from "filtered, but the
         // equipment could not be read".
         bool equipmentBucketKnown = false,
-        qint64 equipmentBucket = 0);
+        qint64 equipmentBucket = 0,
+        // False when the history QUERY failed, as opposed to returning nothing.
+        // Separate from equipmentBucketKnown: that one describes the grinder-
+        // context connection, this one the history connection, and either can
+        // fail alone.
+        bool historyReadable = true);
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;

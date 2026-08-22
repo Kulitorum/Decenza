@@ -159,9 +159,15 @@ public:
     // query failed" — two causes callers could not tell apart and could only
     // answer by picking a degradation policy. Two call sites two lines apart
     // picked opposite policies, which is the defect that removed it. Every
-    // caller now takes the bucket off a ShotRecord/ShotProjection it has already
-    // loaded (`equipmentId`, 0 = unpackaged) and hands it to
-    // `equipmentBucketSql()`, so there is one read and no unresolved case.
+    // caller now resolves the bucket from a row it is ALREADY reading — either
+    // off a loaded ShotRecord/ShotProjection (`equipmentId`, 0 = unpackaged) or
+    // as a `COALESCE(equipment_id, 0)` column in its own query
+    // (`AIManager::loadQualifiedShots`, and the grinder-context join) — and hands
+    // it to `equipmentBucketSql()`. So no caller has an unresolved case to pick a
+    // degradation policy for. That is NOT the same as one read per request:
+    // requestRecentShotContext still resolves it twice on two connections, which
+    // can disagree under a concurrent equipment re-point — see the note at that
+    // query.
 
     // SQL predicate matching a shot row against an equipment bucket. COALESCE on
     // BOTH sides is load-bearing: SQL `NULL = NULL` is not true, so a bare
@@ -198,11 +204,13 @@ public:
     // Query recent shots by KB ID (summary data, no time-series).
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
     //
-    // `equipmentBucket` scopes the result to one equipment package (see
-    // `equipmentBucketForShot`). Absent = no equipment scoping, preserving this
-    // loader's original behaviour for callers with no same-gear contract. The
-    // advisor's dialInSessions path passes one whenever the bucket resolves,
-    // which in production is whenever the query succeeds.
+    // `equipmentBucket` scopes the result to one equipment package (see the note
+    // above on why there is no shot-id-to-bucket helper). Absent = this CALLER
+    // does not scope — never "the bucket could not be read". The two callers
+    // genuinely differ: `buildDialInSessionsBlock` always passes one, because a
+    // dial on another basket is not the same dial; `requestRecentShotsByKbId`,
+    // the Q_INVOKABLE generic reader, has no same-gear contract and never had
+    // one.
     static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1,
                                                     std::optional<qint64> equipmentBucket = std::nullopt);
 

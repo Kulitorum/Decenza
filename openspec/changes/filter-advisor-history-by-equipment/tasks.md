@@ -355,6 +355,96 @@ from risk, and one of them was hiding a regression this change introduced.
       disabling the remap and watching `importedConversationIsRekeyedOntoTheMappedPackage` and
       `importedConversationDoesNotOverwriteALiveThreadOnTheMappedKey` go red.
 
+## 5f. Fourth review round — defects in the third round's fixes
+
+Five agents over `71e74205..HEAD`. The pattern held for a third time: most of what was found was
+inside the previous round's fixes, and the worst item was a "fix" that was more destructive than
+the bug it replaced.
+
+- [x] 5f.1 **The wipe's new status gate was a destructive infinite loop.** 5e.9 added
+      `if (settings.status() != QSettings::NoError) return;` before stamping the marker.
+      `QSettings::status()` is LATCHED: `setStatus` assigns only when the incoming status is
+      `NoError` or the stored one is (`qtbase/src/corelib/io/qsettings.cpp:312-316`) and none of
+      its twelve call sites in that file passes `NoError`, so nothing ever clears it. The
+      `AppSettings` constructor syncs before this function runs, so one unparseable line latches
+      `FormatError` up front (`:1431`, `:1437`). On such a device the removals persist, the marker
+      never does, and every advisor conversation created since the last launch is deleted again at
+      every launch — while the warning says the opposite ("did not persist… it will retry").
+      Now compares clean-before to dirty-after and stamps optimistically when the store was already
+      dirty. `Settings::commitFlowCalMigrationFlag` is the same guard written for the same reason
+      after v2/v3/v4 re-ran their resets and wiped calibration data; 5e.9 cited it as precedent
+      while doing the opposite of what it does.
+- [x] 5f.2 **The import's duplicate check could not see an MCP-written thread, and blind-wrote over
+      it.** `existingKeys` is built only from `ai/conversations/index`, but
+      `appendAssistantTurnForKey` writes the thread and never touches the index — which is why
+      5e.3 had to make `switchConversation` index such threads on first open, and which was
+      confirmed on the running app. 5e.15's recompute turned this from a freak collision into the
+      normal case, because `storageKey` is now aimed at exactly the key the destination device
+      computes for that shot. The skip now tests disk as well as the index.
+- [x] 5f.3 **The rekey assumed its own precondition.** Moving a thread is only correct if the
+      archived key really is the hash of the archived fields, and the exporters copy the key and
+      the bean/profile fields out of the index entry independently. An entry written inconsistently
+      — which the identity defects fixed in 5e.1/5e.2 produced, and which an older archive still
+      carries — would be moved to a THIRD key naming nothing on either device, and counted as
+      imported. Now checked; a mismatch is treated as unkeyed.
+- [x] 5f.4 **A valid-but-EMPTY `messages` array imported as a ghost and defeated the anti-ghost
+      gate.** The malformed guard rejected non-arrays; `[]` passed, and the two bytes it writes are
+      not an empty `QByteArray`, so `indexStoredConversation`'s on-disk gate read it as a real
+      thread and re-indexed it. Empty arrays are now malformed on import, and the gate parses the
+      JSON instead of testing raw bytes.
+- [x] 5f.5 **A failed history read was reported to the model as "you have no prior shots with this
+      equipment set."** `loadQualifiedShots` returned an empty list for both "nothing qualified"
+      and "the query errored", and 5e.6's branch turned the first into an explicit statement of
+      absence — a fabricated fact produced by the branch whose whole purpose is to stop the model
+      inventing one, and strictly worse than the silence it replaced. It now reports readability
+      separately and says so.
+- [x] 5f.6 **An unkeyed import wrote the SOURCE device's package id** into a field documented
+      device-local and newly reported over MCP as `equipmentPackageId`, where it names whichever
+      unrelated local package holds that integer. Reset to 0 instead.
+      `conversationsUnkeyed` was also incremented before the duplicate skip (over-counting threads
+      that were never restored) and had no reader — the same write-only shape as
+      `ConversationEntry::equipmentId` two rounds earlier. Moved below the skip and reported by all
+      four callers alongside the turn counts, because "12 imported" is misleading when none of the
+      twelve will be found again from a shot.
+- [x] 5f.7 Tests: `importedPreEquipmentConversationReadsAsUnpackaged` **could not fail** — it
+      asserted `equipmentId == 0`, which is the field's default initialiser, so deleting the whole
+      carry-through left it green. That is the fifth such assertion in this change. Deleted, along
+      with `importedConversationKeepsItsEquipmentPackage`, which asserted strictly less than its
+      sibling. Four new slots in their place, each verified red with its fix disabled:
+      `importedConversationWithAKeyThatDoesNotMatchItsFieldsIsNotRekeyed`,
+      `importedConversationDoesNotClobberAnUnindexedMcpThread`,
+      `importedConversationWithNoTurnsIsRejectedAsMalformed`,
+      `emitRecentShotContext_unreadableHistoryDoesNotClaimThereAreNoShots`.
+- [x] 5f.8 Comment corrections, again all claims that were believed and were not true: the
+      `ConversationEntry::equipmentId` "DEVICE-LOCAL… not remapped, nor could it be" note, written
+      one commit before the remap landed; "every caller now takes the bucket off a loaded record"
+      (two callers read the column inline); the `conversationPersisted` rationale's clause (b),
+      which 9056f284 made unreachable; "same check the settings classes use", wrong for two of the
+      four files cited and pointing at the opposite of what `settings.cpp` does; "nothing was
+      excluded" for bucket 0, false for a user with both packaged and unpackaged shots; the
+      `loadRecentShotsByKbIdStatic` contract still citing the deleted `equipmentBucketForShot`; a
+      duplicated `@param` block; `conversationKey`'s clamp justified by a false claim that the
+      function is `Q_INVOKABLE`; and `switchToAnMcpWrittenThread`'s comment describing a defect the
+      test no longer pins.
+
+### 5f deferred, with reasons
+
+- [ ] 5f.9 **`loadShotRecordStatic` collapses "no such row" and "the SELECT failed"** into one
+      branch that warns "Shot not found", so `mcptools_dialing` answers `"Shot not found: N"` for a
+      transient database error — telling an MCP user a shot they can see in Shot History does not
+      exist. Pre-existing and outside the advisor scoping work; the fix is to return
+      `std::optional` from that loader and thread a distinct error through its callers.
+- [ ] 5f.10 **Two source packages that merge into one destination collapse two conversations onto
+      one key**; the second is counted as `skippedExisting` and logged "already present", which is
+      not what happened. Needs a separate counter for keys claimed within the import itself.
+- [ ] 5f.11 **The conversation-import log lines are all `qDebug`**, so a user asking where their
+      threads went sees nothing in the connections views (which default to INFO). 5e.9 raised the
+      wipe's line for exactly this reason; the import path should follow.
+- [ ] 5f.12 **`switchConversation`'s early-return branch does not load or index an MCP-written
+      thread.** Reopening the overlay on the SAME shot after an MCP write leaves the in-memory
+      conversation empty, so QML takes the `ask()` branch and the model is sent a thread with none
+      of the MCP history. Turns are not lost — `saveToStorage` reconciles — but the context is.
+
 ## 6. Prompt rules
 
 - [x] 6.1 Add the grind-comparability rule to the shared espresso system prompt: a numeric

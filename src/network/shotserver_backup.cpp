@@ -1242,7 +1242,8 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                         qDebug() << "ShotServer: Imported" << tally.conversationsImported
                                  << "AI conversations;" << tally.turnsRemapped
                                  << "shot reference(s) remapped," << tally.turnsCleared
-                                 << "cleared";
+                                 << "cleared;" << tally.conversationsUnkeyed
+                                 << "not linked to an equipment package on this device";
                     }
                 }
 
@@ -1302,7 +1303,8 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
             m_aiManager->reloadConversations();
             qDebug() << "ShotServer: Imported" << tally.conversationsImported
                      << "AI conversations (no shots in archive —" << tally.turnsCleared
-                     << "shot reference(s) cleared)";
+                     << "shot reference(s) cleared);" << tally.conversationsUnkeyed
+                     << "not linked to an equipment package on this device";
         }
     }
 

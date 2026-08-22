@@ -487,7 +487,16 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
         // conversation and be reported as a success — a card that opens to
         // nothing. Both are counted locally and named in the log line below;
         // neither belongs on ImportTally, which no caller would read them from.
-        if (key.isEmpty() || !conv.value(QStringLiteral("messages")).isArray()) {
+        // An EMPTY array is malformed too, not just a non-array. `[]` writes two
+        // bytes that are not an empty QByteArray, so it would survive
+        // AIManager::indexStoredConversation's on-disk gate and be re-indexed as
+        // a real thread — a card that opens to nothing, holding one of the five
+        // LRU slots. That is the ghost shape this PR removed at the source; an
+        // archive taken before that fix still carries them.
+        const QJsonArray incomingMessages =
+            conv.value(QStringLiteral("messages")).toArray();
+        if (key.isEmpty() || !conv.value(QStringLiteral("messages")).isArray()
+            || incomingMessages.isEmpty()) {
             malformed++;
             continue;
         }
@@ -500,25 +509,45 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
         //
         // Only a PACKAGED conversation moves. equipmentId 0 means "no package",
         // which is device-independent, so its key is already correct.
+        const QString beanBrand = conv.value(QStringLiteral("beanBrand")).toString();
+        const QString beanType = conv.value(QStringLiteral("beanType")).toString();
+        const QString profileName = conv.value(QStringLiteral("profileName")).toString();
         const qint64 srcEquipmentId =
             conv.value(QStringLiteral("equipmentId")).toVariant().toLongLong();
         qint64 destEquipmentId = srcEquipmentId;
         QString storageKey = key;
+        bool unkeyed = false;
         if (srcEquipmentId > 0) {
             const qint64 mapped = packageIdMap
                 ? packageIdMap->value(srcEquipmentId, 0) : 0;
-            if (mapped > 0) {
+            // Rekeying is only "the same thread, moved" if the archived key
+            // really is the hash of the archived fields. The exporters copy the
+            // key and the bean/profile fields out of the index entry
+            // INDEPENDENTLY and never re-derive one from the other, so an entry
+            // written inconsistently — which is exactly what the two identity
+            // defects fixed earlier in this change produced, and what an archive
+            // from an older build still contains — would be moved to a THIRD key
+            // matching nothing on either device. Check the derivation rather than
+            // assuming it.
+            const bool keyDerivesFromFields =
+                (key == AIManager::conversationKey(beanBrand, beanType, profileName,
+                                                   srcEquipmentId));
+            if (mapped > 0 && keyDerivesFromFields) {
                 destEquipmentId = mapped;
-                storageKey = AIManager::conversationKey(
-                    conv.value(QStringLiteral("beanBrand")).toString(),
-                    conv.value(QStringLiteral("beanType")).toString(),
-                    conv.value(QStringLiteral("profileName")).toString(),
-                    destEquipmentId);
+                storageKey = AIManager::conversationKey(beanBrand, beanType, profileName,
+                                                        destEquipmentId);
             } else {
-                // No equipment import came with these, or this package was not
-                // in it. Keep the source key and say so — the thread is
-                // readable but will not be matched to a shot.
-                tally.conversationsUnkeyed++;
+                // No equipment import came with these, this package was not in
+                // it, or the entry does not describe its own key. Keep the source
+                // key — the thread stays readable in the list, it just will not be
+                // matched to a shot on this device.
+                //
+                // equipmentId goes to 0, NOT the source id: the field is
+                // documented device-local and is now reported over MCP as
+                // `equipmentPackageId`, where a foreign id would name whichever
+                // unrelated package happens to hold that integer here.
+                destEquipmentId = 0;
+                unkeyed = true;
             }
         }
 
@@ -527,16 +556,31 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
         // Checked on the key the entry will actually be WRITTEN under, not the
         // one the archive carried — otherwise a remapped conversation could
         // overwrite a live thread on the destination key.
-        if (existingKeys.contains(storageKey)) {
+        //
+        // And checked against DISK, not only the index. AIConversation::
+        // appendAssistantTurnForKey — the MCP ai_advisor_invoke write path —
+        // writes the thread and never touches the index, which is why
+        // AIManager::switchConversation has to index such threads when it first
+        // opens one. An index-only test therefore cannot see a live MCP thread,
+        // and the four setValue calls below would destroy it silently. The
+        // recompute makes that collision the NORMAL case rather than a freak
+        // one: storageKey is now aimed at exactly the key this device computes
+        // for that shot.
+        const QString prefix = QStringLiteral("ai/conversations/") + storageKey + QStringLiteral("/");
+        const bool threadOnDisk =
+            !settings.value(prefix + QStringLiteral("messages")).toByteArray().isEmpty();
+        if (existingKeys.contains(storageKey) || threadOnDisk) {
             skippedExisting++;
             continue;
         }
 
-        const QJsonArray messages = remapTurnShotIds(
-            conv.value(QStringLiteral("messages")).toArray(), shotIdMap,
-            tally.turnsRemapped, tally.turnsCleared);
+        // Counted only once the entry is actually being written. Incrementing
+        // before the skip above would report threads that were never restored.
+        if (unkeyed) tally.conversationsUnkeyed++;
 
-        const QString prefix = QStringLiteral("ai/conversations/") + storageKey + QStringLiteral("/");
+        const QJsonArray messages = remapTurnShotIds(
+            incomingMessages, shotIdMap, tally.turnsRemapped, tally.turnsCleared);
+
         settings.setValue(prefix + "systemPrompt", conv.value(QStringLiteral("systemPrompt")).toString());
         settings.setValue(prefix + "messages", QJsonDocument(messages).toJson(QJsonDocument::Compact));
         settings.setValue(prefix + "timestamp", conv.value(QStringLiteral("timestamp")).toString());
@@ -544,9 +588,9 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
 
         QJsonObject entry;
         entry[QStringLiteral("key")] = storageKey;
-        entry[QStringLiteral("beanBrand")] = conv.value(QStringLiteral("beanBrand")).toString();
-        entry[QStringLiteral("beanType")] = conv.value(QStringLiteral("beanType")).toString();
-        entry[QStringLiteral("profileName")] = conv.value(QStringLiteral("profileName")).toString();
+        entry[QStringLiteral("beanBrand")] = beanBrand;
+        entry[QStringLiteral("beanType")] = beanType;
+        entry[QStringLiteral("profileName")] = profileName;
         entry[QStringLiteral("timestamp")] = conv.value(QStringLiteral("indexTimestamp")).toVariant().toLongLong();
         // The MAPPED id, so the entry agrees with the key it names — which is
         // the recomputed one whenever the package was remapped. Sparse, matching

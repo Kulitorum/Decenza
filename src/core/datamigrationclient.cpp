@@ -656,7 +656,9 @@ void DataMigrationClient::onAIConversationsReply()
 
                 qDebug() << "DataMigrationClient: Imported" << m_aiConversationsImported
                          << "AI conversations;" << tally.turnsRemapped
-                         << "shot reference(s) remapped," << tally.turnsCleared << "cleared";
+                         << "shot reference(s) remapped," << tally.turnsCleared << "cleared;"
+                         << tally.conversationsUnkeyed
+                         << "not linked to an equipment package on this device";
             }
         }
     }
