@@ -163,7 +163,8 @@ namespace DialingBlocks {
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
                                     qint64 resolvedShotId,
-                                    int historyLimit)
+                                    int historyLimit,
+                                    qint64 equipmentBucket)
 {
     QJsonArray sessions;
     if (profileKbId.isEmpty()) return sessions;
@@ -171,17 +172,10 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
     // Equipment scoping: shots on other gear are excluded outright rather than
     // ranked down. A dial on a different basket is not the same dial, so a
     // session mixing them describes a grind ordering that never existed.
-    // nullopt = no equipment to match against — in production a failed lookup,
-    // since every caller guards resolvedShotId > 0 first. The loader is then
-    // left unscoped rather than scoped to "unpackaged", which would return an
-    // empty history to every user who HAS a package. Unlike the calibration
-    // block, this one reports the user's own shots rather than deriving a
-    // number from them, so degrading to unscoped is a weaker filter and not a
-    // fabricated answer.
-    const std::optional<qint64> bucket =
-        ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId);
+    // Unconditional — the caller resolved the bucket from the shot record it
+    // had already loaded, and 0 (unpackaged) matches every unpackaged shot.
     QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(
-        db, profileKbId, historyLimit, resolvedShotId, bucket);
+        db, profileKbId, historyLimit, resolvedShotId, equipmentBucket);
 
     QList<ShotProjection> shots;
     shots.reserve(history.size());
@@ -470,7 +464,7 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
                                      const QString& grinderModel,
                                      const QString& beverageType,
                                      const QString& beanBrand,
-                                     std::optional<qint64> equipmentBucket)
+                                     qint64 equipmentBucket)
 {
     if (grinderModel.isEmpty()) return QJsonObject();
 

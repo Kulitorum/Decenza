@@ -207,6 +207,44 @@ inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     return q.lastInsertId().toLongLong();
 }
 
+// The equipment bucket a seeded shot landed in, for tests that have to pass a
+// real package to an equipment-scoped builder. Reads the column directly rather
+// than through a production helper: production resolves this from a row it has
+// already loaded, so there is no shot-id-to-bucket helper left to borrow.
+inline qint64 packageForShot(QSqlDatabase& db, qint64 shotId)
+{
+    QSqlQuery q(db);
+    q.prepare("SELECT COALESCE(equipment_id, 0) FROM shots WHERE id = ?");
+    q.bindValue(0, shotId);
+    if (!q.exec() || !q.next()) {
+        qWarning() << "packageForShot failed for id" << shotId << q.lastError().text();
+        return 0;
+    }
+    return q.value(0).toLongLong();
+}
+
+// The single equipment bucket a fixture's shots all landed in, for the many
+// tests that seed one gear identity and then have to pass a real package to an
+// equipment-scoped builder. Deliberately loud when the fixture has more than
+// one: a test with two packages must name the one it means, or the scoping it
+// is asserting could be satisfied for the wrong reason.
+inline qint64 onlyEquipmentPackage(QSqlDatabase& db)
+{
+    QSqlQuery q(db);
+    if (!q.exec("SELECT DISTINCT COALESCE(equipment_id, 0) FROM shots")) {
+        qWarning() << "onlyEquipmentPackage failed:" << q.lastError().text();
+        return 0;
+    }
+    QList<qint64> buckets;
+    while (q.next()) buckets << q.value(0).toLongLong();
+    if (buckets.size() > 1) {
+        qWarning() << "onlyEquipmentPackage: fixture has" << buckets.size()
+                   << "equipment packages — name the one you mean";
+        return 0;
+    }
+    return buckets.isEmpty() ? 0 : buckets.first();
+}
+
 inline ShotProjection projectionForShot(QSqlDatabase& db, qint64 shotId)
 {
     return ShotHistoryStorage::convertShotRecord(

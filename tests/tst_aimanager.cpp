@@ -1818,7 +1818,7 @@ private slots:
         // this test pins the gating, not the DB query path.)
         QSqlDatabase db; // default-constructed: invalid, never used
         const QJsonArray arr = DialingBlocks::buildDialInSessionsBlock(
-            db, QString(), 1, 5);
+            db, QString(), 1, 5, /*equipmentBucket=*/0);
         QVERIFY(arr.isEmpty());
     }
 
@@ -1835,7 +1835,7 @@ private slots:
     {
         QSqlDatabase db;
         const QJsonObject obj = DialingBlocks::buildGrinderContextBlock(
-            db, QString(), QStringLiteral("espresso"), QString());
+            db, QString(), QStringLiteral("espresso"), QString(), /*equipmentBucket=*/0);
         QVERIFY(obj.isEmpty());
     }
 
@@ -4101,7 +4101,7 @@ private slots:
 
         const auto tally = AIConversation::importConversationsStatic(
             settings, oneConversation(key, turnsWithShotIds({7}), /*equipmentId=*/12),
-            nullptr);
+            nullptr, nullptr);
         QCOMPARE(tally.conversationsImported, 1);
         mgr.loadConversationIndex();
 
@@ -4112,6 +4112,156 @@ private slots:
             QCOMPARE(e.equipmentId, 12);
         }
         QVERIFY2(found, "the imported conversation must be in the index");
+
+        settings.clear();
+    }
+
+    // A conversation restored from ANOTHER device carries the source device's
+    // package id inside its key — an SHA1 of bean|type|profile|equipmentId. The
+    // equipment import renumbers packages, so restoring the key verbatim leaves
+    // a thread the app can never address again: opening that shot computes the
+    // key from the LOCAL package id, misses, and starts fresh. The entry must be
+    // rewritten onto the mapped key.
+    void importedConversationIsRekeyedOntoTheMappedPackage()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString bean = QStringLiteral("B");
+        const QString type = QStringLiteral("T");
+        const QString profile = QStringLiteral("P");
+        const qint64 srcPackage = 12;
+        const qint64 destPackage = 41;
+        const QString srcKey = AIManager::conversationKey(bean, type, profile, srcPackage);
+        const QString destKey = AIManager::conversationKey(bean, type, profile, destPackage);
+        QVERIFY2(srcKey != destKey, "the two package ids must produce different keys");
+
+        const QHash<qint64, qint64> packageMap{{srcPackage, destPackage}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(srcKey, turnsWithShotIds({7}), srcPackage),
+            nullptr, &packageMap);
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(tally.conversationsUnkeyed, 0);
+
+        // The transcript is under the key this device will actually compute...
+        QVERIFY2(!settings.value("ai/conversations/" + destKey + "/messages")
+                      .toByteArray().isEmpty(),
+                 "the thread must be stored under the remapped key");
+        QVERIFY2(settings.value("ai/conversations/" + srcKey + "/messages")
+                      .toByteArray().isEmpty(),
+                 "and not left behind under the source key");
+
+        // ...and the entry names that key and the LOCAL package.
+        mgr.loadConversationIndex();
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().key, destKey);
+        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, destPackage);
+
+        // The real proof: switching to the shot as this device sees it lands on
+        // the restored thread instead of an empty one.
+        QCOMPARE(mgr.switchConversation(bean, type, profile, destPackage), destKey);
+        QVERIFY2(mgr.conversation()->hasHistory(),
+                 "opening the shot on this device must resume the restored thread");
+
+        settings.clear();
+    }
+
+    // No equipment import came with the conversations, so there is nothing to
+    // map to. The thread is still restored and readable — dropping it would be
+    // worse — but it keeps its source key, is reported as unkeyed, and is
+    // honestly NOT resumable from the shot.
+    void importedConversationWithNoPackageMapIsCountedAsUnkeyed()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString srcKey = AIManager::conversationKey(
+            QStringLiteral("B"), QStringLiteral("T"), QStringLiteral("P"), 12);
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(srcKey, turnsWithShotIds({7}), /*equipmentId=*/12),
+            nullptr, nullptr);
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(tally.conversationsUnkeyed, 1);
+
+        mgr.loadConversationIndex();
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().key, srcKey);
+        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 12);
+
+        settings.clear();
+    }
+
+    // An unpackaged conversation is device-independent — its key hashes on 0,
+    // which means the same thing everywhere — so it must NOT be rekeyed even
+    // when a package map is present, and must not be counted as unkeyed.
+    void importedUnpackagedConversationIsNotRekeyed()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString key = AIManager::conversationKey(
+            QStringLiteral("B"), QStringLiteral("T"), QStringLiteral("P"), 0);
+        const QHash<qint64, qint64> packageMap{{12, 41}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(key, turnsWithShotIds({7})), nullptr, &packageMap);
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(tally.conversationsUnkeyed, 0);
+
+        mgr.loadConversationIndex();
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().key, key);
+        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 0);
+
+        settings.clear();
+    }
+
+    // Duplicate detection has to run on the key the entry will be WRITTEN
+    // under. Checking the archive's key instead would let a remapped
+    // conversation land on top of a live thread this device already has.
+    void importedConversationDoesNotOverwriteALiveThreadOnTheMappedKey()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString bean = QStringLiteral("B");
+        const QString type = QStringLiteral("T");
+        const QString profile = QStringLiteral("P");
+        const qint64 destPackage = 41;
+        const QString destKey = AIManager::conversationKey(bean, type, profile, destPackage);
+
+        // A live local thread on the destination key.
+        AIConversation::appendAssistantTurnForKey(
+            destKey, 99, QStringLiteral("local u"), QStringLiteral("local a"),
+            std::nullopt, QStringLiteral("sys"));
+        mgr.switchConversation(bean, type, profile, destPackage);
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+
+        const QString srcKey = AIManager::conversationKey(bean, type, profile, 12);
+        const QHash<qint64, qint64> packageMap{{12, destPackage}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(srcKey, turnsWithShotIds({7}), /*equipmentId=*/12),
+            nullptr, &packageMap);
+        QCOMPARE(tally.conversationsImported, 0);
+
+        QVERIFY2(settings.value("ai/conversations/" + destKey + "/messages")
+                      .toByteArray().contains("local a"),
+                 "the live thread must survive the import");
 
         settings.clear();
     }
@@ -4129,7 +4279,7 @@ private slots:
         AIManager mgr(&nam, &appSettings);
 
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({7})), nullptr);
+            settings, oneConversation(key, turnsWithShotIds({7})), nullptr, nullptr);
         QCOMPARE(tally.conversationsImported, 1);
         mgr.loadConversationIndex();
 
@@ -4152,7 +4302,7 @@ private slots:
 
         QHash<qint64, qint64> map{{1109, 1052}, {1096, 1041}};
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
+            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map, nullptr);
 
         QCOMPARE(tally.conversationsImported, 1);
         QCOMPARE(tally.turnsRemapped, 4);   // two turn pairs
@@ -4175,7 +4325,7 @@ private slots:
 
         QHash<qint64, qint64> map{{1109, 1052}};   // 1096 absent — did not import
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
+            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 2);
         QCOMPARE(tally.turnsCleared, 2);
@@ -4205,7 +4355,7 @@ private slots:
         // No map: the conversations-only import path. Those ids name a database
         // this device does not have, so keeping them is the defect.
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), nullptr);
+            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), nullptr, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 0);
         QCOMPARE(tally.turnsCleared, 4);
@@ -4222,7 +4372,7 @@ private slots:
 
         QHash<qint64, qint64> map{{1109, 1052}};
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({0})), &map);
+            settings, oneConversation(key, turnsWithShotIds({0})), &map, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 0);
         QCOMPARE(tally.turnsCleared, 0);
@@ -4300,7 +4450,7 @@ private slots:
         settings.clear();
         const QString key = QStringLiteral("e2e_key");
         AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds(srcIds)), &r.shotIdMap);
+            settings, oneConversation(key, turnsWithShotIds(srcIds)), &r.shotIdMap, nullptr);
 
         const QSet<qint64> sourceIds(srcIds.begin(), srcIds.end());
         int seen = 0;
@@ -4541,7 +4691,7 @@ private slots:
             incoming.append(v);
 
         QHash<qint64, qint64> map{{1109, 1052}};
-        const auto tally = AIConversation::importConversationsStatic(settings, incoming, &map);
+        const auto tally = AIConversation::importConversationsStatic(settings, incoming, &map, nullptr);
 
         QCOMPARE(tally.conversationsImported, 1);
         // Only the fresh conversation's turns were touched.

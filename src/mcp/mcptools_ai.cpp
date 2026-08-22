@@ -146,15 +146,13 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // The shot record is loaded and valid, and carries this
                         // shot's package. 0 = unpackaged, a real bucket.
                         //
-                        // This is NOT a single resolution for the whole block,
-                        // and an earlier draft claimed it was. Of the four
-                        // builders below, `grinderContext` takes this value and
-                        // `bestRecentShot` takes it off the same record; the
-                        // other two resolve their own from the same row —
-                        // `buildDialInSessionsBlock` via equipmentBucketForShot,
-                        // `buildGrinderCalibrationBlock` via its own
-                        // loadShotRecordStatic. Same connection, same row, so
-                        // they agree in practice; they are just not one read.
+                        // Three of the four builders below take this exact
+                        // value; `buildGrinderCalibrationBlock` is the one
+                        // exception and re-reads the row itself via
+                        // loadShotRecordStatic, because it needs the whole
+                        // record and not just the bucket. Same connection, same
+                        // row. (An earlier draft claimed "no second lookup"
+                        // while THREE builders still resolved their own.)
                         const qint64 equipmentBucket = shot.equipmentId;
 
                         // Same dialing-context blocks the in-app advisor
@@ -163,7 +161,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // across surfaces. See openspec
                         // add-dialing-blocks-to-advisor.
                         dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                            db, shot.profileKbId, resolvedShotId, 5);
+                            db, shot.profileKbId, resolvedShotId, 5, equipmentBucket);
                         bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
                             db, shot.profileKbId, resolvedShotId, shot);
                         grinderContext = DialingBlocks::buildGrinderContextBlock(

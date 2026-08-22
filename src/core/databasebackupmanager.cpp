@@ -1168,7 +1168,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                         const AIConversation::ImportTally convTally =
                             AIConversation::importConversationsStatic(
                                 qsettings, conversations,
-                                shotsImported ? shotImport.idMapOrNull() : nullptr);
+                                shotsImported ? shotImport.idMapOrNull() : nullptr,
+                                shotsImported ? shotImport.packageMapOrNull() : nullptr);
 
                         if (convTally.conversationsImported > 0) {
                             qsettings.sync();

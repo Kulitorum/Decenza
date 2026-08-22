@@ -689,23 +689,6 @@ void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit
 
 }
 
-std::optional<qint64> ShotHistoryStorage::equipmentBucketForShot(QSqlDatabase& db, qint64 shotId)
-{
-    QSqlQuery q(db);
-    q.prepare(QStringLiteral("SELECT COALESCE(equipment_id, 0) FROM shots WHERE id = ?"));
-    q.addBindValue(shotId);
-    if (!q.exec()) {
-        qWarning() << "ShotHistoryStorage::equipmentBucketForShot: query failed:"
-                   << q.lastError().text() << "shotId=" << shotId;
-        // A failed query is not evidence about the shot's equipment, so decline
-        // to scope rather than scoping to a bucket we did not read.
-        return std::nullopt;
-    }
-    if (!q.next())
-        return std::nullopt;   // no such shot (incl. the -1 "unresolved" sentinel)
-    return q.value(0).toLongLong();
-}
-
 QString ShotHistoryStorage::equipmentBucketSql(const QString& column, const QString& placeholder)
 {
     return QStringLiteral("COALESCE(%1, 0) = %2").arg(column, placeholder);
@@ -749,11 +732,13 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
     )");
     if (excludeShotId >= 0)
         sql += QStringLiteral(" AND s.id != ?");
-    // Equipment scoping is OPTIONAL on this loader because it has two callers
-    // with different needs: the advisor's dialInSessions must not pool across
-    // packages (a dial on another basket is not the same dial), while the
-    // generic recents-by-kbId reader has no such contract. An absent bucket
-    // therefore preserves the pre-existing behaviour exactly.
+    // Equipment scoping is OPTIONAL on this loader — the only place in the
+    // advisor path where it still is — because two REAL callers want different
+    // things, not because there is a failure to degrade on: the advisor's
+    // dialInSessions must not pool across packages (a dial on another basket is
+    // not the same dial), while `requestRecentShotsByKbId`, the Q_INVOKABLE
+    // generic reader, has no same-gear contract and never had one. Absent means
+    // "this caller does not scope", never "the bucket could not be read".
     if (equipmentBucket.has_value())
         sql += QStringLiteral(" AND ") + equipmentBucketSql(QStringLiteral("s.equipment_id"));
     sql += QStringLiteral(" ORDER BY s.timestamp DESC LIMIT ?");
@@ -1314,7 +1299,7 @@ static QList<double> grinderWideRpms(QSqlDatabase& db, const QString& grinderMod
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     const QString& grinderModel, const QString& beverageType,
-    const QString& beanBrand, std::optional<qint64> equipmentBucket)
+    const QString& beanBrand, qint64 equipmentBucket)
 {
     GrinderContext ctx;
     if (grinderModel.isEmpty()) return ctx;
@@ -1336,11 +1321,10 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         sql += QStringLiteral(" AND bean_brand = :brand");
     }
     // Named placeholder, not "?": this statement already uses :model/:bev, and
-    // Qt will not mix the two binding styles.
-    if (equipmentBucket.has_value()) {
-        sql += QStringLiteral(" AND ")
-            + equipmentBucketSql(QStringLiteral("equipment_id"), QStringLiteral(":equip"));
-    }
+    // Qt will not mix the two binding styles. Unconditional — bucket 0 matches
+    // every unpackaged shot, so it is a no-op rather than a filter to skip.
+    sql += QStringLiteral(" AND ")
+        + equipmentBucketSql(QStringLiteral("equipment_id"), QStringLiteral(":equip"));
 
     QSqlQuery q(db);
     q.prepare(sql);
@@ -1349,9 +1333,7 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     if (!beanBrand.isEmpty()) {
         q.bindValue(":brand", beanBrand);
     }
-    if (equipmentBucket.has_value()) {
-        q.bindValue(":equip", *equipmentBucket);
-    }
+    q.bindValue(":equip", equipmentBucket);
     if (!q.exec()) {
         qWarning() << "ShotHistoryStorage::queryGrinderContext: query failed:"
                    << q.lastError().text()
@@ -1410,10 +1392,8 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
             "AND rpm > 0").arg(grinderModelMatchSql(":model"));
         if (!beanBrand.isEmpty())
             rpmSql += QStringLiteral(" AND bean_brand = :brand");
-        if (equipmentBucket.has_value()) {
-            rpmSql += QStringLiteral(" AND ")
-                + equipmentBucketSql(QStringLiteral("equipment_id"), QStringLiteral(":equip"));
-        }
+        rpmSql += QStringLiteral(" AND ")
+            + equipmentBucketSql(QStringLiteral("equipment_id"), QStringLiteral(":equip"));
         rpmSql += QStringLiteral(" ORDER BY rpm");
 
         QSqlQuery rq(db);
@@ -1422,8 +1402,7 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         rq.bindValue(":bev", ctx.beverageType);
         if (!beanBrand.isEmpty())
             rq.bindValue(":brand", beanBrand);
-        if (equipmentBucket.has_value())
-            rq.bindValue(":equip", *equipmentBucket);
+        rq.bindValue(":equip", equipmentBucket);
         if (!rq.exec()) {
             qWarning() << "ShotHistoryStorage::queryGrinderContext: rpm query failed:"
                        << rq.lastError().text()

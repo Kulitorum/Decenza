@@ -1233,7 +1233,8 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     const AIConversation::ImportTally tally =
                         AIConversation::importConversationsStatic(
                             settings, pendingConversations,
-                            success ? shotImport.idMapOrNull() : nullptr);
+                            success ? shotImport.idMapOrNull() : nullptr,
+                            success ? shotImport.packageMapOrNull() : nullptr);
                     aiConversationsImported += tally.conversationsImported;
                     if (tally.conversationsImported > 0) {
                         settings.sync();
@@ -1293,7 +1294,8 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
     if (!pendingConversations.isEmpty() && m_aiManager) {
         AppSettings settings;
         const AIConversation::ImportTally tally =
-            AIConversation::importConversationsStatic(settings, pendingConversations, nullptr);
+            AIConversation::importConversationsStatic(settings, pendingConversations,
+                                                      nullptr, nullptr);
         aiConversationsImported += tally.conversationsImported;
         if (tally.conversationsImported > 0) {
             settings.sync();

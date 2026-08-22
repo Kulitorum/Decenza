@@ -314,28 +314,46 @@ round two's did of round one's.
       `importedConversationKeepsItsEquipmentPackage`,
       `importedPreEquipmentConversationReadsAsUnpackaged`.
 
-### 5e deferred, deliberately, with the reason
+### 5e follow-through — the two items first recorded as deferred
 
-- [ ] 5e.14 **Two `std::optional<qint64> equipmentBucket = std::nullopt` parameters survive**, on
-      `ShotHistoryStorage::queryGrinderContext` and `DialingBlocks::buildGrinderContextBlock`,
-      and `buildDialInSessionsBlock` still resolves its own bucket through
-      `equipmentBucketForShot`. Every PRODUCTION caller passes a real value, so the
-      degrade-to-unscoped branch is unreachable without fault injection — which by this project's
-      own rule is a stop sign saying the branch should not exist. Making the parameters required
-      costs 15 + 14 test call-site rewrites for no user-visible change, so it is recorded here
-      rather than done inside a review round. The header on `queryGrinderContext` now says the
-      default is a hazard rather than blessing it as "the pre-existing behaviour". Doing this
-      would leave `equipmentBucketForShot` with no production caller, at which point the
-      tri-state disappears rather than being modelled better.
-- [ ] 5e.15 **A conversation restored from ANOTHER device is not matched to its shot.** Package
-      ids are renumbered on import (`packageIdMap`, applied to shots, bags and recipes), and a
-      conversation's QSettings key is a hash of the SOURCE device's id — so it cannot be remapped
-      without also rehashing and moving the stored group, and `packageIdMap` is a block-local
-      that `ImportResult` does not expose. The restored thread stays visible and readable in the
-      conversation list; it just starts fresh when the user opens that shot. This is a
-      consequence of putting the package in the key and did not exist before this change. Stated
-      on `ConversationEntry::equipmentId` so the next reader inherits the fact rather than the
-      surprise.
+Both were then done, because both deferrals were argued from effort rather than
+from risk, and one of them was hiding a regression this change introduced.
+
+- [x] 5e.14 **The last two `std::optional<qint64> equipmentBucket` parameters are gone**, along
+      with the helper behind them. `queryGrinderContext`, `buildGrinderContextBlock` and
+      `buildDialInSessionsBlock` now take a required `qint64`; 0 (unpackaged) is a real, matching
+      bucket, so there is no "don't scope" option and no degradation policy to pick. With that,
+      `ShotHistoryStorage::equipmentBucketForShot` had no production caller and was deleted — the
+      tri-state (`nullopt` conflating "no such shot" with "query failed") stops existing rather
+      than being modelled better. Every caller now takes the bucket off a ShotRecord/ShotProjection
+      it has already loaded. The 29 test call sites pass a real package through two new fixture
+      helpers, `packageForShot` and `onlyEquipmentPackage` — the latter deliberately loud when a
+      fixture holds more than one package, so a test with two cannot silently assert scoping for
+      the wrong reason. `loadRecentShotsByKbIdStatic` keeps its optional, and that one is
+      legitimate: two REAL callers want different things (the advisor scopes; the Q_INVOKABLE
+      generic recents reader never had a same-gear contract), so absent means "this caller does
+      not scope", never "the bucket could not be read".
+      `equipmentId_projectionAndBucketAgreeForTheSameShot` now compares the projection against the
+      raw column rather than against a second helper — which matters more, not less, since
+      `ShotProjection::equipmentId` is the sole source left.
+- [x] 5e.15 **A conversation restored from another device is rekeyed onto the mapped package.**
+      This was a regression this change introduced and nothing else: putting the package id in the
+      conversation key made every restored thread unaddressable, because the key is an SHA1 of
+      bean|type|profile|equipmentId computed on the SOURCE device while the equipment import
+      renumbers packages. `ImportResult` now carries `packageIdMap` alongside `shotIdMap` (it was
+      a block-local), with a matching `packageMapOrNull()`, and `importConversationsStatic` remaps
+      the entry's `equipmentId` AND recomputes the storage key from the mapped id before writing
+      anything. Duplicate detection runs on the key the entry will be WRITTEN under, not the one
+      the archive carried — otherwise a remapped conversation could land on top of a live local
+      thread. An unpackaged conversation (equipmentId 0) is device-independent and is deliberately
+      NOT rekeyed. A packaged conversation with no map, or whose package is absent from it, is
+      still imported and readable but keeps its source key and is counted in the new
+      `ImportTally::conversationsUnkeyed` — dropping it would be worse, and silently restoring it
+      as resumable would be a lie.
+      Four new slots, including one that proves the point end to end: after the import,
+      `switchConversation` on the DESTINATION package resumes the restored thread. Verified by
+      disabling the remap and watching `importedConversationIsRekeyedOntoTheMappedPackage` and
+      `importedConversationDoesNotOverwriteALiveThreadOnTheMappedKey` go red.
 
 ## 6. Prompt rules
 
@@ -415,11 +433,13 @@ round two's did of round one's.
       side are unverified by the suite. Adding the TU would pull in `MainController`; 7.15's
       pairing test covers the one property the key depends on, and the rest is covered only by
       the by-eye run in 8.3.
-- [x] 8.1 Full suite via the Qt Creator MCP. Latest run after the round-three fixes:
-      **113 passed, 1 failed, 0 warnings** — the one failure was `tst_decentscalewifi`
+- [x] 8.1 Full suite via the Qt Creator MCP. Latest run, after 5e.14 and 5e.15:
+      **113 passed, 0 failed, 0 warnings**, with all 12 new slots confirmed executed in
+      `LastTest.log` (a passing binary count says nothing about whether a new slot compiled in).
+      The run before that reported one `tst_decentscalewifi` failure
       (`sleepWithDisconnectedSocketDoesNotLeakLatch`, plus three
       `QNativeSocketEngine::write() was not called in ConnectedState` warnings on the
-      `0.0.0.1:80` probes), which passed on an immediate re-run and touches nothing in this
+      `0.0.0.1:80` probes) which passed on an immediate re-run and touches nothing in this
       change. Earlier runs: first run **113 passed, 0 failed**; after the round-two fixes
       **113 passed, 0 failed, 0 warnings**, with all five new slots
       confirmed executed in `LastTest.log` (a passing binary count says nothing about whether a

@@ -129,7 +129,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // coincidence, not a guard.
                     if (dbResult.shotData.isValid()) {
                         dbResult.dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                            db, dbResult.profileKbId, resolvedShotId, historyLimit);
+                            db, dbResult.profileKbId, resolvedShotId, historyLimit,
+                            dbResult.shotData.equipmentId);
                         dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
                             db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
                         // Bucket from the record already loaded above, not a

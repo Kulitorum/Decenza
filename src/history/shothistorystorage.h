@@ -142,43 +142,26 @@ public:
     // Returns summary data (not full time-series) for dial-in history queries.
     Q_INVOKABLE void requestRecentShotsByKbId(const QString& kbId, int limit = 10);
 
-    // The equipment-package bucket a shot belongs to. Every advisor selection
-    // that scopes prior shots to "the same gear" resolves the current shot
-    // through THIS function and compares with `equipmentBucketSql()`, so those
-    // call sites cannot drift into slightly different notions of sameness —
-    // which is the defect this exists to prevent, not a tidiness preference.
+    // An equipment package forks — or merges into an existing one — when the
+    // grinder brand/model/burrs, the basket, or the puck-prep set changes on a
+    // package that already has shots (EquipmentStorage::supersedeOrEditStatic).
+    // An unused package is edited in place, as is one whose every differing
+    // component was previously empty (enrichment) — EXCEPT a grinder-less
+    // package gaining a grinder, which forks, and except an enrichment whose
+    // result matches a package already in the inventory, which merges into it.
+    // So `shots.equipment_id` answers the grinder, basket and prep questions at
+    // once, and a user who re-points a used package gets a DIFFERENT bucket from
+    // that point on — the shots already recorded stay on the old id either way,
+    // which is what the advisor's equipment scoping relies on.
     //
-    // Returns:
-    //   - the shot's `equipment_id` when it has one;
-    //   - 0 when the shot EXISTS but has no package recorded — a real bucket
-    //     that matches other unpackaged shots;
-    //   - `std::nullopt` when no such shot row exists, which callers MUST read
-    //     as "no equipment context, do not scope" rather than as bucket 0.
-    //
-    // That last distinction is load-bearing. Collapsing "no row" to bucket 0
-    // scopes the query to unpackaged shots only — silently returning an empty
-    // history to every user who HAS a package. Returning 0 for a missing row
-    // looks like the safe default and is the opposite of one. Callers CANNOT
-    // tell the two causes apart and must not try: nullopt means "the bucket
-    // could not be read", for either reason.
-    //
-    // Prefer not calling this at all when you already hold the shot: a loaded
-    // ShotRecord/ShotProjection carries `equipmentId`, which is the same value
-    // without a second read that can disagree or fail. This function is for
-    // callers that have only a shot id.
-    //
-    // A package forks — or merges into an existing one — when the grinder
-    // brand/model/burrs, the basket, or the puck-prep set changes on a package
-    // that already has shots (EquipmentStorage::supersedeOrEditStatic). An
-    // unused package is edited in place, as is one whose every differing
-    // component was previously empty (enrichment), EXCEPT a grinder-less
-    // package gaining a grinder, which forks. So this one integer answers the
-    // grinder, basket and prep questions at once, and a user who re-points a
-    // used package gets a DIFFERENT bucket from that point on — the shots
-    // already recorded stay on the old id either way, which is what the
-    // scoping relies on.
-    // Runs SQL on the caller's thread — background connection required.
-    static std::optional<qint64> equipmentBucketForShot(QSqlDatabase& db, qint64 shotId);
+    // There is deliberately NO shot-id-to-bucket helper. One existed, returning
+    // std::optional<qint64> with nullopt covering both "no such shot" and "the
+    // query failed" — two causes callers could not tell apart and could only
+    // answer by picking a degradation policy. Two call sites two lines apart
+    // picked opposite policies, which is the defect that removed it. Every
+    // caller now takes the bucket off a ShotRecord/ShotProjection it has already
+    // loaded (`equipmentId`, 0 = unpackaged) and hands it to
+    // `equipmentBucketSql()`, so there is one read and no unresolved case.
 
     // SQL predicate matching a shot row against an equipment bucket. COALESCE on
     // BOTH sides is load-bearing: SQL `NULL = NULL` is not true, so a bare
@@ -313,15 +296,10 @@ public:
     // This list is what the advisor uses to judge whether a proposed setting is
     // plausible for the user's grinder, so pooling across packages presents two
     // baskets' dials as one continuous range and a setting that is absurd on one
-    // reads as reasonable. Absent = no equipment scoping, which pools every
-    // package the user owns and publishes the result as one observed range.
-    //
-    // That default is a hazard, not a feature, and it survives only because
-    // making the parameter required costs 15 test call-site rewrites for no
-    // user-visible change. Every PRODUCTION caller passes a real bucket
-    // (dialing_blocks.cpp, aimanager.cpp). A new caller that omits it is almost
-    // certainly wrong — see the follow-up note in the
-    // filter-advisor-history-by-equipment change.
+    // reads as reasonable. `equipmentBucket` is required and 0 (unpackaged) is a
+    // real, matching bucket — there is no "don't scope" option, because the one
+    // that existed pooled every package the user owns and published the result
+    // as a single observed range.
     //
     // `stepSize` and `rpmStepSize` are NOT equipment-scoped even when a bucket
     // is given: they are the grinder's mechanical resolution, unchanged by a
@@ -330,8 +308,8 @@ public:
     // `rpmsObserved` and `rpm{Min,Max}` narrow to the package.
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel,
                                               const QString& beverageType,
-                                              const QString& beanBrand = QString(),
-                                              std::optional<qint64> equipmentBucket = std::nullopt);
+                                              const QString& beanBrand,
+                                              qint64 equipmentBucket);
 
     // Convert ShotRecord to a typed ShotProjection (shared by requestShot,
     // ShotServer, AIManager, MCP). Returns a default-constructed ShotProjection
@@ -567,6 +545,14 @@ public:
     // "N imported, 0 skipped, 0 failed".
     struct ImportResult {
         QHash<qint64, qint64> shotIdMap;
+        // source->destination EQUIPMENT PACKAGE ids. Same contract as
+        // shotIdMap and for the same reason: package row ids are renumbered on
+        // insert, so anything outside the shots table that names one has to be
+        // remapped through this. Shots, bags and recipes are remapped inside
+        // importDatabaseStatic; AI conversations cannot be, because their
+        // identity is a hash of the SOURCE package id held in a QSettings key —
+        // so the map has to come back out to them.
+        QHash<qint64, qint64> packageIdMap;
         // Destination row count before the import. MERGE MODE ONLY — replace
         // mode never reads it, so 0 there means "not measured", not "empty".
         std::optional<int> destShotsBefore;
@@ -593,6 +579,16 @@ public:
         // and skip the conversation import entirely — see the note there.
         const QHash<qint64, qint64>* idMapOrNull() const {
             return shotIdMap.isEmpty() ? nullptr : &shotIdMap;
+        }
+
+        // The map to hand AIConversation::importConversationsStatic for the
+        // equipment package, or nullptr meaning "no package import accompanied
+        // these conversations". Empty is the normal case for a pre-equipment
+        // source, and nullptr is the right answer there: there is nothing to
+        // remap TO, and a conversation keyed on a source package id is simply
+        // not resumable on this device.
+        const QHash<qint64, qint64>* packageMapOrNull() const {
+            return packageIdMap.isEmpty() ? nullptr : &packageIdMap;
         }
     };
 

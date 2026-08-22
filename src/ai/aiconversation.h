@@ -309,6 +309,12 @@ public:
         int conversationsImported = 0;  // written to storage
         int turnsRemapped = 0;          // turn shotIds rewritten to a destination id
         int turnsCleared = 0;           // turn shotIds dropped, source shot not in the map
+        // Conversations restored under their SOURCE key because their equipment
+        // package could not be mapped. Readable in the list, but the app will
+        // never compute that key again, so opening the shot starts a fresh
+        // thread. Counted rather than logged-only because it is the one outcome
+        // a user can notice and a caller may want to report.
+        int conversationsUnkeyed = 0;
     };
 
     /**
@@ -348,12 +354,32 @@ public:
      * @param settings   open settings object to write through
      * @param conversations  the incoming array, as carried by the backup
      *                       archive or the migration endpoint
+     * A conversation's storage KEY is a hash of
+     * bean|type|profile|equipmentId, so a thread pulled on an equipment
+     * package carries the SOURCE device's package id inside its identity. That
+     * id is renumbered by the equipment import like every other package
+     * reference, which means an entry restored verbatim names a package this
+     * device may not have and — worse — sits under a key the app will never
+     * compute again, so opening that shot silently starts a fresh thread.
+     * `packageIdMap` closes that: the entry's `equipmentId` is remapped and the
+     * key is RECOMPUTED from the mapped id before anything is written, so the
+     * restored thread is the one the app finds. A packaged conversation with no
+     * map, or whose source package is absent from the map, is imported under
+     * its original key and counted in `conversationsUnkeyed` — it is still
+     * readable in the conversation list, it just will not be matched to a shot.
+     *
+     * @param settings   open settings object to write through
+     * @param conversations  the incoming array, as carried by the backup
+     *                       archive or the migration endpoint
      * @param shotIdMap  source->destination shot ids, or nullptr
+     * @param packageIdMap  source->destination equipment package ids, or
+     *                      nullptr when no equipment import accompanied these
      */
     static ImportTally importConversationsStatic(
         AppSettings& settings,
         const QJsonArray& conversations,
-        const QHash<qint64, qint64>* shotIdMap);
+        const QHash<qint64, qint64>* shotIdMap,
+        const QHash<qint64, qint64>* packageIdMap);
 
     /**
      * Drop `shotId` from every turn that names a shot the database does not
