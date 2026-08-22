@@ -1430,11 +1430,18 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(2)
 
+                            // The label is STATIC and names what the switch does.
+                            // It used to be a status line reading "Merge with
+                            // existing data" while the switch beside it was
+                            // checked for REPLACE — so an unchecked switch next
+                            // to the word "Merge" meant a merge was about to
+                            // happen. The maintainer misread his own dialog that
+                            // way during testing, on a control that can delete
+                            // every shot on the device. A switch adjacent to
+                            // text is read as controlling that text.
                             Text {
-                                text: restoreConfirmDialog.mergeMode
-                                    ? TranslationManager.translate("settings.data.mergemode", "Merge with existing data")
-                                    : TranslationManager.translate("settings.data.replacemode", "Replace all data")
-                                color: restoreConfirmDialog.mergeMode ? Theme.textColor : Theme.warningColor
+                                text: TranslationManager.translate("settings.data.mergemode", "Merge with existing data")
+                                color: Theme.textColor
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(12)
                                 font.bold: true
@@ -1447,8 +1454,8 @@ KeyboardAwareContainer {
                                     ? TranslationManager.translate("settings.data.mergemodedesc",
                                         "Adds new entries. Existing shots and profiles are kept.")
                                     : TranslationManager.translate("settings.data.replacemodedesc",
-                                        "Deletes ALL current shots and profiles, replaces with backup. Cannot be undone!")
-                                color: Theme.textSecondaryColor
+                                        "Off: deletes ALL current shots and profiles, replaces with backup. Cannot be undone!")
+                                color: restoreConfirmDialog.mergeMode ? Theme.textSecondaryColor : Theme.warningColor
                                 font.pixelSize: Theme.scaled(10)
                                 wrapMode: Text.WordWrap
                                 Accessible.ignored: true
@@ -1456,11 +1463,9 @@ KeyboardAwareContainer {
                         }
 
                         StyledSwitch {
-                            checked: !restoreConfirmDialog.mergeMode
-                            accessibleName: restoreConfirmDialog.mergeMode
-                                ? TranslationManager.translate("settings.data.switchreplace", "Switch to replace mode")
-                                : TranslationManager.translate("settings.data.switchmerge", "Switch to merge mode")
-                            onToggled: restoreConfirmDialog.mergeMode = !checked
+                            checked: restoreConfirmDialog.mergeMode
+                            accessibleName: TranslationManager.translate("settings.data.mergemode", "Merge with existing data")
+                            onToggled: restoreConfirmDialog.mergeMode = checked
                         }
                     }
                 }

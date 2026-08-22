@@ -16,6 +16,8 @@
 #include <QThread>
 #include <QPointF>
 #include <QSqlQuery>
+#include <QSqlDatabase>
+#include <QVariantList>
 #include <QRegularExpression>
 
 #include "history/shothistorystorage.h"
@@ -237,6 +239,391 @@ private slots:
         // destructs, or the distinct-cache thread can outlive it.
         storage.close();
         drain();
+    }
+
+    // ---- merge-integrity guards + shot id map (fix-restore-id-remap) --------
+    //
+    // A field restore logged "Found 0 existing shots" against a database the app
+    // had opened with 1058 seconds earlier. The de-duplication pre-read's result
+    // was discarded, so a failed query and an empty table produced the same
+    // empty set — and the cost of confusing them is a second copy of the whole
+    // history. These lock the refusals in, and the id map that lets stored
+    // references follow the renumbering.
+
+    // Builds a source database with `count` shots, returns its path.
+    QString makeSourceDb(const QString& name, int count, qint64 baseTs)
+    {
+        const QString path = m_dir.filePath(name);
+        ShotHistoryStorage src;
+        [&] { QVERIFY(src.initialize(path)); }();
+        for (int i = 0; i < count; i++) {
+            src.importShotRecord(makeShot(QStringLiteral("src-uuid-%1").arg(i),
+                                          baseTs + i * 600,
+                                          QStringLiteral("Src Profile %1").arg(i),
+                                          QString()), false);
+        }
+        src.close();
+        drain();
+        return path;
+    }
+
+    static int countShots(const QString& dbPath)
+    {
+        return ShotHistoryStorage::getShotCountStatic(dbPath);
+    }
+
+    // Read straight from the file. The id-preservation assertions are about
+    // what SQLite actually holds, so they must not go through the same import
+    // code they are checking.
+    static QVariantList queryColumn(const QString& dbPath, const QString& sql)
+    {
+        QVariantList out;
+        const QString conn = QStringLiteral("tst_keepid_%1").arg(reinterpret_cast<quintptr>(&out));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+            db.setDatabaseName(dbPath);
+            if (db.open()) {
+                QSqlQuery q(db);
+                if (q.exec(sql))
+                    while (q.next()) out << q.value(0);
+            }
+        }
+        QSqlDatabase::removeDatabase(conn);
+        return out;
+    }
+
+    static QList<qint64> shotIds(const QString& dbPath)
+    {
+        QList<qint64> ids;
+        for (const QVariant& v : queryColumn(dbPath, QStringLiteral("SELECT id FROM shots ORDER BY id")))
+            ids << v.toLongLong();
+        return ids;
+    }
+
+    static qint64 sequenceFor(const QString& dbPath)
+    {
+        const QVariantList v = queryColumn(
+            dbPath, QStringLiteral("SELECT seq FROM sqlite_sequence WHERE name='shots'"));
+        return v.isEmpty() ? -1 : v.first().toLongLong();
+    }
+
+    static qint64 shotIdForUuid(const QString& dbPath, const QString& uuid)
+    {
+        const QVariantList v = queryColumn(
+            dbPath, QStringLiteral("SELECT id FROM shots WHERE uuid='%1'").arg(uuid));
+        return v.isEmpty() ? -1 : v.first().toLongLong();
+    }
+
+    // A genuinely empty destination is not the refused case — it must import.
+    void merge_into_empty_destination_imports()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString srcPath = makeSourceDb("mi_src_empty.db", 3, 1760000000);
+
+        const QString destPath = m_dir.filePath("mi_dest_empty.db");
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            dest.close();
+            drain();
+        }
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r));
+        QCOMPARE(r.destShotsBefore.value_or(-1), 0);
+        QCOMPARE(r.imported, 3);
+        QCOMPARE(r.skipped, 0);
+        QVERIFY(r.integrityFailure.isEmpty());
+        QCOMPARE(countShots(destPath), 3);
+    }
+
+    // A populated destination whose pre-read agrees with the count: the normal
+    // path, which must proceed and skip the duplicates rather than doubling.
+    void merge_with_agreeing_counts_proceeds_and_skips_duplicates()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString srcPath = makeSourceDb("mi_src_agree.db", 3, 1761000000);
+
+        const QString destPath = m_dir.filePath("mi_dest_agree.db");
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            // Same uuids as the source's first two -> they must be SKIPPED.
+            dest.importShotRecord(makeShot("src-uuid-0", 1761000000, "Dest A", QString()), false);
+            dest.importShotRecord(makeShot("src-uuid-1", 1761000600, "Dest B", QString()), false);
+            dest.close();
+            drain();
+        }
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r));
+        QCOMPARE(r.destShotsBefore.value_or(-1), 2);
+        QCOMPARE(r.skipped, 2);
+        QCOMPARE(r.imported, 1);
+        QVERIFY(r.integrityFailure.isEmpty());
+        // The history was merged, not doubled.
+        QCOMPARE(countShots(destPath), 3);
+    }
+
+    // Every source shot maps to a destination id: inserted rows to their new id,
+    // duplicates to the id of the row already present. Nothing maps to itself by
+    // accident, which is what makes the renumbering visible to callers.
+    void import_reports_a_shot_id_map_covering_inserts_and_skips()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString srcPath = makeSourceDb("mi_src_map.db", 3, 1762000000);
+
+        const QString destPath = m_dir.filePath("mi_dest_map.db");
+        qint64 dupDestId = 0;
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            // Pad so destination ids cannot coincide with source ids (1,2,3).
+            // Distinct profile names AND a wide timestamp gap: importShotRecord
+            // treats same-profile shots within 5 s as near-duplicates
+            // (shothistorystorage.cpp:4829), which silently collapsed these to a
+            // single row when they shared a name and were 1 s apart.
+            for (int i = 0; i < 5; i++)
+                QVERIFY(dest.importShotRecord(makeShot(QStringLiteral("pad-%1").arg(i),
+                                               1762900000 + i * 3600,
+                                               QStringLiteral("Pad %1").arg(i), QString()), false) > 0);
+            dupDestId = dest.importShotRecord(
+                makeShot("src-uuid-1", 1762000600, "Dest Dup", QString()), false);
+            QVERIFY(dupDestId > 0);
+            dest.close();
+            drain();
+        }
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r));
+
+        // All three source shots are accounted for.
+        QCOMPARE(r.shotIdMap.size(), 3);
+        // The duplicate maps to the row the destination already had — a
+        // reference to it must resolve, not be cleared.
+        QVERIFY(r.shotIdMap.contains(2));
+        QCOMPARE(r.shotIdMap.value(2), dupDestId);
+        // The inserted ones got NEW ids, past everything already present.
+        for (qint64 srcId : {qint64(1), qint64(3)}) {
+            QVERIFY(r.shotIdMap.contains(srcId));
+            QVERIFY2(r.shotIdMap.value(srcId) > 5,
+                     "inserted shot must get a fresh id past the padding");
+        }
+        // No entry may be an identity: a source id that survives unchanged is a
+        // reference that will silently resolve to the wrong shot later, which is
+        // the defect as reported (1109 reading as a valid id after renumbering).
+        for (auto it = r.shotIdMap.constBegin(); it != r.shotIdMap.constEnd(); ++it)
+            QVERIFY2(it.key() != it.value(), "a source id survived the renumbering unchanged");
+    }
+
+    // A destination whose shots table cannot answer the pre-read (here: no uuid
+    // column — a foreign or malformed database) must ABORT, not treat the empty
+    // result as "nothing here yet" and insert the source on top. The old code
+    // discarded the query result and would have imported every row.
+    void failed_pre_read_aborts_without_writing()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString srcPath = makeSourceDb("mi_src_badread.db", 3, 1765000000);
+
+        // Hand-built destination: a real SQLite file with a shots table that has
+        // rows but no uuid column, so `SELECT uuid, id FROM shots` errors.
+        const QString destPath = m_dir.filePath("mi_dest_badread.db");
+        {
+            QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                       QStringLiteral("shs_badread"));
+            d.setDatabaseName(destPath);
+            QVERIFY(d.open());
+            QVERIFY(QSqlQuery(d).exec(QStringLiteral(
+                "CREATE TABLE shots (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER)")));
+            QVERIFY(QSqlQuery(d).exec(QStringLiteral("INSERT INTO shots (timestamp) VALUES (1)")));
+            d.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("shs_badread"));
+
+        // init() sets failOnWarning(), and refusing loudly is the point here —
+        // so the expected warnings are declared rather than suppressed globally.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("Aborting - .*could not run")));
+
+        ShotHistoryStorage::ImportResult r;
+        const bool ok = ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r);
+        QVERIFY2(!ok, "an unanswerable pre-read must fail the import, not proceed");
+        QVERIFY2(!r.integrityFailure.isEmpty(), "the refusal must say why");
+        QCOMPARE(r.imported, 0);
+        // The destination is untouched: still the one row it started with.
+        QCOMPARE(countShots(destPath), 1);
+        QVERIFY(r.refused());
+        // A refused import hands back no map, so idMapOrNull() says "clear every
+        // stored id" and every caller agrees without needing its own invariant.
+        //
+        // Honest limit: this does NOT exercise the `if (!result) shotIdMap.clear()`
+        // in the producer. Both guards fire before the first INSERT, so the map
+        // is empty here whatever that line does — mutating it away leaves this
+        // slot green. The state it actually guards is a replace-mode INSERT
+        // failure PART-WAY through, which rolls back with the map already
+        // populated; reaching that needs a row to succeed and a later one to
+        // fail, which no honest fixture produces. The line stays (it is one
+        // statement and it makes the three callers correct by construction) and
+        // is recorded as untested rather than covered by this assertion.
+        QVERIFY(r.shotIdMap.isEmpty());
+        QVERIFY(r.idMapOrNull() == nullptr);
+    }
+
+    // Replace mode DELETEs first, so an empty pre-read is expected there and
+    // must NOT trip the merge guard.
+    void replace_mode_is_not_subject_to_the_merge_guard()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString srcPath = makeSourceDb("mi_src_replace.db", 2, 1764000000);
+
+        const QString destPath = m_dir.filePath("mi_dest_replace.db");
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            for (int i = 0; i < 4; i++)
+                QVERIFY(dest.importShotRecord(makeShot(QStringLiteral("r-%1").arg(i),
+                                               1764900000 + i * 3600,
+                                               QStringLiteral("R %1").arg(i), QString()), false) > 0);
+            dest.close();
+            drain();
+        }
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/false, &r));
+        QVERIFY(r.integrityFailure.isEmpty());
+        QVERIFY(!r.refused());
+        QCOMPARE(countShots(destPath), 2);   // replaced, not merged
+        // Replace mode never measures the destination, and "not measured" must
+        // stay distinguishable from "the destination was empty".
+        QVERIFY(!r.destShotsBefore.has_value());
+    }
+
+    // A restore must not renumber. Two halves of one rule:
+    //   replace — the database comes back with the ids it was backed up with;
+    //   merge   — existing rows stay put, incoming rows keep their own id.
+    //
+    // Before this, the INSERT omitted `id` entirely, so AUTOINCREMENT renumbered
+    // every imported row. Replace mode clears with DELETE, which does not reset
+    // sqlite_sequence, so restoring a backup into the database it came from
+    // moved every shot to a fresh id block — and a renumbered shot is exactly
+    // what makes an outside reference to it go stale.
+    void replace_restores_the_original_ids_and_the_sequence()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString srcPath = makeSourceDb("mi_src_keepid.db", 3, 1766000000);
+
+        // Give the destination MORE shots than the source, so its sequence sits
+        // above anything the source can offer: renumbering would be obvious.
+        const QString destPath = m_dir.filePath("mi_dest_keepid.db");
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            for (int i = 0; i < 9; i++)
+                QVERIFY(dest.importShotRecord(makeShot(QStringLiteral("k-%1").arg(i),
+                                               1766900000 + i * 3600,
+                                               QStringLiteral("K %1").arg(i), QString()), false) > 0);
+            dest.close();
+            drain();
+        }
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/false, &r));
+        QCOMPARE(r.imported, 3);
+
+        // The source's ids are 1..3 and they come back as 1..3, not 10..12.
+        QCOMPARE(shotIds(destPath), (QList<qint64>{1, 2, 3}));
+        for (auto it = r.shotIdMap.constBegin(); it != r.shotIdMap.constEnd(); ++it)
+            QCOMPARE(it.key(), it.value());   // identity: nothing was renumbered
+
+        // And the sequence matches, so the next new shot continues the restored
+        // history instead of skipping past the pre-restore high-water mark.
+        QCOMPARE(sequenceFor(destPath), qint64(3));
+    }
+
+    void merge_keeps_incoming_ids_that_are_free_and_only_moves_collisions()
+    {
+        QVERIFY(m_dir.isValid());
+        // Source ids 1..3.
+        const QString srcPath = makeSourceDb("mi_src_freeid.db", 3, 1767000000);
+
+        // Destination occupies id 1 and 2 with DIFFERENT shots, leaving 3 free.
+        const QString destPath = m_dir.filePath("mi_dest_freeid.db");
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            for (int i = 0; i < 2; i++)
+                QVERIFY(dest.importShotRecord(makeShot(QStringLiteral("occupied-%1").arg(i),
+                                               1767900000 + i * 3600,
+                                               QStringLiteral("Occ %1").arg(i), QString()), false) > 0);
+            dest.close();
+            drain();
+        }
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/true, &r));
+        QCOMPARE(r.imported, 3);
+
+        // The existing two are exactly where they were.
+        QCOMPARE(shotIdForUuid(destPath, QStringLiteral("occupied-0")), qint64(1));
+        QCOMPARE(shotIdForUuid(destPath, QStringLiteral("occupied-1")), qint64(2));
+
+        // Source id 3 was free, so that shot kept it. 1 and 2 were taken, so
+        // those two moved — and the map is what records where they went.
+        QCOMPARE(r.shotIdMap.value(3), qint64(3));
+        // The two collisions land past every id either side uses. The specific
+        // values are not the contract; not landing on 3 is — an earlier
+        // relocation must not consume an id a later source row still owns,
+        // which is what letting AUTOINCREMENT choose did.
+        QVERIFY2(r.shotIdMap.value(1) > 3, "a relocated id must not take a free source id");
+        QVERIFY2(r.shotIdMap.value(2) > 3, "a relocated id must not take a free source id");
+        const QList<qint64> dest = r.shotIdMap.values();
+        QCOMPARE(QSet<qint64>(dest.begin(), dest.end()).size(), qsizetype(3));  // no two shots share an id
+        QCOMPARE(countShots(destPath), 5);
+    }
+
+    // existingShotIds is what decides whether a stored conversation reference
+    // still resolves, and the caller DELETES what does not. Two shapes matter:
+    // it must answer exactly, and it must refuse to answer rather than answer
+    // "nothing" when it cannot look.
+    void existing_shot_ids_answers_exactly_and_refuses_when_it_cannot_look()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString path = m_dir.filePath("existing_ids.db");
+
+        qint64 a = 0, c = 0;
+        {
+            ShotHistoryStorage storage;
+            QVERIFY(storage.initialize(path));
+            a = storage.importShotRecord(makeShot("e-a", 1765000000, "E A", QString()), false);
+            const qint64 b = storage.importShotRecord(makeShot("e-b", 1765003600, "E B", QString()), false);
+            c = storage.importShotRecord(makeShot("e-c", 1765007200, "E C", QString()), false);
+            QVERIFY(a > 0 && b > 0 && c > 0);
+
+            // The query builds its own `IN (?,?,?)` placeholder list, so a
+            // bind-order or placeholder-count regression is a live risk and
+            // would show up as the wrong subset here.
+            const auto found = storage.existingShotIds({a, c, 999999});
+            QVERIFY(found.has_value());
+            QCOMPARE(*found, QSet<qint64>({a, c}));
+
+            // An empty request is a real answer ("none of nothing"), not a
+            // refusal — the caller must not be pushed down the "leave it alone"
+            // path for a conversation that references no shots.
+            const auto none = storage.existingShotIds({});
+            QVERIFY(none.has_value());
+            QVERIFY(none->isEmpty());
+
+            storage.close();
+            drain();
+        }
+
+        // Not initialized: nullopt, NOT an empty set. An empty set here would
+        // tell AIConversation::loadFromStorage that every reference is dead and
+        // it would delete them all — the failure mode this return type exists
+        // to make unrepresentable.
+        ShotHistoryStorage notReady;
+        const auto unanswerable = notReady.existingShotIds({a, c});
+        QVERIFY(!unanswerable.has_value());
     }
 };
 

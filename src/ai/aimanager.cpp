@@ -400,6 +400,9 @@ void AIManager::maybePersistRatingFromReply(const QString& userReply,
     qDebug() << "AIManager: conversational rating capture — writing"
              << parsed->score << "to shot" << shotId
              << "(notes" << (parsed->notes.isEmpty() ? "absent" : "present") << ")";
+    // Same reason as the bean-metadata capture below: this is the user's own
+    // rating, so a write that lands nowhere must not pass unnoticed.
+    m_pendingMetadataWrites[shotId]++;
     m_shotHistory->requestUpdateShotMetadata(shotId, metadata);
 }
 
@@ -674,6 +677,9 @@ void AIManager::maybePersistBeanCorrectionFromReply(const QString& userReply,
 
     qDebug() << "AIManager: conversational bean-metadata capture — writing"
              << metadata.keys() << "to shot" << shotId;
+    // Tracked so the outcome is read. This write carries something the USER
+    // just said; losing it silently is the defect this replaces.
+    m_pendingMetadataWrites[shotId]++;
     m_shotHistory->requestUpdateShotMetadata(shotId, metadata);
 }
 
@@ -782,7 +788,53 @@ void AIManager::enrichUserPromptObject(QJsonObject& payload,
 
 void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
 {
+    if (m_shotHistory == storage) return;
+    if (m_shotHistory)
+        disconnect(m_shotHistory, &ShotHistoryStorage::shotMetadataUpdated, this, nullptr);
+
     m_shotHistory = storage;
+
+    // The manager loads the most recent conversation in its own constructor,
+    // which runs BEFORE MainController wires the storage — so that conversation
+    // reached repairStaleTurnShotIds with nothing to check against and was left
+    // holding whatever stale ids it had. It is the conversation the user is most
+    // likely to continue, so the repair has to catch up as soon as we can check.
+    if (m_shotHistory && m_conversation)
+        m_conversation->repairStaleTurnShotIds();
+
+    // Watch the outcome of OUR OWN metadata writes. The storage layer already
+    // reported the outcome through this signal — ShotHistoryExporter has been
+    // connected to it for a long time — but nothing acted on the FAILURE case
+    // (the exporter returns early on it), so a write to a shot that does not
+    // exist logged one warning and the user's answer was gone.
+    //
+    // m_pendingMetadataWrites keeps this to writes this class initiated: every
+    // other subsystem's writes arrive on the same signal. It is a REFCOUNT, not
+    // a set. One reply can drive two writes for the same shot id (a rating and
+    // bean metadata, see AIConversation), and with a set the first outcome
+    // consumed the only entry, so the second — possibly the failing one — was
+    // discarded as "not ours" by the very filter added to catch it.
+    if (m_shotHistory) {
+        connect(m_shotHistory, &ShotHistoryStorage::shotMetadataUpdated, this,
+                [this](qint64 shotId, bool success) {
+            const auto it = m_pendingMetadataWrites.find(shotId);
+            if (it == m_pendingMetadataWrites.end()) return;  // not ours
+            if (--it.value() <= 0)
+                m_pendingMetadataWrites.erase(it);
+            if (success) return;
+            // Do NOT assert a cause here. `success == false` also arrives from a
+            // not-ready database, from no valid fields to update, and from a
+            // prepare or exec failure — only one of those is "no such shot".
+            // Field logs are read and acted on by users' own AI assistants, so a
+            // confident wrong diagnosis costs more than a neutral one.
+            qWarning() << "AIManager: metadata write to shot" << shotId
+                       << "did not land, so what the user told the advisor was not saved."
+                       << "Leading candidate is a conversation turn still naming a shot id"
+                       << "from a database this device no longer has; a database that was"
+                       << "not ready, or an SQL failure, produce the same result.";
+            emit shotMetadataCaptureFailed(shotId);
+        });
+    }
 }
 
 // File-scope helper: runs on a background thread with its own SQLite connection.

@@ -6,6 +6,7 @@
 #include "settingsserializer.h"
 #include "profilestorage.h"
 #include "../history/shothistorystorage.h"
+#include "../ai/aiconversation.h"
 #include "../profile/profile.h"
 #include "../profile/profilesavehelper.h"
 #include "../screensaver/screensavervideomanager.h"
@@ -56,8 +57,22 @@ QString DatabaseBackupManager::joinErrors(const QVector<QPair<QString, QString>>
 {
     QStringList out;
     out.reserve(errs.size());
-    for (const auto& e : errs)
-        out << tr_(e.first.toUtf8().constData(), e.second.toUtf8().constData());
+    for (const auto& e : errs) {
+        // An EMPTY key means the second element is already-final text, not a
+        // fallback to be translated — used for machine-generated detail (which
+        // counts disagreed, which query failed) that has no fixed wording to
+        // translate.
+        //
+        // TranslationManager::translateString already returns the fallback
+        // unchanged for an empty key, so this branch does not change today's
+        // output. It is here so the pass-through is guaranteed by this file
+        // rather than inherited from a lookup path that has no reason to keep
+        // treating an empty key as a special case.
+        if (e.first.isEmpty())
+            out << e.second;
+        else
+            out << tr_(e.first.toUtf8().constData(), e.second.toUtf8().constData());
+    }
     return out.join(QStringLiteral("; "));
 }
 
@@ -781,6 +796,9 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         // because TranslationManager::translate is not thread-safe.
         QVector<QPair<QString, QString>> errors;
         bool shotsImported = false;
+        // Lives out here because the AI-conversation restore, much further down
+        // this same lambda, needs the shot id map this import produces.
+        ShotHistoryStorage::ImportResult shotImport;
         bool isRawDb = filename.endsWith(".db");
 
         if (isRawDb) {
@@ -869,12 +887,28 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     // Import the database (uses separate connections, safe on background thread)
                     qDebug() << "DatabaseBackupManager: Importing database from" << tempDbPath
                              << (merge ? "(merge mode)" : "(replace mode)");
-                    bool importSuccess = ShotHistoryStorage::importDatabaseStatic(dbPath, tempDbPath, merge);
+                    // shotImport carries the shot id map out to the AI-conversation
+                    // restore below, which must remap every stored reference
+                    // through it. Declared in the enclosing scope for that reason.
+                    bool importSuccess = ShotHistoryStorage::importDatabaseStatic(dbPath, tempDbPath, merge,
+                                                                                 &shotImport);
 
                     if (!importSuccess) {
                         qWarning() << "DatabaseBackupManager: Shots import failed";
-                        errors << qMakePair(QStringLiteral("backup.error.importShotsFailed"),
-                                            QStringLiteral("Failed to import shot history"));
+                        // An integrity refusal says WHICH counts disagreed and that
+                        // nothing was changed. Reporting it as the generic "failed to
+                        // import" would leave the user unable to tell a refusal from
+                        // a corrupt file, and unsure whether their history survived.
+                        if (!shotImport.integrityFailure.isEmpty()) {
+                            // Translated lead-in, then the generated detail with an
+                            // empty key so joinErrors passes it through verbatim.
+                            errors << qMakePair(QStringLiteral("backup.error.importShotsRefused"),
+                                                QStringLiteral("Shot history was not restored"));
+                            errors << qMakePair(QString(), shotImport.integrityFailure);
+                        } else {
+                            errors << qMakePair(QStringLiteral("backup.error.importShotsFailed"),
+                                                QStringLiteral("Failed to import shot history"));
+                        }
                         // In replace mode, abort — we haven't deleted profiles/settings yet,
                         // so returning now prevents data loss from a partial restore
                         if (!merge) {
@@ -1047,7 +1081,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         QDir(tempDir).removeRecursively();
 
         // Deliver result to main thread — settings/AI restore touches QSettings
-        QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored, errors, merge, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored, errors, merge, shotImport, destroyed]() {
             if (*destroyed) return;
             // Mutable copy: the settings import below can add an error, and the
             // captured list is const. A failed import used to be logged and then
@@ -1104,44 +1138,41 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                         qDebug() << "DatabaseBackupManager: Cleared" << existingIndex.size() << "existing AI conversations (replace mode)";
                     }
 
-                    QJsonDocument existingDoc = QJsonDocument::fromJson(
-                        qsettings.value("ai/conversations/index").toByteArray());
-                    QJsonArray existingIndex = existingDoc.isArray() ? existingDoc.array() : QJsonArray();
-                    QSet<QString> existingKeys;
-                    for (const QJsonValue& v : existingIndex) {
-                        existingKeys.insert(v.toObject()["key"].toString());
-                    }
+                    // The shots in this same archive were re-INSERTed and given
+                    // NEW ids. These conversations name the OLD ones, so they
+                    // are remapped through the id map that import produced.
+                    // Passing it is not optional: without it every turn keeps a
+                    // reference into the backup's database, and since ids only
+                    // climb, each stale one eventually resolves to a real but
+                    // unrelated shot.
+                    //
+                    // A REFUSAL is not "no shots came with these". The guards
+                    // fire on a transient condition, so the user's next move is
+                    // to run the restore again — and importing now with every id
+                    // cleared makes that retry useless, because the keys would
+                    // then already exist and the retry skips them. Leave the
+                    // conversations in the archive for the retry to do properly.
+                    if (shotImport.refused()) {
+                        qWarning() << "DatabaseBackupManager: shot import was refused, so AI"
+                                   << "conversations were NOT imported — retry the restore"
+                                   << "rather than lose their shot links";
+                    } else {
+                        // Otherwise: shots landed (use the map), or the archive
+                        // had none / the import failed (no map, every id
+                        // cleared — those ids name a database this device does
+                        // not have).
+                        const AIConversation::ImportTally convTally =
+                            AIConversation::importConversationsStatic(
+                                qsettings, conversations,
+                                shotsImported ? shotImport.idMapOrNull() : nullptr);
 
-                    int imported = 0;
-                    for (const QJsonValue& val : conversations) {
-                        QJsonObject conv = val.toObject();
-                        QString key = conv["key"].toString();
-                        if (key.isEmpty() || existingKeys.contains(key)) continue;
-
-                        QString prefix = "ai/conversations/" + key + "/";
-                        qsettings.setValue(prefix + "systemPrompt", conv["systemPrompt"].toString());
-                        qsettings.setValue(prefix + "contextLabel", conv["contextLabel"].toString());
-                        qsettings.setValue(prefix + "timestamp", conv["timestamp"].toString());
-                        QJsonArray messages = conv["messages"].toArray();
-                        qsettings.setValue(prefix + "messages",
-                            QJsonDocument(messages).toJson(QJsonDocument::Compact));
-
-                        QJsonObject indexEntry;
-                        indexEntry["key"] = key;
-                        indexEntry["beanBrand"] = conv["beanBrand"].toString();
-                        indexEntry["beanType"] = conv["beanType"].toString();
-                        indexEntry["profileName"] = conv["profileName"].toString();
-                        indexEntry["timestamp"] = conv["indexTimestamp"].toVariant().toLongLong();
-                        existingIndex.append(indexEntry);
-                        existingKeys.insert(key);
-                        imported++;
-                    }
-
-                    if (imported > 0) {
-                        qsettings.setValue("ai/conversations/index",
-                            QJsonDocument(existingIndex).toJson(QJsonDocument::Compact));
-                        qsettings.sync();
-                        qDebug() << "DatabaseBackupManager: Imported" << imported << "AI conversations";
+                        if (convTally.conversationsImported > 0) {
+                            qsettings.sync();
+                            qDebug() << "DatabaseBackupManager: Imported" << convTally.conversationsImported
+                                     << "AI conversations;" << convTally.turnsRemapped
+                                     << "shot reference(s) remapped," << convTally.turnsCleared
+                                     << "cleared";
+                        }
                     }
                 }
             }

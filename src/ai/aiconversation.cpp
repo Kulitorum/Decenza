@@ -3,6 +3,9 @@
 #include "aimanager.h"
 #include "shotsummarizer.h"
 #include "../core/translationmanager.h"
+// Full type needed: loadFromStorage calls existingShotIds() to forget turn
+// shot references that no longer resolve.
+#include "../history/shothistorystorage.h"
 
 #include <QDateTime>
 #include <QDebug>
@@ -393,6 +396,141 @@ void AIConversation::appendAssistantTurnForKey(
     // via ask(); the MCP path uses analyze(systemPrompt, userPrompt) and
     // doesn't carry an AIConversation. For recentAdvice purposes the
     // system prompt isn't needed — only `messages` is read.
+}
+
+// Rewrite one conversation's turn shotIds through the import's id map.
+// Split out so both the map and the no-map (clear-everything) cases run the
+// same traversal — the shapes differ by one lookup, and writing the traversal
+// twice is how they would come to disagree.
+static QJsonArray remapTurnShotIds(const QJsonArray& messages,
+                                   const QHash<qint64, qint64>* shotIdMap,
+                                   int& remapped, int& cleared)
+{
+    QJsonArray out;
+    for (const QJsonValue& v : messages) {
+        QJsonObject msg = v.toObject();
+        if (!msg.contains(QStringLiteral("shotId"))) {
+            // Never carried one (free-form turn, or a pre-shotId conversation).
+            // Nothing to remap, and adding a key here would invent linkage.
+            out.append(msg);
+            continue;
+        }
+
+        const qint64 srcId = static_cast<qint64>(msg.value(QStringLiteral("shotId")).toDouble());
+        const qint64 destId = shotIdMap ? shotIdMap->value(srcId, 0) : 0;
+        if (destId > 0) {
+            msg[QStringLiteral("shotId")] = static_cast<double>(destId);
+            remapped++;
+        } else {
+            // Source shot did not come across (or no shots came at all).
+            // REMOVE rather than zero: omission is this field's documented null
+            // state, and `shotId: 0` would be a placeholder the readers do not
+            // expect. Leaving srcId in place is the one thing that must not
+            // happen — ids only climb, so it would eventually name a real,
+            // unrelated shot.
+            msg.remove(QStringLiteral("shotId"));
+            cleared++;
+        }
+        out.append(msg);
+    }
+    return out;
+}
+
+AIConversation::ImportTally AIConversation::importConversationsStatic(
+    AppSettings& settings,
+    const QJsonArray& conversations,
+    const QHash<qint64, qint64>* shotIdMap)
+{
+    ImportTally tally;
+    if (conversations.isEmpty()) return tally;
+
+    // Existing index decides which keys are already here. An existing key is
+    // SKIPPED whole, not merged — preserved from both original copies, which
+    // agreed on this.
+    QJsonArray index;
+    const QByteArray rawIndex = settings.value(QStringLiteral("ai/conversations/index")).toByteArray();
+    if (!rawIndex.isEmpty()) {
+        const QJsonDocument doc = QJsonDocument::fromJson(rawIndex);
+        if (doc.isArray()) index = doc.array();
+    }
+    QSet<QString> existingKeys;
+    for (const QJsonValue& v : index)
+        existingKeys.insert(v.toObject().value(QStringLiteral("key")).toString());
+
+    int skippedExisting = 0;
+    int malformed = 0;
+    for (const QJsonValue& val : conversations) {
+        const QJsonObject conv = val.toObject();
+        const QString key = conv.value(QStringLiteral("key")).toString();
+        // Two distinct outcomes that used to be one silent `continue`: a
+        // damaged archive entry with no key at all, and a conversation this
+        // device already has. Counting them separately is what stops "3
+        // imported" from being the whole story when 40 arrived.
+        // A conversation with no key, or whose `messages` is not an array, is a
+        // damaged archive entry. The second shape used to import as an EMPTY
+        // conversation and be reported as a success — a card that opens to
+        // nothing. Both are counted locally and named in the log line below;
+        // neither belongs on ImportTally, which no caller would read them from.
+        if (key.isEmpty() || !conv.value(QStringLiteral("messages")).isArray()) {
+            malformed++;
+            continue;
+        }
+        // An existing key is skipped WHOLE, never merged: the copy on this
+        // device is the live one and the archive's is older by construction.
+        if (existingKeys.contains(key)) {
+            skippedExisting++;
+            continue;
+        }
+
+        const QJsonArray messages = remapTurnShotIds(
+            conv.value(QStringLiteral("messages")).toArray(), shotIdMap,
+            tally.turnsRemapped, tally.turnsCleared);
+
+        const QString prefix = QStringLiteral("ai/conversations/") + key + QStringLiteral("/");
+        settings.setValue(prefix + "systemPrompt", conv.value(QStringLiteral("systemPrompt")).toString());
+        settings.setValue(prefix + "messages", QJsonDocument(messages).toJson(QJsonDocument::Compact));
+        settings.setValue(prefix + "timestamp", conv.value(QStringLiteral("timestamp")).toString());
+        settings.setValue(prefix + "contextLabel", conv.value(QStringLiteral("contextLabel")).toString());
+
+        QJsonObject entry;
+        entry[QStringLiteral("key")] = key;
+        entry[QStringLiteral("beanBrand")] = conv.value(QStringLiteral("beanBrand")).toString();
+        entry[QStringLiteral("beanType")] = conv.value(QStringLiteral("beanType")).toString();
+        entry[QStringLiteral("profileName")] = conv.value(QStringLiteral("profileName")).toString();
+        entry[QStringLiteral("timestamp")] = conv.value(QStringLiteral("indexTimestamp")).toVariant().toLongLong();
+        index.append(entry);
+        existingKeys.insert(key);
+        tally.conversationsImported++;
+    }
+
+    if (tally.conversationsImported > 0) {
+        settings.setValue(QStringLiteral("ai/conversations/index"),
+                          QJsonDocument(index).toJson(QJsonDocument::Compact));
+    }
+
+    qDebug() << "AIConversation::importConversationsStatic:" << tally.conversationsImported
+             << "conversation(s) imported," << skippedExisting
+             << "already present," << malformed << "malformed;"
+             << tally.turnsRemapped << "shot reference(s) remapped," << tally.turnsCleared
+             << "cleared"
+             << (shotIdMap ? "" : "(no shot import accompanied them — all ids cleared)");
+    return tally;
+}
+
+int AIConversation::dropUnresolvableShotIds(QJsonArray& messages,
+                                            const QSet<qint64>& existingShotIds)
+{
+    int dropped = 0;
+    for (qsizetype i = 0; i < messages.size(); ++i) {
+        QJsonObject msg = messages.at(i).toObject();
+        if (!msg.contains(QStringLiteral("shotId"))) continue;
+        const qint64 id = static_cast<qint64>(msg.value(QStringLiteral("shotId")).toDouble());
+        if (id > 0 && existingShotIds.contains(id)) continue;
+        msg.remove(QStringLiteral("shotId"));
+        messages.replace(i, msg);
+        dropped++;
+    }
+    return dropped;
 }
 
 void AIConversation::dropTrailingFailedUserTurn()
@@ -963,6 +1101,22 @@ void AIConversation::saveToStorage()
                 for (const QJsonValue& v : std::as_const(m_unsyncedMessages))
                     merged.append(v);
                 toWrite = merged;
+                // The disk copy predates this session's stale-id repair, so
+                // adopting it verbatim brings the forgotten ids straight back —
+                // which silently undid repairStaleTurnShotIds on exactly the
+                // installs that have another writer, i.e. MCP ai_advisor_invoke.
+                // Re-apply the drop to the reconciled array.
+                if (!m_forgottenShotIds.isEmpty()) {
+                    for (qsizetype i = 0; i < toWrite.size(); ++i) {
+                        QJsonObject msg = toWrite.at(i).toObject();
+                        if (!msg.contains(QStringLiteral("shotId"))) continue;
+                        const qint64 id = static_cast<qint64>(
+                            msg.value(QStringLiteral("shotId")).toDouble());
+                        if (!m_forgottenShotIds.contains(id)) continue;
+                        msg.remove(QStringLiteral("shotId"));
+                        toWrite[i] = msg;
+                    }
+                }
                 qDebug() << "AIConversation::saveToStorage: reconciled" << (onDisk.size() - expectedPriorSize)
                           << "message(s) appended by another writer for key:" << m_storageKey;
             }
@@ -983,6 +1137,88 @@ void AIConversation::saveToStorage()
 
     emit savedConversationChanged();
     qDebug() << "AIConversation: Saved conversation with" << m_messages.size() << "messages to key:" << m_storageKey;
+}
+
+void AIConversation::repairStaleTurnShotIds()
+{
+    // Forget turn shotIds that no longer name a shot.
+    //
+    // Conversations imported before the remap existed hold ids from the SOURCE
+    // database. Those are not merely useless: shot ids only ever climb, so a
+    // stale id eventually becomes a VALID id belonging to an unrelated shot,
+    // and the write-back path would then act on the wrong one. Dropping them
+    // closes that window for installs already carrying the damage — and it also
+    // catches an id whose shot the user simply deleted.
+    //
+    // This is NOT undoable, and an earlier version of this comment claimed it
+    // was. It mutates m_messages, and saveToStorage() persists the result — so
+    // the next save of this conversation (a follow-up turn, or switching away
+    // from it, which AIManager::switchConversation saves on) makes the drop
+    // permanent. That is acceptable ONLY because the id is known not to
+    // resolve; it is not acceptable on a guess, which is why the nullopt case
+    // below leaves the data alone.
+    //
+    // Called from loadFromStorage AND from AIManager::setShotHistoryStorage:
+    // the manager loads the most recent conversation in its own constructor,
+    // before the storage is wired, so without the second call the conversation
+    // the user is most likely to continue would load unrepaired on every launch.
+    if (m_messages.isEmpty() || !m_aiManager || !m_aiManager->shotHistoryStorage()) {
+        // Not an error — it just means we cannot check yet. setShotHistoryStorage
+        // calls back here when it can. Logged because the silent version of this
+        // branch is the one that actually fires in production.
+        if (!m_messages.isEmpty()) {
+            qDebug() << "AIConversation::repairStaleTurnShotIds: no shot storage yet for key"
+                     << m_storageKey << "- deferring until it is wired";
+        }
+        return;
+    }
+
+    QSet<qint64> referenced;
+    for (const QJsonValue& v : std::as_const(m_messages)) {
+        const QJsonObject msg = v.toObject();
+        if (!msg.contains(QStringLiteral("shotId"))) continue;
+        const qint64 id = static_cast<qint64>(msg.value(QStringLiteral("shotId")).toDouble());
+        if (id > 0) referenced.insert(id);
+    }
+    if (referenced.isEmpty()) return;
+
+    const std::optional<QSet<qint64>> live =
+        m_aiManager->shotHistoryStorage()->existingShotIds(referenced);
+    if (!live) {
+        // Could not answer — a not-ready database or a failed query. Deleting on
+        // an unanswered question is the aggressive direction, not the
+        // conservative one: one transient SQLITE_BUSY would strip every
+        // advisor-to-shot link on the device, permanently, at the next save.
+        qWarning() << "AIConversation::repairStaleTurnShotIds: could not check turn shot"
+                   << "references for key" << m_storageKey << "- leaving them as they are";
+        return;
+    }
+
+    // Capture the count BEFORE `referenced` is reduced to the unresolvable
+    // ones below — logging it afterwards reported 0 while claiming they all
+    // resolved, which is worse than not logging it.
+    const qsizetype checked = referenced.size();
+
+    // Remembered so saveToStorage can re-apply the drop after it reconciles
+    // against another writer's copy on disk — that copy still holds the stale
+    // ids, and adopting it verbatim silently undid this repair.
+    for (qint64 id : std::as_const(*live)) referenced.remove(id);
+    m_forgottenShotIds.unite(referenced);
+
+    const int dropped = dropUnresolvableShotIds(m_messages, *live);
+    if (dropped > 0) {
+        qDebug() << "AIConversation::repairStaleTurnShotIds: dropped" << dropped
+                 << "turn shot reference(s) that name no existing shot, for key"
+                 << m_storageKey;
+    } else {
+        // Say so. The deferral above announces that this check is coming, and
+        // without a line here the clean outcome is indistinguishable in a
+        // submitted log from the check never having run at all — which is the
+        // state this method was added to fix, so silence is the wrong default
+        // for exactly the reader trying to confirm it works.
+        qDebug() << "AIConversation::repairStaleTurnShotIds: all" << checked
+                 << "distinct turn shot reference(s) resolve, for key" << m_storageKey;
+    }
 }
 
 void AIConversation::loadFromStorage()
@@ -1011,6 +1247,17 @@ void AIConversation::loadFromStorage()
                         << (doc.isObject() ? "object" : "other") << "for key" << m_storageKey;
         }
     }
+
+    // Forget turn shotIds that no longer name a shot.
+    //
+    // Conversations imported before the remap existed hold ids from the SOURCE
+    // database. Those are not merely useless: shot ids only ever climb, so a
+    // stale id eventually becomes a VALID id belonging to an unrelated shot,
+    // and the write-back path would then act on the wrong one. Dropping them at
+    // read time closes that window for installs already carrying the damage —
+    // and it also catches an id whose shot the user simply deleted.
+    //
+    repairStaleTurnShotIds();
 
     // Update last response from the last assistant message
     m_lastResponse.clear();
