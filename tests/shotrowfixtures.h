@@ -54,6 +54,19 @@ struct ShotRow {
     QString grinderBrand{};
     QString grinderModel{};
     QString grinderBurrs{};
+    // Basket identity. Empty by default, so existing fixtures keep landing in a
+    // grinder-only package and are unaffected. Set it to place a shot in a
+    // DIFFERENT equipment package on the SAME grinder — the case the advisor's
+    // equipment scoping exists for, and one no grinder-only fixture can express.
+    QString basketBrand{};
+    QString basketModel{};
+    // Puck-prep techniques, as the canonical flag string PuckPrep::canonical
+    // produces. Third and last component of a package's identity, so a fixture
+    // can express "same grinder, same basket, different prep" with this alone.
+    // (Fixtures match on the exact canonical string, so they do not go through
+    // the production enrichment rules — where empty -> named prep edits a
+    // package in place rather than moving it.)
+    QString puckPrep{};
     QString grinderSetting{};
     // Grinder RPM → shots.rpm. 0 by default, which is also what "not
     // recorded" looks like, so existing fixtures are unaffected and the
@@ -116,13 +129,27 @@ inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     // identity and link the shot to it. The per-shot grind setting stays on the
     // row. An empty identity leaves equipment_id NULL.
     qint64 equipmentId = 0;
-    if (!(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty() && r.grinderBurrs.isEmpty())) {
+    // trimmed(), matching the production helpers: they trim before deciding
+    // whether a component is present, so a whitespace-only fixture field would
+    // otherwise take this branch and build a package with no grinder item, no
+    // basket item and no prep — a shape no production path produces.
+    const bool hasGear = !(r.grinderBrand.trimmed().isEmpty() && r.grinderModel.trimmed().isEmpty()
+                           && r.grinderBurrs.trimmed().isEmpty() && r.basketBrand.trimmed().isEmpty()
+                           && r.basketModel.trimmed().isEmpty() && r.puckPrep.trimmed().isEmpty());
+    if (hasGear) {
+        // Find-or-create on the FULL identity — grinder AND basket AND puck prep
+        // — using the production lookup's own arguments rather than a
+        // fixture-local reimplementation. Passing only the grinder would match a
+        // package whose basket or prep differs and put two packages' shots in
+        // one, which would quietly make an equipment-scoping test assert nothing.
         equipmentId = EquipmentStorage::findPackageByGrinderIdentityStatic(
-            db, r.grinderBrand, r.grinderModel, r.grinderBurrs);
+            db, r.grinderBrand, r.grinderModel, r.grinderBurrs, /*excludeId=*/0,
+            r.basketBrand, r.basketModel, r.puckPrep);
         if (equipmentId <= 0) {
             EquipmentPackage pkg;
             equipmentId = EquipmentStorage::createPackageWithGrinderStatic(
-                db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs);
+                db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs,
+                r.basketBrand, r.basketModel, r.puckPrep);
         }
     }
 
@@ -178,6 +205,44 @@ inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
         return -1;
     }
     return q.lastInsertId().toLongLong();
+}
+
+// The equipment bucket a seeded shot landed in, for tests that have to pass a
+// real package to an equipment-scoped builder. Reads the column directly rather
+// than through a production helper: production resolves this from a row it has
+// already loaded, so there is no shot-id-to-bucket helper left to borrow.
+inline qint64 packageForShot(QSqlDatabase& db, qint64 shotId)
+{
+    QSqlQuery q(db);
+    q.prepare("SELECT COALESCE(equipment_id, 0) FROM shots WHERE id = ?");
+    q.bindValue(0, shotId);
+    if (!q.exec() || !q.next()) {
+        qWarning() << "packageForShot failed for id" << shotId << q.lastError().text();
+        return 0;
+    }
+    return q.value(0).toLongLong();
+}
+
+// The single equipment bucket a fixture's shots all landed in, for the many
+// tests that seed one gear identity and then have to pass a real package to an
+// equipment-scoped builder. Deliberately loud when the fixture has more than
+// one: a test with two packages must name the one it means, or the scoping it
+// is asserting could be satisfied for the wrong reason.
+inline qint64 onlyEquipmentPackage(QSqlDatabase& db)
+{
+    QSqlQuery q(db);
+    if (!q.exec("SELECT DISTINCT COALESCE(equipment_id, 0) FROM shots")) {
+        qWarning() << "onlyEquipmentPackage failed:" << q.lastError().text();
+        return 0;
+    }
+    QList<qint64> buckets;
+    while (q.next()) buckets << q.value(0).toLongLong();
+    if (buckets.size() > 1) {
+        qWarning() << "onlyEquipmentPackage: fixture has" << buckets.size()
+                   << "equipment packages — name the one you mean";
+        return 0;
+    }
+    return buckets.isEmpty() ? 0 : buckets.first();
 }
 
 inline ShotProjection projectionForShot(QSqlDatabase& db, qint64 shotId)

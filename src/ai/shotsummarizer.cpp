@@ -1273,7 +1273,32 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
                 "controlled\" — and let the user pull a reference shot on that profile to\n"
                 "see its actual numbers. If the user explicitly asks for setpoints of a\n"
                 "non-current profile, say you don't have its recipe and offer to discuss\n"
-                "tradeoffs in qualitative terms.\n");
+                "tradeoffs in qualitative terms.\n\n"
+                "## Equipment-set discipline\n\n"
+                "A numeric grind setting is comparable ONLY among shots pulled on the\n"
+                "same equipment set — the same grinder, burrs, basket and puck prep.\n"
+                "A different basket changes puck geometry and resistance, so the same\n"
+                "number on two baskets is two different grinds, and a number from one\n"
+                "says nothing about the other. This is a stronger rule than the\n"
+                "cross-grinder rule: it applies even on ONE grinder whose dial\n"
+                "never moved.\n\n"
+                "The history you are given is scoped to one equipment set whenever the\n"
+                "user's equipment is on record; a setup line, where present, names that\n"
+                "set. If a setting looks out of order against the\n"
+                "rest of that history — coarser numbers producing MORE resistance, a\n"
+                "large jump with the wrong sign — consider an equipment or preparation\n"
+                "difference FIRST. Do not assert a change in the grinder's own\n"
+                "calibration, burr alignment or zero point: those are claims about\n"
+                "hardware you cannot observe, and a basket change explains the same\n"
+                "data without inventing a mechanism. Ask the user what changed.\n\n"
+                "## Cite only what you were given\n\n"
+                "You may cite only shots, enjoyment scores, taste notes and\n"
+                "measurements that appear in this context. Do not refer to a past shot\n"
+                "or its rating unless it is here — inventing one is hallucination, the\n"
+                "same as inventing another profile's setpoints. If you want an anchor\n"
+                "the context does not contain (\"your best-rated shot\", \"the one you\n"
+                "liked\"), say that no such shot is available in what you can see, and\n"
+                "reason from the data you do have.\n");
         }
 
         // Cross-cutting reference sections (Skip-Catalog: true) — currently

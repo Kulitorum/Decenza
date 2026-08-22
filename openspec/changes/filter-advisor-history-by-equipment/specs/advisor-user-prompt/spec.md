@@ -1,0 +1,147 @@
+## ADDED Requirements
+
+### Requirement: In-app advisor shot history SHALL be scoped to the shot's equipment package
+
+The in-app advisor's historical context SHALL include a prior shot only when that shot's
+equipment package matches the current shot's, in addition to the bean, profile and time-window
+match it already applies. "No package recorded" SHALL be treated as a package value in its own
+right, so shots with no equipment package match each other and nothing else — a user who has
+never created a package SHALL see no change in which shots qualify.
+
+An equipment package identifies grinder, basket and puck prep together, and changing any one of
+them yields a different package. The same numeric grind setting on a different basket does not
+describe the same extraction, so a prior shot on different equipment SHALL be excluded however
+closely its bean, profile and setting match.
+
+#### Scenario: History excludes shots pulled on a different basket
+
+- **GIVEN** two equipment packages sharing one grinder, differing only in basket
+- **AND** a history of shots on both, all on the same bean and profile
+- **WHEN** the in-app advisor builds historical context for a shot on the second package
+- **THEN** the `## Previous Shots with This Bean & Profile` section SHALL contain only shots
+  from the second package
+- **AND** SHALL NOT contain a shot from the first
+
+#### Scenario: A user with no equipment packages sees an unchanged history
+
+- **GIVEN** a user whose shots all have no equipment package recorded
+- **WHEN** the in-app advisor builds historical context for any of their shots
+- **THEN** the qualifying shots SHALL be exactly those that qualified before this requirement
+- **AND** no shot SHALL be excluded on equipment grounds
+
+### Requirement: In-app advisor history SHALL name the equipment set its shots were pulled on
+
+The hoisted setup header of the in-app advisor's historical context SHALL name the equipment set
+shared by the history's shots: the grinder (brand, model, burrs), the basket (brand, model), and
+the puck-prep technique set. Components with no recorded value SHALL be omitted rather than
+rendered as empty text.
+
+A filter the model cannot see is a silent one: without the equipment named in the payload, the
+model can neither attribute the history to the gear it came from nor recognise that a user has
+changed baskets. The equipment set SHALL be rendered from a single shared description so the
+setup header and the no-history block below cannot describe the same package differently.
+
+#### Scenario: Setup header names grinder, basket and puck prep
+
+- **GIVEN** a history whose shots were pulled on a Niche Zero with 63mm Mazzer Kony conical
+  burrs, a Graph Coffee "Stepped 58→46mm" basket, and puck prep of shaker + puck screen + RDT
+- **WHEN** the in-app advisor renders the historical context
+- **THEN** the setup header SHALL name the grinder, the basket and the puck-prep techniques
+- **AND** SHALL continue to name the bean, roast level and roast date as before
+
+#### Scenario: A package with no basket recorded omits the basket phrase
+
+- **GIVEN** a history whose equipment package has no basket recorded
+- **WHEN** the in-app advisor renders the historical context
+- **THEN** the setup header SHALL name the grinder and bean as before
+- **AND** SHALL NOT contain an empty or placeholder basket phrase
+
+### Requirement: In-app advisor SHALL state an empty history rather than omitting it
+
+When no prior shot matches the current shot's bean, profile, time window and equipment package,
+the in-app advisor's historical context SHALL emit a block that states no prior shots matched
+and names the equipment set that was matched on, together with the reason equipment-mismatched
+shots were excluded. It SHALL NOT emit an empty historical context in this case.
+
+An absent history block is indistinguishable from "this user has no history at all", and a model
+given no anchor in context is a model that supplies one: the reported failure cited a "70/100
+shot" that appears nowhere in its context and then reasoned from it. A stated absence is a fact
+the model can use in place of an invented one.
+
+#### Scenario: First shot on a new equipment package states the empty history
+
+- **GIVEN** a user with an extensive history on one equipment package
+- **WHEN** they pull the first shot on a newly created package and open the advisor
+- **THEN** the historical context SHALL state that no prior shots match this equipment set
+- **AND** SHALL name the equipment set
+- **AND** SHALL instruct the model to judge the shot on its own data rather than referring to
+  shots it cannot see
+
+#### Scenario: A populated history does not carry the empty-history block
+
+- **GIVEN** at least one qualifying prior shot
+- **WHEN** the in-app advisor renders the historical context
+- **THEN** the rendered context SHALL contain the per-shot history blocks
+- **AND** SHALL NOT contain the empty-history statement
+
+### Requirement: Shot-to-shot change detection SHALL report an equipment change
+
+The advisor's per-shot change detection, which reports what the user altered between the
+previous shot in the conversation and the current one, SHALL report a change of equipment
+package alongside the dose, yield, duration and grinder changes it already reports. The reported
+change SHALL name the previous and current equipment so the change is legible without consulting
+another part of the payload.
+
+#### Scenario: Switching basket is reported as a change
+
+- **GIVEN** a conversation whose previous shot was pulled with a Decent "18g Ridged" basket
+- **AND** whose current shot was pulled with a Graph Coffee "Stepped 58→46mm" basket
+- **WHEN** the advisor assembles the current shot's message
+- **THEN** the changes line SHALL report the basket change, naming both baskets
+
+#### Scenario: Same equipment reports no equipment change
+
+- **GIVEN** consecutive shots on the same equipment package
+- **WHEN** the advisor assembles the current shot's message
+- **THEN** the changes line SHALL NOT mention equipment
+
+### Requirement: System prompt SHALL scope grind-setting comparability to one equipment set
+
+The shared espresso system prompt SHALL instruct the model that a numeric grind setting is
+comparable only among shots pulled on the same equipment set, and that a change of grinder,
+burrs or basket makes two settings incommensurable even on the same dial. When the model
+observes a setting that does not fit the ordering the rest of the history implies, it SHALL
+consider an equipment difference before concluding anything about the grinder's mechanism.
+
+This complements the existing rule that settings are never comparable across grinder models.
+
+#### Scenario: An out-of-order setting prompts an equipment question, not a mechanism theory
+
+- **GIVEN** a history where coarser settings produced lower peak pressure
+- **AND** a current shot at a numerically much coarser setting that produced higher peak
+  pressure and a longer shot
+- **WHEN** the model explains the discrepancy
+- **THEN** it SHALL consider a basket or grinder difference as a candidate explanation
+- **AND** SHALL NOT assert a change in the grinder's own calibration or burr alignment as
+  established fact
+
+### Requirement: System prompt SHALL forbid citing shots, scores or taste notes absent from context
+
+The shared system prompt SHALL instruct the model that it may cite only shots, enjoyment scores,
+taste notes and measurements that appear in the context it was given, and that inventing any of
+them is hallucination — the same discipline the prompt already imposes on the setpoints of
+profiles other than the current one. When the model wants an anchor the context does not
+contain, it SHALL say the data is not available rather than supplying a value.
+
+#### Scenario: The model does not invent a rated shot to anchor a recommendation
+
+- **GIVEN** a context whose shots carry no enjoyment score except the current shot's
+- **WHEN** the model recommends a change and wants to refer to a previously well-rated shot
+- **THEN** it SHALL NOT cite a score, taste description or shot that is not in the context
+- **AND** SHALL state that no rated prior shot is available
+
+#### Scenario: Scores present in context remain citable
+
+- **GIVEN** a context containing a prior shot with an enjoyment score and taste notes
+- **WHEN** the model refers to that shot
+- **THEN** it MAY cite that shot's score and notes as recorded

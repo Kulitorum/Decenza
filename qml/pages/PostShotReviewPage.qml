@@ -746,23 +746,39 @@ T.Page {
         _committedState = captureEditState()
     }
 
-    // Build a plain-JS clone of editShotData that carries every field the
-    // page still reads after a save. Object.assign({}, editShotData) on the
-    // Q_GADGET wrapper returned by shotReady() only copies own properties —
-    // but Q_PROPERTYs on the wrapper are exposed as accessors on the
-    // prototype, not as own properties of the instance, so Object.assign
-    // silently drops durationSec, pressure/flow/weight/... arrays, dateTime,
-    // profileName, debugLog, phases, badges, and every other read-only
-    // field. That broke the AI Advice / Discuss / Re-Upload button visibility (predicate
-    // `editShotData.durationSec > 0`), the graph, the badges row, the
-    // phase summary, and the bottom-bar context labels the moment the user
-    // made any edit. (The `_profileName`/`_visualizerId` caches in this file
-    // were added in #1241 as targeted band-aids for the same root cause.)
-    // Listing every field by name here works because direct dot access on a
-    // Q_GADGET wrapper is fine — it's only the implicit enumeration in
-    // Object.assign / spread that strips. Subsequent saves see `src` as the
-    // plain-JS clone produced by the previous call, which still has every
-    // key, so the chain holds.
+    // Build a plain-JS clone of editShotData that carries every field the page
+    // still reads after a save. Naming each field explicitly is what makes the
+    // clone total; a whitelist is only as complete as its list, so ANY field a
+    // reader needs must be added here (see `equipmentId` below, which was
+    // missing and silently un-scoped the AI advisor).
+    //
+    // WHY a whitelist rather than Object.assign is NOT settled, and the
+    // explanation that stood here was wrong. It claimed Q_PROPERTYs on the
+    // ShotProjection Q_GADGET wrapper "are exposed as accessors on the
+    // prototype, not as own properties", so `Object.assign` strips them. Qt
+    // does the opposite: QQmlValueTypeWrapperOwnPropertyKeyIterator::next
+    // walks `mo->propertyCount()` and returns every Q_PROPERTY as an own,
+    // enumerable key — only Q_INVOKABLE methods are skipped, and the source
+    // says so in as many words ("We don't return methods, ie. they are not
+    // visible when iterating", qtdeclarative/src/qml/qml/qqmlvaluetypewrapper
+    // .cpp:449). So Object.assign would have copied these fields.
+    //
+    // The SYMPTOMS the old comment lists were real (the AI Advice / Discuss /
+    // Re-Upload buttons vanishing on the `durationSec > 0` predicate, the
+    // graph, the badges row; the `_profileName`/`_visualizerId` caches in this
+    // file are #1241 band-aids for the same episode). Their cause is not
+    // established, and it is not the one that was written down. The whitelist
+    // is kept because it demonstrably works and re-litigating it needs the
+    // original repro, not because the mechanism above is understood.
+    //
+    // Do not propagate the prototype claim: it was copied into
+    // ShotDetailPage.qml on the strength of this comment alone and justified a
+    // change there that was a pure regression. An un-sourced claim in a comment
+    // gets believed and then licenses wrong code — which is exactly what
+    // happened here, twice.
+    //
+    // Subsequent saves see `src` as the plain-JS clone produced by the previous
+    // call, which still has every key, so the chain holds either way.
     function clonePersistedShot(src) {
         return {
             id: src.id, uuid: src.uuid, timestamp: src.timestamp,
@@ -813,7 +829,18 @@ T.Page {
             drinkEyPct: src.drinkEyPct, enjoyment0to100: src.enjoyment0to100,
             tasteBalance: src.tasteBalance, tasteBody: src.tasteBody,
             espressoNotes: src.espressoNotes, beverageType: src.beverageType,
-            beanBaseJson: src.beanBaseJson
+            beanBaseJson: src.beanBaseJson,
+            // Equipment package. equipmentId is what the AI advisor keys its
+            // conversation thread and scopes its shot history on, and the
+            // advisor is opened from a clone (see the openWithShot call below),
+            // so dropping it here silently un-scopes the advisor for every
+            // shot the user has edited. equipmentName and the basket/puck-prep
+            // mirrors ride along for the same reason as the editable fields
+            // above: a clone not followed by a saveEditedShot override would
+            // otherwise blank them.
+            equipmentId: src.equipmentId, equipmentName: src.equipmentName,
+            basketBrand: src.basketBrand, basketModel: src.basketModel,
+            puckPrep: src.puckPrep
         }
     }
 
@@ -2459,6 +2486,17 @@ T.Page {
                 // own intake). Hand the advisor the LIVE taste so its per-shot
                 // intake gate sees feedback the user already gave and doesn't
                 // re-ask "how did this shot taste?".
+                // equipmentId deliberately comes from editShotData (the DB
+                // snapshot) and is NOT overridden from editEquipmentId, unlike
+                // the taste fields just below. requestRecentShotContext scopes
+                // the history by reading the shot row from the database, so the
+                // conversation key must agree with what that read will find. If
+                // the user has re-pointed the package and the autosave has not
+                // landed, keying on the live field would put the thread on one
+                // package and its history on another — a mismatch of exactly the
+                // kind this whole change removes. Keying on the persisted value
+                // is consistent, and honest: until the edit is saved, the shot
+                // IS on the old package.
                 var shotForAdvisor = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
                 shotForAdvisor.tasteBalance = postShotReviewPage.editTasteBalance
                 shotForAdvisor.tasteBody = postShotReviewPage.editTasteBody

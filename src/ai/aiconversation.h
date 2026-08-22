@@ -270,12 +270,31 @@ public:
      * otherwise the in-app's next `saveToStorage` will overwrite the
      * just-written turn.
      */
+    /**
+     * `systemPrompt` is the prompt a later IN-APP turn should run under. It is
+     * stored only when the key has none yet, so appending to a thread the in-app
+     * advisor started leaves that thread's own prompt alone.
+     *
+     * Not defaulted, deliberately. A stored thread with no system prompt loads
+     * with history but an empty `m_systemPrompt`, and `followUp()` refuses it —
+     * "Please start a new conversation first" — so the user's only way forward
+     * in the app is Clear, which DELETES the turns written here. Pass an empty
+     * string only when that is the intended outcome (an MCP caller supplying its
+     * own one-off `systemPromptOverride`, which must not become the thread's
+     * durable prompt). Doing so is logged as a warning when the key has no
+     * prompt of its own — which is the case that strands the thread; appending
+     * an empty prompt to a key that already has one is silent and harmless.
+     *
+     * Note this is not necessarily the prompt the turn was GENERATED under —
+     * see the persist-vs-run distinction at the mcptools_ai.cpp call site.
+     */
     static void appendAssistantTurnForKey(
         const QString& storageKey,
         qint64 shotId,
         const QString& userPrompt,
         const QString& assistantResponse,
-        const std::optional<QJsonObject>& structuredNext);
+        const std::optional<QJsonObject>& structuredNext,
+        const QString& systemPrompt);
 
     /**
      * What importConversationsStatic did. Note the units differ: the first
@@ -290,6 +309,12 @@ public:
         int conversationsImported = 0;  // written to storage
         int turnsRemapped = 0;          // turn shotIds rewritten to a destination id
         int turnsCleared = 0;           // turn shotIds dropped, source shot not in the map
+        // Conversations restored under their SOURCE key because their equipment
+        // package could not be mapped. Readable in the list, but the app will
+        // never compute that key again, so opening the shot starts a fresh
+        // thread. Counted rather than logged-only because it is the one outcome
+        // a user can notice and a caller may want to report.
+        int conversationsUnkeyed = 0;
     };
 
     /**
@@ -329,12 +354,32 @@ public:
      * @param settings   open settings object to write through
      * @param conversations  the incoming array, as carried by the backup
      *                       archive or the migration endpoint
+     * A conversation's storage KEY is a hash of
+     * bean|type|profile|equipmentId, so a thread pulled on an equipment
+     * package carries the SOURCE device's package id inside its identity. That
+     * id is renumbered by the equipment import like every other package
+     * reference, which means an entry restored verbatim names a package this
+     * device may not have and — worse — sits under a key the app will never
+     * compute again, so opening that shot silently starts a fresh thread.
+     * `packageIdMap` closes that: the entry's `equipmentId` is remapped and the
+     * key is RECOMPUTED from the mapped id before anything is written, so the
+     * restored thread is the one the app finds. A packaged conversation with no
+     * map, or whose source package is absent from the map, is imported under
+     * its original key and counted in `conversationsUnkeyed` — it is still
+     * readable in the conversation list, it just will not be matched to a shot.
+     *
+     * @param settings   open settings object to write through
+     * @param conversations  the incoming array, as carried by the backup
+     *                       archive or the migration endpoint
      * @param shotIdMap  source->destination shot ids, or nullptr
+     * @param packageIdMap  source->destination equipment package ids, or
+     *                      nullptr when no equipment import accompanied these
      */
     static ImportTally importConversationsStatic(
         AppSettings& settings,
         const QJsonArray& conversations,
-        const QHash<qint64, qint64>* shotIdMap);
+        const QHash<qint64, qint64>* shotIdMap,
+        const QHash<qint64, qint64>* packageIdMap);
 
     /**
      * Drop `shotId` from every turn that names a shot the database does not
@@ -364,6 +409,13 @@ signals:
     void contextLabelChanged();
     void providerChanged();
     void savedConversationChanged();
+
+    // A thread was just WRITTEN to disk under this object's storage key.
+    // Distinct from savedConversationChanged(), which is the NOTIFY for
+    // hasSavedConversation and therefore also fires on load and on clear —
+    // states in which nothing was written and the live identity may not yet
+    // match the key. Only saveToStorage() emits this one.
+    void conversationPersisted();
 
 private slots:
     void onAnalysisComplete(const QString& response);

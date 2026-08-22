@@ -647,7 +647,8 @@ void DataMigrationClient::onAIConversationsReply()
                 // device does not have — keeping them is the bug.
                 const AIConversation::ImportTally tally =
                     AIConversation::importConversationsStatic(settings, doc.array(),
-                                                              m_shotImport.idMapOrNull());
+                                                              m_shotImport.idMapOrNull(),
+                                                              m_shotImport.packageMapOrNull());
                 m_aiConversationsImported += tally.conversationsImported;
 
                 if (tally.conversationsImported > 0 && m_aiManager)

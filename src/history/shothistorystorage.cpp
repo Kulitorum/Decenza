@@ -4245,7 +4245,10 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // their equipment_id to the new package ids (add-equipment-packages
             // task 2.8). Pre-equipment sources have no tables and yield an empty
             // map — bags/shots then null their equipment_id, same as before.
-            QHash<qint64, qint64> packageIdMap;
+            // Held on the tally, not just locally: AI conversations are keyed
+            // on the SOURCE device's package id and are remapped by their own
+            // importer, outside this function.
+            QHash<qint64, qint64>& packageIdMap = tally.packageIdMap;
             if (!EquipmentStorage::importEquipmentStatic(srcDb, destDb, merge, packageIdMap)) {
             EQUIP_WARN_STDERR("Import", QStringLiteral("database import failed - equipment packages not imported"));
                 destDb.rollback();
@@ -4808,8 +4811,10 @@ cleanup:
     // A failed import's map names ids that do not exist. Clearing it here makes
     // every caller correct by construction, whichever way each phrases its own
     // "do we have a map" test. Counts are kept — they are diagnostic and true.
-    if (!result)
+    if (!result) {
         tally.shotIdMap.clear();
+        tally.packageIdMap.clear();
+    }
     if (outResult)
         *outResult = tally;
     return result;

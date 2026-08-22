@@ -25,6 +25,8 @@
 #include <QThread>
 #include <QTimer>
 
+#include <optional>
+
 // Hard cap on a single advisor call, sized to outlast the slowest
 // provider's own timeout so the MCP caller always gets a clean reply
 // from us rather than a dangling promise. Cloud providers cap at 60s
@@ -141,17 +143,30 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     shot = ShotHistoryStorage::convertShotRecord(record);
 
                     if (shot.isValid()) {
+                        // The shot record is loaded and valid, and carries this
+                        // shot's package. 0 = unpackaged, a real bucket.
+                        //
+                        // Three of the four builders below take this exact
+                        // value; `buildGrinderCalibrationBlock` is the one
+                        // exception and re-reads the row itself via
+                        // loadShotRecordStatic, because it needs the whole
+                        // record and not just the bucket. Same connection, same
+                        // row. (An earlier draft claimed "no second lookup"
+                        // while THREE builders still resolved their own.)
+                        const qint64 equipmentBucket = shot.equipmentId;
+
                         // Same dialing-context blocks the in-app advisor
                         // ships, produced by the same shared helpers so
                         // the userPromptUsed echo is byte-equivalent
                         // across surfaces. See openspec
                         // add-dialing-blocks-to-advisor.
                         dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                            db, shot.profileKbId, resolvedShotId, 5);
+                            db, shot.profileKbId, resolvedShotId, 5, equipmentBucket);
                         bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
                             db, shot.profileKbId, resolvedShotId, shot);
                         grinderContext = DialingBlocks::buildGrinderContextBlock(
-                            db, shot.grinderModel, shot.beverageType, shot.beanBrand);
+                            db, shot.grinderModel, shot.beverageType, shot.beanBrand,
+                            equipmentBucket);
                         grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
                             db, shot.grinderModel, shot.grinderBurrs,
                             shot.beverageType, resolvedShotId);
@@ -163,7 +178,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // byte-equivalent recentAdvice for the same shot.
                         if (!shot.profileKbId.isEmpty()) {
                             const QString convKey = AIManager::conversationKey(
-                                shot.beanBrand, shot.beanType, shot.profileName);
+                                shot.beanBrand, shot.beanType, shot.profileName,
+                                equipmentBucket);
                             const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
                             if (!turns.isEmpty()) {
                                 DialingBlocks::RecentAdviceInputs in;
@@ -202,18 +218,52 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         return;
                     }
 
-                    QString systemPrompt;
-                    if (!systemPromptOverride.isEmpty()) {
-                        systemPrompt = systemPromptOverride;
-                    } else {
-                        const QString bevType = shot.beverageType.isEmpty()
-                            ? QStringLiteral("espresso") : shot.beverageType;
-                        QString profileType;
-                        if (!shot.profileJson.isEmpty()) {
-                            const QJsonObject pj = QJsonDocument::fromJson(shot.profileJson.toUtf8()).object();
-                            profileType = pj.value("type").toString();
-                        }
+                    const QString bevType = shot.beverageType.isEmpty()
+                        ? QStringLiteral("espresso") : shot.beverageType;
+                    QString profileType;
+                    if (!shot.profileJson.isEmpty()) {
+                        const QJsonObject pj = QJsonDocument::fromJson(shot.profileJson.toUtf8()).object();
+                        profileType = pj.value("type").toString();
+                    }
+
+                    QString systemPrompt = systemPromptOverride;
+                    if (systemPrompt.isEmpty()) {
                         systemPrompt = ShotSummarizer::shotAnalysisSystemPrompt(
+                            bevType, shot.profileName, profileType, shot.profileKbId);
+                    }
+
+                    // What gets PERSISTED with the turn, which is a different
+                    // question from what this call runs under. It is always the
+                    // multi-shot prompt, never `systemPrompt`, for two reasons
+                    // that pull the same way:
+                    //
+                    //  - `systemPromptOverride` is an arbitrary caller-supplied
+                    //    MCP argument. Persisting it would make it the durable
+                    //    system prompt for every later IN-APP turn on this
+                    //    thread — a prompt the user never chose, cannot see
+                    //    anywhere in the UI, and can only clear by deleting the
+                    //    conversation. An override stays scoped to its own call.
+                    //  - `shotAnalysisSystemPrompt` is the SINGLE-shot prompt.
+                    //    The in-app advisor runs threads under
+                    //    `multiShotSystemPrompt` (that prompt plus a Multi-Shot
+                    //    Context section). Since the thread now loads with
+                    //    history, the overlay takes the followUp() branch for the
+                    //    rest of its life and never calls ask(), so whatever is
+                    //    stored here is what it keeps. Storing the single-shot
+                    //    prompt would silently narrow the thread — the exact harm
+                    //    the write-if-absent rule was meant to prevent, arriving
+                    //    from the other direction.
+                    //
+                    // What it must NOT be is empty. An override used to suppress
+                    // this, which left the thread with turns and no stored prompt
+                    // — visible in the app, and refusing every follow-up with
+                    // "Please start a new conversation first", with Clear (which
+                    // deletes the turns) as the only way out. The override governs
+                    // this call; it says nothing about what the thread should be
+                    // continuable under.
+                    QString promptToPersist;
+                    if (aiLive->conversation()) {
+                        promptToPersist = aiLive->conversation()->multiShotSystemPrompt(
                             bevType, shot.profileName, profileType, shot.profileKbId);
                     }
 
@@ -315,7 +365,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     };
 
                     state->successConn = QObject::connect(aiLive, &AIManager::recommendationReceived,
-                        aiLive, [finalize, aiPtrInner, shot, resolvedShotId, userPrompt](
+                        aiLive, [finalize, aiPtrInner, shot, resolvedShotId, userPrompt,
+                                 promptToPersist](
                                 const QString& response) {
                             // Surface the trailing structured `nextShot`
                             // block (issue #1054) as a top-level field
@@ -342,13 +393,26 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             // bean or no profile name): conversationKey
                             // would still hash to something, but using
                             // it as an attribution anchor is unsafe.
+                            //
+                            // Same `shot.equipmentId` the read side above keys
+                            // on. Write and read MUST stay on the same value or
+                            // a turn is filed under a key nothing later reads.
                             if (!shot.beanBrand.isEmpty()
                                 && !shot.profileName.isEmpty()) {
                                 const QString convKey = AIManager::conversationKey(
-                                    shot.beanBrand, shot.beanType, shot.profileName);
+                                    shot.beanBrand, shot.beanType, shot.profileName,
+                                    shot.equipmentId);
+                                // The system prompt rides along so the user can
+                                // CONTINUE this thread in the app. Without it
+                                // followUp() refuses the thread outright and the
+                                // only way forward is Clear, which deletes these
+                                // turns — see appendAssistantTurnForKey. This is
+                                // always the multi-shot prompt, never a caller's
+                                // `systemPromptOverride`; empty only when there
+                                // is no live AIConversation to build it from.
                                 AIConversation::appendAssistantTurnForKey(
                                     convKey, resolvedShotId,
-                                    userPrompt, response, structured);
+                                    userPrompt, response, structured, promptToPersist);
                                 // Keep the live in-app conversation in
                                 // sync if it has the same key loaded —
                                 // otherwise its next saveToStorage will

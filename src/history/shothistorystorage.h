@@ -5,6 +5,8 @@
 
 #include <QObject>
 #include <QSqlDatabase>
+
+#include <optional>
 #include <QHash>
 #include <QSet>
 #include <QVariantList>
@@ -140,9 +142,69 @@ public:
     // Returns summary data (not full time-series) for dial-in history queries.
     Q_INVOKABLE void requestRecentShotsByKbId(const QString& kbId, int limit = 10);
 
+    // An equipment package forks — or merges into an existing one — when the
+    // grinder brand/model/burrs, the basket, or the puck-prep set changes on a
+    // package that already has shots (EquipmentStorage::supersedeOrEditStatic).
+    // An unused package is edited in place, as is one whose every differing
+    // component was previously empty (enrichment) — EXCEPT a grinder-less
+    // package gaining a grinder, which forks, and except an enrichment whose
+    // result matches a package already in the inventory, which merges into it.
+    // So `shots.equipment_id` answers the grinder, basket and prep questions at
+    // once, and a user who re-points a used package gets a DIFFERENT bucket from
+    // that point on — the shots already recorded stay on the old id either way,
+    // which is what the advisor's equipment scoping relies on.
+    //
+    // There is deliberately NO shot-id-to-bucket helper. One existed, returning
+    // std::optional<qint64> with nullopt covering both "no such shot" and "the
+    // query failed" — two causes callers could not tell apart and could only
+    // answer by picking a degradation policy. Two call sites two lines apart
+    // picked opposite policies, which is the defect that removed it. Every
+    // caller now takes the bucket off a ShotRecord/ShotProjection it has already
+    // loaded (`equipmentId`, 0 = unpackaged) and hands it to
+    // `equipmentBucketSql()`, so there is one read and no unresolved case.
+
+    // SQL predicate matching a shot row against an equipment bucket. COALESCE on
+    // BOTH sides is load-bearing: SQL `NULL = NULL` is not true, so a bare
+    // `equipment_id = ?` silently drops every unpackaged shot instead of
+    // matching it. Bucket 0 holds all unpackaged shots, so a user who has never
+    // created a package matches their whole history and the filter is a no-op
+    // for them. Same idiom as the history-cards grouping in
+    // shothistorystorage_queries.cpp.
+    // `column` lets a caller qualify the table alias (e.g. "s.equipment_id").
+    // `placeholder` defaults to a POSITIONAL bind and exists because Qt will not
+    // mix positional and named binds in one statement. The mechanism is the
+    // shared value array, not a mode flag: `savePrepare` sizes `d->values` to
+    // the NAMED holder count (qtbase/src/sql/kernel/qsqlresult.cpp:145) while
+    // `bindValue(int)` writes `d->values[index]` directly (:690), so a
+    // positional bind appended to a ":model"/":bev" statement overwrites the
+    // named value at that ordinal and leaves `values.size()` short of the
+    // statement's parameter count. The SQLite driver then reports "Parameter
+    // count mismatch" and exec() returns false
+    // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:459-460,566-568).
+    // A query already using named holders must therefore pass a named
+    // placeholder here (e.g. ":equip").
+    //
+    // An earlier version of this comment blamed `QSqlResultPrivate::binds`,
+    // "one mode flag [where] the last bindValue wins". That flag is read only
+    // by QSqlResult::exec()'s fallback for drivers without PreparedQueries
+    // (:637) and by bindingSyntax() (:830) — QSQLiteResult overrides exec() and
+    // consults neither, so it is dead code on this driver. The same version
+    // claimed the mix can be silent when the counts coincide; that needs a
+    // REUSED named holder for sqlite to collapse, which is not a shape written
+    // here, so treat mixing as loud until someone demonstrates otherwise.
+    static QString equipmentBucketSql(const QString& column = QStringLiteral("equipment_id"),
+                                      const QString& placeholder = QStringLiteral("?"));
+
     // Query recent shots by KB ID (summary data, no time-series).
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
-    static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1);
+    //
+    // `equipmentBucket` scopes the result to one equipment package (see
+    // `equipmentBucketForShot`). Absent = no equipment scoping, preserving this
+    // loader's original behaviour for callers with no same-gear contract. The
+    // advisor's dialInSessions path passes one whenever the bucket resolves,
+    // which in production is whenever the query succeeds.
+    static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1,
+                                                    std::optional<qint64> equipmentBucket = std::nullopt);
 
     // Async: profiles used with a bean, for the recipe wizard's ranked profile
     // step (add-recipe-wizard-tea). Emits rankedProfilesForBeanReady() with
@@ -229,9 +291,25 @@ public:
     // the `dialing_get_context` tool calls this twice and surfaces a
     // separate `allBeansSettings` field). Do not collapse that fallback
     // into this function — a future caller may want bean-scoped only.
+    //
+    // `equipmentBucket` scopes the observed settings to one equipment package.
+    // This list is what the advisor uses to judge whether a proposed setting is
+    // plausible for the user's grinder, so pooling across packages presents two
+    // baskets' dials as one continuous range and a setting that is absurd on one
+    // reads as reasonable. `equipmentBucket` is required and 0 (unpackaged) is a
+    // real, matching bucket — there is no "don't scope" option, because the one
+    // that existed pooled every package the user owns and published the result
+    // as a single observed range.
+    //
+    // `stepSize` and `rpmStepSize` are NOT equipment-scoped even when a bucket
+    // is given: they are the grinder's mechanical resolution, unchanged by a
+    // basket swap, and are derived grinder-model-wide so they keep matching the
+    // grind widget. Only `settingsObserved`, `allNumeric`, `min/maxSetting`,
+    // `rpmsObserved` and `rpm{Min,Max}` narrow to the package.
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel,
                                               const QString& beverageType,
-                                              const QString& beanBrand = QString());
+                                              const QString& beanBrand,
+                                              qint64 equipmentBucket);
 
     // Convert ShotRecord to a typed ShotProjection (shared by requestShot,
     // ShotServer, AIManager, MCP). Returns a default-constructed ShotProjection
@@ -467,6 +545,14 @@ public:
     // "N imported, 0 skipped, 0 failed".
     struct ImportResult {
         QHash<qint64, qint64> shotIdMap;
+        // source->destination EQUIPMENT PACKAGE ids. Same contract as
+        // shotIdMap and for the same reason: package row ids are renumbered on
+        // insert, so anything outside the shots table that names one has to be
+        // remapped through this. Shots, bags and recipes are remapped inside
+        // importDatabaseStatic; AI conversations cannot be, because their
+        // identity is a hash of the SOURCE package id held in a QSettings key —
+        // so the map has to come back out to them.
+        QHash<qint64, qint64> packageIdMap;
         // Destination row count before the import. MERGE MODE ONLY — replace
         // mode never reads it, so 0 there means "not measured", not "empty".
         std::optional<int> destShotsBefore;
@@ -493,6 +579,16 @@ public:
         // and skip the conversation import entirely — see the note there.
         const QHash<qint64, qint64>* idMapOrNull() const {
             return shotIdMap.isEmpty() ? nullptr : &shotIdMap;
+        }
+
+        // The map to hand AIConversation::importConversationsStatic for the
+        // equipment package, or nullptr meaning "no package import accompanied
+        // these conversations". Empty is the normal case for a pre-equipment
+        // source, and nullptr is the right answer there: there is nothing to
+        // remap TO, and a conversation keyed on a source package id is simply
+        // not resumable on this device.
+        const QHash<qint64, qint64>* packageMapOrNull() const {
+            return packageIdMap.isEmpty() ? nullptr : &packageIdMap;
         }
     };
 

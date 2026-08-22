@@ -34,6 +34,11 @@ Rectangle {
     property string savedBeanBrand: ""
     property string savedBeanType: ""
     property string savedProfileName: ""
+    // Equipment package of the shot this overlay opened on. Part of the
+    // conversation key, so every switchConversation() call in this file must
+    // pass the SAME value — a second call defaulting to 0 would silently open a
+    // different thread and split the conversation in half.
+    property var savedEquipmentId: 0
 
     // Tap-only taste intake (add-ai-taste-intake): shown as a first-open gate over
     // the conversation when Settings.ai.tasteIntakeOnAsk is on, this shot hasn't
@@ -153,11 +158,26 @@ Rectangle {
             return
         }
 
-        // Switch to the right conversation for this bean+profile
+        // Two different "no package" sentinels reach this call: C++ shot
+        // records use 0 (shothistory_types.h:64) while PostShotReviewPage's
+        // edit fields use -1 (PostShotReviewPage.qml:366), and a saved edit
+        // writes the -1 back into the shot object. Both store as SQL NULL
+        // (shothistorystorage.cpp coerces <= 0 to QVariant()), which
+        // COALESCE(equipment_id, 0) then reads back as bucket 0 — so a leaked
+        // -1 would hash a THIRD conversation key for a shot the database says
+        // is in bucket 0. The hash is the hazard; it happens before the index
+        // entry is ever serialised.
+        var equipmentId = shotData.equipmentId > 0 ? shotData.equipmentId : 0
+
+        // Switch to the right conversation for this bean+profile+equipment.
+        // The equipment package is part of the thread identity: a saved
+        // conversation replays its turns to the model, so a thread spanning two
+        // baskets keeps feeding it shots from gear the user has moved off.
         MainController.aiManager.switchConversation(
             beanBrand || "",
             beanType || "",
-            profileName || ""
+            profileName || "",
+            equipmentId
         )
 
         // Fetch recent shot history as context on a background thread.
@@ -165,6 +185,7 @@ Rectangle {
         overlay.savedBeanBrand = beanBrand || ""
         overlay.savedBeanType = beanType || ""
         overlay.savedProfileName = profileName || ""
+        overlay.savedEquipmentId = equipmentId
         overlay.historicalContext = ""
         overlay.contextLoading = true
         MainController.aiManager.requestRecentShotContext(
@@ -720,7 +741,8 @@ Rectangle {
                                 MainController.aiManager.switchConversation(
                                     overlay.savedBeanBrand || "",
                                     overlay.savedBeanType || "",
-                                    overlay.savedProfileName || ""
+                                    overlay.savedProfileName || "",
+                                    overlay.savedEquipmentId
                                 )
                                 var bevType = (overlay.beverageType || "espresso").toLowerCase()
                                 var systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedProfileName)

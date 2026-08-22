@@ -423,6 +423,13 @@ QJsonArray ShotServer::serializeAIConversations() const
         conv["systemPrompt"] = settings.value(prefix + "systemPrompt").toString();
         conv["contextLabel"] = settings.value(prefix + "contextLabel").toString();
         conv["indexTimestamp"] = entry.timestamp;
+        // The equipment package the thread is keyed on. Sparse like
+        // ConversationEntry::toJson — absent means "no package", which
+        // fromJson reads back as 0. Without it a restored thread's index entry
+        // claims equipmentId 0 while its key was hashed on a real package, so
+        // the entry and the key it addresses disagree about which gear the
+        // conversation is about.
+        if (entry.equipmentId > 0) conv["equipmentId"] = entry.equipmentId;
 
         QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
         if (!messagesJson.isEmpty()) {
@@ -1226,7 +1233,8 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     const AIConversation::ImportTally tally =
                         AIConversation::importConversationsStatic(
                             settings, pendingConversations,
-                            success ? shotImport.idMapOrNull() : nullptr);
+                            success ? shotImport.idMapOrNull() : nullptr,
+                            success ? shotImport.packageMapOrNull() : nullptr);
                     aiConversationsImported += tally.conversationsImported;
                     if (tally.conversationsImported > 0) {
                         settings.sync();
@@ -1286,7 +1294,8 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
     if (!pendingConversations.isEmpty() && m_aiManager) {
         AppSettings settings;
         const AIConversation::ImportTally tally =
-            AIConversation::importConversationsStatic(settings, pendingConversations, nullptr);
+            AIConversation::importConversationsStatic(settings, pendingConversations,
+                                                      nullptr, nullptr);
         aiConversationsImported += tally.conversationsImported;
         if (tally.conversationsImported > 0) {
             settings.sync();

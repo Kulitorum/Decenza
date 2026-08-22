@@ -13,6 +13,8 @@
 #include <QString>
 #include <QtGlobal>
 
+#include <optional>
+
 class QSqlDatabase;
 class Settings;
 class ProfileManager;
@@ -143,10 +145,17 @@ inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped
 // QJsonArray; the array is empty when the profile has no prior shots.
+// Scoped to `equipmentBucket`: shots on other gear make different coffee at
+// the same dial, so pooling them teaches a grind ordering that does not exist.
+// 0 is a real, matching bucket holding every unpackaged shot, so the scoping is
+// a no-op for a user with no packages rather than a filter to be skipped. The
+// caller supplies it from the shot record it has already loaded — there is no
+// unresolved case and nothing to pick a degradation policy for.
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
                                     qint64 resolvedShotId,
-                                    int historyLimit);
+                                    int historyLimit,
+                                    qint64 equipmentBucket);
 
 // Highest-rated past shot on the same profile within the last
 // `kBestRecentShotWindowDays`, with a `changeFromBest` diff against
@@ -161,10 +170,14 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
 // Observed grinder settings range, step size, burr-swappable flag, with
 // bean-scoped → cross-bean fallback. Returns an empty `QJsonObject`
 // when `grinderModel` is empty OR when both queries return no rows.
+// `equipmentBucket` scopes the observed settings to one equipment package;
+// 0 means "unpackaged", which is a real bucket and not a null. The cross-bean
+// fallback widens the bean only — never the equipment.
 QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
                                      const QString& grinderModel,
                                      const QString& beverageType,
-                                     const QString& beanBrand);
+                                     const QString& beanBrand,
+                                     qint64 equipmentBucket);
 
 // `currentBean` block for the resolved shot. Bean / grinder / dose /
 // roastDate fields come from the shot's saved metadata only — never
@@ -366,12 +379,24 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 // `"directional"`. `resolvedShotId` IS used — it supplies the current
 // roast batch and current-profile UGS.
 //
+// The mined pool is scoped to the resolved shot's own equipment PACKAGE, not
+// to every package sharing a grinder model + burrs: endpoint medians are
+// pooled before any pair is formed, so two baskets on one grinder would
+// corrupt the endpoints and the anchor together. The package is taken from the
+// shot record this function already loads, so the scoping is unconditional —
+// there is no path on which it is skipped.
+//
 // Returns an empty `QJsonObject` (caller suppresses the key) when:
 //   - `grinderModel` is empty, OR
 //   - `beverageType` is filter / pourover, OR
 //   - the resolved shot is invalid, OR
-//   - there are no dialed-in shots on this grinder + burrs.
+//   - there are no dialed-in shots in that equipment package.
 // Otherwise the block is always present (directional at minimum).
+//
+// `grinderBurrs` is diagnostic only: it selects nothing (the package does
+// that) and reaches no output field — it appears in log lines so a submitted
+// log names the gear the caller asked about. `grinderModel` by contrast picks
+// the setting notation via `GrinderAliases::findEntryByAlias`.
 //
 // Background-thread / DB-owning: must be called from the same thread that
 // owns `db` (same tier as `buildGrinderContextBlock`).
@@ -454,9 +479,10 @@ struct RecentAdviceInputs {
 };
 
 // Build the recentAdvice array. For each input turn (in order) tries to
-// pair it with the user's actual follow-up shot on the same profile and
-// computes adherence + outcomeInPredictedRange + outcomeRating0to100 attribution.
-// Turns that don't qualify (cross-profile, no follow-up shot yet) are
+// pair it with the user's actual follow-up shot on the same profile AND the
+// same equipment package as the turn's own shot, and computes adherence +
+// outcomeInPredictedRange + outcomeRating0to100 attribution. Turns that don't
+// qualify (cross-profile, cross-package, no follow-up shot yet) are
 // skipped without consuming a turnsAgo slot. Returns an empty array when
 // no entries qualify; caller MUST suppress the `recentAdvice` key in
 // that case (no `recentAdvice: []` placeholders).

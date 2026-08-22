@@ -27,13 +27,21 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QJsonDocument>
+#include <QCryptographicHash>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSettings>
 #include <QSqlDatabase>
 #include <QDate>
 
+#include <QSqlError>
+#include <QSqlQuery>
+#include <QTemporaryDir>
+#include <QFile>
+
 #include "ai/aimanager.h"
+#include "history/shothistorystorage.h"
+#include "shotrowfixtures.h"
 #include "mcp/mcpagentdocs.h"
 #include "ai/aiconversation.h"
 #include "core/settings.h"
@@ -132,6 +140,11 @@ class tst_AIManager : public QObject {
     Q_OBJECT
 
 private:
+    // Schema template + scratch dir for the one DB-backed test in this file
+    // (loadQualifiedShots). Built once in initTestCase and copied per use.
+    QTemporaryDir m_tempDir;
+    QString m_templateDbPath;
+
     // `ai_conversations` dispatches on `action`, and a merged tool always goes
     // through the async path even when the verb it selects is synchronous.
     static QJsonObject callConversations(McpToolRegistry& registry, const QJsonObject& args,
@@ -336,6 +349,722 @@ private slots:
         // Isolate the conversation index from the real user dir so loading /
         // saving doesn't mutate state outside the test.
         QStandardPaths::setTestModeEnabled(true);
+
+        // Schema template for the one DB-backed test below. Built once and
+        // copied, the same way tst_dialing_blocks does it, so the migration
+        // chain runs once for the whole file rather than per test.
+        QVERIFY(m_tempDir.isValid());
+        m_templateDbPath = m_tempDir.path() + QStringLiteral("/aimanager_template.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_templateDbPath));
+        storage.close();
+    }
+
+    // The in-app advisor's own history query is scoped to the current shot's
+    // equipment package. `AIManager::loadQualifiedShots` is what fills the
+    // "Previous Shots with This Bean & Profile" section, and before the scoping
+    // landed it matched on bean + profile + a 21-day window alone. It is the one
+    // selection point not reachable through DialingBlocks, so nothing else in
+    // the suite covers it — but note this is backfill for the commit that
+    // introduced the scoping, not coverage of the review fixes on top of it.
+    void loadQualifiedShots_scopesHistoryToTheShotsEquipmentPackage()
+    {
+        using namespace ShotRowFixtures;
+        const QString dbPath = m_tempDir.path() + QStringLiteral("/qualified.db");
+        QVERIFY(QFile::copy(m_templateDbPath, dbPath));
+        // Copy any WAL/SHM sidecars so the schema copy is complete even if the
+        // template was not fully checkpointed on close.
+        for (const QString& suffix : {QStringLiteral("-wal"), QStringLiteral("-shm")}) {
+            if (QFile::exists(m_templateDbPath + suffix))
+                QVERIFY(QFile::copy(m_templateDbPath + suffix, dbPath + suffix));
+        }
+
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+        const qint64 nowTs = QDateTime::currentSecsSinceEpoch();
+
+        qint64 currentId = 0;
+        withRawDb(dbPath, QStringLiteral("ai_qualified"), [&](QSqlDatabase& db) {
+            auto seed = [&](const QString& uuid, qint64 ts, const QString& setting,
+                            const QString& basketModel) {
+                return insertShot(db, ShotRow{
+                    .uuid = uuid, .timestamp = ts,
+                    .profileName = profile,
+                    .duration = 30.0, .finalWeight = 36.0,
+                    .beanBrand = bean, .beanType = type,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .basketBrand = QStringLiteral("Decent"),
+                    .basketModel = basketModel,
+                    .grinderSetting = setting });
+            };
+            // Same bean, same profile, same window — only the basket differs.
+            QVERIFY(seed(QStringLiteral("own-prior"), nowTs - 7200,
+                         QStringLiteral("9.75"), QStringLiteral("18g Ridged")) > 0);
+            QVERIFY(seed(QStringLiteral("other-basket"), nowTs - 3600,
+                         QStringLiteral("17"), QStringLiteral("Stepped 58-46mm")) > 0);
+            currentId = seed(QStringLiteral("current"), nowTs,
+                             QStringLiteral("9.75"), QStringLiteral("18g Ridged"));
+            QVERIFY(currentId > 0);
+        });
+
+        const auto qualified = AIManager::loadQualifiedShots(
+            dbPath, bean, type, profile, static_cast<int>(currentId));
+
+        QStringList settings;
+        for (const auto& pair : qualified)
+            settings << pair.second.grinderSetting;
+        QCOMPARE(settings.size(), 1);
+        QVERIFY2(settings.contains(QStringLiteral("9.75")),
+                 "the same package's prior shot must remain in the history");
+        QVERIFY2(!settings.contains(QStringLiteral("17")),
+                 "a shot on another basket must not reach the advisor's history");
+    }
+
+    // The one-time wipe that makes "a clean conversation after upgrading" true.
+    // The equipment-keyed conversationKey alone does not deliver it:
+    // loadMostRecentConversation() restores whatever the index says is newest
+    // BY KEY, with no bean/profile/equipment lookup that could fail to match, so
+    // without this a pre-upgrade thread comes back at startup carrying the
+    // two-basket history the rest of this change removes.
+    void construction_wipesConversationsOnceForEquipmentScoping()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        // Spend the OLDER migration's marker first. Without this the test cannot
+        // fail: settings.clear() drops every marker, so the pre-existing
+        // grinder_calibration_v1.7.2 wipe fires on the first construction and
+        // empties ai/conversations by itself — the assertions below then pass
+        // with the line they exist to cover deleted. Confirmed from a suite log,
+        // which showed BOTH migrations firing inside this test.
+        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
+
+        const QString key = AIManager::conversationKey(
+            QStringLiteral("Sweet Bloom Coffee"), QStringLiteral("Hometown Blend"),
+            QStringLiteral("D-Flow / Q"), 7);
+        QJsonObject structured;
+        structured[QStringLiteral("grinderSetting")] = QStringLiteral("10.5");
+        AIConversation::appendAssistantTurnForKey(
+            key, 111, QStringLiteral("old user turn"),
+            QStringLiteral("old assistant turn"), structured, QStringLiteral("sys"));
+        QCOMPARE(AIConversation::loadRecentAssistantTurnsForKey(key, 3).size(), 1);
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        {
+            AIManager first(&nam, &appSettings);
+            Q_UNUSED(first)
+        }
+        QVERIFY2(AIConversation::loadRecentAssistantTurnsForKey(key, 3).isEmpty(),
+                 "the first construction after upgrading must clear stored conversations");
+        QVERIFY2(settings.value(
+                     QStringLiteral("ai/migrations/equipment_scoped_conversations_v1")).toBool(),
+                 "...and it must be THIS migration that ran, not the older one");
+
+        // ...and exactly once. A wipe that fired on every launch would delete
+        // the user's live thread every time they opened the app, which is a far
+        // worse bug than the one it fixes and would not show up in the assertion
+        // above.
+        AIConversation::appendAssistantTurnForKey(
+            key, 222, QStringLiteral("post-migration user turn"),
+            QStringLiteral("post-migration assistant turn"), structured, QStringLiteral("sys"));
+        {
+            AIManager second(&nam, &appSettings);
+            Q_UNUSED(second)
+        }
+        QCOMPARE(AIConversation::loadRecentAssistantTurnsForKey(key, 3).size(), 1);
+
+        settings.clear();
+    }
+
+    // The wipe must also take the PRE-KEYED singular keys. migrateFromLegacyConversation()
+    // runs right after it and fires when legacy data exists and the index is
+    // empty — which the wipe itself makes true — re-creating a `_legacy` entry
+    // pointing at the one thread that spans every bean, profile and equipment
+    // package the user ever had, which loadMostRecentConversation() then
+    // restores. A wipe that hands back the most cross-contaminated thread in
+    // the store is worse than no wipe.
+    void construction_wipeAlsoRemovesTheLegacyThread()
+    {
+        AppSettings settings;
+        settings.clear();
+        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
+
+        // Pre-keyed storage: one global conversation, no index.
+        settings.setValue(QStringLiteral("ai/conversation/messages"),
+                          QJsonDocument(QJsonArray{
+                              QJsonObject{{"role", "user"}, {"content", "old global turn"}},
+                              QJsonObject{{"role", "assistant"}, {"content", "old global reply"}}
+                          }).toJson(QJsonDocument::Compact));
+        settings.setValue(QStringLiteral("ai/conversation/timestamp"),
+                          QDateTime::currentDateTime().toString(Qt::ISODate));
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        {
+            AIManager mgr(&nam, &appSettings);
+            QVERIFY2(mgr.m_conversationIndex.isEmpty(),
+                     "the legacy thread must not be re-seeded into the index by the wipe");
+            QVERIFY2(mgr.conversation()->storageKey().isEmpty(),
+                     "and nothing must be restored as the live conversation");
+        }
+        QVERIFY2(settings.value(QStringLiteral("ai/conversation/messages")).toByteArray().isEmpty(),
+                 "the legacy keys must be gone, or the migration re-seeds the one thread that "
+                 "spans every bean, profile and package the user has ever had");
+
+        settings.clear();
+    }
+
+    // Clear removes the index entry but leaves the live conversation on that
+    // key, so a thread written afterwards is named by no index entry: invisible
+    // to the conversation list and to loadMostRecentConversation(), and never
+    // evicted, because evictOldestConversation() only walks the index. Found on
+    // the running app — after Clear, `ai/conversations/index` stayed `[]` while
+    // the thread sat on disk under its key.
+    //
+    // The entry is created when the thread is WRITTEN, not when its key is
+    // selected. Indexing at selection time also "fixes" this, and manufactures
+    // ghosts — see clearThenReopenWithoutSending_createsNoGhostEntry below.
+    void clearThenWrite_putsTheConversationBackInTheIndex()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        const QString key = mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
+        QVERIFY2(mgr.m_conversationIndex.isEmpty(),
+                 "selecting a key with nothing on disk must not index it");
+
+        // Give it a thread the honest way, so there is something for Clear to
+        // drop and something for the re-index to find.
+        AIConversation::appendAssistantTurnForKey(
+            key, 41, QStringLiteral("u0"), QStringLiteral("a0"), std::nullopt,
+            QStringLiteral("sys"));
+        mgr.conversation()->loadFromStorage();
+        mgr.conversation()->saveToStorage();
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+
+        mgr.clearCurrentConversation();
+        QCOMPARE(mgr.m_conversationIndex.size(), 0);
+        // The live conversation is still ON that key — that is the whole trap.
+        QCOMPARE(mgr.conversation()->storageKey(), key);
+
+        // The user keeps talking about the same shot: a turn lands on the key.
+        AIConversation::appendAssistantTurnForKey(
+            key, 42, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+            QStringLiteral("sys"));
+        mgr.conversation()->loadFromStorage();
+        mgr.conversation()->saveToStorage();
+
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().key, key);
+        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 7);
+        QVERIFY2(mgr.m_conversationIndex.first().beanBrand == bean,
+                 "the re-created entry must carry the identity, not just the key — "
+                 "the conversation list shows these fields");
+        // On disk too: the leak was observed in the persisted index, and an
+        // in-memory-only assertion passes with saveConversationIndex() deleted.
+        // Assert the key is PRESENT rather than that "[]" is absent — an absent
+        // settings key is an empty QByteArray, which contains no "[]" either, so
+        // the negative form passed even when nothing was written at all.
+        QVERIFY2(settings.value(QStringLiteral("ai/conversations/index"))
+                      .toByteArray().contains(key.toUtf8()),
+                 "the index must be persisted, not just updated in memory");
+
+        settings.clear();
+    }
+
+    // A thread the MCP ai_advisor_invoke path wrote lives in QSettings with no
+    // index entry — the in-app index never sees appendAssistantTurnForKey. The
+    // first time the app switches to it, it must be indexed under ITS OWN shot.
+    // It was not: switchConversation set the live identity AFTER loadFromStorage(),
+    // whose emit did the indexing, so the entry was stamped with whichever
+    // conversation was open before — permanently, because the corrected call two
+    // lines later only touches an entry that already exists.
+    void switchToAnMcpWrittenThread_indexesItUnderItsOwnShot()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        // Thread A is live and has real content.
+        const QString keyA = mgr.switchConversation(
+            QStringLiteral("Sweet Bloom Coffee"), QStringLiteral("Hometown Blend"),
+            QStringLiteral("D-Flow / Q"), /*equipmentId=*/7);
+        AIConversation::appendAssistantTurnForKey(
+            keyA, 1, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+            QStringLiteral("sys"));
+        mgr.conversation()->loadFromStorage();
+        mgr.conversation()->saveToStorage();
+
+        // Thread B was written over MCP: on disk, absent from the index.
+        const QString beanB = QStringLiteral("Onyx Coffee Lab");
+        const QString typeB = QStringLiteral("Southern Weather");
+        const QString profileB = QStringLiteral("D-Flow / Filter");
+        const QString keyB = AIManager::conversationKey(beanB, typeB, profileB, 12);
+        AIConversation::appendAssistantTurnForKey(
+            keyB, 2, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+            QStringLiteral("sys"));
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+
+        QCOMPARE(mgr.switchConversation(beanB, typeB, profileB, 12), keyB);
+
+        QCOMPARE(mgr.m_conversationIndex.size(), 2);
+        const auto& entry = mgr.m_conversationIndex.first();
+        QCOMPARE(entry.key, keyB);
+        QCOMPARE(entry.beanBrand, beanB);
+        QCOMPARE(entry.beanType, typeB);
+        QCOMPARE(entry.profileName, profileB);
+        QCOMPARE(entry.equipmentId, 12);
+
+        settings.clear();
+    }
+
+    // Restoring the newest thread at launch is a READ. It must not move the LRU
+    // or rewrite the timestamp: `lastUpdated` is the only recency signal the
+    // conversation list and the MCP `list` action have, and a thread untouched
+    // for a week reported as updated today is a false statement that repeats on
+    // every launch.
+    void launch_doesNotRedateTheRestoredThread()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+        const QString key = AIManager::conversationKey(bean, type, profile, 7);
+
+        const qint64 lastWeek = QDateTime::currentSecsSinceEpoch() - 7 * 24 * 3600;
+        {
+            QNetworkAccessManager nam;
+            Settings appSettings;
+            // Constructed FIRST so the one-time wipe spends its marker before
+            // the thread exists — otherwise it deletes what this test seeds.
+            AIManager mgr(&nam, &appSettings);
+            AIConversation::appendAssistantTurnForKey(
+                key, 5, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+                QStringLiteral("sys"));
+            mgr.switchConversation(bean, type, profile, 7);
+            QCOMPARE(mgr.m_conversationIndex.size(), 1);
+            mgr.m_conversationIndex[0].timestamp = lastWeek;
+            mgr.saveConversationIndex();
+        }
+
+        QNetworkAccessManager nam2;
+        Settings appSettings2;
+        AIManager relaunched(&nam2, &appSettings2);
+        QCOMPARE(relaunched.m_conversationIndex.size(), 1);
+        QCOMPARE(relaunched.m_conversationIndex.first().timestamp, lastWeek);
+
+        settings.clear();
+    }
+
+    // ...and re-opening the overlay after Clear WITHOUT sending anything must
+    // not create an entry. A key with no stored thread listed in the index is a
+    // ghost: `ai_conversations list` reports it with messageCount 0 while `get`
+    // answers "Conversation not found", and it occupies one of the five LRU
+    // slots, so the next real thread evicts a real transcript to make room.
+    void clearThenReopenWithoutSending_createsNoGhostEntry()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
+        mgr.clearCurrentConversation();
+        QCOMPARE(mgr.m_conversationIndex.size(), 0);
+
+        // Overlay re-opened on the same shot: switchConversation runs again and
+        // takes the "already on this key" path.
+        mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
+        QVERIFY2(mgr.m_conversationIndex.isEmpty(),
+                 "selecting a key with no stored thread must not index it");
+
+        // ...and the far commoner path: the advisor opened on a shot whose
+        // (bean, profile, equipment) triple has never been used. That takes the
+        // FULL switch path, which used to create the entry unconditionally —
+        // one ghost per shot the user merely looked at, and equipment scoping
+        // multiplies how many distinct triples a user has.
+        mgr.switchConversation(bean, type, QStringLiteral("D-Flow / Filter"),
+                               /*equipmentId=*/9);
+        QVERIFY2(mgr.m_conversationIndex.isEmpty(),
+                 "opening the advisor on a brand-new key must not index it either");
+
+        settings.clear();
+    }
+
+    // A turn written by the MCP ai_advisor_invoke path must leave the thread
+    // CONTINUABLE in the app. followUp() refuses a loaded thread whose system
+    // prompt is empty ("Please start a new conversation first"), and the user's
+    // only way out is Clear, which deletes the very turns MCP just wrote.
+    void appendAssistantTurnForKey_storesSystemPromptSoTheThreadCanBeContinued()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        const QString key = QStringLiteral("mcp_thread_key");
+        const QString sys = QStringLiteral("SYSTEM PROMPT FROM THE MCP TURN");
+        AIConversation::appendAssistantTurnForKey(
+            key, 42, QStringLiteral("user"), QStringLiteral("assistant"),
+            std::nullopt, sys);
+
+        QCOMPARE(settings.value(QStringLiteral("ai/conversations/") + key
+                                + QStringLiteral("/systemPrompt")).toString(), sys);
+
+        settings.clear();
+    }
+
+    // ...but it must not narrow a thread the IN-APP advisor started. The in-app
+    // prompt is the same base plus a multi-shot section; overwriting it with the
+    // single-shot MCP prompt mid-conversation would silently drop that section.
+    void appendAssistantTurnForKey_doesNotOverwriteAnExistingSystemPrompt()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        const QString key = QStringLiteral("in_app_thread_key");
+        const QString prefix = QStringLiteral("ai/conversations/") + key + QStringLiteral("/");
+        const QString inApp = QStringLiteral("IN-APP MULTI-SHOT PROMPT");
+        settings.setValue(prefix + QStringLiteral("systemPrompt"), inApp);
+
+        AIConversation::appendAssistantTurnForKey(
+            key, 42, QStringLiteral("user"), QStringLiteral("assistant"),
+            std::nullopt, QStringLiteral("SINGLE-SHOT MCP PROMPT"));
+
+        QCOMPARE(settings.value(prefix + QStringLiteral("systemPrompt")).toString(), inApp);
+
+        settings.clear();
+    }
+
+    // The Setup header names the BASKET and puck prep, not just grinder + bean.
+    // Naming them is the visible half of equipment scoping: the history is
+    // filtered to one equipment package, and a filter the model cannot see is a
+    // silent one — it could neither attribute the history to the right gear nor
+    // notice it was being asked to compare a dial across two baskets.
+    void emitRecentShotContext_setupHeaderNamesBasketAndPuckPrep()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QList<QPair<qint64, ShotProjection>> qualifiedShots;
+        const qint64 base = QDateTime::currentSecsSinceEpoch() - 86400 * 2;
+        for (int i = 0; i < 2; ++i) {
+            ShotProjection p = makeShot(i + 1, base + i * 3600,
+                                        QStringLiteral("Niche"), QStringLiteral("Zero"),
+                                        QStringLiteral("63mm Mazzer Kony conical"),
+                                        QStringLiteral("9.75"),
+                                        QStringLiteral("Sweet Bloom Coffee"),
+                                        QStringLiteral("Hometown Blend"),
+                                        QStringLiteral("D-Flow / Q"), QString(), QString());
+            p.basketBrand = QStringLiteral("Graph Coffee");
+            p.basketModel = QStringLiteral("Stepped 58-46mm");
+            p.puckPrep = QStringLiteral("puckScreen,rdt,shaker");
+            qualifiedShots.append({ p.timestamp, p });
+        }
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QStringLiteral("Niche"), 1);
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QCOMPARE(payload.count(QStringLiteral("### Setup:")), 1);
+        // Assert on the Setup LINE, not on the whole payload: the basket and the
+        // puck-prep flags appear in per-shot blocks too, so a `payload.contains`
+        // would pass with the header still missing them entirely — which is the
+        // exact bug this test exists to catch.
+        QString setupLine;
+        for (const QString& line : payload.split(QLatin1Char('\n'))) {
+            if (line.startsWith(QStringLiteral("### Setup:"))) { setupLine = line; break; }
+        }
+        QVERIFY2(!setupLine.isEmpty(), "the Setup header must be a line of its own");
+        QVERIFY2(setupLine.contains(QStringLiteral("Graph Coffee Stepped 58-46mm basket")),
+                 qPrintable(QStringLiteral("Setup header must name the basket. Got: ") + setupLine));
+        QVERIFY2(setupLine.contains(QStringLiteral("puckScreen")),
+                 qPrintable(QStringLiteral("Setup header must name the puck-prep techniques. Got: ") + setupLine));
+        // Still one header, and the bean identity survives alongside the gear.
+        QVERIFY(payload.contains(QStringLiteral("Sweet Bloom Coffee - Hometown Blend")));
+    }
+
+    // A history with no basket recorded must not grow an empty basket phrase.
+    // The header is assembled from fragments joined with " ", so an unguarded
+    // empty segment produces a double space or a bare "basket" with no name —
+    // the same class of artifact a burrs-without-grinder segment used to cause.
+    void emitRecentShotContext_setupHeaderOmitsAbsentBasket()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QList<QPair<qint64, ShotProjection>> qualifiedShots;
+        const qint64 base = QDateTime::currentSecsSinceEpoch() - 86400;
+        qualifiedShots.append({ base, makeShot(1, base,
+                                    QStringLiteral("Niche"), QStringLiteral("Zero"),
+                                    QStringLiteral("63mm Mazzer Kony conical"),
+                                    QStringLiteral("9.75"),
+                                    QStringLiteral("Sweet Bloom Coffee"),
+                                    QStringLiteral("Hometown Blend"),
+                                    QStringLiteral("D-Flow / Q"), QString(), QString()) });
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QStringLiteral("Niche"), 1);
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(!payload.contains(QStringLiteral("basket")),
+                 "no basket recorded must render no basket phrase at all");
+        QVERIFY2(!payload.contains(QStringLiteral("  ")),
+                 "absent segments must not leave a double space in the Setup header");
+    }
+
+    // Zero qualifying shots must STATE the absence and name the equipment set,
+    // not emit nothing. An empty payload is indistinguishable from "this user
+    // has no history", and a model with no anchor in context supplies one: the
+    // reported failure cited a 70/100 shot that appeared nowhere in its context
+    // and then reasoned from it.
+    void emitRecentShotContext_emptyHistoryStatesTheEquipmentSet()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
+                                  QJsonObject(), QJsonArray(),
+                                  QStringLiteral("Niche Zero in a Graph Coffee Stepped 58-46mm basket"),
+                                  /*equipmentBucketKnown=*/true, /*equipmentBucket=*/7);
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(!payload.isEmpty(), "an empty history must still say so");
+        QVERIFY(payload.contains(QStringLiteral("No prior shots with this equipment set")));
+        QVERIFY2(payload.contains(QStringLiteral("Graph Coffee Stepped 58-46mm")),
+                 "the block must name the equipment set that was matched on");
+        QVERIFY2(payload.contains(QStringLiteral("do not refer to shots you cannot see")),
+                 "the block must tell the model not to invent an anchor");
+    }
+
+    // A shot on NO package filtered nothing — bucket 0 matches every unpackaged
+    // shot — so there is no absence to state and the block stays silent, exactly
+    // as it did before equipment scoping existed.
+    void emitRecentShotContext_emptyHistoryOnNoPackageStaysSilent()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
+                                  QJsonObject(), QJsonArray(), QString(),
+                                  /*equipmentBucketKnown=*/true, /*equipmentBucket=*/0);
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(spy.takeFirst().at(0).toString().isEmpty());
+    }
+
+    // ...but an equipment read that FAILED is not that. The history is scoped on
+    // a separate connection which resolves the bucket itself, so shots may have
+    // been excluded and this side cannot name what by. Falling through to the
+    // same silence would hand the model the one reading that is certainly wrong:
+    // "this user has no history."
+    void emitRecentShotContext_unreadableEquipmentSaysSoRatherThanGoingSilent()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
+                                  QJsonObject(), QJsonArray(), QString(),
+                                  /*equipmentBucketKnown=*/false, /*equipmentBucket=*/0);
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+        QVERIFY2(!payload.isEmpty(),
+                 "a failed equipment read must not render as 'no history'");
+        QVERIFY(payload.contains(QStringLiteral("equipment could not be read")));
+        QVERIFY2(payload.contains(QStringLiteral("do not refer to shots you cannot see")),
+                 "the block must tell the model not to invent an anchor");
+    }
+
+    // A package whose component rows are all gone describes as "" while still
+    // being a real bucket that filtered the history. Branching on the label
+    // would drop this case into the no-package silence; branching on the bucket
+    // keeps the absence stated, generically.
+    void emitRecentShotContext_packagedShotWithNoLabelStillStatesTheAbsence()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
+                                  QJsonObject(), QJsonArray(), QString(),
+                                  /*equipmentBucketKnown=*/true, /*equipmentBucket=*/7);
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+        QVERIFY(payload.contains(QStringLiteral("this shot's equipment package")));
+        QVERIFY2(!payload.contains(QStringLiteral("set ()")),
+                 "an unnamed package must not render as an empty parenthetical");
+    }
+
+    // The equipment package is part of the conversation identity. Two shots on
+    // the same bean and profile but different gear are different conversations,
+    // and — because every previously-stored key lacked the package — this is
+    // also what gives every user a clean thread on first use after upgrading,
+    // with no migration step.
+    void conversationKey_variesWithEquipmentPackage()
+    {
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        const QString onPkg1 = AIManager::conversationKey(bean, type, profile, 1);
+        const QString onPkg2 = AIManager::conversationKey(bean, type, profile, 2);
+        const QString unpackaged = AIManager::conversationKey(bean, type, profile, 0);
+
+        QVERIFY2(onPkg1 != onPkg2, "two equipment packages must not share a conversation");
+        QVERIFY2(onPkg1 != unpackaged, "a packaged shot must not resume an unpackaged thread");
+        // Stable for the same inputs — the thread has to be resumable.
+        QCOMPARE(AIManager::conversationKey(bean, type, profile, 1), onPkg1);
+
+        // QML's "no package" sentinel is -1 and the SQL's is 0; both mean the
+        // same thing and must hash the same, or a shot with no equipment gets a
+        // thread that depends on which layer asked.
+        QCOMPARE(AIManager::conversationKey(bean, type, profile, -1), unpackaged);
+    }
+
+    // The clamp has to reach the DATA, not only the hash. An entry holding -1
+    // under a key computed on 0 is the entry/key disagreement the backup
+    // carry-through exists to prevent, arriving from inside — and it self-heals
+    // only across a save/reload, because toJson drops <= 0.
+    void switchConversation_normalizesTheNoPackageSentinelInTheEntryToo()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        const QString key = mgr.switchConversation(bean, type, profile, /*equipmentId=*/-1);
+        QCOMPARE(key, AIManager::conversationKey(bean, type, profile, 0));
+
+        AIConversation::appendAssistantTurnForKey(
+            key, 7, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+            QStringLiteral("sys"));
+        mgr.conversation()->loadFromStorage();
+        mgr.conversation()->saveToStorage();
+
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 0);
+
+        settings.clear();
+    }
+
+    // Upgrading to the equipment-keyed scheme must hand the user a CLEAN thread:
+    // a conversation replays its stored turns to the model on every request, so
+    // a pre-upgrade thread would keep feeding it shots selected under the old,
+    // equipment-blind rules — including whatever the model concluded from them.
+    // Nothing is deleted; the old key simply stops being produced.
+    void conversationKey_preUpgradeThreadIsNotResumed()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        // The pre-upgrade key: the same hash over bean|type|profile with no
+        // equipment segment. Spelled out rather than called, because the whole
+        // point is that the production function can no longer produce it.
+        const QString legacyNormalized = bean.toLower().trimmed() + "|" +
+                                         type.toLower().trimmed() + "|" +
+                                         profile.toLower().trimmed();
+        const QString legacyKey = QString::fromLatin1(
+            QCryptographicHash::hash(legacyNormalized.toUtf8(),
+                                     QCryptographicHash::Sha1).toHex().left(16));
+        // structuredNext is supplied because loadRecentAssistantTurnsForKey
+        // filters out turns that lack one — without it the "still on disk"
+        // assertion below would read 0 and pass for the wrong reason.
+        QJsonObject structured;
+        structured[QStringLiteral("grinderSetting")] = QStringLiteral("10.5");
+        AIConversation::appendAssistantTurnForKey(
+            legacyKey, 111, QStringLiteral("old user turn"),
+            QStringLiteral("the burrs may have crossed a zero-point threshold"), structured, QStringLiteral("sys"));
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
+
+        QVERIFY2(!mgr.conversation()->hasHistory(),
+                 "the first advisor use after upgrading must start a fresh thread");
+        QVERIFY2(mgr.conversation()->storageKey() != legacyKey,
+                 "the new key must not collide with the pre-upgrade one");
+
+        // Positive control. Two mechanisms produce the empty thread above — the
+        // key no longer matches, AND construction runs the one-time wipe
+        // (construction_wipesConversationsOnceForEquipmentScoping) — so without
+        // this, a switchConversation that simply never loaded anything would
+        // satisfy both assertions. Write under the key this manager is actually
+        // using, with the wipe already spent, and it must come back.
+        const QString liveKey = mgr.conversation()->storageKey();
+        QVERIFY(!liveKey.isEmpty());
+        AIConversation::appendAssistantTurnForKey(
+            liveKey, 222, QStringLiteral("live user turn"),
+            QStringLiteral("live assistant turn"), structured, QStringLiteral("sys"));
+        mgr.switchConversation(QStringLiteral("Other"), type, profile, /*equipmentId=*/7);
+        mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
+        QVERIFY2(mgr.conversation()->hasHistory(),
+                 "switchConversation must load a thread stored under the key it produces");
+
+        // NOT asserted here: that the pre-upgrade thread's bytes survive on
+        // disk. It is true by construction — no code path in this change
+        // deletes a conversation, they simply stop being addressed — but
+        // asserting it inside this test proved to be about QSettings instance
+        // semantics (which instance has synced what, and when `clear()` in the
+        // fixture lands) rather than about the behaviour under test. A test
+        // that fails for reasons unrelated to its subject is worse than no
+        // test, so the claim is left to the code rather than dressed up as
+        // coverage.
+
+        settings.clear();
     }
 
     // Task 10.5 end-to-end: the assembled payload from emitRecentShotContext
@@ -1089,7 +1818,7 @@ private slots:
         // this test pins the gating, not the DB query path.)
         QSqlDatabase db; // default-constructed: invalid, never used
         const QJsonArray arr = DialingBlocks::buildDialInSessionsBlock(
-            db, QString(), 1, 5);
+            db, QString(), 1, 5, /*equipmentBucket=*/0);
         QVERIFY(arr.isEmpty());
     }
 
@@ -1106,7 +1835,7 @@ private slots:
     {
         QSqlDatabase db;
         const QJsonObject obj = DialingBlocks::buildGrinderContextBlock(
-            db, QString(), QStringLiteral("espresso"), QString());
+            db, QString(), QStringLiteral("espresso"), QString(), /*equipmentBucket=*/0);
         QVERIFY(obj.isEmpty());
     }
 
@@ -1976,7 +2705,7 @@ private slots:
         // appendAssistantTurnForKey does in production.
         AIConversation::appendAssistantTurnForKey(
             QStringLiteral("test_save_race"), 999,
-            QStringLiteral("external user"), QStringLiteral("external assistant"), std::nullopt);
+            QStringLiteral("external user"), QStringLiteral("external assistant"), std::nullopt, QStringLiteral("sys"));
 
         // conv is unaware of the external turn — its own in-memory state is
         // still just [u1, a1] when it adds a further turn of its own.
@@ -2026,7 +2755,7 @@ private slots:
         // ever touches the key.
         AIConversation::appendAssistantTurnForKey(
             QStringLiteral("test_never_loaded"), 111,
-            QStringLiteral("mcp user"), QStringLiteral("mcp assistant"), std::nullopt);
+            QStringLiteral("mcp user"), QStringLiteral("mcp assistant"), std::nullopt, QStringLiteral("sys"));
 
         AIConversation conv(&mgr);
         conv.setStorageKey("test_never_loaded");
@@ -2070,18 +2799,22 @@ private slots:
         AIManager mgr(&nam, &appSettings);
 
         const QString key = AIManager::conversationKey(
-            QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"), QStringLiteral("D-Flow"));
+            QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
+            QStringLiteral("D-Flow"), /*equipmentId=*/0);
         // Written entirely by "another writer" — never touches m_conversationIndex.
         AIConversation::appendAssistantTurnForKey(
-            key, 222, QStringLiteral("mcp-only user"), QStringLiteral("mcp-only assistant"), std::nullopt);
+            key, 222, QStringLiteral("mcp-only user"), QStringLiteral("mcp-only assistant"), std::nullopt, QStringLiteral("sys"));
 
         // This AIManager's index has never heard of this key.
         mgr.switchConversation(QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
-                                QStringLiteral("D-Flow"));
+                                QStringLiteral("D-Flow"), /*equipmentId=*/0);
 
         QVERIFY2(mgr.conversation()->hasHistory(),
                  "switchConversation must load real disk content even for a key absent from m_conversationIndex");
         QCOMPARE(mgr.conversation()->messageCount(), 2);
+        // ...and index it under THIS shot, not under whatever was open before.
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().beanBrand, QStringLiteral("Rogue Wave"));
 
         settings.clear();
     }
@@ -2770,7 +3503,7 @@ private slots:
             key, /*shotId=*/8473,
             QStringLiteral("user prompt content"),
             QStringLiteral("Try grinder 4.75."),
-            sn);
+            sn, QStringLiteral("sys"));
 
         // Verify via the static loader that the assistant turn qualifies.
         const auto turns = AIConversation::loadRecentAssistantTurnsForKey(key, 3);
@@ -2808,9 +3541,9 @@ private slots:
         };
 
         AIConversation::appendAssistantTurnForKey(
-            key, 100, "u1", "a1", sn);
+            key, 100, "u1", "a1", sn, QStringLiteral("sys"));
         AIConversation::appendAssistantTurnForKey(
-            key, 105, "u2", "a2", sn);
+            key, 105, "u2", "a2", sn, QStringLiteral("sys"));
 
         // Two pairs => 4 messages.
         const QByteArray raw = AppSettings().value(
@@ -2836,7 +3569,7 @@ private slots:
 
         AIConversation::appendAssistantTurnForKey(
             key, 200, "u", "clarifying question, no rec",
-            std::nullopt);
+            std::nullopt, QStringLiteral("sys"));
 
         const QByteArray raw = AppSettings().value(
             QStringLiteral("ai/conversations/") + key + QStringLiteral("/messages"))
@@ -2858,7 +3591,7 @@ private slots:
         AppSettings s;
         s.clear();
         AIConversation::appendAssistantTurnForKey(
-            QString(), 100, "u", "a", std::nullopt);
+            QString(), 100, "u", "a", std::nullopt, QStringLiteral("sys"));
         // No assertion needed: this just must not crash and must not
         // create any settings keys.
         QVERIFY(true);
@@ -3156,7 +3889,7 @@ private slots:
 
         const QString key = mgr.switchConversation(
             QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
-            QStringLiteral("D-Flow"));
+            QStringLiteral("D-Flow"), /*equipmentId=*/0);
         AIConversation* conv = mgr.conversation();
         conv->m_systemPrompt = QStringLiteral("system prompt");
         conv->addUserMessage(QStringLiteral("Shot pulled at 19g/1:2"));
@@ -3230,9 +3963,16 @@ private slots:
         AIManager mgr(&nam, &appSettings);
 
         const QString key = mgr.switchConversation(
-            QStringLiteral("Brand"), QStringLiteral("Type"), QStringLiteral("Profile"));
-        // The index entry exists (switchConversation added it) but the
-        // messages blob itself is garbage — simulating an interrupted write.
+            QStringLiteral("Brand"), QStringLiteral("Type"), QStringLiteral("Profile"),
+            /*equipmentId=*/0);
+        // Give the key a real thread so it earns an index entry, then corrupt
+        // the messages blob — simulating an interrupted write.
+        AIConversation::appendAssistantTurnForKey(
+            key, 1, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+            QStringLiteral("sys"));
+        mgr.conversation()->loadFromStorage();
+        mgr.conversation()->saveToStorage();
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
         settings.setValue(QStringLiteral("ai/conversations/") + key + "/messages",
                            QByteArrayLiteral("{not valid json"));
 
@@ -3330,12 +4070,228 @@ private slots:
             s.value("ai/conversations/" + key + "/messages").toByteArray()).array();
     }
 
-    static QJsonArray oneConversation(const QString& key, const QJsonArray& msgs)
+    static QJsonArray oneConversation(const QString& key, const QJsonArray& msgs,
+                                      qint64 equipmentId = 0)
     {
-        return QJsonArray{ QJsonObject{
+        QJsonObject o{
             {"key", key}, {"systemPrompt", "sys"}, {"contextLabel", "l"},
             {"timestamp", "2026-08-22T09:00:00"}, {"messages", msgs},
-            {"beanBrand", "B"}, {"beanType", "T"}, {"profileName", "P"}} };
+            {"beanBrand", "B"}, {"beanType", "T"}, {"profileName", "P"}};
+        // Sparse on the wire, matching ConversationEntry::toJson — an absent
+        // field is how every pre-equipment archive looks.
+        if (equipmentId > 0) o["equipmentId"] = static_cast<double>(equipmentId);
+        return QJsonArray{ o };
+    }
+
+    // The restored index entry has to name the same package the key it carries
+    // was hashed on. Without the carry-through the entry reads "no package" for
+    // a thread keyed on a real one — a row whose label disagrees with the
+    // conversation behind it, and nothing anywhere would say so.
+    void importedConversationKeepsItsEquipmentPackage()
+    {
+        AppSettings settings;
+        settings.clear();
+        const QString key = QStringLiteral("equip_key");
+
+        // Constructed first so the one-time wipe spends its marker before the
+        // import runs — otherwise it deletes what this test restores.
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(key, turnsWithShotIds({7}), /*equipmentId=*/12),
+            nullptr, nullptr);
+        QCOMPARE(tally.conversationsImported, 1);
+        mgr.loadConversationIndex();
+
+        bool found = false;
+        for (const auto& e : mgr.m_conversationIndex) {
+            if (e.key != key) continue;
+            found = true;
+            QCOMPARE(e.equipmentId, 12);
+        }
+        QVERIFY2(found, "the imported conversation must be in the index");
+
+        settings.clear();
+    }
+
+    // A conversation restored from ANOTHER device carries the source device's
+    // package id inside its key — an SHA1 of bean|type|profile|equipmentId. The
+    // equipment import renumbers packages, so restoring the key verbatim leaves
+    // a thread the app can never address again: opening that shot computes the
+    // key from the LOCAL package id, misses, and starts fresh. The entry must be
+    // rewritten onto the mapped key.
+    void importedConversationIsRekeyedOntoTheMappedPackage()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString bean = QStringLiteral("B");
+        const QString type = QStringLiteral("T");
+        const QString profile = QStringLiteral("P");
+        const qint64 srcPackage = 12;
+        const qint64 destPackage = 41;
+        const QString srcKey = AIManager::conversationKey(bean, type, profile, srcPackage);
+        const QString destKey = AIManager::conversationKey(bean, type, profile, destPackage);
+        QVERIFY2(srcKey != destKey, "the two package ids must produce different keys");
+
+        const QHash<qint64, qint64> packageMap{{srcPackage, destPackage}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(srcKey, turnsWithShotIds({7}), srcPackage),
+            nullptr, &packageMap);
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(tally.conversationsUnkeyed, 0);
+
+        // The transcript is under the key this device will actually compute...
+        QVERIFY2(!settings.value("ai/conversations/" + destKey + "/messages")
+                      .toByteArray().isEmpty(),
+                 "the thread must be stored under the remapped key");
+        QVERIFY2(settings.value("ai/conversations/" + srcKey + "/messages")
+                      .toByteArray().isEmpty(),
+                 "and not left behind under the source key");
+
+        // ...and the entry names that key and the LOCAL package.
+        mgr.loadConversationIndex();
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().key, destKey);
+        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, destPackage);
+
+        // The real proof: switching to the shot as this device sees it lands on
+        // the restored thread instead of an empty one.
+        QCOMPARE(mgr.switchConversation(bean, type, profile, destPackage), destKey);
+        QVERIFY2(mgr.conversation()->hasHistory(),
+                 "opening the shot on this device must resume the restored thread");
+
+        settings.clear();
+    }
+
+    // No equipment import came with the conversations, so there is nothing to
+    // map to. The thread is still restored and readable — dropping it would be
+    // worse — but it keeps its source key, is reported as unkeyed, and is
+    // honestly NOT resumable from the shot.
+    void importedConversationWithNoPackageMapIsCountedAsUnkeyed()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString srcKey = AIManager::conversationKey(
+            QStringLiteral("B"), QStringLiteral("T"), QStringLiteral("P"), 12);
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(srcKey, turnsWithShotIds({7}), /*equipmentId=*/12),
+            nullptr, nullptr);
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(tally.conversationsUnkeyed, 1);
+
+        mgr.loadConversationIndex();
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().key, srcKey);
+        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 12);
+
+        settings.clear();
+    }
+
+    // An unpackaged conversation is device-independent — its key hashes on 0,
+    // which means the same thing everywhere — so it must NOT be rekeyed even
+    // when a package map is present, and must not be counted as unkeyed.
+    void importedUnpackagedConversationIsNotRekeyed()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString key = AIManager::conversationKey(
+            QStringLiteral("B"), QStringLiteral("T"), QStringLiteral("P"), 0);
+        const QHash<qint64, qint64> packageMap{{12, 41}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(key, turnsWithShotIds({7})), nullptr, &packageMap);
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(tally.conversationsUnkeyed, 0);
+
+        mgr.loadConversationIndex();
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().key, key);
+        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 0);
+
+        settings.clear();
+    }
+
+    // Duplicate detection has to run on the key the entry will be WRITTEN
+    // under. Checking the archive's key instead would let a remapped
+    // conversation land on top of a live thread this device already has.
+    void importedConversationDoesNotOverwriteALiveThreadOnTheMappedKey()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString bean = QStringLiteral("B");
+        const QString type = QStringLiteral("T");
+        const QString profile = QStringLiteral("P");
+        const qint64 destPackage = 41;
+        const QString destKey = AIManager::conversationKey(bean, type, profile, destPackage);
+
+        // A live local thread on the destination key.
+        AIConversation::appendAssistantTurnForKey(
+            destKey, 99, QStringLiteral("local u"), QStringLiteral("local a"),
+            std::nullopt, QStringLiteral("sys"));
+        mgr.switchConversation(bean, type, profile, destPackage);
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+
+        const QString srcKey = AIManager::conversationKey(bean, type, profile, 12);
+        const QHash<qint64, qint64> packageMap{{12, destPackage}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(srcKey, turnsWithShotIds({7}), /*equipmentId=*/12),
+            nullptr, &packageMap);
+        QCOMPARE(tally.conversationsImported, 0);
+
+        QVERIFY2(settings.value("ai/conversations/" + destKey + "/messages")
+                      .toByteArray().contains("local a"),
+                 "the live thread must survive the import");
+
+        settings.clear();
+    }
+
+    // An archive written before equipment joined the key has no field at all.
+    // It must read as 0 rather than failing the import.
+    void importedPreEquipmentConversationReadsAsUnpackaged()
+    {
+        AppSettings settings;
+        settings.clear();
+        const QString key = QStringLiteral("old_key");
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(key, turnsWithShotIds({7})), nullptr, nullptr);
+        QCOMPARE(tally.conversationsImported, 1);
+        mgr.loadConversationIndex();
+
+        bool found = false;
+        for (const auto& e : mgr.m_conversationIndex) {
+            if (e.key != key) continue;
+            found = true;
+            QCOMPARE(e.equipmentId, 0);
+        }
+        QVERIFY2(found, "the imported conversation must be in the index");
+
+        settings.clear();
     }
 
     void importedTurnsFollowTheShotRenumbering()
@@ -3346,7 +4302,7 @@ private slots:
 
         QHash<qint64, qint64> map{{1109, 1052}, {1096, 1041}};
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
+            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map, nullptr);
 
         QCOMPARE(tally.conversationsImported, 1);
         QCOMPARE(tally.turnsRemapped, 4);   // two turn pairs
@@ -3369,7 +4325,7 @@ private slots:
 
         QHash<qint64, qint64> map{{1109, 1052}};   // 1096 absent — did not import
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
+            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 2);
         QCOMPARE(tally.turnsCleared, 2);
@@ -3399,7 +4355,7 @@ private slots:
         // No map: the conversations-only import path. Those ids name a database
         // this device does not have, so keeping them is the defect.
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), nullptr);
+            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), nullptr, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 0);
         QCOMPARE(tally.turnsCleared, 4);
@@ -3416,7 +4372,7 @@ private slots:
 
         QHash<qint64, qint64> map{{1109, 1052}};
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({0})), &map);
+            settings, oneConversation(key, turnsWithShotIds({0})), &map, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 0);
         QCOMPARE(tally.turnsCleared, 0);
@@ -3494,7 +4450,7 @@ private slots:
         settings.clear();
         const QString key = QStringLiteral("e2e_key");
         AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds(srcIds)), &r.shotIdMap);
+            settings, oneConversation(key, turnsWithShotIds(srcIds)), &r.shotIdMap, nullptr);
 
         const QSet<qint64> sourceIds(srcIds.begin(), srcIds.end());
         int seen = 0;
@@ -3735,7 +4691,7 @@ private slots:
             incoming.append(v);
 
         QHash<qint64, qint64> map{{1109, 1052}};
-        const auto tally = AIConversation::importConversationsStatic(settings, incoming, &map);
+        const auto tally = AIConversation::importConversationsStatic(settings, incoming, &map, nullptr);
 
         QCOMPARE(tally.conversationsImported, 1);
         // Only the fresh conversation's turns were touched.

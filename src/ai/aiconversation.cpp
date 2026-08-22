@@ -353,7 +353,8 @@ void AIConversation::appendAssistantTurnForKey(
     qint64 shotId,
     const QString& userPrompt,
     const QString& assistantResponse,
-    const std::optional<QJsonObject>& structuredNext)
+    const std::optional<QJsonObject>& structuredNext,
+    const QString& systemPrompt)
 {
     if (storageKey.isEmpty()) return;
     AppSettings settings;
@@ -392,10 +393,24 @@ void AIConversation::appendAssistantTurnForKey(
         QJsonDocument(messages).toJson(QJsonDocument::Compact));
     settings.setValue(prefix + "timestamp",
         QDateTime::currentDateTime().toString(Qt::ISODate));
-    // Note: systemPrompt is not written here. The in-app advisor sets it
-    // via ask(); the MCP path uses analyze(systemPrompt, userPrompt) and
-    // doesn't carry an AIConversation. For recentAdvice purposes the
-    // system prompt isn't needed — only `messages` is read.
+
+    // Write-if-absent: a thread the in-app advisor started already holds its own
+    // multi-shot prompt, and an MCP turn appended mid-conversation must not
+    // quietly narrow it. Why a prompt has to be here at all, and what happens
+    // when it is not, is on the declaration in aiconversation.h.
+    const bool haveStoredPrompt =
+        !settings.value(prefix + "systemPrompt").toString().isEmpty();
+    if (!systemPrompt.isEmpty() && !haveStoredPrompt) {
+        settings.setValue(prefix + "systemPrompt", systemPrompt);
+    } else if (systemPrompt.isEmpty() && !haveStoredPrompt) {
+        // Loud, because the consequence surfaces three files away and looks
+        // like a UI bug: the thread will show its turns in the app and then
+        // refuse every follow-up with "Please start a new conversation first",
+        // and Clear — which deletes these turns — is the only way out.
+        qWarning() << "AIConversation::appendAssistantTurnForKey: writing turns to key"
+                   << storageKey << "with no system prompt — the app will refuse to "
+                                    "continue this thread";
+    }
 }
 
 // Rewrite one conversation's turn shotIds through the import's id map.
@@ -439,7 +454,8 @@ static QJsonArray remapTurnShotIds(const QJsonArray& messages,
 AIConversation::ImportTally AIConversation::importConversationsStatic(
     AppSettings& settings,
     const QJsonArray& conversations,
-    const QHash<qint64, qint64>* shotIdMap)
+    const QHash<qint64, qint64>* shotIdMap,
+    const QHash<qint64, qint64>* packageIdMap)
 {
     ImportTally tally;
     if (conversations.isEmpty()) return tally;
@@ -475,9 +491,43 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
             malformed++;
             continue;
         }
+        // Remap the equipment package and RECOMPUTE the key from it. Package
+        // row ids are renumbered on import exactly like shot ids, and this one
+        // is baked into the conversation's identity — restoring the source key
+        // verbatim leaves a thread the app can never address again. The
+        // recomputed key is what the app will compute when the user opens a
+        // shot on the mapped package, so the thread resumes.
+        //
+        // Only a PACKAGED conversation moves. equipmentId 0 means "no package",
+        // which is device-independent, so its key is already correct.
+        const qint64 srcEquipmentId =
+            conv.value(QStringLiteral("equipmentId")).toVariant().toLongLong();
+        qint64 destEquipmentId = srcEquipmentId;
+        QString storageKey = key;
+        if (srcEquipmentId > 0) {
+            const qint64 mapped = packageIdMap
+                ? packageIdMap->value(srcEquipmentId, 0) : 0;
+            if (mapped > 0) {
+                destEquipmentId = mapped;
+                storageKey = AIManager::conversationKey(
+                    conv.value(QStringLiteral("beanBrand")).toString(),
+                    conv.value(QStringLiteral("beanType")).toString(),
+                    conv.value(QStringLiteral("profileName")).toString(),
+                    destEquipmentId);
+            } else {
+                // No equipment import came with these, or this package was not
+                // in it. Keep the source key and say so — the thread is
+                // readable but will not be matched to a shot.
+                tally.conversationsUnkeyed++;
+            }
+        }
+
         // An existing key is skipped WHOLE, never merged: the copy on this
         // device is the live one and the archive's is older by construction.
-        if (existingKeys.contains(key)) {
+        // Checked on the key the entry will actually be WRITTEN under, not the
+        // one the archive carried — otherwise a remapped conversation could
+        // overwrite a live thread on the destination key.
+        if (existingKeys.contains(storageKey)) {
             skippedExisting++;
             continue;
         }
@@ -486,20 +536,25 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
             conv.value(QStringLiteral("messages")).toArray(), shotIdMap,
             tally.turnsRemapped, tally.turnsCleared);
 
-        const QString prefix = QStringLiteral("ai/conversations/") + key + QStringLiteral("/");
+        const QString prefix = QStringLiteral("ai/conversations/") + storageKey + QStringLiteral("/");
         settings.setValue(prefix + "systemPrompt", conv.value(QStringLiteral("systemPrompt")).toString());
         settings.setValue(prefix + "messages", QJsonDocument(messages).toJson(QJsonDocument::Compact));
         settings.setValue(prefix + "timestamp", conv.value(QStringLiteral("timestamp")).toString());
         settings.setValue(prefix + "contextLabel", conv.value(QStringLiteral("contextLabel")).toString());
 
         QJsonObject entry;
-        entry[QStringLiteral("key")] = key;
+        entry[QStringLiteral("key")] = storageKey;
         entry[QStringLiteral("beanBrand")] = conv.value(QStringLiteral("beanBrand")).toString();
         entry[QStringLiteral("beanType")] = conv.value(QStringLiteral("beanType")).toString();
         entry[QStringLiteral("profileName")] = conv.value(QStringLiteral("profileName")).toString();
         entry[QStringLiteral("timestamp")] = conv.value(QStringLiteral("indexTimestamp")).toVariant().toLongLong();
+        // The MAPPED id, so the entry agrees with the key it names — which is
+        // the recomputed one whenever the package was remapped. Sparse, matching
+        // ConversationEntry::toJson.
+        if (destEquipmentId > 0)
+            entry[QStringLiteral("equipmentId")] = static_cast<double>(destEquipmentId);
         index.append(entry);
-        existingKeys.insert(key);
+        existingKeys.insert(storageKey);
         tally.conversationsImported++;
     }
 
@@ -513,7 +568,9 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
              << "already present," << malformed << "malformed;"
              << tally.turnsRemapped << "shot reference(s) remapped," << tally.turnsCleared
              << "cleared"
-             << (shotIdMap ? "" : "(no shot import accompanied them — all ids cleared)");
+             << (shotIdMap ? "" : "(no shot import accompanied them — all ids cleared)")
+             << ";" << tally.conversationsUnkeyed
+             << "kept their source equipment key (not resumable on this device)";
     return tally;
 }
 
@@ -1136,6 +1193,7 @@ void AIConversation::saveToStorage()
         m_messages = toWrite;
 
     emit savedConversationChanged();
+    emit conversationPersisted();
     qDebug() << "AIConversation: Saved conversation with" << m_messages.size() << "messages to key:" << m_storageKey;
 }
 
