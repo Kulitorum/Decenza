@@ -426,6 +426,26 @@ private:
     // device; subsequent launches are no-ops. Call before loadConversationIndex.
     static void clearAllConversationsOnce(const QString& migrationId);
 
+    // Candidate history for the in-app advisor: the shots sharing this shot's
+    // bean, profile AND equipment package, within a 21-day window ending at it.
+    // Opens its own SQLite connection from `dbPath` — background thread only,
+    // never the main thread's connection.
+    //
+    // `equipmentBucketOut`, when non-null, receives the bucket this call
+    // resolved (see `ShotHistoryStorage::equipmentBucketForShot`), so the
+    // caller's later work can scope to the same package without re-reading it
+    // on a second connection and risking two answers to one question.
+    //
+    // A private static member rather than a file-scope helper so
+    // `friend class tst_AIManager` can assert the equipment scoping on a real
+    // database — the scoping is the whole point of this function, and there is
+    // no other seam that reaches its query.
+    static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
+        const QString& dbPath,
+        const QString& beanBrand, const QString& beanType,
+        const QString& profileName, int excludeShotId,
+        std::optional<qint64>* equipmentBucketOut = nullptr);
+
     // Render the recent-shot-context prose from already-loaded data and
     // emit `recentShotContextReady` (or an empty string when stale).
     // `requestRecentShotContext`'s main-thread lambda calls this helper

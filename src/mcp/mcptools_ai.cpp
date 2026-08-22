@@ -25,6 +25,8 @@
 #include <QThread>
 #include <QTimer>
 
+#include <optional>
+
 // Hard cap on a single advisor call, sized to outlast the slowest
 // provider's own timeout so the MCP caller always gets a clean reply
 // from us rather than a dangling promise. Cloud providers cap at 60s
@@ -141,6 +143,13 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     shot = ShotHistoryStorage::convertShotRecord(record);
 
                     if (shot.isValid()) {
+                        // One resolution of the equipment package for this whole
+                        // block: the scoped queries and the conversation key must
+                        // agree about which gear this shot is on, and asking twice
+                        // is how they stop agreeing.
+                        const std::optional<qint64> equipmentBucket =
+                            ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId);
+
                         // Same dialing-context blocks the in-app advisor
                         // ships, produced by the same shared helpers so
                         // the userPromptUsed echo is byte-equivalent
@@ -152,7 +161,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             db, shot.profileKbId, resolvedShotId, shot);
                         grinderContext = DialingBlocks::buildGrinderContextBlock(
                             db, shot.grinderModel, shot.beverageType, shot.beanBrand,
-                            ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId));
+                            equipmentBucket);
                         grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
                             db, shot.grinderModel, shot.grinderBurrs,
                             shot.beverageType, resolvedShotId);
@@ -162,10 +171,13 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // — the conversation key is the same hash the
                         // in-app advisor uses, so the two surfaces ship
                         // byte-equivalent recentAdvice for the same shot.
-                        if (!shot.profileKbId.isEmpty()) {
+                        // Needs a resolved bucket for the same reason the in-app
+                        // path does (aimanager.cpp): keying on 0 when the bucket
+                        // is unknown reads the unpackaged user's thread.
+                        if (!shot.profileKbId.isEmpty() && equipmentBucket.has_value()) {
                             const QString convKey = AIManager::conversationKey(
                                 shot.beanBrand, shot.beanType, shot.profileName,
-                                shot.equipmentId);
+                                *equipmentBucket);
                             const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
                             if (!turns.isEmpty()) {
                                 DialingBlocks::RecentAdviceInputs in;
@@ -344,6 +356,16 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             // bean or no profile name): conversationKey
                             // would still hash to something, but using
                             // it as an attribution anchor is unsafe.
+                            //
+                            // `shot.equipmentId` is the same integer the READ
+                            // side above resolves through
+                            // ShotHistoryStorage::equipmentBucketForShot — both
+                            // are shots.equipment_id with NULL as 0, and the row
+                            // is known to exist here (shot.isValid()). It is used
+                            // directly because this lambda runs on the main
+                            // thread and has no DB connection to ask with. Write
+                            // and read MUST stay on the same value or a turn is
+                            // filed under a key nothing later reads.
                             if (!shot.beanBrand.isEmpty()
                                 && !shot.profileName.isEmpty()) {
                                 const QString convKey = AIManager::conversationKey(

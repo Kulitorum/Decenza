@@ -813,7 +813,18 @@ T.Page {
             drinkEyPct: src.drinkEyPct, enjoyment0to100: src.enjoyment0to100,
             tasteBalance: src.tasteBalance, tasteBody: src.tasteBody,
             espressoNotes: src.espressoNotes, beverageType: src.beverageType,
-            beanBaseJson: src.beanBaseJson
+            beanBaseJson: src.beanBaseJson,
+            // Equipment package. equipmentId is what the AI advisor keys its
+            // conversation thread and scopes its shot history on, and the
+            // advisor is opened from a clone (see the openWithShot call below),
+            // so dropping it here silently un-scopes the advisor for every
+            // shot the user has edited. equipmentName and the basket/puck-prep
+            // mirrors ride along for the same reason as the editable fields
+            // above: a clone not followed by a saveEditedShot override would
+            // otherwise blank them.
+            equipmentId: src.equipmentId, equipmentName: src.equipmentName,
+            basketBrand: src.basketBrand, basketModel: src.basketModel,
+            puckPrep: src.puckPrep
         }
     }
 

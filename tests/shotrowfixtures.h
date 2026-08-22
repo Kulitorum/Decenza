@@ -60,6 +60,11 @@ struct ShotRow {
     // equipment scoping exists for, and one no grinder-only fixture can express.
     QString basketBrand{};
     QString basketModel{};
+    // Puck-prep techniques, as the canonical flag string PuckPrep::canonical
+    // produces. Third and last component of a package's identity, so it forks a
+    // package on its own — a fixture can express "same grinder, same basket,
+    // different prep" with this alone.
+    QString puckPrep{};
     QString grinderSetting{};
     // Grinder RPM → shots.rpm. 0 by default, which is also what "not
     // recorded" looks like, so existing fixtures are unaffected and the
@@ -124,21 +129,21 @@ inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     qint64 equipmentId = 0;
     const bool hasGear = !(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty()
                            && r.grinderBurrs.isEmpty() && r.basketBrand.isEmpty()
-                           && r.basketModel.isEmpty());
+                           && r.basketModel.isEmpty() && r.puckPrep.isEmpty());
     if (hasGear) {
-        // Find-or-create on the FULL identity — grinder AND basket — using the
-        // production lookup's own basket arguments rather than a fixture-local
-        // reimplementation. Passing only the grinder would match a package whose
-        // basket differs and put two baskets' shots in one package, which would
-        // quietly make an equipment-scoping test assert nothing.
+        // Find-or-create on the FULL identity — grinder AND basket AND puck prep
+        // — using the production lookup's own arguments rather than a
+        // fixture-local reimplementation. Passing only the grinder would match a
+        // package whose basket or prep differs and put two packages' shots in
+        // one, which would quietly make an equipment-scoping test assert nothing.
         equipmentId = EquipmentStorage::findPackageByGrinderIdentityStatic(
             db, r.grinderBrand, r.grinderModel, r.grinderBurrs, /*excludeId=*/0,
-            r.basketBrand, r.basketModel);
+            r.basketBrand, r.basketModel, r.puckPrep);
         if (equipmentId <= 0) {
             EquipmentPackage pkg;
             equipmentId = EquipmentStorage::createPackageWithGrinderStatic(
                 db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs,
-                r.basketBrand, r.basketModel);
+                r.basketBrand, r.basketModel, r.puckPrep);
         }
     }
 

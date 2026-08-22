@@ -62,8 +62,8 @@ struct ShotIdentity {
     QString grinderBurrs;
     // Basket + puck prep complete the equipment package the session's shots
     // were pulled on. They hoist by the same rule as everything else here, and
-    // in practice they are always shared — the history is scoped to one package
-    // — but the override path stays live so no reader depends on that.
+    // are shared whenever the loader's equipment scoping ran — but the override
+    // path stays live so no reader depends on that having happened.
     // Naming them is not decoration: a filter the model cannot see is a silent
     // one, and without them the model cannot say "your Graph basket shots" or
     // notice it is being asked to compare a dial across two baskets.

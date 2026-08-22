@@ -4,10 +4,10 @@ See proposal.md — Why. The relevant current state:
 
 - `shots.equipment_id` is an FK to `equipment_packages.id`, added and backfilled by migration 22.
   A package holds a grinder item, an optional basket item and an optional puckprep item.
-  `EquipmentStorage::updateGrinderIdentityStatic` forks a new package whenever the grinder
-  brand/model/burrs, the basket, or the puck-prep set changes — with one deliberate asymmetry:
-  filling in a component that was previously empty is *enrichment* and folds rather than forking
-  (#1713).
+  `EquipmentStorage::supersedeOrEditStatic` forks a new package when the grinder
+  brand/model/burrs, the basket, or the puck-prep set changes on a package that already has
+  shots — with two exceptions: an unused package is edited in place, and filling in a component
+  that was previously empty is *enrichment* and folds rather than forking (#1713).
 - **Seven** independent selections feed the advisor and none of them consult the equipment
   package:
   1. `AIManager::loadQualifiedShots` — in-app history; bean + profile + 21-day window.
@@ -86,15 +86,28 @@ place of an invented one. This is why the equipment description is worth sharing
 Setup header and this block rather than writing twice — two copies of one phrase drift, and a
 reader comparing them cannot tell which is stale.
 
-### D4: Change the conversation key rather than migrating stored conversations
+One carve-out: when the equipment set cannot be NAMED — the shot has no package at all, which is
+the majority case — the block stays absent. Scoping is a no-op for those users (bucket 0 matches
+every unpackaged shot), so nothing was excluded, and "no prior shots with this equipment set ()"
+would assert a filter that did not run.
 
-A one-time wipe stamped with a version marker was the alternative. Rejected: it is a strictly
-weaker version of the same outcome. A saved thread replays its stored turns on every request, so
-a user who switches baskets back and forth within one bean+profile rebuilds a mixed transcript
-immediately after the wipe. Keying the thread on the equipment package fixes the upgrade case
-*and* the recurring case, and needs no migration code at all — every pre-upgrade key simply
-stops matching, so the first use after upgrade starts clean and the retired threads age out
-under the existing five-thread LRU.
+### D4: Change the conversation key, AND wipe once on upgrade
+
+Keying the thread on the equipment package is the load-bearing half: a one-time wipe alone would
+be strictly weaker, because a saved thread replays its stored turns on every request, so a user
+who switches baskets back and forth within one bean+profile would rebuild a mixed transcript
+immediately after the wipe. The key fixes the upgrade case *and* the recurring case.
+
+But the key alone does not cover the whole upgrade case, which is what the first draft of this
+section claimed. `AIManager::loadMostRecentConversation()` runs at construction and restores
+whatever the index says is newest **by key**, with no bean/profile/equipment lookup to fail —
+so a pre-upgrade thread is unreferenced by every *lookup* path and still comes back on the
+*startup* path, carrying the two-basket history this change exists to remove. So the change also
+calls the existing `clearAllConversationsOnce`, with marker `equipment_scoped_conversations_v1`.
+The threads are advice rather than data, so dropping them costs nothing, and it delivers what
+the user asked for literally: after upgrading, a user with an equipment package starts from a
+clean conversation. Retention is otherwise unchanged — the key is still one opaque string in the
+same five-thread LRU.
 
 ### D5: `bestRecentShot` is filtered, not down-ranked
 

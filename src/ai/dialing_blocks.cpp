@@ -171,8 +171,13 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
     // Equipment scoping: shots on other gear are excluded outright rather than
     // ranked down. A dial on a different basket is not the same dial, so a
     // session mixing them describes a grind ordering that never existed.
-    // nullopt = no resolved shot to take equipment from (callers pass -1), in
-    // which case the loader is left unscoped rather than scoped to "unpackaged".
+    // nullopt = no equipment to match against — in production a failed lookup,
+    // since every caller guards resolvedShotId > 0 first. The loader is then
+    // left unscoped rather than scoped to "unpackaged", which would return an
+    // empty history to every user who HAS a package. Unlike the calibration
+    // block, this one reports the user's own shots rather than deriving a
+    // number from them, so degrading to unscoped is a weaker filter and not a
+    // fabricated answer.
     const std::optional<qint64> bucket =
         ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId);
     QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(
@@ -293,9 +298,10 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
         if (!hoisted.context.grinderBurrs.isEmpty())
             contextObj["grinderBurrs"] = hoisted.context.grinderBurrs;
         // Basket + puck prep name the equipment package this session's shots
-        // were pulled on. Shared by construction now that the history is
-        // package-scoped, so in practice they always land here rather than on
-        // a per-shot override.
+        // were pulled on. They land here rather than on a per-shot override
+        // whenever the history was package-scoped — which is whenever the
+        // bucket resolved. The override path stays live for the case where it
+        // did not, so nothing here assumes the scoping ran.
         if (!hoisted.context.basketBrand.isEmpty())
             contextObj["basketBrand"] = hoisted.context.basketBrand;
         if (!hoisted.context.basketModel.isEmpty())
@@ -358,7 +364,8 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     // Falls back to nothing when the user has no rated shots — the
     // elicitation paths (the rating slider, conversational capture) keep
     // this pool populated.
-    // Equipment-scoped (see ShotHistoryStorage::equipmentBucketForShot). This
+    // Equipment-scoped (see ShotHistoryStorage::equipmentBucketForShot; nullopt
+    // means the lookup failed, and leaves the query unscoped). This
     // block is presented to the model as the outcome to REPRODUCE, so its
     // dose/yield/duration/grind read as a target. An anchor from other gear is
     // a target the user cannot hit at the settings it reports — strictly worse
@@ -1030,9 +1037,10 @@ QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
         if (turn.shotId == 0) continue;
         if (turn.structuredNext.isEmpty()) continue;
 
-        // 1. Look up prior turn's shot's profile + timestamp.
+        // 1. Look up prior turn's shot's profile + timestamp + equipment bucket.
         QSqlQuery q(db);
-        q.prepare("SELECT profile_kb_id, timestamp FROM shots WHERE id = ?");
+        q.prepare("SELECT profile_kb_id, timestamp, COALESCE(equipment_id, 0) "
+                  "FROM shots WHERE id = ?");
         q.addBindValue(static_cast<qint64>(turn.shotId));
         if (!q.exec ()) {
             qWarning() << "buildRecentAdviceBlock: prior-shot lookup failed:"
@@ -1043,19 +1051,27 @@ QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
 
         const QString priorKbId = q.value(0).toString();
         const qint64 priorTs = q.value(1).toLongLong();
+        const qint64 priorBucket = q.value(2).toLongLong();
         if (priorKbId != in.currentProfileKbId) continue;  // cross-profile filter
         if (priorTs <= 0) continue;
 
         // 2. Find the next shot postdating the prior turn's shot on the
-        // same profile, excluding the current shot under analysis.
+        // same profile AND the same equipment package, excluding the current
+        // shot under analysis. Without the equipment match, a user who
+        // followed the advice on one basket and then pulled a shot on the
+        // other has the OTHER basket's shot scored as their response: the
+        // adherence line then reports a grind move the user never made,
+        // and the model is told its own advice was ignored or overshot.
         QSqlQuery nextQ(db);
         nextQ.prepare(
             "SELECT id FROM shots "
             "WHERE profile_kb_id = ? AND timestamp > ? AND id != ? "
+            "  AND " + ShotHistoryStorage::equipmentBucketSql() + " "
             "ORDER BY timestamp ASC LIMIT 1");
         nextQ.addBindValue(in.currentProfileKbId);
         nextQ.addBindValue(priorTs);
         nextQ.addBindValue(static_cast<qint64>(in.currentShotId));
+        nextQ.addBindValue(priorBucket);
         if (!nextQ.exec ()) {
             qWarning() << "buildRecentAdviceBlock: follow-up shot lookup failed:"
                        << nextQ.lastError().text();
@@ -1216,10 +1232,17 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // reading). Replaces the old "≥5g, no-badge-only" filter that admitted
     // undershoot/aborted experiments and corrupted the medians.
     // The resolved shot is loaded and validated above, so this is nullopt only
-    // if the row vanished between the two reads; scope-nothing is the honest
-    // response to that, not scope-to-unpackaged.
+    // if the bucket query itself failed. FAIL CLOSED: this block publishes a
+    // grind NUMBER, and running it with no equipment predicate pools every
+    // package the user owns — the exact confound the scoping exists to remove,
+    // and invisible at the point of use. No bucket, no block.
     const std::optional<qint64> calBucket =
         ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId);
+    if (!calBucket.has_value()) {
+        qWarning() << "buildGrinderCalibrationBlock: equipment bucket unresolved for shot"
+                   << resolvedShotId << "→ empty (refusing to pool across packages)";
+        return QJsonObject();
+    }
 
     QSqlQuery q(db);
     // Scoped to the resolved shot's own equipment PACKAGE, not to every package
@@ -1256,12 +1279,10 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
             "  AND COALESCE(channeling_detected, 0) = 0 "
             "  AND COALESCE(pour_truncated_detected, 0) = 0 "
             "  AND COALESCE(skip_first_frame_detected, 0) = 0 ");
-    if (calBucket.has_value())
-        calSql += QStringLiteral(" AND ") + ShotHistoryStorage::equipmentBucketSql();
-    calSql += QStringLiteral(" ORDER BY timestamp DESC");
+    calSql += QStringLiteral(" AND ") + ShotHistoryStorage::equipmentBucketSql()
+            + QStringLiteral(" ORDER BY timestamp DESC");
     q.prepare(calSql);
-    if (calBucket.has_value())
-        q.addBindValue(*calBucket);
+    q.addBindValue(*calBucket);
     if (!q.exec ()) {
         qWarning() << "buildGrinderCalibrationBlock: history query failed:" << q.lastError().text();
         return QJsonObject();
@@ -1338,8 +1359,8 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     }
 
     if (rows.isEmpty()) {
-        qDebug() << "buildGrinderCalibrationBlock: no dialed-in shots for"
-                 << grinderModel << grinderBurrs;
+        qDebug() << "buildGrinderCalibrationBlock: no dialed-in shots in equipment package"
+                 << *calBucket << "(grinder" << grinderModel << grinderBurrs << ")";
         return QJsonObject();
     }
 

@@ -1316,8 +1316,8 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     ctx.model = grinderModel;
     ctx.beverageType = beverageType.isEmpty() ? QStringLiteral("espresso") : beverageType;
 
-    // Build SQL with an optional bean_brand filter — same conditional-
-    // append pattern used by loadRecentShotsByKbIdStatic and
+    // Build SQL with optional bean_brand and equipment-package filters — same
+    // conditional-append pattern used by loadRecentShotsByKbIdStatic and
     // buildFilterQuery in this file.
     // Grinder model resolves through the equipment_id pointer (the per-shot
     // grinder_model column is dropped in migration 23, add-equipment-packages
@@ -1384,8 +1384,11 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     // grinder-model-wide (all beans/beverages) so it reflects the grinder's true
     // resolution and matches the widget exactly — a user who mostly makes coarse
     // moves on the current bean still gets the fine step their grinder can do.
-    // (settingsObserved / min / max stay bean-scoped below — those are per-bean
-    // context, unlike the step.)
+    // (settingsObserved / min / max stay bean- AND equipment-scoped below —
+    // those are per-bean, per-package context, unlike the step. The step is
+    // deliberately NOT equipment-scoped: it is the grinder's mechanical
+    // resolution, which does not change when the basket does, and narrowing its
+    // sample to one package would report a coarser step than the grinder has.)
     ctx.stepSize = deriveGrindStep(grinderWideNumericSettings(db, grinderModel));
     // min/max stay gated on an all-numeric history — a mixed list has no
     // meaningful numeric range to report.
@@ -1435,7 +1438,8 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         }
     }
     // rpmStepSize is a GRINDER property like stepSize — grinder-model-wide, not
-    // bean/beverage-scoped — so it matches the widget's grindRpmStepForGrinder.
+    // bean/beverage/package-scoped — so it matches the widget's
+    // grindRpmStepForGrinder.
     ctx.rpmStepSize = deriveGrindStep(grinderWideRpms(db, grinderModel));
 
     return ctx;

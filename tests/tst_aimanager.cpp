@@ -34,7 +34,14 @@
 #include <QSqlDatabase>
 #include <QDate>
 
+#include <QSqlError>
+#include <QSqlQuery>
+#include <QTemporaryDir>
+#include <QFile>
+
 #include "ai/aimanager.h"
+#include "history/shothistorystorage.h"
+#include "shotrowfixtures.h"
 #include "mcp/mcpagentdocs.h"
 #include "ai/aiconversation.h"
 #include "core/settings.h"
@@ -133,6 +140,11 @@ class tst_AIManager : public QObject {
     Q_OBJECT
 
 private:
+    // Schema template + scratch dir for the one DB-backed test in this file
+    // (loadQualifiedShots). Built once in initTestCase and copied per use.
+    QTemporaryDir m_tempDir;
+    QString m_templateDbPath;
+
     // `ai_conversations` dispatches on `action`, and a merged tool always goes
     // through the async path even when the verb it selects is synchronous.
     static QJsonObject callConversations(McpToolRegistry& registry, const QJsonObject& args,
@@ -337,6 +349,125 @@ private slots:
         // Isolate the conversation index from the real user dir so loading /
         // saving doesn't mutate state outside the test.
         QStandardPaths::setTestModeEnabled(true);
+
+        // Schema template for the one DB-backed test below. Built once and
+        // copied, the same way tst_dialing_blocks does it, so the migration
+        // chain runs once for the whole file rather than per test.
+        QVERIFY(m_tempDir.isValid());
+        m_templateDbPath = m_tempDir.path() + QStringLiteral("/aimanager_template.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_templateDbPath));
+        storage.close();
+    }
+
+    // The in-app advisor's own history query is scoped to the current shot's
+    // equipment package. This is the headline path of the change and the only
+    // one not reachable through DialingBlocks: `AIManager::loadQualifiedShots`
+    // is what fills the "Previous Shots with This Bean & Profile" section, and
+    // before this change it matched on bean + profile + a 21-day window alone.
+    void loadQualifiedShots_scopesHistoryToTheShotsEquipmentPackage()
+    {
+        using namespace ShotRowFixtures;
+        const QString dbPath = m_tempDir.path() + QStringLiteral("/qualified.db");
+        QVERIFY(QFile::copy(m_templateDbPath, dbPath));
+        // Copy any WAL/SHM sidecars so the schema copy is complete even if the
+        // template was not fully checkpointed on close.
+        for (const QString& suffix : {QStringLiteral("-wal"), QStringLiteral("-shm")}) {
+            if (QFile::exists(m_templateDbPath + suffix))
+                QVERIFY(QFile::copy(m_templateDbPath + suffix, dbPath + suffix));
+        }
+
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+        const qint64 nowTs = QDateTime::currentSecsSinceEpoch();
+
+        qint64 currentId = 0;
+        withRawDb(dbPath, QStringLiteral("ai_qualified"), [&](QSqlDatabase& db) {
+            auto seed = [&](const QString& uuid, qint64 ts, const QString& setting,
+                            const QString& basketModel) {
+                return insertShot(db, ShotRow{
+                    .uuid = uuid, .timestamp = ts,
+                    .profileName = profile,
+                    .duration = 30.0, .finalWeight = 36.0,
+                    .beanBrand = bean, .beanType = type,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .basketBrand = QStringLiteral("Decent"),
+                    .basketModel = basketModel,
+                    .grinderSetting = setting });
+            };
+            // Same bean, same profile, same window — only the basket differs.
+            QVERIFY(seed(QStringLiteral("own-prior"), nowTs - 7200,
+                         QStringLiteral("9.75"), QStringLiteral("18g Ridged")) > 0);
+            QVERIFY(seed(QStringLiteral("other-basket"), nowTs - 3600,
+                         QStringLiteral("17"), QStringLiteral("Stepped 58-46mm")) > 0);
+            currentId = seed(QStringLiteral("current"), nowTs,
+                             QStringLiteral("9.75"), QStringLiteral("18g Ridged"));
+            QVERIFY(currentId > 0);
+        });
+
+        std::optional<qint64> bucket;
+        const auto qualified = AIManager::loadQualifiedShots(
+            dbPath, bean, type, profile, static_cast<int>(currentId), &bucket);
+
+        QVERIFY2(bucket.has_value(), "the out-parameter must report the resolved bucket");
+        QVERIFY2(*bucket > 0, "the seeded shot has a package, so the bucket is not 0");
+
+        QStringList settings;
+        for (const auto& pair : qualified)
+            settings << pair.second.grinderSetting;
+        QCOMPARE(settings.size(), 1);
+        QVERIFY2(settings.contains(QStringLiteral("9.75")),
+                 "the same package's prior shot must remain in the history");
+        QVERIFY2(!settings.contains(QStringLiteral("17")),
+                 "a shot on another basket must not reach the advisor's history");
+    }
+
+    // The one-time wipe that makes "a clean conversation after upgrading" true.
+    // The equipment-keyed conversationKey alone does not deliver it:
+    // loadMostRecentConversation() restores whatever the index says is newest
+    // BY KEY, with no bean/profile/equipment lookup that could fail to match, so
+    // without this a pre-upgrade thread comes back at startup carrying the
+    // two-basket history the rest of this change removes.
+    void construction_wipesConversationsOnceForEquipmentScoping()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        const QString key = AIManager::conversationKey(
+            QStringLiteral("Sweet Bloom Coffee"), QStringLiteral("Hometown Blend"),
+            QStringLiteral("D-Flow / Q"), 7);
+        QJsonObject structured;
+        structured[QStringLiteral("grinderSetting")] = QStringLiteral("10.5");
+        AIConversation::appendAssistantTurnForKey(
+            key, 111, QStringLiteral("old user turn"),
+            QStringLiteral("old assistant turn"), structured);
+        QCOMPARE(AIConversation::loadRecentAssistantTurnsForKey(key, 3).size(), 1);
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        {
+            AIManager first(&nam, &appSettings);
+            Q_UNUSED(first)
+        }
+        QVERIFY2(AIConversation::loadRecentAssistantTurnsForKey(key, 3).isEmpty(),
+                 "the first construction after upgrading must clear stored conversations");
+
+        // ...and exactly once. A wipe that fired on every launch would delete
+        // the user's live thread every time they opened the app, which is a far
+        // worse bug than the one it fixes and would not show up in the assertion
+        // above.
+        AIConversation::appendAssistantTurnForKey(
+            key, 222, QStringLiteral("post-migration user turn"),
+            QStringLiteral("post-migration assistant turn"), structured);
+        {
+            AIManager second(&nam, &appSettings);
+            Q_UNUSED(second)
+        }
+        QCOMPARE(AIConversation::loadRecentAssistantTurnsForKey(key, 3).size(), 1);
+
+        settings.clear();
     }
 
     // The Setup header names the BASKET and puck prep, not just grinder + bean.
@@ -374,10 +505,19 @@ private slots:
         const QString payload = spy.takeFirst().at(0).toString();
 
         QCOMPARE(payload.count(QStringLiteral("### Setup:")), 1);
-        QVERIFY2(payload.contains(QStringLiteral("Graph Coffee Stepped 58-46mm basket")),
-                 qPrintable(QStringLiteral("Setup header must name the basket. Got: ") + payload.left(400)));
-        QVERIFY2(payload.contains(QStringLiteral("puckScreen")),
-                 "Setup header must name the puck-prep techniques");
+        // Assert on the Setup LINE, not on the whole payload: the basket and the
+        // puck-prep flags appear in per-shot blocks too, so a `payload.contains`
+        // would pass with the header still missing them entirely — which is the
+        // exact bug this test exists to catch.
+        QString setupLine;
+        for (const QString& line : payload.split(QLatin1Char('\n'))) {
+            if (line.startsWith(QStringLiteral("### Setup:"))) { setupLine = line; break; }
+        }
+        QVERIFY2(!setupLine.isEmpty(), "the Setup header must be a line of its own");
+        QVERIFY2(setupLine.contains(QStringLiteral("Graph Coffee Stepped 58-46mm basket")),
+                 qPrintable(QStringLiteral("Setup header must name the basket. Got: ") + setupLine));
+        QVERIFY2(setupLine.contains(QStringLiteral("puckScreen")),
+                 qPrintable(QStringLiteral("Setup header must name the puck-prep techniques. Got: ") + setupLine));
         // Still one header, and the bean identity survives alongside the gear.
         QVERIFY(payload.contains(QStringLiteral("Sweet Bloom Coffee - Hometown Blend")));
     }
@@ -522,6 +662,22 @@ private slots:
                  "the first advisor use after upgrading must start a fresh thread");
         QVERIFY2(mgr.conversation()->storageKey() != legacyKey,
                  "the new key must not collide with the pre-upgrade one");
+
+        // Positive control. Two mechanisms produce the empty thread above — the
+        // key no longer matches, AND construction runs the one-time wipe
+        // (construction_wipesConversationsOnceForEquipmentScoping) — so without
+        // this, a switchConversation that simply never loaded anything would
+        // satisfy both assertions. Write under the key this manager is actually
+        // using, with the wipe already spent, and it must come back.
+        const QString liveKey = mgr.conversation()->storageKey();
+        QVERIFY(!liveKey.isEmpty());
+        AIConversation::appendAssistantTurnForKey(
+            liveKey, 222, QStringLiteral("live user turn"),
+            QStringLiteral("live assistant turn"), structured);
+        mgr.switchConversation(QStringLiteral("Other"), type, profile, /*equipmentId=*/7);
+        mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
+        QVERIFY2(mgr.conversation()->hasHistory(),
+                 "switchConversation must load a thread stored under the key it produces");
 
         // NOT asserted here: that the pre-upgrade thread's bytes survive on
         // disk. It is true by construction — no code path in this change

@@ -158,10 +158,14 @@ Rectangle {
             return
         }
 
-        // Assign BEFORE switchConversation below, which reads it. The other
-        // saved* fields are set further down because that call takes them as
-        // parameters; this one does not, so ordering is load-bearing here.
-        overlay.savedEquipmentId = shotData.equipmentId || 0
+        // Two different "no package" sentinels reach this call: C++ shot
+        // records use 0 (shothistory_types.h:64) while PostShotReviewPage's
+        // edit fields use -1 (PostShotReviewPage.qml:366), and a saved edit
+        // writes the -1 back into the shot object. Both mean bucket 0 to
+        // ShotHistoryStorage::equipmentBucketForShot, so collapse them here —
+        // a leaked -1 would key a third conversation thread that the index
+        // entry (which only serialises equipmentId > 0) reads back as 0.
+        var equipmentId = shotData.equipmentId > 0 ? shotData.equipmentId : 0
 
         // Switch to the right conversation for this bean+profile+equipment.
         // The equipment package is part of the thread identity: a saved
@@ -171,7 +175,7 @@ Rectangle {
             beanBrand || "",
             beanType || "",
             profileName || "",
-            overlay.savedEquipmentId
+            equipmentId
         )
 
         // Fetch recent shot history as context on a background thread.
@@ -179,6 +183,7 @@ Rectangle {
         overlay.savedBeanBrand = beanBrand || ""
         overlay.savedBeanType = beanType || ""
         overlay.savedProfileName = profileName || ""
+        overlay.savedEquipmentId = equipmentId
         overlay.historicalContext = ""
         overlay.contextLoading = true
         MainController.aiManager.requestRecentShotContext(

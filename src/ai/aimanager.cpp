@@ -85,6 +85,16 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
     // are misleading. Fires once per device, then becomes a no-op.
     clearAllConversationsOnce(QStringLiteral("grinder_calibration_v1.7.2"));
 
+    // One-time clear: the equipment package is now part of the conversation
+    // key, so a pre-upgrade thread is simply unreferenced by the new key —
+    // EXCEPT on this path. loadMostRecentConversation() below restores
+    // whatever the index says is newest, by key, with no bean/profile/equipment
+    // lookup; a pre-upgrade thread would therefore come back at startup with a
+    // history that mixes two baskets, which is the defect this change removes.
+    // Dropping the threads is cheap (they are advice, not data) and leaves
+    // every user with a package on a clean first conversation.
+    clearAllConversationsOnce(QStringLiteral("equipment_scoped_conversations_v1"));
+
     // Migrate legacy single-conversation storage if needed
     migrateFromLegacyConversation();
 
@@ -874,9 +884,10 @@ static QString describeEquipmentSet(const QString& grinderBrand, const QString& 
         parts << (parts.isEmpty() ? basketName + " basket" : "in a " + basketName + " basket");
 
     // Puck prep is the SET of techniques the user ticked (PuckPrep::flagKeys),
-    // stored canonically. It is part of the package identity — changing it forks
-    // the package (equipmentstorage.cpp, updateGrinderIdentityStatic) — so it
-    // belongs in the same sentence as the gear it forked with.
+    // stored canonically. It is part of the package identity — changing it on a
+    // package that already has shots forks a new one
+    // (EquipmentStorage::supersedeOrEditStatic) — so it belongs in the same
+    // sentence as the gear it forked with.
     const QStringList puckFlags = PuckPrep::setFlags(puckPrep);
     if (!puckFlags.isEmpty())
         parts << "with " + puckFlags.join(", ");
@@ -884,16 +895,18 @@ static QString describeEquipmentSet(const QString& grinderBrand, const QString& 
     return parts.join(" ");
 }
 
-// File-scope helper: runs on a background thread with its own SQLite connection.
-// Returns (timestamp, fullShot) pairs. Extracted from requestRecentShotContext
-// to reduce lambda nesting. NOT safe to call from the main thread (would conflict
-// with the primary DB connection).
-static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
+// Runs on a background thread with its own SQLite connection. Returns
+// (timestamp, fullShot) pairs. Extracted from requestRecentShotContext to
+// reduce lambda nesting. NOT safe to call from the main thread (would conflict
+// with the primary DB connection). Contract in aimanager.h.
+QList<QPair<qint64, ShotProjection>> AIManager::loadQualifiedShots(
     const QString& dbPath,
     const QString& beanBrand, const QString& beanType,
-    const QString& profileName, int excludeShotId)
+    const QString& profileName, int excludeShotId,
+    std::optional<qint64>* equipmentBucketOut)
 {
     QList<QPair<qint64, ShotProjection>> qualifiedShots;
+    if (equipmentBucketOut) *equipmentBucketOut = std::nullopt;
 
     withTempDb(dbPath, "ai_context", [&](QSqlDatabase& db) {
         // 1. Look up the current shot's timestamp
@@ -916,11 +929,13 @@ static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
         // 1b. The current shot's equipment package. Baskets of different wall
         // profile make genuinely different coffee at the same dial, so a history
         // that mixes them teaches the advisor a grind ordering that does not
-        // exist: the Aug 2026 report was a stepped 58->46mm basket at setting 17
-        // compared against a straight-wall 18g basket at 9.75, from which the
-        // advisor concluded the burrs had "crossed a zero-point threshold".
+        // exist. No issue number: this was found by reading a live advisor
+        // conversation, where a stepped 58->46mm basket at setting 17 sat beside
+        // a straight-wall 18g basket at 9.75 and the advisor concluded from the
+        // jump that the burrs had "crossed a zero-point threshold".
         const std::optional<qint64> equipmentId =
             ShotHistoryStorage::equipmentBucketForShot(db, static_cast<qint64>(excludeShotId));
+        if (equipmentBucketOut) *equipmentBucketOut = equipmentId;
 
         // 2. Query candidates: same bean/profile/equipment, up to 3 weeks before this shot
         qint64 dateFrom = shotTimestamp - 21 * 24 * 3600;
@@ -931,9 +946,10 @@ static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
         if (!profileName.isEmpty()) { conditions << "profile_name = ?"; bindValues << profileName; }
         // Equipment match through the shared predicate — see
         // ShotHistoryStorage::equipmentBucketSql for why both sides are COALESCEd.
-        // No bucket = the current shot could not be resolved, so there is no
-        // equipment to match against; leave the history unscoped rather than
-        // scoping it to "unpackaged" and returning nothing.
+        // No bucket = the lookup failed (the shot itself resolved, or the
+        // timestamp guard above would have returned), so there is no equipment
+        // to match against; leave the history unscoped rather than scoping it to
+        // "unpackaged" and returning nothing to every user who HAS a package.
         if (equipmentId.has_value()) {
             conditions << ShotHistoryStorage::equipmentBucketSql();
             bindValues << *equipmentId;
@@ -1092,7 +1108,13 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
     // it. All dereferences occur inside the QueuedConnection callback, which runs on the
     // main thread where QPointer's tracking is valid.
     QThread* thread = QThread::create([self, dbPath, beanBrand, beanType, profileName, excludeShotId, serial]() {
-        auto qualifiedShots = loadQualifiedShots(dbPath, beanBrand, beanType, profileName, excludeShotId);
+        // Resolved ONCE, by the history load, and reused by the grinder-context
+        // block below. Two reads on two connections could disagree if the user
+        // re-points this shot's equipment mid-request, and then the history and
+        // the grinder numbers would describe different gear with nothing saying so.
+        std::optional<qint64> equipmentBucket;
+        auto qualifiedShots = loadQualifiedShots(dbPath, beanBrand, beanType, profileName,
+                                                 excludeShotId, &equipmentBucket);
 
         GrinderContext grinderCtx;
         QString grinderBrand;
@@ -1130,10 +1152,6 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
                       "WHERE s.id = ?");
             q.bindValue(0, static_cast<qint64>(excludeShotId));
             QString profileKbId;
-            // Same bucket loadQualifiedShots resolved, re-read here because that
-            // runs on its own connection. Cheap indexed read by primary key.
-            const std::optional<qint64> equipmentBucket = ShotHistoryStorage::equipmentBucketForShot(
-                db, static_cast<qint64>(excludeShotId));
             if (!q.exec()) {
                 qWarning() << "AIManager::requestRecentShotContext: grinder ctx query failed:"
                            << q.lastError().text();
@@ -1149,9 +1167,7 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
                     grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
                         db, model, burrs, bev, excludeShotId);
                 }
-                // Equipment set for the no-history line. Rendered from the same
-                // helper the Setup header uses so the two cannot describe one
-                // package differently.
+                // Equipment set for the no-history line.
                 equipmentLabel = describeEquipmentSet(grinderBrand, model, burrs,
                                                       q.value(5).toString(),
                                                       q.value(6).toString(),
@@ -1162,9 +1178,14 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             // ai_advisor_invoke uses (mcptools_ai.cpp), so the in-app
             // advisor's historicalContext carries the same tracking data
             // the MCP path already does.
-            if (!profileKbId.isEmpty()) {
+            //
+            // Requires a resolved bucket: the key IS bean|type|profile|equipment,
+            // so `value_or(0)` here would read the UNPACKAGED user's thread and
+            // score this shot against advice given for other gear. No bucket, no
+            // closed-loop block — the rest of the context is unaffected.
+            if (!profileKbId.isEmpty() && equipmentBucket.has_value()) {
                 const QString convKey = AIManager::conversationKey(beanBrand, beanType, profileName,
-                                                                   equipmentBucket.value_or(0));
+                                                                   *equipmentBucket);
                 const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
                 if (!turns.isEmpty()) {
                     DialingBlocks::RecentAdviceInputs in;
@@ -1298,10 +1319,6 @@ void AIManager::emitRecentShotContext(
         if (setupShared && (!setupGrinderBrand.isEmpty() || !setupGrinderModel.isEmpty()
                             || !setupBasketBrand.isEmpty() || !setupBasketModel.isEmpty()
                             || !setupBeanBrand.isEmpty() || !setupBeanType.isEmpty())) {
-            // Gear phrase comes from the shared describeEquipmentSet() — the
-            // no-history line below renders the same equipment set, and two
-            // hand-rolled copies of one phrase are free to drift apart with
-            // nothing failing when they do.
             QStringList parts;
             const QString gear = describeEquipmentSet(setupGrinderBrand, setupGrinderModel,
                                                       setupGrinderBurrs, setupBasketBrand,
@@ -1327,12 +1344,21 @@ void AIManager::emitRecentShotContext(
 
         result += shotSections.join("\n\n");
     } else if (!equipmentLabel.isEmpty()) {
-        // Zero qualifying shots. Say so, and say what was filtered on, rather
-        // than emitting nothing: an absent history block is indistinguishable
-        // from "this user has no history", and a model with no anchor in
-        // context is a model that invents one — the Aug 2026 report cited a
-        // "70/100 shot" that appears nowhere in its context and then reasoned
-        // from it. A stated absence is a fact it can use instead.
+        // Zero qualifying shots, on a shot whose equipment we can name. Say so,
+        // and say what was filtered on, rather than emitting nothing: an absent
+        // history block is indistinguishable from "this user has no history",
+        // and a model with no anchor in context is a model that invents one —
+        // the live conversation this change came from cited a "70/100 shot" that
+        // appears nowhere in its context and then reasoned from it. A stated
+        // absence is a fact it can use instead.
+        //
+        // An EMPTY label falls through to silence deliberately. It means the
+        // shot has no equipment package at all, which is the majority case and
+        // the one where scoping is a no-op (bucket 0 matches every unpackaged
+        // shot): there is no equipment set to name and nothing was excluded, so
+        // "no prior shots with this equipment set ()" would assert a filter that
+        // did not run. Those users get the same silence they got before this
+        // change.
         result = "## Previous Shots with This Bean & Profile\n\n"
                  "No prior shots with this equipment set (" + equipmentLabel + ") "
                  "on this bean and profile. Shot history is matched on the equipment "

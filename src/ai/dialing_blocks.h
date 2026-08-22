@@ -375,12 +375,24 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 // `"directional"`. `resolvedShotId` IS used — it supplies the current
 // roast batch and current-profile UGS.
 //
+// The mined pool is scoped to the resolved shot's own equipment PACKAGE, not
+// to every package sharing a grinder model + burrs: endpoint medians are
+// pooled before any pair is formed, so two baskets on one grinder would
+// corrupt the endpoints and the anchor together.
+//
 // Returns an empty `QJsonObject` (caller suppresses the key) when:
 //   - `grinderModel` is empty, OR
 //   - `beverageType` is filter / pourover, OR
 //   - the resolved shot is invalid, OR
-//   - there are no dialed-in shots on this grinder + burrs.
+//   - the shot's equipment bucket cannot be resolved (fail closed — running
+//     unscoped would pool every package), OR
+//   - there are no dialed-in shots in that equipment package.
 // Otherwise the block is always present (directional at minimum).
+//
+// `grinderBurrs` is diagnostic only: it selects nothing (the package does
+// that) and reaches no output field — it appears in log lines so a submitted
+// log names the gear the caller asked about. `grinderModel` by contrast picks
+// the setting notation via `GrinderAliases::findEntryByAlias`.
 //
 // Background-thread / DB-owning: must be called from the same thread that
 // owns `db` (same tier as `buildGrinderContextBlock`).
@@ -463,9 +475,10 @@ struct RecentAdviceInputs {
 };
 
 // Build the recentAdvice array. For each input turn (in order) tries to
-// pair it with the user's actual follow-up shot on the same profile and
-// computes adherence + outcomeInPredictedRange + outcomeRating0to100 attribution.
-// Turns that don't qualify (cross-profile, no follow-up shot yet) are
+// pair it with the user's actual follow-up shot on the same profile AND the
+// same equipment package as the turn's own shot, and computes adherence +
+// outcomeInPredictedRange + outcomeRating0to100 attribution. Turns that don't
+// qualify (cross-profile, cross-package, no follow-up shot yet) are
 // skipped without consuming a turnsAgo slot. Returns an empty array when
 // no entries qualify; caller MUST suppress the `recentAdvice` key in
 // that case (no `recentAdvice: []` placeholders).

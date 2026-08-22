@@ -1834,12 +1834,149 @@ private slots:
         });
     }
 
-    // The grinder identity compare is case- and whitespace-FOLDED, like the
-    // identity matcher that writes the packages. An exact compare made a model or
-    // burr string differing only in case or padding return no history at all —
-    // and an empty history is indistinguishable from a grinder that has never
-    // been used, so the failure is silent (#1713).
-     // dialInSessions and bestRecentShot both exclude shots from another
+    // grinderContext reports only the resolved package's settings and range.
+    // Two things fail here if the scoping is wrong, and the second is not
+    // obvious: the settings query and the RPM query BOTH already use named
+    // binds (":model"/":bev"), so the equipment predicate has to be named too.
+    // A positional "?" there does not quietly filter nothing — Qt's SQLite
+    // driver reports "Parameter count mismatch" and exec() returns false, which
+    // reaches the user as a grinder-context block that silently went missing.
+    // Asserting on the RPM range as well as the settings covers both queries.
+    void grinderContext_reportsOnlyThisPackagesSettingsAndRange()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("gctx_pkg"), [&](QSqlDatabase& db) {
+            auto seed = [&](const QString& uuid, const QString& setting, qint64 rpm,
+                            const QString& basketModel) {
+                return insertShot(db, ShotRow{
+                    .uuid = uuid, .timestamp = 1000,
+                    .profileName = QStringLiteral("p"),
+                    .beanBrand = QStringLiteral("Northbound"),
+                    .grinderModel = QStringLiteral("Zero"),
+                    .basketBrand = QStringLiteral("Decent"),
+                    .basketModel = basketModel,
+                    .grinderSetting = setting, .rpm = rpm });
+            };
+
+            // Straight-wall package: a tight dial around 4, low RPM.
+            QVERIFY(seed(QStringLiteral("sw-1"), QStringLiteral("4.0"), 800,
+                         QStringLiteral("18g Ridged")) > 0);
+            QVERIFY(seed(QStringLiteral("sw-2"), QStringLiteral("4.2"), 900,
+                         QStringLiteral("18g Ridged")) > 0);
+            // Stepped package on the SAME grinder: a dial an order of magnitude
+            // away, and a much higher RPM. Pooled, these would widen the reported
+            // range to 4.0-17 and 800-1600 — a range in which almost any proposed
+            // setting looks plausible, which is what the block exists to judge.
+            QVERIFY(seed(QStringLiteral("st-1"), QStringLiteral("17"), 1600,
+                         QStringLiteral("Stepped 58-46mm")) > 0);
+
+            const qint64 cur = seed(QStringLiteral("sw-cur"), QStringLiteral("4.0"), 800,
+                                    QStringLiteral("18g Ridged"));
+            QVERIFY(cur > 0);
+            const std::optional<qint64> bucket =
+                ShotHistoryStorage::equipmentBucketForShot(db, cur);
+            QVERIFY(bucket.has_value());
+
+            const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
+                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
+                QStringLiteral("Northbound"), bucket);
+            QVERIFY2(!ctx.isEmpty(), "scoped grinder context must still be produced");
+
+            const QJsonArray observed = ctx.value(QStringLiteral("settingsObserved")).toArray();
+            QStringList seen;
+            for (const QJsonValue& v : observed) seen << v.toString();
+            QVERIFY2(seen.contains(QStringLiteral("4.0")),
+                     "this package's own settings must be reported");
+            QVERIFY2(!seen.contains(QStringLiteral("17")),
+                     "another package's setting must not appear in settingsObserved");
+            QCOMPARE(ctx.value(QStringLiteral("observedMaxSetting")).toDouble(), 4.2);
+
+            // RPM query — the second named-bind site.
+            QCOMPARE(ctx.value(QStringLiteral("observedMaxRpm")).toInt(), 900);
+
+            // Cross-bean fallback widens the BEAN, never the equipment. Ask for a
+            // bean with a single setting so the fallback fires, and check the
+            // other package's dial still does not turn up in it.
+            QVERIFY(insertShot(db, ShotRow{
+                .uuid = QStringLiteral("sw-onyx"), .timestamp = 1000,
+                .profileName = QStringLiteral("p"),
+                .beanBrand = QStringLiteral("Onyx"),
+                .grinderModel = QStringLiteral("Zero"),
+                .basketBrand = QStringLiteral("Decent"),
+                .basketModel = QStringLiteral("18g Ridged"),
+                .grinderSetting = QStringLiteral("4.4") }) > 0);
+            const QJsonObject onyx = DialingBlocks::buildGrinderContextBlock(
+                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
+                QStringLiteral("Onyx"), bucket);
+            const QJsonArray allBeans = onyx.value(QStringLiteral("allBeansSettings")).toArray();
+            QVERIFY2(!allBeans.isEmpty(), "sparse bean-scoped result must trigger the fallback");
+            QStringList fallbackSeen;
+            for (const QJsonValue& v : allBeans) fallbackSeen << v.toString();
+            QVERIFY2(fallbackSeen.contains(QStringLiteral("4.0")),
+                     "the cross-bean fallback must widen the bean");
+            QVERIFY2(!fallbackSeen.contains(QStringLiteral("17")),
+                     "the cross-bean fallback must NOT widen the equipment package");
+        });
+    }
+
+    // recentAdvice pairs a recommendation with the user's follow-up shot, and
+    // that follow-up must be on the same equipment package as the shot the
+    // advice was given for. Without the match, a user who took the advice on one
+    // basket and then pulled on the other has the OTHER basket's shot scored as
+    // their response — the model is told its advice was ignored (or wildly
+    // overshot) on the strength of a grind move the user never made.
+    void recentAdvice_followUpMustBeOnTheSamePackage()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("rec_advice_pkg"), [&](QSqlDatabase& db) {
+            auto seed = [&](const QString& uuid, qint64 ts, const QString& setting,
+                            const QString& basketModel) {
+                return insertShot(db, ShotRow{
+                    .uuid = uuid, .timestamp = ts,
+                    .profileName = QStringLiteral("80's Espresso"),
+                    .profileKbId = QStringLiteral("kb-80s"),
+                    .duration = 28.0, .finalWeight = 36.0, .doseWeight = 18.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .basketBrand = QStringLiteral("Decent"),
+                    .basketModel = basketModel,
+                    .grinderSetting = setting });
+            };
+
+            // Advice was given on this shot, on the straight-wall basket.
+            const qint64 priorId = seed(QStringLiteral("uuid-prior"), 1000,
+                                        QStringLiteral("5.0"), QStringLiteral("18g Ridged"));
+            QVERIFY(priorId > 0);
+            // The very next shot in time is on the OTHER basket. Unscoped, this
+            // wins the "first shot after" race and gets scored as the response.
+            QVERIFY(seed(QStringLiteral("uuid-other"), 1100, QStringLiteral("17"),
+                         QStringLiteral("Stepped 58-46mm")) > 0);
+            // The real response, on the same basket, comes later.
+            const qint64 realNextId = seed(QStringLiteral("uuid-next"), 1200,
+                                           QStringLiteral("4.75"), QStringLiteral("18g Ridged"));
+            QVERIFY(realNextId > 0);
+
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = QList<AIConversation::HistoricalAssistantTurn>{
+                AIConversation::HistoricalAssistantTurn{
+                    priorId, QStringLiteral("Try grinder 4.75."), sampleStructuredNext()
+                }
+            };
+            in.currentProfileKbId = QStringLiteral("kb-80s");
+            in.currentShotId = 99999;
+
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QCOMPARE(out.size(), 1);
+            const QJsonObject ur = out.first().toObject().value(QStringLiteral("userResponse")).toObject();
+            QCOMPARE(ur.value(QStringLiteral("actualNextShotId")).toDouble(),
+                     static_cast<double>(realNextId));
+            QCOMPARE(ur.value(QStringLiteral("grinderSetting")).toString(),
+                     QStringLiteral("4.75"));
+        });
+    }
+
+    // dialInSessions and bestRecentShot both exclude shots from another
     // equipment package. Same grinder, same coffee, same profile, same window —
     // only the basket differs, which is precisely the case that made the advisor
     // compare a stepped-basket dial of 17 against a straight-wall dial of 9.75
@@ -1900,7 +2037,10 @@ private slots:
             bool namedBasket = false;
             for (const QJsonValue& sv : sessions) {
                 const QJsonObject ctx = sv.toObject().value(QStringLiteral("context")).toObject();
-                if (ctx.value(QStringLiteral("basketModel")).toString() == QStringLiteral("18g Ridged"))
+                // Brand AND model: the hoist emits them independently, so
+                // checking only the model would leave a dropped brand invisible.
+                if (ctx.value(QStringLiteral("basketBrand")).toString() == QStringLiteral("Decent")
+                    && ctx.value(QStringLiteral("basketModel")).toString() == QStringLiteral("18g Ridged"))
                     namedBasket = true;
             }
             QVERIFY2(namedBasket, "session context must name the basket the shots were pulled on");

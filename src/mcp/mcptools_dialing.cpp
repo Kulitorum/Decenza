@@ -452,15 +452,19 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     result["shotId"] = resolvedShotId;
                     if (calibration.isEmpty()) {
                         // {} only on hard guards: empty grinder model,
-                        // filter/pourover, invalid shot, or no dialed-in
-                        // shots at all. The AI explicitly asked, so explain.
+                        // filter/pourover, invalid shot, unresolvable equipment
+                        // package, or no dialed-in shots in that package. The AI
+                        // explicitly asked, so explain.
                         result["available"] = false;
                         result["reason"] =
                             "Cross-profile grinder calibration is not available for this "
-                            "grinder yet — no qualifying dialed-in espresso shots on this "
-                            "exact grinder + burrs. Advise qualitatively (finer / coarser) "
-                            "and have the user pull a reference shot on the target profile "
-                            "rather than quoting a specific number.";
+                            "shot yet — no qualifying dialed-in espresso shots on this "
+                            "shot's equipment package (grinder + basket + puck prep). "
+                            "Shots pulled on other equipment are deliberately not pooled in: "
+                            "a grind number is only comparable within one equipment set. "
+                            "Advise qualitatively (finer / coarser) and have the user pull a "
+                            "reference shot on the target profile with this equipment rather "
+                            "than quoting a specific number.";
                     } else {
                         // Block is present and self-describing via
                         // `confidence`: "approximate" carries numbers within

@@ -132,12 +132,19 @@ T.Page {
         }
         function onShotBadgesUpdated(id, channeling, grindIssue, skipFirstFrame, pourTruncated) {
             if (id !== shotDetailPage.shotId) return
-            var updated = Object.assign({}, shotDetailPage.shotData)
-            updated.channelingDetected = channeling
-            updated.grindIssueDetected = grindIssue
-            updated.skipFirstFrameDetected = skipFirstFrame
-            updated.pourTruncatedDetected = pourTruncated
-            shotDetailPage.shotData = updated
+            // Re-request rather than patching a copy. `shotData` is the
+            // ShotProjection Q_GADGET wrapper, whose Q_PROPERTYs live on the
+            // prototype, not as own properties — so Object.assign({}, shotData)
+            // copies NOTHING and the four badge assignments were all that
+            // survived. Every other field (equipmentId, the curve arrays, the
+            // profile, the bean) was silently dropped on this path; the AI
+            // advisor opened from here afterwards keyed its conversation on a
+            // missing equipment package. Same root cause as the whitelist in
+            // PostShotReviewPage.clonePersistedShot — see its docstring. The
+            // badge values arrive in the arguments only for the signal's other
+            // readers; onShotReady replaces shotData wholesale with the
+            // persisted row, which already carries them.
+            shotDetailPage.loadShot()
         }
     }
 

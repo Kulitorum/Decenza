@@ -142,8 +142,6 @@ public:
     // Returns summary data (not full time-series) for dial-in history queries.
     Q_INVOKABLE void requestRecentShotsByKbId(const QString& kbId, int limit = 10);
 
-    // Query recent shots by KB ID (summary data, no time-series).
-    // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
     // The equipment-package bucket a shot belongs to. Every advisor selection
     // that scopes prior shots to "the same gear" resolves the current shot
     // through THIS function and compares with `equipmentBucketSql()`, so those
@@ -157,37 +155,54 @@ public:
     //   - `std::nullopt` when no such shot row exists, which callers MUST read
     //     as "no equipment context, do not scope" rather than as bucket 0.
     //
-    // That last distinction is load-bearing and is not hypothetical: callers
-    // pass -1 as a "no resolved shot" sentinel, and collapsing that to bucket 0
+    // That last distinction is load-bearing. Collapsing "no row" to bucket 0
     // scopes the query to unpackaged shots only — silently returning an empty
     // history to every user who HAS a package. Returning 0 for a missing row
-    // looks like the safe default and is the opposite of one.
+    // looks like the safe default and is the opposite of one. In production the
+    // live cause is a failed query, since every caller guards `resolvedShotId
+    // > 0` before it gets here; the tests pass -1 directly, and six of them
+    // went red on exactly this when the first draft returned a plain qint64.
     //
-    // A package forks whenever the grinder brand/model/burrs, the basket, or the
-    // puck-prep set changes (EquipmentStorage::updateGrinderIdentityStatic), so
-    // this one integer answers the grinder, basket and prep questions at once.
+    // A package forks when the grinder brand/model/burrs, the basket, or the
+    // puck-prep set changes on a package that already has shots
+    // (EquipmentStorage::supersedeOrEditStatic; an unused package, or one whose
+    // every differing component was empty, is edited in place instead). So this
+    // one integer answers the grinder, basket and prep questions at once, and a
+    // user who re-points a used package gets a new bucket from that point on.
     // Runs SQL on the caller's thread — background connection required.
     static std::optional<qint64> equipmentBucketForShot(QSqlDatabase& db, qint64 shotId);
 
-    // SQL predicate matching a shot row against an equipment bucket, the bucket
-    // supplied as a positional bind. COALESCE on BOTH sides is load-bearing: SQL
-    // `NULL = NULL` is not true, so a bare `equipment_id = ?` silently drops
-    // every unpackaged shot instead of matching it. Bucket 0 holds all
-    // unpackaged shots, so a user who has never created a package matches their
-    // whole history and the filter is a no-op for them. Same idiom as the
-    // history-cards grouping in shothistorystorage_queries.cpp.
+    // SQL predicate matching a shot row against an equipment bucket. COALESCE on
+    // BOTH sides is load-bearing: SQL `NULL = NULL` is not true, so a bare
+    // `equipment_id = ?` silently drops every unpackaged shot instead of
+    // matching it. Bucket 0 holds all unpackaged shots, so a user who has never
+    // created a package matches their whole history and the filter is a no-op
+    // for them. Same idiom as the history-cards grouping in
+    // shothistorystorage_queries.cpp.
     // `column` lets a caller qualify the table alias (e.g. "s.equipment_id").
-    // `placeholder` exists because Qt will not mix positional and named binds in
-    // one statement: a query already using ":model"/":bev" must pass a named
-    // placeholder here (e.g. ":equip") or the whole statement silently binds
-    // nothing.
+    // `placeholder` defaults to a POSITIONAL bind and exists because Qt will not
+    // mix positional and named binds in one statement — `QSqlResultPrivate::binds`
+    // is one mode flag and the last bindValue wins
+    // (qtbase/src/sql/kernel/qsqlresult.cpp:684,709,731). A query already using
+    // ":model"/":bev" must therefore pass a named placeholder here (e.g.
+    // ":equip"). Mixing does not fail quietly in the usual case: the SQLite
+    // driver reports "Parameter count mismatch" and exec() returns false
+    // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:459-460,566). It is
+    // when the counts happen to coincide that it is silent — positional binds
+    // are filed under synthetic holder names (`fieldSerial`, qsqlresult.cpp:27)
+    // that the parsed named holders never match, so the statement runs with the
+    // wrong values rather than erroring.
     static QString equipmentBucketSql(const QString& column = QStringLiteral("equipment_id"),
                                       const QString& placeholder = QStringLiteral("?"));
 
+    // Query recent shots by KB ID (summary data, no time-series).
+    // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
+    //
     // `equipmentBucket` scopes the result to one equipment package (see
-    // `equipmentBucketForShot`). Absent = no equipment scoping,
-    // preserving this loader's original behaviour for callers with no
-    // same-gear contract; the advisor's dialInSessions path always passes one.
+    // `equipmentBucketForShot`). Absent = no equipment scoping, preserving this
+    // loader's original behaviour for callers with no same-gear contract. The
+    // advisor's dialInSessions path passes one whenever the bucket resolves,
+    // which in production is whenever the query succeeds.
     static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1,
                                                     std::optional<qint64> equipmentBucket = std::nullopt);
 
@@ -283,6 +298,12 @@ public:
     // baskets' dials as one continuous range and a setting that is absurd on one
     // reads as reasonable. Absent = no equipment scoping (the pre-existing
     // behaviour, for callers with no same-gear contract).
+    //
+    // `stepSize` and `rpmStepSize` are NOT equipment-scoped even when a bucket
+    // is given: they are the grinder's mechanical resolution, unchanged by a
+    // basket swap, and are derived grinder-model-wide so they keep matching the
+    // grind widget. Only `settingsObserved`, `min/maxSetting`, `rpmsObserved`
+    // and `rpm{Min,Max}` narrow to the package.
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel,
                                               const QString& beverageType,
                                               const QString& beanBrand = QString(),
