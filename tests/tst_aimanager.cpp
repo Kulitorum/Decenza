@@ -361,10 +361,12 @@ private slots:
     }
 
     // The in-app advisor's own history query is scoped to the current shot's
-    // equipment package. This is the headline path of the change and the only
-    // one not reachable through DialingBlocks: `AIManager::loadQualifiedShots`
-    // is what fills the "Previous Shots with This Bean & Profile" section, and
-    // before this change it matched on bean + profile + a 21-day window alone.
+    // equipment package. `AIManager::loadQualifiedShots` is what fills the
+    // "Previous Shots with This Bean & Profile" section, and before the scoping
+    // landed it matched on bean + profile + a 21-day window alone. It is the one
+    // selection point not reachable through DialingBlocks, so nothing else in
+    // the suite covers it — but note this is backfill for the commit that
+    // introduced the scoping, not coverage of the review fixes on top of it.
     void loadQualifiedShots_scopesHistoryToTheShotsEquipmentPackage()
     {
         using namespace ShotRowFixtures;
@@ -407,12 +409,8 @@ private slots:
             QVERIFY(currentId > 0);
         });
 
-        std::optional<qint64> bucket;
         const auto qualified = AIManager::loadQualifiedShots(
-            dbPath, bean, type, profile, static_cast<int>(currentId), &bucket);
-
-        QVERIFY2(bucket.has_value(), "the out-parameter must report the resolved bucket");
-        QVERIFY2(*bucket > 0, "the seeded shot has a package, so the bucket is not 0");
+            dbPath, bean, type, profile, static_cast<int>(currentId));
 
         QStringList settings;
         for (const auto& pair : qualified)

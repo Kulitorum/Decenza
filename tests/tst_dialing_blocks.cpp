@@ -1870,6 +1870,14 @@ private slots:
             // setting looks plausible, which is what the block exists to judge.
             QVERIFY(seed(QStringLiteral("st-1"), QStringLiteral("17"), 1600,
                          QStringLiteral("Stepped 58-46mm")) > 0);
+            // A 0.1 gap that exists ONLY on the stepped package. stepSize is
+            // derived grinder-wide, so it must see this; every setting on the
+            // straight-wall package is 0.2 apart. Without a gap unique to the
+            // other package the two derivations coincide and a stepSize
+            // assertion cannot tell them apart — which is how the first version
+            // of this test failed to mean anything.
+            QVERIFY(seed(QStringLiteral("st-2"), QStringLiteral("17.1"), 1600,
+                         QStringLiteral("Stepped 58-46mm")) > 0);
 
             const qint64 cur = seed(QStringLiteral("sw-cur"), QStringLiteral("4.0"), 800,
                                     QStringLiteral("18g Ridged"));
@@ -1903,8 +1911,11 @@ private slots:
             // 0.2 (from 4.0/4.2 alone) rather than the grinder-wide value.
             QVERIFY2(ctx.contains(QStringLiteral("stepSize")),
                      "the grinder-wide step must still be reported");
-            QVERIFY2(ctx.value(QStringLiteral("stepSize")).toDouble() > 0.2 + 1e-9,
-                     "stepSize must be derived grinder-wide, not narrowed to this package");
+            QVERIFY2(qFuzzyCompare(ctx.value(QStringLiteral("stepSize")).toDouble() + 1.0, 0.1 + 1.0),
+                     qPrintable(QStringLiteral("stepSize must be derived grinder-wide (0.1, the gap "
+                                               "on the OTHER package), not narrowed to this one "
+                                               "(0.2). Got: ")
+                                + QString::number(ctx.value(QStringLiteral("stepSize")).toDouble())));
 
             // Cross-bean fallback widens the BEAN, never the equipment. Ask for a
             // bean with a single setting so the fallback fires, and check the

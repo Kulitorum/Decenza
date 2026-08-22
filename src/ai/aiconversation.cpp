@@ -513,6 +513,13 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
         entry[QStringLiteral("beanType")] = conv.value(QStringLiteral("beanType")).toString();
         entry[QStringLiteral("profileName")] = conv.value(QStringLiteral("profileName")).toString();
         entry[QStringLiteral("timestamp")] = conv.value(QStringLiteral("indexTimestamp")).toVariant().toLongLong();
+        // Carried through so the restored entry agrees with the key it names.
+        // The key is an opaque hash of bean|type|profile|equipmentId computed on
+        // the SOURCE device, so dropping the field here leaves an entry claiming
+        // "no package" for a thread keyed on one. Sparse, matching
+        // ConversationEntry::toJson.
+        if (conv.contains(QStringLiteral("equipmentId")))
+            entry[QStringLiteral("equipmentId")] = conv.value(QStringLiteral("equipmentId"));
         index.append(entry);
         existingKeys.insert(key);
         tally.conversationsImported++;

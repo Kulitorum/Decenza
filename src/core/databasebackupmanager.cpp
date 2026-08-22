@@ -429,6 +429,10 @@ bool DatabaseBackupManager::createBackup(bool force)
                     conv["systemPrompt"] = qsettings.value(prefix + "systemPrompt").toString();
                     conv["contextLabel"] = qsettings.value(prefix + "contextLabel").toString();
                     conv["indexTimestamp"] = entry["timestamp"].toVariant().toLongLong();
+                    // See the matching line in shotserver_backup.cpp: sparse, and
+                    // absent means "no package".
+                    if (entry.contains("equipmentId"))
+                        conv["equipmentId"] = entry["equipmentId"];
 
                     QByteArray messagesJson = qsettings.value(prefix + "messages").toByteArray();
                     if (!messagesJson.isEmpty()) {
