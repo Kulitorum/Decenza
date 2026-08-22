@@ -353,7 +353,8 @@ void AIConversation::appendAssistantTurnForKey(
     qint64 shotId,
     const QString& userPrompt,
     const QString& assistantResponse,
-    const std::optional<QJsonObject>& structuredNext)
+    const std::optional<QJsonObject>& structuredNext,
+    const QString& systemPrompt)
 {
     if (storageKey.isEmpty()) return;
     AppSettings settings;
@@ -392,10 +393,24 @@ void AIConversation::appendAssistantTurnForKey(
         QJsonDocument(messages).toJson(QJsonDocument::Compact));
     settings.setValue(prefix + "timestamp",
         QDateTime::currentDateTime().toString(Qt::ISODate));
-    // Note: systemPrompt is not written here. The in-app advisor sets it
-    // via ask(); the MCP path uses analyze(systemPrompt, userPrompt) and
-    // doesn't carry an AIConversation. For recentAdvice purposes the
-    // system prompt isn't needed — only `messages` is read.
+
+    // Persist the system prompt when the key has none. This used to be skipped
+    // outright, on the reasoning that recentAdvice reads only `messages` — true
+    // of recentAdvice, and stale ever since switchConversation started loading
+    // these turns into the LIVE conversation. The consequence is reachable from
+    // the app: ask the advisor about a shot over MCP, then open that shot in the
+    // app, and the turns are there but every follow-up is refused with "Please
+    // start a new conversation first", because followUp() requires a system
+    // prompt. Clear was the only way out, and it deletes the turns.
+    //
+    // Write-if-absent, not overwrite: a thread the in-app advisor started
+    // already holds its own multi-shot prompt (multiShotSystemPrompt is this
+    // same base plus a multi-shot section), and an MCP turn appended
+    // mid-conversation must not quietly narrow it.
+    if (!systemPrompt.isEmpty()
+        && settings.value(prefix + "systemPrompt").toString().isEmpty()) {
+        settings.setValue(prefix + "systemPrompt", systemPrompt);
+    }
 }
 
 // Rewrite one conversation's turn shotIds through the import's id map.

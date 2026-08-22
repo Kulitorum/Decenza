@@ -108,6 +108,28 @@
       `shothistorystorage.h`; two duplicated rationale paragraphs deleted; "the Aug 2026 report"
       replaced with a plain statement that there is no issue number.
 
+## 5c. Conversation-storage defects found by driving the running app
+
+Both pre-existing, both evaluated as part of this change because it multiplies the
+number of conversation keys a user can hold (one per bean x profile x equipment
+package), which scales up a per-key leak and a per-key dead end alike.
+
+- [x] 5c.1 **An orphaned thread leaks.** `clearCurrentConversation()` removes the index entry
+      but leaves the live conversation ON that key, so the next message writes a thread that no
+      index entry names: absent from the conversation list and from
+      `loadMostRecentConversation()`, and never evicted, because
+      `evictOldestConversation()` only walks the index. `touchConversationEntry` is replaced by
+      `noteConversationUse`, which creates the entry when it is missing; both call sites in
+      `switchConversation` now go through it and the `exists` bookkeeping is gone. Observed
+      live: after Clear, `ai/conversations/index` stayed `[]` while the thread sat on disk.
+- [x] 5c.2 **An MCP-written thread cannot be continued in the app.**
+      `appendAssistantTurnForKey` deliberately skipped the system prompt, on the reasoning that
+      `recentAdvice` reads only `messages` — true of `recentAdvice`, and stale ever since
+      `switchConversation` started loading those turns into the LIVE conversation. `followUp()`
+      refuses a thread with an empty system prompt, so the user's only way forward was Clear,
+      which deletes the turns MCP just wrote. The prompt the turn was actually produced under
+      is now persisted, write-if-absent so an in-app thread keeps its own multi-shot prompt.
+
 ## 6. Prompt rules
 
 - [x] 6.1 Add the grind-comparability rule to the shared espresso system prompt: a numeric
@@ -155,6 +177,11 @@
 - [x] 7.12 `recentAdvice` pairs the advice with a follow-up on the SAME package
       (`recentAdvice_followUpMustBeOnTheSamePackage`) — the fixture puts an other-basket shot
       first in time so an unscoped lookup would pick it.
+- [x] 7.14 `clearThenContinue_putsTheConversationBackInTheIndex` (5c.1) and
+      `appendAssistantTurnForKey_storesSystemPromptSoTheThreadCanBeContinued` +
+      `appendAssistantTurnForKey_doesNotOverwriteAnExistingSystemPrompt` (5c.2). The
+      no-overwrite half is the one that can regress silently: overwriting is invisible until a
+      multi-shot conversation quietly loses its multi-shot section.
 - [x] 7.13 Test-hygiene fixes from review: `ShotRow` gained `puckPrep` (the third identity
       component, which forks a package on its own); the session-context assertion checks basket
       BRAND as well as model; the Setup-header assertion is scoped to the Setup LINE rather than

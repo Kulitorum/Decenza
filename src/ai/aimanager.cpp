@@ -1984,7 +1984,9 @@ void AIManager::saveConversationIndex()
     emit conversationIndexChanged();
 }
 
-void AIManager::touchConversationEntry(const QString& key)
+void AIManager::noteConversationUse(const QString& key, const QString& beanBrand,
+                                   const QString& beanType, const QString& profileName,
+                                   qint64 equipmentId)
 {
     qint64 now = QDateTime::currentSecsSinceEpoch();
     for (int i = 0; i < m_conversationIndex.size(); i++) {
@@ -1999,6 +2001,28 @@ void AIManager::touchConversationEntry(const QString& key)
             return;
         }
     }
+
+    // No entry: create one rather than silently doing nothing. This branch is
+    // NOT only the first-use case. `clearCurrentConversation()` removes the
+    // index entry but leaves the live conversation ON that key, so the very
+    // next message the user sends writes a thread to QSettings that no index
+    // entry names — invisible to the conversation list and to
+    // `loadMostRecentConversation()` at startup, and, because
+    // `evictOldestConversation()` only ever walks the index, never evicted.
+    // Found by doing exactly that on the running app: Clear, then ask a
+    // question, and `ai/conversations/index` stayed `[]` while the thread sat
+    // on disk. Scoping the key by equipment package multiplies the number of
+    // keys a user can create, so a per-key leak matters more than it did.
+    evictOldestConversation();
+    ConversationEntry newEntry;
+    newEntry.key = key;
+    newEntry.beanBrand = beanBrand;
+    newEntry.beanType = beanType;
+    newEntry.profileName = profileName;
+    newEntry.equipmentId = equipmentId;
+    newEntry.timestamp = now;
+    m_conversationIndex.prepend(newEntry);
+    saveConversationIndex();
 }
 
 void AIManager::evictOldestConversation()
@@ -2083,9 +2107,11 @@ QString AIManager::switchConversation(const QString& beanBrand, const QString& b
 {
     QString key = conversationKey(beanBrand, beanType, profileName, equipmentId);
 
-    // Already on this key — just touch LRU
+    // Already on this key — refresh its LRU position. Not merely a touch: the
+    // entry can be ABSENT here (see noteConversationUse), and this is the path
+    // a user takes after tapping Clear and carrying on with the same shot.
     if (m_conversation->storageKey() == key) {
-        touchConversationEntry(key);
+        noteConversationUse(key, beanBrand, beanType, profileName, equipmentId);
         return key;
     }
 
@@ -2103,15 +2129,6 @@ QString AIManager::switchConversation(const QString& beanBrand, const QString& b
     // Clear in-memory state without touching QSettings (clearHistory() would delete stored data)
     m_conversation->resetInMemory();
 
-    // Check if key exists in index
-    bool exists = false;
-    for (const auto& entry : m_conversationIndex) {
-        if (entry.key == key) {
-            exists = true;
-            break;
-        }
-    }
-
     // Set new storage key and load whatever is actually on disk for it —
     // regardless of `exists` (m_conversationIndex only tracks conversations
     // the IN-APP flow has touched before; it's never updated by the MCP
@@ -2127,23 +2144,7 @@ QString AIManager::switchConversation(const QString& beanBrand, const QString& b
     m_conversation->setContextLabel(beanBrand, beanType, profileName);
     m_conversation->loadFromStorage();
 
-    if (exists) {
-        touchConversationEntry(key);
-    } else {
-        // Evict oldest if at capacity
-        evictOldestConversation();
-
-        // Add new entry to front of index
-        ConversationEntry newEntry;
-        newEntry.key = key;
-        newEntry.beanBrand = beanBrand;
-        newEntry.beanType = beanType;
-        newEntry.profileName = profileName;
-        newEntry.equipmentId = equipmentId;
-        newEntry.timestamp = QDateTime::currentSecsSinceEpoch();
-        m_conversationIndex.prepend(newEntry);
-        saveConversationIndex();
-    }
+    noteConversationUse(key, beanBrand, beanType, profileName, equipmentId);
 
     emit m_conversation->savedConversationChanged();
     qDebug() << "AIManager: Switched to conversation key:" << key

@@ -419,7 +419,13 @@ public:
 private:
     void loadConversationIndex();
     void saveConversationIndex();
-    void touchConversationEntry(const QString& key);
+    // Record that `key` is in use: move its index entry to the front of the
+    // LRU, or CREATE the entry when it is missing. Both callers go through
+    // this; a thread with no index entry is invisible to the conversation list
+    // and is never evicted, so "touch, and do nothing if absent" was a leak.
+    void noteConversationUse(const QString& key, const QString& beanBrand,
+                             const QString& beanType, const QString& profileName,
+                             qint64 equipmentId);
     void evictOldestConversation();
     void migrateFromLegacyConversation();
     // One-shot conversation wipe keyed by a migration id. Fires once per

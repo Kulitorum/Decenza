@@ -329,7 +329,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     };
 
                     state->successConn = QObject::connect(aiLive, &AIManager::recommendationReceived,
-                        aiLive, [finalize, aiPtrInner, shot, resolvedShotId, userPrompt](
+                        aiLive, [finalize, aiPtrInner, shot, resolvedShotId, userPrompt,
+                                 systemPrompt](
                                 const QString& response) {
                             // Surface the trailing structured `nextShot`
                             // block (issue #1054) as a top-level field
@@ -371,9 +372,14 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                                 const QString convKey = AIManager::conversationKey(
                                     shot.beanBrand, shot.beanType, shot.profileName,
                                     shot.equipmentId);
+                                // The system prompt rides along so the user can
+                                // CONTINUE this thread in the app. Without it
+                                // followUp() refuses the thread outright and the
+                                // only way forward is Clear, which deletes these
+                                // turns — see appendAssistantTurnForKey.
                                 AIConversation::appendAssistantTurnForKey(
                                     convKey, resolvedShotId,
-                                    userPrompt, response, structured);
+                                    userPrompt, response, structured, systemPrompt);
                                 // Keep the live in-app conversation in
                                 // sync if it has the same key loaded —
                                 // otherwise its next saveToStorage will

@@ -270,12 +270,24 @@ public:
      * otherwise the in-app's next `saveToStorage` will overwrite the
      * just-written turn.
      */
+    /**
+     * `systemPrompt` is the prompt the assistant turn was actually produced
+     * under. It is stored only when the key has none yet, so appending to a
+     * thread the in-app advisor started leaves that thread's own prompt alone.
+     *
+     * Passing it is not optional in spirit. A stored thread with no system
+     * prompt loads with history but an empty `m_systemPrompt`, and `followUp()`
+     * refuses it — "Please start a new conversation first" — so the user's only
+     * way forward in the app is Clear, which DELETES the turns written here.
+     * The default exists for callers writing to a key that already has one.
+     */
     static void appendAssistantTurnForKey(
         const QString& storageKey,
         qint64 shotId,
         const QString& userPrompt,
         const QString& assistantResponse,
-        const std::optional<QJsonObject>& structuredNext);
+        const std::optional<QJsonObject>& structuredNext,
+        const QString& systemPrompt = QString());
 
     /**
      * What importConversationsStatic did. Note the units differ: the first

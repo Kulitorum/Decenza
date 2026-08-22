@@ -470,6 +470,89 @@ private slots:
         settings.clear();
     }
 
+    // Clear removes the index entry but leaves the live conversation on that
+    // key, so the next message writes a thread that no index entry names. Such
+    // a thread is invisible to the conversation list and to
+    // loadMostRecentConversation(), and evictOldestConversation() only walks the
+    // index — so it would sit in QSettings forever. Found on the running app,
+    // not in review: after Clear, `ai/conversations/index` stayed `[]` while the
+    // thread was on disk under its key.
+    void clearThenContinue_putsTheConversationBackInTheIndex()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        const QString key = mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+
+        mgr.clearCurrentConversation();
+        QCOMPARE(mgr.m_conversationIndex.size(), 0);
+        // The live conversation is still ON that key — that is the whole trap.
+        QCOMPARE(mgr.conversation()->storageKey(), key);
+
+        // Carrying on with the same shot takes the "already on this key" path.
+        QCOMPARE(mgr.switchConversation(bean, type, profile, /*equipmentId=*/7), key);
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().key, key);
+        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 7);
+        QVERIFY2(mgr.m_conversationIndex.first().beanBrand == bean,
+                 "the re-created entry must carry the identity, not just the key — "
+                 "the conversation list shows these fields");
+
+        settings.clear();
+    }
+
+    // A turn written by the MCP ai_advisor_invoke path must leave the thread
+    // CONTINUABLE in the app. followUp() refuses a loaded thread whose system
+    // prompt is empty ("Please start a new conversation first"), and the user's
+    // only way out is Clear, which deletes the very turns MCP just wrote.
+    void appendAssistantTurnForKey_storesSystemPromptSoTheThreadCanBeContinued()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        const QString key = QStringLiteral("mcp_thread_key");
+        const QString sys = QStringLiteral("SYSTEM PROMPT FROM THE MCP TURN");
+        AIConversation::appendAssistantTurnForKey(
+            key, 42, QStringLiteral("user"), QStringLiteral("assistant"),
+            std::nullopt, sys);
+
+        QCOMPARE(settings.value(QStringLiteral("ai/conversations/") + key
+                                + QStringLiteral("/systemPrompt")).toString(), sys);
+
+        settings.clear();
+    }
+
+    // ...but it must not narrow a thread the IN-APP advisor started. The in-app
+    // prompt is the same base plus a multi-shot section; overwriting it with the
+    // single-shot MCP prompt mid-conversation would silently drop that section.
+    void appendAssistantTurnForKey_doesNotOverwriteAnExistingSystemPrompt()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        const QString key = QStringLiteral("in_app_thread_key");
+        const QString prefix = QStringLiteral("ai/conversations/") + key + QStringLiteral("/");
+        const QString inApp = QStringLiteral("IN-APP MULTI-SHOT PROMPT");
+        settings.setValue(prefix + QStringLiteral("systemPrompt"), inApp);
+
+        AIConversation::appendAssistantTurnForKey(
+            key, 42, QStringLiteral("user"), QStringLiteral("assistant"),
+            std::nullopt, QStringLiteral("SINGLE-SHOT MCP PROMPT"));
+
+        QCOMPARE(settings.value(prefix + QStringLiteral("systemPrompt")).toString(), inApp);
+
+        settings.clear();
+    }
+
     // The Setup header names the BASKET and puck prep, not just grinder + bean.
     // Naming them is the visible half of equipment scoping: the history is
     // filtered to one equipment package, and a filter the model cannot see is a
