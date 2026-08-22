@@ -1205,6 +1205,14 @@ void AIConversation::repairStaleTurnShotIds()
         qDebug() << "AIConversation::repairStaleTurnShotIds: dropped" << dropped
                  << "turn shot reference(s) that name no existing shot, for key"
                  << m_storageKey;
+    } else {
+        // Say so. The deferral above announces that this check is coming, and
+        // without a line here the clean outcome is indistinguishable in a
+        // submitted log from the check never having run at all — which is the
+        // state this method was added to fix, so silence is the wrong default
+        // for exactly the reader trying to confirm it works.
+        qDebug() << "AIConversation::repairStaleTurnShotIds:" << referenced.size()
+                 << "turn shot reference(s) all resolve, for key" << m_storageKey;
     }
 }
 
