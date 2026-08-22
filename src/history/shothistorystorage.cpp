@@ -4286,7 +4286,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             //
             // Two guards around this read, both of which exist because a field
             // restore logged "Found 0 existing shots" against a database the app
-            // had opened with 1058 seconds earlier.
+            // had opened with 1058 shots, seconds earlier.
             QHash<QString, qint64> existingByUuid;
             if (merge) {
                 QSqlQuery uuidQuery(destDb);
@@ -4298,7 +4298,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 if (!uuidQuery.exec("SELECT uuid, id FROM shots")) {
                     tally.integrityFailure = QStringLiteral(
                         "the check for shots already present could not run (%1), so existing "
-                        "shots could not be identified. Nothing was changed.")
+                        "shots could not be identified. Your existing shots were not changed.")
                         .arg(uuidQuery.lastError().text());
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Aborting -"
                                << tally.integrityFailure;
@@ -4308,15 +4308,31 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 while (uuidQuery.next())
                     existingByUuid.insert(uuidQuery.value(0).toString(), uuidQuery.value(1).toLongLong());
 
-                // GUARD 2: count the destination independently. If it holds rows but
-                // the pre-read found none, the two disagree and proceeding would
-                // duplicate every source row. Refuse rather than guess which is right.
+                // GUARD 2: a read that STOPPED EARLY is not evidence either.
+                // `next()` returning false is how end-of-rows and a mid-scan
+                // error look the same, so exec() succeeding says nothing about
+                // whether the whole table was read. A restore is exactly when a
+                // mid-scan SQLITE_BUSY is plausible: the backup thread and the
+                // app's own connection are on the same file.
+                //
+                // Count the destination independently and require the two to
+                // agree exactly. `shots.uuid` is TEXT UNIQUE NOT NULL (see
+                // createTables), so a complete read yields precisely COUNT(*)
+                // distinct keys — any shortfall means the scan was truncated,
+                // and proceeding would re-insert the shots it never saw.
+                //
+                // This replaced a weaker `destShotsBefore > 0 && isEmpty()`
+                // check, which that same UNIQUE NOT NULL constraint makes
+                // unreachable: no honest destination can count rows and yield
+                // zero keys. The equality covers that case as a subset and
+                // covers the partial read the old form let through.
+                //
                 // Merge mode only — replace mode DELETEs first, so empty is expected.
                 QSqlQuery countQuery(destDb);
                 if (!countQuery.exec("SELECT COUNT(*) FROM shots") || !countQuery.next()) {
                     tally.integrityFailure = QStringLiteral(
                         "the existing shot history could not be counted (%1), so this import "
-                        "could not be checked for safety. Nothing was changed.")
+                        "could not be checked for safety. Your existing shots were not changed.")
                         .arg(countQuery.lastError().text());
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Aborting -"
                                << tally.integrityFailure;
@@ -4325,12 +4341,16 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 }
                 tally.destShotsBefore = countQuery.value(0).toInt();
 
-                if (tally.destShotsBefore > 0 && existingByUuid.isEmpty()) {
+                if (existingByUuid.size() != *tally.destShotsBefore) {
                     tally.integrityFailure = QStringLiteral(
-                        "this device holds %1 shot(s), but none of them could be matched against "
-                        "the backup, so importing would have added a second copy of every shot. "
-                        "Nothing was changed.")
-                        .arg(tally.destShotsBefore);
+                        "this device holds %1 shot(s) but only %2 could be read back (%3), so "
+                        "importing would have added a second copy of the rest. Your existing "
+                        "shots were not changed.")
+                        .arg(*tally.destShotsBefore)
+                        .arg(existingByUuid.size())
+                        .arg(uuidQuery.lastError().isValid()
+                                 ? uuidQuery.lastError().text()
+                                 : QStringLiteral("no error was reported"));
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Aborting -"
                                << tally.integrityFailure;
                     destDb.rollback();
@@ -4338,12 +4358,19 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 }
 
                 qDebug() << "ShotHistoryStorage::importDatabaseStatic: Destination holds"
-                         << tally.destShotsBefore << "shot(s);" << existingByUuid.size()
+                         << *tally.destShotsBefore << "shot(s);" << existingByUuid.size()
                          << "matched for de-duplication";
             }
 
             // Import shots
-            int imported = 0, skipped = 0, failed = 0;
+            // Bound straight to the tally rather than copied into it at the
+            // success tail: a replace-mode INSERT failure aborts to `cleanup`
+            // with shotIdMap already holding every row inserted before it, and
+            // a deferred copy left the caller reading four zeros beside a
+            // populated map.
+            int& imported = tally.imported;
+            int& skipped = tally.skipped;
+            int& failed = tally.failed;
             QSqlQuery srcShots(srcDb);
             if (!srcShots.exec("SELECT * FROM shots")) {
                 qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to query source:" << srcShots.lastError().text();
@@ -4534,6 +4561,16 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
 
                 qint64 oldId = srcShots.value("id").toLongLong();
                 qint64 newId = insert.lastInsertId().toLongLong();
+                if (newId <= 0) {
+                    // A mapping to 0 is worse than no mapping: absent means
+                    // "clear the reference", which is correct, while 0 is an
+                    // entry that exists and names nothing. Count the row failed
+                    // and leave it out.
+                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: driver reported no insert id for shot"
+                               << uuid << "- not mapping it";
+                    failed++;
+                    continue;
+                }
                 // The renumbering, recorded. Everything that referenced oldId
                 // outside this database has to follow it to newId.
                 tally.shotIdMap.insert(oldId, newId);
@@ -4542,7 +4579,13 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 QSqlQuery srcSamples(srcDb);
                 srcSamples.prepare("SELECT sample_count, data_blob FROM shot_samples WHERE shot_id = ?");
                 srcSamples.addBindValue(oldId);
-                if (srcSamples.exec() && srcSamples.next()) {
+                if (!srcSamples.exec()) {
+                    // Distinct from "this shot has no samples": collapsing the
+                    // two imports a graphless shot and counts it a success,
+                    // with nothing in the log to explain the missing graph.
+                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to read samples for shot"
+                               << uuid << ":" << srcSamples.lastError().text();
+                } else if (srcSamples.next()) {
                     QSqlQuery insertSample(destDb);
                     insertSample.prepare("INSERT INTO shot_samples (shot_id, sample_count, data_blob) VALUES (?, ?, ?)");
                     insertSample.addBindValue(newId);
@@ -4560,15 +4603,20 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 srcPhases.addBindValue(oldId);
                 bool hasReason = srcPhases.exec();
                 if (!hasReason) {
+                    // The retry exists for sources predating transition_reason.
+                    // Any OTHER failure — a locked database, corruption — takes
+                    // the same branch and would silently import every phase with
+                    // an empty reason, so say which one this was rather than
+                    // treating the two as the same thing.
+                    qDebug() << "ShotHistoryStorage::importDatabaseStatic: phases query without transition_reason for shot"
+                             << uuid << "- retrying on the older column set. Reported:"
+                             << srcPhases.lastError().text();
                     srcPhases.prepare("SELECT time_offset, label, frame_number, is_flow_mode FROM shot_phases WHERE shot_id = ?");
                     srcPhases.addBindValue(oldId);
-                    hasReason = false;
                     if (!srcPhases.exec()) {
                         qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to query phases for shot"
                                    << uuid << ":" << srcPhases.lastError().text();
                     }
-                } else {
-                    hasReason = true;
                 }
                 while (srcPhases.next()) {
                     QSqlQuery insertPhase(destDb);
@@ -4644,14 +4692,15 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 }
             }
 
-            tally.imported = imported;
-            tally.skipped = skipped;
-            tally.failed = failed;
             // destShotsBefore is what makes this line answer a question the old
             // one could not: did this merge land in an empty database or a
-            // populated one? Both used to print the same thing.
+            // populated one? Both used to print the same thing. It is only
+            // measured in merge mode, so say "not measured" rather than print a
+            // 0 that reads as "the database was empty".
             qDebug() << "ShotHistoryStorage::importDatabaseStatic: Import complete - destination held"
-                     << tally.destShotsBefore << "before;" << imported << "imported," << skipped
+                     << (tally.destShotsBefore ? QString::number(*tally.destShotsBefore)
+                                               : QStringLiteral("(not measured, replace mode)"))
+                     << "before;" << imported << "imported," << skipped
                      << "skipped," << failed << "failed";
             result = true;
         }
@@ -4662,24 +4711,36 @@ cleanup:
     }
     QSqlDatabase::removeDatabase(srcConnName);
     QSqlDatabase::removeDatabase(destConnName);
-    // One copy-out for every path, success and abort alike. On an abort the
-    // caller gets an empty map, which is the correct instruction: nothing was
+    // One copy-out for every path that reaches here. On a refusal the caller
+    // gets an empty map, which is the correct instruction: nothing was
     // renumbered because nothing was written.
+    //
+    // NOT every path reaches here: the two database-open failures above return
+    // directly, before `cleanup`. They are the only exits that leave outResult
+    // untouched, which is why every caller must treat its ImportResult as
+    // meaningful only when this returned true — and why DataMigrationClient,
+    // the one caller holding an ImportResult as a member, resets it at the top
+    // of each run rather than trusting it to be overwritten.
     if (outResult)
         *outResult = tally;
     return result;
 }
 
-QSet<qint64> ShotHistoryStorage::existingShotIds(const QSet<qint64>& ids) const
+std::optional<QSet<qint64>> ShotHistoryStorage::existingShotIds(const QSet<qint64>& ids) const
 {
-    QSet<qint64> found;
-    if (!m_ready || ids.isEmpty()) return found;
+    // Not ready is NOT "these shots do not exist" — see the header. The caller
+    // deletes what does not resolve, so answering "nothing resolves" from a
+    // database we never asked would strip every reference. m_ready is genuinely
+    // false in the field: it is cleared when the post-backup reopen fails
+    // (performDatabaseCopy, shothistorystorage.cpp:3943).
+    if (!m_ready) return std::nullopt;
+    if (ids.isEmpty()) return QSet<qint64>();
 
     // Primary-key IN over the distinct ids of one conversation's turns — a
     // couple of dozen at most, selecting only the id column. `EXPLAIN QUERY
     // PLAN` confirms `SEARCH shots USING INTEGER PRIMARY KEY (rowid=?)`, so it
-    // touches the index and the matched rows, not the 8.2 MB of
-    // profile_json/debug_log blobs that make a shots scan expensive.
+    // touches the index and the matched rows, not the profile_json/debug_log
+    // blobs that make a shots scan expensive.
     //
     // Measured against the maintainer's REAL database, pulled from the tablet
     // over /api/backup/shots (1061 shots, 18.1 MB), and against a synthetic 4x
@@ -4694,15 +4755,27 @@ QSet<qint64> ShotHistoryStorage::existingShotIds(const QSet<qint64>& ids) const
     //                 32 ids  median 0.045 ms   worst 0.150 ms
     //
     // Flat against a 4x row count and a 2.5x file, which is the point: the cost
-    // tracks the id count, not the table's bytes. The ~1 ms outlier is the
-    // first query against a cold page cache.
+    // tracks the id count, not the table's bytes.
     //
-    // Caveat on those numbers: taken on the maintainer's Mac via sqlite3
-    // against the tablet's database file, NOT in-app on the tablet's ARM
-    // hardware — absolute figures there will be higher. What transfers is the
-    // shape (index lookup, flat in table size), which is what decides inline
-    // vs threaded. Called on a discrete user action (opening a conversation),
-    // never from a binding or a per-sample path, so inline is appropriate.
+    // The first row is the odd one and is NOT explained: 0.178 ms is 7-10x every
+    // other median, and a median over 200 runs is not a cold-cache artefact the
+    // way its 1.022 ms worst case is. That point was the first measured, so a
+    // warm-up effect across the whole run is the obvious guess — but it was not
+    // isolated, so it is recorded as unexplained rather than explained away.
+    // It does not change the decision: 0.178 ms is still far inside budget.
+    //
+    // Caveat on all of these: taken on the maintainer's Mac via sqlite3 against
+    // the tablet's database file, NOT in-app on the tablet's ARM hardware —
+    // absolute figures there will be higher. What transfers is the shape (index
+    // lookup, flat in table size), which is what decides inline vs threaded.
+    //
+    // Three callers reach this, none of them a binding or a per-sample path:
+    // AIConversation::loadFromStorage via switchConversation (a tap in
+    // ConversationOverlay.qml), via AIManager::loadMostRecentConversation at
+    // startup, and via the MCP ai_advisor_invoke completion. The startup one is
+    // free today because m_shotHistory is still null in the AIManager
+    // constructor and is wired later from MainController — a wiring-order
+    // dependency worth knowing before you move that wiring earlier.
     // Re-derive if this ever moves onto a repeating path.
     QStringList placeholders;
     placeholders.reserve(ids.size());
@@ -4716,11 +4789,20 @@ QSet<qint64> ShotHistoryStorage::existingShotIds(const QSet<qint64>& ids) const
         q.addBindValue(id);
 
     if (!q.exec()) {
-        qWarning() << "ShotHistoryStorage::existingShotIds: lookup failed:" << q.lastError().text();
-        return found;
+        qWarning() << "ShotHistoryStorage::existingShotIds: lookup failed, reporting"
+                   << "\"could not answer\" rather than \"none exist\":" << q.lastError().text();
+        return std::nullopt;
     }
+    QSet<qint64> found;
     while (q.next())
         found.insert(q.value(0).toLongLong());
+    // A scan that stopped early would under-report, and under-reporting here
+    // deletes references. Same reasoning as GUARD 2 in importDatabaseStatic.
+    if (q.lastError().isValid()) {
+        qWarning() << "ShotHistoryStorage::existingShotIds: read stopped early, reporting"
+                   << "\"could not answer\":" << q.lastError().text();
+        return std::nullopt;
+    }
     return found;
 }
 

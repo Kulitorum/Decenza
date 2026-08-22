@@ -61,10 +61,13 @@ QString DatabaseBackupManager::joinErrors(const QVector<QPair<QString, QString>>
         // An EMPTY key means the second element is already-final text, not a
         // fallback to be translated — used for machine-generated detail (which
         // counts disagreed, which query failed) that has no fixed wording to
-        // translate. Without this the detail would be silently dropped the
-        // moment a translation for the lead-in key existed, which is worse than
-        // it being English: the user would lose the only part that says what
-        // actually happened.
+        // translate.
+        //
+        // TranslationManager::translateString already returns the fallback
+        // unchanged for an empty key, so this branch does not change today's
+        // output. It is here so the pass-through is guaranteed by this file
+        // rather than inherited from a lookup path that has no reason to keep
+        // treating an empty key as a special case.
         if (e.first.isEmpty())
             out << e.second;
         else
@@ -1078,7 +1081,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         QDir(tempDir).removeRecursively();
 
         // Deliver result to main thread — settings/AI restore touches QSettings
-        QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored, errors, merge, shotImport, destroyed]() mutable {
+        QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored, errors, merge, shotImport, destroyed]() {
             if (*destroyed) return;
             // Mutable copy: the settings import below can add an error, and the
             // captured list is const. A failed import used to be logged and then
@@ -1143,21 +1146,22 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     // climb, each stale one eventually resolves to a real but
                     // unrelated shot.
                     //
-                    // shotsImported false means the user restored settings
-                    // without shots — no map, so every id is cleared instead.
+                    // shotsImported false covers three cases and all want the
+                    // same answer: the archive had no shots, the import failed,
+                    // or it was REFUSED. No map, so every id is cleared. (In
+                    // merge mode a refusal does not stop the restore — profiles,
+                    // settings and media still land — so this branch is reached
+                    // with the user's own shot history intact and untouched.)
                     const QHash<qint64, qint64>* idMap =
                         shotsImported ? &shotImport.shotIdMap : nullptr;
                     const AIConversation::ImportTally convTally =
                         AIConversation::importConversationsStatic(qsettings, conversations, idMap);
 
-                    shotImport.referencesRemapped += convTally.referencesRemapped;
-                    shotImport.referencesCleared += convTally.referencesCleared;
-
                     if (convTally.conversations > 0) {
                         qsettings.sync();
                         qDebug() << "DatabaseBackupManager: Imported" << convTally.conversations
-                                 << "AI conversations;" << convTally.referencesRemapped
-                                 << "shot reference(s) remapped," << convTally.referencesCleared
+                                 << "AI conversations;" << convTally.turnsRemapped
+                                 << "shot reference(s) remapped," << convTally.turnsCleared
                                  << "cleared";
                     }
                 }

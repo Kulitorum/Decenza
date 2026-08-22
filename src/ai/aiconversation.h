@@ -223,6 +223,18 @@ public:
      * Used by `ai_advisor_invoke` to derive recentAdvice for the
      * resolved shot's bean+profile conversation key.
      */
+    /**
+     * Reads turns straight out of QSettings, so it does NOT go through
+     * loadFromStorage's stale-id repair — on an install carrying pre-remap
+     * conversations the ids here can still name the source database.
+     *
+     * That is bounded, not fixed: DialingBlocks::buildRecentAdviceBlock, the
+     * only consumer, drops a turn whose shot row is missing and drops one whose
+     * profile_kb_id does not match the shot under analysis. What survives is a
+     * stale id that happens to hit an existing shot on the SAME profile. There
+     * is no id to correct it to from here, and duplicating the existence check
+     * the consumer already performs would not narrow it further.
+     */
     static QList<HistoricalAssistantTurn> loadRecentAssistantTurnsForKey(
         const QString& storageKey, qsizetype max);
 
@@ -252,21 +264,27 @@ public:
         const QString& assistantResponse,
         const std::optional<QJsonObject>& structuredNext);
 
-    /** What importConversationsStatic did. */
+    /**
+     * What importConversationsStatic did. Note the units differ: the first
+     * three count CONVERSATIONS, the last two count TURNS.
+     */
     struct ImportTally {
-        int conversations = 0;       // written (an existing key is skipped, not merged)
-        int referencesRemapped = 0;  // turn shotIds rewritten to a destination id
-        int referencesCleared = 0;   // turn shotIds dropped — source shot not in the map
+        int conversations = 0;       // written
+        int conversationsSkipped = 0;// a conversation with this key already existed
+        int conversationsMalformed = 0;// no key at all — a damaged archive entry
+        int turnsRemapped = 0;       // turn shotIds rewritten to a destination id
+        int turnsCleared = 0;        // turn shotIds dropped — source shot not in the map
     };
 
     /**
      * Import conversations from a backup or a peer device into QSettings.
      *
-     * ONE definition. This loop was hand-written twice — once in
-     * DatabaseBackupManager (restore), once in DataMigrationClient (LAN
-     * migration) — and the copies were identical only by luck. Adding the
-     * shotId remap below to one and not the other was the obvious next
-     * failure, which is why they were collapsed before it was added.
+     * ONE definition. This loop was hand-written THREE times — in
+     * DatabaseBackupManager (restore), DataMigrationClient (LAN migration)
+     * and the /api/backup/restore endpoint — and the copies were identical
+     * only by luck. Adding the shotId remap below to one and not the others
+     * was the obvious next failure, which is why they were collapsed before
+     * it was added.
      *
      * `shotIdMap` maps SOURCE shot ids to the ids those shots received in
      * THIS device's database, as produced by
@@ -303,10 +321,12 @@ public:
      * an untouched stale id eventually becomes a VALID id belonging to an
      * unrelated shot. Returns how many it cleared.
      *
-     * In-memory only — nothing is written back. The right destination id for
-     * an already-broken install is unknowable, so the only honest repair is
-     * to forget the reference, and forgetting by read is reversible where
-     * forgetting by rewrite is not.
+     * This mutates the array in place and the drop DOES become permanent:
+     * the caller's next saveToStorage() writes the array verbatim. That is
+     * acceptable only because the id is known not to resolve. Never call this
+     * with a set that might merely be UNANSWERED — see
+     * ShotHistoryStorage::existingShotIds, which returns nullopt rather than
+     * an empty set for exactly that reason.
      */
     static int dropUnresolvableShotIds(QJsonArray& messages,
                                        const QSet<qint64>& existingShotIds);

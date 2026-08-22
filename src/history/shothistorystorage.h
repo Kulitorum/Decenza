@@ -12,6 +12,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include <QtQml/qqmlregistration.h>
 class QThread;
@@ -466,12 +467,12 @@ public:
     // "N imported, 0 skipped, 0 failed".
     struct ImportResult {
         QHash<qint64, qint64> shotIdMap;
-        int destShotsBefore = 0;      // destination row count before the import
+        // Destination row count before the import. MERGE MODE ONLY — replace
+        // mode never reads it, so 0 there means "not measured", not "empty".
+        std::optional<int> destShotsBefore;
         int imported = 0;
         int skipped = 0;              // already present, matched by uuid
         int failed = 0;
-        int referencesRemapped = 0;   // filled in by the caller that remaps
-        int referencesCleared = 0;    // source shot absent from shotIdMap
 
         // Why the import refused, when it refused for an integrity reason
         // rather than an I/O one. English, already specific about which counts
@@ -486,7 +487,7 @@ public:
     //
     // Pass `outResult` to receive the shot id map; a caller that carries any
     // reference to a shot id across this call MUST remap it through that map
-    // (see remapConversationShotIds). Callers that import nothing referencing
+    // (see AIConversation::importConversationsStatic). Callers that import nothing referencing
     // shots may leave it null.
     static bool importDatabaseStatic(const QString& destDbPath, const QString& srcFilePath, bool merge,
                                      ImportResult* outResult = nullptr);
@@ -496,15 +497,22 @@ public:
     static int getShotCountStatic(const QString& dbPath);
 
     // Which of `ids` name a shot that actually exists. Used to decide whether a
-    // stored reference still resolves, so a stale id is never read back as live.
+    // stored reference still resolves, so a stale id is not read back as live
+    // on a conversation loaded from storage.
     //
     // Bounded by construction: the caller passes the DISTINCT ids of one
     // conversation's turns (at most a couple of dozen), and the query is a
     // primary-key IN over that set. Not for open-ended membership scans.
-    // Returns an empty set when not ready, which callers must read as
-    // "resolves nothing" — the conservative direction, since the alternative is
-    // acting on an id that may not exist.
-    QSet<qint64> existingShotIds(const QSet<qint64>& ids) const;
+    //
+    // `nullopt` means COULD NOT ANSWER — the database is not ready, or the
+    // query failed — and is deliberately NOT the same value as an empty set.
+    // The caller's response to "this id resolves to nothing" is to DELETE the
+    // reference, so collapsing the two would let one transient SQLITE_BUSY
+    // strip every advisor-to-shot link on the device. That is the same
+    // inference importDatabaseStatic's GUARD 1 refuses: a failed read is not
+    // evidence of an empty table. On `nullopt` the caller must leave the data
+    // alone, not clear it.
+    std::optional<QSet<qint64>> existingShotIds(const QSet<qint64>& ids) const;
 
 signals:
     void readyChanged();

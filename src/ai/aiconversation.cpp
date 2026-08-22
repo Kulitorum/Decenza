@@ -460,11 +460,22 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
     for (const QJsonValue& val : conversations) {
         const QJsonObject conv = val.toObject();
         const QString key = conv.value(QStringLiteral("key")).toString();
-        if (key.isEmpty() || existingKeys.contains(key)) continue;
+        // Two distinct outcomes that used to be one silent `continue`: a
+        // damaged archive entry with no key at all, and a conversation this
+        // device already has. Counting them separately is what stops "3
+        // imported" from being the whole story when 40 arrived.
+        if (key.isEmpty()) {
+            tally.conversationsMalformed++;
+            continue;
+        }
+        if (existingKeys.contains(key)) {
+            tally.conversationsSkipped++;
+            continue;
+        }
 
         const QJsonArray messages = remapTurnShotIds(
             conv.value(QStringLiteral("messages")).toArray(), shotIdMap,
-            tally.referencesRemapped, tally.referencesCleared);
+            tally.turnsRemapped, tally.turnsCleared);
 
         const QString prefix = QStringLiteral("ai/conversations/") + key + QStringLiteral("/");
         settings.setValue(prefix + "systemPrompt", conv.value(QStringLiteral("systemPrompt")).toString());
@@ -489,8 +500,10 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
     }
 
     qDebug() << "AIConversation::importConversationsStatic:" << tally.conversations
-             << "conversation(s) imported;" << tally.referencesRemapped
-             << "shot reference(s) remapped," << tally.referencesCleared << "cleared"
+             << "conversation(s) imported," << tally.conversationsSkipped
+             << "already present," << tally.conversationsMalformed << "malformed;"
+             << tally.turnsRemapped << "shot reference(s) remapped," << tally.turnsCleared
+             << "cleared"
              << (shotIdMap ? "" : "(no shot import accompanied them — all ids cleared)");
     return tally;
 }
@@ -1137,9 +1150,13 @@ void AIConversation::loadFromStorage()
     // read time closes that window for installs already carrying the damage —
     // and it also catches an id whose shot the user simply deleted.
     //
-    // In memory only. The right destination id is unknowable here, so the
-    // honest repair is to forget the reference; forgetting by read is
-    // reversible where rewriting stored history is not.
+    // This pass is NOT undoable, and an earlier version of this comment claimed
+    // it was. It mutates m_messages, and saveToStorage() writes m_messages
+    // verbatim — so the next save of this conversation (a follow-up turn, or
+    // switching away from it, which AIManager::switchConversation saves on)
+    // persists the drop to QSettings. That is acceptable ONLY because the id is
+    // known not to resolve; it is not acceptable on a guess, which is why the
+    // nullopt case below leaves the data alone.
     if (!m_messages.isEmpty() && m_aiManager && m_aiManager->shotHistoryStorage()) {
         QSet<qint64> referenced;
         for (const QJsonValue& v : std::as_const(m_messages)) {
@@ -1149,12 +1166,23 @@ void AIConversation::loadFromStorage()
             if (id > 0) referenced.insert(id);
         }
         if (!referenced.isEmpty()) {
-            const QSet<qint64> live = m_aiManager->shotHistoryStorage()->existingShotIds(referenced);
-            const int dropped = dropUnresolvableShotIds(m_messages, live);
-            if (dropped > 0) {
-                qDebug() << "AIConversation::loadFromStorage: dropped" << dropped
-                         << "turn shot reference(s) that name no existing shot, for key"
-                         << m_storageKey;
+            const std::optional<QSet<qint64>> live =
+                m_aiManager->shotHistoryStorage()->existingShotIds(referenced);
+            if (!live) {
+                // Could not answer — a not-ready database or a failed query.
+                // Deleting on an unanswered question is the aggressive
+                // direction, not the conservative one: one transient
+                // SQLITE_BUSY would strip every advisor-to-shot link on the
+                // device, permanently, at the next save. Leave them.
+                qWarning() << "AIConversation::loadFromStorage: could not check turn shot references"
+                           << "for key" << m_storageKey << "- leaving them as they are";
+            } else {
+                const int dropped = dropUnresolvableShotIds(m_messages, *live);
+                if (dropped > 0) {
+                    qDebug() << "AIConversation::loadFromStorage: dropped" << dropped
+                             << "turn shot reference(s) that name no existing shot, for key"
+                             << m_storageKey;
+                }
             }
         }
     }

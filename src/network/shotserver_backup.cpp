@@ -844,7 +844,17 @@ QString ShotServer::generateRestorePage() const
                         if (r.mediaSkipped > 0) parts.push(r.mediaSkipped + " media already existed");
                         if (r.aiConversationsImported > 0) parts.push(r.aiConversationsImported + " AI conversations imported");
                         if (parts.length === 0) parts.push("Nothing to restore");
-                        showStatus("success", "Restore complete: " + parts.join(", "));
+                        // A refused or failed shot import is an ERROR banner, not
+                        // a line inside a green "Restore complete". Reporting it
+                        // as a success is what let a user whose whole history was
+                        // refused read the result as if it had worked.
+                        var shotProblem = r.shotsRefused || r.error;
+                        if (shotProblem) {
+                            showStatus("error", "Shot history was not restored: " + shotProblem
+                                       + (parts.length ? " (" + parts.join(", ") + ")" : ""));
+                        } else {
+                            showStatus("success", "Restore complete: " + parts.join(", "));
+                        }
                     } catch (e) {
                         showStatus("success", "Restore complete");
                     }
@@ -1159,12 +1169,27 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                                               mediaImported, mediaSkipped, aiConversationsImported,
                                               pendingConversations]() mutable {
                 if (*destroyed) {
-                    qDebug() << "ShotServer: Restore response dropped (server destroyed)";
+                    // The conversations stashed from the entry loop have not been
+                    // written yet — moving them here is what made the id map
+                    // available — so a bare `return` would DROP them, where the
+                    // old in-loop write kept them. Write them, without the map,
+                    // then leave: reloadConversations() and the response both
+                    // need the server, this does not.
+                    if (!pendingConversations.isEmpty()) {
+                        AppSettings settings;
+                        (void)AIConversation::importConversationsStatic(settings, pendingConversations, nullptr);
+                        settings.sync();
+                    }
+                    qDebug() << "ShotServer: Restore response dropped (server destroyed);"
+                             << "AI conversations written with shot references cleared";
                     return;
                 }
 
                 // Named for the field it feeds below; also avoids shadowing the
                 // outer shotsRestored, which serves the synchronous path.
+                // This continuation only ever runs when the archive contained a
+                // shots.db, so an attempt was always made here.
+                const bool shotsImportAttempted = true;
                 bool shotsImported = success;
                 if (success && m_storage) {
                     m_storage->refreshTotalShots();
@@ -1190,8 +1215,8 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                         settings.sync();
                         m_aiManager->reloadConversations();
                         qDebug() << "ShotServer: Imported" << tally.conversations
-                                 << "AI conversations;" << tally.referencesRemapped
-                                 << "shot reference(s) remapped," << tally.referencesCleared
+                                 << "AI conversations;" << tally.turnsRemapped
+                                 << "shot reference(s) remapped," << tally.turnsCleared
                                  << "cleared";
                     }
                 }
@@ -1204,7 +1229,12 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
 
                 if (socketGuard) {
                     QJsonObject result;
-                    result["success"] = true;
+                    // `success` used to be an unconditional true, so a restore
+                    // whose entire shot history was refused answered with a
+                    // green "Restore complete". The archive carried shots and
+                    // they did not land: that is not a success, whether the
+                    // cause was a refusal or plain I/O.
+                    result["success"] = shotsImportAttempted ? shotsImported : true;
                     result["settings"] = settingsRestored;
                     result["shotsImported"] = shotsImported;
                     // A refusal is reported, not folded into shotsImported:false,
@@ -1212,6 +1242,10 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     // shots". Absent on success and on plain I/O failure.
                     if (!shotImport.integrityFailure.isEmpty())
                         result["shotsRefused"] = shotImport.integrityFailure;
+                    else if (shotsImportAttempted && !shotsImported)
+                        result["error"] = QStringLiteral(
+                            "The shot history in this backup could not be imported. "
+                            "Your existing shots were not changed.");
                     result["profilesImported"] = profilesImported;
                     result["profilesSkipped"] = profilesSkipped;
                     result["mediaImported"] = mediaImported;
@@ -1241,7 +1275,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
             settings.sync();
             m_aiManager->reloadConversations();
             qDebug() << "ShotServer: Imported" << tally.conversations
-                     << "AI conversations (no shots in archive —" << tally.referencesCleared
+                     << "AI conversations (no shots in archive —" << tally.turnsCleared
                      << "shot reference(s) cleared)";
         }
     }

@@ -4806,6 +4806,24 @@ T.ApplicationWindow {
         }
     }
 
+    // The advisor's own metadata writes. ShotHistoryStorage::errorOccurred
+    // already toasts "Couldn't save your shot changes — please try again", which
+    // is the wrong advice for this failure: the usual cause is a conversation
+    // turn naming a shot that is not on this device, and retrying cannot fix
+    // that. Say what was lost instead of offering a remedy that does not work.
+    Tr {
+        id: trAdvisorMetadataLost
+        key: "ai.error.shot_metadata_not_saved"
+        fallback: "What you told the advisor wasn't saved to that shot"
+        visible: false
+    }
+    Connections {
+        target: MainController.aiManager
+        function onShotMetadataCaptureFailed(shotId) {
+            storageErrorToast.show(trAdvisorMetadataLost.text)
+        }
+    }
+
     Connections {
         target: ShotHistoryExporter
         function onBulkExportFinished(written, skipped, failed) {

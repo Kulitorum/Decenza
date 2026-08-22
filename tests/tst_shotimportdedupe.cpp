@@ -286,7 +286,7 @@ private slots:
 
         ShotHistoryStorage::ImportResult r;
         QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r));
-        QCOMPARE(r.destShotsBefore, 0);
+        QCOMPARE(r.destShotsBefore.value_or(-1), 0);
         QCOMPARE(r.imported, 3);
         QCOMPARE(r.skipped, 0);
         QVERIFY(r.integrityFailure.isEmpty());
@@ -313,7 +313,7 @@ private slots:
 
         ShotHistoryStorage::ImportResult r;
         QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r));
-        QCOMPARE(r.destShotsBefore, 2);
+        QCOMPARE(r.destShotsBefore.value_or(-1), 2);
         QCOMPARE(r.skipped, 2);
         QCOMPARE(r.imported, 1);
         QVERIFY(r.integrityFailure.isEmpty());
@@ -365,42 +365,11 @@ private slots:
             QVERIFY2(r.shotIdMap.value(srcId) > 5,
                      "inserted shot must get a fresh id past the padding");
         }
-    }
-
-    // The defect as reported: a backup whose ids all exceed anything here. Every
-    // source id must map somewhere, and no destination id may equal the source
-    // id it came from — that identity is what made stale references look valid.
-    void source_ids_beyond_destination_are_all_remapped()
-    {
-        QVERIFY(m_dir.isValid());
-
-        // Source with ids 1..3 but we compare against a destination whose ids
-        // are pushed far higher, mirroring the reported 1109-vs-1052 inversion
-        // in the direction the import actually produces.
-        const QString srcPath = makeSourceDb("mi_src_beyond.db", 3, 1763000000);
-
-        const QString destPath = m_dir.filePath("mi_dest_beyond.db");
-        {
-            ShotHistoryStorage dest;
-            QVERIFY(dest.initialize(destPath));
-            // Same near-duplicate rule as above: unique profile per row.
-            for (int i = 0; i < 10; i++)
-                QVERIFY(dest.importShotRecord(makeShot(QStringLiteral("d-%1").arg(i),
-                                               1763900000 + i * 3600,
-                                               QStringLiteral("D %1").arg(i), QString()), false) > 0);
-            dest.close();
-            drain();
-        }
-
-        ShotHistoryStorage::ImportResult r;
-        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r));
-        QCOMPARE(r.shotIdMap.size(), 3);
-        for (auto it = r.shotIdMap.constBegin(); it != r.shotIdMap.constEnd(); ++it) {
-            QVERIFY2(it.key() != it.value(),
-                     "a source id that survives unchanged is a reference that will "
-                     "silently resolve to the wrong shot later");
-            QVERIFY(it.value() > 10);
-        }
+        // No entry may be an identity: a source id that survives unchanged is a
+        // reference that will silently resolve to the wrong shot later, which is
+        // the defect as reported (1109 reading as a valid id after renumbering).
+        for (auto it = r.shotIdMap.constBegin(); it != r.shotIdMap.constEnd(); ++it)
+            QVERIFY2(it.key() != it.value(), "a source id survived the renumbering unchanged");
     }
 
     // A destination whose shots table cannot answer the pre-read (here: no uuid
@@ -464,6 +433,54 @@ private slots:
         QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/false, &r));
         QVERIFY(r.integrityFailure.isEmpty());
         QCOMPARE(countShots(destPath), 2);   // replaced, not merged
+        // Replace mode never measures the destination, and "not measured" must
+        // stay distinguishable from "the destination was empty".
+        QVERIFY(!r.destShotsBefore.has_value());
+    }
+
+    // existingShotIds is what decides whether a stored conversation reference
+    // still resolves, and the caller DELETES what does not. Two shapes matter:
+    // it must answer exactly, and it must refuse to answer rather than answer
+    // "nothing" when it cannot look.
+    void existing_shot_ids_answers_exactly_and_refuses_when_it_cannot_look()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString path = m_dir.filePath("existing_ids.db");
+
+        qint64 a = 0, c = 0;
+        {
+            ShotHistoryStorage storage;
+            QVERIFY(storage.initialize(path));
+            a = storage.importShotRecord(makeShot("e-a", 1765000000, "E A", QString()), false);
+            const qint64 b = storage.importShotRecord(makeShot("e-b", 1765003600, "E B", QString()), false);
+            c = storage.importShotRecord(makeShot("e-c", 1765007200, "E C", QString()), false);
+            QVERIFY(a > 0 && b > 0 && c > 0);
+
+            // The query builds its own `IN (?,?,?)` placeholder list, so a
+            // bind-order or placeholder-count regression is a live risk and
+            // would show up as the wrong subset here.
+            const auto found = storage.existingShotIds({a, c, 999999});
+            QVERIFY(found.has_value());
+            QCOMPARE(*found, QSet<qint64>({a, c}));
+
+            // An empty request is a real answer ("none of nothing"), not a
+            // refusal — the caller must not be pushed down the "leave it alone"
+            // path for a conversation that references no shots.
+            const auto none = storage.existingShotIds({});
+            QVERIFY(none.has_value());
+            QVERIFY(none->isEmpty());
+
+            storage.close();
+            drain();
+        }
+
+        // Not initialized: nullopt, NOT an empty set. An empty set here would
+        // tell AIConversation::loadFromStorage that every reference is dead and
+        // it would delete them all — the failure mode this return type exists
+        // to make unrepresentable.
+        ShotHistoryStorage notReady;
+        const auto unanswerable = notReady.existingShotIds({a, c});
+        QVERIFY(!unanswerable.has_value());
     }
 };
 

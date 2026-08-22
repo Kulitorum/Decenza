@@ -18,6 +18,8 @@
 #include "core/appsettings.h"
 #include <QVariant>
 #include <QSignalSpy>
+#include <QTemporaryDir>
+#include <QPointF>
 #include <QNetworkAccessManager>
 #include <QPair>
 #include <QList>
@@ -38,6 +40,7 @@
 #include "core/settings_dye.h"
 #include "core/settings_ai.h"  // settings.ai()->set*: full type for the extraction-routing tests
 #include "history/shotprojection.h"
+#include "history/shothistorystorage.h"
 #include "history/shothistory_types.h"
 #include "ai/dialing_blocks.h"
 #include "mcp/mcptoolregistry.h"
@@ -3346,8 +3349,8 @@ private slots:
             settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
 
         QCOMPARE(tally.conversations, 1);
-        QCOMPARE(tally.referencesRemapped, 4);   // two turn pairs
-        QCOMPARE(tally.referencesCleared, 0);
+        QCOMPARE(tally.turnsRemapped, 4);   // two turn pairs
+        QCOMPARE(tally.turnsCleared, 0);
 
         const QJsonArray out = storedTurns(settings, key);
         QCOMPARE(out.size(), 4);
@@ -3368,8 +3371,8 @@ private slots:
         const auto tally = AIConversation::importConversationsStatic(
             settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
 
-        QCOMPARE(tally.referencesRemapped, 2);
-        QCOMPARE(tally.referencesCleared, 2);
+        QCOMPARE(tally.turnsRemapped, 2);
+        QCOMPARE(tally.turnsCleared, 2);
 
         const QJsonArray out = storedTurns(settings, key);
         int withId = 0, withoutId = 0;
@@ -3398,8 +3401,8 @@ private slots:
         const auto tally = AIConversation::importConversationsStatic(
             settings, oneConversation(key, turnsWithShotIds({1109, 1096})), nullptr);
 
-        QCOMPARE(tally.referencesRemapped, 0);
-        QCOMPARE(tally.referencesCleared, 4);
+        QCOMPARE(tally.turnsRemapped, 0);
+        QCOMPARE(tally.turnsCleared, 4);
         for (const QJsonValue& v : storedTurns(settings, key))
             QVERIFY(!v.toObject().contains("shotId"));
         settings.clear();
@@ -3415,12 +3418,259 @@ private slots:
         const auto tally = AIConversation::importConversationsStatic(
             settings, oneConversation(key, turnsWithShotIds({0})), &map);
 
-        QCOMPARE(tally.referencesRemapped, 0);
-        QCOMPARE(tally.referencesCleared, 0);
+        QCOMPARE(tally.turnsRemapped, 0);
+        QCOMPARE(tally.turnsCleared, 0);
         for (const QJsonValue& v : storedTurns(settings, key))
             QVERIFY2(!v.toObject().contains("shotId"),
                      "a free-form turn must not have linkage invented for it");
         settings.clear();
+    }
+
+    // Task 6.4 as written: import a source whose ids exceed anything in the
+    // destination, then assert NO STORED REFERENCE names a source id.
+    //
+    // Every other remap slot hand-writes its QHash, so nothing else joins the
+    // two halves: a producer that keyed the map by destination id instead of
+    // source would satisfy both sides' own tests and still corrupt every turn.
+    void aRealImportMapCarriesStoredTurnsOntoDestinationIds()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        // Source: ids forced high, the way a mature device's backup looks.
+        const QString srcPath = dir.filePath("e2e_src.db");
+        QList<qint64> srcIds;
+        {
+            ShotHistoryStorage src;
+            QVERIFY(src.initialize(srcPath));
+            for (int i = 0; i < 40; i++) {
+                ShotRecord r;
+                r.summary.uuid = QStringLiteral("e2e-%1").arg(i);
+                r.summary.timestamp = 1765300000 + i * 3600;
+                r.summary.profileName = QStringLiteral("E2E %1").arg(i);
+                r.summary.beverageType = QStringLiteral("espresso");
+                r.pressure.append(QPointF(0.0, 6.0));
+                const qint64 id = src.importShotRecord(r, false);
+                QVERIFY(id > 0);
+                if (i >= 37) srcIds << id;   // the three we will reference
+            }
+            src.close();
+        }
+
+        // The destination must already hold shots, and enough of them that the
+        // ids it hands out cannot collide with the source's. An EMPTY
+        // destination restarts AUTOINCREMENT at 1 and reproduces the source's
+        // own ids exactly, which would make an un-remapped turn indistinguishable
+        // from a correctly remapped one — the test would pass while asserting
+        // nothing.
+        const QString destPath = dir.filePath("e2e_dest.db");
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            for (int i = 0; i < 60; i++) {
+                ShotRecord d;
+                d.summary.uuid = QStringLiteral("pad-%1").arg(i);
+                d.summary.timestamp = 1760000000 + i * 3600;
+                d.summary.profileName = QStringLiteral("Pad %1").arg(i);
+                d.summary.beverageType = QStringLiteral("espresso");
+                d.pressure.append(QPointF(0.0, 6.0));
+                QVERIFY(dest.importShotRecord(d, false) > 0);
+            }
+            dest.close();
+        }
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r));
+        QCOMPARE(r.imported, 40);
+        // Every source id lands past the 60 already here, so nothing maps to
+        // itself and a turn left un-remapped is detectable by value alone.
+        for (qint64 sid : std::as_const(srcIds))
+            QVERIFY2(r.shotIdMap.value(sid, 0) > 60, "imported shots must land past the padding");
+
+        AppSettings settings;
+        settings.clear();
+        const QString key = QStringLiteral("e2e_key");
+        AIConversation::importConversationsStatic(
+            settings, oneConversation(key, turnsWithShotIds(srcIds)), &r.shotIdMap);
+
+        const QSet<qint64> sourceIds(srcIds.begin(), srcIds.end());
+        int seen = 0;
+        for (const QJsonValue& v : storedTurns(settings, key)) {
+            const QJsonObject msg = v.toObject();
+            if (!msg.contains("shotId")) continue;
+            const qint64 id = static_cast<qint64>(msg.value("shotId").toDouble());
+            QVERIFY2(!sourceIds.contains(id), "a stored turn still names a SOURCE shot id");
+            QVERIFY2(r.shotIdMap.key(id, 0) != 0, "a stored turn names an id not in the map");
+            seen++;
+        }
+        QVERIFY(!sourceIds.isEmpty());
+        QCOMPARE(seen, srcIds.size() * 2);
+
+        settings.clear();
+    }
+
+    // The read-time repair, end to end and with a REAL storage wired.
+    //
+    // Every other slot here calls the static helpers directly, and the
+    // loadFromStorage pass is guarded on m_aiManager->shotHistoryStorage()
+    // being non-null — so without this slot the whole block is unreachable in
+    // the suite and could be deleted without a single test going red. It is
+    // also the change's only remedy for installs already carrying the damage.
+    void loadFromStorageForgetsTurnIdsThatNoLongerNameAShot()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(dir.filePath("repair.db")));
+
+        ShotRecord rec;
+        rec.summary.uuid = QStringLiteral("live-shot");
+        rec.summary.timestamp = 1765200000;
+        rec.summary.profileName = QStringLiteral("P");
+        rec.summary.beverageType = QStringLiteral("espresso");
+        rec.pressure.append(QPointF(0.0, 6.0));
+        const qint64 liveId = storage.importShotRecord(rec, false);
+        QVERIFY(liveId > 0);
+
+        // Construct the manager BEFORE writing the conversation: Settings and
+        // AIManager both touch the store on construction, and a conversation
+        // written ahead of them does not survive.
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        mgr.setShotHistoryStorage(&storage);
+
+        AppSettings settings;
+        const QString key = QStringLiteral("repair_key");
+        // One turn pair naming the shot that exists, one naming an id that does
+        // not — the shape a pre-remap restore leaves behind.
+        settings.setValue("ai/conversations/" + key + "/messages",
+                          QJsonDocument(turnsWithShotIds({liveId, 987654})).toJson(QJsonDocument::Compact));
+        settings.sync();   // loadFromStorage opens its own AppSettings
+
+        AIConversation conv(&mgr);
+        conv.setStorageKey(key);
+        conv.loadFromStorage();
+
+        QCOMPARE(conv.m_messages.size(), qsizetype(4));   // the fixture loaded at all
+        int live = 0, stale = 0;
+        for (const QJsonValue& v : std::as_const(conv.m_messages)) {
+            const QJsonObject msg = v.toObject();
+            if (!msg.contains("shotId")) continue;
+            const qint64 id = static_cast<qint64>(msg.value("shotId").toDouble());
+            if (id == liveId) live++;
+            else stale++;
+        }
+        QCOMPARE(live, 2);
+        QCOMPARE(stale, 0);
+
+        settings.clear();
+        storage.close();
+    }
+
+    // The same pass must LEAVE THE DATA ALONE when the database cannot answer.
+    // An un-initialized storage returns nullopt, not an empty set; if the two
+    // were collapsed, every reference here would be deleted — and, since
+    // saveToStorage writes m_messages verbatim, deleted permanently at the next
+    // save. This is the slot that goes red if existingShotIds ever regresses to
+    // returning a bare QSet.
+    void loadFromStorageLeavesTurnIdsAloneWhenTheDatabaseCannotAnswer()
+    {
+        ShotHistoryStorage notReady;   // never initialize()d
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        mgr.setShotHistoryStorage(&notReady);
+
+        AppSettings settings;
+        const QString key = QStringLiteral("unanswerable_key");
+        settings.setValue("ai/conversations/" + key + "/messages",
+                          QJsonDocument(turnsWithShotIds({1109, 1052})).toJson(QJsonDocument::Compact));
+        settings.sync();   // loadFromStorage opens its own AppSettings
+
+        AIConversation conv(&mgr);
+        conv.setStorageKey(key);
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("could not check turn shot references"));
+        conv.loadFromStorage();
+
+        QCOMPARE(conv.m_messages.size(), qsizetype(4));   // the fixture loaded at all
+        int kept = 0;
+        for (const QJsonValue& v : std::as_const(conv.m_messages))
+            if (v.toObject().contains("shotId")) kept++;
+        QCOMPARE(kept, 4);
+
+        settings.clear();
+    }
+
+    // The rating the user typed at the advisor went nowhere, and until this
+    // change nothing said so. The signal is the mechanism for telling them;
+    // without a test it could be emitted for the wrong write, or not at all,
+    // and the suite would stay green.
+    void aRatingWrittenToAMissingShotReportsFailure()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(dir.filePath("capture_fail.db")));
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        mgr.setShotHistoryStorage(&storage);
+
+        QSignalSpy failed(&mgr, &AIManager::shotMetadataCaptureFailed);
+
+        // 8473 does not exist in a database that has never held a shot — the
+        // shape a stale conversation reference produces. Both layers warn: the
+        // storage layer that the row is not there, and AIManager that the
+        // user's answer was lost. Declare both rather than going blind.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("No shot with id 8473 to update"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
+        mgr.maybePersistRatingFromReply(
+            QStringLiteral("82, balanced"),
+            QStringLiteral("How did this taste?"),
+            /*shotId=*/8473);
+
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 5000);
+        QCOMPARE(failed.first().at(0).toLongLong(), qint64(8473));
+
+        storage.close();
+    }
+
+    // Two writes for one shot id arrive on one reply (a rating and bean
+    // metadata). m_pendingMetadataWrites was a QSet, so the first outcome
+    // consumed the only entry and the second — possibly the failing one — was
+    // discarded as "not ours" by the very filter added to catch failures.
+    void twoWritesToOneShotBothReportTheirOutcome()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(dir.filePath("capture_two.db")));
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        mgr.setShotHistoryStorage(&storage);
+
+        QSignalSpy failed(&mgr, &AIManager::shotMetadataCaptureFailed);
+
+        mgr.m_pendingMetadataWrites[8473] += 2;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not land"));
+        QMetaObject::invokeMethod(&storage, [&storage]() {
+            emit storage.shotMetadataUpdated(8473, false);
+            emit storage.shotMetadataUpdated(8473, false);
+        }, Qt::DirectConnection);
+
+        QCOMPARE(failed.count(), 2);
+        QVERIFY(!mgr.m_pendingMetadataWrites.contains(8473));
+
+        storage.close();
     }
 
     void dropUnresolvableShotIdsForgetsIdsWithNoMatchingShot()

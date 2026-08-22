@@ -491,6 +491,14 @@ void DataMigrationClient::startImport(const QStringList& types)
     m_shotsImported = 0;
     m_mediaImported = 0;
     m_aiConversationsImported = 0;
+    // Reset with the other per-run counters. It is a member so the conversations
+    // step can read the shots step's map, and a member that survives a run is
+    // how a second import — importOnlyAIConversations(), or a reconnect to a
+    // DIFFERENT source device — would remap this run's turns through the last
+    // run's map. That is the defect this whole change exists to fix, one layer
+    // up. importDatabaseStatic also has two early exits that never write
+    // outResult, so it cannot be relied on to overwrite this.
+    m_shotImport = {};
     m_progress = 0.0;
     m_errorMessage.clear();
 
@@ -620,11 +628,14 @@ void DataMigrationClient::onAIConversationsReply()
             //
             // The map comes from the `shots` step of this same import run —
             // importAll() queues shots before ai_conversations, so by the time
-            // we get here it is filled. When the user imported conversations
-            // WITHOUT shots (importOnlyAIConversations, or deselecting shots),
-            // it is empty: no map, so every turn's shotId is cleared. Those ids
-            // name the source device's database, which this device does not
-            // have — keeping them is the bug, not the feature.
+            // we get here it is filled, and startImport() clears it at the top
+            // of every run so a previous run's map can never stand in.
+            //
+            // Empty means no map, so every turn's shotId is cleared. Three ways
+            // to get there and all want the same answer: the user imported
+            // conversations WITHOUT shots, the shot import FAILED, or it was
+            // REFUSED. In each case the ids name the source device's database,
+            // which this device does not have — keeping them is the bug.
             const QHash<qint64, qint64>* idMap =
                 m_shotImport.shotIdMap.isEmpty() ? nullptr : &m_shotImport.shotIdMap;
             const AIConversation::ImportTally tally =
@@ -635,8 +646,8 @@ void DataMigrationClient::onAIConversationsReply()
                 m_aiManager->reloadConversations();
 
             qDebug() << "DataMigrationClient: Imported" << m_aiConversationsImported
-                     << "AI conversations;" << tally.referencesRemapped
-                     << "shot reference(s) remapped," << tally.referencesCleared << "cleared";
+                     << "AI conversations;" << tally.turnsRemapped
+                     << "shot reference(s) remapped," << tally.turnsCleared << "cleared";
         }
     }
 
@@ -1084,15 +1095,26 @@ void DataMigrationClient::onShotsReply()
             if (success)
                 m_shotImport = shotImport;
 
-            if (success && m_shotHistory) {
+            if (!success) {
+                // Three outcomes used to share one silent branch. Split them:
+                // an integrity refusal has a reason worth quoting, a plain
+                // failure has none but must still be reported (it used to fall
+                // through both arms and let the dialog print "Import complete"),
+                // and a missing storage object is our own wiring fault.
+                if (!shotImport.integrityFailure.isEmpty()) {
+                    // A refusal, not a transfer fault. Say which, and say that
+                    // the existing history is intact — otherwise the user cannot
+                    // tell whether the migration damaged what was already here.
+                    setError(tr("Shots were not imported: %1").arg(shotImport.integrityFailure));
+                } else {
+                    setError(tr("Shots could not be imported. Your existing shots were not changed."));
+                }
+            } else if (!m_shotHistory) {
+                qWarning() << "DataMigrationClient: shots imported but no storage to refresh";
+            } else {
                 m_shotsImported = afterCount > beforeCount ? afterCount - beforeCount : 0;
                 qDebug() << "DataMigrationClient: Imported" << m_shotsImported << "new shots";
                 m_shotHistory->refreshTotalShots();
-            } else if (!shotImport.integrityFailure.isEmpty()) {
-                // A refusal, not a transfer fault. Say which, and say that the
-                // existing history is intact — otherwise the user cannot tell
-                // whether the migration damaged what was already here.
-                setError(tr("Shots were not imported: %1").arg(shotImport.integrityFailure));
             }
 
             startNextImport();

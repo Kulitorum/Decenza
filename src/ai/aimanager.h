@@ -360,7 +360,9 @@ private:
     // Shot ids this class asked to write metadata to, awaiting their outcome.
     // shotMetadataUpdated carries every subsystem's writes, so without this we
     // would report other people's failures as ours.
-    QSet<qint64> m_pendingMetadataWrites;
+    // Shot ids this class has a metadata write in flight for, REFCOUNTED: one
+    // reply can drive two writes for the same shot. See setShotHistoryStorage.
+    QHash<qint64, int> m_pendingMetadataWrites;
     ProfileManager* m_profileManager = nullptr;
 
     // Providers
