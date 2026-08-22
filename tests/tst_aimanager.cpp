@@ -3570,6 +3570,19 @@ private slots:
         QCOMPARE(live, 2);
         QCOMPARE(stale, 0);
 
+        // Idempotent, and the clean-outcome log states the right COUNT. That
+        // line reported 0 when first written — it read `referenced` after the
+        // set had been reduced to the unresolvable ids, so it announced "all
+        // resolve" beside the number that did not. ignoreMessage fails on an
+        // unmatched pattern, so this pins the wording and the number.
+        QTest::ignoreMessage(QtDebugMsg,
+                             QRegularExpression("all 1 distinct turn shot reference\\(s\\) resolve"));
+        conv.repairStaleTurnShotIds();
+        int stillLive = 0;
+        for (const QJsonValue& v : std::as_const(conv.m_messages))
+            if (v.toObject().contains("shotId")) stillLive++;
+        QCOMPARE(stillLive, 2);
+
         settings.clear();
         storage.close();
     }

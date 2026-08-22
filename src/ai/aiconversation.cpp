@@ -1194,6 +1194,11 @@ void AIConversation::repairStaleTurnShotIds()
         return;
     }
 
+    // Capture the count BEFORE `referenced` is reduced to the unresolvable
+    // ones below — logging it afterwards reported 0 while claiming they all
+    // resolved, which is worse than not logging it.
+    const qsizetype checked = referenced.size();
+
     // Remembered so saveToStorage can re-apply the drop after it reconciles
     // against another writer's copy on disk — that copy still holds the stale
     // ids, and adopting it verbatim silently undid this repair.
@@ -1211,8 +1216,8 @@ void AIConversation::repairStaleTurnShotIds()
         // submitted log from the check never having run at all — which is the
         // state this method was added to fix, so silence is the wrong default
         // for exactly the reader trying to confirm it works.
-        qDebug() << "AIConversation::repairStaleTurnShotIds:" << referenced.size()
-                 << "turn shot reference(s) all resolve, for key" << m_storageKey;
+        qDebug() << "AIConversation::repairStaleTurnShotIds: all" << checked
+                 << "distinct turn shot reference(s) resolve, for key" << m_storageKey;
     }
 }
 
