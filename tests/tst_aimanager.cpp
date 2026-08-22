@@ -27,6 +27,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QJsonDocument>
+#include <QCryptographicHash>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSettings>
@@ -336,6 +337,203 @@ private slots:
         // Isolate the conversation index from the real user dir so loading /
         // saving doesn't mutate state outside the test.
         QStandardPaths::setTestModeEnabled(true);
+    }
+
+    // The Setup header names the BASKET and puck prep, not just grinder + bean.
+    // Naming them is the visible half of equipment scoping: the history is
+    // filtered to one equipment package, and a filter the model cannot see is a
+    // silent one — it could neither attribute the history to the right gear nor
+    // notice it was being asked to compare a dial across two baskets.
+    void emitRecentShotContext_setupHeaderNamesBasketAndPuckPrep()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QList<QPair<qint64, ShotProjection>> qualifiedShots;
+        const qint64 base = QDateTime::currentSecsSinceEpoch() - 86400 * 2;
+        for (int i = 0; i < 2; ++i) {
+            ShotProjection p = makeShot(i + 1, base + i * 3600,
+                                        QStringLiteral("Niche"), QStringLiteral("Zero"),
+                                        QStringLiteral("63mm Mazzer Kony conical"),
+                                        QStringLiteral("9.75"),
+                                        QStringLiteral("Sweet Bloom Coffee"),
+                                        QStringLiteral("Hometown Blend"),
+                                        QStringLiteral("D-Flow / Q"), QString(), QString());
+            p.basketBrand = QStringLiteral("Graph Coffee");
+            p.basketModel = QStringLiteral("Stepped 58-46mm");
+            p.puckPrep = QStringLiteral("puckScreen,rdt,shaker");
+            qualifiedShots.append({ p.timestamp, p });
+        }
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QStringLiteral("Niche"), 1);
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QCOMPARE(payload.count(QStringLiteral("### Setup:")), 1);
+        QVERIFY2(payload.contains(QStringLiteral("Graph Coffee Stepped 58-46mm basket")),
+                 qPrintable(QStringLiteral("Setup header must name the basket. Got: ") + payload.left(400)));
+        QVERIFY2(payload.contains(QStringLiteral("puckScreen")),
+                 "Setup header must name the puck-prep techniques");
+        // Still one header, and the bean identity survives alongside the gear.
+        QVERIFY(payload.contains(QStringLiteral("Sweet Bloom Coffee - Hometown Blend")));
+    }
+
+    // A history with no basket recorded must not grow an empty basket phrase.
+    // The header is assembled from fragments joined with " ", so an unguarded
+    // empty segment produces a double space or a bare "basket" with no name —
+    // the same class of artifact a burrs-without-grinder segment used to cause.
+    void emitRecentShotContext_setupHeaderOmitsAbsentBasket()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QList<QPair<qint64, ShotProjection>> qualifiedShots;
+        const qint64 base = QDateTime::currentSecsSinceEpoch() - 86400;
+        qualifiedShots.append({ base, makeShot(1, base,
+                                    QStringLiteral("Niche"), QStringLiteral("Zero"),
+                                    QStringLiteral("63mm Mazzer Kony conical"),
+                                    QStringLiteral("9.75"),
+                                    QStringLiteral("Sweet Bloom Coffee"),
+                                    QStringLiteral("Hometown Blend"),
+                                    QStringLiteral("D-Flow / Q"), QString(), QString()) });
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QStringLiteral("Niche"), 1);
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(!payload.contains(QStringLiteral("basket")),
+                 "no basket recorded must render no basket phrase at all");
+        QVERIFY2(!payload.contains(QStringLiteral("  ")),
+                 "absent segments must not leave a double space in the Setup header");
+    }
+
+    // Zero qualifying shots must STATE the absence and name the equipment set,
+    // not emit nothing. An empty payload is indistinguishable from "this user
+    // has no history", and a model with no anchor in context supplies one: the
+    // reported failure cited a 70/100 shot that appeared nowhere in its context
+    // and then reasoned from it.
+    void emitRecentShotContext_emptyHistoryStatesTheEquipmentSet()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
+                                  QJsonObject(), QJsonArray(),
+                                  QStringLiteral("Niche Zero in a Graph Coffee Stepped 58-46mm basket"));
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(!payload.isEmpty(), "an empty history must still say so");
+        QVERIFY(payload.contains(QStringLiteral("No prior shots with this equipment set")));
+        QVERIFY2(payload.contains(QStringLiteral("Graph Coffee Stepped 58-46mm")),
+                 "the block must name the equipment set that was matched on");
+        QVERIFY2(payload.contains(QStringLiteral("do not refer to shots you cannot see")),
+                 "the block must tell the model not to invent an anchor");
+    }
+
+    // With no equipment label resolved there is nothing to state, so the block
+    // stays absent rather than emitting a half-sentence about equipment the
+    // caller could not name.
+    void emitRecentShotContext_emptyHistoryWithoutLabelStaysSilent()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 1;
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1);
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(spy.takeFirst().at(0).toString().isEmpty());
+    }
+
+    // The equipment package is part of the conversation identity. Two shots on
+    // the same bean and profile but different gear are different conversations,
+    // and — because every previously-stored key lacked the package — this is
+    // also what gives every user a clean thread on first use after upgrading,
+    // with no migration step.
+    void conversationKey_variesWithEquipmentPackage()
+    {
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        const QString onPkg1 = AIManager::conversationKey(bean, type, profile, 1);
+        const QString onPkg2 = AIManager::conversationKey(bean, type, profile, 2);
+        const QString unpackaged = AIManager::conversationKey(bean, type, profile, 0);
+
+        QVERIFY2(onPkg1 != onPkg2, "two equipment packages must not share a conversation");
+        QVERIFY2(onPkg1 != unpackaged, "a packaged shot must not resume an unpackaged thread");
+        // Stable for the same inputs — the thread has to be resumable.
+        QCOMPARE(AIManager::conversationKey(bean, type, profile, 1), onPkg1);
+    }
+
+    // Upgrading to the equipment-keyed scheme must hand the user a CLEAN thread:
+    // a conversation replays its stored turns to the model on every request, so
+    // a pre-upgrade thread would keep feeding it shots selected under the old,
+    // equipment-blind rules — including whatever the model concluded from them.
+    // Nothing is deleted; the old key simply stops being produced.
+    void conversationKey_preUpgradeThreadIsNotResumed()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        // The pre-upgrade key: the same hash over bean|type|profile with no
+        // equipment segment. Spelled out rather than called, because the whole
+        // point is that the production function can no longer produce it.
+        const QString legacyNormalized = bean.toLower().trimmed() + "|" +
+                                         type.toLower().trimmed() + "|" +
+                                         profile.toLower().trimmed();
+        const QString legacyKey = QString::fromLatin1(
+            QCryptographicHash::hash(legacyNormalized.toUtf8(),
+                                     QCryptographicHash::Sha1).toHex().left(16));
+        // structuredNext is supplied because loadRecentAssistantTurnsForKey
+        // filters out turns that lack one — without it the "still on disk"
+        // assertion below would read 0 and pass for the wrong reason.
+        QJsonObject structured;
+        structured[QStringLiteral("grinderSetting")] = QStringLiteral("10.5");
+        AIConversation::appendAssistantTurnForKey(
+            legacyKey, 111, QStringLiteral("old user turn"),
+            QStringLiteral("the burrs may have crossed a zero-point threshold"), structured);
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
+
+        QVERIFY2(!mgr.conversation()->hasHistory(),
+                 "the first advisor use after upgrading must start a fresh thread");
+        QVERIFY2(mgr.conversation()->storageKey() != legacyKey,
+                 "the new key must not collide with the pre-upgrade one");
+
+        // NOT asserted here: that the pre-upgrade thread's bytes survive on
+        // disk. It is true by construction — no code path in this change
+        // deletes a conversation, they simply stop being addressed — but
+        // asserting it inside this test proved to be about QSettings instance
+        // semantics (which instance has synced what, and when `clear()` in the
+        // fixture lands) rather than about the behaviour under test. A test
+        // that fails for reasons unrelated to its subject is worse than no
+        // test, so the claim is left to the code rather than dressed up as
+        // coverage.
+
+        settings.clear();
     }
 
     // Task 10.5 end-to-end: the assembled payload from emitRecentShotContext

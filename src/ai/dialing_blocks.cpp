@@ -112,6 +112,12 @@ QJsonObject shotToJson(const ShotProjection& shot,
         h["grinderModel"] = override.grinderModel;
     if (!override.grinderBurrs.isEmpty())
         h["grinderBurrs"] = override.grinderBurrs;
+    if (!override.basketBrand.isEmpty())
+        h["basketBrand"] = override.basketBrand;
+    if (!override.basketModel.isEmpty())
+        h["basketModel"] = override.basketModel;
+    if (!override.puckPrep.isEmpty())
+        h["puckPrep"] = override.puckPrep;
     if (!override.beanBrand.isEmpty())
         h["beanBrand"] = override.beanBrand;
     if (!override.beanType.isEmpty())
@@ -162,8 +168,15 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
     QJsonArray sessions;
     if (profileKbId.isEmpty()) return sessions;
 
+    // Equipment scoping: shots on other gear are excluded outright rather than
+    // ranked down. A dial on a different basket is not the same dial, so a
+    // session mixing them describes a grind ordering that never existed.
+    // nullopt = no resolved shot to take equipment from (callers pass -1), in
+    // which case the loader is left unscoped rather than scoped to "unpackaged".
+    const std::optional<qint64> bucket =
+        ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId);
     QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(
-        db, profileKbId, historyLimit, resolvedShotId);
+        db, profileKbId, historyLimit, resolvedShotId, bucket);
 
     QList<ShotProjection> shots;
     shots.reserve(history.size());
@@ -191,6 +204,9 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             id.grinderBrand = s.grinderBrand;
             id.grinderModel = s.grinderModel;
             id.grinderBurrs = s.grinderBurrs;
+            id.basketBrand = s.basketBrand;
+            id.basketModel = s.basketModel;
+            id.puckPrep = s.puckPrep;
             id.beanBrand = s.beanBrand;
             id.beanType = s.beanType;
             id.frozenDate = s.frozenDate;
@@ -276,6 +292,16 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             contextObj["grinderModel"] = hoisted.context.grinderModel;
         if (!hoisted.context.grinderBurrs.isEmpty())
             contextObj["grinderBurrs"] = hoisted.context.grinderBurrs;
+        // Basket + puck prep name the equipment package this session's shots
+        // were pulled on. Shared by construction now that the history is
+        // package-scoped, so in practice they always land here rather than on
+        // a per-shot override.
+        if (!hoisted.context.basketBrand.isEmpty())
+            contextObj["basketBrand"] = hoisted.context.basketBrand;
+        if (!hoisted.context.basketModel.isEmpty())
+            contextObj["basketModel"] = hoisted.context.basketModel;
+        if (!hoisted.context.puckPrep.isEmpty())
+            contextObj["puckPrep"] = hoisted.context.puckPrep;
         if (!hoisted.context.beanBrand.isEmpty())
             contextObj["beanBrand"] = hoisted.context.beanBrand;
         if (!hoisted.context.beanType.isEmpty())
@@ -332,14 +358,27 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     // Falls back to nothing when the user has no rated shots — the
     // elicitation paths (the rating slider, conversational capture) keep
     // this pool populated.
-    bestQ.prepare(
-        "SELECT id FROM shots "
-        "WHERE profile_kb_id = ? AND enjoyment > 0 "
-        "AND id != ? AND timestamp >= ? "
-        "ORDER BY enjoyment DESC, timestamp DESC LIMIT 1");
+    // Equipment-scoped (see ShotHistoryStorage::equipmentBucketForShot). This
+    // block is presented to the model as the outcome to REPRODUCE, so its
+    // dose/yield/duration/grind read as a target. An anchor from other gear is
+    // a target the user cannot hit at the settings it reports — strictly worse
+    // than no anchor — so a higher-rated shot on another package is passed over
+    // rather than offered, and the block is omitted when this package has no
+    // rated shot in the window.
+    const std::optional<qint64> bestBucket =
+        ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId);
+    QString bestSql = QStringLiteral("SELECT id FROM shots "
+                                     "WHERE profile_kb_id = ? AND enjoyment > 0 "
+                                     "AND id != ? AND timestamp >= ?");
+    if (bestBucket.has_value())
+        bestSql += QStringLiteral(" AND ") + ShotHistoryStorage::equipmentBucketSql();
+    bestSql += QStringLiteral(" ORDER BY enjoyment DESC, timestamp DESC LIMIT 1");
+    bestQ.prepare(bestSql);
     bestQ.addBindValue(profileKbId);
     bestQ.addBindValue(resolvedShotId);
     bestQ.addBindValue(windowFloorSec);
+    if (bestBucket.has_value())
+        bestQ.addBindValue(*bestBucket);
     // Whitespace before () dodges a permission-hook false-positive on the
     // pattern `.exec(`. Do not auto-format.
     if (!bestQ.exec ()) {
@@ -420,7 +459,8 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
 QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
                                      const QString& grinderModel,
                                      const QString& beverageType,
-                                     const QString& beanBrand)
+                                     const QString& beanBrand,
+                                     std::optional<qint64> equipmentBucket)
 {
     if (grinderModel.isEmpty()) return QJsonObject();
 
@@ -428,14 +468,17 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
         ? QStringLiteral("espresso") : beverageType;
 
     GrinderContext ctx = ShotHistoryStorage::queryGrinderContext(
-        db, grinderModel, bevType, beanBrand);
+        db, grinderModel, bevType, beanBrand, equipmentBucket);
 
-    // Cross-bean fallback for sparse OR empty bean-scoped results.
+    // Cross-bean fallback for sparse OR empty bean-scoped results. It widens
+    // the BEAN, never the equipment: the bucket is passed through unchanged, so
+    // a sparse package cannot recover a range by borrowing another basket's
+    // settings — the whole point of the scoping.
     bool haveCrossBean = false;
     GrinderContext crossBean;
     if (!beanBrand.isEmpty() && ctx.settingsObserved.size() < 2) {
         crossBean = ShotHistoryStorage::queryGrinderContext(
-            db, grinderModel, bevType);
+            db, grinderModel, bevType, QString(), equipmentBucket);
         haveCrossBean = !crossBean.settingsObserved.isEmpty();
     }
 
@@ -1172,40 +1215,53 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // landed within 10% of stop-at-weight target OR has a refractometer
     // reading). Replaces the old "≥5g, no-badge-only" filter that admitted
     // undershoot/aborted experiments and corrupted the medians.
+    // The resolved shot is loaded and validated above, so this is nullopt only
+    // if the row vanished between the two reads; scope-nothing is the honest
+    // response to that, not scope-to-unpackaged.
+    const std::optional<qint64> calBucket =
+        ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId);
+
     QSqlQuery q(db);
-    q.prepare(
-        "SELECT profile_kb_id, profile_name, grinder_setting, timestamp, "
-        "       bean_brand, bean_type, roast_date, final_weight, "
-        "       COALESCE(enjoyment,0), COALESCE(drink_tds,0), "
-        "       COALESCE(yield_override, 0), "
-        "       json_extract(profile_json,'$.target_weight'), "
-        "       COALESCE(rpm, 0) "
-        "FROM shots "
-        // Grinder identity resolves through the equipment_id pointer, not the
-        // dropped per-shot grinder_model/grinder_burrs columns (add-equipment-
-        // packages migration 23). Match the grinder item (model + burrs from its
-        // attrs blob) then keep shots pointing at one of those packages.
-        //
-        // Case- and whitespace-folded, so this read agrees with the identity LOOKUP
-        // that decides two packages are the same gear
-        // (EquipmentStorage::findPackageByGrinderIdentityStatic, which folds case in
-        // SQL and trims its search values in C++ — this trims both sides, so it is
-        // if anything more forgiving). An exact compare here meant a model string
-        // differing only in case or padding silently matched no history at all, and
-        // a calibration built on no history is indistinguishable from a grinder
-        // that has never been used.
-        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "    WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(?)) "
-        "    AND LOWER(TRIM(COALESCE(json_extract(attrs, '$.burrs'), ''))) = LOWER(TRIM(COALESCE(?, '')))) "
-        "  AND (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
-        "  AND COALESCE(final_weight, 0) >= 15 "
-        "  AND COALESCE(grind_issue_detected, 0) = 0 "
-        "  AND COALESCE(channeling_detected, 0) = 0 "
-        "  AND COALESCE(pour_truncated_detected, 0) = 0 "
-        "  AND COALESCE(skip_first_frame_detected, 0) = 0 "
-        "ORDER BY timestamp DESC");
-    q.addBindValue(grinderModel);
-    q.addBindValue(grinderBurrs);
+    // Scoped to the resolved shot's own equipment PACKAGE, not to every package
+    // sharing a grinder model + burrs. Two reasons, and the second is the one
+    // that is easy to miss:
+    //
+    //  - Endpoint medians below are pooled by (batch, kbId) BEFORE any pair is
+    //    formed, so pooling packages corrupts the ENDPOINT, not merely a pair
+    //    that happens to straddle two baskets. One profile's median on one
+    //    coffee would mix a straight-wall dial (~9.75) with a stepped one (~17).
+    //  - The anchor selected further down is the intercept every emitted number
+    //    is built on, and it is drawn from these same rows.
+    //
+    // This block publishes a NUMBER the user is expected to dial in, so a
+    // polluted estimate is indistinguishable from a clean one at the point of
+    // use. When the package-scoped pool has too little signal the block degrades
+    // to directional ("pull a reference shot"), which is its designed failure
+    // mode since #1223 — never a widening to other gear.
+    //
+    // Comparing package ids also removes the case/whitespace-folding this clause
+    // used to need: an integer key cannot disagree with EquipmentStorage's own
+    // identity lookup about padding or capitalisation.
+    QString calSql = QStringLiteral(
+            "SELECT profile_kb_id, profile_name, grinder_setting, timestamp, "
+            "       bean_brand, bean_type, roast_date, final_weight, "
+            "       COALESCE(enjoyment,0), COALESCE(drink_tds,0), "
+            "       COALESCE(yield_override, 0), "
+            "       json_extract(profile_json,'$.target_weight'), "
+            "       COALESCE(rpm, 0) "
+            "FROM shots WHERE "
+            "      (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
+            "  AND COALESCE(final_weight, 0) >= 15 "
+            "  AND COALESCE(grind_issue_detected, 0) = 0 "
+            "  AND COALESCE(channeling_detected, 0) = 0 "
+            "  AND COALESCE(pour_truncated_detected, 0) = 0 "
+            "  AND COALESCE(skip_first_frame_detected, 0) = 0 ");
+    if (calBucket.has_value())
+        calSql += QStringLiteral(" AND ") + ShotHistoryStorage::equipmentBucketSql();
+    calSql += QStringLiteral(" ORDER BY timestamp DESC");
+    q.prepare(calSql);
+    if (calBucket.has_value())
+        q.addBindValue(*calBucket);
     if (!q.exec ()) {
         qWarning() << "buildGrinderCalibrationBlock: history query failed:" << q.lastError().text();
         return QJsonObject();

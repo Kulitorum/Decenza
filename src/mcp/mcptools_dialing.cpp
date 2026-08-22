@@ -125,7 +125,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
                     dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
                         db, dbResult.shotData.grinderModel,
-                        dbResult.shotData.beverageType, dbResult.shotData.beanBrand);
+                        dbResult.shotData.beverageType, dbResult.shotData.beanBrand,
+                        ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId));
                 });
 
                 // --- Deliver results to main thread for final assembly ---

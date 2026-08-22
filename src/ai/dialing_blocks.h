@@ -13,6 +13,8 @@
 #include <QString>
 #include <QtGlobal>
 
+#include <optional>
+
 class QSqlDatabase;
 class Settings;
 class ProfileManager;
@@ -143,6 +145,9 @@ inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped
 // QJsonArray; the array is empty when the profile has no prior shots.
+// Scoped to `resolvedShotId`'s equipment package: shots on other gear
+// make different coffee at the same dial, so pooling them teaches a grind
+// ordering that does not exist.
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
                                     qint64 resolvedShotId,
@@ -161,10 +166,14 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
 // Observed grinder settings range, step size, burr-swappable flag, with
 // bean-scoped → cross-bean fallback. Returns an empty `QJsonObject`
 // when `grinderModel` is empty OR when both queries return no rows.
+// `equipmentBucket` scopes the observed settings to one equipment package
+// (ShotHistoryStorage::equipmentBucketForShot). The cross-bean fallback widens
+// the bean only — never the equipment.
 QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
                                      const QString& grinderModel,
                                      const QString& beverageType,
-                                     const QString& beanBrand);
+                                     const QString& beanBrand,
+                                     std::optional<qint64> equipmentBucket = std::nullopt);
 
 // `currentBean` block for the resolved shot. Bean / grinder / dose /
 // roastDate fields come from the shot's saved metadata only — never

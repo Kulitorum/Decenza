@@ -59,6 +59,12 @@ public:
         QString beanBrand;
         QString beanType;
         QString profileName;
+        // Equipment package the thread belongs to (0 = none recorded). Carried
+        // so a conversation list can tell apart two threads that share a bean
+        // and profile but were pulled on different gear — without it they are
+        // indistinguishable rows. Absent on entries saved before equipment
+        // became part of the key; those read as 0 and are simply unreferenced.
+        qint64 equipmentId = 0;
         qint64 timestamp;
 
         QJsonObject toJson() const;
@@ -97,7 +103,16 @@ public:
     QList<ConversationEntry> conversationIndex() const { return m_conversationIndex; }
 
     // Conversation routing
-    Q_INVOKABLE QString switchConversation(const QString& beanBrand, const QString& beanType, const QString& profileName);
+    // `equipmentId` is the shot's equipment package (0 = none recorded). It is
+    // part of the conversation IDENTITY, not merely context: a saved thread
+    // replays its stored turns to the model on every request, so a thread that
+    // spans two baskets keeps feeding the model shots from gear the user is no
+    // longer using. Threading on the package keeps a transcript describing one
+    // equipment set for its whole life — and, because every pre-existing key
+    // stops matching, gives every user a clean thread on first use after
+    // upgrading with no migration step.
+    Q_INVOKABLE QString switchConversation(const QString& beanBrand, const QString& beanType,
+                                           const QString& profileName, qint64 equipmentId = 0);
     Q_INVOKABLE void loadMostRecentConversation();
     Q_INVOKABLE void clearCurrentConversation();
     // Accepts QVariant (not const ShotProjection&) so QML can pass either a
@@ -107,7 +122,8 @@ public:
     // coerceShot() in the .cpp.
     Q_INVOKABLE bool isMistakeShot(const QVariant& shotData) const;
     Q_INVOKABLE bool isSupportedBeverageType(const QString& beverageType) const;
-    static QString conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName);
+    static QString conversationKey(const QString& beanBrand, const QString& beanType,
+                                   const QString& profileName, qint64 equipmentId = 0);
 
     // Builds the AI user-prompt envelope for a finished / historical shot,
     // returned as a `QJsonObject` so DB-scoped callers (`ai_advisor_invoke`'s
@@ -423,7 +439,11 @@ private:
         const QString& grinderBrand,
         int serial,
         const QJsonObject& grinderCalibration = QJsonObject(),
-        const QJsonArray& recentAdvice = QJsonArray());
+        const QJsonArray& recentAdvice = QJsonArray(),
+        // English description of the current shot's equipment package. Only
+        // consulted when the history came back empty, to state which equipment
+        // set the shots were matched on instead of emitting nothing.
+        const QString& equipmentLabel = QString());
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;

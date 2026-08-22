@@ -5,6 +5,8 @@
 
 #include <QObject>
 #include <QSqlDatabase>
+
+#include <optional>
 #include <QHash>
 #include <QSet>
 #include <QVariantList>
@@ -142,7 +144,52 @@ public:
 
     // Query recent shots by KB ID (summary data, no time-series).
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
-    static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1);
+    // The equipment-package bucket a shot belongs to. Every advisor selection
+    // that scopes prior shots to "the same gear" resolves the current shot
+    // through THIS function and compares with `equipmentBucketSql()`, so those
+    // call sites cannot drift into slightly different notions of sameness —
+    // which is the defect this exists to prevent, not a tidiness preference.
+    //
+    // Returns:
+    //   - the shot's `equipment_id` when it has one;
+    //   - 0 when the shot EXISTS but has no package recorded — a real bucket
+    //     that matches other unpackaged shots;
+    //   - `std::nullopt` when no such shot row exists, which callers MUST read
+    //     as "no equipment context, do not scope" rather than as bucket 0.
+    //
+    // That last distinction is load-bearing and is not hypothetical: callers
+    // pass -1 as a "no resolved shot" sentinel, and collapsing that to bucket 0
+    // scopes the query to unpackaged shots only — silently returning an empty
+    // history to every user who HAS a package. Returning 0 for a missing row
+    // looks like the safe default and is the opposite of one.
+    //
+    // A package forks whenever the grinder brand/model/burrs, the basket, or the
+    // puck-prep set changes (EquipmentStorage::updateGrinderIdentityStatic), so
+    // this one integer answers the grinder, basket and prep questions at once.
+    // Runs SQL on the caller's thread — background connection required.
+    static std::optional<qint64> equipmentBucketForShot(QSqlDatabase& db, qint64 shotId);
+
+    // SQL predicate matching a shot row against an equipment bucket, the bucket
+    // supplied as a positional bind. COALESCE on BOTH sides is load-bearing: SQL
+    // `NULL = NULL` is not true, so a bare `equipment_id = ?` silently drops
+    // every unpackaged shot instead of matching it. Bucket 0 holds all
+    // unpackaged shots, so a user who has never created a package matches their
+    // whole history and the filter is a no-op for them. Same idiom as the
+    // history-cards grouping in shothistorystorage_queries.cpp.
+    // `column` lets a caller qualify the table alias (e.g. "s.equipment_id").
+    // `placeholder` exists because Qt will not mix positional and named binds in
+    // one statement: a query already using ":model"/":bev" must pass a named
+    // placeholder here (e.g. ":equip") or the whole statement silently binds
+    // nothing.
+    static QString equipmentBucketSql(const QString& column = QStringLiteral("equipment_id"),
+                                      const QString& placeholder = QStringLiteral("?"));
+
+    // `equipmentBucket` scopes the result to one equipment package (see
+    // `equipmentBucketForShot`). Absent = no equipment scoping,
+    // preserving this loader's original behaviour for callers with no
+    // same-gear contract; the advisor's dialInSessions path always passes one.
+    static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1,
+                                                    std::optional<qint64> equipmentBucket = std::nullopt);
 
     // Async: profiles used with a bean, for the recipe wizard's ranked profile
     // step (add-recipe-wizard-tea). Emits rankedProfilesForBeanReady() with
@@ -229,9 +276,17 @@ public:
     // the `dialing_get_context` tool calls this twice and surfaces a
     // separate `allBeansSettings` field). Do not collapse that fallback
     // into this function — a future caller may want bean-scoped only.
+    //
+    // `equipmentBucket` scopes the observed settings to one equipment package.
+    // This list is what the advisor uses to judge whether a proposed setting is
+    // plausible for the user's grinder, so pooling across packages presents two
+    // baskets' dials as one continuous range and a setting that is absurd on one
+    // reads as reasonable. Absent = no equipment scoping (the pre-existing
+    // behaviour, for callers with no same-gear contract).
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel,
                                               const QString& beverageType,
-                                              const QString& beanBrand = QString());
+                                              const QString& beanBrand = QString(),
+                                              std::optional<qint64> equipmentBucket = std::nullopt);
 
     // Convert ShotRecord to a typed ShotProjection (shared by requestShot,
     // ShotServer, AIManager, MCP). Returns a default-constructed ShotProjection

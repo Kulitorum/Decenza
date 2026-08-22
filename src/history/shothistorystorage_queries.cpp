@@ -689,18 +689,55 @@ void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit
 
 }
 
-QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId)
+std::optional<qint64> ShotHistoryStorage::equipmentBucketForShot(QSqlDatabase& db, qint64 shotId)
+{
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("SELECT COALESCE(equipment_id, 0) FROM shots WHERE id = ?"));
+    q.addBindValue(shotId);
+    if (!q.exec()) {
+        qWarning() << "ShotHistoryStorage::equipmentBucketForShot: query failed:"
+                   << q.lastError().text() << "shotId=" << shotId;
+        // A failed query is not evidence about the shot's equipment, so decline
+        // to scope rather than scoping to a bucket we did not read.
+        return std::nullopt;
+    }
+    if (!q.next())
+        return std::nullopt;   // no such shot (incl. the -1 "unresolved" sentinel)
+    return q.value(0).toLongLong();
+}
+
+QString ShotHistoryStorage::equipmentBucketSql(const QString& column, const QString& placeholder)
+{
+    return QStringLiteral("COALESCE(%1, 0) = %2").arg(column, placeholder);
+}
+
+QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId,
+                                                             std::optional<qint64> equipmentBucket)
 {
     QVariantList results;
     // Grinder identity resolved via the equipment_id pointer (add-equipment-
     // packages task 4.1); the per-shot grinder_brand/model/burrs columns are
     // dropped in migration 23. Aliases keep the value("grinder_*") reads below
     // unchanged. burrs is json_extract'd from the grinder item's attrs blob.
+    //
+    // Basket and puck prep come from correlated subqueries rather than more
+    // LEFT JOINs: there is no unique key on (package_id, kind), so a plain join
+    // fans out over a duplicate item row. `ORDER BY id LIMIT 1` matches the
+    // basket-seed query and equipmentstorage's own loaders.
     QString sql = QStringLiteral(R"(
         SELECT s.id, s.timestamp, s.profile_name, s.duration_seconds, s.final_weight, s.dose_weight,
                s.bean_brand, s.bean_type, s.roast_level,
                eg.brand AS grinder_brand, eg.model AS grinder_model,
                json_extract(eg.attrs, '$.burrs') AS grinder_burrs,
+               COALESCE((SELECT b.brand FROM equipment_items b
+                         WHERE b.package_id = s.equipment_id AND b.kind = 'basket'
+                         ORDER BY b.id LIMIT 1), '') AS basket_brand,
+               COALESCE((SELECT b.model FROM equipment_items b
+                         WHERE b.package_id = s.equipment_id AND b.kind = 'basket'
+                         ORDER BY b.id LIMIT 1), '') AS basket_model,
+               COALESCE((SELECT p.model FROM equipment_items p
+                         WHERE p.package_id = s.equipment_id AND p.kind = 'puckprep'
+                         ORDER BY p.id LIMIT 1), '') AS puck_prep,
                s.grinder_setting, s.drink_tds, s.drink_ey, s.enjoyment,
                s.espresso_notes, s.roast_date, s.temperature_override, s.yield_override, s.profile_json, s.beverage_type,
                s.stopped_by,
@@ -711,6 +748,13 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
     )");
     if (excludeShotId >= 0)
         sql += QStringLiteral(" AND s.id != ?");
+    // Equipment scoping is OPTIONAL on this loader because it has two callers
+    // with different needs: the advisor's dialInSessions must not pool across
+    // packages (a dial on another basket is not the same dial), while the
+    // generic recents-by-kbId reader has no such contract. An absent bucket
+    // therefore preserves the pre-existing behaviour exactly.
+    if (equipmentBucket.has_value())
+        sql += QStringLiteral(" AND ") + equipmentBucketSql(QStringLiteral("s.equipment_id"));
     sql += QStringLiteral(" ORDER BY s.timestamp DESC LIMIT ?");
 
     QSqlQuery query(db);
@@ -723,6 +767,8 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
     query.bindValue(idx++, kbId);
     if (excludeShotId >= 0)
         query.bindValue(idx++, excludeShotId);
+    if (equipmentBucket.has_value())
+        query.bindValue(idx++, *equipmentBucket);
     query.bindValue(idx, limit);
 
     if (query.exec()) {
@@ -740,6 +786,17 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             shot["grinderModel"] = query.value("grinder_model").toString();
             shot["grinderBrand"] = query.value("grinder_brand").toString();
             shot["grinderBurrs"] = query.value("grinder_burrs").toString();
+            // Basket + puck prep feed the dialInSessions identity hoist, so the
+            // session context can name the equipment its shots were pulled on.
+            // Sparse-emit, matching the storage-lifecycle fields below.
+            {
+                const QString bb = query.value("basket_brand").toString();
+                const QString bm = query.value("basket_model").toString();
+                const QString pp = query.value("puck_prep").toString();
+                if (!bb.isEmpty()) shot["basketBrand"] = bb;
+                if (!bm.isEmpty()) shot["basketModel"] = bm;
+                if (!pp.isEmpty()) shot["puckPrep"] = pp;
+            }
             shot["espressoNotes"] = query.value("espresso_notes").toString();
             shot["beanBrand"] = query.value("bean_brand").toString();
             shot["beanType"] = query.value("bean_type").toString();
@@ -1251,7 +1308,7 @@ static QList<double> grinderWideRpms(QSqlDatabase& db, const QString& grinderMod
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     const QString& grinderModel, const QString& beverageType,
-    const QString& beanBrand)
+    const QString& beanBrand, std::optional<qint64> equipmentBucket)
 {
     GrinderContext ctx;
     if (grinderModel.isEmpty()) return ctx;
@@ -1272,6 +1329,12 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     if (!beanBrand.isEmpty()) {
         sql += QStringLiteral(" AND bean_brand = :brand");
     }
+    // Named placeholder, not "?": this statement already uses :model/:bev, and
+    // Qt will not mix the two binding styles.
+    if (equipmentBucket.has_value()) {
+        sql += QStringLiteral(" AND ")
+            + equipmentBucketSql(QStringLiteral("equipment_id"), QStringLiteral(":equip"));
+    }
 
     QSqlQuery q(db);
     q.prepare(sql);
@@ -1279,6 +1342,9 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     q.bindValue(":bev", ctx.beverageType);
     if (!beanBrand.isEmpty()) {
         q.bindValue(":brand", beanBrand);
+    }
+    if (equipmentBucket.has_value()) {
+        q.bindValue(":equip", *equipmentBucket);
     }
     if (!q.exec()) {
         qWarning() << "ShotHistoryStorage::queryGrinderContext: query failed:"
@@ -1338,6 +1404,10 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
             "AND rpm > 0").arg(grinderModelMatchSql(":model"));
         if (!beanBrand.isEmpty())
             rpmSql += QStringLiteral(" AND bean_brand = :brand");
+        if (equipmentBucket.has_value()) {
+            rpmSql += QStringLiteral(" AND ")
+                + equipmentBucketSql(QStringLiteral("equipment_id"), QStringLiteral(":equip"));
+        }
         rpmSql += QStringLiteral(" ORDER BY rpm");
 
         QSqlQuery rq(db);
@@ -1346,6 +1416,8 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         rq.bindValue(":bev", ctx.beverageType);
         if (!beanBrand.isEmpty())
             rq.bindValue(":brand", beanBrand);
+        if (equipmentBucket.has_value())
+            rq.bindValue(":equip", *equipmentBucket);
         if (!rq.exec()) {
             qWarning() << "ShotHistoryStorage::queryGrinderContext: rpm query failed:"
                        << rq.lastError().text()

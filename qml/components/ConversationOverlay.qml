@@ -34,6 +34,11 @@ Rectangle {
     property string savedBeanBrand: ""
     property string savedBeanType: ""
     property string savedProfileName: ""
+    // Equipment package of the shot this overlay opened on. Part of the
+    // conversation key, so every switchConversation() call in this file must
+    // pass the SAME value — a second call defaulting to 0 would silently open a
+    // different thread and split the conversation in half.
+    property var savedEquipmentId: 0
 
     // Tap-only taste intake (add-ai-taste-intake): shown as a first-open gate over
     // the conversation when Settings.ai.tasteIntakeOnAsk is on, this shot hasn't
@@ -153,11 +158,20 @@ Rectangle {
             return
         }
 
-        // Switch to the right conversation for this bean+profile
+        // Assign BEFORE switchConversation below, which reads it. The other
+        // saved* fields are set further down because that call takes them as
+        // parameters; this one does not, so ordering is load-bearing here.
+        overlay.savedEquipmentId = shotData.equipmentId || 0
+
+        // Switch to the right conversation for this bean+profile+equipment.
+        // The equipment package is part of the thread identity: a saved
+        // conversation replays its turns to the model, so a thread spanning two
+        // baskets keeps feeding it shots from gear the user has moved off.
         MainController.aiManager.switchConversation(
             beanBrand || "",
             beanType || "",
-            profileName || ""
+            profileName || "",
+            overlay.savedEquipmentId
         )
 
         // Fetch recent shot history as context on a background thread.
@@ -720,7 +734,8 @@ Rectangle {
                                 MainController.aiManager.switchConversation(
                                     overlay.savedBeanBrand || "",
                                     overlay.savedBeanType || "",
-                                    overlay.savedProfileName || ""
+                                    overlay.savedProfileName || "",
+                                    overlay.savedEquipmentId
                                 )
                                 var bevType = (overlay.beverageType || "espresso").toLowerCase()
                                 var systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedProfileName)

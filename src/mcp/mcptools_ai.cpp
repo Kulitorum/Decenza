@@ -151,7 +151,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
                             db, shot.profileKbId, resolvedShotId, shot);
                         grinderContext = DialingBlocks::buildGrinderContextBlock(
-                            db, shot.grinderModel, shot.beverageType, shot.beanBrand);
+                            db, shot.grinderModel, shot.beverageType, shot.beanBrand,
+                            ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId));
                         grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
                             db, shot.grinderModel, shot.grinderBurrs,
                             shot.beverageType, resolvedShotId);
@@ -163,7 +164,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // byte-equivalent recentAdvice for the same shot.
                         if (!shot.profileKbId.isEmpty()) {
                             const QString convKey = AIManager::conversationKey(
-                                shot.beanBrand, shot.beanType, shot.profileName);
+                                shot.beanBrand, shot.beanType, shot.profileName,
+                                shot.equipmentId);
                             const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
                             if (!turns.isEmpty()) {
                                 DialingBlocks::RecentAdviceInputs in;
@@ -345,7 +347,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             if (!shot.beanBrand.isEmpty()
                                 && !shot.profileName.isEmpty()) {
                                 const QString convKey = AIManager::conversationKey(
-                                    shot.beanBrand, shot.beanType, shot.profileName);
+                                    shot.beanBrand, shot.beanType, shot.profileName,
+                                    shot.equipmentId);
                                 AIConversation::appendAssistantTurnForKey(
                                     convKey, resolvedShotId,
                                     userPrompt, response, structured);

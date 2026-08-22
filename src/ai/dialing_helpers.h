@@ -60,6 +60,16 @@ struct ShotIdentity {
     QString grinderBrand;
     QString grinderModel;
     QString grinderBurrs;
+    // Basket + puck prep complete the equipment package the session's shots
+    // were pulled on. They hoist by the same rule as everything else here, and
+    // in practice they are always shared — the history is scoped to one package
+    // — but the override path stays live so no reader depends on that.
+    // Naming them is not decoration: a filter the model cannot see is a silent
+    // one, and without them the model cannot say "your Graph basket shots" or
+    // notice it is being asked to compare a dial across two baskets.
+    QString basketBrand;
+    QString basketModel;
+    QString puckPrep;
     QString beanBrand;
     QString beanType;
     // Bean storage lifecycle (bean-freshness-followup). Hoisted with the same
@@ -131,6 +141,15 @@ inline HoistedSession hoistSessionContext(const QList<ShotIdentity>& shots)
     fillField([](const ShotIdentity& s) { return s.grinderBurrs; },
               [](ShotIdentity& c, const QString& v) { c.grinderBurrs = v; },
               [](ShotIdentity& o, const QString& v) { o.grinderBurrs = v; });
+    fillField([](const ShotIdentity& s) { return s.basketBrand; },
+              [](ShotIdentity& c, const QString& v) { c.basketBrand = v; },
+              [](ShotIdentity& o, const QString& v) { o.basketBrand = v; });
+    fillField([](const ShotIdentity& s) { return s.basketModel; },
+              [](ShotIdentity& c, const QString& v) { c.basketModel = v; },
+              [](ShotIdentity& o, const QString& v) { o.basketModel = v; });
+    fillField([](const ShotIdentity& s) { return s.puckPrep; },
+              [](ShotIdentity& c, const QString& v) { c.puckPrep = v; },
+              [](ShotIdentity& o, const QString& v) { o.puckPrep = v; });
     fillField([](const ShotIdentity& s) { return s.beanBrand; },
               [](ShotIdentity& c, const QString& v) { c.beanBrand = v; },
               [](ShotIdentity& o, const QString& v) { o.beanBrand = v; });

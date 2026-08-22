@@ -54,6 +54,12 @@ struct ShotRow {
     QString grinderBrand{};
     QString grinderModel{};
     QString grinderBurrs{};
+    // Basket identity. Empty by default, so existing fixtures keep landing in a
+    // grinder-only package and are unaffected. Set it to place a shot in a
+    // DIFFERENT equipment package on the SAME grinder — the case the advisor's
+    // equipment scoping exists for, and one no grinder-only fixture can express.
+    QString basketBrand{};
+    QString basketModel{};
     QString grinderSetting{};
     // Grinder RPM → shots.rpm. 0 by default, which is also what "not
     // recorded" looks like, so existing fixtures are unaffected and the
@@ -116,13 +122,23 @@ inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     // identity and link the shot to it. The per-shot grind setting stays on the
     // row. An empty identity leaves equipment_id NULL.
     qint64 equipmentId = 0;
-    if (!(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty() && r.grinderBurrs.isEmpty())) {
+    const bool hasGear = !(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty()
+                           && r.grinderBurrs.isEmpty() && r.basketBrand.isEmpty()
+                           && r.basketModel.isEmpty());
+    if (hasGear) {
+        // Find-or-create on the FULL identity — grinder AND basket — using the
+        // production lookup's own basket arguments rather than a fixture-local
+        // reimplementation. Passing only the grinder would match a package whose
+        // basket differs and put two baskets' shots in one package, which would
+        // quietly make an equipment-scoping test assert nothing.
         equipmentId = EquipmentStorage::findPackageByGrinderIdentityStatic(
-            db, r.grinderBrand, r.grinderModel, r.grinderBurrs);
+            db, r.grinderBrand, r.grinderModel, r.grinderBurrs, /*excludeId=*/0,
+            r.basketBrand, r.basketModel);
         if (equipmentId <= 0) {
             EquipmentPackage pkg;
             equipmentId = EquipmentStorage::createPackageWithGrinderStatic(
-                db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs);
+                db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs,
+                r.basketBrand, r.basketModel);
         }
     }
 

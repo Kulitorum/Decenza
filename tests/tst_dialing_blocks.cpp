@@ -1738,6 +1738,25 @@ private slots:
             .grinderSetting = setting, .enjoyment = 80 });
     }
 
+    // calSeed with an explicit basket, so two shots can share a grinder and a
+    // coffee while living in different equipment packages.
+    qint64 calSeedBasket(QSqlDatabase& db, const QString& uuid, qint64 ts,
+                         const QString& name, const QString& kbId,
+                         const QString& setting,
+                         const QString& basketBrand, const QString& basketModel)
+    {
+        return insertShot(db, ShotRow{
+            .uuid = uuid, .timestamp = ts,
+            .profileName = name, .profileKbId = kbId,
+            .finalWeight = 36.0,
+            .beanBrand = QStringLiteral("TestRoaster"),
+            .beanType = QStringLiteral("TestBean"),
+            .grinderModel = QStringLiteral("Niche Zero"),
+            .grinderBurrs = QStringLiteral("63mm conical"),
+            .basketBrand = basketBrand, .basketModel = basketModel,
+            .grinderSetting = setting, .enjoyment = 80 });
+    }
+
     static bool calAnyHasRgs(const QJsonObject& block)
     {
         const QJsonArray ps = block.value(QStringLiteral("profiles")).toArray();
@@ -1820,40 +1839,193 @@ private slots:
     // burr string differing only in case or padding return no history at all —
     // and an empty history is indistinguishable from a grinder that has never
     // been used, so the failure is silent (#1713).
-    void calibrationBlock_grinderIdentityMatchIsCaseAndSpaceInsensitive()
+     // dialInSessions and bestRecentShot both exclude shots from another
+    // equipment package. Same grinder, same coffee, same profile, same window —
+    // only the basket differs, which is precisely the case that made the advisor
+    // compare a stepped-basket dial of 17 against a straight-wall dial of 9.75
+    // and conclude the burrs had shifted.
+    void equipmentScoping_excludesOtherPackagesFromHistoryAndAnchor()
     {
         const QString path = freshDbPath();
         initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_fold"), [&](QSqlDatabase& db) {
-            calSeed(db, QStringLiteral("f1"), 1000,
-                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
-                    QStringLiteral("6"));
-            const qint64 cur = calSeed(db, QStringLiteral("f2"), 1100,
-                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
-                    QStringLiteral("6"));
-            // Stored as "Niche Zero" / "63mm conical"; asked for in another case,
-            // with padding.
-            const QJsonObject folded = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("  niche ZERO "), QStringLiteral("63MM Conical"),
-                QStringLiteral("espresso"), cur);
-            QVERIFY2(!folded.isEmpty(), "case/padding difference must still find the history");
-            const QJsonObject exact = DialingBlocks::buildGrinderCalibrationBlock(
+        withRawDb(path, QStringLiteral("equip_scope"), [&](QSqlDatabase& db) {
+            const qint64 nowTs = QDateTime::currentSecsSinceEpoch();
+
+            auto seed = [&](const QString& uuid, qint64 ts, const QString& setting,
+                            int enjoyment, const QString& bBrand, const QString& bModel) {
+                return insertShot(db, ShotRow{
+                    .uuid = uuid, .timestamp = ts,
+                    .profileName = QStringLiteral("80's Espresso"),
+                    .profileKbId = QStringLiteral("kb-80s"),
+                    .finalWeight = 36.0,
+                    .beanBrand = QStringLiteral("TestRoaster"),
+                    .beanType = QStringLiteral("TestBean"),
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .basketBrand = bBrand, .basketModel = bModel,
+                    .grinderSetting = setting, .enjoyment = enjoyment });
+            };
+
+            // Straight-wall basket: one prior shot, modestly rated.
+            const qint64 ownPrior = seed(QStringLiteral("own-prior"), nowTs - 7200,
+                                         QStringLiteral("9.75"), 60,
+                                         QStringLiteral("Decent"), QStringLiteral("18g Ridged"));
+            QVERIFY(ownPrior > 0);
+            // Stepped basket: a shot in the same window, rated HIGHER — so if the
+            // anchor were unscoped it would win on rating, which is exactly the
+            // failure being guarded (a target the user cannot hit on this basket).
+            QVERIFY(seed(QStringLiteral("other-basket"), nowTs - 3600,
+                         QStringLiteral("17"), 95,
+                         QStringLiteral("Graph Coffee"), QStringLiteral("Stepped 58-46mm")) > 0);
+
+            const qint64 currentId = seed(QStringLiteral("current"), nowTs,
+                                          QStringLiteral("9.75"), 0,
+                                          QStringLiteral("Decent"), QStringLiteral("18g Ridged"));
+            QVERIFY(currentId > 0);
+
+            const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
+                db, QStringLiteral("kb-80s"), currentId, /*historyLimit=*/10);
+            QStringList settingsSeen;
+            for (const QJsonValue& sv : sessions)
+                for (const QJsonValue& shv : sv.toObject().value(QStringLiteral("shots")).toArray())
+                    settingsSeen << shv.toObject().value(QStringLiteral("grinderSetting")).toString();
+            QVERIFY2(settingsSeen.contains(QStringLiteral("9.75")),
+                     "the same package's prior shot must remain in the history");
+            QVERIFY2(!settingsSeen.contains(QStringLiteral("17")),
+                     "a shot on another basket must not appear in the history");
+
+            // The session context names the basket, so the model can attribute
+            // the history to the gear it came from rather than to a bare dial.
+            QVERIFY(!sessions.isEmpty());
+            bool namedBasket = false;
+            for (const QJsonValue& sv : sessions) {
+                const QJsonObject ctx = sv.toObject().value(QStringLiteral("context")).toObject();
+                if (ctx.value(QStringLiteral("basketModel")).toString() == QStringLiteral("18g Ridged"))
+                    namedBasket = true;
+            }
+            QVERIFY2(namedBasket, "session context must name the basket the shots were pulled on");
+
+            const ShotProjection currentProj = projectionForShot(db, currentId);
+            QVERIFY(currentProj.isValid());
+            const QJsonObject best_ = DialingBlocks::buildBestRecentShotBlock(
+                db, QStringLiteral("kb-80s"), currentId, currentProj);
+            QCOMPARE(best_.value(QStringLiteral("id")).toVariant().toLongLong(), ownPrior);
+            QVERIFY2(best_.value(QStringLiteral("enjoyment0to100")).toInt() == 60,
+                     "the higher-rated shot on another basket must not become the anchor");
+        });
+    }
+
+    // A user with no equipment packages at all keeps their whole history: every
+    // shot sits in the same "unpackaged" bucket, so the scoping is a no-op for
+    // them. Worth its own case because the natural implementation — comparing
+    // equipment_id with `=` — silently drops every one of these rows, SQL NULL
+    // never being equal to NULL.
+    void equipmentScoping_isNoOpForUserWithNoPackages()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("equip_nopkg"), [&](QSqlDatabase& db) {
+            const qint64 nowTs = QDateTime::currentSecsSinceEpoch();
+            auto seed = [&](const QString& uuid, qint64 ts, const QString& setting) {
+                // No grinder and no basket → insertShot leaves equipment_id NULL.
+                return insertShot(db, ShotRow{
+                    .uuid = uuid, .timestamp = ts,
+                    .profileName = QStringLiteral("80's Espresso"),
+                    .profileKbId = QStringLiteral("kb-80s"),
+                    .finalWeight = 36.0,
+                    .beanBrand = QStringLiteral("TestRoaster"),
+                    .beanType = QStringLiteral("TestBean"),
+                    .grinderSetting = setting, .enjoyment = 70 });
+            };
+            QVERIFY(seed(QStringLiteral("np1"), nowTs - 7200, QStringLiteral("4.0")) > 0);
+            const qint64 currentId = seed(QStringLiteral("np-cur"), nowTs, QStringLiteral("4.2"));
+            QVERIFY(currentId > 0);
+
+            const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
+                db, QStringLiteral("kb-80s"), currentId, /*historyLimit=*/10);
+            int shotCount = 0;
+            for (const QJsonValue& sv : sessions)
+                shotCount += sv.toObject().value(QStringLiteral("shots")).toArray().size();
+            QCOMPARE(shotCount, 1);
+        });
+    }
+
+    // The calibration pool is scoped to the RESOLVED SHOT'S equipment package,
+    // not to every package that happens to share a grinder model and burrs.
+    //
+    // This replaces an older test that asserted the grinder-identity match was
+    // case- and whitespace-insensitive. That matcher is gone: the clause now
+    // compares package ids, and an integer key cannot disagree with
+    // EquipmentStorage about padding or capitalisation, so the property it
+    // guarded is structural rather than something a test can break. What DOES
+    // need guarding is the new scoping — and note what it protects, which is
+    // subtler than "a pair might straddle two baskets": the endpoint medians are
+    // pooled by (batch, kbId) BEFORE any pair is formed, so an unscoped pool
+    // corrupts the ENDPOINT. That is why a same-grinder/different-basket shot
+    // must not contribute even when it is the same coffee and the same profile.
+    void calibrationBlock_poolIsScopedToResolvedShotsPackage()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_pkg"), [&](QSqlDatabase& db) {
+            // A well-populated STEPPED-basket history: three dialed-in shots
+            // across two profiles, which unscoped is more than enough to build a
+            // pool from.
+            calSeedBasket(db, QStringLiteral("g1"), 1000,
+                          QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                          QStringLiteral("17"), QStringLiteral("Graph Coffee"),
+                          QStringLiteral("Stepped 58-46mm"));
+            calSeedBasket(db, QStringLiteral("g2"), 1100,
+                          QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                          QStringLiteral("17"), QStringLiteral("Graph Coffee"),
+                          QStringLiteral("Stepped 58-46mm"));
+            calSeedBasket(db, QStringLiteral("g3"), 1200,
+                          QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                          QStringLiteral("16"), QStringLiteral("Graph Coffee"),
+                          QStringLiteral("Stepped 58-46mm"));
+
+            // The resolved shot is on the STRAIGHT-WALL basket and is the only
+            // shot on that package — and it does not itself qualify as dialed-in
+            // (no rating, no refractometer, no stop-at-weight target), so its
+            // package contributes no rows at all.
+            const qint64 cur = insertShot(db, ShotRow{
+                .uuid = QStringLiteral("d1"), .timestamp = 1300,
+                .profileName = QStringLiteral("D-Flow / Q"),
+                .profileKbId = QStringLiteral("d-flow-q-variant"),
+                .finalWeight = 36.0,
+                .beanBrand = QStringLiteral("TestRoaster"),
+                .beanType = QStringLiteral("TestBean"),
+                .grinderModel = QStringLiteral("Niche Zero"),
+                .grinderBurrs = QStringLiteral("63mm conical"),
+                .basketBrand = QStringLiteral("Decent"),
+                .basketModel = QStringLiteral("18g Ridged"),
+                .grinderSetting = QStringLiteral("9.75"), .enjoyment = 0 });
+            QVERIFY(cur > 0);
+
+            // Scoped: nothing to calibrate from, so no block. Unscoped, the three
+            // stepped-basket shots would have supplied the pool — which is the
+            // whole failure being guarded, since the pool feeds the endpoint
+            // medians and the anchor.
+            const QJsonObject scoped = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
                 QStringLiteral("espresso"), cur);
-            // Everything derived from history is identical. grinderModel itself is
-            // echoed back as the caller wrote it, so it is compared separately
-            // rather than folded — the block reports the identity it was ASKED
-            // about, and the AI reads it as a label, not as a key.
-            QCOMPARE(folded.value(QStringLiteral("profiles")),
-                     exact.value(QStringLiteral("profiles")));
-            QCOMPARE(folded.value(QStringLiteral("confidence")),
-                     exact.value(QStringLiteral("confidence")));
+            QVERIFY2(scoped.isEmpty(),
+                     "a package with no dialed-in shots must not borrow another basket's history");
 
-            // Folding is not matching everything: a different grinder still has no
-            // history here.
-            QVERIFY(DialingBlocks::buildGrinderCalibrationBlock(
-                        db, QStringLiteral("Niche Duo"), QStringLiteral("63mm conical"),
-                        QStringLiteral("espresso"), cur).isEmpty());
+            // Control: the same call resolved against a shot on the STEPPED
+            // package does produce a block. Without this the assertion above
+            // would pass for any reason at all — a typo in the bean name, a
+            // broken fixture — rather than because of the scoping.
+            const qint64 curStepped = calSeedBasket(db, QStringLiteral("g4"), 1400,
+                          QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                          QStringLiteral("17"), QStringLiteral("Graph Coffee"),
+                          QStringLiteral("Stepped 58-46mm"));
+            QVERIFY(curStepped > 0);
+            const QJsonObject onOwnPackage = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), curStepped);
+            QVERIFY2(!onOwnPackage.isEmpty(),
+                     "a package WITH dialed-in shots must still calibrate normally");
         });
     }
 
