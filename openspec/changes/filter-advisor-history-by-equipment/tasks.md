@@ -130,6 +130,79 @@ package), which scales up a per-key leak and a per-key dead end alike.
       which deletes the turns MCP just wrote. The prompt the turn was actually produced under
       is now persisted, write-if-absent so an in-app thread keeps its own multi-shot prompt.
 
+## 5d. Second review round — defects in the round-one fixes
+
+`/pr-review-toolkit:review-pr` over `40559943..HEAD`. Round one found four criticals in the
+original commit; this round found four more, all in the code written to fix round one. Recorded
+in full because the pattern — a fix introducing a defect of the same shape it removes — is the
+thing to watch for, not the individual bugs.
+
+- [x] 5d.1 **The wipe was undone three lines later.** `migrateFromLegacyConversation()` runs right
+      after `clearAllConversationsOnce`, and its guard ("legacy data exists AND the index is
+      empty") is made TRUE by the wipe. It re-created a `_legacy` entry pointing at the pre-keyed
+      global thread — the one that by construction spans every bean, profile and package the user
+      ever had — which `loadMostRecentConversation()` then restored. The migration handed back the
+      most cross-contaminated thread in the store, silently, logging "Migrating legacy
+      conversation to keyed storage" as if it had succeeded. The wipe now removes the singular
+      `ai/conversation/*` keys too, which also stops it recurring on every later launch (the
+      marker suppresses the wipe but not the legacy migration).
+- [x] 5d.2 **Fail-open and fail-closed on the same signal, two lines apart.**
+      `queryGrinderContext` appended its predicate only `if (bucket.has_value())`, so an
+      unresolved bucket published `settingsObserved` and "range explored" pooled across every
+      package — the original confound, through the failure path, unlogged — while
+      `buildGrinderCalibrationBlock` beside it failed closed on the identical value. Fixed by
+      removing the unresolved case rather than handling it: the bucket now comes from the row
+      each consumer already reads (`shots.equipment_id` added to the grinder-context SELECT;
+      `cur.equipmentId` in the calibration block; `currentShot.equipmentId` in bestRecentShot;
+      `dbResult.shotData.equipmentId` on the MCP path). Six `equipmentBucketForShot` call sites
+      became two — the only two that hold just a shot id — and the scoping is now unconditional,
+      which is stronger than failing closed because there is no path that skips it. The
+      "Resolved ONCE" comment that claimed this and did not deliver it is gone with the mechanism.
+- [x] 5d.3 **An MCP `systemPromptOverride` became the user's durable in-app prompt.** Persisting
+      the prompt made an arbitrary caller-supplied argument the system prompt for every later
+      in-app turn on that thread — invisible in the UI, removable only by deleting the
+      conversation. And absent an override the persisted prompt was the SINGLE-shot one, so a
+      thread the MCP path created never acquired `## Multi-Shot Context` for its whole life
+      (`hasHistory` is true, so the overlay takes `followUp()` forever). Now persists
+      `multiShotSystemPrompt` and persists nothing when an override was supplied. The
+      `systemPrompt` parameter lost its default; all 13 test call sites pass one, and writing
+      without one warns.
+- [x] 5d.4 **`noteConversationUse` manufactured ghost entries.** Creating the index entry when a
+      key was SELECTED meant Clear-then-reopen (no send) indexed a key with no stored thread:
+      `ai_conversations list` reports `messageCount: 0` while `get` answers "Conversation not
+      found", and the placeholder occupies one of five LRU slots, evicting a real transcript. The
+      entry is now created when a thread is WRITTEN (`indexStoredConversation`, wired to
+      `savedConversationChanged` and gated on the key having stored messages), which fixes the
+      original Clear-then-send leak without inventing the ghost. As a side effect it also indexes
+      an MCP-written thread the first time the app switches to it.
+- [x] 5d.5 **`ShotDetailPage.onShotBadgesUpdated` reverted.** The change swapped a synchronous
+      four-field patch for a full async row re-read (debug-log blob, every curve array, profile
+      JSON) to arrive at data `onShotReady` had just delivered, and re-ran `returnToBounds()`
+      mid-read. It was justified by a false claim — that `Object.assign` on a Q_GADGET copies
+      nothing — so it was a pure regression fixing a non-bug. Reverted to match 40559943 exactly.
+- [x] 5d.6 **The `Object.assign` claim corrected at its source.**
+      `QQmlValueTypeWrapperOwnPropertyKeyIterator::next` walks `mo->propertyCount()` and returns
+      every Q_PROPERTY as an own enumerable key; only Q_INVOKABLE methods are skipped
+      ("We don't return methods, ie. they are not visible when iterating",
+      qtdeclarative/src/qml/qml/qqmlvaluetypewrapper.cpp:448). `clonePersistedShot`'s docstring
+      asserted the opposite, unsourced, and is what licensed 5d.5 — so the docstring now says the
+      mechanism is NOT established and that the whitelist is kept because it works. The
+      round-one whitelist fix stands on its own: a whitelist genuinely drops unlisted fields,
+      which is a different mechanism from the one that was written down.
+- [x] 5d.7 Comment corrections: the Qt mixed-bind story (it is the shared `d->values` index
+      space at `qsqlresult.cpp:145,690`, not the `binds` mode flag, which is dead code on the
+      SQLite driver); `nullopt` means "could not be read" for EITHER reason and callers must not
+      try to tell them apart; the enrichment rule's grinder-less carve-out and merge branch; the
+      `-1` sentinel's actual hazard (the key hash, not the sparse serialisation) plus a clamp in
+      `conversationKey` so it is handled once for every caller; `allNumeric` added to the
+      package-scoped list; the MCP calibration `reason` string no longer asserts a cause it
+      cannot know (it was true for one of its four triggers); three duplicated rationales
+      collapsed to one site each.
+- [x] 5d.8 design.md: seven selection points became eight (the `recentAdvice` follow-up lookup);
+      "without a migration step" and "Deleting saved conversations" corrected against D4; the
+      deliberate fail-closed/degrade-unscoped split recorded. tasks.md 8.3's stated reason was
+      wrong and is replaced with an honest "reason not established".
+
 ## 6. Prompt rules
 
 - [x] 6.1 Add the grind-comparability rule to the shared espresso system prompt: a numeric
@@ -177,6 +250,17 @@ package), which scales up a per-key leak and a per-key dead end alike.
 - [x] 7.12 `recentAdvice` pairs the advice with a follow-up on the SAME package
       (`recentAdvice_followUpMustBeOnTheSamePackage`) — the fixture puts an other-basket shot
       first in time so an unscoped lookup would pick it.
+- [x] 7.15 Round-two tests: `construction_wipeAlsoRemovesTheLegacyThread` (5d.1),
+      `clearThenReopenWithoutSending_createsNoGhostEntry` (5d.4),
+      `equipmentId_projectionAndBucketAgreeForTheSameShot` (the read/write key pairing that
+      `mcptools_ai.cpp` depends on and that no test target compiles), and a `stepSize` assertion
+      added to the existing grinderContext test to pin the deliberately-unscoped carve-out.
+      `construction_wipesConversationsOnceForEquipmentScoping` could not fail — `settings.clear()`
+      dropped the OLDER migration's marker, so the pre-existing v1.7.2 wipe emptied the group by
+      itself and the assertions passed with the new line deleted; confirmed from a suite log
+      showing both migrations firing inside the test. It now spends that marker first and asserts
+      its own marker was stamped. `clearThenContinue_...` was renamed and rewritten to exercise
+      the write-time seam the fix actually moved to.
 - [x] 7.14 `clearThenContinue_putsTheConversationBackInTheIndex` (5c.1) and
       `appendAssistantTurnForKey_storesSystemPromptSoTheThreadCanBeContinued` +
       `appendAssistantTurnForKey_doesNotOverwriteAnExistingSystemPrompt` (5c.2). The
@@ -191,7 +275,13 @@ package), which scales up a per-key leak and a per-key dead end alike.
 
 ## 8. Verify
 
-- [x] 8.1 Full suite via the Qt Creator MCP. First run **113 passed, 0 failed**; re-run after the
+- [ ] 8.6 **KNOWN GAP, stated rather than implied:** `src/mcp/mcptools_ai.cpp` is compiled by no
+      test target (`tests/CMakeLists.txt` lists only `mcptools_ai_conversations.cpp`), so the
+      `systemPrompt` pass-through, the single-bucket resolution and the conversation-key write
+      side are unverified by the suite. Adding the TU would pull in `MainController`; 7.15's
+      pairing test covers the one property the key depends on, and the rest is covered only by
+      the by-eye run in 8.3.
+- [ ] 8.1 Full suite via the Qt Creator MCP. First run **113 passed, 0 failed**; re-run after the
       review fixes above — **113 passed, 0 failed, 0 warnings**, with all five new slots
       confirmed executed in `LastTest.log` (a passing binary count says nothing about whether a
       new slot compiled in). The six pre-existing
@@ -208,9 +298,15 @@ package), which scales up a per-key leak and a per-key dead end alike.
       packages produced two distinct stored keys matching the computed hashes, with neither the
       legacy nor the unpackaged-bucket key present. Opening from the Shot Review page — the
       `clonePersistedShot` path — landed on the same package key, so no third orphan key. NOT
-      confirmed: the `### Setup:` prose header and the no-history block; every in-app path
-      reachable here sends the JSON shot-data envelope instead, so `emitRecentShotContext` is
-      covered by unit tests only.
+      confirmed: the `### Setup:` prose header and the no-history block — not observed in the
+      app, reason NOT established. The explanation first recorded here ("every in-app path sends
+      the JSON shot-data envelope instead") is wrong: `requestRecentShotContext` is called at
+      ConversationOverlay.qml:189, lands in `historicalContext` at :251 and is prepended to the
+      outgoing message at :719, so `emitRecentShotContext` IS on the live in-app path — which
+      design.md says too, and switching to the envelope is an explicit non-goal there. The
+      likeliest explanation is misreading the prompt log, which renders a multi-turn request as
+      "[Conversation with N messages]" rather than showing the body. A wrong reason in a
+      verification record is worse than an unexplained gap: the next reader stops looking.
 - [x] 8.4 Open a PR (never push to `main`) — [#1852](https://github.com/Kulitorum/Decenza/pull/1852)
       — then run the automated `/pr-review-toolkit:review-pr` before merging. Run 1 found four
       critical defects; all fixes are recorded in section 5b and section 7 above.

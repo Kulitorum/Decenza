@@ -161,10 +161,12 @@ Rectangle {
         // Two different "no package" sentinels reach this call: C++ shot
         // records use 0 (shothistory_types.h:64) while PostShotReviewPage's
         // edit fields use -1 (PostShotReviewPage.qml:366), and a saved edit
-        // writes the -1 back into the shot object. Both mean bucket 0 to
-        // ShotHistoryStorage::equipmentBucketForShot, so collapse them here —
-        // a leaked -1 would key a third conversation thread that the index
-        // entry (which only serialises equipmentId > 0) reads back as 0.
+        // writes the -1 back into the shot object. Both store as SQL NULL
+        // (shothistorystorage.cpp coerces <= 0 to QVariant()), which
+        // COALESCE(equipment_id, 0) then reads back as bucket 0 — so a leaked
+        // -1 would hash a THIRD conversation key for a shot the database says
+        // is in bucket 0. The hash is the hazard; it happens before the index
+        // entry is ever serialised.
         var equipmentId = shotData.equipmentId > 0 ? shotData.equipmentId : 0
 
         // Switch to the right conversation for this bean+profile+equipment.

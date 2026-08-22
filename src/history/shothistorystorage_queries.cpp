@@ -1384,11 +1384,8 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     // grinder-model-wide (all beans/beverages) so it reflects the grinder's true
     // resolution and matches the widget exactly — a user who mostly makes coarse
     // moves on the current bean still gets the fine step their grinder can do.
-    // (settingsObserved / min / max stay bean- AND equipment-scoped below —
-    // those are per-bean, per-package context, unlike the step. The step is
-    // deliberately NOT equipment-scoped: it is the grinder's mechanical
-    // resolution, which does not change when the basket does, and narrowing its
-    // sample to one package would report a coarser step than the grinder has.)
+    // (settingsObserved / min / max stay bean- AND equipment-scoped below; the
+    // step is deliberately neither — see the contract on queryGrinderContext.)
     ctx.stepSize = deriveGrindStep(grinderWideNumericSettings(db, grinderModel));
     // min/max stay gated on an all-numeric history — a mixed list has no
     // meaningful numeric range to report.
@@ -1437,9 +1434,7 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
             }
         }
     }
-    // rpmStepSize is a GRINDER property like stepSize — grinder-model-wide, not
-    // bean/beverage/package-scoped — so it matches the widget's
-    // grindRpmStepForGrinder.
+    // rpmStepSize is a GRINDER property like stepSize, and scoped the same way.
     ctx.rpmStepSize = deriveGrindStep(grinderWideRpms(db, grinderModel));
 
     return ctx;

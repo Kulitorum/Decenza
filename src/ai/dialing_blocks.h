@@ -378,14 +378,14 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 // The mined pool is scoped to the resolved shot's own equipment PACKAGE, not
 // to every package sharing a grinder model + burrs: endpoint medians are
 // pooled before any pair is formed, so two baskets on one grinder would
-// corrupt the endpoints and the anchor together.
+// corrupt the endpoints and the anchor together. The package is taken from the
+// shot record this function already loads, so the scoping is unconditional —
+// there is no path on which it is skipped.
 //
 // Returns an empty `QJsonObject` (caller suppresses the key) when:
 //   - `grinderModel` is empty, OR
 //   - `beverageType` is filter / pourover, OR
 //   - the resolved shot is invalid, OR
-//   - the shot's equipment bucket cannot be resolved (fail closed — running
-//     unscoped would pool every package), OR
 //   - there are no dialed-in shots in that equipment package.
 // Otherwise the block is always present (directional at minimum).
 //

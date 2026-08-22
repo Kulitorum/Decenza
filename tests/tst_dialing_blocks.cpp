@@ -1895,6 +1895,17 @@ private slots:
             // RPM query — the second named-bind site.
             QCOMPARE(ctx.value(QStringLiteral("observedMaxRpm")).toInt(), 900);
 
+            // stepSize is deliberately NOT package-scoped: it is the grinder's
+            // mechanical resolution, unchanged by a basket swap, and must keep
+            // matching the grind widget. Pinned here because it is the exact
+            // shape a later reader "fixes" for consistency. The stepped
+            // package's 17 is in the sample, so a package-scoped step would be
+            // 0.2 (from 4.0/4.2 alone) rather than the grinder-wide value.
+            QVERIFY2(ctx.contains(QStringLiteral("stepSize")),
+                     "the grinder-wide step must still be reported");
+            QVERIFY2(ctx.value(QStringLiteral("stepSize")).toDouble() > 0.2 + 1e-9,
+                     "stepSize must be derived grinder-wide, not narrowed to this package");
+
             // Cross-bean fallback widens the BEAN, never the equipment. Ask for a
             // bean with a single setting so the fallback fires, and check the
             // other package's dial still does not turn up in it.
@@ -1973,6 +1984,54 @@ private slots:
                      static_cast<double>(realNextId));
             QCOMPARE(ur.value(QStringLiteral("grinderSetting")).toString(),
                      QStringLiteral("4.75"));
+        });
+    }
+
+    // The conversation key's WRITE side (mcptools_ai.cpp, main thread, no DB
+    // connection) uses `ShotProjection::equipmentId`; the scoped queries use the
+    // same field off the record they load. Nothing compiled by a test target
+    // exercises mcptools_ai.cpp, so this pins the one property that pairing
+    // depends on: for a given shot row, the projection's equipmentId and
+    // equipmentBucketForShot agree — including the unpackaged case, where the
+    // column is NULL and both must read 0. If they ever diverge, a turn is filed
+    // under a key nothing later reads: no error, no warning, just a thread that
+    // never resumes.
+    void equipmentId_projectionAndBucketAgreeForTheSameShot()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("equip_agree"), [&](QSqlDatabase& db) {
+            const qint64 packaged = insertShot(db, ShotRow{
+                .uuid = QStringLiteral("packaged"), .timestamp = 1000,
+                .profileName = QStringLiteral("D-Flow / Q"),
+                .grinderModel = QStringLiteral("Niche Zero"),
+                .basketBrand = QStringLiteral("Decent"),
+                .basketModel = QStringLiteral("18g Ridged"),
+                .grinderSetting = QStringLiteral("9") });
+            QVERIFY(packaged > 0);
+
+            // No gear at all -> equipment_id stays NULL.
+            const qint64 unpackaged = insertShot(db, ShotRow{
+                .uuid = QStringLiteral("unpackaged"), .timestamp = 1100,
+                .profileName = QStringLiteral("D-Flow / Q"),
+                .grinderSetting = QStringLiteral("9") });
+            QVERIFY(unpackaged > 0);
+
+            for (qint64 id : {packaged, unpackaged}) {
+                const ShotProjection p = ShotHistoryStorage::convertShotRecord(
+                    ShotHistoryStorage::loadShotRecordStatic(db, id));
+                QVERIFY(p.isValid());
+                const std::optional<qint64> bucket =
+                    ShotHistoryStorage::equipmentBucketForShot(db, id);
+                QVERIFY2(bucket.has_value(), "an existing row always resolves a bucket");
+                QCOMPARE(p.equipmentId, *bucket);
+            }
+
+            // ...and the two shots really are in different buckets, or the
+            // comparison above would hold for an uninteresting reason.
+            QVERIFY(*ShotHistoryStorage::equipmentBucketForShot(db, packaged)
+                    != *ShotHistoryStorage::equipmentBucketForShot(db, unpackaged));
+            QCOMPARE(*ShotHistoryStorage::equipmentBucketForShot(db, unpackaged), qint64(0));
         });
     }
 

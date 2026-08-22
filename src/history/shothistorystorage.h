@@ -158,17 +158,25 @@ public:
     // That last distinction is load-bearing. Collapsing "no row" to bucket 0
     // scopes the query to unpackaged shots only — silently returning an empty
     // history to every user who HAS a package. Returning 0 for a missing row
-    // looks like the safe default and is the opposite of one. In production the
-    // live cause is a failed query, since every caller guards `resolvedShotId
-    // > 0` before it gets here; the tests pass -1 directly, and six of them
-    // went red on exactly this when the first draft returned a plain qint64.
+    // looks like the safe default and is the opposite of one. Callers CANNOT
+    // tell the two causes apart and must not try: nullopt means "the bucket
+    // could not be read", for either reason.
     //
-    // A package forks when the grinder brand/model/burrs, the basket, or the
-    // puck-prep set changes on a package that already has shots
-    // (EquipmentStorage::supersedeOrEditStatic; an unused package, or one whose
-    // every differing component was empty, is edited in place instead). So this
-    // one integer answers the grinder, basket and prep questions at once, and a
-    // user who re-points a used package gets a new bucket from that point on.
+    // Prefer not calling this at all when you already hold the shot: a loaded
+    // ShotRecord/ShotProjection carries `equipmentId`, which is the same value
+    // without a second read that can disagree or fail. This function is for
+    // callers that have only a shot id.
+    //
+    // A package forks — or merges into an existing one — when the grinder
+    // brand/model/burrs, the basket, or the puck-prep set changes on a package
+    // that already has shots (EquipmentStorage::supersedeOrEditStatic). An
+    // unused package is edited in place, as is one whose every differing
+    // component was previously empty (enrichment), EXCEPT a grinder-less
+    // package gaining a grinder, which forks. So this one integer answers the
+    // grinder, basket and prep questions at once, and a user who re-points a
+    // used package gets a DIFFERENT bucket from that point on — the shots
+    // already recorded stay on the old id either way, which is what the
+    // scoping relies on.
     // Runs SQL on the caller's thread — background connection required.
     static std::optional<qint64> equipmentBucketForShot(QSqlDatabase& db, qint64 shotId);
 
@@ -181,17 +189,26 @@ public:
     // shothistorystorage_queries.cpp.
     // `column` lets a caller qualify the table alias (e.g. "s.equipment_id").
     // `placeholder` defaults to a POSITIONAL bind and exists because Qt will not
-    // mix positional and named binds in one statement — `QSqlResultPrivate::binds`
-    // is one mode flag and the last bindValue wins
-    // (qtbase/src/sql/kernel/qsqlresult.cpp:684,709,731). A query already using
-    // ":model"/":bev" must therefore pass a named placeholder here (e.g.
-    // ":equip"). Mixing does not fail quietly in the usual case: the SQLite
-    // driver reports "Parameter count mismatch" and exec() returns false
-    // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:459-460,566). It is
-    // when the counts happen to coincide that it is silent — positional binds
-    // are filed under synthetic holder names (`fieldSerial`, qsqlresult.cpp:27)
-    // that the parsed named holders never match, so the statement runs with the
-    // wrong values rather than erroring.
+    // mix positional and named binds in one statement. The mechanism is the
+    // shared value array, not a mode flag: `savePrepare` sizes `d->values` to
+    // the NAMED holder count (qtbase/src/sql/kernel/qsqlresult.cpp:145) while
+    // `bindValue(int)` writes `d->values[index]` directly (:690), so a
+    // positional bind appended to a ":model"/":bev" statement overwrites the
+    // named value at that ordinal and leaves `values.size()` short of the
+    // statement's parameter count. The SQLite driver then reports "Parameter
+    // count mismatch" and exec() returns false
+    // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:459-460,566-568).
+    // A query already using named holders must therefore pass a named
+    // placeholder here (e.g. ":equip").
+    //
+    // An earlier version of this comment blamed `QSqlResultPrivate::binds`,
+    // "one mode flag [where] the last bindValue wins". That flag is read only
+    // by QSqlResult::exec()'s fallback for drivers without PreparedQueries
+    // (:637) and by bindingSyntax() (:830) — QSQLiteResult overrides exec() and
+    // consults neither, so it is dead code on this driver. The same version
+    // claimed the mix can be silent when the counts coincide; that needs a
+    // REUSED named holder for sqlite to collapse, which is not a shape written
+    // here, so treat mixing as loud until someone demonstrates otherwise.
     static QString equipmentBucketSql(const QString& column = QStringLiteral("equipment_id"),
                                       const QString& placeholder = QStringLiteral("?"));
 
@@ -302,8 +319,8 @@ public:
     // `stepSize` and `rpmStepSize` are NOT equipment-scoped even when a bucket
     // is given: they are the grinder's mechanical resolution, unchanged by a
     // basket swap, and are derived grinder-model-wide so they keep matching the
-    // grind widget. Only `settingsObserved`, `min/maxSetting`, `rpmsObserved`
-    // and `rpm{Min,Max}` narrow to the package.
+    // grind widget. Only `settingsObserved`, `allNumeric`, `min/maxSetting`,
+    // `rpmsObserved` and `rpm{Min,Max}` narrow to the package.
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel,
                                               const QString& beverageType,
                                               const QString& beanBrand = QString(),

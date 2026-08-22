@@ -143,12 +143,16 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     shot = ShotHistoryStorage::convertShotRecord(record);
 
                     if (shot.isValid()) {
-                        // One resolution of the equipment package for this whole
-                        // block: the scoped queries and the conversation key must
-                        // agree about which gear this shot is on, and asking twice
-                        // is how they stop agreeing.
-                        const std::optional<qint64> equipmentBucket =
-                            ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId);
+                        // The shot record is loaded and valid, and carries this
+                        // shot's package — so every scoped query and the
+                        // conversation key below read one value from one row,
+                        // with no second lookup to disagree with. An earlier
+                        // draft called equipmentBucketForShot here and claimed
+                        // "one resolution for this whole block" while three of
+                        // the four builders below went on to resolve it again
+                        // themselves; they now take it from the record too.
+                        // 0 = unpackaged, a real bucket.
+                        const qint64 equipmentBucket = shot.equipmentId;
 
                         // Same dialing-context blocks the in-app advisor
                         // ships, produced by the same shared helpers so
@@ -171,13 +175,10 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // — the conversation key is the same hash the
                         // in-app advisor uses, so the two surfaces ship
                         // byte-equivalent recentAdvice for the same shot.
-                        // Needs a resolved bucket for the same reason the in-app
-                        // path does (aimanager.cpp): keying on 0 when the bucket
-                        // is unknown reads the unpackaged user's thread.
-                        if (!shot.profileKbId.isEmpty() && equipmentBucket.has_value()) {
+                        if (!shot.profileKbId.isEmpty()) {
                             const QString convKey = AIManager::conversationKey(
                                 shot.beanBrand, shot.beanType, shot.profileName,
-                                *equipmentBucket);
+                                equipmentBucket);
                             const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
                             if (!turns.isEmpty()) {
                                 DialingBlocks::RecentAdviceInputs in;
@@ -228,6 +229,39 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             profileType = pj.value("type").toString();
                         }
                         systemPrompt = ShotSummarizer::shotAnalysisSystemPrompt(
+                            bevType, shot.profileName, profileType, shot.profileKbId);
+                    }
+
+                    // What gets PERSISTED with the turn, which is a different
+                    // question from what this call runs under. Two reasons it is
+                    // not `systemPrompt`:
+                    //
+                    //  - `systemPromptOverride` is an arbitrary caller-supplied
+                    //    MCP argument. Persisting it would make it the durable
+                    //    system prompt for every later IN-APP turn on this
+                    //    thread — a prompt the user never chose, cannot see
+                    //    anywhere in the UI, and can only clear by deleting the
+                    //    conversation. An override stays scoped to its own call.
+                    //  - Without an override, `shotAnalysisSystemPrompt` is the
+                    //    SINGLE-shot prompt. The in-app advisor runs threads
+                    //    under `multiShotSystemPrompt` (that prompt plus a
+                    //    Multi-Shot Context section). Since the thread now loads
+                    //    with history, the overlay takes the followUp() branch
+                    //    for the rest of its life and never calls ask(), so
+                    //    whatever is stored here is what it keeps. Storing the
+                    //    single-shot prompt would silently narrow the thread —
+                    //    the exact harm the write-if-absent rule was meant to
+                    //    prevent, arriving from the other direction.
+                    QString promptToPersist;
+                    if (systemPromptOverride.isEmpty() && aiLive->conversation()) {
+                        const QString bevType = shot.beverageType.isEmpty()
+                            ? QStringLiteral("espresso") : shot.beverageType;
+                        QString profileType;
+                        if (!shot.profileJson.isEmpty()) {
+                            const QJsonObject pj = QJsonDocument::fromJson(shot.profileJson.toUtf8()).object();
+                            profileType = pj.value("type").toString();
+                        }
+                        promptToPersist = aiLive->conversation()->multiShotSystemPrompt(
                             bevType, shot.profileName, profileType, shot.profileKbId);
                     }
 
@@ -330,7 +364,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
 
                     state->successConn = QObject::connect(aiLive, &AIManager::recommendationReceived,
                         aiLive, [finalize, aiPtrInner, shot, resolvedShotId, userPrompt,
-                                 systemPrompt](
+                                 promptToPersist](
                                 const QString& response) {
                             // Surface the trailing structured `nextShot`
                             // block (issue #1054) as a top-level field
@@ -358,15 +392,9 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             // would still hash to something, but using
                             // it as an attribution anchor is unsafe.
                             //
-                            // `shot.equipmentId` is the same integer the READ
-                            // side above resolves through
-                            // ShotHistoryStorage::equipmentBucketForShot — both
-                            // are shots.equipment_id with NULL as 0, and the row
-                            // is known to exist here (shot.isValid()). It is used
-                            // directly because this lambda runs on the main
-                            // thread and has no DB connection to ask with. Write
-                            // and read MUST stay on the same value or a turn is
-                            // filed under a key nothing later reads.
+                            // Same `shot.equipmentId` the read side above keys
+                            // on. Write and read MUST stay on the same value or
+                            // a turn is filed under a key nothing later reads.
                             if (!shot.beanBrand.isEmpty()
                                 && !shot.profileName.isEmpty()) {
                                 const QString convKey = AIManager::conversationKey(
@@ -376,10 +404,12 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                                 // CONTINUE this thread in the app. Without it
                                 // followUp() refuses the thread outright and the
                                 // only way forward is Clear, which deletes these
-                                // turns — see appendAssistantTurnForKey.
+                                // turns — see appendAssistantTurnForKey. Empty
+                                // when the caller supplied an override, which is
+                                // deliberately not persisted.
                                 AIConversation::appendAssistantTurnForKey(
                                     convKey, resolvedShotId,
-                                    userPrompt, response, structured, systemPrompt);
+                                    userPrompt, response, structured, promptToPersist);
                                 // Keep the live in-app conversation in
                                 // sync if it has the same key loaded —
                                 // otherwise its next saveToStorage will

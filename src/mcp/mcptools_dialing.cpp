@@ -123,10 +123,12 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         db, dbResult.profileKbId, resolvedShotId, historyLimit);
                     dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
                         db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
+                    // Bucket from the record already loaded above, not a second
+                    // lookup: one row read, one answer to "which gear is this".
                     dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
                         db, dbResult.shotData.grinderModel,
                         dbResult.shotData.beverageType, dbResult.shotData.beanBrand,
-                        ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId));
+                        dbResult.shotData.equipmentId);
                 });
 
                 // --- Deliver results to main thread for final assembly ---
@@ -451,18 +453,28 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     QJsonObject result;
                     result["shotId"] = resolvedShotId;
                     if (calibration.isEmpty()) {
-                        // {} only on hard guards: empty grinder model,
-                        // filter/pourover, invalid shot, unresolvable equipment
-                        // package, or no dialed-in shots in that package. The AI
-                        // explicitly asked, so explain.
+                        // {} on any of: empty grinder model, filter/pourover
+                        // beverage, invalid shot, or no dialed-in shots in this
+                        // shot's equipment package. The AI explicitly asked, so
+                        // say what it can and cannot conclude.
                         result["available"] = false;
+                        // Deliberately does NOT assert why. The builder returns
+                        // {} for several distinct reasons — no grinder model,
+                        // a filter/pourover beverage, an invalid shot, or no
+                        // qualifying dialed-in shots — and this handler cannot
+                        // tell them apart. The previous wording named the last
+                        // one as fact, so a user on a filter beverage, or with
+                        // fifty dialed-in shots on that basket, was told they
+                        // had none. Stating the CONSEQUENCE is always true;
+                        // stating the cause was true one time in four.
                         result["reason"] =
-                            "Cross-profile grinder calibration is not available for this "
-                            "shot yet — no qualifying dialed-in espresso shots on this "
-                            "shot's equipment package (grinder + basket + puck prep). "
-                            "Shots pulled on other equipment are deliberately not pooled in: "
-                            "a grind number is only comparable within one equipment set. "
-                            "Advise qualitatively (finer / coarser) and have the user pull a "
+                            "Cross-profile grinder calibration is not available for this shot. "
+                            "It is computed only for espresso, and only from dialed-in shots on "
+                            "this shot's own equipment package (grinder + basket + puck prep) — "
+                            "shots on other equipment are deliberately not pooled in, because a "
+                            "grind number is only comparable within one equipment set. Do not "
+                            "tell the user anything about how many shots they have; you do not "
+                            "know. Advise qualitatively (finer / coarser) and have them pull a "
                             "reference shot on the target profile with this equipment rather "
                             "than quoting a specific number.";
                     } else {

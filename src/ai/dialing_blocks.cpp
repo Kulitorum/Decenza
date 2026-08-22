@@ -364,28 +364,31 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     // Falls back to nothing when the user has no rated shots — the
     // elicitation paths (the rating slider, conversational capture) keep
     // this pool populated.
-    // Equipment-scoped (see ShotHistoryStorage::equipmentBucketForShot; nullopt
-    // means the lookup failed, and leaves the query unscoped). This
+    // Equipment-scoped, unconditionally. This
     // block is presented to the model as the outcome to REPRODUCE, so its
     // dose/yield/duration/grind read as a target. An anchor from other gear is
     // a target the user cannot hit at the settings it reports — strictly worse
     // than no anchor — so a higher-rated shot on another package is passed over
     // rather than offered, and the block is omitted when this package has no
     // rated shot in the window.
-    const std::optional<qint64> bestBucket =
-        ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId);
-    QString bestSql = QStringLiteral("SELECT id FROM shots "
+    //
+    // The bucket comes from `currentShot`, which the caller already loaded from
+    // the row `resolvedShotId` names — not from a second lookup. Re-querying it
+    // here bought nothing except an unresolved case to degrade on, and the
+    // degrade (run unscoped) is the confound this scoping exists to remove.
+    // `equipmentId` is 0 for an unpackaged shot, which is a real bucket, so the
+    // predicate is unconditional and cannot be skipped.
+    const qint64 bestBucket = currentShot.equipmentId;
+    const QString bestSql = QStringLiteral("SELECT id FROM shots "
                                      "WHERE profile_kb_id = ? AND enjoyment > 0 "
-                                     "AND id != ? AND timestamp >= ?");
-    if (bestBucket.has_value())
-        bestSql += QStringLiteral(" AND ") + ShotHistoryStorage::equipmentBucketSql();
-    bestSql += QStringLiteral(" ORDER BY enjoyment DESC, timestamp DESC LIMIT 1");
+                                     "AND id != ? AND timestamp >= ? AND ")
+                          + ShotHistoryStorage::equipmentBucketSql()
+                          + QStringLiteral(" ORDER BY enjoyment DESC, timestamp DESC LIMIT 1");
     bestQ.prepare(bestSql);
     bestQ.addBindValue(profileKbId);
     bestQ.addBindValue(resolvedShotId);
     bestQ.addBindValue(windowFloorSec);
-    if (bestBucket.has_value())
-        bestQ.addBindValue(*bestBucket);
+    bestQ.addBindValue(bestBucket);
     // Whitespace before () dodges a permission-hook false-positive on the
     // pattern `.exec(`. Do not auto-format.
     if (!bestQ.exec ()) {
@@ -1231,18 +1234,16 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // landed within 10% of stop-at-weight target OR has a refractometer
     // reading). Replaces the old "≥5g, no-badge-only" filter that admitted
     // undershoot/aborted experiments and corrupted the medians.
-    // The resolved shot is loaded and validated above, so this is nullopt only
-    // if the bucket query itself failed. FAIL CLOSED: this block publishes a
-    // grind NUMBER, and running it with no equipment predicate pools every
-    // package the user owns — the exact confound the scoping exists to remove,
-    // and invisible at the point of use. No bucket, no block.
-    const std::optional<qint64> calBucket =
-        ShotHistoryStorage::equipmentBucketForShot(db, resolvedShotId);
-    if (!calBucket.has_value()) {
-        qWarning() << "buildGrinderCalibrationBlock: equipment bucket unresolved for shot"
-                   << resolvedShotId << "→ empty (refusing to pool across packages)";
-        return QJsonObject();
-    }
+    // `cur` was loaded and validated 55 lines above, and carries this shot's
+    // package. An earlier draft re-queried the bucket here and FAILED CLOSED
+    // when the second read came back empty — a branch that needed the one-column
+    // lookup to fail on a connection that had just succeeded a whole
+    // loadShotRecordStatic on the same row, i.e. unreachable without fault
+    // injection. Taking it from `cur` removes the branch rather than guarding
+    // it, and makes the predicate unconditional, which is a stronger guarantee
+    // than failing closed: there is no longer a path on which it is skipped.
+    // 0 = unpackaged, which is a real bucket that matches other unpackaged shots.
+    const qint64 calBucket = cur.equipmentId;
 
     QSqlQuery q(db);
     // Scoped to the resolved shot's own equipment PACKAGE, not to every package
@@ -1282,7 +1283,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     calSql += QStringLiteral(" AND ") + ShotHistoryStorage::equipmentBucketSql()
             + QStringLiteral(" ORDER BY timestamp DESC");
     q.prepare(calSql);
-    q.addBindValue(*calBucket);
+    q.addBindValue(calBucket);
     if (!q.exec ()) {
         qWarning() << "buildGrinderCalibrationBlock: history query failed:" << q.lastError().text();
         return QJsonObject();
@@ -1360,7 +1361,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
 
     if (rows.isEmpty()) {
         qDebug() << "buildGrinderCalibrationBlock: no dialed-in shots in equipment package"
-                 << *calBucket << "(grinder" << grinderModel << grinderBurrs << ")";
+                 << calBucket << "(grinder" << grinderModel << grinderBurrs << ")";
         return QJsonObject();
     }
 

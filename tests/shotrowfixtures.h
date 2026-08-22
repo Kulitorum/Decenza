@@ -61,9 +61,11 @@ struct ShotRow {
     QString basketBrand{};
     QString basketModel{};
     // Puck-prep techniques, as the canonical flag string PuckPrep::canonical
-    // produces. Third and last component of a package's identity, so it forks a
-    // package on its own — a fixture can express "same grinder, same basket,
-    // different prep" with this alone.
+    // produces. Third and last component of a package's identity, so a fixture
+    // can express "same grinder, same basket, different prep" with this alone.
+    // (Fixtures match on the exact canonical string, so they do not go through
+    // the production enrichment rules — where empty -> named prep edits a
+    // package in place rather than moving it.)
     QString puckPrep{};
     QString grinderSetting{};
     // Grinder RPM → shots.rpm. 0 by default, which is also what "not

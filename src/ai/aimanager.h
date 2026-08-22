@@ -419,13 +419,36 @@ public:
 private:
     void loadConversationIndex();
     void saveConversationIndex();
-    // Record that `key` is in use: move its index entry to the front of the
-    // LRU, or CREATE the entry when it is missing. Both callers go through
-    // this; a thread with no index entry is invisible to the conversation list
-    // and is never evicted, so "touch, and do nothing if absent" was a leak.
+    // Move `key`'s index entry to the front of the LRU. No-op when absent —
+    // deliberately. An entry for a key with no stored thread is a GHOST: the
+    // conversation list and `ai_conversations list` show it with
+    // `messageCount: 0` while `get` answers "Conversation not found", and it
+    // occupies one of the five LRU slots, so the next real thread evicts a real
+    // transcript to make room for it.
+    void touchConversationEntry(const QString& key);
+
+    // Move `key`'s entry to the front, CREATING it when absent. Only for a key
+    // that has, or is about to have, a stored thread.
     void noteConversationUse(const QString& key, const QString& beanBrand,
                              const QString& beanType, const QString& profileName,
                              qint64 equipmentId);
+
+    // A thread has just been written to disk under the live conversation's key:
+    // make sure the index names it. This is the ONLY place a "Clear, then keep
+    // talking about the same shot" thread gets indexed — `clearCurrentConversation`
+    // drops the entry but leaves the conversation on its key, and the send path
+    // calls `switchConversation` BEFORE `ask()`, so at switch time there is
+    // nothing yet to point at. Indexing at write time rather than at
+    // key-selection time is what keeps that fix from manufacturing ghosts.
+    void indexStoredConversation();
+
+    // Identity of the conversation `m_conversation` is currently on, remembered
+    // so `indexStoredConversation()` can build a complete entry. The key alone
+    // is a hash and cannot be reversed into the fields the list displays.
+    QString m_liveBeanBrand;
+    QString m_liveBeanType;
+    QString m_liveProfileName;
+    qint64 m_liveEquipmentId = 0;
     void evictOldestConversation();
     void migrateFromLegacyConversation();
     // One-shot conversation wipe keyed by a migration id. Fires once per
@@ -437,11 +460,6 @@ private:
     // Opens its own SQLite connection from `dbPath` — background thread only,
     // never the main thread's connection.
     //
-    // `equipmentBucketOut`, when non-null, receives the bucket this call
-    // resolved (see `ShotHistoryStorage::equipmentBucketForShot`), so the
-    // caller's later work can scope to the same package without re-reading it
-    // on a second connection and risking two answers to one question.
-    //
     // A private static member rather than a file-scope helper so
     // `friend class tst_AIManager` can assert the equipment scoping on a real
     // database — the scoping is the whole point of this function, and there is
@@ -449,8 +467,7 @@ private:
     static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
         const QString& dbPath,
         const QString& beanBrand, const QString& beanType,
-        const QString& profileName, int excludeShotId,
-        std::optional<qint64>* equipmentBucketOut = nullptr);
+        const QString& profileName, int excludeShotId);
 
     // Render the recent-shot-context prose from already-loaded data and
     // emit `recentShotContextReady` (or an empty string when stale).

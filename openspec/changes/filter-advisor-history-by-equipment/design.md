@@ -8,7 +8,7 @@ See proposal.md — Why. The relevant current state:
   brand/model/burrs, the basket, or the puck-prep set changes on a package that already has
   shots — with two exceptions: an unused package is edited in place, and filling in a component
   that was previously empty is *enrichment* and folds rather than forking (#1713).
-- **Seven** independent selections feed the advisor and none of them consult the equipment
+- **Eight** independent selections feed the advisor and none of them consult the equipment
   package:
   1. `AIManager::loadQualifiedShots` — in-app history; bean + profile + 21-day window.
   2. `ShotHistoryStorage::loadRecentShotsByKbIdStatic` — MCP `dialInSessions`; profile KB id.
@@ -21,8 +21,13 @@ See proposal.md — Why. The relevant current state:
      explicitly spanning every package that shares them.
   7. `dialing_get_grinder_calibration` — the standalone MCP tool, which calls the same builder
      as 6 and so is fixed by the same change.
+  8. the follow-up-shot lookup in `DialingBlocks::buildRecentAdviceBlock` — profile KB id +
+     timestamp, with no equipment predicate at all. Without one, a user who took the advice on
+     one basket and then pulled on the other has the OTHER basket's shot scored as their
+     response, and the model is told its advice was ignored on a grind move nobody made.
 
-  5 and 6 were found only on a second pass, after 1–4 were already scoped. They are listed
+  5 and 6 were found only on a second pass, after 1–4 were already scoped; 8 was missed by that
+  pass too and found by a code review after the branch was believed complete. They are listed
   explicitly because the pattern — "this query is about the grinder, so the grinder is the right
   key" — is exactly the reasoning that produced the defect, and it will look correct again to
   the next reader.
@@ -37,10 +42,14 @@ See proposal.md — Why. The relevant current state:
 
 **Goals:**
 
-- One equipment-match rule, applied identically at all seven selection points.
+- One equipment-match rule at all eight selection points, with one deliberate split in how they
+  degrade: a selection that publishes a NUMBER the user is expected to dial in scopes
+  unconditionally, while one that merely reports the user's own shots may fall back to unscoped.
+  A weaker filter is not a fabricated answer; a pooled number is.
 - Equipment visible in the payload wherever it is filtered on, so the model can name it and the
   filter is never silent.
-- A clean advisor conversation on first use after upgrade, without a migration step.
+- A clean advisor conversation on first use after upgrade. This DOES take a migration step — see
+  D4, which was rewritten once the startup restore path was traced.
 
 **Non-Goals:**
 
@@ -51,7 +60,9 @@ See proposal.md — Why. The relevant current state:
 - Cross-equipment *translation* — telling the user what setting 9.75 on one basket corresponds
   to on another. The UGS grind-calibration machinery is the place for that question if it is
   ever asked; this change only stops the surfaces from conflating them.
-- Deleting saved conversations. Retiring them by key is enough.
+- Retaining saved conversations across the upgrade. The one-time wipe in D4 deletes them, along
+  with the pre-keyed singular `ai/conversation/*` keys that would otherwise be re-seeded straight
+  back by `migrateFromLegacyConversation()`.
 
 ## Decisions
 
@@ -171,11 +182,11 @@ same terms, because that rule's phrasing has held up.
   keeps the common recording-my-gear case from triggering it.
 - **The upgrade discards in-flight advisor conversations** → Accepted; it is the requested
   behaviour. Nothing is deleted, so a retired thread is still on disk until the LRU evicts it.
-- **Seven selection points must agree** → This is the central risk. Leaving one unfiltered
+- **Eight selection points must agree** → This is the central risk. Leaving one unfiltered
   leaves the advisor reasoning across equipment through that one channel, and the more numeric
   the channel, the more damage: `grinderCalibration` emits a specific recommended setting, so a
   cross-basket pair there produces a wrong number stated as fact rather than a vague comparison.
-  All seven are in scope and each gets a test. Anything added later that selects prior shots for
+  All eight are in scope and each gets a test. Anything added later that selects prior shots for
   the advisor inherits the same obligation.
 - **The in-app surface still drops `currentBean.basket`** → Out of scope (Non-Goals). The Setup
   header and the no-history block cover the equipment-naming requirement on that surface; the
@@ -187,7 +198,7 @@ No schema migration. On first run of the new build:
 
 1. `conversationKey` produces different keys, so every saved thread is unreferenced. The user's
    next advisor use starts a fresh conversation. Old threads stay on disk and age out.
-2. All seven selections begin filtering on `equipment_id` immediately; no backfill is needed
+2. All eight selections begin filtering on `equipment_id` immediately; no backfill is needed
    because migration 22 populated it.
 3. `grinderCalibration` recomputes from the full history on every call, so a package that
    already has shots keeps its calibration immediately. A newly forked package starts

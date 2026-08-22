@@ -271,15 +271,20 @@ public:
      * just-written turn.
      */
     /**
-     * `systemPrompt` is the prompt the assistant turn was actually produced
-     * under. It is stored only when the key has none yet, so appending to a
-     * thread the in-app advisor started leaves that thread's own prompt alone.
+     * `systemPrompt` is the prompt a later IN-APP turn should run under. It is
+     * stored only when the key has none yet, so appending to a thread the in-app
+     * advisor started leaves that thread's own prompt alone.
      *
-     * Passing it is not optional in spirit. A stored thread with no system
-     * prompt loads with history but an empty `m_systemPrompt`, and `followUp()`
-     * refuses it — "Please start a new conversation first" — so the user's only
-     * way forward in the app is Clear, which DELETES the turns written here.
-     * The default exists for callers writing to a key that already has one.
+     * Not defaulted, deliberately. A stored thread with no system prompt loads
+     * with history but an empty `m_systemPrompt`, and `followUp()` refuses it —
+     * "Please start a new conversation first" — so the user's only way forward
+     * in the app is Clear, which DELETES the turns written here. Pass an empty
+     * string only when that is the intended outcome (an MCP caller supplying its
+     * own one-off `systemPromptOverride`, which must not become the thread's
+     * durable prompt); it is logged as a warning either way.
+     *
+     * Note this is not necessarily the prompt the turn was GENERATED under —
+     * see the persist-vs-run distinction at the mcptools_ai.cpp call site.
      */
     static void appendAssistantTurnForKey(
         const QString& storageKey,
@@ -287,7 +292,7 @@ public:
         const QString& userPrompt,
         const QString& assistantResponse,
         const std::optional<QJsonObject>& structuredNext,
-        const QString& systemPrompt = QString());
+        const QString& systemPrompt);
 
     /**
      * What importConversationsStatic did. Note the units differ: the first

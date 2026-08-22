@@ -435,6 +435,14 @@ private slots:
         AppSettings settings;
         settings.clear();
 
+        // Spend the OLDER migration's marker first. Without this the test cannot
+        // fail: settings.clear() drops every marker, so the pre-existing
+        // grinder_calibration_v1.7.2 wipe fires on the first construction and
+        // empties ai/conversations by itself — the assertions below then pass
+        // with the line they exist to cover deleted. Confirmed from a suite log,
+        // which showed BOTH migrations firing inside this test.
+        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
+
         const QString key = AIManager::conversationKey(
             QStringLiteral("Sweet Bloom Coffee"), QStringLiteral("Hometown Blend"),
             QStringLiteral("D-Flow / Q"), 7);
@@ -442,7 +450,7 @@ private slots:
         structured[QStringLiteral("grinderSetting")] = QStringLiteral("10.5");
         AIConversation::appendAssistantTurnForKey(
             key, 111, QStringLiteral("old user turn"),
-            QStringLiteral("old assistant turn"), structured);
+            QStringLiteral("old assistant turn"), structured, QStringLiteral("sys"));
         QCOMPARE(AIConversation::loadRecentAssistantTurnsForKey(key, 3).size(), 1);
 
         QNetworkAccessManager nam;
@@ -453,6 +461,9 @@ private slots:
         }
         QVERIFY2(AIConversation::loadRecentAssistantTurnsForKey(key, 3).isEmpty(),
                  "the first construction after upgrading must clear stored conversations");
+        QVERIFY2(settings.value(
+                     QStringLiteral("ai/migrations/equipment_scoped_conversations_v1")).toBool(),
+                 "...and it must be THIS migration that ran, not the older one");
 
         // ...and exactly once. A wipe that fired on every launch would delete
         // the user's live thread every time they opened the app, which is a far
@@ -460,7 +471,7 @@ private slots:
         // above.
         AIConversation::appendAssistantTurnForKey(
             key, 222, QStringLiteral("post-migration user turn"),
-            QStringLiteral("post-migration assistant turn"), structured);
+            QStringLiteral("post-migration assistant turn"), structured, QStringLiteral("sys"));
         {
             AIManager second(&nam, &appSettings);
             Q_UNUSED(second)
@@ -470,14 +481,54 @@ private slots:
         settings.clear();
     }
 
+    // The wipe must also take the PRE-KEYED singular keys. migrateFromLegacyConversation()
+    // runs right after it and fires when legacy data exists and the index is
+    // empty — which the wipe itself makes true — re-creating a `_legacy` entry
+    // pointing at the one thread that spans every bean, profile and equipment
+    // package the user ever had, which loadMostRecentConversation() then
+    // restores. A wipe that hands back the most cross-contaminated thread in
+    // the store is worse than no wipe.
+    void construction_wipeAlsoRemovesTheLegacyThread()
+    {
+        AppSettings settings;
+        settings.clear();
+        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
+
+        // Pre-keyed storage: one global conversation, no index.
+        settings.setValue(QStringLiteral("ai/conversation/messages"),
+                          QJsonDocument(QJsonArray{
+                              QJsonObject{{"role", "user"}, {"content", "old global turn"}},
+                              QJsonObject{{"role", "assistant"}, {"content", "old global reply"}}
+                          }).toJson(QJsonDocument::Compact));
+        settings.setValue(QStringLiteral("ai/conversation/timestamp"),
+                          QDateTime::currentDateTime().toString(Qt::ISODate));
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        {
+            AIManager mgr(&nam, &appSettings);
+            QVERIFY2(mgr.m_conversationIndex.isEmpty(),
+                     "the legacy thread must not be re-seeded into the index by the wipe");
+            QVERIFY2(mgr.conversation()->storageKey().isEmpty(),
+                     "and nothing must be restored as the live conversation");
+        }
+        QVERIFY2(settings.value(QStringLiteral("ai/conversation/messages")).toByteArray().isEmpty(),
+                 "the legacy keys must be gone, or the re-seed fires again on every later launch");
+
+        settings.clear();
+    }
+
     // Clear removes the index entry but leaves the live conversation on that
-    // key, so the next message writes a thread that no index entry names. Such
-    // a thread is invisible to the conversation list and to
-    // loadMostRecentConversation(), and evictOldestConversation() only walks the
-    // index — so it would sit in QSettings forever. Found on the running app,
-    // not in review: after Clear, `ai/conversations/index` stayed `[]` while the
-    // thread was on disk under its key.
-    void clearThenContinue_putsTheConversationBackInTheIndex()
+    // key, so a thread written afterwards is named by no index entry: invisible
+    // to the conversation list and to loadMostRecentConversation(), and never
+    // evicted, because evictOldestConversation() only walks the index. Found on
+    // the running app — after Clear, `ai/conversations/index` stayed `[]` while
+    // the thread sat on disk under its key.
+    //
+    // The entry is created when the thread is WRITTEN, not when its key is
+    // selected. Indexing at selection time also "fixes" this, and manufactures
+    // ghosts — see clearThenReopenWithoutSending_createsNoGhostEntry below.
+    void clearThenWrite_putsTheConversationBackInTheIndex()
     {
         AppSettings settings;
         settings.clear();
@@ -498,14 +549,55 @@ private slots:
         // The live conversation is still ON that key — that is the whole trap.
         QCOMPARE(mgr.conversation()->storageKey(), key);
 
-        // Carrying on with the same shot takes the "already on this key" path.
-        QCOMPARE(mgr.switchConversation(bean, type, profile, /*equipmentId=*/7), key);
+        // The user keeps talking about the same shot: a turn lands on the key.
+        AIConversation::appendAssistantTurnForKey(
+            key, 42, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+            QStringLiteral("sys"));
+        mgr.conversation()->loadFromStorage();
+        mgr.conversation()->saveToStorage();
+
         QCOMPARE(mgr.m_conversationIndex.size(), 1);
         QCOMPARE(mgr.m_conversationIndex.first().key, key);
         QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 7);
         QVERIFY2(mgr.m_conversationIndex.first().beanBrand == bean,
                  "the re-created entry must carry the identity, not just the key — "
                  "the conversation list shows these fields");
+        // On disk too: the leak was observed in the persisted index, and an
+        // in-memory-only assertion passes with saveConversationIndex() deleted.
+        QVERIFY2(!settings.value(QStringLiteral("ai/conversations/index"))
+                      .toByteArray().contains("[]"),
+                 "the index must be persisted, not just updated in memory");
+
+        settings.clear();
+    }
+
+    // ...and re-opening the overlay after Clear WITHOUT sending anything must
+    // not create an entry. A key with no stored thread listed in the index is a
+    // ghost: `ai_conversations list` reports it with messageCount 0 while `get`
+    // answers "Conversation not found", and it occupies one of the five LRU
+    // slots, so the next real thread evicts a real transcript to make room.
+    void clearThenReopenWithoutSending_createsNoGhostEntry()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
+        mgr.clearCurrentConversation();
+        QCOMPARE(mgr.m_conversationIndex.size(), 0);
+
+        // Overlay re-opened on the same shot: switchConversation runs again and
+        // takes the "already on this key" path.
+        mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
+        QVERIFY2(mgr.m_conversationIndex.isEmpty(),
+                 "selecting a key with no stored thread must not index it");
 
         settings.clear();
     }
@@ -734,7 +826,7 @@ private slots:
         structured[QStringLiteral("grinderSetting")] = QStringLiteral("10.5");
         AIConversation::appendAssistantTurnForKey(
             legacyKey, 111, QStringLiteral("old user turn"),
-            QStringLiteral("the burrs may have crossed a zero-point threshold"), structured);
+            QStringLiteral("the burrs may have crossed a zero-point threshold"), structured, QStringLiteral("sys"));
 
         QNetworkAccessManager nam;
         Settings appSettings;
@@ -756,7 +848,7 @@ private slots:
         QVERIFY(!liveKey.isEmpty());
         AIConversation::appendAssistantTurnForKey(
             liveKey, 222, QStringLiteral("live user turn"),
-            QStringLiteral("live assistant turn"), structured);
+            QStringLiteral("live assistant turn"), structured, QStringLiteral("sys"));
         mgr.switchConversation(QStringLiteral("Other"), type, profile, /*equipmentId=*/7);
         mgr.switchConversation(bean, type, profile, /*equipmentId=*/7);
         QVERIFY2(mgr.conversation()->hasHistory(),
@@ -2413,7 +2505,7 @@ private slots:
         // appendAssistantTurnForKey does in production.
         AIConversation::appendAssistantTurnForKey(
             QStringLiteral("test_save_race"), 999,
-            QStringLiteral("external user"), QStringLiteral("external assistant"), std::nullopt);
+            QStringLiteral("external user"), QStringLiteral("external assistant"), std::nullopt, QStringLiteral("sys"));
 
         // conv is unaware of the external turn — its own in-memory state is
         // still just [u1, a1] when it adds a further turn of its own.
@@ -2463,7 +2555,7 @@ private slots:
         // ever touches the key.
         AIConversation::appendAssistantTurnForKey(
             QStringLiteral("test_never_loaded"), 111,
-            QStringLiteral("mcp user"), QStringLiteral("mcp assistant"), std::nullopt);
+            QStringLiteral("mcp user"), QStringLiteral("mcp assistant"), std::nullopt, QStringLiteral("sys"));
 
         AIConversation conv(&mgr);
         conv.setStorageKey("test_never_loaded");
@@ -2510,7 +2602,7 @@ private slots:
             QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"), QStringLiteral("D-Flow"));
         // Written entirely by "another writer" — never touches m_conversationIndex.
         AIConversation::appendAssistantTurnForKey(
-            key, 222, QStringLiteral("mcp-only user"), QStringLiteral("mcp-only assistant"), std::nullopt);
+            key, 222, QStringLiteral("mcp-only user"), QStringLiteral("mcp-only assistant"), std::nullopt, QStringLiteral("sys"));
 
         // This AIManager's index has never heard of this key.
         mgr.switchConversation(QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
@@ -3207,7 +3299,7 @@ private slots:
             key, /*shotId=*/8473,
             QStringLiteral("user prompt content"),
             QStringLiteral("Try grinder 4.75."),
-            sn);
+            sn, QStringLiteral("sys"));
 
         // Verify via the static loader that the assistant turn qualifies.
         const auto turns = AIConversation::loadRecentAssistantTurnsForKey(key, 3);
@@ -3245,9 +3337,9 @@ private slots:
         };
 
         AIConversation::appendAssistantTurnForKey(
-            key, 100, "u1", "a1", sn);
+            key, 100, "u1", "a1", sn, QStringLiteral("sys"));
         AIConversation::appendAssistantTurnForKey(
-            key, 105, "u2", "a2", sn);
+            key, 105, "u2", "a2", sn, QStringLiteral("sys"));
 
         // Two pairs => 4 messages.
         const QByteArray raw = AppSettings().value(
@@ -3273,7 +3365,7 @@ private slots:
 
         AIConversation::appendAssistantTurnForKey(
             key, 200, "u", "clarifying question, no rec",
-            std::nullopt);
+            std::nullopt, QStringLiteral("sys"));
 
         const QByteArray raw = AppSettings().value(
             QStringLiteral("ai/conversations/") + key + QStringLiteral("/messages"))
@@ -3295,7 +3387,7 @@ private slots:
         AppSettings s;
         s.clear();
         AIConversation::appendAssistantTurnForKey(
-            QString(), 100, "u", "a", std::nullopt);
+            QString(), 100, "u", "a", std::nullopt, QStringLiteral("sys"));
         // No assertion needed: this just must not crash and must not
         // create any settings keys.
         QVERIFY(true);
