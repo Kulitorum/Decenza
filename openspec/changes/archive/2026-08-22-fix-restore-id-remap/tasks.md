@@ -65,7 +65,7 @@
 - [x] 7.2 Restore a real backup on a populated database and confirm: shots merge without duplication, conversation turns resolve to existing shots, and the summary states the pre-import count. **Done — see 10.1, 10.7, 10.8.**
 - [x] 7.3 Run a LAN device migration selecting only AI conversations and confirm every imported turn's id is cleared rather than carried. **Done — see 10.10.**
 - [x] 7.4 Update the wiki manual (`Kulitorum/Decenza.wiki.git`) — a restore can now fail where it previously reported success, which is user-visible. Three to five sentences: what the message means and that nothing was changed. Cut it by half before committing. **Done** — two sentences added under **Backup and Restore**, wiki commit `f38d97d`. Drafted at three sentences, cut to two.
-- [ ] 7.5 Run `openspec archive fix-restore-id-remap` as the last commit on the feature branch, before merge.
+- [x] 7.5 Run `openspec archive fix-restore-id-remap` as the last commit on the feature branch, before merge.
 
 ## 8. Review pass (PR #1853)
 
