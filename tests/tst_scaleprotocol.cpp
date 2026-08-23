@@ -1234,9 +1234,11 @@ private slots:
 
         QVERIFY(scale.isConnected());
 
-        // Setup commands are sent from a 100ms singleShot after discovery.
-        QTest::qWait(200);
-        QVERIFY(!transport->m_writes.isEmpty());
+        // Setup commands are sent from a 100ms singleShot after discovery. Wait
+        // on the outcome, not the clock: a fixed qWait races that timer whenever
+        // the machine is loaded, which under the parallel sanitizer build is
+        // routine rather than exceptional.
+        QTRY_VERIFY(!transport->m_writes.isEmpty());
         QCOMPARE(transport->m_lastWriteService, Scale::DiFluid::SERVICE_TI);
         QCOMPARE(transport->m_lastNotifyService, Scale::DiFluid::SERVICE_TI);
 

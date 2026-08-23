@@ -212,18 +212,21 @@ private slots:
         pump();
         QCOMPARE(rec.issued.size(), 1);
 
+        // A reissue arrives on a singleShot(retryDelayMs), so these wait on the
+        // reissue itself. A fixed pump() asserts that a timer fired inside a
+        // wall-clock budget, which is a race the parallel sanitizer build loses
+        // often enough to be seen.
         q.noteFailed(de1());
-        pump();
-        QCOMPARE(rec.issued.size(), 2);
+        QTRY_COMPARE(rec.issued.size(), 2);
         QVERIFY(q.isBusy());          // slot held across the retry
         QVERIFY(rec.abandoned.isEmpty());
 
         q.noteFailed(de1());
-        pump();
-        QCOMPARE(rec.issued.size(), 3);
+        QTRY_COMPARE(rec.issued.size(), 3);
         QVERIFY(rec.abandoned.isEmpty());
 
-        // Budget spent.
+        // Budget spent: the count must STAY at 3, so this one waits out the
+        // retry delay rather than polling — QTRY would pass on the first look.
         q.noteFailed(de1());
         pump();
         QCOMPARE(rec.issued.size(), 3);
