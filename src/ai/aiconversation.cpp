@@ -612,7 +612,14 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
                           QJsonDocument(index).toJson(QJsonDocument::Compact));
     }
 
-    qDebug() << "AIConversation::importConversationsStatic:" << tally.conversationsImported
+    // INFO, not DEBUG: `malformed` and `skippedExisting` are deliberately off
+    // ImportTally, so this line is the ONLY record that N archived conversations
+    // were dropped -- and the connections views default to minLevel INFO, so a
+    // DEBUG line is absent from them entirely.
+    if (malformed > 0)
+        qWarning() << "AIConversation::importConversationsStatic:" << malformed
+                   << "archived conversation(s) were unreadable and were NOT restored";
+    qInfo() << "AIConversation::importConversationsStatic:" << tally.conversationsImported
              << "conversation(s) imported," << skippedExisting
              << "already present," << malformed << "malformed;"
              << tally.turnsRemapped << "shot reference(s) remapped," << tally.turnsCleared

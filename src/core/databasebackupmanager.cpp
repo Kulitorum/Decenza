@@ -1137,9 +1137,15 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     // then already exist and the retry skips them. Leave the
                     // conversations in the archive for the retry to do properly.
                     if (shotImport.refused()) {
-                        qWarning() << "DatabaseBackupManager: shot import was refused, so AI"
-                                   << "conversations were NOT imported — retry the restore"
-                                   << "rather than lose their shot links";
+                        // Into restoreErrors, not just the log: the user is told the
+                        // SHOTS were refused, and nothing would otherwise tell them
+                        // their advisor threads are still in the archive and need the
+                        // same retry.
+                        // Key + fallback, untranslated: joinErrors() translates.
+                        restoreErrors << qMakePair(
+                            QStringLiteral("backup.error.aiConversationsRefused"),
+                            QStringLiteral("AI conversations were not restored because the "
+                                           "shot import was refused — run the restore again"));
                     } else {
                         // Otherwise: shots landed (use the map), or the archive
                         // had none / the import failed (no map, every id
@@ -1153,7 +1159,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
 
                         if (convTally.conversationsImported > 0) {
                             qsettings.sync();
-                            qDebug() << "DatabaseBackupManager: Imported" << convTally.conversationsImported
+                            qInfo() << "DatabaseBackupManager: Imported" << convTally.conversationsImported
                                      << "AI conversations;" << convTally.turnsRemapped
                                      << "shot reference(s) remapped," << convTally.turnsCleared
                                      << "cleared;" << convTally.conversationsUnkeyed

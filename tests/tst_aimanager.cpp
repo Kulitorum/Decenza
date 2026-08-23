@@ -4348,6 +4348,12 @@ private slots:
         const QString srcKey = AIManager::conversationKey(keyBean, type, profile, entryPackage);
         const QHash<qint64, qint64> packageMap{{12, 41}};
 
+        // A malformed entry is a fault the importer must announce — it is the only
+        // record the user gets that an archived thread was dropped.
+        if (!hasTurns)
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression(QStringLiteral("were unreadable and were NOT restored")));
+
         const auto tally = AIConversation::importConversationsStatic(
             settings, oneConversation(srcKey, hasTurns ? turnsWithShotIds({7}) : QJsonArray(),
                                       entryPackage),

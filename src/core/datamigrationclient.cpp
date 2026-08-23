@@ -611,14 +611,22 @@ void DataMigrationClient::onAIConversationsReply()
         return;
     }
 
+    // Every arm below must reach setError() or import something. Reporting only
+    // to the log let a failed transfer print "Import complete" in the success
+    // colour while every advisor thread stayed on the source device -- and
+    // because the shots step has already run, the retry that would fix it now
+    // refuses its own shots as duplicates.
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "DataMigrationClient: Failed to import AI conversations:" << reply->errorString();
+        setError(tr("AI conversations were not imported: %1").arg(reply->errorString()));
     } else {
         QByteArray data = reply->readAll();
         m_receivedBytes += data.size();
 
         QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isArray()) {
+        if (!doc.isArray()) {
+            setError(tr("AI conversations were not imported: the source device sent an "
+                        "unreadable response"));
+        } else {
             AppSettings settings;
 
             // Same importer the backup restore uses. This loop used to be a
@@ -637,9 +645,9 @@ void DataMigrationClient::onAIConversationsReply()
             // that retry useless, because the keys would already exist and the
             // retry skips them as duplicates.
             if (m_shotImport.refused()) {
-                qWarning() << "DataMigrationClient: shot import was refused, so AI conversations"
-                           << "were NOT imported — retry the migration rather than lose their"
-                           << "shot links";
+                setError(tr("AI conversations were not imported because the shot import was "
+                            "refused. Run the migration again — importing them now would lose "
+                            "their links to your shots."));
             } else {
                 // No map means every turn's shotId is cleared: the user imported
                 // conversations WITHOUT shots, or the shot import failed. Either
@@ -654,11 +662,13 @@ void DataMigrationClient::onAIConversationsReply()
                 if (tally.conversationsImported > 0 && m_aiManager)
                     m_aiManager->reloadConversations();
 
-                qDebug() << "DataMigrationClient: Imported" << m_aiConversationsImported
-                         << "AI conversations;" << tally.turnsRemapped
-                         << "shot reference(s) remapped," << tally.turnsCleared << "cleared;"
-                         << tally.conversationsUnkeyed
-                         << "not linked to an equipment package on this device";
+                // INFO, not DEBUG: this is the only record of how many threads a
+                // restore kept, and the connections views default to minLevel INFO.
+                qInfo() << "DataMigrationClient: Imported" << m_aiConversationsImported
+                        << "AI conversations;" << tally.turnsRemapped
+                        << "shot reference(s) remapped," << tally.turnsCleared << "cleared;"
+                        << tally.conversationsUnkeyed
+                        << "not linked to an equipment package on this device";
             }
         }
     }
