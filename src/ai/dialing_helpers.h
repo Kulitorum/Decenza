@@ -93,25 +93,33 @@ struct ShotIdentity {
         const char* key;
         QString ShotIdentity::* member;
         QString ShotProjection::* source;
+        // True for the fields that describe the GEAR rather than the coffee.
+        // Two payload blocks name the same equipment package — the hoisted
+        // session context and the no-history block — and a second list of what
+        // counts as equipment would be free to disagree with this one. The
+        // no-history block is exactly where that disagreement would not be
+        // caught, because it is emitted when there is no history to check it
+        // against. So it is a flag on the one table, not a list beside it.
+        bool equipment;
     };
     static const QList<Field>& fields()
     {
         static const QList<Field> f = {
-            { "grinderBrand", &ShotIdentity::grinderBrand, &ShotProjection::grinderBrand },
-            { "grinderModel", &ShotIdentity::grinderModel, &ShotProjection::grinderModel },
-            { "grinderBurrs", &ShotIdentity::grinderBurrs, &ShotProjection::grinderBurrs },
-            { "basketBrand",  &ShotIdentity::basketBrand,  &ShotProjection::basketBrand },
-            { "basketModel",  &ShotIdentity::basketModel,  &ShotProjection::basketModel },
-            { "puckPrep",     &ShotIdentity::puckPrep,     &ShotProjection::puckPrep },
-            { "beanBrand",    &ShotIdentity::beanBrand,    &ShotProjection::beanBrand },
-            { "beanType",     &ShotIdentity::beanType,     &ShotProjection::beanType },
+            { "grinderBrand", &ShotIdentity::grinderBrand, &ShotProjection::grinderBrand, true },
+            { "grinderModel", &ShotIdentity::grinderModel, &ShotProjection::grinderModel, true },
+            { "grinderBurrs", &ShotIdentity::grinderBurrs, &ShotProjection::grinderBurrs, true },
+            { "basketBrand",  &ShotIdentity::basketBrand,  &ShotProjection::basketBrand, true },
+            { "basketModel",  &ShotIdentity::basketModel,  &ShotProjection::basketModel, true },
+            { "puckPrep",     &ShotIdentity::puckPrep,     &ShotProjection::puckPrep, true },
+            { "beanBrand",    &ShotIdentity::beanBrand,    &ShotProjection::beanBrand, false },
+            { "beanType",     &ShotIdentity::beanType,     &ShotProjection::beanType, false },
             // Bean storage lifecycle (bean-freshness-followup): hoisted like any
             // other identity field, so a session spanning a thaw or open event
             // carries the shared date and the differing shot overrides it.
-            { "frozenDate",   &ShotIdentity::frozenDate,   &ShotProjection::frozenDate },
-            { "defrostDate",  &ShotIdentity::defrostDate,  &ShotProjection::defrostDate },
-            { "storageHint",  &ShotIdentity::storageHint,  &ShotProjection::storageHint },
-            { "openedDate",   &ShotIdentity::openedDate,   &ShotProjection::openedDate },
+            { "frozenDate",   &ShotIdentity::frozenDate,   &ShotProjection::frozenDate, false },
+            { "defrostDate",  &ShotIdentity::defrostDate,  &ShotProjection::defrostDate, false },
+            { "storageHint",  &ShotIdentity::storageHint,  &ShotProjection::storageHint, false },
+            { "openedDate",   &ShotIdentity::openedDate,   &ShotProjection::openedDate, false },
         };
         return f;
     }
@@ -134,6 +142,21 @@ inline ShotIdentity identityFromShot(const ShotProjection& shot)
     for (const auto& f : ShotIdentity::fields())
         id.*f.member = shot.*f.source;
     return id;
+}
+
+// The equipment half of the identity as JSON, selected from the one field
+// table rather than re-listed. Sparse like identityToJson: a component with no
+// recorded value is omitted, never emitted as an empty string.
+inline QJsonObject equipmentSetToJson(const ShotIdentity& identity)
+{
+    QJsonObject obj;
+    for (const auto& f : ShotIdentity::fields()) {
+        if (!f.equipment) continue;
+        const QString v = identity.*f.member;
+        if (!v.isEmpty())
+            obj[QLatin1String(f.key)] = v;
+    }
+    return obj;
 }
 
 // The identity fields as JSON, omitting the empty ones. Both callers want that

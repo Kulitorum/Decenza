@@ -768,25 +768,25 @@ QString AIManager::buildShotAnalysisProseForShot(const QVariant& shotVariant)
 
 void AIManager::enrichUserPromptObject(QJsonObject& payload,
                                        const ShotProjection& shotData,
-                                       const QJsonArray& dialInSessions,
-                                       const QJsonObject& bestRecentShot,
-                                       const QJsonObject& grinderContext,
-                                       const QJsonArray& recentAdvice,
-                                       const QJsonObject& grinderCalibration) const
+                                       const DialingBlocks::AdvisorContextBlocks& blocks) const
 {
-    if (!dialInSessions.isEmpty())
-        payload["dialInSessions"] = dialInSessions;
-    if (!bestRecentShot.isEmpty())
-        payload["bestRecentShot"] = bestRecentShot;
-    if (!grinderContext.isEmpty())
-        payload["grinderContext"] = grinderContext;
-    if (!grinderCalibration.isEmpty())
-        payload["grinderCalibration"] = grinderCalibration;
+    if (!blocks.dialInSessions.isEmpty())
+        payload["dialInSessions"] = blocks.dialInSessions;
+    // Mutually exclusive with dialInSessions by construction — the builder only
+    // fills this one when the history query ran and matched nothing.
+    if (!blocks.noDialInHistory.isEmpty())
+        payload["noDialInHistory"] = blocks.noDialInHistory;
+    if (!blocks.bestRecentShot.isEmpty())
+        payload["bestRecentShot"] = blocks.bestRecentShot;
+    if (!blocks.grinderContext.isEmpty())
+        payload["grinderContext"] = blocks.grinderContext;
+    if (!blocks.grinderCalibration.isEmpty())
+        payload["grinderCalibration"] = blocks.grinderCalibration;
     // Closed-loop coaching: prior advisor turns paired with the user's
     // actual next shots (issue #1053). Empty array (no qualifying turns
     // yet) → key omitted; never `recentAdvice: []` placeholder.
-    if (!recentAdvice.isEmpty())
-        payload["recentAdvice"] = recentAdvice;
+    if (!blocks.recentAdvice.isEmpty())
+        payload["recentAdvice"] = blocks.recentAdvice;
     if (shotData.isValid()) {
         const QJsonObject sawPrediction = DialingBlocks::buildSawPredictionBlock(
             m_settings, m_profileManager, shotData);
@@ -951,9 +951,7 @@ QString AIManager::buildConversationUserPrompt(const QVariant& shotData,
     // the user opened another shot while the request was in flight; sending the
     // other shot's history would be worse than sending none.
     if (m_contextBlocksShotId == shot.id) {
-        enrichUserPromptObject(payload, shot, m_contextBlocks.dialInSessions,
-                               m_contextBlocks.bestRecentShot, m_contextBlocks.grinderContext,
-                               m_contextBlocks.recentAdvice, m_contextBlocks.grinderCalibration);
+        enrichUserPromptObject(payload, shot, m_contextBlocks);
     } else if (shot.isValid()) {
         // sawPrediction does not come from the DB pass, so it is available either way.
         const QJsonObject sawPrediction =

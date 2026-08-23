@@ -142,9 +142,15 @@ public:
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
     // Dial-in history for one profile family, scoped to one equipment package.
     // `scope` has no default on purpose: an omittable filter gets omitted.
+    // `ok`, when given, reports whether the query RAN — not whether it matched.
+    // Both are an empty list, and the advisor has to tell them apart: "no shot
+    // matches this equipment package" is a fact worth stating to the model,
+    // while "the query failed" is not, and reporting the second as the first
+    // would assert something the database never said.
     static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId,
                                                     const AdviceScope& scope, int limit,
-                                                    qint64 excludeShotId = -1);
+                                                    qint64 excludeShotId = -1,
+                                                    bool* ok = nullptr);
 
     // Async: profiles used with a bean, for the recipe wizard's ranked profile
     // step (add-recipe-wizard-tea). Emits rankedProfilesForBeanReady() with

@@ -112,11 +112,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                  aiPtr, respond]() {
                 ShotProjection shot;
                 qint64 resolvedShotId = shotId;
-                QJsonArray dialInSessions;
-                QJsonObject bestRecentShot;
-                QJsonObject grinderContext;
-                QJsonObject grinderCalibration;
-                QJsonArray recentAdvice;
+                DialingBlocks::AdvisorContextBlocks blocks;
 
                 if (resolvedShotId <= 0) {
                     withTempDb(dbPath, "mcp_advisor_latest", [&](QSqlDatabase& db) {
@@ -141,32 +137,28 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     shot = ShotHistoryStorage::convertShotRecord(record);
 
                     if (shot.isValid()) {
-                        // The five dialing-context blocks, from the one
-                        // assembler the in-app advisor also calls, so the
-                        // two surfaces cannot ship different context for
-                        // the same shot. Loading the conversation turns
-                        // stays here: see buildAdvisorContextBlocks on why
-                        // it is a parameter.
+                        // The dialing-context blocks, from the one assembler
+                        // the in-app advisor also calls, so the two surfaces
+                        // cannot ship different context for the same shot. The
+                        // struct travels whole rather than being unpacked into
+                        // one local per block: that is what kept a new block
+                        // from reaching only one of the two surfaces. Loading
+                        // the conversation turns stays here — see
+                        // buildAdvisorContextBlocks on why it is a parameter.
                         QList<AIConversation::HistoricalAssistantTurn> turns;
                         if (!shot.profileKbId.isEmpty()) {
                             turns = AIConversation::loadRecentAssistantTurnsForKey(
                                 AIManager::conversationKey(shot),
                                 DialingBlocks::kRecentAdviceTurns);
                         }
-                        const auto blocks = DialingBlocks::buildAdvisorContextBlocks(
+                        blocks = DialingBlocks::buildAdvisorContextBlocks(
                             db, shot, resolvedShotId, turns);
-                        dialInSessions = blocks.dialInSessions;
-                        bestRecentShot = blocks.bestRecentShot;
-                        grinderContext = blocks.grinderContext;
-                        grinderCalibration = blocks.grinderCalibration;
-                        recentAdvice = blocks.recentAdvice;
                     }
                 });
 
                 QMetaObject::invokeMethod(qApp,
                     [aiPtr, shot, dryRun, userPromptOverride, systemPromptOverride,
-                     resolvedShotId, dialInSessions, bestRecentShot, grinderContext,
-                     grinderCalibration, recentAdvice, respond]() {
+                     resolvedShotId, blocks, respond]() {
                     if (!aiPtr) {
                         respond(QJsonObject{{"error", "App shut down before advisor call could start"}});
                         return;
@@ -220,9 +212,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             respond(QJsonObject{{"error", "Failed to assemble shot summary for shot " + QString::number(resolvedShotId)}});
                             return;
                         }
-                        aiLive->enrichUserPromptObject(userPromptObj, shot,
-                            dialInSessions, bestRecentShot, grinderContext, recentAdvice,
-                            grinderCalibration);
+                        aiLive->enrichUserPromptObject(userPromptObj, shot, blocks);
                         userPrompt = QString::fromUtf8(
                             QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
                     }

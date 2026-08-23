@@ -631,7 +631,11 @@ private slots:
         const QJsonObject bestRecentShot{{"id", 42}, {"enjoyment0to100", 85}};
         const QJsonObject grinderContext{{"model", "Zero"}, {"stepSize", 0.25}};
 
-        mgr.enrichUserPromptObject(payload, shot, dialInSessions, bestRecentShot, grinderContext);
+        DialingBlocks::AdvisorContextBlocks blocks;
+        blocks.dialInSessions = dialInSessions;
+        blocks.bestRecentShot = bestRecentShot;
+        blocks.grinderContext = grinderContext;
+        mgr.enrichUserPromptObject(payload, shot, blocks);
 
         QVERIFY(payload.contains(QStringLiteral("dialInSessions")));
         QVERIFY(payload.contains(QStringLiteral("bestRecentShot")));
@@ -664,8 +668,7 @@ private slots:
         // All blocks empty — none of the four enrichment keys should appear,
         // and crucially no `null` placeholders. dialing_get_context's omission
         // contract requires absent key, not `null`.
-        mgr.enrichUserPromptObject(payload, shot,
-            QJsonArray{}, QJsonObject{}, QJsonObject{});
+        mgr.enrichUserPromptObject(payload, shot, DialingBlocks::AdvisorContextBlocks{});
 
         QVERIFY2(!payload.contains(QStringLiteral("dialInSessions")),
                  "empty dialInSessions must not be added as a key");
@@ -701,10 +704,14 @@ private slots:
         const QJsonObject grinderContext{{"model", "Zero"}};
 
         QJsonObject a = mgr.buildUserPromptObjectForShot(shot);
-        mgr.enrichUserPromptObject(a, shot, dialInSessions, bestRecentShot, grinderContext);
+        DialingBlocks::AdvisorContextBlocks blocks;
+        blocks.dialInSessions = dialInSessions;
+        blocks.bestRecentShot = bestRecentShot;
+        blocks.grinderContext = grinderContext;
+        mgr.enrichUserPromptObject(a, shot, blocks);
 
         QJsonObject b = mgr.buildUserPromptObjectForShot(shot);
-        mgr.enrichUserPromptObject(b, shot, dialInSessions, bestRecentShot, grinderContext);
+        mgr.enrichUserPromptObject(b, shot, blocks);
 
         const QString jsonA = QString::fromUtf8(QJsonDocument(a).toJson(QJsonDocument::Indented));
         const QString jsonB = QString::fromUtf8(QJsonDocument(b).toJson(QJsonDocument::Indented));
@@ -736,8 +743,9 @@ private slots:
                                                       {"outcomeRating0to100", 75}}}}
         };
 
-        mgr.enrichUserPromptObject(payload, shot,
-            QJsonArray{}, QJsonObject{}, QJsonObject{}, recentAdvice);
+        DialingBlocks::AdvisorContextBlocks blocks;
+        blocks.recentAdvice = recentAdvice;
+        mgr.enrichUserPromptObject(payload, shot, blocks);
 
         QVERIFY(payload.contains(QStringLiteral("recentAdvice")));
         QCOMPARE(payload.value("recentAdvice").toArray().size(), 1);
@@ -760,8 +768,7 @@ private slots:
         QJsonObject payload = mgr.buildUserPromptObjectForShot(shot);
         // Explicit empty recentAdvice → key omitted (no `recentAdvice: []`
         // placeholder), matching the dialing_get_context omission contract.
-        mgr.enrichUserPromptObject(payload, shot,
-            QJsonArray{}, QJsonObject{}, QJsonObject{}, QJsonArray{});
+        mgr.enrichUserPromptObject(payload, shot, DialingBlocks::AdvisorContextBlocks{});
 
         QVERIFY2(!payload.contains(QStringLiteral("recentAdvice")),
                  "empty recentAdvice must not be added as a key");

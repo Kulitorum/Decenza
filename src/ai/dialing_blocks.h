@@ -152,6 +152,17 @@ inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
 // One assembler, so a new block is added once and both surfaces get it.
 struct AdvisorContextBlocks {
     QJsonArray dialInSessions;
+    // Emitted INSTEAD of dialInSessions when the history query ran and matched
+    // nothing. An absent history block is indistinguishable from "this user has
+    // no history at all", and a model given no anchor supplies one: the failure
+    // this change came from cited a "70/100 shot" that appears nowhere in its
+    // context and then reasoned from it. A stated absence is a fact the model
+    // can use in place of an invented one.
+    //
+    // Empty when dialInSessions has entries, and ALSO empty when the query
+    // failed — a failure is not evidence that nothing matched, and saying so
+    // would assert something the database never told us.
+    QJsonObject noDialInHistory;
     QJsonObject bestRecentShot;
     QJsonObject grinderContext;
     QJsonObject grinderCalibration;
@@ -184,11 +195,22 @@ AdvisorContextBlocks buildAdvisorContextBlocks(
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped
 // QJsonArray; the array is empty when the profile has no prior shots.
+// `queryRan`, when given, reports whether the underlying history query
+// executed. An empty return means "matched nothing" only when it comes back
+// true; on false the caller must stay silent rather than state an absence.
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
                                     const AdviceScope& scope,
                                     qint64 resolvedShotId,
-                                    int historyLimit);
+                                    int historyLimit,
+                                    bool* queryRan = nullptr);
+
+// States that no prior shot matched, and names the equipment package that was
+// matched on so the model can see the filter rather than infer one. The
+// equipment comes from DialingHelpers::equipmentSetToJson, the same selection
+// the hoisted session context uses, so the two blocks cannot describe one
+// package differently.
+QJsonObject buildNoDialInHistoryBlock(const ShotProjection& shot);
 
 // Highest-rated past shot on the same profile within the last
 // `kBestRecentShotWindowDays`, with a `changeFromBest` diff against

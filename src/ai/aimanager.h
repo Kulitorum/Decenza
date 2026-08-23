@@ -179,13 +179,14 @@ public:
     //
     // Single source of truth for the merge step, so the in-app and MCP
     // surfaces cannot drift on which blocks land where.
+    // Takes the blocks struct rather than one argument per block. Both surfaces
+    // already build an AdvisorContextBlocks and were unpacking it into five
+    // positional arguments to pass here; adding a sixth block meant editing
+    // every call site, and a surface that missed the edit silently sent one
+    // block fewer. The struct makes a new block reach both by construction.
     void enrichUserPromptObject(QJsonObject& payload,
                                 const ShotProjection& shotData,
-                                const QJsonArray& dialInSessions,
-                                const QJsonObject& bestRecentShot,
-                                const QJsonObject& grinderContext,
-                                const QJsonArray& recentAdvice = QJsonArray(),
-                                const QJsonObject& grinderCalibration = QJsonObject()) const;
+                                const DialingBlocks::AdvisorContextBlocks& blocks) const;
 
     // Shot history access for contextual recommendations
     void setShotHistoryStorage(ShotHistoryStorage* storage);

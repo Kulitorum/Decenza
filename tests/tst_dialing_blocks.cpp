@@ -383,6 +383,137 @@ private slots:
         });
     }
 
+    // A package with no history states the absence and names the gear, rather
+    // than the payload simply going quiet. An omitted block reads to the model
+    // as "this user has no history at all", and a model with no anchor supplies
+    // one — the failure behind this change cited a "70/100 shot" that appeared
+    // nowhere in its context.
+    //
+    // The fixture is the real shape: the shot exists, it is the FIRST on its
+    // package, and it is excluded from its own history by resolvedShotId, so the
+    // query runs and matches nothing.
+    void noDialInHistoryBlock_statesTheAbsenceAndNamesTheEquipment()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("dial_no_history"), [&](QSqlDatabase& db) {
+            ShotRow row;
+            row.uuid = QStringLiteral("uuid-first-on-package");
+            row.timestamp = QDateTime::currentSecsSinceEpoch() - kSecPerDay;
+            row.profileName = QStringLiteral("80's Espresso");
+            row.profileKbId = QStringLiteral("kb-80s");
+            row.beanBrand = QStringLiteral("Northbound");
+            row.beanType = QStringLiteral("Spring Tour");
+            row.grinderBrand = QStringLiteral("Niche");
+            row.grinderModel = QStringLiteral("Zero");
+            row.grinderBurrs = QStringLiteral("63mm Mazzer Kony conical");
+            row.basketBrand = QStringLiteral("Graph Coffee");
+            row.basketModel = QStringLiteral("Stepped 58→46mm");
+            row.grinderSetting = QStringLiteral("4.0");
+            const qint64 shotId = insertShot(db, row);
+            QVERIFY(shotId > 0);
+
+            ShotProjection shot;
+            shot.id = shotId;
+            shot.profileKbId = row.profileKbId;
+            shot.grinderBrand = row.grinderBrand;
+            shot.grinderModel = row.grinderModel;
+            shot.grinderBurrs = row.grinderBurrs;
+            shot.basketBrand = row.basketBrand;
+            shot.basketModel = row.basketModel;
+            shot.puckPrep = QStringLiteral("shaker, puck screen");
+            // Bean fields are identity but NOT equipment — the block names the
+            // gear it filtered on, and naming the coffee here would describe a
+            // different filter than the one that ran.
+            shot.beanBrand = row.beanBrand;
+            shot.beanType = row.beanType;
+
+            const auto blocks = DialingBlocks::buildAdvisorContextBlocks(db, shot, shotId, {});
+
+            QVERIFY(blocks.dialInSessions.isEmpty());
+            QVERIFY2(!blocks.noDialInHistory.isEmpty(),
+                     "a query that ran and matched nothing must say so");
+
+            const QJsonObject equipment =
+                blocks.noDialInHistory.value(QStringLiteral("equipment")).toObject();
+            QCOMPARE(equipment.value("grinderModel").toString(), QStringLiteral("Zero"));
+            QCOMPARE(equipment.value("basketBrand").toString(), QStringLiteral("Graph Coffee"));
+            QCOMPARE(equipment.value("basketModel").toString(),
+                     QStringLiteral("Stepped 58→46mm"));
+            QCOMPARE(equipment.value("puckPrep").toString(),
+                     QStringLiteral("shaker, puck screen"));
+            QVERIFY2(!equipment.contains(QStringLiteral("beanBrand")),
+                     "the equipment set is the gear, not the coffee");
+            QCOMPARE(blocks.noDialInHistory.value("matchedShotCount").toInt(), 0);
+        });
+    }
+
+    // A component with no recorded value is omitted, never emitted as an empty
+    // string — the same sparse rule the hoisted session context follows, and the
+    // reason both read the one field table rather than two lists.
+    void noDialInHistoryBlock_omitsComponentsThePackageDoesNotRecord()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("dial_no_history_sparse"), [&](QSqlDatabase& db) {
+            ShotRow row;
+            row.uuid = QStringLiteral("uuid-sparse-package");
+            row.timestamp = QDateTime::currentSecsSinceEpoch() - kSecPerDay;
+            row.profileName = QStringLiteral("80's Espresso");
+            row.profileKbId = QStringLiteral("kb-80s");
+            row.grinderBrand = QStringLiteral("Niche");
+            row.grinderModel = QStringLiteral("Zero");
+            const qint64 shotId = insertShot(db, row);
+            QVERIFY(shotId > 0);
+
+            ShotProjection shot;
+            shot.id = shotId;
+            shot.profileKbId = row.profileKbId;
+            shot.grinderBrand = row.grinderBrand;
+            shot.grinderModel = row.grinderModel;
+
+            const auto blocks = DialingBlocks::buildAdvisorContextBlocks(db, shot, shotId, {});
+
+            const QJsonObject equipment =
+                blocks.noDialInHistory.value(QStringLiteral("equipment")).toObject();
+            QVERIFY(equipment.contains(QStringLiteral("grinderModel")));
+            QVERIFY2(!equipment.contains(QStringLiteral("basketBrand")),
+                     "an unrecorded basket must be absent, not empty");
+            QVERIFY2(!equipment.contains(QStringLiteral("puckPrep")),
+                     "an unrecorded puck prep must be absent, not empty");
+        });
+    }
+
+    // The distinction the block rests on. A shot with no profile identity asks
+    // the history query nothing at all, so there is no "matched nothing" to
+    // report — stating one would assert something no query established. Same
+    // reasoning covers a failed query, which also returns an empty list.
+    void noDialInHistoryBlock_silentWhenNoQueryWasAsked()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("dial_no_query"), [&](QSqlDatabase& db) {
+            ShotRow row;
+            row.uuid = QStringLiteral("uuid-no-kbid");
+            row.timestamp = QDateTime::currentSecsSinceEpoch() - kSecPerDay;
+            row.profileName = QStringLiteral("80's Espresso");
+            row.grinderModel = QStringLiteral("Zero");
+            const qint64 shotId = insertShot(db, row);
+            QVERIFY(shotId > 0);
+
+            ShotProjection shot;
+            shot.id = shotId;
+            shot.profileKbId = QString();   // nothing to match on
+            shot.grinderModel = row.grinderModel;
+
+            const auto blocks = DialingBlocks::buildAdvisorContextBlocks(db, shot, shotId, {});
+
+            QVERIFY(blocks.dialInSessions.isEmpty());
+            QVERIFY2(blocks.noDialInHistory.isEmpty(),
+                     "no query ran, so nothing was established to state");
+        });
+    }
+
     // -------------------------------------------------------------------
     // bestRecentShotBlock — rated shot inside the 90-day window emits
     // the full block, with daysSinceShot reflecting fixture-relative age

@@ -80,19 +80,19 @@ is a second renderer of data `ShotIdentity::fields()` already owns; adding two n
 hand-written list is the ninth copy, and the next component needs a tenth. Section 9 removes the
 renderer instead.
 
-## 4. Explicit no-history block (NOT delivered)
+## 4. Explicit no-history block
 
-- [ ] 4.1 When no prior shots match, emit a block naming the equipment set instead of omitting
+- [x] 4.1 When no prior shots match, emit a block naming the equipment set instead of omitting
       the history section — an absent block is indistinguishable from "no history at all", and
       an unanchored model invents an anchor.
-- [ ] 4.2 Distinguish "the query failed" from "the query ran and matched nothing"; do not report
+- [x] 4.2 Distinguish "the query failed" from "the query ran and matched nothing"; do not report
       one as the other.
-- [ ] 4.3 Test that a package with no history produces the block rather than silence.
+- [x] 4.3 Test that a package with no history produces the block rather than silence.
 
-## 5. System prompt rules (NOT delivered)
+## 5. System prompt rules
 
-- [ ] 5.1 Grind settings are comparable only within one equipment set.
-- [ ] 5.2 Do not cite a shot, score, or taste note absent from the context. (The reported reply
+- [x] 5.1 Grind settings are comparable only within one equipment set.
+- [x] 5.2 Do not cite a shot, score, or taste note absent from the context. (The reported reply
       cited a "70/100 shot" that appeared nowhere in its context.)
 
 ## 6. Import / backup (NOT delivered)

@@ -151,8 +151,14 @@ AdvisorContextBlocks buildAdvisorContextBlocks(
     // a user swaps gear between pulling and asking.
     const AdviceScope scope(shot.equipmentId);
 
+    bool historyQueryRan = false;
     out.dialInSessions = buildDialInSessionsBlock(
-        db, shot.profileKbId, scope, resolvedShotId, historyLimit);
+        db, shot.profileKbId, scope, resolvedShotId, historyLimit, &historyQueryRan);
+    // Say so when the query ran and matched nothing. Not when it failed: an
+    // error is not evidence of an empty history, and the two arrive here as the
+    // same empty array.
+    if (out.dialInSessions.isEmpty() && historyQueryRan)
+        out.noDialInHistory = buildNoDialInHistoryBlock(shot);
     out.bestRecentShot = buildBestRecentShotBlock(
         db, shot.profileKbId, scope, resolvedShotId, shot);
     out.grinderContext = buildGrinderContextBlock(
@@ -171,17 +177,44 @@ AdvisorContextBlocks buildAdvisorContextBlocks(
     return out;
 }
 
+QJsonObject buildNoDialInHistoryBlock(const ShotProjection& shot)
+{
+    if (!shot.isValid()) return QJsonObject();
+
+    QJsonObject block;
+    block["matchedShotCount"] = 0;
+    const QJsonObject equipment =
+        DialingHelpers::equipmentSetToJson(DialingHelpers::identityFromShot(shot));
+    if (!equipment.isEmpty())
+        block["equipment"] = equipment;
+    block["matchedOn"] = QStringLiteral(
+        "bean, profile and equipment package — grinder, basket and puck prep together");
+    block["instruction"] = QStringLiteral(
+        "No prior shot matches this equipment package. Shots pulled on other gear were "
+        "excluded deliberately: a grind number means nothing across grinders, and a basket "
+        "changes flow at the same grind, so those shots would mislead rather than inform. "
+        "Judge this shot on its own data. Do NOT cite, score or compare against any earlier "
+        "shot — none is present in this context, and one you recall or infer is not the "
+        "user's.");
+    return block;
+}
+
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
                                     const AdviceScope& scope,
                                     qint64 resolvedShotId,
-                                    int historyLimit)
+                                    int historyLimit,
+                                    bool* queryRan)
 {
     QJsonArray sessions;
+    if (queryRan) *queryRan = false;
+    // No profile identity is not "the query matched nothing" — nothing was
+    // asked. Leaving queryRan false keeps the caller from stating an absence it
+    // did not establish.
     if (profileKbId.isEmpty()) return sessions;
 
     QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(
-        db, profileKbId, scope, historyLimit, resolvedShotId);
+        db, profileKbId, scope, historyLimit, resolvedShotId, queryRan);
 
     QList<ShotProjection> shots;
     shots.reserve(history.size());

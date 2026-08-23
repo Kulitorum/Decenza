@@ -665,9 +665,10 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
 
 QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId,
                                                             const AdviceScope& scope, int limit,
-                                                            qint64 excludeShotId)
+                                                            qint64 excludeShotId, bool* ok)
 {
     QVariantList results;
+    if (ok) *ok = false;
     // Equipment resolves through the shot's equipment_id pointer (the per-shot
     // grinder columns are dropped in migration 23). The whole package rides
     // along, not just the grinder — see EquipmentJoin.
@@ -701,6 +702,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
     query.bindValue(idx, limit);
 
     if (query.exec()) {
+        if (ok) *ok = true;
         while (query.next()) {
             QVariantMap shot;
             shot["id"] = query.value("id").toLongLong();
