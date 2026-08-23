@@ -2060,6 +2060,12 @@ void AIManager::loadConversationIndex()
         }
     }
     qDebug() << "AIManager: Loaded conversation index with" << m_conversationIndex.size() << "entries";
+
+    // Enforce the cap on what came off disk. The insert-time trim alone cannot:
+    // it only runs when a NEW key arrives, so an index already over the cap stays
+    // over it indefinitely on a device that keeps reusing its existing threads.
+    // Entries are LRU-ordered, so anything trimmed here is the least recently used.
+    trimConversationsTo(MAX_CONVERSATIONS);
 }
 
 void AIManager::saveConversationIndex()
@@ -2101,7 +2107,9 @@ void AIManager::noteConversationUse(const QString& key, const QString& beanBrand
         }
     }
 
-    evictOldestConversation();
+    // Make room for the entry prepended below, so the index lands ON the cap
+    // rather than one past it.
+    trimConversationsTo(MAX_CONVERSATIONS - 1);
     ConversationEntry newEntry;
     newEntry.key = key;
     newEntry.beanBrand = beanBrand;
@@ -2138,21 +2146,27 @@ void AIManager::indexStoredConversation()
     noteConversationUse(key, m_liveBeanBrand, m_liveBeanType, m_liveProfileName, m_liveEquipmentId);
 }
 
-void AIManager::evictOldestConversation()
+void AIManager::trimConversationsTo(int keep)
 {
-    if (m_conversationIndex.size() < MAX_CONVERSATIONS) return;
+    if (m_conversationIndex.size() <= keep) return;
 
-    // Remove the last (oldest) entry
-    ConversationEntry oldest = m_conversationIndex.takeLast();
-
-    // Remove its QSettings data
+    // A loop, not a single take: this used to drop exactly one entry per call, so
+    // an index that ever exceeded the cap could never come back under it. At size
+    // 6 with a cap of 5, dropping one left 5 and the caller's prepend restored 6 --
+    // a stable state, not a transient one. Nothing pulled it back, because
+    // loadConversationIndex() appends from disk uncapped, and the ai_conversations
+    // tool then reported six threads while documenting a limit of five. Observed on
+    // a real device, where equipment-scoped keys had pushed the index past the cap.
     AppSettings settings;
-    QString prefix = "ai/conversations/" + oldest.key + "/";
-    settings.remove(prefix + "systemPrompt");
-    settings.remove(prefix + "messages");
-    settings.remove(prefix + "timestamp");
-
-    qDebug() << "AIManager: Evicted oldest conversation:" << oldest.beanBrand << oldest.beanType << oldest.profileName;
+    while (m_conversationIndex.size() > keep) {
+        const ConversationEntry oldest = m_conversationIndex.takeLast();
+        const QString prefix = QStringLiteral("ai/conversations/") + oldest.key + QStringLiteral("/");
+        settings.remove(prefix + QStringLiteral("systemPrompt"));
+        settings.remove(prefix + QStringLiteral("messages"));
+        settings.remove(prefix + QStringLiteral("timestamp"));
+        qDebug() << "AIManager: Evicted oldest conversation:"
+                 << oldest.beanBrand << oldest.beanType << oldest.profileName;
+    }
     saveConversationIndex();
 }
 

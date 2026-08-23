@@ -680,6 +680,72 @@ private slots:
         settings.clear();
     }
 
+    // An index that arrives over the cap must come back under it.
+    //
+    // The trim used to drop exactly one entry per call, which made an over-cap
+    // index a STABLE state rather than a transient one: at size 6 with a cap of 5,
+    // dropping one left 5 and the caller's prepend restored 6. loadConversationIndex
+    // appends from disk uncapped, so nothing pulled it back down, and the
+    // ai_conversations tool reported six threads while documenting a limit of five.
+    // Seen on the running app once equipment-scoped keys had pushed it past the cap.
+    void anIndexOverTheCapIsTrimmedBackToIt()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        // Seed MAX_CONVERSATIONS + 2 threads on disk, newest first, each with a
+        // real transcript so the trim has something to delete.
+        const int seeded = AIManager::MAX_CONVERSATIONS + 2;
+        QJsonArray index;
+        QStringList keys;
+        for (int i = 0; i < seeded; ++i) {
+            const QString key = QStringLiteral("seed%1").arg(i);
+            keys << key;
+            AIConversation::appendAssistantTurnForKey(
+                key, i + 1, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+                QStringLiteral("sys"));
+            QJsonObject entry;
+            entry["key"] = key;
+            entry["beanBrand"] = QStringLiteral("Brand");
+            entry["beanType"] = QStringLiteral("Type %1").arg(i);
+            entry["profileName"] = QStringLiteral("P");
+            entry["equipmentId"] = i;
+            // Descending, so index order is genuinely least-recently-used-last.
+            entry["timestamp"] = qint64(10000 - i);
+            index.append(entry);
+        }
+        settings.setValue(QStringLiteral("ai/conversations/index"),
+                          QJsonDocument(index).toJson(QJsonDocument::Compact));
+        // Spend the one-time wipe markers against the seeded state, or constructing
+        // AIManager below would delete the seed instead of trimming it.
+        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
+        settings.setValue(QStringLiteral("ai/migrations/equipment_scoped_conversations_v1"), true);
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        QCOMPARE(mgr.m_conversationIndex.size(), int(AIManager::MAX_CONVERSATIONS));
+        // The survivors must be the most recent ones, not an arbitrary five.
+        for (int i = 0; i < AIManager::MAX_CONVERSATIONS; ++i)
+            QCOMPARE(mgr.m_conversationIndex[i].key, keys[i]);
+
+        // The trim is not bookkeeping-only: the dropped threads' transcripts are
+        // gone from storage, so they cannot resurface through indexStoredConversation.
+        for (int i = AIManager::MAX_CONVERSATIONS; i < seeded; ++i) {
+            QCOMPARE(AIConversation::storedTranscriptState(settings, keys[i]),
+                     AIConversation::TranscriptState::Missing);
+        }
+
+        // And it persisted — a reload must not read the over-cap index back.
+        QNetworkAccessManager nam2;
+        Settings appSettings2;
+        AIManager relaunched(&nam2, &appSettings2);
+        QCOMPARE(relaunched.m_conversationIndex.size(), int(AIManager::MAX_CONVERSATIONS));
+
+        settings.clear();
+    }
+
     // ...and re-opening the overlay after Clear WITHOUT sending anything must
     // not create an entry. A key with no stored thread listed in the index is a
     // ghost: `ai_conversations list` reports it with messageCount 0 while `get`

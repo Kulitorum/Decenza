@@ -470,7 +470,11 @@ private:
     QString m_liveBeanType;
     QString m_liveProfileName;
     qint64 m_liveEquipmentId = 0;
-    void evictOldestConversation();
+    // Drop least-recently-used entries until at most `keep` remain, deleting each
+    // one's stored transcript. Callers pass MAX_CONVERSATIONS - 1 before adding a
+    // new thread, or MAX_CONVERSATIONS to enforce the cap on an index read back
+    // from disk.
+    void trimConversationsTo(int keep);
     void migrateFromLegacyConversation();
     // One-shot conversation wipe keyed by a migration id. Fires once per
     // device; subsequent launches are no-ops. Call before loadConversationIndex.
