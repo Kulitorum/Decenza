@@ -596,6 +596,46 @@ private slots:
         QCOMPARE(tc.currentWeight(), 44.0);
     }
 
+    void cupLiftDetectedOnShotThatNeverReached20g() {
+        // Cup-removal used to require the weight to have EXCEEDED 20 g before it
+        // looked at the drop, so a lift on a ristretto went undetected and settling
+        // finished at the negative reading. 15 g target, so nothing here clears the
+        // old gate; -28.0 is what shot 5470 logged when its cup came off, and being
+        // the cup's tared-out mass it does not scale down with the target.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(15.0, 2.5, 15.5);
+        tc.endShot();
+        QVERIFY(tc.isSawSettling());
+
+        QSignalSpy learnSpy(&tc, &ShotTimingController::sawLearningComplete);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Cup removed during settling"));
+
+        feedPlateauUntilCaptured(tc, 15.2, 0.5);
+
+        tc.onWeightSample(-28.0, 0.5);
+
+        QVERIFY2(!tc.isSawSettling(),
+                 "Cup-removed never fired on a sub-20 g shot, so settling ran on "
+                 "with a negative reading");
+        QVERIFY2(tc.currentWeight() > 14.0 && tc.currentWeight() < 16.5,
+                 qPrintable(QString("Expected ~15.2 g (the clean settled avg), got "
+                                    "%1 g").arg(tc.currentWeight(), 0, 'f', 2)));
+        // A cup lift teaches the predictor nothing, so learning must be skipped --
+        // asserted on the signal, since wasSawTriggered() below cannot observe it.
+        QCOMPARE(learnSpy.count(), 0);
+        // #1161 invariant: the cup-removed branch clears m_sawTriggeredThisShot but
+        // must NOT clear m_stopAtWeightTriggered, which is what wasSawTriggered()
+        // reads -- otherwise MainController::onShotEnded misclassifies this as
+        // "profileEnd" instead of "weight".
+        QVERIFY2(tc.wasSawTriggered(),
+                 "Cup-removed path must preserve wasSawTriggered() == true");
+    }
+
     void cleanAvgSurvivesPostCaptureGateFailure_1280() {
         // Regression guard for the "captured then disturbed" sequence
         // Mark's shot 5470 actually had: settling plateau holds for
@@ -634,7 +674,7 @@ private slots:
         tc.onWeightSample(51.0, 0.5);  // delta +2.6; weightAboveAvg trips
         QCOMPARE(tc.m_lastCleanSettlingAvg, capturedAvg);
 
-        // Cup-removed via single-step drop from 51 to 20 (delta 31 > 20).
+        // Cup-removed: 51.0 -> 20.0 is a 31 g drop below the peak (> CUP_REMOVED_DROP_G).
         tc.onWeightSample(20.0, 0.5);
 
         QVERIFY(!tc.isSawSettling());

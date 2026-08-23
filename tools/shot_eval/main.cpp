@@ -741,7 +741,7 @@ EvaluatedShot evaluate(const LoadedShot& s)
 //   SETTLING_WINDOW_SIZE = 6
 //   SETTLING_AVG_THRESHOLD = 0.3 g
 //   SETTLING_ABOVE_AVG_MARGIN = 0.2 g
-//   cup-removal: >20 g single-step drop OR >20 g cumulative drop from peak
+//   cup-removal: >20 g drop below the settling peak, at any absolute weight
 //   SETTLING_CLEAN_CAPTURE_MS = 250 ms (mirrored here as
 //     MIN_CONSECUTIVE_STABLE_FIRES = 3 — sample-count approximation, see
 //     comment at the declaration for the trade-off vs scale-rate variation)
@@ -865,7 +865,15 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
                 r.stopWeight = w;
                 r.hasSawTrigger = true;
                 curWeight = 0.0;
-                peakWeight = 0.0;
+                // Seeding 0 made the first settling sample test `weight < -20`
+                // instead of `weight < stopWeight - 20`, missing a small-shot lift
+                // that lands on that sample. The trigger weight is the closest seed
+                // the log offers, but it is NOT what production uses: production
+                // seeds from m_weight at endShot, which is higher by whatever drip
+                // accrued during the stop latency. So this still under-detects a
+                // first-sample lift by that margin — conservative, not equivalent.
+                // curWeight above keeps the 0 seed and the same asymmetry.
+                peakWeight = w;
                 continue;
             }
         }
@@ -880,9 +888,10 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
 
         // Mirror cup-removal trigger (before m_weight updates) — if it fires
         // here, the production code would early-return; stop sampling.
-        const bool wouldFireRemoval =
-            (curWeight > CUP_REMOVED_DROP_G && weight < curWeight - CUP_REMOVED_DROP_G) ||
-            (peakWeight > CUP_REMOVED_DROP_G && weight < peakWeight - CUP_REMOVED_DROP_G);
+        // Mirrors ShotTimingController: a drop of CUP_REMOVED_DROP_G below the
+        // settling peak, with no precondition on the weight having reached 20 g.
+        // That precondition used to hide cup lifts on sub-20 g shots entirely.
+        const bool wouldFireRemoval = (weight < peakWeight - CUP_REMOVED_DROP_G);
         if (wouldFireRemoval) {
             cupRemovedFired = true;
             r.cupRemoved = true;
