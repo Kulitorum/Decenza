@@ -54,6 +54,12 @@ struct ShotRow {
     QString grinderBrand{};
     QString grinderModel{};
     QString grinderBurrs{};
+    // Basket identity. Empty = a package with no basket, which is what every
+    // fixture predating equipment scoping produces. Present = the package is
+    // keyed on grinder AND basket, so two rows sharing a grinder but differing
+    // here land in two packages -- the case the advisor must not pool.
+    QString basketBrand{};
+    QString basketModel{};
     QString grinderSetting{};
     // Grinder RPM → shots.rpm. 0 by default, which is also what "not
     // recorded" looks like, so existing fixtures are unaffected and the
@@ -108,6 +114,56 @@ void withRawDb(const QString& path, const QString& connName, Work&& work)
     QVERIFY2(openError.isEmpty(), qPrintable(openError));
 }
 
+// Find-or-create the package for a fixture row's FULL equipment identity:
+// grinder AND basket.
+//
+// Deliberately not EquipmentStorage::findPackageByGrinderIdentityStatic(), which
+// matches on the grinder alone. That is the right question for folding an
+// ACCIDENTAL fork (one real basket, two rows, because a model string was
+// re-typed) and the wrong one here: two different baskets on one grinder are two
+// genuinely different packages. A fixture built on the grinder-only lookup
+// cannot express that, which is why the equipment-scoping tests below could not
+// have been written against it.
+inline qint64 findOrCreatePackage(QSqlDatabase& db, const ShotRow& r)
+{
+    const bool hasGrinder = !(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty()
+                              && r.grinderBurrs.isEmpty());
+    const bool hasBasket = !(r.basketBrand.isEmpty() && r.basketModel.isEmpty());
+    if (!hasGrinder && !hasBasket)
+        return 0;  // no identity at all -> equipment_id stays NULL
+
+    QSqlQuery find(db);
+    find.prepare(QStringLiteral(
+        "SELECT p.id FROM equipment_packages p "
+        "LEFT JOIN equipment_items g ON g.package_id = p.id AND g.kind = 'grinder' "
+        "LEFT JOIN equipment_items b ON b.package_id = p.id AND b.kind = 'basket' "
+        "WHERE COALESCE(g.brand,'') = ? AND COALESCE(g.model,'') = ? "
+        "  AND COALESCE(json_extract(g.attrs,'$.burrs'),'') = ? "
+        "  AND COALESCE(b.brand,'') = ? AND COALESCE(b.model,'') = ?"));
+    find.addBindValue(r.grinderBrand);
+    find.addBindValue(r.grinderModel);
+    find.addBindValue(r.grinderBurrs);
+    find.addBindValue(r.basketBrand);
+    find.addBindValue(r.basketModel);
+    if (!find.exec()) {
+        qWarning() << "findOrCreatePackage: lookup failed:" << find.lastError().text();
+        return 0;
+    }
+    if (find.next())
+        return find.value(0).toLongLong();
+
+    EquipmentPackage pkg;
+    const qint64 id = EquipmentStorage::createPackageWithGrinderStatic(
+        db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs);
+    if (id <= 0) {
+        qWarning() << "findOrCreatePackage: package create failed";
+        return 0;
+    }
+    if (hasBasket && !EquipmentStorage::setBasketItemStatic(db, id, r.basketBrand, r.basketModel))
+        qWarning() << "findOrCreatePackage: basket set failed for package" << id;
+    return id;
+}
+
 inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
 {
     // Grinder identity is no longer a per-shot column (migration 23) — it
@@ -115,15 +171,18 @@ inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     // production save path: find-or-create a package for this row's grinder
     // identity and link the shot to it. The per-shot grind setting stays on the
     // row. An empty identity leaves equipment_id NULL.
-    qint64 equipmentId = 0;
-    if (!(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty() && r.grinderBurrs.isEmpty())) {
-        equipmentId = EquipmentStorage::findPackageByGrinderIdentityStatic(
-            db, r.grinderBrand, r.grinderModel, r.grinderBurrs);
-        if (equipmentId <= 0) {
-            EquipmentPackage pkg;
-            equipmentId = EquipmentStorage::createPackageWithGrinderStatic(
-                db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs);
-        }
+    const qint64 equipmentId = findOrCreatePackage(db, r);
+
+    // shots.uuid is NOT NULL, and a default-constructed QString binds as NULL --
+    // so a fixture that forgets it fails the INSERT with a constraint error that
+    // names the column but not the caller. Every ShotRow literal in the suite
+    // therefore set it by hand. Fill it here instead: an empty uuid could never
+    // have inserted, so supplying one cannot change a test that passes today.
+    // Counter, not QUuid: fixtures should be deterministic across runs.
+    QString uuid = r.uuid;
+    if (uuid.isEmpty()) {
+        static int autoUuid = 0;
+        uuid = QStringLiteral("fixture-auto-%1").arg(++autoUuid);
     }
 
     QSqlQuery q(db);
@@ -146,7 +205,7 @@ inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
             :frozen_date, :defrost_date, :storage_hint, :opened_date
         )
     )"));
-    q.bindValue(":uuid", r.uuid);
+    q.bindValue(":uuid", uuid);
     q.bindValue(":timestamp", r.timestamp);
     q.bindValue(":profile_name", r.profileName);
     q.bindValue(":beverage_type", r.beverageType);

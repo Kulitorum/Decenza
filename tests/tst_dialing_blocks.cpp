@@ -16,6 +16,7 @@
 // directly to expected JSON literals.
 
 #include <QtTest>
+#include <tuple>
 #include <QSet>
 #include <QFile>
 #include <QSqlDatabase>
@@ -4089,6 +4090,246 @@ private slots:
         QCOMPARE(s.getDistinctGrinderBurrsForModel("Niche", "Duo"),  QStringList({ "Ceramic" }));
         s.close();
         QTRY_VERIFY(s.isDbWorkIdle());
+    }
+
+    // ---- Equipment-scope invariant ---------------------------------------
+    //
+    // ONE assertion for a whole class of defect, replacing the per-bug
+    // regression test each round of this work has otherwise produced.
+    //
+    // The premise, measured from real history: on one grinder with one set of
+    // burrs and identical puck prep, a Decent 18g Ridged basket dials in at
+    // 8-10 while a Graph stepped 58->46mm basket dials in at 15-17.5. The
+    // distributions do not overlap; five whole steps separate them. So any
+    // ADVICE-scoped selection that pools the two publishes a number the user
+    // cannot dial in -- with a large, reassuring sample behind it.
+    //
+    // The invariant: for a shot on package B, every advice-scoped selection
+    // returns package-B rows only. It is asserted over all five paths at once,
+    // so a sixth selection point added later is covered by extending the list
+    // rather than by discovering the bug again.
+    //
+    // adviceScope_stepSizeStaysGrinderWide() pins the OTHER side of the
+    // boundary, and is not optional: grind step size must stay grinder-wide to
+    // agree with the Grind quick-select widget's grindStepForGrinder(). Without
+    // it, "scope everything by package" reads as the fix and silently breaks
+    // that agreement.
+
+private:
+    // Seed one grinder + two baskets. Returns the resolved shot id on the
+    // Graph package (the minority basket -- the one a pooled median buries).
+    struct ScopeFixture {
+        qint64 graphShotId = 0;
+        QSet<QString> decentSettings;   // must never surface for a Graph shot
+        QSet<QString> graphSettings;
+    };
+
+    // Out-param rather than a return value: QVERIFY expands to a bare `return;`,
+    // which does not compile in a function with a non-void return type.
+    void seedTwoBaskets(QSqlDatabase& db, const QString& kbId, ScopeFixture& f)
+    {
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+        auto base = [&](const char* setting, int dayAgo, double dur) {
+            ShotRow r;
+            r.timestamp      = now - qint64(dayAgo) * kSecPerDay;
+            r.profileName    = QStringLiteral("D-Flow / Q");
+            r.profileKbId    = kbId;
+            r.beanBrand      = QStringLiteral("Sweet Bloom Coffee");
+            r.beanType       = QStringLiteral("Hometown Blend");
+            r.grinderBrand   = QStringLiteral("Niche");
+            r.grinderModel   = QStringLiteral("Zero");
+            r.grinderBurrs   = QStringLiteral("63mm Mazzer Kony conical");
+            r.grinderSetting = QString::fromLatin1(setting);
+            r.duration       = dur;
+            r.enjoyment      = 0;
+            return r;
+        };
+
+        // Package A -- Decent 18g Ridged. Fine settings, normal times.
+        // 9.5/9.75/10 give a REPEATED 0.25 gap; the Graph rows below never do.
+        // That is what lets the step-size test tell grinder-wide from
+        // package-scoped apart, so do not "tidy" these values.
+        for (auto [setting, day, dur] : { std::tuple{"8",    14, 31.2},
+                                          std::tuple{"8.5",  13, 30.4},
+                                          std::tuple{"9.5",  12, 28.5},
+                                          std::tuple{"9.75", 11, 29.2},
+                                          std::tuple{"10",   10, 28.9},
+                                          std::tuple{"10",    9, 27.9} }) {
+            ShotRow r = base(setting, day, dur);
+            r.basketBrand = QStringLiteral("Decent");
+            r.basketModel = QStringLiteral("18g Ridged");
+            r.enjoyment   = 70;   // the best-rated shot in the DB is a DECENT one
+            QVERIFY(insertShot(db, r) > 0);
+            f.decentSettings.insert(r.grinderSetting);
+        }
+
+        // Package B -- Graph stepped 58->46mm. Same grinder, same burrs, same
+        // bean, same profile. Coarser settings AND longer times: the restriction
+        // is the basket, not the grind.
+        for (auto [setting, day, dur] : { std::tuple{"15",   8, 52.1},
+                                          std::tuple{"16",   7, 52.3},
+                                          std::tuple{"16.5", 6, 58.3},
+                                          std::tuple{"17",   5, 34.8} }) {
+            ShotRow r = base(setting, day, dur);
+            r.basketBrand = QStringLiteral("Graph Coffee");
+            r.basketModel = QStringLiteral("Stepped 58-46mm");
+            r.enjoyment   = 43;   // strictly worse than every Decent shot
+            const qint64 id = insertShot(db, r);
+            QVERIFY(id > 0);
+            f.graphShotId = id;
+            f.graphSettings.insert(r.grinderSetting);
+        }
+    }
+
+    // Collect every grind SETTING a JSON value mentions, at any depth.
+    //
+    // Keyed on the key NAME containing "setting" rather than on a list of known
+    // keys, because the builders do not agree on one: the blocks say
+    // `grinderSetting`, grinderContext says `settingsObserved`,
+    // `observedMinSetting`, `observedMaxSetting` and `allBeansSettings`. A
+    // hardcoded list is how this check silently stops covering a builder that
+    // renames or adds a field -- the first version of this test scanned only
+    // `grinderSetting` and reported grinderContext as clean because it never
+    // looked at it. The rule deliberately does NOT match `stepSize` /
+    // `rpmStepSize` / `rpmsObserved`: a step is not a setting, and pooling it is
+    // correct (see adviceScope_stepSizeStaysGrinderWide).
+    static void collectSettings(const QJsonValue& v, QSet<QString>& out)
+    {
+        auto harvest = [&out](const QJsonValue& leaf) {
+            if (leaf.isString())
+                out.insert(leaf.toString());
+            else if (leaf.isDouble())
+                out.insert(QString::number(leaf.toDouble()));
+        };
+        if (v.isObject()) {
+            const QJsonObject o = v.toObject();
+            for (auto it = o.begin(); it != o.end(); ++it) {
+                const bool isSettingKey =
+                    it.key().contains(QLatin1String("setting"), Qt::CaseInsensitive);
+                if (isSettingKey && it.value().isArray()) {
+                    for (const QJsonValue& e : it.value().toArray())
+                        harvest(e);
+                } else if (isSettingKey && !it.value().isObject()) {
+                    harvest(it.value());
+                } else {
+                    collectSettings(it.value(), out);
+                }
+            }
+        } else if (v.isArray()) {
+            for (const QJsonValue& e : v.toArray())
+                collectSettings(e, out);
+        }
+    }
+
+private slots:
+    void adviceScope_everySelectionAgreesOnPackage()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        const QString kbId = QStringLiteral("dflow_q");
+
+        withRawDb(path, QStringLiteral("scope_invariant"), [&](QSqlDatabase& db) {
+            ScopeFixture f;
+            seedTwoBaskets(db, kbId, f);
+            QVERIFY(f.graphShotId > 0);
+            const ShotProjection cur = projectionForShot(db, f.graphShotId);
+
+            // Every advice-scoped selection, named so a failure says WHICH one
+            // pooled rather than just that something did.
+            struct Path { const char* name; QJsonValue produced; };
+            const QList<Path> paths = {
+                { "buildDialInSessionsBlock",
+                  DialingBlocks::buildDialInSessionsBlock(db, kbId, f.graphShotId, 20) },
+                { "buildBestRecentShotBlock",
+                  DialingBlocks::buildBestRecentShotBlock(db, kbId, f.graphShotId, cur) },
+                { "buildGrinderContextBlock",
+                  DialingBlocks::buildGrinderContextBlock(db, cur.grinderModel,
+                                                             QStringLiteral("espresso"),
+                                                             cur.beanBrand) },
+                // KNOWN GAP: with this fixture the calibration block resolves to
+                // "directional" with pairs=0, so it publishes no setting and
+                // cannot leak one. Its silence here is the fixture being too thin
+                // to make it speak, NOT evidence that it scopes correctly -- it
+                // needs several (batch, kbId) endpoint pairs before it emits a
+                // number. Listed anyway so it is covered the moment the fixture
+                // grows; do not read its absence from the failure list as a pass.
+                { "buildGrinderCalibrationBlock",
+                  DialingBlocks::buildGrinderCalibrationBlock(db, cur.grinderModel,
+                                                                 cur.grinderBurrs,
+                                                                 QStringLiteral("espresso"),
+                                                                 f.graphShotId) },
+            };
+
+            // Accumulate rather than QVERIFY2 per path: aborting on the first
+            // violation reports one pooling selection when there may be five, and
+            // the COUNT is the useful number -- it is the size of the remaining
+            // work. One assertion at the end, listing everything.
+            QStringList violations;
+            auto check = [&](const char* name, const QSet<QString>& seen) {
+                const QSet<QString> foreign = seen & f.decentSettings;
+                if (foreign.isEmpty())
+                    return;
+                QStringList sorted(foreign.begin(), foreign.end());
+                sorted.sort();
+                violations << QStringLiteral("  %1 surfaced %2")
+                                  .arg(QString::fromLatin1(name), sorted.join(", "));
+            };
+
+            for (const Path& p : paths) {
+                QSet<QString> seen;
+                collectSettings(p.produced, seen);
+                check(p.name, seen);
+            }
+
+            // The fifth path returns rows rather than JSON, so it is asserted
+            // directly instead of through collectSettings().
+            const QVariantList recent = ShotHistoryStorage::loadRecentShotsByKbIdStatic(
+                db, kbId, 20, /*excludeShotId=*/-1);
+            QSet<QString> recentSettings;
+            for (const QVariant& row : recent)
+                recentSettings.insert(row.toMap().value(QStringLiteral("grinderSetting")).toString());
+            check("loadRecentShotsByKbIdStatic", recentSettings);
+
+            QStringList graph(f.graphSettings.begin(), f.graphSettings.end());
+            graph.sort();
+            QVERIFY2(violations.isEmpty(),
+                     qPrintable(QStringLiteral(
+                         "%1 of 5 advice-scoped selections pooled across the equipment "
+                         "package for a Graph-basket shot:\n%2\nGraph dials in at %3. "
+                         "Decent-basket settings are ~5 steps too fine and are not "
+                         "reachable on this basket, so every one of these publishes a "
+                         "number the user cannot dial in.")
+                         .arg(violations.size())
+                         .arg(violations.join("\n"), graph.join("/"))));
+        });
+    }
+
+    void adviceScope_stepSizeStaysGrinderWide()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        const QString kbId = QStringLiteral("dflow_q");
+
+        withRawDb(path, QStringLiteral("scope_stepsize"), [&](QSqlDatabase& db) {
+            ScopeFixture f;
+            seedTwoBaskets(db, kbId, f);
+            const ShotProjection cur = projectionForShot(db, f.graphShotId);
+
+            const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
+                db, cur.grinderModel, QStringLiteral("espresso"), cur.beanBrand);
+            QVERIFY2(ctx.contains(QStringLiteral("stepSize")),
+                     "grinderContext produced no stepSize for a populated history");
+
+            // 0.25 exists ONLY across the Decent rows (9.5 -> 9.75 -> 10). The
+            // Graph rows alone yield 0.5. So 0.25 here proves the step is still
+            // derived grinder-wide, which is what keeps the advisor's step equal
+            // to the Grind quick-select widget's grindStepForGrinder(). If a
+            // future change scopes step derivation to the package, this fails --
+            // and it should, because the widget would then disagree with the
+            // advice on the same screen.
+            QCOMPARE(ctx.value(QStringLiteral("stepSize")).toDouble(), 0.25);
+        });
     }
 
 };
