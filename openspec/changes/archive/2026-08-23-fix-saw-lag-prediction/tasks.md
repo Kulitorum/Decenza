@@ -90,4 +90,4 @@
 
 - [x] 8.1 Open a PR.
 - [x] 8.2 Run `/pr-review-toolkit:review-pr` and address what it finds.
-- [ ] 8.3 Archive the change (`openspec archive`) as the final commit on the PR.
+- [x] 8.3 Archive the change (`openspec archive`) as the final commit on the PR.

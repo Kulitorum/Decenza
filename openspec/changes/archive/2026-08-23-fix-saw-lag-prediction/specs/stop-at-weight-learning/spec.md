@@ -42,22 +42,6 @@ commit a pair, since there is no real pair available to commit.
 - **THEN** the committed entry SHALL still be a single shot's `(drip, flow)` pair
 - **AND** the entry's implied lag SHALL NOT be the quotient of the two independent medians
 
-### Requirement: Batch Dispersion Gate
-
-Before a batch commits, the system SHALL reject it if any shot's lag deviates from the
-reference lag by more than the configured deviation bound. The reference SHALL be the lag of
-the shot the batch would commit, not the quotient of the batch's median drip and median flow —
-those two medians can come from different shots, making the comparison reference a lag no shot
-in the batch exhibited, and one that can fall outside the range of the lags being tested.
-
-#### Scenario: The gate compares against a lag some shot had
-
-- **WHEN** a batch reaches its commit size
-- **THEN** the reference each shot's lag is compared against SHALL be a lag one of the shots
-  in that batch produced
-- **AND** it SHALL be the lag of the pair the batch commits, so the gate and the committed
-  entry describe the same shot
-
 ### Requirement: Per-Shot Prediction Diagnostics
 
 The system SHALL log per-shot prediction state to support post-deploy validation of SAW predictions on
@@ -84,3 +68,21 @@ lag came from, so a reader can confirm the two describe the same shot.
 - **WHEN** a batch commits a median entry
 - **THEN** the emitted commit line SHALL carry that entry's lag and the `(drip, flow)` pair
   it was taken from
+
+## ADDED Requirements
+
+### Requirement: Batch Dispersion Gate
+
+Before a batch commits, the system SHALL reject it if any shot's lag deviates from the
+reference lag by more than the configured deviation bound. The reference SHALL be the lag of
+the shot the batch would commit, not the quotient of the batch's median drip and median flow —
+those two medians can come from different shots, making the comparison reference a lag no shot
+in the batch exhibited, and one that can fall outside the range of the lags being tested.
+
+#### Scenario: The gate compares against a lag some shot had
+
+- **WHEN** a batch reaches its commit size
+- **THEN** the reference each shot's lag is compared against SHALL be a lag one of the shots
+  in that batch produced
+- **AND** it SHALL be the lag of the pair the batch commits, so the gate and the committed
+  entry describe the same shot
