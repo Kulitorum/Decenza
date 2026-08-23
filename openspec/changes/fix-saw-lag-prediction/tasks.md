@@ -8,12 +8,18 @@
       and is never divided. Verify: the committed entry's `drip` and `flow` both appear in the
       batch's raw entries.
 - [x] 1.2 Confirm the outlier gate now compares against a lag some shot had, since it reads the
-      same `medianLag`. Verify: no separate gate change was needed.
+      same `medianLag`. Verify: no separate gate change was needed, and
+      `dispersionGateMeasuresAgainstTheMedianLagNotTheMedianOfMedians` fails against the old
+      reference.
+- [x] 1.5 Drop a batch in which no shot had a usable flow, rather than falling back to the
+      composite pair with a printed lag of 0.000 s. Verify:
+      `batchWithNoUsableFlowIsDroppedNotCommitted` asserts the warning and an empty history.
 - [x] 1.3 Confirm the commit log line already carries `(drip, flow)` beside the lag, so a
       submitted log shows the two describe one shot. Verify: `[SAW][Learning] Committed median
-      lag=… (drip=… flow=…)` — unchanged, and `drip/flow` now equals the printed lag.
-- [x] 1.4 Confirm no reader needed changing: `getExpectedDripFor`, `sawLearnedLagFor` and
-      `globalSawBootstrapLag` all still read `drip` and `flow`. Verify: no diff outside the
+      lag=… (drip=… flow=…)` — unchanged, and `drip/flow` equals the printed lag by
+      construction, since `medianLag` is read off the committed pair.
+- [x] 1.4 Confirm no reader needed changing: `sawLearningEntriesFor`, `getExpectedDripFor`,
+      `sawLearnedLagFor` and `recomputeGlobalSawBootstrap` all still read `drip` and `flow`. Verify: no diff outside the
       median computation and the commit step.
 
 ## 2. Tests
@@ -61,15 +67,27 @@
       mainly in wall shape, which is a weak test. Verify: stated in `proposal.md` with the
       condition for revisiting.
 
-## 6. Documentation
+## 6. Review findings
 
-- [x] 6.1 Update `docs/CLAUDE_MD/SAW_LEARNING.md`: the storage-schema table, the commit
+- [x] 6.0 `/pr-review-toolkit:review-pr`. Fixed: the archived probe matched both `887` and
+      `10887` (different shots) and reported the wrong one; `medianDrip`/`medianFlow` no longer
+      held medians and were renamed; the empty-lag fallback committed the composite silently
+      and now drops the batch; `saw_parity` now reports corpus rows with no basket key rather
+      than presenting a collapsed run as a keyed one; the lag/filter derivation was duplicated
+      and is now built once; `globalSawBootstrapLag` was named where
+      `recomputeGlobalSawBootstrap` was meant; the reader inventory omitted
+      `sawLearningEntriesFor`, the reader that feeds the live stop threshold; two tautological
+      assertions deleted; three tests added for behaviour the change moved but nothing covered.
+
+## 7. Documentation
+
+- [x] 7.1 Update `docs/CLAUDE_MD/SAW_LEARNING.md`: the storage-schema table, the commit
       pseudocode, and the "why batched, with median" section. Verify: they match the code.
-- [x] 6.2 No wiki entry. Nothing here is discoverable or actionable by a user — stop-at-weight
+- [x] 7.2 No wiki entry. Nothing here is discoverable or actionable by a user — stop-at-weight
       behaviour is unchanged in kind.
 
-## 7. Ship
+## 8. Ship
 
-- [x] 7.1 Open a PR.
-- [ ] 7.2 Run `/pr-review-toolkit:review-pr` and address what it finds.
-- [ ] 7.3 Archive the change (`openspec archive`) as the final commit on the PR.
+- [x] 8.1 Open a PR.
+- [x] 8.2 Run `/pr-review-toolkit:review-pr` and address what it finds.
+- [ ] 8.3 Archive the change (`openspec archive`) as the final commit on the PR.

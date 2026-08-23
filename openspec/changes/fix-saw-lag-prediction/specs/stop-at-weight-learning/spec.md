@@ -10,8 +10,11 @@ value the code uses.
 A committed median SHALL represent a `(drip, flow)` pair that a single shot in the batch
 actually produced. The system SHALL NOT commit a pair assembled from the drip of one shot
 and the flow of another, because the lag such a pair implies is one no shot exhibited and
-every reader of the entry — the smoother, the learned-lag reader, and the global bootstrap
-median — derives from that lag.
+every reader of the entry derives from that lag — the entries reader that feeds the live
+stop threshold, the smoother, the learned-lag reader, and the global bootstrap recompute.
+
+Where no shot in the batch has a usable flow, the system SHALL drop the batch rather than
+commit a pair, since there is no real pair available to commit.
 
 #### Scenario: Graduated pair uses its committed medians
 
@@ -25,8 +28,13 @@ median — derives from that lag.
 
 - **WHEN** a batch reaches its commit size and passes the outlier gate
 - **THEN** the committed entry's `drip` and `flow` SHALL both come from the same shot in
-  that batch — the shot whose lag is the batch's median lag
-- **AND** the entry's implied lag SHALL equal that batch median lag
+  that batch — the shot whose lag is nearest the median of the batch's per-shot lags
+
+#### Scenario: A batch in which no shot had a usable flow
+
+- **WHEN** every shot in a batch has a flow at or below the usable threshold
+- **THEN** the system SHALL drop the batch and report why
+- **AND** SHALL NOT append an entry to the committed history
 
 #### Scenario: A batch whose median drip and median flow come from different shots
 
@@ -37,16 +45,18 @@ median — derives from that lag.
 ### Requirement: Batch Dispersion Gate
 
 Before a batch commits, the system SHALL reject it if any shot's lag deviates from the
-batch's median lag by more than the configured deviation bound. The value compared against
-SHALL be the median of the batch's per-shot lags, not the quotient of the batch's median
-drip and median flow — those two medians can come from different shots, making the
-comparison reference a lag no shot in the batch exhibited.
+reference lag by more than the configured deviation bound. The reference SHALL be the lag of
+the shot the batch would commit, not the quotient of the batch's median drip and median flow —
+those two medians can come from different shots, making the comparison reference a lag no shot
+in the batch exhibited, and one that can fall outside the range of the lags being tested.
 
 #### Scenario: The gate compares against a lag some shot had
 
 - **WHEN** a batch reaches its commit size
-- **THEN** each shot's lag SHALL be compared against the median of the batch's per-shot lags
-- **AND** for an odd batch size that median SHALL be a value one of the shots produced
+- **THEN** the reference each shot's lag is compared against SHALL be a lag one of the shots
+  in that batch produced
+- **AND** it SHALL be the lag of the pair the batch commits, so the gate and the committed
+  entry describe the same shot
 
 ### Requirement: Per-Shot Prediction Diagnostics
 

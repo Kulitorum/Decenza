@@ -1,21 +1,23 @@
 // saw_parity — confirms tools/saw_replay/'s standalone port of the SAW math
 // produces the same per-shot predictions as the production code path in
-// src/core/settings.cpp. A passing run lets us trust simulator-driven sweep
+// src/core/settings_calibration.cpp. A passing run lets us trust simulator-driven sweep
 // results (e.g. σ=0.25 vs 1.5) as predictive of what production would do
 // under the same change.
 //
 // Architecture:
 //   - Loads the same corpus the simulator consumed
 //   - Walks shots in chronological order, calling production's
-//     Settings::getExpectedDripFor(profile, scale, flow) followed by
-//     Settings::addSawLearningPoint(...) to grow the per-pair state
+//     SettingsCalibration::getExpectedDripFor(profile, scale, flow, basket) followed by
+//     SettingsCalibration::addSawLearningPoint(...) to grow the per-(profile, scale,
+//     basket) state
 //   - Reads the simulator's TSV output (the `old_pred` column, which is
 //     the simulator's OLD-model prediction at the same point)
 //   - Reports per-shot abs-deviation and aggregate by the simulator's
 //     reported `source` column
 //
 // What's actually equivalent vs not:
-//   - perPair (≥2 committed medians for the pair): both code paths run the
+//   - perPair (kSawMinMediansForGraduation committed medians for the pair, 1 today):
+//     both code paths run the
 //     same Gaussian-weighted-average algorithm. EXACT match expected.
 //   - globalBootstrap: simulator aggregates a per-scale pool across pairs
 //     (the proposal's smart-bootstrap concept). Production uses a single
@@ -29,9 +31,16 @@
 // are reported informatively but excluded from the gate.
 //
 // Usage:
-//   saw_parity --corpus baseline_extended.json                      # production MAE only
-//   tools/saw_replay --corpus baseline_extended.json --variant old --mode legacy --sigma 0.25 > sim.tsv
-//   saw_parity --corpus baseline_extended.json --sim sim.tsv        # + simulator parity
+//   C=tools/saw_replay/data/baseline_extended.json
+//
+//   saw_parity --corpus $C                    # production MAE per flow bucket
+//   saw_parity --corpus $C --ignore-basket    # ... with the basket segment removed
+//
+//   tools/saw_replay --corpus $C --variant old --mode legacy --sigma 0.25 > sim.tsv
+//   saw_parity --corpus $C --sim sim.tsv      # ... plus simulator parity
+//
+// Only baseline_extended.json carries a basket key. The other two corpora in that
+// directory predate it; see the missing-basket warning below.
 
 #include "core/settings.h"
 #include "core/settings_calibration.h"
@@ -196,13 +205,19 @@ int main(int argc, char* argv[])
         double worst = 0.0;
     };
     MaeBucket maeOverall, maeLow, maeMid, maeHigh;
+    int rowsWithoutBasket = 0;
     auto bumpMae = [](MaeBucket& b, double absErr) {
         b.n += 1;
         b.absSum += absErr;
         b.worst = std::max(b.worst, absErr);
     };
-    double shot887Err = 0.0;
-    bool shot887Seen = false;
+    // The archived analyses' "shot 887" is id 10887 in the extended corpus: part 1's ids
+    // come from a database that has since been renumbered and are offset by +10000. A
+    // plain 887 also exists there and is an unrelated part-2 shot, so matching both would
+    // silently report whichever came last in the array.
+    constexpr int kArchivedProbeId = 10887;
+    double archivedProbeErr = 0.0;
+    bool archivedProbeSeen = false;
 
     // Production MAE bucketed by the simulator-reported source. Lets us
     // compare "production scalar bootstrap" performance against "simulator
@@ -218,12 +233,16 @@ int main(int argc, char* argv[])
         const double flow = o.value(QStringLiteral("flow")).toDouble();
         const double drip = o.value(QStringLiteral("drip")).toDouble();
         const double overshoot = o.value(QStringLiteral("overshoot")).toDouble();
-        // Corpus rows carry the basket key the shot actually trained. Pass it through
-        // rather than letting it resolve: an empty key resolves against this process's
-        // (empty) settings, which would collapse every basket into one pool and hide
-        // exactly the separation key-saw-learning-by-basket introduced.
-        const QString basket = ignoreBasket ? QStringLiteral("all")
-                                            : o.value(QStringLiteral("basket")).toString();
+        // baseline_extended.json rows carry the basket key the shot actually trained.
+        // Pass it through rather than letting it resolve: an empty key resolves against
+        // this process's (empty) settings to "(none)", collapsing every basket into one
+        // pool and hiding exactly the separation key-saw-learning-by-basket introduced.
+        // baseline.json and baseline_full.json predate the basket key and have no such
+        // field, so a run over either is silently that collapsed case — counted here and
+        // reported beside the results rather than left to look like a keyed run.
+        const QString corpusBasket = o.value(QStringLiteral("basket")).toString();
+        if (corpusBasket.isEmpty()) ++rowsWithoutBasket;
+        const QString basket = ignoreBasket ? QStringLiteral("all") : corpusBasket;
 
         const double prodPred =
             settings.calibration()->getExpectedDripFor(profile, scale, flow, basket);
@@ -235,7 +254,7 @@ int main(int argc, char* argv[])
         if (flow < 1.5) bumpMae(maeLow, prodAbs);
         else if (flow < 3.0) bumpMae(maeMid, prodAbs);
         else bumpMae(maeHigh, prodAbs);
-        if (id == 887 || id == 10887) { shot887Err = prodErr; shot887Seen = true; }
+        if (id == kArchivedProbeId) { archivedProbeErr = prodErr; archivedProbeSeen = true; }
 
         double simPred = 0.0;
         QString simSource = QStringLiteral("(missing)");
@@ -264,7 +283,13 @@ int main(int argc, char* argv[])
     }
 
     out << "\n=== Production MAE per flow bucket (the actual answer) ===\n";
-    out << "basket_segment=" << (ignoreBasket ? "ignored" : "used") << "\n";
+    out << "basket_segment=" << (ignoreBasket ? "ignored" : "used");
+    if (!ignoreBasket && rowsWithoutBasket > 0) {
+        out << "\t(WARNING: " << rowsWithoutBasket << " of " << shotsArr.size()
+            << " corpus rows carry no basket key and resolved to the process default, so "
+               "they share one pool)";
+    }
+    out << "\n";
     out << "bucket\tn\tmae\tworst\n";
     auto reportBucket = [&out](const QString& name, const MaeBucket& b) {
         const double mae = b.n ? b.absSum / b.n : 0.0;
@@ -274,8 +299,9 @@ int main(int argc, char* argv[])
     reportBucket(QStringLiteral("low (<1.5)"), maeLow);
     reportBucket(QStringLiteral("mid [1.5,3)"), maeMid);
     reportBucket(QStringLiteral("high (>=3)"), maeHigh);
-    if (shot887Seen) {
-        out << "shot887_signed_error=" << shot887Err << "\n";
+    if (archivedProbeSeen) {
+        out << "archived_shot887_signed_error=" << archivedProbeErr
+            << "\t(corpus id " << kArchivedProbeId << ")\n";
     }
 
     if (!haveSim) {

@@ -2,11 +2,13 @@
 
 See `proposal.md` — Why, and `analysis.md` for the measured tables.
 
-**The stored entry is read three ways.** `getExpectedDripFor` feeds `(drip, flow)` to the
-Gaussian smoother; `sawLearnedLagFor` reads `drip / flow`; `globalSawBootstrapLag` takes the
-median of pair lags. A fourth reader is inside the commit itself: the outlier gate compares
-each shot's lag against `medianLag`. Anything that changes how the pair is derived changes
-all four.
+**The stored entry is read four ways.** `sawLearningEntriesFor` returns the pairs verbatim to
+the WeightProcessor snapshot that fires the stop — the consequential one; `getExpectedDripFor`
+feeds `(drip, flow)` to the Gaussian smoother; `sawLearnedLagFor` reads `drip / flow`;
+`recomputeGlobalSawBootstrap` divides each pool's newest pair and medians the result
+(`globalSawBootstrapLag` is a plain getter and derives nothing). A fifth reader is inside the
+commit itself: the outlier gate compares each shot's lag against `medianLag`. Anything that
+changes how the pair is derived changes all of them.
 
 **The evaluation instrument works.** An earlier draft of this document asserted that
 `tools/saw_replay` / `tools/saw_parity` had drifted out of usability and had to be repaired
@@ -43,9 +45,22 @@ do), it needs a migration for entries that lack the field, and it leaves the smo
 synthetic pair. Choosing a real shot fixes every reader at once and needs no schema change:
 old entries keep parsing, they are simply less accurate until they age out.
 
-Closest-lag rather than exact equality, even though `kBatchSize = 3` guarantees the median
-belongs to exactly one shot: with an even batch size `medianOf` averages the middle two and no
-shot owns the result. The loop stays correct if that constant ever changes.
+Closest-lag rather than exact equality. The invariant is over the number of *usable* lags,
+not `kBatchSize`: a shot whose flow is at or below 0.5 g/s contributes no lag, and
+`sawLearningImport` writes a pending batch with no size validation, so an even lag count is
+reachable today without that constant changing. When it happens `medianOf` averages the middle
+two and no shot owns the result, so the search takes the nearest.
+
+`medianLag` is then re-read off the chosen shot rather than kept as the averaged value. That is
+what makes the gate and the commit log describe the same real shot in every case, instead of
+only in the odd-count case.
+
+A batch in which *no* shot had a usable flow is dropped with a warning, the same handling every
+other implausible batch gets. The alternative — falling back to `medianOf(drips)` over
+`medianOf(flows)` — would commit exactly the composite this change exists to remove, silently,
+with a printed lag of 0.000 s, and the gate would pass it unconditionally by iterating an empty
+list. A branch reachable only by fault injection that violates the invariant the rest of the
+change asserts is not a fallback worth having.
 
 `medianOver` stays an independent median. It gates the auto-reset, is never divided, and no
 reader pairs it with drip or flow.
@@ -97,8 +112,8 @@ can influence predictions for ~30 shots after the fix. → No migration: rewriti
 entries would require the raw batches that produced them, which are not retained. The trim
 resolves it.
 
-**The corpus contains measurement artifacts.** Nine of 250 rows record a "drip" of 3.4–8.1 g on
-a 36 g target, which is not drip. → Kept, because the previous corpus's skip rule
+**The corpus contains measurement artifacts.** Nine of 250 rows record a "drip" of 3.09–8.06 g,
+which is not drip. → Kept, because the previous corpus's skip rule
 (`drip ∈ [-0.5, 10]`) was kept unchanged so the two harvests are comparable. `analysis.md`
 reports the tightened figure alongside (0.3233 → 0.3167) so the conclusion does not rest on
 them.
