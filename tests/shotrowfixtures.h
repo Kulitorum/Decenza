@@ -245,6 +245,29 @@ inline qint64 onlyEquipmentPackage(QSqlDatabase& db)
     return buckets.isEmpty() ? 0 : buckets.first();
 }
 
+// A projection carrying only the fields the dialing blocks read off the current
+// shot. These are unit tests of the BLOCKS, not of record loading — the blocks
+// used to take these same values as loose arguments, and this keeps the call
+// sites saying what they always said. Where a test has a real seeded shot id,
+// prefer projectionForShot().
+inline ShotProjection shotWith(const QString& grinderModel, const QString& beverageType,
+                               const QString& beanBrand, qint64 equipmentBucket)
+{
+    ShotProjection p;
+    p.id = 1;                     // isValid() is id != 0
+    p.grinderModel = grinderModel;
+    p.beverageType = beverageType;
+    p.beanBrand = beanBrand;
+    p.equipmentId = equipmentBucket;
+    return p;
+}
+
+// For blocks that read only the equipment package off the current shot.
+inline ShotProjection shotInPackage(qint64 equipmentBucket)
+{
+    return shotWith(QString(), QString(), QString(), equipmentBucket);
+}
+
 inline ShotProjection projectionForShot(QSqlDatabase& db, qint64 shotId)
 {
     return ShotHistoryStorage::convertShotRecord(

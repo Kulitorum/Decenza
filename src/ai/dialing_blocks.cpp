@@ -164,18 +164,13 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
                                     qint64 resolvedShotId,
                                     int historyLimit,
-                                    qint64 equipmentBucket)
+                                    const ShotProjection& currentShot)
 {
     QJsonArray sessions;
     if (profileKbId.isEmpty()) return sessions;
 
-    // Equipment scoping: shots on other gear are excluded outright rather than
-    // ranked down. A dial on a different basket is not the same dial, so a
-    // session mixing them describes a grind ordering that never existed.
-    // Unconditional — the caller resolved the bucket from the shot record it
-    // had already loaded, and 0 (unpackaged) matches every unpackaged shot.
     QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(
-        db, profileKbId, historyLimit, resolvedShotId, equipmentBucket);
+        db, profileKbId, historyLimit, resolvedShotId, currentShot.equipmentId);
 
     QList<ShotProjection> shots;
     shots.reserve(history.size());
@@ -460,16 +455,15 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     return b;
 }
 
-QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
-                                     const QString& grinderModel,
-                                     const QString& beverageType,
-                                     const QString& beanBrand,
-                                     qint64 equipmentBucket)
+QJsonObject buildGrinderContextBlock(QSqlDatabase& db, const ShotProjection& currentShot)
 {
+    const QString& grinderModel = currentShot.grinderModel;
+    const QString& beanBrand = currentShot.beanBrand;
+    const qint64 equipmentBucket = currentShot.equipmentId;
     if (grinderModel.isEmpty()) return QJsonObject();
 
-    const QString bevType = beverageType.isEmpty()
-        ? QStringLiteral("espresso") : beverageType;
+    const QString bevType = currentShot.beverageType.isEmpty()
+        ? QStringLiteral("espresso") : currentShot.beverageType;
 
     GrinderContext ctx = ShotHistoryStorage::queryGrinderContext(
         db, grinderModel, bevType, beanBrand, equipmentBucket);
@@ -1228,8 +1222,8 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // landed within 10% of stop-at-weight target OR has a refractometer
     // reading). Replaces the old "≥5g, no-badge-only" filter that admitted
     // undershoot/aborted experiments and corrupted the medians.
-    // `cur` came from loadShotRecordStatic and passed isValid() at the top of
-    // this function, and carries this shot's
+    // `cur` came from loadShotRecordStatic and passed the isValid() early return
+    // at the head of this function's calibration setup, and carries this shot's
     // package. An earlier draft re-queried the bucket here and FAILED CLOSED
     // when the second read came back empty — a branch that needed the one-column
     // lookup to fail on a connection that had just succeeded a whole

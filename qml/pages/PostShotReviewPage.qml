@@ -752,30 +752,16 @@ T.Page {
     // reader needs must be added here (see `equipmentId` below, which was
     // missing and silently un-scoped the AI advisor).
     //
-    // WHY a whitelist rather than Object.assign is NOT settled, and the
-    // explanation that stood here was wrong. It claimed Q_PROPERTYs on the
-    // ShotProjection Q_GADGET wrapper "are exposed as accessors on the
-    // prototype, not as own properties", so `Object.assign` strips them. Qt
-    // does the opposite: QQmlValueTypeWrapperOwnPropertyKeyIterator::next
-    // walks `mo->propertyCount()` and returns every Q_PROPERTY as an own,
-    // enumerable key — only Q_INVOKABLE methods are skipped, and the source
-    // says so in as many words ("We don't return methods, ie. they are not
-    // visible when iterating", qtdeclarative/src/qml/qml/qqmlvaluetypewrapper
-    // .cpp:449). So Object.assign would have copied these fields.
-    //
-    // The SYMPTOMS the old comment lists were real (the AI Advice / Discuss /
-    // Re-Upload buttons vanishing on the `durationSec > 0` predicate, the
-    // graph, the badges row; the `_profileName`/`_visualizerId` caches in this
-    // file are #1241 band-aids for the same episode). Their cause is not
-    // established, and it is not the one that was written down. The whitelist
-    // is kept because it demonstrably works and re-litigating it needs the
-    // original repro, not because the mechanism above is understood.
-    //
-    // Do not propagate the prototype claim: it was copied into
-    // ShotDetailPage.qml on the strength of this comment alone and justified a
-    // change there that was a pure regression. An un-sourced claim in a comment
-    // gets believed and then licenses wrong code — which is exactly what
-    // happened here, twice.
+    // WHY a whitelist rather than Object.assign is NOT established. The
+    // explanation that used to stand here — that Q_PROPERTYs are prototype
+    // accessors Object.assign strips — is FALSE:
+    // QQmlValueTypeWrapperOwnPropertyKeyIterator::next returns every Q_PROPERTY
+    // as an own enumerable key and skips only Q_INVOKABLEs
+    // (qtdeclarative/src/qml/qml/qqmlvaluetypewrapper.cpp:449). The symptoms were
+    // real (the #1241 band-aids in this file are from the same episode); the
+    // cause was never found. Keep the whitelist because it demonstrably works,
+    // and do not restate the prototype claim anywhere — it was copied into
+    // ShotDetailPage.qml on this comment's authority and licensed a regression.
     //
     // Subsequent saves see `src` as the plain-JS clone produced by the previous
     // call, which still has every key, so the chain holds either way.

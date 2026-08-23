@@ -415,31 +415,24 @@ bool DatabaseBackupManager::createBackup(bool force)
                 QJsonArray conversations;
                 QJsonArray indexArr = indexDoc.array();
                 for (const QJsonValue& v : indexArr) {
-                    QJsonObject entry = v.toObject();
-                    QString key = entry["key"].toString();
-                    if (key.isEmpty()) continue;
+                    const QJsonObject entryJson = v.toObject();
+                    if (entryJson["key"].toString().isEmpty()) continue;
 
-                    QString prefix = "ai/conversations/" + key + "/";
-                    QJsonObject conv;
-                    conv["key"] = key;
-                    conv["beanBrand"] = entry["beanBrand"].toString();
-                    conv["beanType"] = entry["beanType"].toString();
-                    conv["profileName"] = entry["profileName"].toString();
-                    conv["timestamp"] = qsettings.value(prefix + "timestamp").toString();
-                    conv["systemPrompt"] = qsettings.value(prefix + "systemPrompt").toString();
-                    conv["contextLabel"] = qsettings.value(prefix + "contextLabel").toString();
-                    conv["indexTimestamp"] = entry["timestamp"].toVariant().toLongLong();
-                    // See the matching line in shotserver_backup.cpp: sparse, and
-                    // absent means "no package".
-                    if (entry.contains("equipmentId"))
-                        conv["equipmentId"] = entry["equipmentId"];
-
-                    QByteArray messagesJson = qsettings.value(prefix + "messages").toByteArray();
-                    if (!messagesJson.isEmpty()) {
-                        QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
-                        conv["messages"] = msgDoc.isArray() ? msgDoc.array() : QJsonArray();
-                    } else {
-                        conv["messages"] = QJsonArray();
+                    // Parse into the same struct ShotServer exports from, then
+                    // share one serializer. These two exporters were separate
+                    // copies reading the index different ways, and adding
+                    // `equipmentId` patched them differently — which is exactly
+                    // the drift the importer's key-derivation check has to guard
+                    // against.
+                    const AIManager::ConversationEntry entry =
+                        AIManager::ConversationEntry::fromJson(entryJson);
+                    AIConversation::TranscriptState state =
+                        AIConversation::TranscriptState::Missing;
+                    const QJsonObject conv =
+                        AIConversation::serializeIndexEntry(qsettings, entry, &state);
+                    if (state != AIConversation::TranscriptState::Ok) {
+                        qWarning() << "DatabaseBackupManager: conversation" << entry.key
+                                   << "has no readable transcript — backing it up without turns";
                     }
 
                     conversations.append(conv);

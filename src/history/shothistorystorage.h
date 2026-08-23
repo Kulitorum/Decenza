@@ -138,10 +138,6 @@ public:
     // Async: runs on background thread, emits shotReady()
     Q_INVOKABLE void requestShot(qint64 shotId);
 
-    // Async: runs on background thread, emits recentShotsByKbIdReady()
-    // Returns summary data (not full time-series) for dial-in history queries.
-    Q_INVOKABLE void requestRecentShotsByKbId(const QString& kbId, int limit = 10);
-
     // An equipment package forks — or merges into an existing one — when the
     // grinder brand/model/burrs, the basket, or the puck-prep set changes on a
     // package that already has shots (EquipmentStorage::supersedeOrEditStatic).
@@ -205,14 +201,14 @@ public:
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
     //
     // `equipmentBucket` scopes the result to one equipment package (see the note
-    // above on why there is no shot-id-to-bucket helper). Absent = this CALLER
-    // does not scope — never "the bucket could not be read". The two callers
-    // genuinely differ: `buildDialInSessionsBlock` always passes one, because a
-    // dial on another basket is not the same dial; `requestRecentShotsByKbId`,
-    // the Q_INVOKABLE generic reader, has no same-gear contract and never had
-    // one.
-    static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1,
-                                                    std::optional<qint64> equipmentBucket = std::nullopt);
+    // above on why there is no shot-id-to-bucket helper). Required, and 0 means
+    // unpackaged — a real, matching bucket, not "unscoped".
+    //
+    // It was briefly optional, justified by a second caller that wanted an
+    // unscoped read. That caller had no callers of its own and has been deleted,
+    // so the justification described a need nothing had.
+    static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit,
+                                                    qint64 excludeShotId, qint64 equipmentBucket);
 
     // Async: profiles used with a bean, for the recipe wizard's ranked profile
     // step (add-recipe-wizard-tea). Emits rankedProfilesForBeanReady() with
@@ -652,7 +648,6 @@ signals:
     void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
     void loadingFilteredChanged();
     void shotReady(qint64 shotId, const ShotProjection& shot);
-    void recentShotsByKbIdReady(const QString& kbId, const QVariantList& shots);
     void rankedProfilesForBeanReady(const QVariantMap& result);
     void latestShotForBeanProfileReady(const QVariantMap& shot);
     void latestGrindForBeanReady(const QVariantMap& grind);

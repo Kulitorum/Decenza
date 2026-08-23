@@ -9,7 +9,12 @@
 #include <optional>
 #include <QtQml/qqmlregistration.h>
 
-class AIManager;
+// For AIManager::ConversationEntry, used by serializeIndexEntry below.
+// aimanager.h does not include this header (it forward-declares AIConversation),
+// so this direction is safe.
+#include "aimanager.h"
+
+
 class TranslationManager;
 class AppSettings;
 
@@ -269,8 +274,7 @@ public:
      * its in-memory state via `loadFromStorage()` after this returns —
      * otherwise the in-app's next `saveToStorage` will overwrite the
      * just-written turn.
-     */
-    /**
+     *
      * `systemPrompt` is the prompt a later IN-APP turn should run under. It is
      * stored only when the key has none yet, so appending to a thread the in-app
      * advisor started leaves that thread's own prompt alone.
@@ -295,6 +299,55 @@ public:
         const QString& assistantResponse,
         const std::optional<QJsonObject>& structuredNext,
         const QString& systemPrompt);
+
+    /**
+     * The four states a stored transcript can be in. "Is there a thread on disk
+     * under this key?" was answered five different ways in this subsystem and
+     * two of them disagreed about a corrupt blob — one treated it as present and
+     * refused to restore over it, the other treated it as absent and silently
+     * dropped it. Callers pick a POLICY from a named state instead of
+     * re-deriving the question.
+     */
+    enum class TranscriptState {
+        Missing,   ///< no `messages` value at all
+        Empty,     ///< valid JSON array with no turns — a ghost, not a thread
+        Corrupt,   ///< unparseable, or JSON that is not an array
+        Ok         ///< a real thread with at least one turn
+    };
+
+    /**
+     * Classify the transcript stored under `storageKey`. `outTurns` receives the
+     * parsed array when the state is `Ok`.
+     *
+     * NOTE `Empty` and `Corrupt` are deliberately distinct: `"[]"` is two bytes,
+     * so a raw-byte emptiness test reports it as a live thread, and a bare
+     * parse-and-check-empty reports damaged bytes as absent. Both mistakes have
+     * shipped here.
+     */
+    static TranscriptState storedTranscriptState(AppSettings& settings,
+                                                 const QString& storageKey,
+                                                 QJsonArray* outTurns = nullptr);
+
+    /**
+     * Serialize one conversation-index entry plus its stored thread into the
+     * archive shape `importConversationsStatic` reads.
+     *
+     * ONE definition, for the same reason the importer is one: this was written
+     * twice — DatabaseBackupManager against the raw index JSON,
+     * ShotServer against the parsed ConversationEntry — and the two copies were
+     * patched DIFFERENTLY when `equipmentId` was added (`contains()` versus
+     * `> 0`). The importer's `keyDerivesFromFields` check exists precisely
+     * because these copies emitted the key and the bean/profile fields from
+     * independent reads; with one definition it becomes a compatibility shim for
+     * older archives rather than a permanent guard against our own exporter.
+     *
+     * A thread that is missing, empty or corrupt yields no `messages` array and
+     * is reported through the return value, so a caller can warn rather than
+     * silently archiving `[]` — which the importer now rejects as malformed.
+     */
+    static QJsonObject serializeIndexEntry(AppSettings& settings,
+                                           const AIManager::ConversationEntry& entry,
+                                           TranscriptState* outState = nullptr);
 
     /**
      * What importConversationsStatic did. Note the units differ: the first

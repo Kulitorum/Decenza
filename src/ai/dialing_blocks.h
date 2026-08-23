@@ -145,17 +145,16 @@ inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped
 // QJsonArray; the array is empty when the profile has no prior shots.
-// Scoped to `equipmentBucket`: shots on other gear make different coffee at
-// the same dial, so pooling them teaches a grind ordering that does not exist.
-// 0 is a real, matching bucket holding every unpackaged shot, so the scoping is
-// a no-op for a user with no packages rather than a filter to be skipped. The
-// caller supplies it from the shot record it has already loaded — there is no
-// unresolved case and nothing to pick a degradation policy for.
+// Scoped to `currentShot`'s equipment package: shots on other gear make
+// different coffee at the same dial, so pooling them teaches a grind ordering
+// that does not exist. Taking the whole record rather than a bucket keeps the
+// scoping fact on the object the caller already holds — see the equipment
+// -bucket note in shothistorystorage.h.
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
                                     qint64 resolvedShotId,
                                     int historyLimit,
-                                    qint64 equipmentBucket);
+                                    const ShotProjection& currentShot);
 
 // Highest-rated past shot on the same profile within the last
 // `kBestRecentShotWindowDays`, with a `changeFromBest` diff against
@@ -170,14 +169,10 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
 // Observed grinder settings range, step size, burr-swappable flag, with
 // bean-scoped → cross-bean fallback. Returns an empty `QJsonObject`
 // when `grinderModel` is empty OR when both queries return no rows.
-// `equipmentBucket` scopes the observed settings to one equipment package;
-// 0 means "unpackaged", which is a real bucket and not a null. The cross-bean
-// fallback widens the bean only — never the equipment.
+// Scoped to `currentShot`'s equipment package. The cross-bean fallback widens
+// the bean only — never the equipment.
 QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
-                                     const QString& grinderModel,
-                                     const QString& beverageType,
-                                     const QString& beanBrand,
-                                     qint64 equipmentBucket);
+                                     const ShotProjection& currentShot);
 
 // `currentBean` block for the resolved shot. Bean / grinder / dose /
 // roastDate fields come from the shot's saved metadata only — never

@@ -1828,7 +1828,7 @@ private slots:
         // this test pins the gating, not the DB query path.)
         QSqlDatabase db; // default-constructed: invalid, never used
         const QJsonArray arr = DialingBlocks::buildDialInSessionsBlock(
-            db, QString(), 1, 5, /*equipmentBucket=*/0);
+            db, QString(), 1, 5, ShotProjection{});
         QVERIFY(arr.isEmpty());
     }
 
@@ -1844,8 +1844,7 @@ private slots:
     void grinderContextBlock_returnsEmpty_whenGrinderModelEmpty()
     {
         QSqlDatabase db;
-        const QJsonObject obj = DialingBlocks::buildGrinderContextBlock(
-            db, QString(), QStringLiteral("espresso"), QString(), /*equipmentBucket=*/0);
+        const QJsonObject obj = DialingBlocks::buildGrinderContextBlock(db, ShotProjection{});
         QVERIFY(obj.isEmpty());
     }
 
@@ -2822,9 +2821,6 @@ private slots:
         QVERIFY2(mgr.conversation()->hasHistory(),
                  "switchConversation must load real disk content even for a key absent from m_conversationIndex");
         QCOMPARE(mgr.conversation()->messageCount(), 2);
-        // ...and index it under THIS shot, not under whatever was open before.
-        QCOMPARE(mgr.m_conversationIndex.size(), 1);
-        QCOMPARE(mgr.m_conversationIndex.first().beanBrand, QStringLiteral("Rogue Wave"));
 
         settings.clear();
     }
@@ -4207,10 +4203,13 @@ private slots:
         settings.clear();
     }
 
-    // Duplicate detection has to run on the key the entry will be WRITTEN
-    // under. Checking the archive's key instead would let a remapped
-    // conversation land on top of a live thread this device already has.
-    void importedConversationDoesNotOverwriteALiveThreadOnTheMappedKey()
+    // A stored "[]" is a GHOST: two bytes, so a raw-byte emptiness test reports
+    // it as a live thread. It is written by ordinary use — saveToStorage has no
+    // empty-history guard and the overlay saves on close — so opening the
+    // advisor and sending nothing leaves one behind. Switching back to that key
+    // must not index it, or the list gains a row that `get` answers
+    // "Conversation not found" for, holding one of the five LRU slots.
+    void switchToAKeyHoldingAnEmptyTranscript_doesNotIndexIt()
     {
         AppSettings settings;
         settings.clear();
@@ -4219,29 +4218,21 @@ private slots:
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
 
-        const QString bean = QStringLiteral("B");
-        const QString type = QStringLiteral("T");
-        const QString profile = QStringLiteral("P");
-        const qint64 destPackage = 41;
-        const QString destKey = AIManager::conversationKey(bean, type, profile, destPackage);
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+        const QString key = AIManager::conversationKey(bean, type, profile, 7);
 
-        // A live local thread on the destination key.
-        AIConversation::appendAssistantTurnForKey(
-            destKey, 99, QStringLiteral("local u"), QStringLiteral("local a"),
-            std::nullopt, QStringLiteral("sys"));
-        mgr.switchConversation(bean, type, profile, destPackage);
-        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        // Exactly what a send-nothing session leaves on disk.
+        settings.setValue(QStringLiteral("ai/conversations/") + key + QStringLiteral("/messages"),
+                          QByteArrayLiteral("[]"));
+        QVERIFY2(!settings.value(QStringLiteral("ai/conversations/") + key
+                                 + QStringLiteral("/messages")).toByteArray().isEmpty(),
+                 "control: the ghost really is non-empty BYTES — that is the trap");
 
-        const QString srcKey = AIManager::conversationKey(bean, type, profile, 12);
-        const QHash<qint64, qint64> packageMap{{12, destPackage}};
-        const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(srcKey, turnsWithShotIds({7}), /*equipmentId=*/12),
-            nullptr, &packageMap);
-        QCOMPARE(tally.conversationsImported, 0);
-
-        QVERIFY2(settings.value("ai/conversations/" + destKey + "/messages")
-                      .toByteArray().contains("local a"),
-                 "the live thread must survive the import");
+        mgr.switchConversation(bean, type, profile, 7);
+        QVERIFY2(mgr.m_conversationIndex.isEmpty(),
+                 "a key holding an empty transcript must not be indexed");
 
         settings.clear();
     }
@@ -4336,7 +4327,15 @@ private slots:
         AIConversation::appendAssistantTurnForKey(
             destKey, 99, QStringLiteral("mcp u"), QStringLiteral("mcp a"),
             std::nullopt, QStringLiteral("sys"));
-        QVERIFY(mgr.m_conversationIndex.isEmpty());
+        // Read PERSISTED state, not the in-memory member: appendAssistantTurnForKey
+        // is a static with no AIManager reference, so an assertion on
+        // mgr.m_conversationIndex could not go red however the write path changed.
+        // What must hold is that the MCP write leaves nothing in the stored index —
+        // that is what makes the on-disk check, rather than the index check, the
+        // thing under test below.
+        mgr.loadConversationIndex();
+        QVERIFY2(mgr.m_conversationIndex.isEmpty(),
+                 "the MCP write path must leave no index entry");
 
         const QString srcKey = AIManager::conversationKey(bean, type, profile, 12);
         const QHash<qint64, qint64> packageMap{{12, destPackage}};

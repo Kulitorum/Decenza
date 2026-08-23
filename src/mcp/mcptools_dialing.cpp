@@ -119,27 +119,18 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // one-shot in-app advisor and ai_advisor_invoke still
                     // build it inline because they have no follow-up
                     // tool-call channel.
-                    // Guard the whole group on the load: a failed
-                    // loadShotRecordStatic yields a default projection whose
-                    // equipmentId is 0, and 0 is a REAL bucket — it would scope
-                    // the grinder context to unpackaged shots rather than skip
-                    // it. That is currently masked because the same failed
-                    // record also has an empty grinderModel, which
-                    // buildGrinderContextBlock short-circuits on; that is a
-                    // coincidence, not a guard.
-                    if (dbResult.shotData.isValid()) {
-                        dbResult.dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                            db, dbResult.profileKbId, resolvedShotId, historyLimit,
-                            dbResult.shotData.equipmentId);
-                        dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
-                            db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
-                        // Bucket from the record already loaded above, not a
-                        // second lookup for THIS block.
-                        dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
-                            db, dbResult.shotData.grinderModel,
-                            dbResult.shotData.beverageType, dbResult.shotData.beanBrand,
-                            dbResult.shotData.equipmentId);
-                    }
+                    // Every block takes the loaded record, so each reads the
+                    // equipment package off the same row it reads the grinder
+                    // from. An invalid record is answered by the isValid() check
+                    // on the main thread below, which returns an error before any
+                    // of these values is read.
+                    dbResult.dialInSessions = DialingBlocks::buildDialInSessionsBlock(
+                        db, dbResult.profileKbId, resolvedShotId, historyLimit,
+                        dbResult.shotData);
+                    dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
+                        db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
+                    dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
+                        db, dbResult.shotData);
                 });
 
                 // --- Deliver results to main thread for final assembly ---

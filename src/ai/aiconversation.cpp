@@ -451,6 +451,52 @@ static QJsonArray remapTurnShotIds(const QJsonArray& messages,
     return out;
 }
 
+QJsonObject AIConversation::serializeIndexEntry(AppSettings& settings,
+                                                const AIManager::ConversationEntry& entry,
+                                                TranscriptState* outState)
+{
+    const QString prefix = QStringLiteral("ai/conversations/") + entry.key + QStringLiteral("/");
+
+    QJsonObject conv;
+    conv[QStringLiteral("key")] = entry.key;
+    conv[QStringLiteral("beanBrand")] = entry.beanBrand;
+    conv[QStringLiteral("beanType")] = entry.beanType;
+    conv[QStringLiteral("profileName")] = entry.profileName;
+    conv[QStringLiteral("timestamp")] = settings.value(prefix + "timestamp").toString();
+    conv[QStringLiteral("systemPrompt")] = settings.value(prefix + "systemPrompt").toString();
+    conv[QStringLiteral("contextLabel")] = settings.value(prefix + "contextLabel").toString();
+    conv[QStringLiteral("indexTimestamp")] = entry.timestamp;
+    // Sparse, matching ConversationEntry::toJson — absent means "no package",
+    // which fromJson reads back as 0.
+    if (entry.equipmentId > 0)
+        conv[QStringLiteral("equipmentId")] = static_cast<double>(entry.equipmentId);
+
+    QJsonArray turns;
+    const TranscriptState state = storedTranscriptState(settings, entry.key, &turns);
+    if (state == TranscriptState::Ok)
+        conv[QStringLiteral("messages")] = turns;
+    if (outState) *outState = state;
+    return conv;
+}
+
+AIConversation::TranscriptState AIConversation::storedTranscriptState(
+    AppSettings& settings, const QString& storageKey, QJsonArray* outTurns)
+{
+    const QString prefix = QStringLiteral("ai/conversations/") + storageKey + QStringLiteral("/");
+    const QByteArray raw = settings.value(prefix + QStringLiteral("messages")).toByteArray();
+    if (raw.isEmpty()) return TranscriptState::Missing;
+
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(raw, &err);
+    if (err.error != QJsonParseError::NoError || !doc.isArray())
+        return TranscriptState::Corrupt;
+
+    const QJsonArray turns = doc.array();
+    if (turns.isEmpty()) return TranscriptState::Empty;
+    if (outTurns) *outTurns = turns;
+    return TranscriptState::Ok;
+}
+
 AIConversation::ImportTally AIConversation::importConversationsStatic(
     AppSettings& settings,
     const QJsonArray& conversations,
@@ -500,15 +546,9 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
             malformed++;
             continue;
         }
-        // Remap the equipment package and RECOMPUTE the key from it. Package
-        // row ids are renumbered on import exactly like shot ids, and this one
-        // is baked into the conversation's identity — restoring the source key
-        // verbatim leaves a thread the app can never address again. The
-        // recomputed key is what the app will compute when the user opens a
-        // shot on the mapped package, so the thread resumes.
-        //
-        // Only a PACKAGED conversation moves. equipmentId 0 means "no package",
-        // which is device-independent, so its key is already correct.
+        // Remap the package and RECOMPUTE the key from it — contract on the
+        // declaration. Only a PACKAGED conversation moves; equipmentId 0 is
+        // device-independent, so its key is already correct here.
         const QString beanBrand = conv.value(QStringLiteral("beanBrand")).toString();
         const QString beanType = conv.value(QStringLiteral("beanType")).toString();
         const QString profileName = conv.value(QStringLiteral("profileName")).toString();
@@ -567,9 +607,20 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
         // one: storageKey is now aimed at exactly the key this device computes
         // for that shot.
         const QString prefix = QStringLiteral("ai/conversations/") + storageKey + QStringLiteral("/");
-        const bool threadOnDisk =
-            !settings.value(prefix + QStringLiteral("messages")).toByteArray().isEmpty();
-        if (existingKeys.contains(storageKey) || threadOnDisk) {
+        const TranscriptState onDisk = storedTranscriptState(settings, storageKey);
+        // Only a REAL thread blocks the restore. A byte test here reported "[]"
+        // as live — and "[]" is written by ordinary use, because saveToStorage
+        // has no empty-history guard, so opening the advisor and closing without
+        // sending leaves one under exactly the key the rekey aims at. The
+        // archived thread would then be refused, reported "already present", and
+        // unrecoverable by retrying, since the ghost is still there next time.
+        // Corrupt bytes must not block it either: a user restoring a backup
+        // BECAUSE their local copy is damaged is the case that matters most.
+        if (onDisk == TranscriptState::Corrupt) {
+            qWarning() << "AIConversation::importConversationsStatic: unreadable thread on disk for key"
+                       << storageKey << "— restoring the archived copy over it";
+        }
+        if (existingKeys.contains(storageKey) || onDisk == TranscriptState::Ok) {
             skippedExisting++;
             continue;
         }

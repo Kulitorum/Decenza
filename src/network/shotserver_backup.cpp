@@ -412,34 +412,18 @@ QJsonArray ShotServer::serializeAIConversations() const
     QJsonArray result;
 
     for (const auto& entry : m_aiManager->conversationIndex()) {
-        QString prefix = "ai/conversations/" + entry.key + "/";
-
-        QJsonObject conv;
-        conv["key"] = entry.key;
-        conv["beanBrand"] = entry.beanBrand;
-        conv["beanType"] = entry.beanType;
-        conv["profileName"] = entry.profileName;
-        conv["timestamp"] = settings.value(prefix + "timestamp").toString();
-        conv["systemPrompt"] = settings.value(prefix + "systemPrompt").toString();
-        conv["contextLabel"] = settings.value(prefix + "contextLabel").toString();
-        conv["indexTimestamp"] = entry.timestamp;
-        // The equipment package the thread is keyed on. Sparse like
-        // ConversationEntry::toJson — absent means "no package", which
-        // fromJson reads back as 0. Without it a restored thread's index entry
-        // claims equipmentId 0 while its key was hashed on a real package, so
-        // the entry and the key it addresses disagree about which gear the
-        // conversation is about.
-        if (entry.equipmentId > 0) conv["equipmentId"] = entry.equipmentId;
-
-        QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
-        if (!messagesJson.isEmpty()) {
-            QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
-            if (msgDoc.isArray()) conv["messages"] = msgDoc.array();
-            else conv["messages"] = QJsonArray();
-        } else {
-            conv["messages"] = QJsonArray();
+        // ONE serializer, shared with DatabaseBackupManager — see
+        // AIConversation::serializeIndexEntry for why this was not two.
+        AIConversation::TranscriptState state = AIConversation::TranscriptState::Missing;
+        const QJsonObject conv = AIConversation::serializeIndexEntry(settings, entry, &state);
+        if (state != AIConversation::TranscriptState::Ok) {
+            // Say so at BACKUP time. A thread that cannot be read is archived
+            // without turns and the importer rejects it as malformed, so silence
+            // here means the user only finds out during a restore that reports
+            // success.
+            qWarning() << "ShotServer: conversation" << entry.key
+                       << "has no readable transcript — archiving it without turns";
         }
-
         result.append(conv);
     }
 

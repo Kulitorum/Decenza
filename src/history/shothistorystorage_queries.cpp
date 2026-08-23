@@ -8,7 +8,7 @@
 // Owning concerns (per openspec/changes/split-shothistorystorage-by-concern/):
 //   - filtered queries: requestShotsFiltered + buildFilterQuery + parseFilterMap +
 //     formatFtsQuery (FTS5 query construction) + s_sortColumnMap (sort-column whitelist).
-//   - recents-by-kbId: requestRecentShotsByKbId + loadRecentShotsByKbIdStatic.
+//   - recents-by-kbId: loadRecentShotsByKbIdStatic.
 //   - distinct-value getters: queryDistinctList + getDistinctValues +
 //     getDistinct* getters + s_allowedColumns whitelist + sortGrinderSettings.
 //   - auto-favorites: requestAutoFavorites + requestAutoFavoriteGroupDetails.
@@ -662,40 +662,13 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
 }
 
 
-void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit)
-{
-    if (!m_ready || kbId.isEmpty()) {
-        emit recentShotsByKbIdReady(kbId, QVariantList());
-        return;
-    }
-
-    const QString dbPath = m_dbPath;
-    auto destroyed = m_destroyed;
-    runDetachedDbThread([this, dbPath, kbId, limit, destroyed]() {
-        QVariantList results;
-        withTempDb(dbPath, "shs_kbid", [&](QSqlDatabase& db) {
-            results = loadRecentShotsByKbIdStatic(db, kbId, limit);
-        });
-
-        if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, kbId, results = std::move(results), destroyed]() {
-            if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: recentShotsByKbId callback dropped (object destroyed)";
-                return;
-            }
-            emit recentShotsByKbIdReady(kbId, results);
-        }, Qt::QueuedConnection);
-    });
-
-}
-
 QString ShotHistoryStorage::equipmentBucketSql(const QString& column, const QString& placeholder)
 {
     return QStringLiteral("COALESCE(%1, 0) = %2").arg(column, placeholder);
 }
 
-QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId,
-                                                             std::optional<qint64> equipmentBucket)
+QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit,
+                                                             qint64 excludeShotId, qint64 equipmentBucket)
 {
     QVariantList results;
     // Grinder identity resolved via the equipment_id pointer (add-equipment-
@@ -732,15 +705,8 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
     )");
     if (excludeShotId >= 0)
         sql += QStringLiteral(" AND s.id != ?");
-    // Equipment scoping is OPTIONAL on this loader — the only place in the
-    // advisor path where it still is — because two REAL callers want different
-    // things, not because there is a failure to degrade on: the advisor's
-    // dialInSessions must not pool across packages (a dial on another basket is
-    // not the same dial), while `requestRecentShotsByKbId`, the Q_INVOKABLE
-    // generic reader, has no same-gear contract and never had one. Absent means
-    // "this caller does not scope", never "the bucket could not be read".
-    if (equipmentBucket.has_value())
-        sql += QStringLiteral(" AND ") + equipmentBucketSql(QStringLiteral("s.equipment_id"));
+    // Unconditional — see the declaration. 0 (unpackaged) is a matching bucket.
+    sql += QStringLiteral(" AND ") + equipmentBucketSql(QStringLiteral("s.equipment_id"));
     sql += QStringLiteral(" ORDER BY s.timestamp DESC LIMIT ?");
 
     QSqlQuery query(db);
@@ -753,8 +719,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
     query.bindValue(idx++, kbId);
     if (excludeShotId >= 0)
         query.bindValue(idx++, excludeShotId);
-    if (equipmentBucket.has_value())
-        query.bindValue(idx++, *equipmentBucket);
+    query.bindValue(idx++, equipmentBucket);
     query.bindValue(idx, limit);
 
     if (query.exec()) {

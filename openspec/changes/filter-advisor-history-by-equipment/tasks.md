@@ -409,8 +409,9 @@ the bug it replaced.
 - [x] 5f.7 Tests: `importedPreEquipmentConversationReadsAsUnpackaged` **could not fail** — it
       asserted `equipmentId == 0`, which is the field's default initialiser, so deleting the whole
       carry-through left it green. That is the fifth such assertion in this change. Deleted, along
-      with `importedConversationKeepsItsEquipmentPackage`, which asserted strictly less than its
-      sibling. Four new slots in their place, each verified red with its fix disabled:
+      with `importedConversationKeepsItsEquipmentPackage` — not as a duplicate, but
+      because 5f.6 deliberately changed the value it pinned (an unmapped import now writes 0, not
+      the source id), so it would have gone red. A contract moved, and the entry should say so. Four new slots in their place, each verified red with its fix disabled:
       `importedConversationWithAKeyThatDoesNotMatchItsFieldsIsNotRekeyed`,
       `importedConversationDoesNotClobberAnUnindexedMcpThread`,
       `importedConversationWithNoTurnsIsRejectedAsMalformed`,
@@ -419,7 +420,7 @@ the bug it replaced.
       `ConversationEntry::equipmentId` "DEVICE-LOCAL… not remapped, nor could it be" note, written
       one commit before the remap landed; "every caller now takes the bucket off a loaded record"
       (two callers read the column inline); the `conversationPersisted` rationale's clause (b),
-      which 9056f284 made unreachable; "same check the settings classes use", wrong for two of the
+      which the m_live* hoist in a2f1903b made unreachable; "same check the settings classes use", wrong for two of the
       four files cited and pointing at the opposite of what `settings.cpp` does; "nothing was
       excluded" for bucket 0, false for a user with both packaged and unpackaged shots; the
       `loadRecentShotsByKbIdStatic` contract still citing the deleted `equipmentBucketForShot`; a
@@ -444,6 +445,77 @@ the bug it replaced.
       thread.** Reopening the overlay on the SAME shot after an MCP write leaves the in-memory
       conversation empty, so QML takes the `ask()` branch and the model is sent a thread with none
       of the MCP history. Turns are not lost — `saveToStorage` reconciles — but the context is.
+
+## 5g. Fifth review round, plus a cleanup pass on the change's own size
+
+Five review agents over the round-four commit, and four cleanup agents over the whole change
+measuring whether its size was justified. The correctness pattern held a fourth time; the size
+question produced a clearer answer than the headline number suggested.
+
+**Measured size.** 4175 lines is not 4175 lines of code: 1253 are OpenSpec planning artifacts,
+1581 are tests, and of the 1341 production lines **797 are comments** — leaving **506 lines of
+actual code**.
+
+- [x] 5g.1 **The round-four fix reintroduced, two functions away, the defect it had just fixed.**
+      `indexStoredConversation` was changed from a raw-byte emptiness test to a parse, because
+      `"[]"` is two bytes and not an empty `QByteArray`. The import's new on-disk duplicate check,
+      added in the same commit, used the byte form. `saveToStorage` has no empty-history guard and
+      `ConversationOverlay` saves unconditionally on close, so opening the advisor and sending
+      nothing leaves `"[]"` under exactly the key the rekey aims at — and a restore then skipped
+      the archived thread, reported "already present", and could not be recovered by retrying.
+      Both sites now go through one `AIConversation::storedTranscriptState()` returning
+      `{Missing, Empty, Corrupt, Ok}`. That also fixes the third disagreement: a corrupt blob used
+      to be indexed and flagged `corrupted: true`, and the round-four parse made it vanish from the
+      list entirely.
+- [x] 5g.2 **`hadStoredConversations` could not see the data the same function deletes.** It probed
+      the plural `ai/conversations` group; the wipe also removes the singular `ai/conversation/*`
+      legacy keys twenty lines later. So a user upgrading from pre-keyed storage — whose ENTIRE
+      advisor history is that one key — had it deleted and logged at `qDebug` as "no conversations
+      to clear". The `qInfo` added in 5e.9 exists for exactly that conversation and did not fire.
+      `construction_wipeAlsoRemovesTheLegacyThread` builds precisely this state. Also switched to
+      `childGroups()` so a bare `index` key cannot claim a deletion that did not happen.
+- [x] 5g.3 **`withTempDb`'s return was discarded**, so a database that never OPENS ran no queries,
+      and "each query that fails clears the flag" was true and useless. The fabricated "No prior
+      shots with this equipment set" escapes whenever the history connection fails to open and the
+      grinder-context one succeeds.
+- [x] 5g.4 **A sixth assertion that could not fail.** `QVERIFY(mgr.m_conversationIndex.isEmpty())`
+      after `appendAssistantTurnForKey` — a static with no `AIManager` reference, so no production
+      change could redden it. It now reads persisted state. Also deleted a dominated slot (no
+      mutation reddens it but not its sibling) and three duplicated lines.
+- [x] 5g.5 **Altitude.** Three of the five dialing builders already took a `ShotProjection` and
+      needed ZERO signature change to get equipment scoping; the two that took destructured strings
+      each cost a parameter threaded through five or six files. `buildDialInSessionsBlock` and
+      `buildGrinderContextBlock` now take the record too (the latter went from five parameters to
+      two). Adding a ninth selection point drops from **7 files / 9 edit points to 1 file / 2**.
+- [x] 5g.6 **`loadRecentShotsByKbIdStatic`'s optional bucket was justified by a caller that does
+      not exist.** `requestRecentShotsByKbId` had no callers at all — only its own declaration,
+      definition, and the comments citing it. The parameter is now required and the dead reader and
+      its signal are gone.
+- [x] 5g.7 **The conversation exporter was forked in two files** and this change had patched the
+      two copies differently (`contains()` versus `> 0`). One
+      `AIConversation::serializeIndexEntry()` now serves both, which is what
+      `keyDerivesFromFields` was guarding against — it becomes a compatibility shim for older
+      archives rather than a permanent guard against our own exporters. Both callers now warn at
+      BACKUP time when a transcript is unreadable, instead of letting the user discover it during a
+      restore that reports success.
+- [x] 5g.8 **A redundant guard deleted.** The `isValid()` check added in 5e.11 sat twenty lines
+      above an existing `isValid()` early return on the identical condition.
+- [x] 5g.9 Comment cuts. Eight facts were each restated between four and eleven times — "bucket 0
+      is a real, matching bucket" at ELEVEN sites. Two declaration/definition pairs were
+      near-verbatim duplicates, the shape this change has already watched drift once. Corrected
+      claims: "twelve `setStatus` call sites" is eleven; the `FormatError` latch is INI-backend
+      only, so it cannot occur on the native macOS and Windows backends (Android, Linux and all
+      test builds are affected); the bucket-0 silence is a choice, not a claim that nothing was
+      filtered; and two `tasks.md` entries cited the wrong commit and the wrong reason for a
+      deletion.
+
+### 5g note — the comment ratio is a type problem
+
+797 comment lines against 506 code lines is 1.6:1, and the largest single driver is that
+`qint64 equipmentBucket` looks exactly like a nullable id, so every author felt obliged to write
+"0 is real here". A named type — or even `enum { UnpackagedBucket = 0 }` — would delete roughly
+eight of those eleven comments by making the code state what the prose currently has to. Recorded
+rather than done: it is a follow-up, not this change.
 
 ## 6. Prompt rules
 

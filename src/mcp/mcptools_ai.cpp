@@ -161,12 +161,10 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // across surfaces. See openspec
                         // add-dialing-blocks-to-advisor.
                         dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                            db, shot.profileKbId, resolvedShotId, 5, equipmentBucket);
+                            db, shot.profileKbId, resolvedShotId, 5, shot);
                         bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
                             db, shot.profileKbId, resolvedShotId, shot);
-                        grinderContext = DialingBlocks::buildGrinderContextBlock(
-                            db, shot.grinderModel, shot.beverageType, shot.beanBrand,
-                            equipmentBucket);
+                        grinderContext = DialingBlocks::buildGrinderContextBlock(db, shot);
                         grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
                             db, shot.grinderModel, shot.grinderBurrs,
                             shot.beverageType, resolvedShotId);
@@ -254,13 +252,9 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     //    the write-if-absent rule was meant to prevent, arriving
                     //    from the other direction.
                     //
-                    // What it must NOT be is empty. An override used to suppress
-                    // this, which left the thread with turns and no stored prompt
-                    // — visible in the app, and refusing every follow-up with
-                    // "Please start a new conversation first", with Clear (which
-                    // deletes the turns) as the only way out. The override governs
-                    // this call; it says nothing about what the thread should be
-                    // continuable under.
+                    // Never empty: the override governs this CALL and says
+                    // nothing about what the thread should be continuable under.
+                    // The consequence of an empty one is on appendAssistantTurnForKey.
                     QString promptToPersist;
                     if (aiLive->conversation()) {
                         promptToPersist = aiLive->conversation()->multiShotSystemPrompt(
@@ -404,12 +398,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                                     shot.equipmentId);
                                 // The system prompt rides along so the user can
                                 // CONTINUE this thread in the app. Without it
-                                // followUp() refuses the thread outright and the
-                                // only way forward is Clear, which deletes these
-                                // turns — see appendAssistantTurnForKey. This is
-                                // always the multi-shot prompt, never a caller's
-                                // `systemPromptOverride`; empty only when there
-                                // is no live AIConversation to build it from.
+                                // Always the multi-shot prompt — see
+                                // appendAssistantTurnForKey and promptToPersist above.
                                 AIConversation::appendAssistantTurnForKey(
                                     convKey, resolvedShotId,
                                     userPrompt, response, structured, promptToPersist);

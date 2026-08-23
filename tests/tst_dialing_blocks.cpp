@@ -46,6 +46,8 @@ using ShotRowFixtures::insertShot;
 using ShotRowFixtures::projectionForShot;
 using ShotRowFixtures::packageForShot;
 using ShotRowFixtures::onlyEquipmentPackage;
+using ShotRowFixtures::shotWith;
+using ShotRowFixtures::shotInPackage;
 
 
 constexpr qint64 kSecPerDay = 24 * 3600;
@@ -263,7 +265,7 @@ private slots:
             // enough to pull all four older shots.
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
                 db, QStringLiteral("kb-80s"), /*resolvedShotId=*/-1, /*historyLimit=*/10,
-                onlyEquipmentPackage(db));
+                shotInPackage(onlyEquipmentPackage(db)));
 
             // Two sessions, newest first (session B with 1 shot, session A
             // with 3 shots).
@@ -343,7 +345,7 @@ private slots:
             QVERIFY(insertShot(db, s3) > 0);
 
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
-                db, QStringLiteral("kb-lc2"), -1, 10, onlyEquipmentPackage(db));
+                db, QStringLiteral("kb-lc2"), -1, 10, shotInPackage(onlyEquipmentPackage(db)));
             QCOMPARE(sessions.size(), 1);
             const QJsonObject session = sessions[0].toObject();
             const QJsonObject context = session.value(QStringLiteral("context")).toObject();
@@ -379,7 +381,7 @@ private slots:
         initAndClose(path);
         withRawDb(path, QStringLiteral("dial_empty"), [&](QSqlDatabase& db) {
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
-                db, QStringLiteral("kb-no-rows"), -1, 10, onlyEquipmentPackage(db));
+                db, QStringLiteral("kb-no-rows"), -1, 10, shotInPackage(onlyEquipmentPackage(db)));
             QVERIFY(sessions.isEmpty());
         });
     }
@@ -592,8 +594,7 @@ private slots:
             }
 
             const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
-                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
-                QStringLiteral("Northbound"), onlyEquipmentPackage(db));
+                db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QStringLiteral("Northbound"), onlyEquipmentPackage(db)));
 
             QCOMPARE(ctx.value(QStringLiteral("model")).toString(), QStringLiteral("Zero"));
             QCOMPARE(ctx.value(QStringLiteral("beverageType")).toString(),
@@ -635,8 +636,7 @@ private slots:
             }
 
             const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
-                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
-                QStringLiteral("Northbound"), onlyEquipmentPackage(db));
+                db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QStringLiteral("Northbound"), onlyEquipmentPackage(db)));
             QCOMPARE(ctx.value(QStringLiteral("settingsObserved")).toArray().size(), 3);
             QVERIFY2(!ctx.contains(QStringLiteral("allBeansSettings")),
                      "rich bean-scoped result must not trigger cross-bean fallback");
@@ -673,8 +673,7 @@ private slots:
 
             auto stepFor = [&]() {
                 const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
-                    db, QStringLiteral("Zero"), QStringLiteral("espresso"),
-                    QStringLiteral("Cimarron"), onlyEquipmentPackage(db));
+                    db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QStringLiteral("Cimarron"), onlyEquipmentPackage(db)));
                 return ctx.value(QStringLiteral("stepSize")).toDouble();
             };
 
@@ -716,8 +715,7 @@ private slots:
             // Unscoped (empty beanBrand) so the single value isn't widened by the
             // cross-bean fallback — one distinct setting, no derivable step.
             const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
-                db, QStringLiteral("Zero"), QStringLiteral("espresso"), QString(),
-                onlyEquipmentPackage(db));
+                db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QString(), onlyEquipmentPackage(db)));
             QVERIFY2(!ctx.contains(QStringLiteral("stepSize")),
                      "a single distinct setting must not yield a stepSize");
         });
@@ -756,8 +754,7 @@ private slots:
 
             // Bean argument present, but the step must be grinder-wide → 0.25.
             const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
-                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
-                QStringLiteral("Mixed"), onlyEquipmentPackage(db));
+                db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QStringLiteral("Mixed"), onlyEquipmentPackage(db)));
             const double step = ctx.value(QStringLiteral("stepSize")).toDouble();
             QVERIFY2(qAbs(step - 0.25) < 0.0001,
                      qPrintable(QString("finest repeated step expected 0.25, got %1").arg(step)));
@@ -791,8 +788,7 @@ private slots:
 
             // Scope the query to Bean A; the grinder-wide step still sees Bean B.
             const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
-                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
-                QStringLiteral("BeanA"), onlyEquipmentPackage(db));
+                db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QStringLiteral("BeanA"), onlyEquipmentPackage(db)));
             const double step = ctx.value(QStringLiteral("stepSize")).toDouble();
             QVERIFY2(qAbs(step - 0.25) < 0.0001,
                      qPrintable(QString("grinder-wide step expected 0.25, got %1").arg(step)));
@@ -816,8 +812,7 @@ private slots:
                 QVERIFY(insertShot(db, r) > 0);
             }
             const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
-                db, QStringLiteral("Zero"), QStringLiteral("espresso"), QString(),
-                onlyEquipmentPackage(db));
+                db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QString(), onlyEquipmentPackage(db)));
             const double step = ctx.value(QStringLiteral("stepSize")).toDouble();
             QVERIFY2(qAbs(step - 0.05) < 0.0001,
                      qPrintable(QString("sub-floor gap should clamp to 0.05, got %1").arg(step)));
@@ -843,8 +838,7 @@ private slots:
                 QVERIFY(insertShot(db, r) > 0);
             }
             const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
-                db, QStringLiteral("Zero"), QStringLiteral("espresso"), QString(),
-                onlyEquipmentPackage(db));
+                db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QString(), onlyEquipmentPackage(db)));
             const double step = ctx.value(QStringLiteral("stepSize")).toDouble();
             QVERIFY2(qAbs(step - 1.0) < 0.0001,
                      qPrintable(QString("no-repeat fallback expected 1.0, got %1").arg(step)));
@@ -871,8 +865,7 @@ private slots:
                 QVERIFY(insertShot(db, r) > 0);
             }
             const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
-                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
-                QStringLiteral("Mix"), onlyEquipmentPackage(db));
+                db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QStringLiteral("Mix"), onlyEquipmentPackage(db)));
             // Numeric step present (0.5 from 8/8.5/9)...
             QVERIFY2(qAbs(ctx.value(QStringLiteral("stepSize")).toDouble() - 0.5) < 0.0001,
                      "mixed history should still yield a numeric stepSize");
@@ -967,11 +960,11 @@ private slots:
                 ShotProjection sp = ShotHistoryStorage::convertShotRecord(rec);
                 const QString kbId = rec.profileKbId;
                 QJsonArray  sessions = DialingBlocks::buildDialInSessionsBlock(
-                    db, kbId, shotId, kHistoryLimit, sp.equipmentId);
+                    db, kbId, shotId, kHistoryLimit, sp);
                 QJsonObject best = DialingBlocks::buildBestRecentShotBlock(
                     db, kbId, shotId, sp);
                 QJsonObject grinder = DialingBlocks::buildGrinderContextBlock(
-                    db, sp.grinderModel, sp.beverageType, sp.beanBrand, sp.equipmentId);
+                    db, sp);
                 return std::make_tuple(sessions, best, grinder);
             };
 
@@ -988,11 +981,11 @@ private slots:
                 ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, excludeId);
                 ShotProjection sp = ShotHistoryStorage::convertShotRecord(rec);
                 QJsonArray  sessions = DialingBlocks::buildDialInSessionsBlock(
-                    db, kbId, excludeId, kHistoryLimit, sp.equipmentId);
+                    db, kbId, excludeId, kHistoryLimit, sp);
                 QJsonObject best = DialingBlocks::buildBestRecentShotBlock(
                     db, kbId, excludeId, sp);
                 QJsonObject grinder = DialingBlocks::buildGrinderContextBlock(
-                    db, sp.grinderModel, sp.beverageType, sp.beanBrand, sp.equipmentId);
+                    db, sp);
                 return std::make_tuple(sessions, best, grinder);
             };
 
@@ -1892,8 +1885,7 @@ private slots:
             QVERIFY(bucket > 0);
 
             const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
-                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
-                QStringLiteral("Northbound"), bucket);
+                db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QStringLiteral("Northbound"), bucket));
             QVERIFY2(!ctx.isEmpty(), "scoped grinder context must still be produced");
 
             const QJsonArray observed = ctx.value(QStringLiteral("settingsObserved")).toArray();
@@ -1934,8 +1926,7 @@ private slots:
                 .basketModel = QStringLiteral("18g Ridged"),
                 .grinderSetting = QStringLiteral("4.4") }) > 0);
             const QJsonObject onyx = DialingBlocks::buildGrinderContextBlock(
-                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
-                QStringLiteral("Onyx"), bucket);
+                db, shotWith(QStringLiteral("Zero"), QStringLiteral("espresso"), QStringLiteral("Onyx"), bucket));
             const QJsonArray allBeans = onyx.value(QStringLiteral("allBeansSettings")).toArray();
             QVERIFY2(!allBeans.isEmpty(), "sparse bean-scoped result must trigger the fallback");
             QStringList fallbackSeen;
@@ -2097,7 +2088,7 @@ private slots:
 
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
                 db, QStringLiteral("kb-80s"), currentId, /*historyLimit=*/10,
-                packageForShot(db, currentId));
+                shotInPackage(packageForShot(db, currentId)));
             QStringList settingsSeen;
             for (const QJsonValue& sv : sessions)
                 for (const QJsonValue& shv : sv.toObject().value(QStringLiteral("shots")).toArray())
@@ -2159,7 +2150,7 @@ private slots:
 
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
                 db, QStringLiteral("kb-80s"), currentId, /*historyLimit=*/10,
-                packageForShot(db, currentId));
+                shotInPackage(packageForShot(db, currentId)));
             int shotCount = 0;
             for (const QJsonValue& sv : sessions)
                 shotCount += sv.toObject().value(QStringLiteral("shots")).toArray().size();
@@ -2763,7 +2754,7 @@ private slots:
 
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
                 db, QStringLiteral("kb-dfq"), /*resolvedShotId=*/-1, /*historyLimit=*/10,
-                onlyEquipmentPackage(db));
+                shotInPackage(onlyEquipmentPackage(db)));
             QCOMPARE(sessions.size(), 1);
             const QJsonObject session = sessions.at(0).toObject();
             QCOMPARE(session.value(QStringLiteral("context")).toObject()
@@ -2795,7 +2786,7 @@ private slots:
             QVERIFY(insertShot(db, m2) > 0);
 
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
-                db, QStringLiteral("kb-dfq"), -1, 10, onlyEquipmentPackage(db));
+                db, QStringLiteral("kb-dfq"), -1, 10, shotInPackage(onlyEquipmentPackage(db)));
             QCOMPARE(sessions.size(), 1);
             const QJsonObject session = sessions.at(0).toObject();
             QVERIFY(!session.value(QStringLiteral("context")).toObject()
@@ -2847,7 +2838,7 @@ private slots:
 
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
                 db, QStringLiteral("kb-dfq"), /*resolvedShotId=*/-1, /*historyLimit=*/10,
-                onlyEquipmentPackage(db));
+                shotInPackage(onlyEquipmentPackage(db)));
             QCOMPARE(sessions.size(), 1);
             const QJsonObject ctx = sessions.at(0).toObject()
                 .value(QStringLiteral("context")).toObject();
@@ -2894,7 +2885,7 @@ private slots:
             QVERIFY(insertShot(db, m2) > 0);
 
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
-                db, QStringLiteral("kb-dfq"), -1, 10, onlyEquipmentPackage(db));
+                db, QStringLiteral("kb-dfq"), -1, 10, shotInPackage(onlyEquipmentPackage(db)));
             QCOMPARE(sessions.size(), 1);
             const QJsonObject ctx = sessions.at(0).toObject()
                 .value(QStringLiteral("context")).toObject();
@@ -3010,7 +3001,7 @@ private slots:
 
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
                 db, QStringLiteral("kb-dfq"), /*resolvedShotId=*/-1, /*historyLimit=*/10,
-                onlyEquipmentPackage(db));
+                shotInPackage(onlyEquipmentPackage(db)));
             QCOMPARE(sessions.size(), 1);
             const QJsonArray shots = sessions.at(0).toObject()
                 .value(QStringLiteral("shots")).toArray();
