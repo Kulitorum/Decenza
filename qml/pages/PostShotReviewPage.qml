@@ -1225,6 +1225,17 @@ T.Page {
                     // R1 advertises with names starting "DFT_TDJ_*" (see DiFluidR1::isR1Device).
                     property bool isR1: (Settings.savedRefractometerName || "").toLowerCase().indexOf("dft_tdj") === 0
                     property real tdsValue: postShotReviewPage.editDrinkTds
+                    // Only a plausible reading is worth showing here, against the
+                    // same two constants that gate an incoming one — one definition
+                    // of plausible, not a second. Those constants postdate readings
+                    // already on disk: the R2's 655.09% error sentinel was autosaved
+                    // onto a shot before they existed (see kMaximumPlausibleTds), and
+                    // this button would otherwise be the most prominent place that
+                    // value ever appeared — the only one in basic mode, where the TDS
+                    // input is hidden and cannot correct it. A deliberately typed
+                    // out-of-range value stays visible in that input.
+                    property bool tdsPlausible: tdsValue >= postShotReviewPage.kMinimumPlausibleTds
+                        && tdsValue <= postShotReviewPage.kMaximumPlausibleTds
                     visible: Settings.savedRefractometerAddress !== ""
                     Layout.preferredWidth: Theme.scaled(80)
                     Layout.preferredHeight: Theme.scaled(36)
@@ -1253,7 +1264,7 @@ T.Page {
                             // so this is the only place the reading is visible.
                             // Tapping still re-reads (or reconnects); the
                             // connection state stays in the accessible name.
-                            if (readTdsButton.tdsValue > 0)
+                            if (readTdsButton.tdsPlausible)
                                 return readTdsButton.tdsValue.toFixed(2) + "%"
                             if (!readTdsButton.refConnected) {
                                 return readTdsButton.isR1
@@ -1275,7 +1286,7 @@ T.Page {
                                 : TranslationManager.translate("postshotreview.reconnectRefractometer", "Reconnect refractometer")
                             // The label text is Accessible.ignored, so a shown
                             // reading has to be spoken here or it is inaudible.
-                            if (readTdsButton.tdsValue > 0)
+                            if (readTdsButton.tdsPlausible)
                                 return TranslationManager.translate("postshotreview.label.tds", "TDS") + " "
                                     + readTdsButton.tdsValue.toFixed(2) + " "
                                     + TranslationManager.translate("postshotreview.unit.percent", "percent") + ". " + action

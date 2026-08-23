@@ -169,16 +169,24 @@ Item {
         // Poured shot: lead with the actual yield and park the target behind it,
         // in the same "(target ...)" grammar ShotDetailPage's achieved ratio
         // already uses ("1:2.1 (target 1:2)") — one phrasing for one idea.
-        // Printed only when the two DIFFER at the one decimal both are rendered
-        // to: "36.0g (target 36.0g)" states one fact twice and costs a shot that
-        // hit its target the glanceable single number it earned. A ratio anchor
-        // joins that same parenthetical instead of opening a second one.
-        if (actualYield > 0 && Math.abs(actualYield - targetWeight) >= 0.05)
-            return actualYield.toFixed(1) + "g "
-                + TranslationManager.translate("shotplan.targetYield", "(target %1g%2)")
-                    .arg(targetWeight.toFixed(1))
-                    .arg(ratioStr !== "" ? ", " + ratioStr : "")
-        return targetWeight.toFixed(1) + "g" + mark
+        // Printed only when the two DIFFER once ROUNDED: "36.0g (target 36.0g)"
+        // states one fact twice and costs a shot that hit its target the
+        // glanceable single number it earned. The comparison is between the two
+        // formatted strings, never the raw grams — a gram threshold and a
+        // one-decimal rendering disagree at the edges in both directions (0.0401
+        // apart yet rendering 36.0 against 36.1, or 0.050 apart and both
+        // rendering 36.0), so the only threshold that can't contradict what is
+        // on screen is the rendering itself. The ratio anchor stays OUTSIDE the
+        // translated template: as a %2 inside it, a translation that drops the
+        // unexplained trailing placeholder would silently lose the anchor,
+        // since String.arg returns the string untouched when it finds none.
+        var actualStr = actualYield.toFixed(1)
+        var targetStr = targetWeight.toFixed(1)
+        if (actualYield > 0 && actualStr !== targetStr)
+            return actualStr + "g "
+                + TranslationManager.translate("shotplan.targetYield", "(target %1g)").arg(targetStr)
+                + mark
+        return targetStr + "g" + mark
     }
     readonly property string _doseStr: (_has("doseYield") && dose > 0) ? (dose.toFixed(1) + "g") : ""
     // temperatureDisplay() follows the C/F display unit; its Settings.app.temperatureUnit
