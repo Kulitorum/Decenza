@@ -169,21 +169,20 @@ public:
                                                     const QString& question,
                                                     const QString& shotLabel);
 
-    // Merge the four dialing-context blocks into a user-prompt envelope.
-    // Both the in-app advisor and `ai_advisor_invoke` call this on the
-    // main-thread continuation of their bg-thread DB closures, after they
-    // produce `dialInSessions` / `bestRecentShot` / `grinderContext` from
-    // their own DB connections. The SAW block is built here (it touches
-    // `Settings::calibration()` and `ProfileManager`, both main-thread
-    // only). Empty blocks are suppressed — no key, no null placeholder.
+    // Merge the DB-derived context blocks into a user-prompt envelope, and add
+    // the one block that cannot come from the database pass: `sawPrediction`
+    // touches `Settings::calibration()` and `ProfileManager`, both main-thread
+    // only. Both the in-app advisor and `ai_advisor_invoke` call this on the
+    // main-thread continuation of their background DB closures. Empty blocks are
+    // suppressed — no key, no null placeholder.
     //
-    // Single source of truth for the merge step, so the in-app and MCP
-    // surfaces cannot drift on which blocks land where.
-    // Takes the blocks struct rather than one argument per block. Both surfaces
-    // already build an AdvisorContextBlocks and were unpacking it into five
-    // positional arguments to pass here; adding a sixth block meant editing
-    // every call site, and a surface that missed the edit silently sent one
-    // block fewer. The struct makes a new block reach both by construction.
+    // Single source of truth for the merge step, so the in-app and MCP surfaces
+    // cannot drift on which blocks land where.
+    //
+    // Takes the struct rather than one argument per block, so that a block added
+    // to AdvisorContextBlocks reaches both surfaces by construction. With one
+    // argument per block, a new block means editing every call site, and a
+    // surface that misses the edit silently sends one block fewer.
     void enrichUserPromptObject(QJsonObject& payload,
                                 const ShotProjection& shotData,
                                 const DialingBlocks::AdvisorContextBlocks& blocks) const;
@@ -216,7 +215,12 @@ public:
     // time). Wired from MainController::setAiManager. Optional — falls
     // back to omitting the SAW block when null.
     void setProfileManager(ProfileManager* profileManager) { m_profileManager = profileManager; }
-    Q_INVOKABLE void requestRecentShotContext(const QVariant& shotData, int excludeShotId);
+    // `contextShotId` is the shot to BUILD the context for — the worker loads it
+    // whole. It was called `excludeShotId` while it meant only "leave this one
+    // out of the history", which stopped being true when the worker started
+    // reading the shot from it; qint64 because that is what a shot id is
+    // everywhere else.
+    Q_INVOKABLE void requestRecentShotContext(const QVariant& shotData, qint64 contextShotId);
 
     // Provider testing
     Q_INVOKABLE void testConnection();
@@ -378,7 +382,9 @@ signals:
     void testResultChanged();
     void ollamaModelsChanged();
     void conversationIndexChanged();
-    void recentShotContextReady(const QString& context);
+    // Bare notification: the context blocks for the pending shot have resolved
+    // and are cached. Carries no payload — see emitRecentShotContext.
+    void recentShotContextReady();
     void conversationResponseReceived(const QString& response);
     void conversationErrorOccurred(const QString& error);
 

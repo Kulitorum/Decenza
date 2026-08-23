@@ -855,11 +855,11 @@ void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
 // identical to what the MCP `recentAdvice` JSON array carries for the same
 // inputs (turnsAgo/recommendation/structuredNext/userResponse).
 
-void AIManager::requestRecentShotContext(const QVariant& shotData, int excludeShotId)
+void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contextShotId)
 {
     const ShotProjection shot = coerceShot(shotData);
     if (!m_shotHistory || (shot.beanBrand.isEmpty() && shot.profileName.isEmpty())) {
-        emit recentShotContextReady(QString());
+        emit recentShotContextReady();
         return;
     }
 
@@ -872,14 +872,17 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, int excludeSh
     // event loop. The background thread captures `self` by value but MUST NOT dereference
     // it. All dereferences occur inside the QueuedConnection callback, which runs on the
     // main thread where QPointer's tracking is valid.
-    QThread* thread = QThread::create([self, dbPath, shot, excludeShotId, serial]() {
+    // `shot` is deliberately NOT captured: it is only the validity gate above.
+    // The worker re-reads the shot whole from the database so both surfaces feed
+    // the assembler identical input.
+    QThread* thread = QThread::create([self, dbPath, contextShotId, serial]() {
         DialingBlocks::AdvisorContextBlocks blocks;
         withTempDb(dbPath, "ai_advisor_ctx", [&](QSqlDatabase& db) {
             // The shot the advice is about, read whole — the same record
             // ai_advisor_invoke resolves, so both surfaces feed the one
             // assembler identical input.
             const ShotRecord record =
-                ShotHistoryStorage::loadShotRecordStatic(db, excludeShotId);
+                ShotHistoryStorage::loadShotRecordStatic(db, contextShotId);
             const ShotProjection ctxShot = ShotHistoryStorage::convertShotRecord(record);
 
             // Loaded here rather than inside the assembler: see
@@ -890,12 +893,12 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, int excludeSh
                     AIManager::conversationKey(ctxShot), DialingBlocks::kRecentAdviceTurns);
             }
             blocks = DialingBlocks::buildAdvisorContextBlocks(
-                db, ctxShot, excludeShotId, turns);
+                db, ctxShot, contextShotId, turns);
         });
 
-        QMetaObject::invokeMethod(qApp, [self, serial, excludeShotId, blocks]() {
+        QMetaObject::invokeMethod(qApp, [self, serial, contextShotId, blocks]() {
             if (!self) return;
-            self->emitRecentShotContext(blocks, excludeShotId, serial);
+            self->emitRecentShotContext(blocks, contextShotId, serial);
         }, Qt::QueuedConnection);
     });
 
@@ -910,26 +913,21 @@ void AIManager::emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks&
     if (serial != m_contextSerial) {
         // Stale request superseded by a newer one — emit empty so QML clears
         // contextLoading, and leave the cache alone: the newer request owns it.
-        emit recentShotContextReady(QString());
+        emit recentShotContextReady();
         return;
     }
 
     m_contextBlocks = blocks;
     m_contextBlocksShotId = contextShotId;
 
-    // The signal carries the blocks so the web surface and the tests can see what
-    // resolved. The value QML sends is assembled by buildConversationUserPrompt at
-    // send time, from the cache above — the two must not be assembled twice.
-    QJsonObject ctx;
-    if (!blocks.dialInSessions.isEmpty()) ctx["dialInSessions"] = blocks.dialInSessions;
-    if (!blocks.bestRecentShot.isEmpty()) ctx["bestRecentShot"] = blocks.bestRecentShot;
-    if (!blocks.grinderContext.isEmpty()) ctx["grinderContext"] = blocks.grinderContext;
-    if (!blocks.grinderCalibration.isEmpty()) ctx["grinderCalibration"] = blocks.grinderCalibration;
-    if (!blocks.recentAdvice.isEmpty()) ctx["recentAdvice"] = blocks.recentAdvice;
-
-    emit recentShotContextReady(
-        ctx.isEmpty() ? QString()
-                      : QString::fromUtf8(QJsonDocument(ctx).toJson(QJsonDocument::Compact)));
+    // A bare "ready", with no payload. It used to carry a JSON rendering of the
+    // blocks, "so the web surface and the tests can see what resolved" — no such
+    // reader existed: the one consumer stored the string in a QML property
+    // nothing read. That left a SECOND assembler over AdvisorContextBlocks, and
+    // it had already fallen behind, omitting noDialInHistory while
+    // enrichUserPromptObject included it. The payload QML sends is assembled
+    // once, by buildConversationUserPrompt, from the cache above.
+    emit recentShotContextReady();
 }
 
 QString AIManager::buildConversationUserPrompt(const QVariant& shotData,
@@ -953,7 +951,9 @@ QString AIManager::buildConversationUserPrompt(const QVariant& shotData,
     // other shot's history would be worse than sending none.
     if (m_contextBlocksShotId == shot.id) {
         enrichUserPromptObject(payload, shot, m_contextBlocks);
-    } else if (shot.isValid()) {
+    } else {
+        // The function returned above on an invalid shot, so no second validity
+        // test is needed here.
         // sawPrediction does not come from the DB pass, so it is available either way.
         const QJsonObject sawPrediction =
             DialingBlocks::buildSawPredictionBlock(m_settings, m_profileManager, shot);

@@ -167,7 +167,13 @@ signals:
     void discoveredDevicesChanged();
     void connected();
     void connectionFailed(const QString& error);
-    void importComplete(int settingsImported, int profilesImported, int shotsImported, int mediaImported, int aiConversationsImported);
+    // `aiConversationNote` is empty when nothing was refused. It exists because
+    // the conversations-only import is the case that needs it most: with no shot
+    // import there is no equipment map, so every thread that names a package is
+    // refused and the button that offered "Import AI Conversations (40)" would
+    // otherwise report 0 with no reason given.
+    void importComplete(int settingsImported, int profilesImported, int shotsImported, int mediaImported,
+                        int aiConversationsImported, const QString& aiConversationNote = QString());
     void importFailed(const QString& error);
     void discoveryComplete();
     void needsAuthenticationChanged();
@@ -256,6 +262,7 @@ private:
     double m_progress = 0.0;
     QString m_currentOperation;
     QString m_errorMessage;
+    QString m_aiConversationNote;   // what the conversation import refused, for importComplete
 
     // Import queue for importAll()
     QStringList m_importQueue;

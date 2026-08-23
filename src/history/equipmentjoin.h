@@ -9,12 +9,17 @@
 
 // Attaching a shot's equipment package to a query, in one place.
 //
-// The package is four rows across two tables, so every read that reports
-// equipment needs the same four LEFT JOINs and the same columns. They were
-// written out per query instead, and the copies did not agree: the advisor's
-// history read joined the grinder alone, so a session that switched baskets
-// reached the model looking like one setup. Tracking a new component is one row
-// in `columns()` below — the SELECT list and both readers follow from it.
+// The package is four rows across two tables, so a read that reports the WHOLE
+// package needs the same four LEFT JOINs and the same columns. They were written
+// out per query instead, and the copies did not agree: the advisor's history
+// read joined the grinder alone, so a session that switched baskets reached the
+// model looking like one setup. Tracking a new component is one row in
+// `columns()` below — the SELECT list and the reader follow from it.
+//
+// Scope, so this is not read as a claim it does not make: the consumer is
+// `loadRecentShotsByKbIdStatic`. A query that needs only the package NAME
+// (`requestAutoFavorites`) joins `equipment_packages` alone and is not a copy of
+// this — pulling in four joins to read one column would cost more than it saves.
 namespace EquipmentJoin {
 
 struct Column {
@@ -34,8 +39,9 @@ inline const QList<Column>& columns()
         // Puck prep has no brand — its flags ride in the item's model column as
         // a comma list ("puckScreen,rdt,shaker").
         { "epp.model",                            "puck_prep",     "puckPrep" },
-        // The user's own name for the package ("Graph"). No projection field:
-        // callers that display it read the alias directly.
+        // The user's own name for the package ("Graph"). No projection field, and
+        // the current reader does not use it — kept because it is part of the
+        // package a caller may report, and the joins are already paid for.
         { "ep.name",                              "equipment_name", "" },
     };
     return cols;

@@ -491,6 +491,7 @@ void DataMigrationClient::startImport(const QStringList& types)
     m_shotsImported = 0;
     m_mediaImported = 0;
     m_aiConversationsImported = 0;
+    m_aiConversationNote.clear();
     // Reset with the other per-run counters. It is a member so the conversations
     // step can read the shots step's map, and a member that survives a run is
     // how a second import — importOnlyAIConversations(), or a reconnect to a
@@ -618,6 +619,16 @@ void DataMigrationClient::onAIConversationsReply()
         m_receivedBytes += data.size();
 
         QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (!doc.isArray()) {
+            // Not an array means the peer answered with something else — an
+            // error page, a truncated body, an object. Silence here fell
+            // through to a green "Import complete" with nothing imported.
+            m_errorMessage = tr("The other device did not return a usable list of "
+                                "AI conversations.");
+            emit errorMessageChanged();
+            qWarning() << "DataMigrationClient: AI conversations payload was not a JSON array ("
+                       << data.size() << "bytes )";
+        }
         if (doc.isArray()) {
             AppSettings settings;
 
@@ -653,6 +664,7 @@ void DataMigrationClient::onAIConversationsReply()
                                                               m_shotImport.idMapOrNull(),
                                                               m_shotImport.equipmentIdMapOrNull());
                 m_aiConversationsImported += tally.conversationsImported;
+                m_aiConversationNote = AIConversation::importRefusalNote(tally);
 
                 if (tally.conversationsImported > 0 && m_aiManager)
                     m_aiManager->reloadConversations();
@@ -690,7 +702,7 @@ void DataMigrationClient::startNextImport()
         emit isImportingChanged();
         if (clean) {
             emit importComplete(m_settingsImported, m_profilesImported, m_shotsImported,
-                                m_mediaImported, m_aiConversationsImported);
+                                m_mediaImported, m_aiConversationsImported, m_aiConversationNote);
         } else {
             qWarning() << "DataMigrationClient: import finished with errors -" << m_errorMessage;
         }

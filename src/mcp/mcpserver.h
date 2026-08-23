@@ -97,7 +97,12 @@ struct PendingConfirmation {
 // scripts/check_mcp_tool_budget.py fingerprints the registered tools and their
 // actions and fails the PR if the surface moved without this string moving, so the
 // rule above is enforced rather than remembered.
-inline constexpr const char* McpSurfaceVersion = "1.3.0";
+// 1.4.0: dialing_get_context history is scoped to the shot's equipment package
+// and gains `noDialInHistory` when nothing matches; `ai_conversations` entries
+// carry `equipment`. Note what the fingerprint below CANNOT see: those are
+// RESPONSE-shape changes, and the budget script hashes registrations. A response
+// change is on the author to notice.
+inline constexpr const char* McpSurfaceVersion = "1.4.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "8ada4d203b66";

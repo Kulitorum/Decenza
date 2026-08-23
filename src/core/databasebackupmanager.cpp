@@ -1087,6 +1087,11 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                 }
             }
 
+            // What the conversation import refused, empty when it refused
+            // nothing. Declared out here because it is produced deep inside the
+            // settings branch and reported at the very end.
+            QString conversationNote;
+
             // Restore AI conversations (writes to QSettings)
             if (settingsJson.contains("ai_conversations")) {
                 QJsonArray conversations = settingsJson["ai_conversations"].toArray();
@@ -1144,6 +1149,10 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                                      << "shot reference(s) remapped," << convTally.turnsCleared
                                      << "cleared";
                         }
+                        // Reported to the user, not only to the log: the count of
+                        // survivors was already on screen, so refusing 37 of 40
+                        // rendered as a green "3 imported".
+                        conversationNote = AIConversation::importRefusalNote(convTally);
                     }
                 }
             }
@@ -1152,7 +1161,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             if (!restoreErrors.isEmpty()) {
                 emit restoreFailed(joinErrors(restoreErrors));
             } else {
-                emit restoreCompleted(filename);
+                emit restoreCompleted(filename, conversationNote);
             }
         }, Qt::QueuedConnection);
     });

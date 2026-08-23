@@ -145,6 +145,7 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.grinderModel = filterMap.value("grinderModel").toString();
     filter.grinderBurrs = filterMap.value("grinderBurrs").toString();
     filter.grinderSetting = filterMap.value("grinderSetting").toString();
+    filter.equipmentId = filterMap.value("equipmentId", -1).toLongLong();
     filter.roastLevel = filterMap.value("roastLevel").toString();
     filter.minEnjoyment = filterMap.value("minEnjoyment", -1).toInt();
     filter.maxEnjoyment = filterMap.value("maxEnjoyment", -1).toInt();
@@ -231,6 +232,12 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
             bindValues << grinderItemBinds;
         }
     }
+    // Exact package. Applied INSTEAD of nothing — it composes with the grinder
+    // identity conditions above, but a caller that knows the package (an
+    // auto-favourite card) passes this and gets the card's own set rather than
+    // every basket that shares the grinder.
+    if (filter.equipmentId >= 0)
+        conditions << AdviceScope(filter.equipmentId).sql(QStringLiteral("shots"));
     if (!filter.grinderSetting.isEmpty()) {
         conditions << "shots.grinder_setting = ?";
         bindValues << filter.grinderSetting;
@@ -691,7 +698,11 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
 
     QSqlQuery query(db);
     if (!query.prepare(sql)) {
-        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: prepare failed:" << query.lastError().text();
+        // kbId and bucket named: this failure surfaces as "the advisor sees no
+        // history", and the bucket is now embedded in the SQL rather than bound,
+        // so it is not recoverable from a bind list in the log.
+        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: prepare failed for kbId"
+                   << kbId << "bucket" << scope.bucket() << ":" << query.lastError().text();
         return results;
     }
 
@@ -760,7 +771,8 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             results.append(shot);
         }
     } else {
-        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: query failed:" << query.lastError().text();
+        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: query failed for kbId"
+                   << kbId << "bucket" << scope.bucket() << ":" << query.lastError().text();
     }
     return results;
 }
@@ -1661,6 +1673,13 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         bindValues << value;
     };
 
+    // Every mode that KEYS on the package must also scope its stats to it, or
+    // the card counts one package and its details average another. The two
+    // coarse modes (bean, profile) deliberately span packages, so they are the
+    // two branches below without a scope. This used to approximate the package
+    // with correlated brand+model subqueries, which pulled in every package
+    // sharing a brand and model — two baskets on one grinder grouped apart and
+    // then shared one set of stats.
     if (groupBy == "bean") {
         addCondition("bean_brand", beanBrand);
         addCondition("bean_type", beanType);
@@ -1689,13 +1708,6 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         addCondition("profile_name", profileName);
         conditions << AdviceScope(equipmentId).sql(QStringLiteral("shots"));
     }
-
-    // Every mode that KEYS on the package must also scope its stats to it, or the
-    // card counts one package and its details average another. The two coarse
-    // modes (bean, profile) deliberately span packages and are excluded above.
-    // This used to approximate the package with correlated brand+model
-    // subqueries, which pulled in every package sharing a brand and model — two
-    // baskets on one grinder grouped apart and then shared one set of stats.
 
     QString whereClause = " WHERE " + conditions.join(" AND ");
 

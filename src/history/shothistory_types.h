@@ -266,6 +266,12 @@ struct ShotFilter {
     QString grinderModel;
     QString grinderBurrs;
     QString grinderSetting;
+    // One equipment package, exactly — not the grinder-identity approximation
+    // the three fields above resolve to. -1 means "not filtering on it"; 0 is a
+    // real bucket (the unpackaged pool), the same convention as AdviceScope.
+    // Auto-favourite cards are keyed on the package, so "Show" has to select on
+    // the package or it returns a different set than the card counted.
+    qint64 equipmentId = -1;
     QString roastLevel;
     int minEnjoyment = -1;
     int maxEnjoyment = -1;

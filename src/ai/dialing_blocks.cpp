@@ -189,8 +189,13 @@ QJsonObject buildNoDialInHistoryBlock(const ShotProjection& shot)
         DialingHelpers::equipmentSetToJson(DialingHelpers::identityFromShot(shot));
     if (!equipment.isEmpty())
         block["equipment"] = equipment;
+    // What the query ACTUALLY filtered on: profile family and equipment
+    // package. There is no bean predicate in it (shothistorystorage_queries.cpp
+    // — `profile_kb_id = ?` plus the scope), and naming the bean here would
+    // invite the model to read `matchedShotCount: 0` as "never pulled this bean
+    // on this gear", which the data does not say.
     block["matchedOn"] = QStringLiteral(
-        "bean, profile and equipment package — grinder, basket and puck prep together");
+        "profile family and equipment package — grinder, basket and puck prep together");
     block["instruction"] = QStringLiteral(
         "No prior shot matches this equipment package. Shots pulled on other gear were "
         "excluded deliberately: a grind number means nothing across grinders, and a basket "

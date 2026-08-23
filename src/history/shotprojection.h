@@ -262,11 +262,20 @@ public:
     Q_INVOKABLE bool hasBag() const { return bagIdIsSet(bagId); }
 
     // Build the legacy QVariantMap shape — same keys, same nested types as the
-    // pre-Q_GADGET convertShotRecord() return value. Today's only callers are
-    // toJsonObject() (delegates here) and tests. Direct C++ consumers in the
-    // shot-list HTML page and visualizer exporter read fields off the typed
-    // projection instead.
-    QVariantMap toVariantMap() const;
+    // pre-Q_GADGET convertShotRecord() return value. Callers: toJsonObject()
+    // (delegates here), tests, and QML. Direct C++ consumers in the shot-list
+    // HTML page and visualizer exporter read fields off the typed projection
+    // instead.
+    //
+    // Q_INVOKABLE because QML needs a PLAIN-JS copy of a shot it can then edit,
+    // and cannot make one itself: `Object.assign({}, shot)` and spread copy own
+    // properties, while a gadget's Q_PROPERTYs are accessors on the prototype,
+    // so enumeration silently returns almost nothing. PostShotReviewPage
+    // answered that with a hand-written field whitelist, which is a second
+    // declaration of this function's body in another language — it fell behind
+    // twice (recipeId, then the whole equipment package, which keyed every
+    // conversation opened from that page to the unpackaged pool). One list.
+    Q_INVOKABLE QVariantMap toVariantMap() const;
 
     // QJsonObject form for MCP (shots_get_detail, shots_compare). Internally
     // delegates to QJsonObject::fromVariantMap(toVariantMap()).

@@ -72,7 +72,12 @@ T.Page {
         return {
             bean: (groupBy === "bean" || hasEquipment),
             profile: (groupBy === "profile" || hasEquipment),
-            grinder: hasEquipment
+            // The equipment PACKAGE and the grind SETTING are separate keys. They
+            // were one flag, so the default mode — which groups by package across
+            // every grind setting — told "Show" to filter on the latest setting
+            // too, returning a strict subset of what the card aggregates.
+            equipment: hasEquipment,
+            grindSetting: hasGrindSetting
         }
     }
 
@@ -94,13 +99,12 @@ T.Page {
     }
 
     // Build accessible text based on current groupBy setting
-    function buildGroupByText(beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting, doseWeight, targetWeight, finalWeight, shotCount, avgEnjoyment) {
+    function buildGroupByText(beanBrand, beanType, profileName, equipmentName, grinderBrand, grinderModel, grinderSetting, doseWeight, targetWeight, finalWeight, shotCount, avgEnjoyment) {
         var includes = autoFavoritesPage.groupByIncludes
         var parts = []
 
         var includeBean = includes.bean
         var includeProfile = includes.profile
-        var includeGrinder = includes.grinder
 
         if (includeBean) {
             var bean = (beanBrand || "") + (beanType ? " - " + beanType : "")
@@ -108,10 +112,17 @@ T.Page {
         }
         if (includeProfile && profileName)
             parts.push(profileName)
-        if (includeGrinder) {
-            var grinderName = ((grinderBrand || "") + " " + (grinderModel || "")).trim()
-            var grinder = grinderName + (grinderSetting ? " @ " + grinderSetting : "")
-            if (grinder) parts.push(grinder)
+        if (includes.equipment) {
+            // The package's own name where it has one, the grinder as the
+            // fallback — the same text the card shows. The grind setting is
+            // appended only in the modes that key on it; the default mode spans
+            // every setting, so naming one would describe a group that does not
+            // exist.
+            var pkg = equipmentName
+                || ((grinderBrand || "") + " " + (grinderModel || "")).trim()
+            if (includes.grindSetting && grinderSetting)
+                pkg = (pkg + " @ " + grinderSetting).trim()
+            if (pkg) parts.push(pkg)
         }
 
         // Always include recipe summary
@@ -234,7 +245,7 @@ T.Page {
                 // A recipe already names its equipment, so printing the package
                 // beside it says the same thing twice.
                 property bool _hasEquipment: !favoriteDelegate._hasRecipe
-                    && autoFavoritesPage.groupByIncludes.grinder
+                    && autoFavoritesPage.groupByIncludes.equipment
                     && favoriteDelegate._equipmentText !== ""
                 // Recipe first, and carrying the archived state as TEXT — the card
                 // shows that state only by dimming, so without this it is
@@ -246,6 +257,7 @@ T.Page {
                        : favoriteDelegate.model.recipeName) + ". "
                 property string _groupByText: _recipeSpoken + autoFavoritesPage.buildGroupByText(
                     favoriteDelegate.model.beanBrand, favoriteDelegate.model.beanType, favoriteDelegate.model.profileName,
+                    favoriteDelegate.model.equipmentName,
                     favoriteDelegate.model.grinderBrand, favoriteDelegate.model.grinderModel, favoriteDelegate.model.grinderSetting,
                     favoriteDelegate.model.doseWeightG, favoriteDelegate.model.targetWeightG, favoriteDelegate.model.finalWeightG,
                     favoriteDelegate.model.shotCount, favoriteDelegate.model.avgEnjoyment)
@@ -274,6 +286,11 @@ T.Page {
                         // that did not win it, then the dial-in numbers. The
                         // identity is the recipe when there is one and the profile
                         // otherwise — history makes the same substitution.
+                        //
+                        // The identity keeps its OWN line rather than joining the
+                        // Flow below with a separator: inside a Flow the separator
+                        // is a sibling item, so when the bean wraps to the next
+                        // line the separator stays behind as a dangling middot.
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: Theme.spacingSmall
@@ -429,11 +446,19 @@ T.Page {
                                 }
                                 if (includes.profile && favoriteDelegate.model.profileName)
                                     filter.profileName = favoriteDelegate.model.profileName
-                                if (includes.grinder) {
-                                    if (favoriteDelegate.model.grinderBrand) filter.grinderBrand = favoriteDelegate.model.grinderBrand
-                                    if (favoriteDelegate.model.grinderModel) filter.grinderModel = favoriteDelegate.model.grinderModel
-                                    if (favoriteDelegate.model.grinderSetting) filter.grinderSetting = favoriteDelegate.model.grinderSetting
+                                if (includes.equipment) {
+                                    // The package id, not the grinder's brand and model:
+                                    // the card is grouped on the package, and two baskets
+                                    // on one grinder are two cards. Filtering by brand and
+                                    // model is the approximation the grouping query itself
+                                    // stopped using. `undefined` means the row predates the
+                                    // id, and is left unfiltered rather than sent as 0 —
+                                    // bucket 0 is a real, different group.
+                                    if (favoriteDelegate.model.equipmentId !== undefined)
+                                        filter.equipmentId = favoriteDelegate.model.equipmentId
                                 }
+                                if (includes.grindSetting && favoriteDelegate.model.grinderSetting)
+                                    filter.grinderSetting = favoriteDelegate.model.grinderSetting
                                 // In weight mode the card also represents a specific 0.5 g dose
                                 // bucket and an exact target yield. Mirror the bucket range and
                                 // yield on the ShotHistory filter so "Show" scopes to the same
@@ -612,9 +637,17 @@ T.Page {
                     model: [
                         TranslationManager.translate("autofavorites.groupby.bean", "Bean only"),
                         TranslationManager.translate("autofavorites.groupby.profile", "Profile only"),
-                        TranslationManager.translate("autofavorites.groupby.beanprofile", "Bean + Profile + Equipment"),
-                        TranslationManager.translate("autofavorites.groupby.all", "Bean + Profile + Grind setting"),
-                        TranslationManager.translate("autofavorites.groupby.allweight", "Bean + Profile + Grind setting + Weight")
+                        // NEW KEYS, deliberately. The English changed MEANING here:
+                        // `beanprofile` was "Bean + Profile" and now also splits by
+                        // equipment package, and `all`/`allweight` said "Grinder"
+                        // where the mode keys on the grind SETTING. A reworded
+                        // fallback keeps its existing translation
+                        // (TranslationManager::noteSourceString), so reusing the
+                        // keys would leave every non-English user reading labels
+                        // for modes that no longer exist.
+                        TranslationManager.translate("autofavorites.groupby.beanprofileequipment", "Bean + Profile + Equipment"),
+                        TranslationManager.translate("autofavorites.groupby.equipmentgrind", "Bean + Profile + Grind setting"),
+                        TranslationManager.translate("autofavorites.groupby.equipmentgrindweight", "Bean + Profile + Grind setting + Weight")
                     ]
                     currentIndex: {
                         switch(Settings.network.autoFavoritesGroupBy) {

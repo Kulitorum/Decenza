@@ -115,19 +115,6 @@ public:
      */
     Q_INVOKABLE QString getSystemPrompt() const { return m_systemPrompt; }
 
-    /**
-     * Add new shot context to existing conversation (for multi-shot dialing)
-     * This appends shot data as a new user message without clearing history.
-     * shotLabel is a human-readable date/time string (e.g. "Feb 15, 14:30") identifying the shot.
-     * profileTitle/profileType/profileKbId are forwarded to shotAnalysisSystemPrompt()
-     * for profile-aware knowledge injection when initializing a new conversation.
-     */
-
-    /**
-     * Process a shot summary for conversation: prepends a "changes from previous" section.
-     * Call this before sending via ask()/followUp() to avoid redundant data.
-     * shotLabel is a human-readable date/time string (e.g. "Feb 15, 14:30") identifying the shot.
-     */
     // What changed between this shot and the previous shot in this conversation,
     // as a field on the turn's payload rather than a prose banner glued to the
     // front of it. Empty object when there is no previous shot to compare with;
@@ -282,18 +269,44 @@ public:
 
     /**
      * What importConversationsStatic did. Note the units differ: the first
-     * field counts CONVERSATIONS, the last two count TURNS.
+     * three fields count CONVERSATIONS, the last two count TURNS.
      *
      * Skipped-as-duplicate and malformed entries are counted inside the
-     * importer and go to its own log line, not here: a field only its producer
-     * reads is weight on a shared type, and no caller has anywhere to show
-     * them.
+     * importer and go to its own log line, not here: the user's copy is already
+     * the live one, and a damaged archive entry names no remedy.
+     *
+     * The two REFUSED counts are different — each names something the user can
+     * act on, and reporting only `conversationsImported` turns a run that
+     * dropped 37 of 40 into a green "3 imported". They are separate fields
+     * because the remedy differs, which is the whole reason to show them.
      */
     struct ImportTally {
         int conversationsImported = 0;  // written to storage
+        // Named a package this device could not identify, because no equipment
+        // accompanied them. Remedy: import the shots too — the shot import is
+        // what carries equipment across and produces the id map.
+        int refusedNeedShots = 0;
+        // Keyed before the equipment package joined the key. No shot on this
+        // device derives that key, so the thread could never be opened again.
+        // No remedy; stated so the count is not mistaken for the one above.
+        int refusedLegacyKey = 0;
         int turnsRemapped = 0;          // turn shotIds rewritten to a destination id
         int turnsCleared = 0;           // turn shotIds dropped, source shot not in the map
+
+        int refused() const { return refusedNeedShots + refusedLegacyKey; }
     };
+
+    /**
+     * One user-facing sentence for what an import refused, or empty when it
+     * refused nothing.
+     *
+     * ONE producer for the same reason the importer is one: three surfaces
+     * report this run (the in-app import popup, the device-migration dialog and
+     * the ShotServer restore page), and a count without its remedy is what made
+     * the silence worth fixing in the first place. Plain English, already
+     * specific about the fix; callers pair it with their own lead-in.
+     */
+    static QString importRefusalNote(const ImportTally& tally);
 
     /**
      * Import conversations from a backup or a peer device into QSettings.
@@ -329,9 +342,6 @@ public:
      * Callers keep their own policy: replace-mode pre-clearing, sync(), and
      * reloading the live conversation all stay with the caller.
      *
-     * @param settings   open settings object to write through
-     * @param conversations  the incoming array, as carried by the backup
-     *                       archive or the migration endpoint
      * `equipmentIdMap` is the same shape for equipment packages, from
      * ShotHistoryStorage::ImportResult::equipmentIdMap. It is needed because the
      * conversation KEY is derived from the package id: the incoming key names a
@@ -347,9 +357,16 @@ public:
      *   - a conversation naming a package the map does not contain, because
      *     bucket 0 would put a thread about one basket into the unpackaged
      *     pool, which is the contamination the key exists to prevent.
-     * Both are counted and named in the log line, not on ImportTally — no
-     * caller has anywhere to show them.
+     * Both are counted on ImportTally (`refusedNeedShots` / `refusedLegacyKey`)
+     * and rendered by `importRefusalNote`. They were briefly log-only, on the
+     * reasoning that no caller had anywhere to show them — which was wrong:
+     * every caller already reports `conversationsImported` to the user, so the
+     * survivors were shown and the casualties were not.
      *
+     *
+     * @param settings   open settings object to write through
+     * @param conversations  the incoming array, as carried by the backup
+     *                       archive or the migration endpoint
      * @param shotIdMap  source->destination shot ids, or nullptr
      * @param equipmentIdMap  source->destination equipment package ids, or
      *                        nullptr when no equipment accompanied them

@@ -190,9 +190,10 @@ public:
     //   system prompt reads correctly off either surface. The `shotAnalysis`
     //   field embeds prose rendered by `renderShotAnalysisProse(..., Standalone)`
     //   — that prose carries the `## Shot Summary` and `## Detector
-    //   Observations` headers, which `HistoryBlock` mode strips. Regex
-    //   consumers in AIConversation match on that prose after parsing the
-    //   JSON envelope first via `extractShotProse`.
+    //   Observations` headers, which `HistoryBlock` mode strips. (Nothing
+    //   parses that prose back out any more: the regex consumers in
+    //   AIConversation, and the `extractShotProse` they needed, went with the
+    //   prose payload. It is read by the model only.)
     // - `HistoryBlock` mode: returns prose only, no JSON envelope, with
     //   the two top-level headers stripped. The caller wraps each block
     //   in a `### Shot (date)` header so JSON-per-shot would be unreadable

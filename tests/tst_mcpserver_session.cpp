@@ -1,4 +1,5 @@
 #include <QtTest>
+#include "httpframing.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -97,43 +98,22 @@ private:
         }
     };
 
-    static Pooled& pooledConnection()
+    // Heap, not a static by value: a static Pooled destructs at static-
+    // destruction time, and deleting a QTcpServer and its child socket after
+    // QCoreApplication is gone is undefined — the other pooled binary carries
+    // the same note and the same shape. cleanupTestCase() deletes it while the
+    // event loop is still up, which is also what keeps the nightly Linux ASan
+    // run clean.
+    static Pooled*& pooledConnection()
     {
-        static Pooled pool;
+        static Pooled* pool = nullptr;
         return pool;
     }
 
-    // Read exactly one HTTP response off a connection that will carry more.
-    //
-    // A bare readAll() was safe when each call owned its socket: whatever had
-    // arrived was the whole of the only response that socket would ever see. On
-    // a shared connection a short read leaves this response's tail to be picked
-    // up as the head of the next one. Frame on Content-Length, which
-    // sendHttpResponse() emits for every status except 204.
+    // Framing helper shared with the other pooled-connection test binary.
     static QByteArray readOneResponse(QTcpSocket& client)
     {
-        QByteArray raw;
-        qsizetype headerEnd = -1;
-        qint64 contentLength = -1;
-        QElapsedTimer timer;
-        timer.start();
-        while (timer.elapsed() < 3000) {
-            if (client.bytesAvailable() == 0)
-                client.waitForReadyRead(50);
-            raw.append(client.readAll());
-            if (headerEnd < 0) headerEnd = raw.indexOf("\r\n\r\n");
-            if (headerEnd >= 0 && contentLength < 0) {
-                contentLength = 0;
-                for (const QByteArray& line : raw.left(headerEnd).split('\n')) {
-                    if (line.trimmed().toLower().startsWith("content-length:"))
-                        contentLength = line.mid(line.indexOf(':') + 1).trimmed().toLongLong();
-                }
-            }
-            if (headerEnd >= 0 && contentLength >= 0
-                && raw.size() >= headerEnd + 4 + contentLength)
-                break;
-        }
-        return raw;
+        return HttpFraming::readOneResponse(client);
     }
 
     static RpcResult sendRpc(McpServer& server, const QString& method,
@@ -142,13 +122,14 @@ private:
     {
         RpcResult result;
 
-        Pooled& pool = pooledConnection();
-        if (!pool.ensureOpen()) {
+        Pooled*& pool = pooledConnection();
+        if (!pool) pool = new Pooled;
+        if (!pool->ensureOpen()) {
             qWarning("sendRpc: could not open the pooled connection");
             return result;
         }
-        QTcpSocket* serverSocket = pool.serverSocket;
-        QTcpSocket& clientSocket = pool.client;
+        QTcpSocket* serverSocket = pool->serverSocket;
+        QTcpSocket& clientSocket = pool->client;
 
         // Build request
         QJsonObject request;
@@ -193,10 +174,13 @@ private slots:
     // otherwise be destroyed after the application object is gone.
     void cleanupTestCase()
     {
-        Pooled& pool = pooledConnection();
-        pool.serverSocket = nullptr;
-        pool.client.abort();
-        pool.tcp.close();
+        Pooled*& pool = pooledConnection();
+        if (!pool) return;
+        pool->serverSocket = nullptr;
+        pool->client.abort();
+        pool->tcp.close();
+        delete pool;
+        pool = nullptr;
     }
 
     void initTestCase()

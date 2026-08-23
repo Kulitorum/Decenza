@@ -97,7 +97,10 @@ signals:
     void backupFailed(const QString& error);
 
     /// Emitted when restore succeeds
-    void restoreCompleted(const QString& filename);
+    // `note` is empty on a clean restore. It carries what the restore REFUSED —
+    // today, conversations it could not attach to this device's equipment — so a
+    // run that dropped most of them cannot render as an unqualified success.
+    void restoreCompleted(const QString& filename, const QString& note = QString());
 
     /// Emitted when restore fails
     void restoreFailed(const QString& error);

@@ -137,10 +137,9 @@ public:
     // Async: runs on background thread, emits shotReady()
     Q_INVOKABLE void requestShot(qint64 shotId);
 
-
-    // Query recent shots by KB ID (summary data, no time-series).
-    // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
     // Dial-in history for one profile family, scoped to one equipment package.
+    // Summary data, no time-series. Thread-safe: the caller provides its own
+    // connection. Shared by MCP and the in-app advisor.
     // `scope` has no default on purpose: an omittable filter gets omitted.
     // `ok`, when given, reports whether the query RAN — not whether it matched.
     // Both are an empty list, and the advisor has to tell them apart: "no shot
@@ -512,10 +511,14 @@ public:
             return shotIdMap.isEmpty() ? nullptr : &shotIdMap;
         }
 
-        // Same policy for the package map. Empty means no equipment crossed —
-        // a pre-equipment source, or an import that failed — and the importer
-        // reads that as "this conversation names a package this device cannot
-        // identify", not as "bucket 0".
+        // Same policy for the package map. Empty means no equipment crossed: a
+        // pre-equipment source, an import that failed, or an archive with no
+        // shots in it (that path returns early, before the equipment import).
+        //
+        // The importer then refuses any conversation naming a package rather
+        // than demoting it to bucket 0. Conversations that name NO package
+        // (bucket 0, the unpackaged pool) are unaffected — 0 means the same
+        // thing on both devices and needs no map.
         const QHash<qint64, qint64>* equipmentIdMapOrNull() const {
             return equipmentIdMap.isEmpty() ? nullptr : &equipmentIdMap;
         }

@@ -469,8 +469,6 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
 
     int skippedExisting = 0;
     int malformed = 0;
-    int foreignKey = 0;
-    int unresolvedPackage = 0;
     for (const QJsonValue& val : conversations) {
         const QJsonObject conv = val.toObject();
         const QString srcKey = conv.value(QStringLiteral("key")).toString();
@@ -500,7 +498,7 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
         // it only occupies an index slot, which is what the one-time wipe of
         // pre-upgrade conversations already decided against.
         if (ConversationKey::derive(beanBrand, beanType, profileName, srcEquipmentId) != srcKey) {
-            foreignKey++;
+            tally.refusedLegacyKey++;
             continue;
         }
 
@@ -513,7 +511,7 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
         if (srcEquipmentId > 0) {
             destEquipmentId = equipmentIdMap ? equipmentIdMap->value(srcEquipmentId, 0) : 0;
             if (destEquipmentId <= 0) {
-                unresolvedPackage++;
+                tally.refusedNeedShots++;
                 continue;
             }
         }
@@ -561,13 +559,30 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
 
     qDebug() << "AIConversation::importConversationsStatic:" << tally.conversationsImported
              << "conversation(s) imported," << skippedExisting
-             << "already present," << malformed << "malformed," << foreignKey
-             << "keyed before equipment," << unresolvedPackage
+             << "already present," << malformed << "malformed," << tally.refusedLegacyKey
+             << "keyed before equipment," << tally.refusedNeedShots
              << "naming a package that did not come across;"
              << tally.turnsRemapped << "shot reference(s) remapped," << tally.turnsCleared
              << "cleared"
              << (shotIdMap ? "" : "(no shot import accompanied them — all ids cleared)");
     return tally;
+}
+
+QString AIConversation::importRefusalNote(const ImportTally& tally)
+{
+    QStringList parts;
+    if (tally.refusedNeedShots > 0) {
+        parts << QObject::tr("%n conversation(s) could not be matched to this device's "
+                             "equipment. Import the shots as well — that is what carries the "
+                             "grinder and basket across.",
+                             nullptr, tally.refusedNeedShots);
+    }
+    if (tally.refusedLegacyKey > 0) {
+        parts << QObject::tr("%n conversation(s) were saved before threads were kept per "
+                             "equipment set and can no longer be reopened.",
+                             nullptr, tally.refusedLegacyKey);
+    }
+    return parts.join(QStringLiteral(" "));
 }
 
 int AIConversation::dropUnresolvableShotIds(QJsonArray& messages,
@@ -855,14 +870,12 @@ AIConversation::ShotFields AIConversation::extractShotFields(const QString& cont
             if (shot.contains(QStringLiteral("notes")))
                 fields.notes = shot.value(QStringLiteral("notes")).toString();
 
-            // Grinder string reproduces the legacy prose format
-            // exactly: "<brand> <model> with <burrs> @ <setting>"
-            // (see ShotSummarizer::renderShotAnalysisProse pre-#1041 —
-            // the same format the s_grinderRe regex still captures from
-            // stored conversations). Producing the same string on the
-            // structured path keeps cross-format diffs (prev=legacy
-            // regex, curr=structured) free of spurious "grinder
-            // changed" diffs in conversations that span both eras.
+            // Grinder string, formatted "<brand> <model> with <burrs> @
+            // <setting>". Both sides of any diff are built here, so the
+            // format is free to change as long as it changes once — the
+            // regex that used to read this shape out of stored prose is
+            // gone, and no conversation spans the two eras (the key change
+            // wipes pre-upgrade threads once).
             const QString gb = currentBean.value(QStringLiteral("grinderBrand")).toString();
             const QString gm = currentBean.value(QStringLiteral("grinderModel")).toString();
             const QString gbur = currentBean.value(QStringLiteral("grinderBurrs")).toString();

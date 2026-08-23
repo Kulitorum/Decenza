@@ -53,8 +53,8 @@ inline QList<QList<qsizetype>> groupSessions(const QList<qint64>& timestampsDesc
 }
 
 // The shot-identity fields hoistable to a session-level `context` object.
-// These describe the user's *setup* (which grinder, which bean) plus the bean
-// storage lifecycle — shot-INVARIANT across a single dial-in session in the
+// These describe the user's *setup* (which equipment package, which bean) plus
+// the bean storage lifecycle — shot-INVARIANT across a single dial-in session in the
 // typical case. Shot-VARIABLE fields (`grinderSetting`, `doseWeightG`,
 // `finalWeightG`, `durationSec`, `enjoyment0to100`, `notes`) are NOT hoisted;
 // they are what the user is iterating on.

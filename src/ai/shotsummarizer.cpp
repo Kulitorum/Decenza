@@ -624,8 +624,9 @@ QJsonObject ShotSummarizer::buildUserPromptObject(const ShotSummary& summary, Re
     // `currentBean.*`, `profile.*`, `tastingFeedback.*`, etc., land on
     // actual fields. The existing prose body lives verbatim under
     // `shotAnalysis` — preserves the deterministic detector lines,
-    // phase data, etc. in the form the LLM (and the regex consumers in
-    // AIConversation::processShotForConversation) already understand.
+    // phase data, etc. in the form the model already understands. (It had a
+    // second audience once, the regex consumers in AIConversation; those are
+    // deleted, so the format now answers to the model alone.)
     // Key names mirror dialing_get_context's response shape so a single
     // system prompt reads correctly off either surface.
     QJsonObject payload;
@@ -1097,7 +1098,8 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "on and `matchedShotCount: 0`. Read it as a fact, not as a gap to fill:\n"
         "there is no earlier shot to cite, so judge the current shot on its own\n"
         "data. Its absence together with an absent `dialInSessions` means no\n"
-        "history query was asked at all.\n\n"
+        "history was established — either none was asked for, or the lookup did\n"
+        "not complete. Do not read that pair as evidence of an empty history.\n\n"
         "**`recentAdvice`** (when present): an array of up to 3 of YOUR own\n"
         "prior recommendations on this profile, paired with the user's actual\n"
         "follow-up shot. Each entry carries `turnsAgo`, the prior\n"

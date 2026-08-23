@@ -27,7 +27,6 @@ Rectangle {
     property string beverageType: "espresso"
     property string overlayTitle: TranslationManager.translate("conversation.title", "AI Conversation")
     property bool isMistakeShot: false
-    property string historicalContext: ""
     property bool contextLoading: false
     property string shotDebugLog: ""
     // Saved context for re-fetching shot history after conversation clear
@@ -160,7 +159,6 @@ Rectangle {
         // Fetch recent shot history as context on a background thread.
         // Result arrives via recentShotContextReady signal → Connections handler below.
         overlay.savedShot = shotData
-        overlay.historicalContext = ""
         overlay.contextLoading = true
         MainController.aiManager.requestRecentShotContext(overlay.savedShot, shotId)
 
@@ -220,8 +218,7 @@ Rectangle {
     // Receive async historical context from background thread
     Connections {
         target: MainController.aiManager
-        function onRecentShotContextReady(context) {
-            overlay.historicalContext = context
+        function onRecentShotContextReady() {
             overlay.contextLoading = false
         }
     }
@@ -349,7 +346,6 @@ Rectangle {
                                     overlay._preResponseHeight = 0
                                     // Re-fetch historical context on background thread
                                     if (overlay.shotId > 0) {
-                                        overlay.historicalContext = ""
                                         overlay.contextLoading = true
                                         MainController.aiManager.requestRecentShotContext(
                                             overlay.savedShot, overlay.shotId)
@@ -691,7 +687,6 @@ Rectangle {
                                 // AIManager::buildConversationUserPrompt.
                                 message = MainController.aiManager.buildConversationUserPrompt(
                                     overlay.savedShot, text, overlay.shotLabel)
-                                overlay.historicalContext = ""
                             }
 
                             // Stamp the resolved shot onto this turn pair before

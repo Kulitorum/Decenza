@@ -9,6 +9,7 @@
 // access — observable behavior is what the wire format actually emits.
 
 #include <QtTest>
+#include "httpframing.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -189,39 +190,10 @@ private:
         return pool;
     }
 
-    // Read exactly one HTTP response off a connection that will carry more.
-    //
-    // A bare readAll() was safe when each call owned its socket: whatever had
-    // arrived was the whole of the only response that socket would ever see. On
-    // a shared connection it is not — a short read leaves this response's tail
-    // to be picked up as the head of the next one, and every later assertion in
-    // the binary then reads a body belonging to an earlier request. Frame on
-    // Content-Length, which sendHttpResponse() emits for every status except
-    // 204, and no test here asserts a 204.
+    // Framing helper shared with the other pooled-connection test binary.
     static QByteArray readOneResponse(QTcpSocket& client)
     {
-        QByteArray raw;
-        qsizetype headerEnd = -1;
-        qint64 contentLength = -1;
-        QElapsedTimer timer;
-        timer.start();
-        while (timer.elapsed() < 3000) {
-            if (client.bytesAvailable() == 0)
-                client.waitForReadyRead(50);
-            raw.append(client.readAll());
-            if (headerEnd < 0) headerEnd = raw.indexOf("\r\n\r\n");
-            if (headerEnd >= 0 && contentLength < 0) {
-                contentLength = 0;
-                for (const QByteArray& line : raw.left(headerEnd).split('\n')) {
-                    if (line.trimmed().toLower().startsWith("content-length:"))
-                        contentLength = line.mid(line.indexOf(':') + 1).trimmed().toLongLong();
-                }
-            }
-            if (headerEnd >= 0 && contentLength >= 0
-                && raw.size() >= headerEnd + 4 + contentLength)
-                break;
-        }
-        return raw;
+        return HttpFraming::readOneResponse(client);
     }
 
     static HttpResponse sendHttp(McpServer& server,

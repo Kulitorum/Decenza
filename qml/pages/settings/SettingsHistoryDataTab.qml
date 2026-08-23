@@ -977,12 +977,16 @@ KeyboardAwareContainer {
     Connections {
         target: MainController.dataMigration
 
-        function onImportComplete(settingsImported, profilesImported, shotsImported, mediaImported, aiConversationsImported) {
+        function onImportComplete(settingsImported, profilesImported, shotsImported, mediaImported, aiConversationsImported, aiConversationNote) {
             importCompletePopup.settingsCount = settingsImported
             importCompletePopup.profilesCount = profilesImported
             importCompletePopup.shotsCount = shotsImported
             importCompletePopup.mediaCount = mediaImported
             importCompletePopup.aiConversationsCount = aiConversationsImported
+            // What the import REFUSED. Without it the popup shows only the
+            // survivors, so a run that dropped most of the conversations reads
+            // as an unqualified success.
+            importCompletePopup.aiConversationNote = aiConversationNote || ""
             importCompletePopup.open()
 
             // Refresh profiles list
@@ -1016,6 +1020,10 @@ KeyboardAwareContainer {
         property int shotsCount: 0
         property int mediaCount: 0
         property int aiConversationsCount: 0
+        // What the import REFUSED, empty when it refused nothing. Rendered
+        // below the counts because a count of survivors alone let a run that
+        // dropped most of the conversations read as an unqualified success.
+        property string aiConversationNote: ""
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1125,6 +1133,18 @@ KeyboardAwareContainer {
                     font.pixelSize: Theme.scaled(13)
                     visible: importCompletePopup.aiConversationsCount > 0
                 }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                Layout.maximumWidth: Theme.scaled(340)
+                text: importCompletePopup.aiConversationNote
+                visible: text.length > 0
+                wrapMode: Text.WordWrap
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(13)
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
             }
 
             AccessibleButton {
@@ -1520,13 +1540,20 @@ KeyboardAwareContainer {
         target: MainController.backupManager
         enabled: historyDataTab.visible || historyDataTab.restoreInProgress
 
-        function onRestoreCompleted(filename) {
+        function onRestoreCompleted(filename, note) {
             historyDataTab.restoreInProgress = false;
             restoreConfirmDialog.resetDefaults();
             restoreConfirmDialog.close();
             console.log("Restore completed:", filename);
-            backupStatusText.text = TranslationManager.translate("settings.data.restoresuccess",
+            // `note` says what the restore REFUSED — empty on a clean one. It is
+            // appended rather than replacing the success line, because the
+            // restore did succeed; what it dropped is the part the count of
+            // survivors could not tell the user.
+            var restoreMsg = TranslationManager.translate("settings.data.restoresuccess",
                 "✓ Backup restored successfully");
+            if (note)
+                restoreMsg += "\n" + note;
+            backupStatusText.text = restoreMsg;
             backupStatusText.color = Theme.successColor;
             backupStatusBackground.visible = true;
             backupStatusTimer.restart();

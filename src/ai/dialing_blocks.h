@@ -141,13 +141,10 @@ inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
     return recipe;
 }
 
-// The five DB-derived context blocks, together. Both advisor surfaces need
-// exactly this set for exactly one shot, and they used to build it twice —
-// `mcptools_ai.cpp` producing all five as JSON, `aimanager.cpp` producing three
-// of them and hand-rendering those as prose while never building the other two
-// at all. A comment in the MCP copy asserted the two were "produced by the same
-// shared helpers so the userPromptUsed echo is byte-equivalent across surfaces",
-// which was false in both directions.
+// The DB-derived context blocks, together. Both advisor surfaces need exactly
+// this set for exactly one shot, and they used to build it twice: the MCP path
+// produced them all as JSON while the in-app path built three, hand-rendered
+// those as prose, and never built the other two at all.
 //
 // One assembler, so a new block is added once and both surfaces get it.
 struct AdvisorContextBlocks {
@@ -175,9 +172,26 @@ struct AdvisorContextBlocks {
 constexpr int kRecentAdviceTurns = 3;
 constexpr int kDialInHistoryLimit = 5;
 
-// Builds all five for `shot`, on the caller's open database. Blocks with nothing
-// to say come back empty, and callers suppress an empty block rather than
-// emitting a placeholder.
+// Whether to build the cross-profile grinder calibration table.
+//
+// `dialing_get_context` omits it (#1164): it is a ~33-row table that changes
+// only when the user's dial-in history does, and it is only relevant when they
+// are weighing a profile switch — so the MCP client fetches it once on demand
+// from `dialing_get_grinder_calibration` instead of receiving it on every turn.
+// The one-shot advisor paths include it because they have no follow-up tool
+// call. (It was described here as "a stable physical property of the grinder and
+// burrs". That was the pre-scoping justification and this change invalidated it:
+// the table is keyed on the equipment package now, so a basket swap changes it.)
+//
+// A parameter rather than a second assembler. Hand-writing the three builder
+// calls at the MCP tool for this one difference is what put a second advice-scope
+// construction in the tree and left that surface with no `noDialInHistory`
+// block — one difference is an argument, never a copy of the assembler.
+enum class GrinderCalibration { Include, Omit };
+
+// Builds every block in AdvisorContextBlocks for `shot`, on the caller's open
+// database. Blocks with nothing to say come back empty, and callers suppress an
+// empty block rather than emitting a placeholder.
 //
 // `recentAssistantTurns` is passed in rather than loaded here on purpose:
 // loading it needs AIConversation, and dialing_blocks.cpp is compiled into the
@@ -185,19 +199,6 @@ constexpr int kDialInHistoryLimit = 5;
 // QObject with QSettings and network dependencies into that library to save two
 // lines at two call sites is the link fan-out CLAUDE.md's testing rules warn
 // about. Callers load it with kRecentAdviceTurns.
-// Whether to build the cross-profile grinder calibration table.
-//
-// `dialing_get_context` omits it (#1164): it is a ~33-row table, a stable
-// physical property of the grinder and burrs, and only relevant when the user is
-// weighing a profile switch — so the MCP client fetches it once on demand from
-// `dialing_get_grinder_calibration` instead of receiving it on every turn. The
-// one-shot advisor paths include it because they have no follow-up tool call.
-//
-// A parameter rather than a second assembler: the MCP tool used to hand-write
-// its own three builder calls for exactly this one difference, which is how it
-// came to build the scope a second time and to miss `noDialInHistory` entirely.
-enum class GrinderCalibration { Include, Omit };
-
 AdvisorContextBlocks buildAdvisorContextBlocks(
     QSqlDatabase& db,
     const ShotProjection& shot,
@@ -262,14 +263,9 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
 // can call the helper without round-tripping through the heavyweight
 // projection type.
 struct CurrentBeanBlockInputs {
-    // The shot-identity fields, composed rather than redeclared. They used to be
-    // spelled out again here — all twelve of ShotIdentity's QString members were a
-    // strict subset of this struct's, and `beanInputsFromProjection` below copied
-    // them one by one from the same ShotProjection that ShotIdentity::fields()
-    // already maps. Three slices of one dataset (currentBean here, the hoisted
-    // session context, the per-shot override) and only two read the table, so a new
-    // component reached two of them and silently missed the third. The extras below
-    // are what makes currentBean a different INCREMENT, not a different dataset.
+    // The shot-identity fields, composed rather than redeclared: this is the same
+    // set ShotIdentity::fields() maps, and the extras below are what makes
+    // currentBean a different INCREMENT of it, not a different dataset.
     //
     // Bean storage lifecycle (frozenDate / defrostDate / storageHint / openedDate)
     // rides in there too: when any is set, buildBeanFreshness reports storage as

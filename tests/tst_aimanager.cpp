@@ -24,6 +24,7 @@
 #include <QJsonArray>
 #include <QSettings>
 #include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QDate>
 
 #include "ai/aimanager.h"
@@ -605,11 +606,11 @@ private slots:
 
     // ---------------------------------------------------------------------
     // enrichUserPromptObject — single-source merge step shared by the in-app
-    // advisor and ai_advisor_invoke. Pins that the four blocks land at the
-    // right keys, that empty blocks are suppressed (no nulls), and that the
-    // merged envelope is byte-stable across calls.
+    // advisor and ai_advisor_invoke. Pins that every block lands at the right
+    // key, that empty blocks are suppressed (no nulls), and that the merged
+    // envelope is byte-stable across calls.
     // ---------------------------------------------------------------------
-    void enrichUserPromptObject_mergesAllFourBlocks()
+    void enrichUserPromptObject_mergesEveryBlock()
     {
         QNetworkAccessManager nam;
         Settings settings;
@@ -631,16 +632,28 @@ private slots:
                         {"shotCount", 1}}};
         const QJsonObject bestRecentShot{{"id", 42}, {"enjoyment0to100", 85}};
         const QJsonObject grinderContext{{"model", "Zero"}, {"stepSize", 0.25}};
+        const QJsonObject grinderCalibration{{"confidence", "directional"}};
+        const QJsonArray recentAdvice{QJsonObject{{"turnsAgo", 1}}};
 
         DialingBlocks::AdvisorContextBlocks blocks;
         blocks.dialInSessions = dialInSessions;
         blocks.bestRecentShot = bestRecentShot;
         blocks.grinderContext = grinderContext;
+        blocks.grinderCalibration = grinderCalibration;
+        blocks.recentAdvice = recentAdvice;
         mgr.enrichUserPromptObject(payload, shot, blocks);
 
         QVERIFY(payload.contains(QStringLiteral("dialInSessions")));
         QVERIFY(payload.contains(QStringLiteral("bestRecentShot")));
         QVERIFY(payload.contains(QStringLiteral("grinderContext")));
+        // Every block on the struct, not the three the builders happened to
+        // populate first: a merge line that is never asserted can be deleted
+        // without a test noticing, which is how noDialInHistory — the whole
+        // point of stating an absence — reached the struct and not the payload.
+        QVERIFY2(payload.contains(QStringLiteral("grinderCalibration")),
+                 "grinderCalibration is on the struct and must reach the envelope");
+        QVERIFY2(payload.contains(QStringLiteral("recentAdvice")),
+                 "recentAdvice is on the struct and must reach the envelope");
         // SAW correctly suppressed — no flow data on a synthetic ShotProjection.
         QVERIFY2(!payload.contains(QStringLiteral("sawPrediction")),
                  "SAW must be suppressed when ShotProjection has no usable flow data");
@@ -650,6 +663,38 @@ private slots:
         QVERIFY(payload.contains(QStringLiteral("profile")));
         QVERIFY(payload.contains(QStringLiteral("tastingFeedback")));
         QVERIFY(payload.contains(QStringLiteral("shotAnalysis")));
+    }
+
+    // The absence block is the reason this change exists: an omitted history
+    // section reads to the model as "no history at all" and it invents an
+    // anchor. Built correctly and then dropped at the merge, it would be
+    // invisible — every other test asserts it at the builder.
+    void enrichUserPromptObject_carriesTheStatedAbsence()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        QJsonObject payload = mgr.buildUserPromptObjectForShot(shot);
+
+        DialingBlocks::AdvisorContextBlocks blocks;
+        blocks.noDialInHistory = QJsonObject{
+            {"matchedShotCount", 0},
+            {"equipment", QJsonObject{{"grinderBrand", "Niche"}}}};
+        mgr.enrichUserPromptObject(payload, shot, blocks);
+
+        QVERIFY2(payload.contains(QStringLiteral("noDialInHistory")),
+                 "the stated absence must reach the payload, not stop at the struct");
+        QCOMPARE(payload.value(QStringLiteral("noDialInHistory")).toObject()
+                     .value(QStringLiteral("matchedShotCount")).toInt(), 0);
+        // And it never travels beside the history it replaces.
+        QVERIFY(!payload.contains(QStringLiteral("dialInSessions")));
     }
 
     void enrichUserPromptObject_suppressesEmptyBlocks()
@@ -2855,6 +2900,105 @@ private slots:
         settings.clear();
     }
 
+    // The package map, produced by the REAL importer rather than written by
+    // hand. Every other re-key test builds the QHash itself, so the line in
+    // importDatabaseStatic that publishes it could be deleted and only this
+    // test would notice — the symptom being that every packaged conversation
+    // silently fails to restore while the tally reports a clean zero.
+    void aRealImportMapRekeysAPackagedConversation()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        const QString srcPath = dir.filePath("pkg_src.db");
+        qint64 srcPackageId = 0;
+        {
+            ShotHistoryStorage src;
+            QVERIFY(src.initialize(srcPath));
+            src.close();
+        }
+        // The package, written straight to the source schema: the shot save path
+        // takes an equipmentId, it does not invent one.
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                        QStringLiteral("pkg_src_conn"));
+            db.setDatabaseName(srcPath);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            QVERIFY(q.exec ("INSERT INTO equipment_packages (name) VALUES ('Graph')"));
+            srcPackageId = q.lastInsertId().toLongLong();
+            QVERIFY(srcPackageId > 0);
+            QVERIFY(q.exec (QStringLiteral("INSERT INTO equipment_items (package_id, kind, brand, model) "
+                                           "VALUES (%1, 'grinder', 'Niche', 'Zero')").arg(srcPackageId)));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("pkg_src_conn"));
+        {
+            ShotHistoryStorage src;
+            QVERIFY(src.initialize(srcPath));
+            ShotRecord r;
+            r.summary.uuid = QStringLiteral("pkg-shot");
+            r.summary.timestamp = 1765300000;
+            r.summary.profileName = QStringLiteral("D-Flow / Q");
+            r.summary.beverageType = QStringLiteral("espresso");
+            r.equipmentId = srcPackageId;
+            r.pressure.append(QPointF(0.0, 6.0));
+            QVERIFY(src.importShotRecord(r, false) > 0);
+            src.close();
+        }
+
+        // The destination already holds a package of its own, so the source's
+        // row id is NOT the id it receives here. Without that, an un-remapped
+        // key would be indistinguishable from a correctly remapped one.
+        const QString destPath = dir.filePath("pkg_dest.db");
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            dest.close();
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                        QStringLiteral("pkg_dest_conn"));
+            db.setDatabaseName(destPath);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            for (int i = 0; i < 5; i++) {
+                QVERIFY(q.exec (QStringLiteral("INSERT INTO equipment_packages (name) VALUES ('Pad %1')")
+                                    .arg(i)));
+                QVERIFY(q.exec (QStringLiteral("INSERT INTO equipment_items (package_id, kind, brand, model) "
+                                               "VALUES (%1, 'grinder', 'Pad', 'M%2')")
+                                    .arg(q.lastInsertId().toLongLong()).arg(i)));
+            }
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("pkg_dest_conn"));
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r));
+        QVERIFY2(!r.equipmentIdMap.isEmpty(),
+                 "the import published no package map — the re-key below cannot mean anything");
+        const qint64 destPackageId = r.equipmentIdMap.value(srcPackageId, 0);
+        QVERIFY2(destPackageId > 0, "the source package did not reach the destination");
+        QVERIFY2(destPackageId != srcPackageId,
+                 "source and destination package ids coincide — pad the destination further, "
+                 "or this test cannot tell a re-key from a passthrough");
+
+        AppSettings settings;
+        settings.clear();
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(srcPackageId, QJsonArray{}), r.idMapOrNull(),
+            r.equipmentIdMapOrNull());
+
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(tally.refusedNeedShots, 0);
+        QVERIFY2(!settings.value(QStringLiteral("ai/conversations/") + convKey(destPackageId)
+                                 + QStringLiteral("/timestamp")).toString().isEmpty(),
+                 "the conversation was not stored under the DESTINATION package's key");
+        QVERIFY2(settings.value(QStringLiteral("ai/conversations/") + convKey(srcPackageId)
+                                + QStringLiteral("/timestamp")).toString().isEmpty(),
+                 "the conversation was stored under the SOURCE package's key — that key names a "
+                 "row in a database this device does not have");
+        settings.clear();
+    }
+
     // The read-time repair, end to end and with a REAL storage wired.
     //
     // Every other slot here calls the static helpers directly, and the
@@ -3309,6 +3453,31 @@ private slots:
         }
         QCOMPARE(kept, 2);
     }
+    // equipmentLabel() names the package on the conversation index, the
+    // ShotServer AI page and ai_conversations — the only thing that tells two
+    // threads on one bean and profile apart. Its whole job is joining parts that
+    // may be missing, so the partial cases are the ones worth pinning: a stray
+    // separator either side reads as a component the user does not have.
+    void equipmentLabel_joinsOnlyThePartsThatExist()
+    {
+        auto label = [](const QString& gb, const QString& gm,
+                        const QString& bb, const QString& bm) {
+            ShotProjection p;
+            p.grinderBrand = gb; p.grinderModel = gm;
+            p.basketBrand = bb; p.basketModel = bm;
+            return p.equipmentLabel();
+        };
+
+        QCOMPARE(label("Niche", "Zero", "Decent", "18g Ridged"),
+                 QStringLiteral("Niche Zero / Decent 18g Ridged"));
+        QCOMPARE(label("Niche", "Zero", QString(), QString()), QStringLiteral("Niche Zero"));
+        QCOMPARE(label(QString(), QString(), "Decent", "18g Ridged"),
+                 QStringLiteral("Decent 18g Ridged"));
+        QCOMPARE(label("Niche", QString(), QString(), "18g Ridged"),
+                 QStringLiteral("Niche / 18g Ridged"));
+        QCOMPARE(label(QString(), QString(), QString(), QString()), QString());
+    }
+
     // The three scenarios in specs/advisor-conversation-history/spec.md.
     //
     // This is the requirement that repairs the reported case. A saved thread
@@ -3335,8 +3504,17 @@ private slots:
                  "same bean and profile on two equipment packages resolved to one thread — "
                  "the package-A turns would replay into the package-B conversation");
 
-        // Returning to a package resumes its own thread, not a third one.
-        QCOMPARE(keyFor(3), decent);
+        // Returning to a package resumes its own thread. Asserted through a
+        // fresh SHOT rather than by calling keyFor(3) twice — one pure function
+        // called twice with one argument cannot fail, and the scenario is about
+        // a later shot on the same gear landing on the same key.
+        ShotProjection returning;
+        returning.beanBrand = bean; returning.beanType = type;
+        returning.profileName = profile;
+        returning.equipmentId = 3;
+        returning.id = 991;                       // a different shot
+        returning.grinderSetting = QStringLiteral("9.25");   // dialled since
+        QCOMPARE(AIManager::conversationKey(returning), decent);
 
         // Every pre-change thread was keyed without a package. Bucket 0 is the
         // unpackaged pool, so a packaged shot must not land on one of those keys.

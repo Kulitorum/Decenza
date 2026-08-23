@@ -397,10 +397,14 @@ T.Page {
                 // Not an average like the tiles beside it: this is the group's
                 // LATEST setting, which is the one Load applies. The group spans
                 // several, so it is labelled "Last" rather than presented as the
-                // group's grind.
+                // group's grind — and it is shown ONLY when the group does span
+                // several. In the grind-setting modes there is exactly one, the
+                // "Grind Setting:" row below states it, and "Last" would both
+                // repeat that row and misdescribe it.
                 ColumnLayout {
                     spacing: Theme.scaled(2)
                     visible: autoFavoriteInfoPage.grinderSetting !== ""
+                             && !autoFavoriteInfoPage._groupHoldsOneGrind
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("autofavoriteinfo.lastgrind", "Last Grind") + ": " +
                         autoFavoriteInfoPage.grinderSetting

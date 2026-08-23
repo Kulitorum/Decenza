@@ -117,10 +117,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // The whole bundle comes from the shared assembler, which
                     // also derives the advice scope from the shot being analysed
                     // rather than live machine state (that shot's gear may not be
-                    // what is mounted now). This tool used to hand-write the
-                    // three builder calls, which put a second scope construction
-                    // in the tree and left it the only surface with no
-                    // noDialInHistory block.
+                    // what is mounted now). Hand-writing the individual builder
+                    // calls here would be a second scope construction and a
+                    // second decision about which blocks exist — that is how a
+                    // surface ends up without noDialInHistory.
                     //
                     // recentAdvice is empty here on purpose: an MCP client owns
                     // its own conversation, so prior assistant turns are already
@@ -465,14 +465,22 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     QJsonObject result;
                     result["shotId"] = resolvedShotId;
                     if (calibration.isEmpty()) {
-                        // {} only on hard guards: empty grinder model,
-                        // filter/pourover, invalid shot, or no dialed-in
-                        // shots at all. The AI explicitly asked, so explain.
+                        // {} comes from the hard guards (empty grinder model,
+                        // filter/pourover, invalid shot, no dialed-in shots on
+                        // this package) AND from a failed query — the builder
+                        // logs that and returns the same empty object.
+                        //
+                        // So the reason names the OUTCOME, not a cause. It used
+                        // to assert "no qualifying shots", which on a database
+                        // error tells the model as fact something the database
+                        // never said — the defect noDialInHistory exists to
+                        // avoid, and one this scoping makes far easier to hit,
+                        // since narrowing from grinder to package makes an
+                        // empty result the common case rather than the rare one.
                         result["available"] = false;
                         result["reason"] =
-                            "Cross-profile grinder calibration is not available for this "
-                            "grinder yet — no qualifying dialed-in espresso shots on this "
-                            "exact equipment package. Advise qualitatively (finer / coarser) "
+                            "No cross-profile grinder calibration could be produced for this "
+                            "equipment package. Advise qualitatively (finer / coarser) "
                             "and have the user pull a reference shot on the target profile "
                             "rather than quoting a specific number.";
                     } else {
