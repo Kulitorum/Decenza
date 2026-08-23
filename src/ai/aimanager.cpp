@@ -2061,17 +2061,42 @@ void AIManager::loadConversationIndex()
         }
     }
     qDebug() << "AIManager: Loaded conversation index with" << m_conversationIndex.size() << "entries";
-    // Deliberately NOT trimmed here. A trim on the load path looks like the
-    // obvious way to enforce the cap on an index that arrived over it, and it is
-    // destructive on the restore path: importConversationsStatic APPENDS restored
-    // entries to the tail (aiconversation.cpp), trimConversationsTo takes from the
-    // tail, and reloadConversations() -- which is this function -- is called
-    // immediately after every import by shotserver_backup.cpp, datamigrationclient.cpp
-    // and the in-app restore. At the cap, restoring N conversations deleted exactly
-    // those N transcripts while the response still reported them imported. The
-    // insert-time trim converges an over-cap index on its own (6 -> 4 -> prepend
-    // -> 5) the next time a conversation is started; that is the whole benefit this
-    // call added, and it is not worth the restore path.
+    // Deliberately NOT trimmed here. A trim on the load path looks like the obvious
+    // way to enforce the cap on an index that arrived over it, and it is destructive
+    // on the restore path: importConversationsStatic APPENDS restored entries to the
+    // tail (aiconversation.cpp), trimConversationsTo takes from the tail, and
+    // reloadConversations() -- which is this function -- is called immediately after
+    // an import by shotserver_backup.cpp and datamigrationclient.cpp. At the cap,
+    // restoring N conversations deleted exactly those N transcripts while the
+    // response still reported them imported.
+    //
+    // The cost of not trimming, stated rather than glossed: an over-cap index
+    // converges only when a conversation is started on a key the index does NOT
+    // already hold, because noteConversationUse returns through touchConversationEntry
+    // for a key it already has. A device that only ever revisits its existing threads
+    // never converges, and ai_conversations reports more rows than its own
+    // description promises. That is a stale number; the alternative was deleting
+    // transcripts a restore had just written.
+    const bool overCap = m_conversationIndex.size() > MAX_CONVERSATIONS;
+
+    // Sort by recency so the index is genuinely LRU-ordered, which is what
+    // trimConversationsTo's tail-eviction assumes and what ai_conversations
+    // documents ("most recently active first"). Neither was true of an index that
+    // had been through an import: importConversationsStatic appends in archive
+    // order carrying the archived timestamp, so restored threads sat at the tail
+    // and were evicted FIRST regardless of age -- a thread from yesterday dropped
+    // while a local one from last year survived.
+    std::sort(m_conversationIndex.begin(), m_conversationIndex.end(),
+              [](const ConversationEntry& a, const ConversationEntry& b) {
+                  return a.timestamp > b.timestamp;
+              });
+
+    if (overCap) {
+        qInfo() << "AIManager: conversation index holds" << m_conversationIndex.size()
+                << "entries against a cap of" << MAX_CONVERSATIONS
+                << "- not trimmed here (see the note above); it converges when a"
+                << "conversation is next started on a key the index does not hold";
+    }
 }
 
 void AIManager::saveConversationIndex()
@@ -2157,7 +2182,19 @@ void AIManager::trimConversationsTo(int keep)
     // The postcondition framing (trim TO n) is what makes this idempotent, but it
     // also stops a nonsense argument being obviously wrong: keep = 0 would empty
     // the index and delete every transcript, silently and successfully.
-    Q_ASSERT(keep >= 0 && keep <= MAX_CONVERSATIONS);
+    //
+    // Strictly BELOW the cap, not at it. Every legitimate call is making room for
+    // an entry it is about to prepend; `keep == MAX_CONVERSATIONS` is the
+    // signature of the load-path trim that deleted freshly-restored conversations,
+    // so the one argument that must never be passed is not one to bless here.
+    Q_ASSERT(keep >= 0 && keep < MAX_CONVERSATIONS);
+    // Q_ASSERT compiles to nothing in Release (QT_FORCE_ASSERTS is set only for
+    // sanitizer builds, CMakeLists.txt), and Release is precisely where "silently
+    // and successfully" above would apply. Refuse at runtime as well.
+    if (keep < 0 || keep >= MAX_CONVERSATIONS) {
+        qWarning() << "AIManager::trimConversationsTo: refusing nonsense keep =" << keep;
+        return;
+    }
     if (m_conversationIndex.size() <= keep) return;
 
     // A loop, not a single take: this used to drop exactly one entry per call, so
@@ -2175,9 +2212,19 @@ void AIManager::trimConversationsTo(int keep)
         // left behind -- which is what happened to `contextLabel`: only the
         // restore path writes it, so the three-field version of this loop never
         // saw it and orphaned one key per eviction on any restored device.
+        // Read what is about to be destroyed BEFORE destroying it. INFO, not
+        // DEBUG: the tier is chosen by audience, and "your oldest advisor
+        // conversation was deleted to make room" is a user-facing lifecycle fact.
+        // There is no in-app conversation list, so a submitted log is the only
+        // place this is ever recorded -- and at DEBUG it is filtered out of the
+        // retrieval a reader would make.
+        QJsonArray lostTurns;
+        const AIConversation::TranscriptState lostState =
+            AIConversation::storedTranscriptState(settings, oldest.key, &lostTurns);
         settings.remove(QStringLiteral("ai/conversations/") + oldest.key);
-        qDebug() << "AIManager: Evicted oldest conversation:"
-                 << oldest.beanBrand << oldest.beanType << oldest.profileName;
+        qInfo() << "AIManager: Evicted oldest conversation" << oldest.key
+                << oldest.beanBrand << oldest.beanType << oldest.profileName
+                << "turns:" << lostTurns.size() << "state:" << int(lostState);
     }
     saveConversationIndex();
 }

@@ -517,6 +517,183 @@ actual code**.
 eight of those eleven comments by making the code state what the prose currently has to. Recorded
 rather than done: it is a follow-up, not this change.
 
+## 5h. Live verification on the running app, and what it found
+
+Driving the built app rather than reading the diff. The scoping itself verified clean in both
+directions; three storage defects and one product bug surfaced that no review round had reached.
+
+**The scoping, proven on real data.** Same bean (Sweet Bloom / Hometown Blend), same profile
+(D-Flow / Q), same morning: the anchor shot at 09:37 on grind 9.5 (package 27, Decent 18g Ridged)
+sat between two shots at 09:20 and 09:23 on grind 17/17.5 (package 29, Graph Stepped). The two
+package-29 shots are absent from `dialInSessions`; a package-27 shot from the previous day IS
+present while a package-29 shot from that same day is not. `grinderContext.settingsObserved`
+returned `["7.75","8","8.5","9.5","9.75","10"]` with none of the 15-17.5 range. Pooled by
+bean+profile, the advisor would have read a 7.5-step grind change between adjacent shots that
+never happened.
+
+- [x] 5h.1 **A moving weight sample could be recorded as the settled weight.** `onWeightSample`
+      samples the stillness duration BEFORE accounting for the current reading, then the fast path
+      completes settling AT that reading — so a sample that moved the scale inherited the
+      stillness of the samples before it, logging "stable for 1007 ms" for a run that ended one
+      sample ago. Fixed by zeroing the run on any sample that crosses the 0.1 g threshold. Found
+      from an intermittent `tst_settling` failure, and it was a product bug, not a flaky test.
+- [x] 5h.2 **The test that found it was racing on wall clock.** `feedPlateauUntilCaptured` fed
+      byte-identical samples, which is what armed the fast path in the first place; whether it
+      fired was a race against machine load. Samples now alternate +/-0.1 g — above the 0.1 g
+      change threshold so the fast path stays disarmed, below `SETTLING_ABOVE_AVG_MARGIN` (0.2 g)
+      so the rolling gate is untouched — and the loop is bounded by sample count. The `QVERIFY2`
+      that attributed the failure to a loaded machine is deleted: it was the "make it go away for
+      the next person" shape.
+- [x] 5h.3 **The conversation index was stuck one over its cap.** `ai_conversations list` returned
+      6 threads against `MAX_CONVERSATIONS = 5`. The trim dropped exactly one entry per call, so
+      6 -> 5 -> prepend -> 6 was a STABLE state, not a transient one. `evictOldestConversation`
+      became `trimConversationsTo(keep)`, a loop.
+- [x] 5h.4 **Eviction named its fields instead of removing the group**, so `contextLabel` — written
+      only by the restore path — was orphaned once per eviction on any restored device. Now
+      `settings.remove(group)`, which takes subkeys with it. This is the fix that stops new
+      orphans forming at all.
+- [x] 5h.5 **An unrelated flake, fixed rather than deferred.** `tst_decentscalewifi` had five
+      copies of `sendJson(...); qWait(50);` around the power_off frame — the same defect shape as
+      5h.1, a fixed wall clock standing in for "the frame crossed a real socket and was handled".
+      One `sendPowerOffAndAwaitLog` helper now waits on the message and asserts its tier.
+
+## 5i. Sixth review round — the round that caught the previous round destroying data
+
+Five agents over 5h. The pattern held for the fifth consecutive round, and this time the defects
+were the most serious of the change: two paths added in 5h could lose user data irrecoverably.
+Both were backed out rather than fixed forward.
+
+- [x] 5i.1 **The orphan sweep deleted MCP-written conversations.** A startup sweep removing stored
+      threads with no index entry was added on the premise, written in its own comment, that
+      "every write path indexes at save time". False: `appendAssistantTurnForKey` is the MCP
+      `ai_advisor_invoke` write path, a static that writes storage, emits no
+      `conversationPersisted` and never touches the index. Stored-and-unindexed is the DESIGNED
+      resting state of an MCP thread until `switchConversation` adopts it on first in-app open,
+      and three surfaces read such a thread by key. **It ran on the live device and destroyed two
+      real MCP threads.**
+      Backed out rather than gated: no gating makes a sweep keyed on "unindexed" correct without
+      first changing what unindexed MEANS, and doing that hands a static storage function
+      ownership of the LRU index — letting an MCP call evict an in-app conversation. Against that,
+      the sweep reclaimed kilobytes nobody feels.
+- [x] 5i.2 **The load-time trim deleted conversations a restore had just imported.**
+      `trimConversationsTo(MAX)` inside `loadConversationIndex()` made `reloadConversations()`
+      destructive: `importConversationsStatic` appends restored entries to the tail, the trim
+      takes from the tail, and every import calls `reloadConversations()` immediately after — the
+      ShotServer restore and device-to-device migration. At the cap, restoring N conversations
+      deleted exactly those N transcripts while the response still reported them imported. The
+      IN-APP restore (`databasebackupmanager.cpp`) does not call `reloadConversations()` at all —
+      an earlier draft of this entry and of the code comment both claimed it did. Its imported
+      threads were trimmed at the next launch instead: later, but just as gone. Its only benefit was converging an over-cap index without a new
+      conversation being started, which the insert-time trim already does.
+- [x] 5i.3 **Two tests now fail if a sweep returns.** `anMcpWrittenThreadSurvivesARelaunch`
+      asserts an MCP-written thread is still `Ok` and still adoptable after a relaunch;
+      `construction_wipesConversationsOnceForEquipmentScoping` goes back to writing its thread
+      unindexed, which is the real MCP shape — indexing it had been papering over the sweep rather
+      than modelling the app. Both verified red against a minimal re-added sweep.
+- [x] 5i.4 **Claims asserted as fact that were wrong.** `ignoreMessage` DOES fail a test on an
+      unmatched pattern (`qtestresult.cpp:251-254`); what it lacks is a file/line and the pattern
+      text. The settling fix is not #1280 and not a cup lift — a >20 g step is intercepted by the
+      cup-removed guard and never reaches that branch. `tst_settling.cpp` carried a 29-line block
+      asserting the old wall-clock contract, directly contradicting the comment added 20 lines
+      below it. `mcptools_ai.cpp`'s `equipmentBucket` comment was wrong in a second direction
+      after the builders stopped taking it.
+- [x] 5i.5 **`MCP_SERVER.md` prescribed a deleted symbol.** It named `requestRecentShotsByKbId()`
+      as the template for new async MCP tools; this change removed it. Repointed at
+      `requestShot()`/`shotReady()`, and the symbol removed from `SHOT_HISTORY.md` and the
+      shot-analysis-pipeline spec.
+- [x] 5i.6 **Unrelated but landed here:** the openspec CLI regenerated its own six
+      `.claude/skills/openspec-*/SKILL.md` files (`generatedBy` 1.9.0 -> 1.10.0) and they were
+      swept in by a `git add -A`. Stamps only, no content change. Kept deliberately rather than
+      stripped.
+
+### 5i note — what the review rounds are actually catching
+
+Six rounds, five of which found defects inside the previous round's fixes. The defects got MORE
+serious as the change matured, not less: round one found scoping bugs, round six found a path that
+deleted user data. The cheap reading is "keep reviewing until it converges". The accurate one is
+that each round's fixes were written with less context than the code they replaced — 5i.1's false
+premise was contradicted by a comment in the same file, 400 lines away, that had been read during
+the same session. Reviewing the FIX at least as hard as the original is the part that worked.
+
+## 5j. Seventh review round — defects inside the backout
+
+Four agents over the backout commit. The pattern held for a sixth consecutive round, and the
+sharpest finding was that the backout's own guards did not cover the path the data loss happened
+on. Two agents disagreed about whether one assertion could fail; the one that traced the code was
+right, which is the reason to read agent findings rather than count them.
+
+- [x] 5j.1 **The guards missed the path the loss occurred on.** Every new test went through the
+      constructor, so the narrowest re-introduction —
+      `reloadConversations() { loadConversationIndex(); trimConversationsTo(MAX); }`, the same
+      obvious fix one level up — left them all green while every restore at the cap destroyed what
+      it had just imported. Worse, the header comment still RECOMMENDED that argument and the new
+      `Q_ASSERT` explicitly permitted it. Header rewritten to forbid it and say why, assert
+      tightened to `keep < MAX_CONVERSATIONS`, and `reloadConversations` documented at its
+      declaration — where its callers actually look — as not trimming.
+- [x] 5j.2 **`Q_ASSERT` does not exist in the builds that matter.** `QT_FORCE_ASSERTS` is set only
+      for sanitizer builds, so the guard whose comment promised to stop a silent total deletion
+      compiled to nothing in Release, which is the one configuration where the deletion would be
+      silent. Backed with a runtime refusal.
+- [x] 5j.3 **Restored threads were evicted first, despite the "LRU-ordered" claim.** LRU order is
+      produced only by `touchConversationEntry`'s prepend; `importConversationsStatic` appends in
+      archive order and nothing sorted. So the tail — which the trim takes — was exactly the
+      restored set: a thread from yesterday dropped while a local one from last year survived.
+      `loadConversationIndex` now sorts by timestamp descending, which makes the header's claim
+      and the tool's "most recently active first" true rather than aspirational.
+- [x] 5j.4 **My own assertion could not fail, for the sixth time in this change.**
+      `QVERIFY2(first.m_conversationIndex.isEmpty())` checked an in-memory member for a fact about
+      DISK: it is filled at construction, before the static write, and the static holds no
+      reference to it. If the MCP path ever started indexing, it would still pass and the premise
+      would expire in silence. Moved past the relaunch to read the reloaded index. The correct
+      pattern was already in the same file, 3,700 lines below, with a comment written against
+      exactly this mistake.
+- [x] 5j.5 **A posted sweep would defeat the guard.** `QMetaObject::invokeMethod(..., QueuedConnection)`
+      restores the full data loss while keeping the constructor clean, and nothing in the test
+      spins an event loop. One `QCoreApplication::processEvents()` closes it —
+      not `qWait`, so the guard cannot become the next load-dependent flake.
+- [x] 5j.6 **`Missing` was asserted with no paired `Ok`** — the universal-failure-value shape, which
+      passes just as well on an eviction that took everything. A retained thread is now asserted
+      readable in the same test.
+- [x] 5j.7 **The corrections were wrong again.** The `mcptools_ai.cpp` comment reached its THIRD
+      wrong version: fixing the false "three of the four builders take this value" clause, I
+      discarded the true half beside it — `buildGrinderCalibrationBlock` really does take discrete
+      fields and re-read the row. And the settling comment's replacement claimed a real cup lift
+      "cannot happen" on that branch; the cup-removed gate tests DROPS only and both its clauses
+      are gated on the weight having passed 20 g, so every increase reaches the branch at any
+      size, and a genuine lift reaches it on any sub-20 g yield — the case where the fix matters
+      most. Both rewritten from the code rather than from the previous prose, and both now say so.
+- [x] 5j.8 **The retraction was left half-applied.** The cup narrative was withdrawn in the test's
+      header comment and left standing four lines below it and on the disturbance sample itself.
+- [x] 5j.9 **Consequences of keeping unindexed threads, recorded rather than acted on.** Preserving
+      them means they are absent from every backup (both exporters enumerate the index) and
+      survive a replace-mode restore that reports clearing only what the index named. Both are the
+      direct price of not deleting them and neither is worth a new mechanism in this change.
+- [x] 5j.10 **`MCP_SERVER.md` carried a dead pre-implementation section** telling readers
+      `dialing_get_context` was unbuilt and required a `getRecentShotsByKbId` that was never
+      written under that name, citing a TODO no longer at the line given. Replaced with what
+      shipped: `loadRecentShotsByKbIdStatic`, and why it is static rather than request/signal.
+- [x] 5j.11 **`ai_conversations` promised a cap the read path no longer enforces.** With the load
+      trim gone the index converges only on a NEW key, so a just-restored device can hold more
+      than five indefinitely. Description and header comment now say so instead of asserting a
+      number that can be false.
+
+### 5j deferred, with reasons
+
+- [ ] 5j.12 **`QSettings::remove()` and `setValue()` failures are unchecked in `trimConversationsTo`.**
+      On an `AccessError` store (read-only file, wrong ownership after a restore) both the group
+      removal and the index write are dropped together while the log asserts the eviction happened
+      — and every other setting written that session is being discarded too. Pre-existing and
+      unchanged by this work. Deferred deliberately: the fix is the sample-before/compare-after
+      latch dance in `settings.cpp`, and getting that wrong is what produced the round-four defect
+      in this very change. It deserves its own change, not a tenth round here.
+- [ ] 5j.13 **The in-app restore never reloads the conversation index.**
+      `databasebackupmanager.cpp` imports and emits `restoreCompleted`; nothing calls
+      `reloadConversations()`, so `AIManager` keeps a stale in-memory index and the next
+      `saveConversationIndex()` writes it back over the restored entries. `DatabaseBackupManager`
+      holds no `AIManager` reference, so the fix is a new dependency or a signal — not a one-liner,
+      and pre-existing. Note it only became SAFE to add by this change: before the backout, the
+      reload would have trimmed the restored threads away.
+
 ## 6. Prompt rules
 
 - [x] 6.1 Add the grind-comparability rule to the shared espresso system prompt: a numeric
@@ -611,6 +788,9 @@ rather than done: it is a follow-up, not this change.
       fixture forms no pairs, so `coffeeAnchor` is never emitted) and was rewritten to assert the
       exclusion directly.
 - [x] 8.2 `openspec validate filter-advisor-history-by-equipment --strict` — valid.
+- [x] 8.3b Driven on the running app a third time, after the round-5 fixes: the scoping verified
+      in both directions on real interleaved data, and the exercise found four defects no review
+      round had reached. Recorded in full in section 5h.
 - [x] 8.3 Done on the running macOS build, twice (once per build). Asked the in-app advisor
       directly which shots it was comparing against: it named only same-package shots and left
       out the other package's, which are the same bean, same profile, same grinder, same basket
@@ -631,7 +811,9 @@ rather than done: it is a follow-up, not this change.
 - [x] 8.4 Open a PR (never push to `main`) — [#1852](https://github.com/Kulitorum/Decenza/pull/1852)
       — then run the automated `/pr-review-toolkit:review-pr` before merging. Run 1 found four
       critical defects; all fixes are recorded in section 5b and section 7 above. Runs 2 and 3
-      are recorded in sections 5d and 5e.
+      are recorded in sections 5d and 5e, runs 4 and 5 in 5f and 5g, and run 6 — the one that
+      caught the previous round destroying user data — in 5i. A seventh run over the backout
+      itself is the last gate before archiving.
 - [x] 8.5 No wiki manual entry — this changes how the advisor selects its own context and
       surfaces nothing the user must be told exists. Recorded here so the omission is a decision
       rather than an oversight.

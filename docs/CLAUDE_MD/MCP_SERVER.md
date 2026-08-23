@@ -1040,12 +1040,21 @@ engine.rootContext()->setContextProperty("McpServer", &mcpServer);
 ### CMakeLists.txt
 Add all `src/mcp/*.cpp` to SOURCES and `src/mcp/*.h` to HEADERS. Add `McpConfirmDialog.qml` to QML_FILES. No new Qt modules needed.
 
-### ShotHistoryStorage prerequisite
+### ShotHistoryStorage: how the dial-in tools read history
 
-The `dialing_get_context` tool requires `ShotHistoryStorage::getRecentShotsByKbId(const QString& kbId, int limit)` which does not yet exist (only referenced as a TODO comment at `shothistorystorage.cpp:649`). This must be implemented before the dial-in tools. It should:
-- Follow the existing async pattern: `requestShot()` on main thread → `QThread::create()` background query → emit `shotReady()` signal
-- Query: `SELECT ... FROM shots WHERE profile_kb_id = :kbId ORDER BY created_at DESC LIMIT :limit`
-- Return summary data (not full time-series) for each shot: id, timestamp (ISO 8601 with timezone), profileName, doseG, yieldG, durationSec, enjoyment0to100, grinderSetting, temperature, notes
+This was a pre-implementation note describing a `getRecentShotsByKbId` that was never
+written under that name, calling `dialing_get_context` unbuilt and citing a TODO that is
+no longer at the line given. All of it shipped; what it actually looks like:
+
+`dialing_get_context` reads through **`ShotHistoryStorage::loadRecentShotsByKbIdStatic`**
+(`shothistorystorage_queries.cpp`), a static that runs on the caller's connection rather
+than a request/signal pair — the MCP tool is already off the main thread, so the async
+round-trip would buy nothing. It takes an `excludeShotId` and an `equipmentBucket`, both
+required: history is scoped to the equipment package, and the anchor shot is excluded from
+its own comparison set.
+
+For a tool that DOES need the main thread, the canonical async pattern is
+`requestShot()` → `QThread::create()` background query → `shotReady()`.
 
 ## Thread Safety
 

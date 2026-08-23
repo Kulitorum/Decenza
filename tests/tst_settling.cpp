@@ -505,14 +505,16 @@ private slots:
     // no matter how long the scale was still before it.
     //
     // Not named for #1280: that report's symptom is attributed, in
-    // shottimingcontroller.cpp, to the cup-removed path, and a real cup lift never
-    // reaches the branch under test. This came from a suite failure instead.
+    // shottimingcontroller.cpp, to the cup-removed path. This came from a suite
+    // failure instead. The 1.7 g step below is an INCREASE, which the cup-removed
+    // gate never claims at any size — see the note at that gate for why a real
+    // lift can reach this branch too.
     //
     // onWeightSample samples the stillness duration BEFORE accounting for the
     // current reading, then the fast path completes settling at that reading. So a
-    // cup lifted after a second of stillness used to log "stable for 1007 ms" and
-    // settle at the disturbed value -- the stillness measured belonged to the
-    // samples before it, not to it.
+    // disturbing sample arriving after a second of stillness used to log "stable
+    // for 1007 ms" and settle at the disturbed value -- the stillness measured
+    // belonged to the samples before it, not to it.
     void movingSampleDoesNotSettleOnStaleStillness() {
         DE1Device device;
         ShotTimingController tc(&device);
@@ -530,8 +532,8 @@ private slots:
         // clock; it is the same state a scale that sat still for 1.1 s produces.
         tc.m_lastWeightChangeTime -= 1100;
 
-        // The cup lift. Only three samples are in the window, so the rolling path
-        // cannot fire either -- if settling completes here, it completed on the
+        // The disturbance: +1.7 g. Only three samples are in the window, so the
+        // rolling path cannot fire either -- if settling completes here, it did so on the
         // stale stillness, at 44.0 g.
         tc.onWeightSample(44.0, 0.5);
 

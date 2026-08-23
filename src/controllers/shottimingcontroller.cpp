@@ -342,12 +342,16 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // the settled weight, logging "stable for 1007 ms" for a run that had
             // ended one sample ago.
             //
-            // What reaches here is a disturbance of at least 0.1 g that is UNDER
-            // the 20 g cup-removed threshold above — a nudge, a spoon on the tray,
-            // the first sample of a slow lift. A real cup lift is a >20 g step and
-            // is intercepted there, not here; an earlier draft of this comment told
-            // that story and it cannot happen. Found from a suite failure, not from
-            // #1280 — that report's symptom is attributed to the cup-removed path.
+            // What reaches here is any change of at least 0.1 g the cup-removed
+            // gate above did not claim — and that gate is narrower than it looks.
+            // It tests for DROPS only (`weight < m_weight - 20.0`), and both of its
+            // clauses are additionally gated on the weight having exceeded 20 g. So
+            // every INCREASE arrives here regardless of size (a second cup or a
+            // portafilter set on the drip tray), as does a genuine cup lift on any
+            // shot whose weight never passed 20 g — a ristretto, a small SAW target.
+            // An earlier draft claimed a real cup lift "cannot happen" here; it was
+            // wrong in both of those directions. Found from a suite failure, not
+            // from #1280 — that symptom is attributed to the cup-removed path.
             stableMs = 0;
         }
 

@@ -16,7 +16,12 @@
 
 // ai_conversations_list — read tier. Enumerates the persisted multi-shot
 // AI dialing conversations (AIManager::MAX_CONVERSATIONS = 5, oldest
-// evicted first), most recently active first. Mirrors the web UI's
+// evicted first), most recently active first. The cap holds in steady
+// state, not at every instant: a restore appends uncapped and the index
+// converges only when a conversation is next started on a NEW key, so a
+// just-restored device can report more than five. Trimming on the read
+// path is what deleted freshly-restored transcripts — see the note in
+// AIManager::loadConversationIndex before "fixing" the count here. Mirrors the web UI's
 // /ai-conversations page (ShotServer::generateAIConversationsPage) so
 // MCP clients can discover and export the same conversations — e.g. to
 // collect real transcripts for prompt-quality work (#639).
@@ -153,7 +158,8 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
     registry->registerActionTool(
         "ai_conversations",
         "Saved multi-shot AI dialing conversations. action=list returns the retained threads "
-        "(up to 5, most recently active first, each with a `key`); action=get returns one "
+        "(usually at most 5, most recently active first, each with a `key`; a just-restored "
+        "device can hold more); action=get returns one "
         "thread's full transcript — system prompt plus every user/assistant turn, in order. "
         "An entry marked `corrupted` failed to parse; fetch it with action=get for the error.",
         QJsonObject{

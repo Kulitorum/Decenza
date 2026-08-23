@@ -431,6 +431,8 @@ private:
     int m_contextSerial = 0;
 
 public:
+    // Re-reads the index off disk. Does NOT trim -- which is what makes it safe to
+    // call straight after an import; see the note in loadConversationIndex().
     void reloadConversations() { loadConversationIndex(); }
 private:
     void loadConversationIndex();
@@ -471,9 +473,14 @@ private:
     QString m_liveProfileName;
     qint64 m_liveEquipmentId = 0;
     // Drop least-recently-used entries until at most `keep` remain, deleting each
-    // one's stored transcript. Callers pass MAX_CONVERSATIONS - 1 before adding a
-    // new thread, or MAX_CONVERSATIONS to enforce the cap on an index read back
-    // from disk.
+    // one's stored transcript.
+    //
+    // The ONLY caller is the insert path, which passes MAX_CONVERSATIONS - 1 to
+    // make room for the entry it is about to prepend. Do not call it to "enforce
+    // the cap" on an index read back from disk, however obvious that looks: this
+    // comment used to recommend exactly that, the call was added, and it deleted
+    // the conversations a backup restore had just imported. loadConversationIndex
+    // carries the full reason. An over-cap index converges on the next insert.
     void trimConversationsTo(int keep);
     void migrateFromLegacyConversation();
     // One-shot conversation wipe keyed by a migration id. Fires once per

@@ -717,15 +717,25 @@ private slots:
             AIConversation::appendAssistantTurnForKey(
                 key, 7, QStringLiteral("what grind?"), QStringLiteral("go finer"),
                 std::nullopt, QStringLiteral("sys"));
-            QVERIFY2(first.m_conversationIndex.isEmpty(),
-                     "the MCP write path must leave no index entry -- if it starts "
-                     "indexing, this test's premise is gone and the sweep question "
-                     "reopens on purpose rather than by accident");
         }
 
         QNetworkAccessManager nam2;
         Settings appSettings2;
         AIManager relaunched(&nam2, &appSettings2);
+        // A sweep POSTED rather than called is the narrowest way to reintroduce the
+        // data loss while leaving the constructor looking clean. Deliver anything
+        // queued before asserting. processEvents, not qWait: no wall clock, so this
+        // cannot become the next load-dependent flake.
+        QCoreApplication::processEvents();
+
+        // Checked on the RELOADED index, not on the writer's in-memory one: the
+        // premise is a fact about what is on DISK. Asserting it against `first`
+        // could not fail -- that member is filled at construction, before the
+        // static write runs, and the static holds no reference to it. If the MCP
+        // path ever starts indexing, this must go red rather than quietly expire.
+        QVERIFY2(relaunched.m_conversationIndex.isEmpty(),
+                 "the MCP write path must leave no index entry -- stored-and-"
+                 "unindexed at relaunch is this test's premise and the sweep's target");
 
         QCOMPARE(AIConversation::storedTranscriptState(settings, key),
                  AIConversation::TranscriptState::Ok);
@@ -810,6 +820,12 @@ private slots:
         // The survivors under it must be the most recent seeds, not an arbitrary set.
         for (int i = 1; i < AIManager::MAX_CONVERSATIONS; ++i)
             QCOMPARE(mgr.m_conversationIndex[i].key, keys[i - 1]);
+
+        // A retained thread is still readable. Missing is also what an untouched,
+        // never-seeded or wholly-nuked store returns, so asserting only Missing
+        // below would pass just as well on an eviction that took everything.
+        QCOMPARE(AIConversation::storedTranscriptState(settings, keys[0]),
+                 AIConversation::TranscriptState::Ok);
 
         // The trim is not bookkeeping-only: the dropped threads are gone from
         // storage, so they cannot resurface through indexStoredConversation.
