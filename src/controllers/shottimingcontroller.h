@@ -185,6 +185,10 @@ private:
     static constexpr double MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5.0;
     static constexpr double SETTLING_ABOVE_AVG_MARGIN = 0.2; // Current weight must be within this of avg to declare stable (g)
     static constexpr int SETTLING_SILENCE_OVERRIDE_MS = 2000; // If weight unchanged for this long, declare stable regardless of avg margin
+    // Both "drip still ongoing" log sites throttle on this one interval. Without
+    // it onDisplayTimerTick's fires every 50 ms tick and onWeightSample's fires on
+    // every sample (4-10 Hz depending on scale) — 100+ lines a shot either way.
+    static constexpr int DRIP_ONGOING_LOG_THROTTLE_MS = 1000;
     double m_settlingWindow[SETTLING_WINDOW_SIZE] = {};
     int m_settlingWindowCount = 0;
     int m_settlingWindowIndex = 0;

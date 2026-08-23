@@ -332,9 +332,38 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // Also track per-sample changes for the old-style fast path
         double delta = qAbs(weight - m_lastStableWeight);
         qint64 stableMs = now - m_lastWeightChangeTime;
+        // How long the run this sample BROKE had lasted, or -1 if it broke none.
+        // `stableMs` is zeroed below on a moving sample, so without this the log
+        // reads `stable: 0 ms` and a submitted log can no longer show how long the
+        // scale had been still before it moved. Only a NEAR-MISS is worth saying:
+        // during a drip most samples move, and each one's broken "run" is just the
+        // sample interval, so reporting every one would add ~100 redundant lines a
+        // shot to the logs this subsystem is diagnosed from. Half the threshold is
+        // the point past which the sample stopped a settle that was under way.
+        qint64 endedStillMs = -1;
         if (delta >= 0.1) {
             m_lastStableWeight = weight;
             m_lastWeightChangeTime = now;
+            // The run of stillness ends AT this sample, so it is 0 ms long — not
+            // the length of the run that preceded it. `stableMs` was sampled before
+            // this update, and the fast path below completes settling at `weight`,
+            // so leaving it stale let a sample that MOVED the scale be recorded as
+            // the settled weight, logging "stable for 1007 ms" for a run that had
+            // ended one sample ago.
+            //
+            // What reaches here is any change of at least 0.1 g the cup-removed
+            // gate above did not claim — and that gate is narrower than it looks.
+            // It tests for DROPS only (`weight < m_weight - 20.0`), and both of its
+            // clauses are additionally gated on the weight having exceeded 20 g. So
+            // every INCREASE arrives here regardless of size (a second cup or a
+            // portafilter set on the drip tray), as does a genuine cup lift on any
+            // shot whose weight never passed 20 g — a ristretto, a small SAW target.
+            // An earlier draft claimed a real cup lift "cannot happen" here; it was
+            // wrong in both of those directions. Found from a suite failure, not
+            // from #1280 — that symptom is attributed to the cup-removed path.
+            if (stableMs >= SETTLING_STABLE_MS / 2)
+                endedStillMs = stableMs;
+            stableMs = 0;
         }
 
         // Calculate rolling average
@@ -345,12 +374,15 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
 
         double avgDrift = qAbs(avg - m_lastSettlingAvg);
 
-        SAWT_LOG(QStringLiteral("Settling: %1 g delta: %2 avg: %3 drift: %4 stable: %5 ms")
+        SAWT_LOG(QStringLiteral("Settling: %1 g delta: %2 avg: %3 drift: %4 stable: %5 ms%6")
                      .arg(weight, 0, 'f', 1).arg(delta, 0, 'f', 2).arg(avg, 0, 'f', 1)
-                     .arg(avgDrift, 0, 'f', 2).arg(stableMs));
+                     .arg(avgDrift, 0, 'f', 2).arg(stableMs)
+                     .arg(endedStillMs < 0
+                              ? QString()
+                              : QStringLiteral(" (broke a %1 ms run)").arg(endedStillMs)));
 
-        // Fast path: absolute stillness for 1 second (original behavior)
-        if (stableMs >= 1000) {
+        // Fast path: absolute stillness for SETTLING_STABLE_MS (original behavior)
+        if (stableMs >= SETTLING_STABLE_MS) {
             SAWT_INFO(QStringLiteral("Weight stabilized at %1 g (stable for %2 ms)")
                            .arg(weight, 0, 'f', 2).arg(stableMs));
             m_settlingTimer.stop();
@@ -414,7 +446,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
                                  .arg(avg, 0, 'f', 1).arg(m_weightAtStop, 0, 'f', 1));
                 if (weightAboveAvg && m_settlingAvgStableSince > 0) {
                     const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-                    if (nowMs - m_lastDripOngoingLogMs >= 1000) {
+                    if (nowMs - m_lastDripOngoingLogMs >= DRIP_ONGOING_LOG_THROTTLE_MS) {
                         SAWT_LOG(QStringLiteral("Weight %1 g still above avg %2 g - drip still ongoing")
                                      .arg(weight, 0, 'f', 1).arg(avg, 0, 'f', 1));
                         m_lastDripOngoingLogMs = nowMs;
@@ -485,10 +517,10 @@ void ShotTimingController::onDisplayTimerTick()
     if (m_sawSettling && m_lastWeightChangeTime > 0) {
         qint64 now = QDateTime::currentMSecsSinceEpoch();
 
-        // Fast path: no weight samples at all for 1 second — apply drip guard using
-        // the rolling average to catch BLE packet loss during an active drip.
+        // Fast path: no weight samples at all for SETTLING_STABLE_MS — apply drip guard
+        // using the rolling average to catch BLE packet loss during an active drip.
         qint64 stableMs = now - m_lastWeightChangeTime;
-        if (stableMs >= 1000) {
+        if (stableMs >= SETTLING_STABLE_MS) {
             double avg = 0;
             for (int i = 0; i < m_settlingWindowCount; i++)
                 avg += m_settlingWindow[i];
@@ -508,7 +540,7 @@ void ShotTimingController::onDisplayTimerTick()
                 // rolling avg. Wait for more samples before declaring stable.
                 // Throttle to 1/sec — this fires every 50ms tick and produces
                 // 100+ log lines per shot when the scale goes silent.
-                if (now - m_lastDripOngoingLogMs >= 1000) {
+                if (now - m_lastDripOngoingLogMs >= DRIP_ONGOING_LOG_THROTTLE_MS) {
                     SAWT_LOG(QStringLiteral("Timer: silent but weight %1 g still above avg %2 g "
                                             "- drip may still be ongoing")
                                 .arg(m_weight, 0, 'f', 1).arg(avg, 0, 'f', 1));
