@@ -30,6 +30,7 @@ struct DialingDbResult {
     ShotProjection shotData;
     QString profileKbId;
     QJsonArray dialInSessions;
+    QJsonObject noDialInHistory;     // Emitted INSTEAD of dialInSessions when nothing matched
     QJsonObject grinderContext;
     QJsonObject bestRecentShot;      // Empty when no rated shot exists on this profile
 };
@@ -109,26 +110,29 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // add-dialing-blocks-to-advisor.
                     //
                     // Cross-profile grinder calibration is deliberately NOT
-                    // built here (#1164). It is a ~33-row table that is a
-                    // stable physical property of the grinder+burrs pair and
-                    // is only relevant when the user is weighing a profile
-                    // switch — shipping it on every conversational turn
-                    // bloated multi-turn dial-in. It now lives in the
-                    // on-demand dialing_get_grinder_calibration tool, which
-                    // calls the same buildGrinderCalibrationBlock helper. The
-                    // one-shot in-app advisor and ai_advisor_invoke still
-                    // build it inline because they have no follow-up
-                    // tool-call channel.
-                    // From the shot being analysed, not live machine state —
-                    // that shot's gear may not be what is mounted now.
-                    const AdviceScope scope(dbResult.shotData.equipmentId);
-                    dbResult.dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                        db, dbResult.profileKbId, scope, resolvedShotId, historyLimit);
-                    dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
-                        db, dbResult.profileKbId, scope, resolvedShotId, dbResult.shotData);
-                    dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
-                        db, dbResult.shotData.grinderModel, scope,
-                        dbResult.shotData.beverageType, dbResult.shotData.beanBrand);
+                    // built here (#1164) — see GrinderCalibration::Omit. The
+                    // one-shot in-app advisor and ai_advisor_invoke include it
+                    // because they have no follow-up tool-call channel.
+                    //
+                    // The whole bundle comes from the shared assembler, which
+                    // also derives the advice scope from the shot being analysed
+                    // rather than live machine state (that shot's gear may not be
+                    // what is mounted now). This tool used to hand-write the
+                    // three builder calls, which put a second scope construction
+                    // in the tree and left it the only surface with no
+                    // noDialInHistory block.
+                    //
+                    // recentAdvice is empty here on purpose: an MCP client owns
+                    // its own conversation, so prior assistant turns are already
+                    // in its context.
+                    const DialingBlocks::AdvisorContextBlocks blocks =
+                        DialingBlocks::buildAdvisorContextBlocks(
+                            db, dbResult.shotData, resolvedShotId, {}, historyLimit,
+                            DialingBlocks::GrinderCalibration::Omit);
+                    dbResult.dialInSessions = blocks.dialInSessions;
+                    dbResult.noDialInHistory = blocks.noDialInHistory;
+                    dbResult.bestRecentShot = blocks.bestRecentShot;
+                    dbResult.grinderContext = blocks.grinderContext;
                 });
 
                 // --- Deliver results to main thread for final assembly ---
@@ -148,6 +152,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
 
                     if (!dbResult.dialInSessions.isEmpty())
                         result["dialInSessions"] = dbResult.dialInSessions;
+                    if (!dbResult.noDialInHistory.isEmpty())
+                        result["noDialInHistory"] = dbResult.noDialInHistory;
                     if (!dbResult.bestRecentShot.isEmpty())
                         result["bestRecentShot"] = dbResult.bestRecentShot;
                     if (!dbResult.grinderContext.isEmpty())

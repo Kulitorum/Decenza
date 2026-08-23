@@ -4487,6 +4487,62 @@ private slots:
         });
     }
 
+    // The scope is CONSTRUCTED here, not handed in. Every other scope test
+    // builds an AdviceScope itself and checks the queries obey it, so a call
+    // site that resolves the wrong shot -- or falls back to bucket 0 -- compiles
+    // clean and passes the whole suite while the advisor reads the entire
+    // history again. This is the only test that exercises the line that reads
+    // equipmentId off a live shot, and buildAdvisorContextBlocks is now the one
+    // place that does it: the in-app advisor, ai_advisor_invoke and
+    // dialing_get_context all reach the blocks through it.
+    void adviceScope_theAssemblerDerivesItFromTheShotUnderReview()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        const QString kbId = QStringLiteral("dflow_q");
+
+        withRawDb(path, QStringLiteral("scope_from_shot"), [&](QSqlDatabase& db) {
+            ScopeFixture f;
+            seedTwoBaskets(db, kbId, f);
+            const ShotProjection cur = projectionForShot(db, f.graphShotId);
+            QVERIFY2(cur.equipmentId > 0,
+                     "the Graph shot resolved to bucket 0 -- the fixture did not create a "
+                     "second package, so this test would pass vacuously");
+
+            const DialingBlocks::AdvisorContextBlocks blocks =
+                DialingBlocks::buildAdvisorContextBlocks(db, cur, f.graphShotId, {}, 20);
+
+            QSet<QString> seen;
+            for (const QJsonValue& v : { QJsonValue(blocks.dialInSessions),
+                                         QJsonValue(blocks.bestRecentShot),
+                                         QJsonValue(blocks.grinderContext),
+                                         QJsonValue(blocks.grinderCalibration) })
+                collectSettings(v, seen);
+
+            // Both halves are load-bearing. Without the second, a scope of 0
+            // passes: it matches neither package, every block comes back empty,
+            // and "no Decent settings" is vacuously true.
+            const QSet<QString> foreign = seen & f.decentSettings;
+            QStringList sorted(foreign.begin(), foreign.end());
+            sorted.sort();
+            QVERIFY2(foreign.isEmpty(),
+                     qPrintable(QStringLiteral(
+                         "the assembler published Decent-basket settings (%1) for a "
+                         "Graph-basket shot -- it did not scope to the shot's own package")
+                         .arg(sorted.join(", "))));
+            QVERIFY2(!(seen & f.graphSettings).isEmpty(),
+                     "no block carried a single Graph setting -- the scope matched nothing at "
+                     "all, which an empty-payload check alone would report as clean");
+
+            // The absence block is the other half of the same decision, and it
+            // is the one a wrong scope turns on: a bucket that matches nothing
+            // makes the assembler announce "no prior shot on this package" for a
+            // package with four of them.
+            QVERIFY2(blocks.noDialInHistory.isEmpty(),
+                     "the assembler stated an empty history for a package that has one");
+        });
+    }
+
     void adviceScope_stepSizeStaysGrinderWide()
     {
         const QString path = freshDbPath();

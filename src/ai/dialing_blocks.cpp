@@ -141,7 +141,8 @@ AdvisorContextBlocks buildAdvisorContextBlocks(
     const ShotProjection& shot,
     qint64 resolvedShotId,
     const QList<AIConversation::HistoricalAssistantTurn>& recentAssistantTurns,
-    int historyLimit)
+    int historyLimit,
+    GrinderCalibration calibration)
 {
     AdvisorContextBlocks out;
     if (!shot.isValid()) return out;
@@ -163,8 +164,9 @@ AdvisorContextBlocks buildAdvisorContextBlocks(
         db, shot.profileKbId, scope, resolvedShotId, shot);
     out.grinderContext = buildGrinderContextBlock(
         db, shot.grinderModel, scope, shot.beverageType, shot.beanBrand);
-    out.grinderCalibration = buildGrinderCalibrationBlock(
-        db, shot.grinderModel, scope, shot.beverageType, resolvedShotId);
+    if (calibration == GrinderCalibration::Include)
+        out.grinderCalibration = buildGrinderCalibrationBlock(
+            db, shot.grinderModel, scope, shot.beverageType, resolvedShotId);
 
     if (!shot.profileKbId.isEmpty() && !recentAssistantTurns.isEmpty()) {
         RecentAdviceInputs in;

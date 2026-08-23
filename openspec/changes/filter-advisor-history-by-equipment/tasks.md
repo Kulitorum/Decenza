@@ -21,13 +21,18 @@ is not delivered.
 - [x] 1.10 Dead `requestRecentShotsByKbId` + `recentShotsByKbIdReady` deleted (no caller in any
       surface, described as live in three docs).
 
-### Known gaps in section 1
+### Section 1 follow-ups
 
-- [ ] 1.11 No test exercises the three production sites that BUILD the scope from a live shot
-      (`aimanager.cpp` `requestRecentShotContext`, `mcptools_ai.cpp`, `mcptools_dialing.cpp`).
-      Every current test calls the block builders with a hand-made `AdviceScope`, so a call site
-      passing the wrong shot's `equipmentId` — or falling back to bucket 0 — would compile clean
-      and pass the whole suite.
+- [x] 1.11 The three sites are now ONE. Sections 9.1/9.2 already routed the in-app advisor and
+      `ai_advisor_invoke` through `buildAdvisorContextBlocks`, which derives the scope itself;
+      `dialing_get_context` was still hand-writing its own three builder calls for a single
+      difference (no grinder calibration, #1164), which is why it held a second scope construction
+      and was the only surface with no `noDialInHistory` block. That difference is now a
+      `GrinderCalibration::Omit` argument, so one line reads `equipmentId` off a live shot.
+      `adviceScope_theAssemblerDerivesItFromTheShotUnderReview` covers it, asserting both halves —
+      no foreign package's settings, and at least one of the shot's own, since a scope of 0 matches
+      nothing and would otherwise pass an emptiness check. Verified by setting that scope to 0:
+      the new test goes red and NO other test notices, which is the gap this item named.
 - [x] 1.12 `getRecentShotsByKbId()` does not exist — it was removed as callerless, and five doc
       citations plus one source comment outlived it. The design-time "ShotHistoryStorage
       prerequisite" section in `MCP_SERVER.md` is deleted (the tool it gated has shipped for

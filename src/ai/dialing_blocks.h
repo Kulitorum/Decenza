@@ -185,12 +185,26 @@ constexpr int kDialInHistoryLimit = 5;
 // QObject with QSettings and network dependencies into that library to save two
 // lines at two call sites is the link fan-out CLAUDE.md's testing rules warn
 // about. Callers load it with kRecentAdviceTurns.
+// Whether to build the cross-profile grinder calibration table.
+//
+// `dialing_get_context` omits it (#1164): it is a ~33-row table, a stable
+// physical property of the grinder and burrs, and only relevant when the user is
+// weighing a profile switch — so the MCP client fetches it once on demand from
+// `dialing_get_grinder_calibration` instead of receiving it on every turn. The
+// one-shot advisor paths include it because they have no follow-up tool call.
+//
+// A parameter rather than a second assembler: the MCP tool used to hand-write
+// its own three builder calls for exactly this one difference, which is how it
+// came to build the scope a second time and to miss `noDialInHistory` entirely.
+enum class GrinderCalibration { Include, Omit };
+
 AdvisorContextBlocks buildAdvisorContextBlocks(
     QSqlDatabase& db,
     const ShotProjection& shot,
     qint64 resolvedShotId,
     const QList<AIConversation::HistoricalAssistantTurn>& recentAssistantTurns,
-    int historyLimit = kDialInHistoryLimit);
+    int historyLimit = kDialInHistoryLimit,
+    GrinderCalibration calibration = GrinderCalibration::Include);
 
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped
