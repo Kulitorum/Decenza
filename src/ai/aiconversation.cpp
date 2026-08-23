@@ -736,8 +736,14 @@ QJsonObject AIConversation::changesFromPreviousShot(const QString& shotLabel,
     const PreviousShotInfo prev = findPreviousShot(shotLabel);
     if (prev.content.isEmpty() || prev.shotLabel.isEmpty()) return QJsonObject();
 
-    // extractShotFields reads the structured envelope, falling back to the legacy
-    // prose regex for turns stored before the payload became one JSON object.
+    // Both turns are one JSON object — the prose envelope and the regex fallback
+    // that read it are gone, and the key change wipes anything stored in the old
+    // shape (clearAllConversationsOnce("equipment_scoped_conversations_v2")).
+    //
+    // No equipment arm below, and one cannot be written: the conversation key
+    // holds the package id, so every shot in a thread shares it and the diff
+    // would compare a value with itself. `grinder` is not that value — it is
+    // "<brand> <model> (<burrs>) at <setting>", and the setting is what moves.
     const ShotFields curr = extractShotFields(shotPayload);
     const ShotFields prevFields = extractShotFields(prev.content);
 

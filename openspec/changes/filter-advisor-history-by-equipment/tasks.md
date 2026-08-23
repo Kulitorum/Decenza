@@ -55,8 +55,14 @@ on every request, so scoping future context alone leaves the contaminated transc
       hold several threads; `ConversationEntry` snapshots the package label and id so the app,
       the ShotServer page and `ai_conversations` can tell them apart. `ConversationEntry::label()`
       is the one producer for all four surfaces, replacing four copies with two separators.
-- [ ] 2.4 `aiconversation.cpp` change detection reporting an equipment-package swap between
-      consecutive shots. Not done — the key prevents the mixing; this would only narrate it.
+- [x] 2.4 `aiconversation.cpp` change detection reporting an equipment-package swap between
+      consecutive shots. **Dropped, and it could not be built:** the diff compares a shot with the
+      previous shot IN THE SAME CONVERSATION, and the key holds the package id, so both shots
+      share it by construction. The arm would compare a value with itself and never emit. Written
+      when the key was bean+profile only, where a swap genuinely could land two packages in one
+      thread; 2.1 removed the condition rather than narrating it. Recorded at the call site so the
+      next reader does not re-add it — the existing `grinder` arm is not that value, it carries
+      the grind SETTING, which does move within a thread.
 - [x] 2.5 `conversationKey_separatesEquipmentPackages` covers the three spec scenarios: separate
       thread per basket, resuming a package's own thread, and a packaged shot never landing on a
       pre-change (unpackaged) key.
