@@ -216,7 +216,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // Detect cup removal during settling: any drop of CUP_REMOVED_DROP_G below
         // the settling peak. Measuring from the peak catches a multi-step removal.
         //
-        // This also required the weight to have EXCEEDED 20 g, which hid the lift
+        // It used to ALSO require the weight to have EXCEEDED 20 g, which hid the lift
         // entirely on a shot that never got there. A lift reads as the cup's
         // tared-out mass, tens of grams negative (shot 5470 logged -28.0), so the
         // drop was never marginal — the precondition just blinded the detector on
@@ -237,8 +237,8 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // update the offline tool to match.
         bool cupRemoved = (weight < m_settlingPeakWeight - CUP_REMOVED_DROP_G);
         if (cupRemoved) {
-            SAWT_WARN(QStringLiteral("Cup removed during settling (weight: %1 g peak: %2 g) "
-                                     "- skipping learning")
+            SAWT_WARN(QStringLiteral("Cup removed during settling (sample: %1 g peak: %2 g) "
+                                     "- skipping learning, restoring finalWeight")
                           .arg(weight, 0, 'f', 2).arg(m_settlingPeakWeight, 0, 'f', 2));
             // Cup removal corrupts weight data — bypass learning entirely
             // but still emit signals so the shot is saved.
@@ -279,7 +279,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // log records why finalWeight is what it is — without this the
             // four paths are indistinguishable at post-mortem.
             if (cleanAvgPlausible) {
-                SAWT_LOG(QStringLiteral("Cup-removed: restored finalWeight to clean avg %1 g "
+                SAWT_INFO(QStringLiteral("Cup-removed: restored finalWeight to clean avg %1 g "
                                         "(was %2 g)")
                              .arg(m_lastCleanSettlingAvg, 0, 'f', 1).arg(m_weight, 0, 'f', 1));
                 m_weight = m_lastCleanSettlingAvg;
@@ -300,12 +300,12 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
                               .arg(m_weightAtStop, 0, 'f', 1));
                 m_weight = m_weightAtStop;
             } else if (m_weightAtStop > 0.0 && m_weight < m_weightAtStop) {
-                SAWT_LOG(QStringLiteral("Cup-removed: floored finalWeight at SAW trigger %1 g "
+                SAWT_INFO(QStringLiteral("Cup-removed: floored finalWeight at SAW trigger %1 g "
                                         "(was %2 g, no clean avg captured)")
                              .arg(m_weightAtStop, 0, 'f', 1).arg(m_weight, 0, 'f', 1));
                 m_weight = m_weightAtStop;
             } else {
-                SAWT_LOG(QStringLiteral("Cup-removed: no fallback applied (m_weight=%1 g, "
+                SAWT_INFO(QStringLiteral("Cup-removed: no fallback applied (m_weight=%1 g, "
                                         "m_weightAtStop=%2 g, haveCleanAvg=%3)")
                              .arg(m_weight, 0, 'f', 1).arg(m_weightAtStop, 0, 'f', 1)
                              .arg(haveCleanAvg ? QStringLiteral("true")
@@ -729,9 +729,15 @@ void ShotTimingController::onSettlingComplete()
         return;
     }
 
-    // Extra cup-removal guard at completion time, for slow/multi-step removals the
-    // per-sample check missed. Same predicate as that check, and it carried the
-    // same 20 g precondition.
+    // Backstop for the one path that can break the per-sample gate's invariant.
+    // That gate leaves m_weight >= m_settlingPeakWeight - CUP_REMOVED_DROP_G after
+    // every accepted sample, so the fast path and both timer paths cannot arrive
+    // here violating it; only `m_weight = avg` can, and only if the window
+    // straddles the sample that raised the peak. NOT a multi-step-removal
+    // backstop, which is what this comment used to claim: the peak is sticky, so
+    // the per-sample check catches the step that crosses the threshold. Note the
+    // `m_weight < 0` guard above also claims the small-shot case first, so the
+    // 20 g precondition coming off here changed nothing on its own.
     if (m_weight < m_settlingPeakWeight - CUP_REMOVED_DROP_G) {
         SAWT_WARN(QStringLiteral("Possible cup removal detected at settling complete "
                                  "(weight=%1 g peak=%2 g), skipping learning")
@@ -747,7 +753,7 @@ void ShotTimingController::onSettlingComplete()
         return;
     }
 
-    SAWT_LOG(QStringLiteral("Learning: final=%1 g target=%2 g drip=%3 g flow=%4 g/s overshoot=%5 g")
+    SAWT_INFO(QStringLiteral("Learning: final=%1 g target=%2 g drip=%3 g flow=%4 g/s overshoot=%5 g")
                 .arg(m_weight, 0, 'f', 2).arg(m_targetWeightAtStop, 0, 'f', 2)
                 .arg(drip, 0, 'f', 2).arg(m_flowRateAtStop, 0, 'f', 2)
                 .arg(overshoot, 0, 'f', 2));

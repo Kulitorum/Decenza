@@ -865,7 +865,11 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
                 r.stopWeight = w;
                 r.hasSawTrigger = true;
                 curWeight = 0.0;
-                peakWeight = 0.0;
+                // Production seeds m_settlingPeakWeight from the weight at settling
+                // start, not from 0. Seeding 0 here made the first settling sample
+                // test `weight < -20` instead of `weight < stopWeight - 20`, which
+                // misses a small-shot lift landing on that sample.
+                peakWeight = w;
                 continue;
             }
         }

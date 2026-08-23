@@ -610,6 +610,8 @@ private slots:
         tc.endShot();
         QVERIFY(tc.isSawSettling());
 
+        QSignalSpy learnSpy(&tc, &ShotTimingController::sawLearningComplete);
+
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("Cup removed during settling"));
 
@@ -623,7 +625,13 @@ private slots:
         QVERIFY2(tc.currentWeight() > 14.0 && tc.currentWeight() < 16.5,
                  qPrintable(QString("Expected ~15.2 g (the clean settled avg), got "
                                     "%1 g").arg(tc.currentWeight(), 0, 'f', 2)));
-        // Learning must be skipped, exactly as on a >20 g shot.
+        // A cup lift teaches the predictor nothing, so learning must be skipped --
+        // asserted on the signal, since wasSawTriggered() below cannot observe it.
+        QCOMPARE(learnSpy.count(), 0);
+        // #1161 invariant: the cup-removed branch clears m_sawTriggeredThisShot but
+        // must NOT clear m_stopAtWeightTriggered, which is what wasSawTriggered()
+        // reads -- otherwise MainController::onShotEnded misclassifies this as
+        // "profileEnd" instead of "weight".
         QVERIFY2(tc.wasSawTriggered(),
                  "Cup-removed path must preserve wasSawTriggered() == true");
     }
@@ -666,7 +674,7 @@ private slots:
         tc.onWeightSample(51.0, 0.5);  // delta +2.6; weightAboveAvg trips
         QCOMPARE(tc.m_lastCleanSettlingAvg, capturedAvg);
 
-        // Cup-removed via single-step drop from 51 to 20 (delta 31 > 20).
+        // Cup-removed: 51.0 -> 20.0 is a 31 g drop below the peak (> CUP_REMOVED_DROP_G).
         tc.onWeightSample(20.0, 0.5);
 
         QVERIFY(!tc.isSawSettling());
