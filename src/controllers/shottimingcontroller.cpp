@@ -335,6 +335,13 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         if (delta >= 0.1) {
             m_lastStableWeight = weight;
             m_lastWeightChangeTime = now;
+            // The run of stillness ends AT this sample, so it is 0 ms long — not
+            // the length of the run that preceded it. `stableMs` was sampled before
+            // this update, and the fast path below completes settling at `weight`,
+            // so leaving it stale lets a sample that MOVED the scale be recorded as
+            // the settled weight: a cup lifted after a second of stillness logged
+            // "stable for 1007 ms" and settled at the disturbed reading (#1280).
+            stableMs = 0;
         }
 
         // Calculate rolling average

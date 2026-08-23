@@ -61,17 +61,37 @@ private:
     // SETTLING_STABLE_MS — a bound sitting precisely on the threshold it exists to stay
     // under, which is no bound at all. Sixteen leaves ~300 ms of headroom past the ~500 ms
     // the gate actually needs, and still stops short of the ceiling.
+    // Feed a plateau centred on `grams` until the clean-avg capture gate fires,
+    // leaving settling still IN PROGRESS so the caller can drive what happens next.
+    //
+    // The samples alternate +/-0.1 g rather than repeating one value, and that is
+    // load-bearing in both directions:
+    //   - It keeps the caller's path reachable. Byte-identical samples leave
+    //     `delta` at 0, so onWeightSample's fast path accumulates stillness across
+    //     the whole loop and correctly completes settling once it crosses
+    //     SETTLING_STABLE_MS (1000 ms) -- which a loaded machine reaches before the
+    //     loop ends. Alternating exceeds the 0.1 g change threshold on every
+    //     sample, so that clock never accumulates and the loop is bounded by SAMPLE
+    //     COUNT, not by wall clock. Do not "simplify" this back to one value.
+    //   - It stays inside the rolling-average gate: +/-0.1 g is under
+    //     SETTLING_ABOVE_AVG_MARGIN (0.2 g), so no sample ever reads as above the
+    //     window mean, and the window mean itself is `grams` with drift near zero.
+    // A real scale jitters; a run of identical readings was the unrealistic part.
     void feedPlateauUntilCaptured(ShotTimingController& tc, double grams, double flow) {
-        for (int i = 0; i < 16 && tc.m_lastCleanSettlingAvg <= 0.0; ++i) {
-            tc.onWeightSample(grams, flow);
+        // Bounded by samples, not time: SETTLING_WINDOW_SIZE (6) to arm the rolling
+        // path, then SETTLING_CLEAN_CAPTURE_MS (250 ms) of continuous gate at 50 ms
+        // a sample. ~11 needed; the cap is slack for a slow machine's qWait.
+        for (int i = 0; i < 40 && tc.m_lastCleanSettlingAvg <= 0.0; ++i) {
+            tc.onWeightSample(grams + (i % 2 ? 0.1 : -0.1), flow);
             QTest::qWait(50);
         }
         QVERIFY2(tc.m_lastCleanSettlingAvg > 0.0,
                  "Capture gate never fired on the plateau");
         QVERIFY2(tc.isSawSettling(),
-                 "Settling completed on the stability timer before the plateau loop "
-                 "finished, so the path under test never ran. The machine was too "
-                 "loaded for the loop to stay inside SETTLING_STABLE_MS.");
+                 "Settling completed inside the plateau loop, so the path under test "
+                 "never ran. The jitter above exists to prevent exactly this -- if "
+                 "this fires, the fast path's stillness clock is accumulating across "
+                 "samples that changed by 0.2 g.");
     }
 
 private slots:
@@ -397,8 +417,9 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("rejected as scale fault"));
 
-        // Simulate a frozen-scale fault: a run of identical samples at 74.8 g
-        // (35+ g above stop weight), held until the capture gate fires.
+        // Simulate a stuck-scale fault: a plateau at 74.8 g (35+ g above stop
+        // weight), held until the capture gate fires. What makes it a fault is the
+        // implausible MAGNITUDE, not sample-to-sample identity -- see the helper.
         feedPlateauUntilCaptured(tc, 74.8, 0.0);
         // QVERIFY2 inside a non-slot helper returns from the HELPER, not the test, so
         // without this the test would keep asserting against state the helper just
@@ -503,6 +524,41 @@ private slots:
         tc.onSawTriggered(35.0, 2.5, 36.0);
         tc.endShot();  // triggers startSettlingTimer()
         QCOMPARE(tc.m_lastCleanSettlingAvg, 0.0);
+    }
+
+    // A sample that MOVES the scale must never be recorded as the settled weight,
+    // no matter how long the scale was still before it (#1280).
+    //
+    // onWeightSample samples the stillness duration BEFORE accounting for the
+    // current reading, then the fast path completes settling at that reading. So a
+    // cup lifted after a second of stillness used to log "stable for 1007 ms" and
+    // settle at the disturbed value -- the stillness measured belonged to the
+    // samples before it, not to it.
+    void movingSampleDoesNotSettleOnStaleStillness_1280() {
+        DE1Device device;
+        ShotTimingController tc(&device);
+        tc.startShot();
+        tc.onSawTriggered(41.2, 2.5, 42.0);
+        tc.endShot();
+
+        // Two identical readings: the scale is still, so the fast path's stillness
+        // clock is running and pinned to the first of them.
+        tc.onWeightSample(42.3, 0.5);
+        tc.onWeightSample(42.3, 0.5);
+
+        // Age that stillness past SETTLING_STABLE_MS. Reaching back into the clock
+        // rather than sleeping keeps this deterministic and off the suite's wall
+        // clock; it is the same state a scale that sat still for 1.1 s produces.
+        tc.m_lastWeightChangeTime -= 1100;
+
+        // The cup lift. Only three samples are in the window, so the rolling path
+        // cannot fire either -- if settling completes here, it completed on the
+        // stale stillness, at 44.0 g.
+        tc.onWeightSample(44.0, 0.5);
+
+        QVERIFY2(tc.isSawSettling(),
+                 "A sample 1.7 g away from the last reading completed settling, so it "
+                 "was measured as still using the run of samples BEFORE it");
     }
 
     void cleanAvgSurvivesPostCaptureGateFailure_1280() {
