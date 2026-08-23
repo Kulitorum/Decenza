@@ -709,12 +709,13 @@ void ShotTimingController::onSettlingComplete()
         return;
     }
 
-    // Calculate how much weight came after we sent the stop command
-    double drip = m_weight - m_weightAtStop;
-    if (drip < 0) {
-        SAWT_WARN(QStringLiteral("Negative drip (%1 g), clamping to 0").arg(drip, 0, 'f', 2));
-        drip = 0;  // Weight can't decrease
-    }
+    // Calculate how much weight came after we sent the stop command. A negative
+    // drip is physically impossible — drip only adds — so it means the weight
+    // stream is corrupt, most often a cup lift whose drop stayed under
+    // CUP_REMOVED_DROP_G. This used to be clamped to 0 and then learned from,
+    // which laundered it past addSawLearningPoint's own `drip < 0` reject — the
+    // guard written for exactly this value. Left negative so that guard sees it.
+    const double drip = m_weight - m_weightAtStop;
 
     double overshoot = m_weight - m_targetWeightAtStop;
 
