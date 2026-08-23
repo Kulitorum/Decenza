@@ -60,7 +60,9 @@ T.Page {
         anchors.rightMargin: Theme.standardMargin
         anchors.topMargin: Theme.pageTopMargin
         contentWidth: width  // Lock horizontal scroll
-        contentHeight: contentColumn.height
+        // implicitHeight, not height: a layout's own geometry lags a child that
+        // grows, which strands the tail of the page. See PostShotReviewPage.
+        contentHeight: contentColumn.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 

@@ -28,7 +28,9 @@ T.Page {
         Flickable {
             anchors.fill: parent
             anchors.margins: Theme.standardMargin
-            contentHeight: contentColumn.height
+            // implicitHeight, not height: a layout's own geometry lags a child that
+            // grows, which strands the tail of the page. See PostShotReviewPage.
+            contentHeight: contentColumn.implicitHeight
             clip: true
 
             ColumnLayout {
