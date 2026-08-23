@@ -482,9 +482,29 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
         settings->calibration()->perProfileSawHistory(profileFilename, scaleType, basketKey).size();
 
     QJsonObject sawPrediction;
-    sawPrediction["profileFilename"] = profileFilename;
-    sawPrediction["scaleType"] = scaleType;
-    sawPrediction["basket"] = basketKey;
+    // The pool this prediction came out of, which is the setup loaded NOW and
+    // not necessarily the one the shot was pulled on — the learner trains the
+    // active pool, and shots record no scale to key a historical one by. Named
+    // as a setup rather than left as bare `basket`/`scaleType` fields beside the
+    // shot's own data: on a review of an older shot those read as the shot's,
+    // and an advisor repeated the wrong basket back to the user.
+    QJsonObject appliesTo;
+    appliesTo["profileFilename"] = profileFilename;
+    appliesTo["scaleType"] = scaleType;
+    appliesTo["basket"] = basketKey;
+    // Flagged rather than left for the reader to diff: when the shot in hand ran
+    // on other gear or another profile, the drip figure below is not about it.
+    // Only where the comparison is honest — the pool keys on a profile FILENAME
+    // and the shot stores a title, so the profile check compares the two titles.
+    const QString shotBasketKey =
+        SettingsCalibration::sawBasketKey(currentShot.basketBrand, currentShot.basketModel);
+    if (!shotBasketKey.isEmpty() && shotBasketKey != basketKey)
+        appliesTo["differsFromShotBasket"] = shotBasketKey;
+    const QString loadedTitle = profileManager->currentProfile().title();
+    if (!currentShot.profileName.isEmpty() && !loadedTitle.isEmpty()
+        && currentShot.profileName != loadedTitle)
+        appliesTo["differsFromShotProfile"] = currentShot.profileName;
+    sawPrediction["appliesTo"] = appliesTo;
     sawPrediction["flowAtCutoffMlPerSec"] =
         QString::number(flowAtCutoff, 'f', 2).toDouble();
     sawPrediction["predictedDripG"] =
@@ -497,7 +517,7 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
         sawPrediction["recommendation"] = QString(
             "Set the stop-at-weight target ~%1 g lower than your aim "
             "to land near goal — that's the typical post-cutoff drip "
-            "on this (profile, scale) pair.")
+            "on the currently loaded profile, scale and basket.")
                 .arg(predictedDripG, 0, 'f', 1);
     }
     return sawPrediction;

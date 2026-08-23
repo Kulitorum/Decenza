@@ -305,18 +305,21 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // `result.profile` is the *only* canonical surface for
                     // profile metadata. Replaces the legacy `currentProfile`
                     // block and the prose-only `Profile:` / `Profile intent:` /
-                    // `## Profile Recipe` sections in `shotAnalysis`. The
-                    // intent + recipe describe the resolved SHOT's profile
-                    // (read off `dbResult.shotData.profileNotes` /
-                    // `profileJson` — already in memory, no extra DB query);
-                    // targets describe the CURRENT profile loaded on the
-                    // machine. The asymmetry is intentional — the shot is
-                    // what happened, the targets are what the user can act
-                    // on now.
+                    // `## Profile Recipe` sections in `shotAnalysis`. Identity,
+                    // intent and recipe describe the resolved SHOT's profile
+                    // (read off `dbResult.shotData` — already in memory, no
+                    // extra DB query); the targets below describe the profile
+                    // CURRENTLY loaded on the machine. The asymmetry is
+                    // intentional — the shot is what happened, the targets are
+                    // what the user can act on now — but it stops at identity:
+                    // `title` naming the loaded profile while `recipe` described
+                    // the shot's put the wrong name on the shot's own frames,
+                    // and the knowledge block tells the model to refer to the
+                    // shot by exactly this field.
                     if (profileManager) {
                         QJsonObject profileInfo;
-                        profileInfo["filename"] = profileManager->currentProfileName();
-                        profileInfo["title"] = profileManager->currentProfile().title();
+                        profileInfo["title"] = profileTitle;
+                        profileInfo["loadedProfileFilename"] = profileManager->currentProfileName();
                         if (!sd.profileNotes.isEmpty())
                             profileInfo["intent"] = sd.profileNotes;
                         if (!sd.profileJson.isEmpty()) {
@@ -341,10 +344,13 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             if (!recipe.isEmpty())
                                 profileInfo["recipe"] = recipe;
                         }
-                        profileInfo["targetWeightG"] = profileManager->profileTargetWeight();
-                        profileInfo["targetTemperatureC"] = profileManager->profileTargetTemperature();
+                        // The loaded profile's, not the shot's — see the asymmetry
+                        // above. Named so a reader cannot take them for the shot's
+                        // own settings when the two profiles differ.
+                        profileInfo["loadedTargetWeightG"] = profileManager->profileTargetWeight();
+                        profileInfo["loadedTargetTemperatureC"] = profileManager->profileTargetTemperature();
                         if (profileManager->profileHasRecommendedDose())
-                            profileInfo["recommendedDoseG"] = profileManager->profileRecommendedDose();
+                            profileInfo["loadedRecommendedDoseG"] = profileManager->profileRecommendedDose();
                         result["profile"] = profileInfo;
                     }
 
