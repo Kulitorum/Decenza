@@ -276,15 +276,10 @@ T.Page {
     // because the system intentionally chose not to upload.
     property string uploadSkipReason: ""
     property bool pendingVisualizerUpdate: false  // set when a metadata edit has been saved locally but not yet PATCHed to visualizer
-    // profileName from DB — captured once in onShotReady before any Object.assign strips Q_GADGET
-    // fields; held for the entire page lifetime so buildVisualizerOverrides() and manual upload
-    // can always include it without risk of it becoming empty after a save cycle.
-    property string _profileName: ""
-    // visualizerId from DB — same Q_GADGET-strip hazard as _profileName. Captured in onShotReady
-    // and refreshed in onUploadSucceededForShot (a fresh upload completed for THIS shot — from
-    // this page or from the shot-completion background uploader) so the "Re-Upload" button label,
-    // the auto-update PATCH gate, and the manual upload button all see a stable value after
-    // saveEditedShot replaces editShotData with a plain JS object.
+    // visualizerId has a SECOND source besides the loaded shot: an upload that
+    // completes while this page is open, on this page or in the background
+    // uploader (onUploadSucceededForShot). Held here so the Re-Upload label, the
+    // PATCH gate and the manual upload button all see the newer of the two.
     property string _visualizerId: ""
     // Track requests THIS page initiated so the shared VisualizerUploader signals
     // (updateSuccess, uploadFailed) can be filtered. Without these guards an unrelated request
@@ -348,7 +343,6 @@ T.Page {
             // clobber-an-in-progress-edit hazard onVisualizerInfoUpdated documents below.
             if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId) return
             postShotReviewPage.editShotData = shot
-            postShotReviewPage._profileName = postShotReviewPage.editShotData.profileName || ""
             postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
             // Reset upload status text when loading a new shot so stale
             // error/skip messages from a previous shot don't carry over.
@@ -363,7 +357,7 @@ T.Page {
                 postShotReviewPage.editGrinderBrand = postShotReviewPage.editShotData.grinderBrand || ""
                 postShotReviewPage.editGrinderModel = postShotReviewPage.editShotData.grinderModel || ""
                 postShotReviewPage.editGrinderBurrs = postShotReviewPage.editShotData.grinderBurrs || ""
-                postShotReviewPage.editEquipmentId = postShotReviewPage.editShotData.equipmentId || -1
+                postShotReviewPage.editEquipmentId = postShotReviewPage.editShotData.equipmentId || 0
                 postShotReviewPage.editEquipmentName = postShotReviewPage.editShotData.equipmentName || ""
                 // Basket + puck prep are display-only here (owned by the package,
                 // re-pointed via the picker) but shown in the equipment card.
@@ -463,8 +457,11 @@ T.Page {
     property string editGrinderModel: ""
     property string editGrinderBurrs: ""
     property string editEquipmentName: ""  // package display name (read-only label)
-    property int editEquipmentId: -1
-    property int _pendingEquipmentId: -1   // package id awaiting requestPackage resolution
+    // 0 = no package, matching ShotRecord::equipmentId and the bucket the
+    // database reads back. Package ids are always > 0, so 0 also serves as
+    // "nothing awaiting resolution".
+    property int editEquipmentId: 0
+    property int _pendingEquipmentId: 0
     // Basket + puck prep: read-only display, resolved from the package like the
     // grinder identity; shown in the equipment card, never edited as free text.
     property string editBasketBrand: ""
@@ -581,7 +578,7 @@ T.Page {
         editGrinderBurrs !== (editShotData.grinderBurrs || "") ||
         editGrinderSetting !== (editShotData.grinderSetting || "") ||
         editRpm !== (editShotData.rpm || 0) ||
-        editEquipmentId !== (editShotData.equipmentId || -1) ||
+        editEquipmentId !== (editShotData.equipmentId || 0) ||
         editBarista !== (editShotData.barista || "") ||
         editDoseWeight !== ((editShotData.doseWeightG > 0) ? editShotData.doseWeightG : Settings.dye.dyeBeanWeight) ||
         editDrinkWeight !== (editShotData.finalWeightG ?? 0) ||
@@ -649,7 +646,7 @@ T.Page {
         editRoastDate = s.roastDate; editRoastLevel = s.roastLevel
         editGrinderBrand = s.grinderBrand; editGrinderModel = s.grinderModel
         editGrinderBurrs = s.grinderBurrs; editGrinderSetting = s.grinderSetting
-        editEquipmentId = s.equipmentId !== undefined ? s.equipmentId : -1
+        editEquipmentId = s.equipmentId || 0
         editEquipmentName = s.equipmentName !== undefined ? s.equipmentName : ""
         editBasketBrand = s.basketBrand !== undefined ? s.basketBrand : ""
         editBasketModel = s.basketModel !== undefined ? s.basketModel : ""
@@ -746,88 +743,20 @@ T.Page {
         _committedState = captureEditState()
     }
 
-    // Build a plain-JS clone of editShotData that carries every field the page
-    // still reads after a save. Naming each field explicitly is what makes the
-    // clone total; a whitelist is only as complete as its list, so ANY field a
-    // reader needs must be added here (see `equipmentId` below, which was
-    // missing and silently un-scoped the AI advisor).
+    // A plain-JS clone of editShotData, carrying every field the page still
+    // reads after a save. Object.assign is TOTAL over a Q_GADGET:
+    // QQmlValueTypeWrapper enumerates every Q_PROPERTY as an own enumerable data
+    // property (qqmlvaluetypewrapper.cpp:442-467; Attr_Data is 0 in
+    // qv4global_p.h:181). Q_INVOKABLEs are deliberately not enumerated, which is
+    // what ShotProjection::coerce() exists for.
     //
-    // WHY a whitelist rather than Object.assign is NOT established. The
-    // explanation that used to stand here — that Q_PROPERTYs are prototype
-    // accessors Object.assign strips — is FALSE:
-    // QQmlValueTypeWrapperOwnPropertyKeyIterator::next returns every Q_PROPERTY
-    // as an own enumerable key and skips only Q_INVOKABLEs
-    // (qtdeclarative/src/qml/qml/qqmlvaluetypewrapper.cpp:449). The symptoms were
-    // real (the #1241 band-aids in this file are from the same episode); the
-    // cause was never found. Keep the whitelist because it demonstrably works,
-    // and do not restate the prototype claim anywhere — it was copied into
-    // ShotDetailPage.qml on this comment's authority and licensed a regression.
-    //
-    // Subsequent saves see `src` as the plain-JS clone produced by the previous
-    // call, which still has every key, so the chain holds either way.
+    // This replaced a 70-field whitelist justified by the claim that Object.assign
+    // strips a gadget's Q_PROPERTYs. That claim is false, and the whitelist was
+    // already missing eleven fields — the same defect it was written to prevent.
+    // tst_shotprojection's two objectAssign slots hold the line, one of them on a
+    // gadget delivered as a signal argument, which is this page's provenance.
     function clonePersistedShot(src) {
-        return {
-            id: src.id, uuid: src.uuid, timestamp: src.timestamp,
-            timestampIso: src.timestampIso, dateTime: src.dateTime,
-            profileName: src.profileName, profileKbId: src.profileKbId,
-            profileKbDerivedFrom: src.profileKbDerivedFrom,
-            profileJson: src.profileJson, profileNotes: src.profileNotes,
-            // Read by the recipe card and the steam/water summaries at the top
-            // of this file. Missing from this whitelist until now, so the first
-            // autosave silently emptied them: the recipe card vanished and the
-            // "no recipe" prompts (which gate on recipeId <= 0) took its place.
-            recipeId: src.recipeId,
-            steamJson: src.steamJson, hotWaterJson: src.hotWaterJson,
-            beanNotes: src.beanNotes,
-            temperatureOverrideC: src.temperatureOverrideC,
-            targetWeightG: src.targetWeightG,
-            durationSec: src.durationSec, debugLog: src.debugLog,
-            stoppedBy: src.stoppedBy,
-            visualizerId: src.visualizerId, visualizerUrl: src.visualizerUrl,
-            hasVisualizerUpload: src.hasVisualizerUpload,
-            channelingDetected: src.channelingDetected,
-            grindIssueDetected: src.grindIssueDetected,
-            skipFirstFrameDetected: src.skipFirstFrameDetected,
-            pourTruncatedDetected: src.pourTruncatedDetected,
-            detectorResults: src.detectorResults,
-            summaryLines: src.summaryLines,
-            phases: src.phases, phaseSummaries: src.phaseSummaries,
-            pressure: src.pressure, flow: src.flow,
-            temperature: src.temperature, temperatureMix: src.temperatureMix,
-            resistance: src.resistance, conductance: src.conductance,
-            darcyResistance: src.darcyResistance,
-            conductanceDerivative: src.conductanceDerivative,
-            waterDispensed: src.waterDispensed,
-            pressureGoal: src.pressureGoal, flowGoal: src.flowGoal,
-            temperatureGoal: src.temperatureGoal,
-            temperatureMixGoal: src.temperatureMixGoal,
-            weight: src.weight, weightFlowRate: src.weightFlowRate,
-            // Editable fields — included so a clone that isn't followed by a
-            // saveEditedShot field-override (e.g. onShotBadgesUpdated) still
-            // carries the current persisted values.
-            beanBrand: src.beanBrand, beanType: src.beanType,
-            roastDate: src.roastDate, roastLevel: src.roastLevel,
-            grinderBrand: src.grinderBrand, grinderModel: src.grinderModel,
-            grinderBurrs: src.grinderBurrs, grinderSetting: src.grinderSetting,
-            rpm: src.rpm,
-            barista: src.barista, doseWeightG: src.doseWeightG,
-            finalWeightG: src.finalWeightG, drinkTdsPct: src.drinkTdsPct,
-            drinkEyPct: src.drinkEyPct, enjoyment0to100: src.enjoyment0to100,
-            tasteBalance: src.tasteBalance, tasteBody: src.tasteBody,
-            espressoNotes: src.espressoNotes, beverageType: src.beverageType,
-            beanBaseJson: src.beanBaseJson,
-            // Equipment package. equipmentId is what the AI advisor keys its
-            // conversation thread and scopes its shot history on, and the
-            // advisor is opened from a clone (see the openWithShot call below),
-            // so dropping it here silently un-scopes the advisor for every
-            // shot the user has edited. equipmentName and the basket/puck-prep
-            // mirrors ride along for the same reason as the editable fields
-            // above: a clone not followed by a saveEditedShot override would
-            // otherwise blank them.
-            equipmentId: src.equipmentId, equipmentName: src.equipmentName,
-            basketBrand: src.basketBrand, basketModel: src.basketModel,
-            puckPrep: src.puckPrep
-        }
+        return Object.assign({}, src)
     }
 
     // Save edited shot back to history
@@ -972,8 +901,8 @@ T.Page {
         }
         // Only include profileName when non-empty; an empty string would cause
         // setStr to send null, clearing profile_title on visualizer.coffee.
-        if (_profileName)
-            overrides["profileName"] = _profileName
+        if (editShotData.profileName)
+            overrides["profileName"] = editShotData.profileName
         return overrides
     }
 
@@ -2307,7 +2236,7 @@ T.Page {
         target: MainController.equipmentStorage
         function onPackageReady(packageId, pkg) {
             if (packageId !== postShotReviewPage._pendingEquipmentId) return
-            postShotReviewPage._pendingEquipmentId = -1
+            postShotReviewPage._pendingEquipmentId = 0
             postShotReviewPage.editEquipmentId = packageId
             postShotReviewPage.editGrinderBrand = pkg.grinderBrand || ""
             postShotReviewPage.editGrinderModel = pkg.grinderModel || ""

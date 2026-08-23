@@ -535,6 +535,9 @@ add_decenza_test(tst_recipeparams
 add_decenza_test(tst_shotprojection
     tst_shotprojection.cpp
 )
+# Qt6::Qml for a real QQmlEngine: one slot runs Object.assign over the gadget to
+# settle what the QML→JS boundary actually does with its Q_PROPERTYs.
+target_link_libraries(tst_shotprojection PRIVATE Qt6::Qml)
 
 # --- tst_roastdate: RoastDate::toIso() roast-date normalizer (header-only) ---
 add_decenza_test(tst_roastdate

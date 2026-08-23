@@ -7,6 +7,9 @@
 #include <QHash>
 #include <QVector>
 
+#include <QQmlEngine>
+#include <QJSValue>
+
 #include "history/shotprojection.h"
 
 // Guards ShotProjection::coerce() — the conversion that lets Q_INVOKABLE
@@ -32,6 +35,8 @@ private slots:
     void toVariantMap_roundTripsRpm();
     void toVariantMap_roundTripsRecipeDisplayAndDateTime();
     void everyQPropertySurvivesARoundTrip();
+    void objectAssignOverTheGadget_copiesEveryQProperty();
+    void objectAssignOverASignalArgument_copiesEveryQProperty();
 };
 
 static ShotProjection makeSampleShot()
@@ -327,6 +332,71 @@ void TstShotProjection::everyQPropertySurvivesARoundTrip()
     }
 }
 
-QTEST_APPLESS_MAIN(TstShotProjection)
+// GUILESS rather than APPLESS: QJSEngine refuses to construct without a
+// QCoreApplication, and one slot needs a real engine.
+QTEST_GUILESS_MAIN(TstShotProjection)
+
+
+// PostShotReviewPage clones the loaded shot with a hand-written whitelist, on the
+// stated grounds that Object.assign drops a gadget's Q_PROPERTYs. This is the
+// experiment for that claim: it is the exact expression the page used to run.
+void TstShotProjection::objectAssignOverTheGadget_copiesEveryQProperty()
+{
+    QQmlEngine engine;
+    engine.globalObject().setProperty(
+        QStringLiteral("g"), engine.toScriptValue(makeSampleShot()));
+
+    const QJSValue keys = engine.evaluate(
+        QStringLiteral("Object.keys(Object.assign({}, g))"));
+    QVERIFY2(!keys.isError(), qPrintable(keys.toString()));
+
+    const int copied = keys.property(QStringLiteral("length")).toInt();
+    const int declared = ShotProjection::staticMetaObject.propertyCount();
+    QCOMPARE(copied, declared);
+
+    // ...and the values came across, not just the names.
+    QCOMPARE(engine.evaluate(QStringLiteral("Object.assign({}, g).id")).toInt(), 974);
+}
+
+// ...and again on the exact provenance PostShotReviewPage sees: the gadget
+// arrives as a signal ARGUMENT (ShotHistoryStorage::shotReady), not as a value
+// the engine was handed directly.
+class ShotEmitter : public QObject
+{
+    Q_OBJECT
+public:
+    void fire(const ShotProjection& p) { emit shotReady(p); }
+signals:
+    void shotReady(const ShotProjection& shot);
+};
+
+void TstShotProjection::objectAssignOverASignalArgument_copiesEveryQProperty()
+{
+    QQmlEngine engine;
+    ShotEmitter emitter;
+    engine.globalObject().setProperty(QStringLiteral("emitter"), engine.newQObject(&emitter));
+    QQmlEngine::setObjectOwnership(&emitter, QQmlEngine::CppOwnership);
+
+    const QJSValue setup = engine.evaluate(QStringLiteral(
+        "var copiedKeys = -1, copiedId = -1, clone = null;"
+        "emitter.shotReady.connect(function (s) {"
+        "    clone = Object.assign({}, s);"
+        "    copiedKeys = Object.keys(clone).length;"
+        "    copiedId = clone.id;"
+        "});"));
+    QVERIFY2(!setup.isError(), qPrintable(setup.toString()));
+
+    // The argument is a temporary: it is gone by the time these run, so a clone
+    // holding references into its storage rather than values would show up here.
+    emitter.fire(makeSampleShot());
+    engine.collectGarbage();
+
+    QCOMPARE(engine.evaluate(QStringLiteral("copiedKeys")).toInt(),
+             ShotProjection::staticMetaObject.propertyCount());
+    QCOMPARE(engine.evaluate(QStringLiteral("copiedId")).toInt(), 974);
+    // A QVariantList property, the shape most likely to be a view onto the gadget.
+    QCOMPARE(engine.evaluate(QStringLiteral("clone.pressure.length")).toInt(), 3);
+    QCOMPARE(engine.evaluate(QStringLiteral("clone.pressure[1]")).toNumber(), 6.0);
+}
 
 #include "tst_shotprojection.moc"
