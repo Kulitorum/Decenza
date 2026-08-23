@@ -195,7 +195,7 @@ After the gate has held *continuously* for `SETTLING_CLEAN_CAPTURE_MS = 250 ms` 
 
 ### Final-weight on cup removal
 
-If the user lifts the cup before settling completes, the cup-removal detector fires on a >20 g drop (single-step OR cumulative-from-peak). The handler **skips learning** (a corrupted weight stream can't teach the predictor) but the shot still needs a `finalWeightG` to persist.
+If the user lifts the cup before settling completes, the cup-removal detector fires on a >20 g drop below the settling peak, at any absolute weight. (It used to additionally require the weight to have exceeded 20 g, which hid the lift entirely on a ristretto or a small SAW target — a lift reads as the cup's tared-out mass, tens of grams negative, so the drop was never the marginal case that precondition guarded.) A lift that lands near *zero* on a small shot is still a sub-20 g drop and remains undetected. The handler **skips learning** (a corrupted weight stream can't teach the predictor) but the shot still needs a `finalWeightG` to persist.
 
 Before issue [#1280](https://github.com/Kulitorum/Decenza/issues/1280), `m_weight` was left at whatever value the last accepted sample had. In practice that was often a *cup-lift spike artifact* that squeaked past the 20 g cup-removal threshold — e.g. shot 5470 persisted `38.5 g` even though the cup had actually settled at `42.3 g` for ~700 ms and SAW had correctly stopped at `41.2 g`. The AI advisor then reasoned from `yield=38.5, target=42` and invented a "you stopped manually" narrative.
 

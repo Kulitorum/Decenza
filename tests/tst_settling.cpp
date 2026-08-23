@@ -596,6 +596,44 @@ private slots:
         QCOMPARE(tc.currentWeight(), 44.0);
     }
 
+    void cupLiftDetectedOnShotThatNeverReached20g() {
+        // The cup-removal detector used to require the weight to have EXCEEDED
+        // 20 g before it would look at the drop at all. On a ristretto or a small
+        // SAW target that never happens, so lifting the cup mid-settle was not
+        // detected: the tared-out cup mass (tens of grams negative) went through
+        // as an ordinary sample, the scale then sat still at that value, and the
+        // fast path settled there, persisting a negative finalWeightG.
+        //
+        // 15 g target, so every weight here is under the old gate. -28.0 is the
+        // reading shot 5470 actually logged when its cup came off; it is the cup's
+        // tared-out mass, so it does not scale down with the target -- which is
+        // why the drop clears 20 g even though nothing in the shot ever did.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(15.0, 2.5, 15.5);
+        tc.endShot();
+        QVERIFY(tc.isSawSettling());
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Cup removed during settling"));
+
+        feedPlateauUntilCaptured(tc, 15.2, 0.5);
+
+        tc.onWeightSample(-28.0, 0.5);
+
+        QVERIFY2(!tc.isSawSettling(),
+                 "Cup-removed never fired on a sub-20 g shot, so settling ran on "
+                 "with a negative reading");
+        QVERIFY2(tc.currentWeight() > 14.0 && tc.currentWeight() < 16.5,
+                 qPrintable(QString("Expected ~15.2 g (the clean settled avg), got "
+                                    "%1 g").arg(tc.currentWeight(), 0, 'f', 2)));
+        // Learning must be skipped, exactly as on a >20 g shot.
+        QVERIFY2(tc.wasSawTriggered(),
+                 "Cup-removed path must preserve wasSawTriggered() == true");
+    }
+
     void cleanAvgSurvivesPostCaptureGateFailure_1280() {
         // Regression guard for the "captured then disturbed" sequence
         // Mark's shot 5470 actually had: settling plateau holds for
