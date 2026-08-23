@@ -158,21 +158,12 @@ Rectangle {
             return
         }
 
-        // Two different "no package" sentinels reach this call: C++ shot
-        // records use 0 (shothistory_types.h:64) while PostShotReviewPage's
-        // edit fields use -1 (PostShotReviewPage.qml:366), and a saved edit
-        // writes the -1 back into the shot object. Both store as SQL NULL
-        // (shothistorystorage.cpp coerces <= 0 to QVariant()), which
-        // COALESCE(equipment_id, 0) then reads back as bucket 0 — so a leaked
-        // -1 would hash a THIRD conversation key for a shot the database says
-        // is in bucket 0. The hash is the hazard; it happens before the index
-        // entry is ever serialised.
-        var equipmentId = shotData.equipmentId > 0 ? shotData.equipmentId : 0
-
-        // Switch to the right conversation for this bean+profile+equipment.
         // The equipment package is part of the thread identity: a saved
         // conversation replays its turns to the model, so a thread spanning two
         // baskets keeps feeding it shots from gear the user has moved off.
+        // 0 is "no package", matching the bucket the database reads back.
+        var equipmentId = shotData.equipmentId > 0 ? shotData.equipmentId : 0
+
         MainController.aiManager.switchConversation(
             beanBrand || "",
             beanType || "",
