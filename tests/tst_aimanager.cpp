@@ -891,10 +891,10 @@ private slots:
     // =====================================================================
     // AIConversation::extractShotFields — issue #1039
     // Pins the structured-field migration: dose / yield / duration /
-    // grinder / score / notes are now read directly from the JSON
-    // envelope's `shot`, `currentBean`, and `profile` blocks. Legacy
-    // stored conversations whose user messages predate the JSON
-    // envelope still resolve via a regex fallback path.
+    // grinder / score / notes are read from the JSON payload's `shot`,
+    // `currentBean` and `profile` blocks. The content is the payload and
+    // nothing else — no prose header, no trailing question — so this is a
+    // plain QJsonDocument::fromJson over the whole string.
     //
     // Friend-class access (`friend class tst_AIManager` under
     // DECENZA_TESTING) lets these tests reach the private static
@@ -903,9 +903,9 @@ private slots:
     void aiConversation_extractShotFields_structuredEnvelope_readsCanonicalKeys()
     {
         const QString content = QStringLiteral(
-            "## Shot (2026-05-01 14:30)\n\n"
-            "Here's my latest shot:\n\n"
             "{"
+            "  \"shotLabel\": \"2026-05-01 14:30\","
+            "  \"question\": \"Please analyze.\","
             "  \"currentBean\": {"
             "    \"grinderBrand\": \"Niche\","
             "    \"grinderModel\": \"Zero\","
@@ -922,7 +922,7 @@ private slots:
             "    \"notes\": \"balanced\""
             "  },"
             "  \"shotAnalysis\": \"## Shot Summary\\n- Dose: 18g, etc.\""
-            "}\n\nPlease analyze.");
+            "}");
 
         const auto fields = AIConversation::extractShotFields(content);
         QCOMPARE(fields.shotLabel, QStringLiteral("2026-05-01 14:30"));
@@ -1000,11 +1000,11 @@ private slots:
         // detector pipeline writes into summaryLines.text, and the
         // substring matcher in extractShotFields is tuned to it.
         const QString content = QStringLiteral(
-            "## Shot (2026-05-01)\n\nHere's my latest shot:\n\n"
             "{"
             "  \"shot\": {\"doseG\": 18.0, \"yieldG\": 36.0},"
-            "  \"shotAnalysis\": \"## Shot Summary\\n- [warning] Sustained channeling detected in dC/dt\""
-            "}\n\nWhat to do?");
+            "  \"shotAnalysis\": \"## Shot Summary\\n- [warning] Sustained channeling detected in dC/dt\","
+            "  \"question\": \"What to do?\""
+            "}");
 
         const auto fields = AIConversation::extractShotFields(content);
         QVERIFY(fields.channelingDetected);
