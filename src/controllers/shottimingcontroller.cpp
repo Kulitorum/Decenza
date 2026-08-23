@@ -338,9 +338,16 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // The run of stillness ends AT this sample, so it is 0 ms long — not
             // the length of the run that preceded it. `stableMs` was sampled before
             // this update, and the fast path below completes settling at `weight`,
-            // so leaving it stale lets a sample that MOVED the scale be recorded as
-            // the settled weight: a cup lifted after a second of stillness logged
-            // "stable for 1007 ms" and settled at the disturbed reading (#1280).
+            // so leaving it stale let a sample that MOVED the scale be recorded as
+            // the settled weight, logging "stable for 1007 ms" for a run that had
+            // ended one sample ago.
+            //
+            // What reaches here is a disturbance of at least 0.1 g that is UNDER
+            // the 20 g cup-removed threshold above — a nudge, a spoon on the tray,
+            // the first sample of a slow lift. A real cup lift is a >20 g step and
+            // is intercepted there, not here; an earlier draft of this comment told
+            // that story and it cannot happen. Found from a suite failure, not from
+            // #1280 — that report's symptom is attributed to the cup-removed path.
             stableMs = 0;
         }
 

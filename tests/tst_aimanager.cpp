@@ -470,22 +470,12 @@ private slots:
         AIConversation::appendAssistantTurnForKey(
             key, 222, QStringLiteral("post-migration user turn"),
             QStringLiteral("post-migration assistant turn"), structured, QStringLiteral("sys"));
-        // ...and index it, because the app does. appendAssistantTurnForKey is a
-        // storage-only static; a real save emits conversationPersisted and lands
-        // an index entry. Without this the thread is an orphan, and the startup
-        // sweep removes it -- which would let this test read "the wipe fired
-        // twice" from a deletion that had nothing to do with the wipe.
-        {
-            QJsonObject postEntry;
-            postEntry[QStringLiteral("key")] = key;
-            postEntry[QStringLiteral("beanBrand")] = QStringLiteral("Sweet Bloom Coffee");
-            postEntry[QStringLiteral("beanType")] = QStringLiteral("Hometown Blend");
-            postEntry[QStringLiteral("profileName")] = QStringLiteral("D-Flow / Q");
-            postEntry[QStringLiteral("equipmentId")] = 7;
-            postEntry[QStringLiteral("timestamp")] = QDateTime::currentSecsSinceEpoch();
-            settings.setValue(QStringLiteral("ai/conversations/index"),
-                              QJsonDocument(QJsonArray{postEntry}).toJson(QJsonDocument::Compact));
-        }
+        // Deliberately left UNINDEXED. appendAssistantTurnForKey is the MCP
+        // ai_advisor_invoke write path -- a storage-only static that emits no
+        // conversationPersisted and never touches the index -- so stored-without-
+        // an-index-entry is the real shape of an MCP thread awaiting its first
+        // in-app open, not a broken state. A startup sweep that deleted it was
+        // briefly added and backed out; this line is what such a sweep destroys.
         {
             AIManager second(&nam, &appSettings);
             Q_UNUSED(second)
@@ -536,7 +526,7 @@ private slots:
     // Clear removes the index entry but leaves the live conversation on that
     // key, so a thread written afterwards is named by no index entry: invisible
     // to the conversation list and to loadMostRecentConversation(), and never
-    // evicted, because evictOldestConversation() only walks the index. Found on
+    // evicted, because trimConversationsTo() only walks the index. Found on
     // the running app — after Clear, `ai/conversations/index` stayed `[]` while
     // the thread sat on disk under its key.
     //
@@ -696,75 +686,53 @@ private slots:
         settings.clear();
     }
 
-    // A stored thread that no index entry names is deleted at startup.
+    // An MCP-written thread must survive a relaunch.
     //
-    // It is otherwise unreachable AND unreclaimable: the list renders index
-    // entries, and the trim only walks the index, so nothing evicts it. Two such
-    // threads were found on a real device, holding transcripts no surface could
-    // reach. The `index` key itself lives in the same settings group and must
-    // survive the sweep -- it is a key, not a group.
-    void aStoredThreadNoIndexEntryNamesIsRemovedAtStartup()
+    // appendAssistantTurnForKey is the ai_advisor_invoke write path: a static that
+    // writes storage and never touches the index, so the thread sits stored-and-
+    // unindexed until switchConversation adopts it on first in-app open. That is a
+    // DESIGNED resting state, not debris -- ai_conversations get, the ShotServer
+    // download and switchConversation all read such a thread by key.
+    //
+    // This exists because a startup sweep deleting "unindexed" groups was added and
+    // backed out: it destroyed two real MCP threads on a live device, and its
+    // justification ("every write path indexes at save time") was false for exactly
+    // this path. Anything that reads unindexed as orphaned turns this red.
+    void anMcpWrittenThreadSurvivesARelaunch()
     {
         AppSettings settings;
         settings.clear();
-        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
-        settings.setValue(QStringLiteral("ai/migrations/equipment_scoped_conversations_v1"), true);
 
-        const QString kept = QStringLiteral("kept0");
-        const QString orphanWithTurns = QStringLiteral("orphan0");
-        const QString orphanLabelOnly = QStringLiteral("orphan1");
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+        const QString key = AIManager::conversationKey(bean, type, profile, 7);
 
-        for (const QString& key : {kept, orphanWithTurns}) {
+        {
+            QNetworkAccessManager nam;
+            Settings appSettings;
+            // Constructed first so the one-time wipes spend their markers before
+            // the thread exists, or they delete what this test seeds.
+            AIManager first(&nam, &appSettings);
             AIConversation::appendAssistantTurnForKey(
-                key, 3, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
-                QStringLiteral("sys"));
-        }
-        // The debris an older eviction left behind: a group holding only the field
-        // that removal missed. It has no transcript, so a sweep keyed on "has
-        // messages" would walk straight past it.
-        settings.setValue(QStringLiteral("ai/conversations/") + orphanLabelOnly
-                              + QStringLiteral("/contextLabel"),
-                          QStringLiteral("Brand Type / P"));
-
-        QJsonObject entry;
-        entry["key"] = kept;
-        entry["beanBrand"] = QStringLiteral("Brand");
-        entry["beanType"] = QStringLiteral("Type");
-        entry["profileName"] = QStringLiteral("P");
-        entry["equipmentId"] = 3;
-        entry["timestamp"] = qint64(9000);
-        settings.setValue(QStringLiteral("ai/conversations/index"),
-                          QJsonDocument(QJsonArray{entry}).toJson(QJsonDocument::Compact));
-
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("Removing unindexed conversation \"?" + orphanWithTurns));
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("Removing unindexed conversation \"?" + orphanLabelOnly));
-        AIManager mgr(&nam, &appSettings);
-
-        QCOMPARE(mgr.m_conversationIndex.size(), 1);
-        QCOMPARE(mgr.m_conversationIndex.first().key, kept);
-
-        // Both orphans gone, whole group each -- not merely their transcripts.
-        for (const QString& key : {orphanWithTurns, orphanLabelOnly}) {
-            settings.beginGroup(QStringLiteral("ai/conversations/") + key);
-            const QStringList leftover = settings.allKeys();
-            settings.endGroup();
-            QVERIFY2(leftover.isEmpty(),
-                     qPrintable(QStringLiteral("Orphan %1 left %2 behind")
-                                    .arg(key, leftover.join(QStringLiteral(", ")))));
+                key, 7, QStringLiteral("what grind?"), QStringLiteral("go finer"),
+                std::nullopt, QStringLiteral("sys"));
+            QVERIFY2(first.m_conversationIndex.isEmpty(),
+                     "the MCP write path must leave no index entry -- if it starts "
+                     "indexing, this test's premise is gone and the sweep question "
+                     "reopens on purpose rather than by accident");
         }
 
-        // The indexed thread is untouched...
-        QCOMPARE(AIConversation::storedTranscriptState(settings, kept),
+        QNetworkAccessManager nam2;
+        Settings appSettings2;
+        AIManager relaunched(&nam2, &appSettings2);
+
+        QCOMPARE(AIConversation::storedTranscriptState(settings, key),
                  AIConversation::TranscriptState::Ok);
-        // ...and the sweep did not take the index along with the groups.
-        QVERIFY2(!settings.value(QStringLiteral("ai/conversations/index"))
-                      .toByteArray().isEmpty(),
-                 "The sweep deleted the index key, which is a key in that group, "
-                 "not one of the per-thread groups it is meant to walk");
+        // And it is still adoptable: the whole reason it may sit unindexed.
+        QCOMPARE(relaunched.switchConversation(bean, type, profile, 7), key);
+        QCOMPARE(relaunched.m_conversationIndex.size(), 1);
+        QCOMPARE(relaunched.m_conversationIndex.first().key, key);
 
         settings.clear();
     }
@@ -773,10 +741,13 @@ private slots:
     //
     // The trim used to drop exactly one entry per call, which made an over-cap
     // index a STABLE state rather than a transient one: at size 6 with a cap of 5,
-    // dropping one left 5 and the caller's prepend restored 6. loadConversationIndex
-    // appends from disk uncapped, so nothing pulled it back down, and the
-    // ai_conversations tool reported six threads while documenting a limit of five.
-    // Seen on the running app once equipment-scoped keys had pushed it past the cap.
+    // dropping one left 5 and the caller's prepend restored 6, and nothing pulled
+    // it back down. Seen on the running app once equipment-scoped keys had pushed
+    // it past the cap.
+    //
+    // Convergence is driven by the INSERT path, deliberately. A trim on the load
+    // path would fix this without a new conversation being started, and is
+    // destructive on restore -- see the note in loadConversationIndex.
     void anIndexOverTheCapIsTrimmedBackToIt()
     {
         AppSettings settings;
@@ -820,15 +791,29 @@ private slots:
         QNetworkAccessManager nam;
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
+        // Loaded as-is: the load path does not trim.
+        QCOMPARE(mgr.m_conversationIndex.size(), seeded);
+
+        // Starting a new conversation is what converges it. With the old
+        // single-take trim this lands on seeded (7), not the cap: one dropped,
+        // one prepended, no progress -- forever.
+        const QString fresh = mgr.switchConversation(
+            QStringLiteral("Fresh Roasters"), QStringLiteral("New Bean"),
+            QStringLiteral("D-Flow / Q"), 11);
+        AIConversation::appendAssistantTurnForKey(
+            fresh, 11, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+            QStringLiteral("sys"));
+        mgr.indexStoredConversation();
 
         QCOMPARE(mgr.m_conversationIndex.size(), int(AIManager::MAX_CONVERSATIONS));
-        // The survivors must be the most recent ones, not an arbitrary five.
-        for (int i = 0; i < AIManager::MAX_CONVERSATIONS; ++i)
-            QCOMPARE(mgr.m_conversationIndex[i].key, keys[i]);
+        QCOMPARE(mgr.m_conversationIndex.first().key, fresh);
+        // The survivors under it must be the most recent seeds, not an arbitrary set.
+        for (int i = 1; i < AIManager::MAX_CONVERSATIONS; ++i)
+            QCOMPARE(mgr.m_conversationIndex[i].key, keys[i - 1]);
 
         // The trim is not bookkeeping-only: the dropped threads are gone from
         // storage, so they cannot resurface through indexStoredConversation.
-        for (int i = AIManager::MAX_CONVERSATIONS; i < seeded; ++i) {
+        for (int i = AIManager::MAX_CONVERSATIONS - 1; i < seeded; ++i) {
             QCOMPARE(AIConversation::storedTranscriptState(settings, keys[i]),
                      AIConversation::TranscriptState::Missing);
             // Every key under the group, not just the transcript. Checking only
@@ -843,7 +828,8 @@ private slots:
                                     .arg(keys[i], leftover.join(QStringLiteral(", ")))));
         }
 
-        // And it persisted — a reload must not read the over-cap index back.
+        // And it persisted — a reload must read back the converged index, not the
+        // over-cap one.
         QNetworkAccessManager nam2;
         Settings appSettings2;
         AIManager relaunched(&nam2, &appSettings2);

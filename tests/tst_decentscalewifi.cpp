@@ -155,14 +155,16 @@ private:
 
     // Send a firmware power_off frame and wait until the driver has LOGGED it.
     //
-    // This replaces five copies of `ignoreMessage(...); sendJson(...);
-    // qWait(50);`, which was wrong twice over. The 50 ms was a fixed wall-clock
-    // stand-in for "the frame crossed a real localhost socket and was handled",
-    // so a loaded machine loses the race -- observed in a full-suite run. And
-    // ignoreMessage is a PERMISSION: an unmatched pattern is a printed line, not
-    // a named failure, so the loss surfaced as "Not all expected messages were
-    // received" with nothing pointing at the slot. Waiting on the message makes
-    // it an assertion: exactly one line, at the tier the caller names.
+    // This replaces five copies of `sendJson(...); qWait(50);` -- three preceded
+    // by an ignoreMessage, two asserting nothing about the log at all -- and it
+    // fixes two separate problems. The 50 ms was a fixed wall-clock stand-in for
+    // "the frame crossed a real localhost socket and was handled", so a loaded
+    // machine loses the race; observed in a full-suite run. And an unmatched
+    // ignoreMessage, while it DOES fail the test (qtestresult.cpp:251-254 calls
+    // addFailure), reports with no file/line and without naming the pattern --
+    // that goes out separately as an Info line (qtestlog.cpp:397-417) -- so the
+    // loss surfaced as a bare "Not all expected messages were received" pointing
+    // at nothing. Waiting on the message names the line and asserts the tier.
     void sendPowerOffAndAwaitLog(FakeHdsServer& server, const QString& reason,
                                  int reasonCode, QtMsgType expectedTier) {
         MessageCapture capture(MessageCapture::SwallowAll);
@@ -776,7 +778,7 @@ private slots:
     //   (c) after reconnecting and receiving a real firmware power_off, the
     //       WARN-level log still fires — the latch did NOT leak past the
     //       failed sleep (a leaked latch would demote the log to LOG and the
-    //       ignoreMessage below would go unmatched, failing the test).
+    //       tier QCOMPARE inside sendPowerOffAndAwaitLog fails, naming both).
     // Note: this test can't isolate which clear-path did the work — both
     // sleep()'s self-clear-on-failure AND connectToHost()'s reset would
     // independently produce (c). Both are present in the implementation as

@@ -31,36 +31,11 @@ private:
         }
     }
 
-    // Feed a stable plateau until the clean-avg capture gate fires, then stop.
+    // The loop below waits on a CONDITION rather than a sample budget because
+    // QTest::qWait waits AT LEAST its argument: three tests once hand-rolled
+    // `for (i < 14) { sample; qWait(50) }` and budgeted ~750 ms, and under the
+    // parallel ASan/UBSan suite the 15-iteration one measured 1015 ms.
     //
-    // The gate needs SETTLING_CLEAN_CAPTURE_MS (250 ms) of continuous stability,
-    // but the WHOLE loop has to finish inside SETTLING_STABLE_MS (1000 ms) — or the
-    // stability timer completes settling on its own and the post-settling path the
-    // caller exists to test never runs at all.
-    //
-    // Three tests each hand-rolled `for (i < 14 or 15) { sample; qWait(50) }` and
-    // budgeted it in a comment as 700-750 ms against that 1000 ms ceiling. But
-    // QTest::qWait waits AT LEAST its argument: in the parallel ASan/UBSan suite the
-    // 15-iteration one measured **1015 ms**, settling completed by timer, and the test
-    // failed on an unrelated final-weight assertion that said nothing about why. That
-    // is the "timers as guards" anti-pattern CLAUDE.md names by name, living in a test.
-    //
-    // Looping on the CONDITION instead spends the minimum wall time, so it cannot
-    // overshoot by feeding samples nobody needs. The isSawSettling() check is the point of
-    // the helper: if the ceiling is hit anyway, the failure says so instead of surfacing
-    // as a wrong final weight three assertions later.
-    //
-    // TIMING, derived from the constants rather than guessed. The window fills on the 6th
-    // sample (SETTLING_WINDOW_SIZE = 6), which is when the stability clock STARTS; the gate
-    // then needs SETTLING_CLEAN_CAPTURE_MS (250 ms) more, i.e. 5 further samples at 50 ms.
-    // So capture lands on roughly the 11th sample, ~500 ms — against a 1000 ms ceiling.
-    // An earlier version of this comment said "around sample 7, ~350 ms", which was wrong
-    // in the direction that matters: it made the margin look twice as large as it is.
-    //
-    // Hence the cap of 16 rather than 20. Twenty iterations is 1000 ms, exactly
-    // SETTLING_STABLE_MS — a bound sitting precisely on the threshold it exists to stay
-    // under, which is no bound at all. Sixteen leaves ~300 ms of headroom past the ~500 ms
-    // the gate actually needs, and still stops short of the ceiling.
     // Feed a plateau centred on `grams` until the clean-avg capture gate fires,
     // leaving settling still IN PROGRESS so the caller can drive what happens next.
     //
@@ -527,14 +502,18 @@ private slots:
     }
 
     // A sample that MOVES the scale must never be recorded as the settled weight,
-    // no matter how long the scale was still before it (#1280).
+    // no matter how long the scale was still before it.
+    //
+    // Not named for #1280: that report's symptom is attributed, in
+    // shottimingcontroller.cpp, to the cup-removed path, and a real cup lift never
+    // reaches the branch under test. This came from a suite failure instead.
     //
     // onWeightSample samples the stillness duration BEFORE accounting for the
     // current reading, then the fast path completes settling at that reading. So a
     // cup lifted after a second of stillness used to log "stable for 1007 ms" and
     // settle at the disturbed value -- the stillness measured belonged to the
     // samples before it, not to it.
-    void movingSampleDoesNotSettleOnStaleStillness_1280() {
+    void movingSampleDoesNotSettleOnStaleStillness() {
         DE1Device device;
         ShotTimingController tc(&device);
         tc.startShot();

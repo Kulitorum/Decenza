@@ -146,13 +146,14 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // The shot record is loaded and valid, and carries this
                         // shot's package. 0 = unpackaged, a real bucket.
                         //
-                        // Three of the four builders below take this exact
-                        // value; `buildGrinderCalibrationBlock` is the one
-                        // exception and re-reads the row itself via
-                        // loadShotRecordStatic, because it needs the whole
-                        // record and not just the bucket. Same connection, same
-                        // row. (An earlier draft claimed "no second lookup"
-                        // while THREE builders still resolved their own.)
+                        // The builders below take the whole `shot`, so the bucket
+                        // and the fields it scopes are guaranteed to come off the
+                        // same row. This local exists only for conversationKey()
+                        // further down. (Earlier drafts of this comment claimed
+                        // first "no second lookup" while three builders resolved
+                        // their own, then "three of the four builders take this
+                        // value" after they had stopped taking it. It is a claim
+                        // about call sites, so re-read them before editing it.)
                         const qint64 equipmentBucket = shot.equipmentId;
 
                         // Same dialing-context blocks the in-app advisor

@@ -475,10 +475,6 @@ private:
     // new thread, or MAX_CONVERSATIONS to enforce the cap on an index read back
     // from disk.
     void trimConversationsTo(int keep);
-
-    // Delete stored threads that no index entry names. Startup only — see the
-    // implementation for why it cannot run at an arbitrary moment.
-    void removeUnindexedConversations();
     void migrateFromLegacyConversation();
     // One-shot conversation wipe keyed by a migration id. Fires once per
     // device; subsequent launches are no-ops. Call before loadConversationIndex.

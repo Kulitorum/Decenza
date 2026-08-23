@@ -191,7 +191,7 @@ A future addition to `analyzeShot`'s required inputs (e.g. a new `analysisFlags`
 `ShotHistoryStorage`'s ~2500-line implementation SHALL be split across at least three translation units to make navigation tractable for future contributors:
 
 1. `shothistorystorage.cpp` — DB lifecycle, save path, load + recompute. Core lifecycle for a shot record.
-2. `shothistorystorage_queries.cpp` — `requestShotsFiltered`, `requestRecentShotsByKbId`, `requestAutoFavorites`, distinct-value cache, `queryGrinderContext`. Read-only query helpers.
+2. `shothistorystorage_queries.cpp` — `requestShotsFiltered`, `loadRecentShotsByKbIdStatic`, `requestAutoFavorites`, distinct-value cache, `queryGrinderContext`. Read-only query helpers.
 3. `shothistorystorage_serialize.cpp` — `convertShotRecord` and its `pointsToVariant` lambdas. Serialization to QVariantMap for QML / MCP / web consumption.
 
 The class declaration SHALL remain in a single header (`shothistorystorage.h`); only the implementation is split. No public API change. The split SHALL preserve behavior — `git log --follow` continues to work for individual function histories because functions move atomically with their callers.
