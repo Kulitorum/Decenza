@@ -35,6 +35,7 @@
 #include <QCoreApplication>
 #include <QRegularExpression>
 #include <cmath>
+#include <algorithm>
 
 namespace {
 // Coerce a QML-supplied shot argument into a ShotProjection. QML hands the
@@ -111,6 +112,9 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
 
     // Load conversation index and restore most recent conversation
     loadConversationIndex();
+    // After the index is loaded and after both one-time wipes and the legacy
+    // migration above, so every thread that is SUPPOSED to be named already is.
+    removeUnindexedConversations();
     loadMostRecentConversation();
 
     // Connect to settings changes
@@ -2144,6 +2148,43 @@ void AIManager::indexStoredConversation()
         return;
 
     noteConversationUse(key, m_liveBeanBrand, m_liveBeanType, m_liveProfileName, m_liveEquipmentId);
+}
+
+void AIManager::removeUnindexedConversations()
+{
+    // A stored thread that no index entry names is unreachable and unreclaimable:
+    // the list only renders index entries, and trimConversationsTo() only walks
+    // the index, so nothing ever evicts it. It reappears only if the user happens
+    // to land on that exact bean/profile/equipment key again. Two such threads
+    // were found on a real device.
+    //
+    // CONSTRUCTOR ONLY. Every write path indexes at save time (indexStoredConversation
+    // is wired to conversationPersisted), so unindexed-but-stored is an error state
+    // at startup — but it is a normal TRANSIENT state at other moments, and running
+    // this sweep then would delete a live thread mid-write.
+    AppSettings settings;
+
+    settings.beginGroup(QStringLiteral("ai/conversations"));
+    // childGroups(), not childKeys(): the `index` key lives in this group as a
+    // plain key and must survive. The same distinction the one-time wipe relies on.
+    const QStringList stored = settings.childGroups();
+    settings.endGroup();
+
+    for (const QString& key : stored) {
+        const bool indexed = std::any_of(
+            m_conversationIndex.cbegin(), m_conversationIndex.cend(),
+            [&key](const ConversationEntry& e) { return e.key == key; });
+        if (indexed) continue;
+
+        // Report what is being destroyed, not just that something was. On a
+        // submitted log this is the only record the thread ever existed.
+        QJsonArray turns;
+        const AIConversation::TranscriptState state =
+            AIConversation::storedTranscriptState(settings, key, &turns);
+        qWarning() << "AIManager: Removing unindexed conversation" << key
+                   << "state:" << int(state) << "turns:" << turns.size();
+        settings.remove(QStringLiteral("ai/conversations/") + key);
+    }
 }
 
 void AIManager::trimConversationsTo(int keep)

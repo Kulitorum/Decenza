@@ -153,6 +153,32 @@ private:
         QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 4, 2000);
     }
 
+    // Send a firmware power_off frame and wait until the driver has LOGGED it.
+    //
+    // This replaces five copies of `ignoreMessage(...); sendJson(...);
+    // qWait(50);`, which was wrong twice over. The 50 ms was a fixed wall-clock
+    // stand-in for "the frame crossed a real localhost socket and was handled",
+    // so a loaded machine loses the race -- observed in a full-suite run. And
+    // ignoreMessage is a PERMISSION: an unmatched pattern is a printed line, not
+    // a named failure, so the loss surfaced as "Not all expected messages were
+    // received" with nothing pointing at the slot. Waiting on the message makes
+    // it an assertion: exactly one line, at the tier the caller names.
+    void sendPowerOffAndAwaitLog(FakeHdsServer& server, const QString& reason,
+                                 int reasonCode, QtMsgType expectedTier) {
+        MessageCapture capture(MessageCapture::SwallowAll);
+        server.sendJson({
+            { "type", "power" },
+            { "event", "power_off" },
+            { "reason", reason },
+            { "reason_code", reasonCode },
+        });
+        const QString needle = QStringLiteral("Scale shut down: ") + reason;
+        MessageCapture::Entry logged;
+        QTRY_VERIFY2(capture.single(needle, &logged),
+                     qPrintable(QStringLiteral("No single \"%1\" line was logged").arg(needle)));
+        QCOMPARE(logged.type, expectedTier);
+    }
+
 private slots:
     // The "[Scale] <name> DISCONNECTED" teardown warning is handled by the
     // m_disconnectNoise filter declared above, not by an ignoreMessage() —
@@ -687,15 +713,7 @@ private slots:
         connectAndHandshake(driver, server);
         const qsizetype initialConnections = connectedSpy.count();
 
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(".*Scale shut down: low_battery.*"));
-        server.sendJson({
-            { "type", "power" },
-            { "event", "power_off" },
-            { "reason", "low_battery" },
-            { "reason_code", 3 },
-        });
-        QTest::qWait(50);
+        sendPowerOffAndAwaitLog(server, QStringLiteral("low_battery"), 3, QtWarningMsg);
         server.closeFromServer();
 
         // Wait past the reconnect window (3 s) — should NOT see a reconnect.
@@ -720,22 +738,16 @@ private slots:
         QTRY_VERIFY(server.received().contains(
             QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}")));
 
-        server.sendJson({
-            { "type", "power" },
-            { "event", "power_off" },
-            { "reason", "disabled" },
-            { "reason_code", 0 },
-        });
-        QTest::qWait(50);
+        sendPowerOffAndAwaitLog(server, QStringLiteral("disabled"), 0, QtInfoMsg);
 
         QCOMPARE(errorSpy.count(), 0);  // errorOccurred not emitted (dialog path removed)
     }
 
     // The latch is one-shot: after the app-initiated power_off is consumed,
     // a subsequent firmware-initiated power_off (low battery, button) must
-    // log at WARN level (not LOG). ignoreMessage on the WARN regex is what
-    // enforces the level — if the latch leaked, the second frame would log
-    // at LOG and the ignoreMessage would go unmatched, failing the test.
+    // log at WARN level (not LOG). sendPowerOffAndAwaitLog compares the tier
+    // outright — if the latch leaked, the second frame would log at LOG and the
+    // QCOMPARE on the entry's type fails, naming both tiers.
     void firmwareInitiatedPowerOffStillWarnsAfterAppInitiated() {
         FakeHdsServer server;
         DecentScaleWifi driver;
@@ -746,24 +758,10 @@ private slots:
         driver.sleep();
         QTRY_VERIFY(server.received().contains(
             QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}")));
-        server.sendJson({
-            { "type", "power" },
-            { "event", "power_off" },
-            { "reason", "disabled" },
-            { "reason_code", 0 },
-        });
-        QTest::qWait(50);
+        sendPowerOffAndAwaitLog(server, QStringLiteral("disabled"), 0, QtInfoMsg);
 
         // Second: firmware-initiated — must log at WARN (latch cleared).
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(".*Scale shut down: low_battery.*"));
-        server.sendJson({
-            { "type", "power" },
-            { "event", "power_off" },
-            { "reason", "low_battery" },
-            { "reason_code", 3 },
-        });
-        QTest::qWait(50);
+        sendPowerOffAndAwaitLog(server, QStringLiteral("low_battery"), 3, QtWarningMsg);
         QCOMPARE(errorSpy.count(), 0);  // dialog path removed in both cases
     }
 
@@ -807,15 +805,7 @@ private slots:
         FakeHdsServer server;
         connectAndHandshake(driver, server);
 
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(".*Scale shut down: low_battery.*"));
-        server.sendJson({
-            { "type", "power" },
-            { "event", "power_off" },
-            { "reason", "low_battery" },
-            { "reason_code", 3 },
-        });
-        QTest::qWait(50);
+        sendPowerOffAndAwaitLog(server, QStringLiteral("low_battery"), 3, QtWarningMsg);
         QCOMPARE(errorSpy.count(), 0);  // dialog path removed
     }
 

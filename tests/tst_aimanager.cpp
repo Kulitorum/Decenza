@@ -470,6 +470,22 @@ private slots:
         AIConversation::appendAssistantTurnForKey(
             key, 222, QStringLiteral("post-migration user turn"),
             QStringLiteral("post-migration assistant turn"), structured, QStringLiteral("sys"));
+        // ...and index it, because the app does. appendAssistantTurnForKey is a
+        // storage-only static; a real save emits conversationPersisted and lands
+        // an index entry. Without this the thread is an orphan, and the startup
+        // sweep removes it -- which would let this test read "the wipe fired
+        // twice" from a deletion that had nothing to do with the wipe.
+        {
+            QJsonObject postEntry;
+            postEntry[QStringLiteral("key")] = key;
+            postEntry[QStringLiteral("beanBrand")] = QStringLiteral("Sweet Bloom Coffee");
+            postEntry[QStringLiteral("beanType")] = QStringLiteral("Hometown Blend");
+            postEntry[QStringLiteral("profileName")] = QStringLiteral("D-Flow / Q");
+            postEntry[QStringLiteral("equipmentId")] = 7;
+            postEntry[QStringLiteral("timestamp")] = QDateTime::currentSecsSinceEpoch();
+            settings.setValue(QStringLiteral("ai/conversations/index"),
+                              QJsonDocument(QJsonArray{postEntry}).toJson(QJsonDocument::Compact));
+        }
         {
             AIManager second(&nam, &appSettings);
             Q_UNUSED(second)
@@ -676,6 +692,79 @@ private slots:
         AIManager relaunched(&nam2, &appSettings2);
         QCOMPARE(relaunched.m_conversationIndex.size(), 1);
         QCOMPARE(relaunched.m_conversationIndex.first().timestamp, lastWeek);
+
+        settings.clear();
+    }
+
+    // A stored thread that no index entry names is deleted at startup.
+    //
+    // It is otherwise unreachable AND unreclaimable: the list renders index
+    // entries, and the trim only walks the index, so nothing evicts it. Two such
+    // threads were found on a real device, holding transcripts no surface could
+    // reach. The `index` key itself lives in the same settings group and must
+    // survive the sweep -- it is a key, not a group.
+    void aStoredThreadNoIndexEntryNamesIsRemovedAtStartup()
+    {
+        AppSettings settings;
+        settings.clear();
+        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
+        settings.setValue(QStringLiteral("ai/migrations/equipment_scoped_conversations_v1"), true);
+
+        const QString kept = QStringLiteral("kept0");
+        const QString orphanWithTurns = QStringLiteral("orphan0");
+        const QString orphanLabelOnly = QStringLiteral("orphan1");
+
+        for (const QString& key : {kept, orphanWithTurns}) {
+            AIConversation::appendAssistantTurnForKey(
+                key, 3, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+                QStringLiteral("sys"));
+        }
+        // The debris an older eviction left behind: a group holding only the field
+        // that removal missed. It has no transcript, so a sweep keyed on "has
+        // messages" would walk straight past it.
+        settings.setValue(QStringLiteral("ai/conversations/") + orphanLabelOnly
+                              + QStringLiteral("/contextLabel"),
+                          QStringLiteral("Brand Type / P"));
+
+        QJsonObject entry;
+        entry["key"] = kept;
+        entry["beanBrand"] = QStringLiteral("Brand");
+        entry["beanType"] = QStringLiteral("Type");
+        entry["profileName"] = QStringLiteral("P");
+        entry["equipmentId"] = 3;
+        entry["timestamp"] = qint64(9000);
+        settings.setValue(QStringLiteral("ai/conversations/index"),
+                          QJsonDocument(QJsonArray{entry}).toJson(QJsonDocument::Compact));
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Removing unindexed conversation \"?" + orphanWithTurns));
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Removing unindexed conversation \"?" + orphanLabelOnly));
+        AIManager mgr(&nam, &appSettings);
+
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+        QCOMPARE(mgr.m_conversationIndex.first().key, kept);
+
+        // Both orphans gone, whole group each -- not merely their transcripts.
+        for (const QString& key : {orphanWithTurns, orphanLabelOnly}) {
+            settings.beginGroup(QStringLiteral("ai/conversations/") + key);
+            const QStringList leftover = settings.allKeys();
+            settings.endGroup();
+            QVERIFY2(leftover.isEmpty(),
+                     qPrintable(QStringLiteral("Orphan %1 left %2 behind")
+                                    .arg(key, leftover.join(QStringLiteral(", ")))));
+        }
+
+        // The indexed thread is untouched...
+        QCOMPARE(AIConversation::storedTranscriptState(settings, kept),
+                 AIConversation::TranscriptState::Ok);
+        // ...and the sweep did not take the index along with the groups.
+        QVERIFY2(!settings.value(QStringLiteral("ai/conversations/index"))
+                      .toByteArray().isEmpty(),
+                 "The sweep deleted the index key, which is a key in that group, "
+                 "not one of the per-thread groups it is meant to walk");
 
         settings.clear();
     }
