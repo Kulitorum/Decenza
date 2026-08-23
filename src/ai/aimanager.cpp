@@ -849,16 +849,18 @@ static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
     QList<QPair<qint64, ShotProjection>> qualifiedShots;
 
     withTempDb(dbPath, "ai_context", [&](QSqlDatabase& db) {
-        // 1. Look up the current shot's timestamp
+        // 1. Look up the current shot's timestamp and equipment package
         qint64 shotTimestamp = 0;
+        qint64 shotBucket = 0;
         {
             QSqlQuery q(db);
-            q.prepare("SELECT timestamp FROM shots WHERE id = ?");
+            q.prepare("SELECT timestamp, COALESCE(equipment_id, 0) FROM shots WHERE id = ?");
             q.bindValue(0, static_cast<qint64>(excludeShotId));
             if (!q.exec()) {
                 qWarning() << "AIManager::requestRecentShotContext: timestamp query failed:" << q.lastError().text();
             } else if (q.next()) {
                 shotTimestamp = q.value(0).toLongLong();
+                shotBucket = q.value(1).toLongLong();
             } else {
                 qDebug() << "AIManager::requestRecentShotContext: no shot found for excludeShotId=" << excludeShotId;
             }
@@ -875,6 +877,10 @@ static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
         if (!profileName.isEmpty()) { conditions << "profile_name = ?"; bindValues << profileName; }
         conditions << "timestamp >= ?" << "timestamp <= ?";
         bindValues << dateFrom << shotTimestamp;
+        // These shots are rendered with their grind settings into the same prompt
+        // that carries the package-scoped grinder context, so leaving them
+        // unscoped makes the two halves contradict each other.
+        conditions << AdviceScope(shotBucket).sql();
 
         QString sql = "SELECT id, timestamp, profile_name, duration_seconds, final_weight "
                       "FROM shots WHERE " + conditions.join(" AND ") +

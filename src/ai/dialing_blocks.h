@@ -374,7 +374,7 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 //   - `grinderModel` is empty, OR
 //   - `beverageType` is filter / pourover, OR
 //   - the resolved shot is invalid, OR
-//   - there are no dialed-in shots on this grinder + burrs.
+//   - there are no dialed-in shots in this equipment package.
 // Otherwise the block is always present (directional at minimum).
 //
 // Background-thread / DB-owning: must be called from the same thread that

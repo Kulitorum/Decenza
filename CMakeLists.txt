@@ -1006,6 +1006,7 @@ set(HEADERS
     src/history/recipepromotion.h
     src/history/unifiedbeansearchmodel.h
     src/history/shotprojection.h
+    src/history/shotscope.h
     src/history/shotdebuglogger.h
     src/history/shotfileparser.h
     src/history/shotimporter.h

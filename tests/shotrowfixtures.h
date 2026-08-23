@@ -112,9 +112,10 @@ void withRawDb(const QString& path, const QString& connName, Work&& work)
     QVERIFY2(openError.isEmpty(), qPrintable(openError));
 }
 
-// Find-or-create by grinder AND basket. Not
-// EquipmentStorage::findPackageByGrinderIdentityStatic(), which matches the
-// grinder alone and so cannot express two baskets on one grinder.
+// Find-or-create the package for a fixture row's full equipment identity.
+// findPackageByGrinderIdentityStatic already matches grinder AND basket AND puck
+// prep; the previous fixture simply never passed the basket arguments, so every
+// row landed in a grinder-only package.
 inline qint64 findOrCreatePackage(QSqlDatabase& db, const ShotRow& r)
 {
     const bool hasGrinder = !(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty()
@@ -123,41 +124,18 @@ inline qint64 findOrCreatePackage(QSqlDatabase& db, const ShotRow& r)
     if (!hasGrinder && !hasBasket)
         return 0;  // no identity at all -> equipment_id stays NULL
 
-    QSqlQuery find(db);
-    find.prepare(QStringLiteral(
-        "SELECT p.id FROM equipment_packages p "
-        "LEFT JOIN equipment_items g ON g.package_id = p.id AND g.kind = 'grinder' "
-        "LEFT JOIN equipment_items b ON b.package_id = p.id AND b.kind = 'basket' "
-        // COALESCE on the BOUND side too: an unset ShotRow field is a null
-        // QString, which Qt binds as SQL NULL, and `x = NULL` is never true --
-        // so without this the lookup never matches and every shot forks its own
-        // package.
-        "WHERE COALESCE(g.brand,'') = COALESCE(?,'') "
-        "  AND COALESCE(g.model,'') = COALESCE(?,'') "
-        "  AND COALESCE(json_extract(g.attrs,'$.burrs'),'') = COALESCE(?,'') "
-        "  AND COALESCE(b.brand,'') = COALESCE(?,'') "
-        "  AND COALESCE(b.model,'') = COALESCE(?,'')"));
-    find.addBindValue(r.grinderBrand);
-    find.addBindValue(r.grinderModel);
-    find.addBindValue(r.grinderBurrs);
-    find.addBindValue(r.basketBrand);
-    find.addBindValue(r.basketModel);
-    if (!find.exec()) {
-        qWarning() << "findOrCreatePackage: lookup failed:" << find.lastError().text();
-        return 0;
-    }
-    if (find.next())
-        return find.value(0).toLongLong();
+    const qint64 found = EquipmentStorage::findPackageByGrinderIdentityStatic(
+        db, r.grinderBrand, r.grinderModel, r.grinderBurrs, /*excludeId=*/0,
+        r.basketBrand, r.basketModel);
+    if (found > 0)
+        return found;
 
     EquipmentPackage pkg;
     const qint64 id = EquipmentStorage::createPackageWithGrinderStatic(
-        db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs);
-    if (id <= 0) {
+        db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs,
+        r.basketBrand, r.basketModel);
+    if (id <= 0)
         qWarning() << "findOrCreatePackage: package create failed";
-        return 0;
-    }
-    if (hasBasket && !EquipmentStorage::setBasketItemStatic(db, id, r.basketBrand, r.basketModel))
-        qWarning() << "findOrCreatePackage: basket set failed for package" << id;
     return id;
 }
 
@@ -254,7 +232,7 @@ inline AdviceScope soleScope(QSqlDatabase& db)
         qWarning() << "soleScope: expected exactly one equipment bucket, found"
                    << buckets.size() << buckets
                    << "-- name the intended one with AdviceScope(id) instead";
-        return AdviceScope(buckets.isEmpty() ? 0 : buckets.first());
+        return AdviceScope(buckets.first());
     }
     return AdviceScope(buckets.first());
 }

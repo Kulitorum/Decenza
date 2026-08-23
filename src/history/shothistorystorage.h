@@ -215,7 +215,7 @@ public:
     // and phase markers for legacy shots that lack phaseSummariesJson.
     static void computePhaseSummaries(ShotRecord& record);
 
-    // Query observed grinder settings for a grinder model + beverage type.
+    // Query observed grinder settings for one equipment package + beverage type.
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
     //
     // `beanBrand` (optional, default empty): when non-empty, restrict the
@@ -227,10 +227,10 @@ public:
     //
     // This function is single-shot: it returns ONE filtered list. The
     // two-tier "bean-scoped first, fall back to cross-bean when sparse"
-    // policy is implemented by the *caller* (`mcptools_dialing.cpp` —
-    // the `dialing_get_context` tool calls this twice and surfaces a
-    // separate `allBeansSettings` field). Do not collapse that fallback
-    // into this function — a future caller may want bean-scoped only.
+    // policy is implemented by the *caller* (`buildGrinderContextBlock`,
+    // which calls this twice and surfaces a separate `allBeansSettings`
+    // field). Do not collapse that fallback into this function — a future
+    // caller may want bean-scoped only.
     //
     // `scope` bounds the observed axes only. stepSize / rpmStepSize stay
     // grinder-wide so the advisor's step equals grindStepForGrinder().
@@ -347,8 +347,7 @@ public:
                                                       const QString& beanBrand,
                                                       const QString& beanType,
                                                       const QString& profileName,
-                                                      const QString& grinderBrand,
-                                                      const QString& grinderModel,
+                                                      qint64 equipmentId,
                                                       const QString& grinderSetting,
                                                       double doseBucket = 0.0,
                                                       double targetWeight = 0.0);

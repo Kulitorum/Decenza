@@ -94,9 +94,6 @@ Delivered:
   `buildBestRecentShotBlock`, `buildGrinderContextBlock`, `buildGrinderCalibrationBlock`.
   Calibration's inline grinder-identity subquery is replaced by the scope, which also removes
   `grinderBurrs` from the signature and from four call sites.
-- `src/history/shothistorystorage_serialize.cpp` — `convertShotRecord` now copies `equipmentId`
-  into the projection. It never did, so a scope built from a loaded shot would have been a
-  silent no-op.
 - `src/ai/aimanager.cpp`, `src/mcp/mcptools_dialing.cpp`, `src/mcp/mcptools_ai.cpp` — resolve the
   scope from the shot under review rather than from live machine state.
 - Deleted: `requestRecentShotsByKbId` and `recentShotsByKbIdReady`, which had no caller in any

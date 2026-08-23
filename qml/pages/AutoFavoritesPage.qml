@@ -418,6 +418,7 @@ T.Page {
                                     profileName: favoriteDelegate.model.profileName || "",
                                     grinderBrand: favoriteDelegate.model.grinderBrand || "",
                                     grinderModel: favoriteDelegate.model.grinderModel || "",
+                                    equipmentId: favoriteDelegate.model.equipmentId || 0,
                                     grinderSetting: favoriteDelegate.model.grinderSetting || "",
                                     doseBucket: favoriteDelegate.model.doseBucket || 0,
                                     targetWeight: favoriteDelegate.model.targetWeightG || 0,

@@ -29,8 +29,11 @@ T.Page {
     property string beanBrand: ""
     property string beanType: ""
     property string profileName: ""
+    // Display only. equipmentId is what the stats query scopes on — the same
+    // bucket the group was keyed by.
     property string grinderBrand: ""
     property string grinderModel: ""
+    property int equipmentId: 0
     property string grinderSetting: ""
     property real doseBucket: 0
     property real targetWeight: 0
@@ -58,7 +61,7 @@ T.Page {
             MainController.shotHistory.requestShot(shotId)
 
         MainController.shotHistory.requestAutoFavoriteGroupDetails(
-            groupBy, beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting,
+            groupBy, beanBrand, beanType, profileName, equipmentId, grinderSetting,
             doseBucket, targetWeight)
     }
 

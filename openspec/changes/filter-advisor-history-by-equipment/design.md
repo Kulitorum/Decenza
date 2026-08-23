@@ -75,9 +75,11 @@ quick-select widget's `grindStepForGrinder()` on the same screen, so it stays gr
 **A formatted value in SQL.** Safe for a `qint64` from our own schema and unsafe as a habit. The
 type takes only `qint64` and exposes no string path, so the habit cannot spread through it.
 
-**Scope creep into display filtering.** `buildFilterQuery` and the auto-favourite grouping filter
-by whatever the user selected, which is legitimately grinder-wide. Narrowing those to the package
-would be a regression, and the table above exists so the next reader does not.
+**Scope creep into display filtering.** `buildFilterQuery` and the free-text search filter by what
+the user selected, which is legitimately grinder-wide; narrowing those would be a regression. The
+auto-favourite path is not one of them — its grouping already keyed on `equipment_id` while its
+stats query approximated that with brand+model, so the two disagreed. The stats query now uses
+the same bucket the group was keyed by.
 
 **A newly forked package starts thin.** Intended, and the spec requires the no-history block that
 makes it legible rather than silent. Until that block ships, the state is silent — which is the
@@ -103,29 +105,13 @@ bean, profile, dose and target. Decent 18g Ridged dials 8–10; Graph stepped 58
 shots are Decent, so the minority basket is handed a setting about 6.75 steps too fine behind a
 large and reassuring sample.
 
-## Open question on the carried requirements
-
-The specs in `specs/` were written for PR #1852 and carried forward because the problem did not
-change. One of them is worth deciding rather than inheriting.
-
-### Should puck prep fork the comparison set?
-
-`advisor-user-prompt` says a package "identifies grinder, basket and puck prep together, and
-changing any one of them yields a different package", so a puck-prep edit empties the advisor's
-history.
-
-The measured case is a BASKET change: 8-10 against 15-17.5, no overlap, five steps. Nothing
-measured says toggling RDT or a puck screen moves the dial like that, and puck prep is the
-variable a user flips experimentally between shots. Forking on it produces "no prior shots with
-this equipment set" at the moment the user most wants a with-versus-without comparison.
-
-Candidate: scope on grinder + basket, name puck prep in the payload without forking. This is a
-change to the requirement, not the implementation, so decide it before section 3 is built.
-
 ## Decided
 
-- **Pre-upgrade conversations are thrown away.** A user with equipment gets fresh threads; the
-  old ones are not continued. No notice, no migration, no recovery path.
+- **The equipment package is the unit.** Grinder, basket and puck prep together. Using WDT is a
+  different package from not using it, and the advisor's history does not cross that line. The
+  spec in `specs/` stands as written; no narrower grinder+basket variant.
+- **Pre-upgrade conversations are thrown away.** A user with equipment gets fresh threads; the old
+  ones are not continued. No notice, no migration, no recovery path.
 - **A prompt rule is mitigation, not a guarantee.** "Do not cite an absent shot" reduces the
   fabrication rate and cannot enforce it. The enforceable half is the no-history block, which
   removes the vacuum the model was filling.

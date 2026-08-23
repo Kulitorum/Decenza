@@ -14,14 +14,22 @@ delivered and are the larger half of the user-visible behaviour.
       subquery and its `:model` bind removed.
 - [x] 1.5 `buildGrinderCalibrationBlock` scoped to the package; inline grinder-identity subquery
       removed, `grinderBurrs` dropped from the signature and four call sites.
-- [x] 1.6 `convertShotRecord` carries `equipmentId` into the projection — it never did, so a
-      scope built from a loaded shot was a silent no-op.
 - [x] 1.7 Call sites resolve the scope from the shot under review, not live machine state.
 - [x] 1.8 `stepSize` / `rpmStepSize` left grinder-wide, pinned by a test that fails if narrowed.
 - [x] 1.9 Invariant test over all five selections; calibration scoping test; both verified by
       breaking the code and watching them go red.
 - [x] 1.10 Dead `requestRecentShotsByKbId` + `recentShotsByKbIdReady` deleted (no caller in any
       surface, described as live in three docs).
+
+### Known gaps in section 1
+
+- [ ] 1.11 No test exercises the three production sites that BUILD the scope from a live shot
+      (`aimanager.cpp` `requestRecentShotContext`, `mcptools_ai.cpp`, `mcptools_dialing.cpp`).
+      Every current test calls the block builders with a hand-made `AdviceScope`, so a call site
+      passing the wrong shot's `equipmentId` — or falling back to bucket 0 — would compile clean
+      and pass the whole suite.
+- [ ] 1.12 `docs/CLAUDE_MD/MCP_SERVER.md:1044-1048` cites `getRecentShotsByKbId()`, a symbol that
+      does not exist. Pre-existing, adjacent to this work.
 
 ## 2. Conversation threads keyed by equipment (NOT delivered)
 

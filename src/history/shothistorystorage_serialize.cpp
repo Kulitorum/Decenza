@@ -63,9 +63,6 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.grinderBurrs = record.grinderBurrs;
     p.basketBrand = record.basketBrand;
     p.basketModel = record.basketModel;
-    // AdviceScope is built from this; unset, every loaded shot reads as
-    // unpackaged and the filter silently does nothing.
-    p.equipmentId = record.equipmentId;
     p.puckPrep = record.puckPrep;
     p.grinderSetting = record.grinderSetting;
     p.rpm = record.rpm;

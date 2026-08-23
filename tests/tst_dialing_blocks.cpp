@@ -4144,10 +4144,13 @@ private slots:
     // ADVICE-scoped selection that pools the two publishes a number the user
     // cannot dial in -- with a large, reassuring sample behind it.
     //
-    // The invariant: for a shot on package B, every advice-scoped selection
-    // returns package-B rows only. It is asserted over all five paths at once,
-    // so a sixth selection point added later is covered by extending the list
-    // rather than by discovering the bug again.
+    // The invariant: for a shot on package B, the five advice-scoped selections
+    // below return package-B rows only, asserted together so a new one is covered
+    // by extending the list rather than by discovering the bug again.
+    //
+    // NOT covered here: AIManager's loadQualifiedShots, which is file-static in
+    // aimanager.cpp and unreachable from this translation unit. It is the in-app
+    // advisor's own shot list and it is scoped, but nothing asserts that.
     //
     // adviceScope_stepSizeStaysGrinderWide() pins the OTHER side of the
     // boundary, and is not optional: grind step size must stay grinder-wide to
@@ -4245,8 +4248,12 @@ private:
         if (v.isObject()) {
             const QJsonObject o = v.toObject();
             for (auto it = o.begin(); it != o.end(); ++it) {
+                // "rgs" is the calibration block's recommended-setting key and
+                // does NOT contain "setting", so a substring rule alone is blind
+                // to the one path that publishes a number.
                 const bool isSettingKey =
-                    it.key().contains(QLatin1String("setting"), Qt::CaseInsensitive);
+                    it.key().contains(QLatin1String("setting"), Qt::CaseInsensitive)
+                    || it.key() == QLatin1String("rgs");
                 if (isSettingKey && it.value().isArray()) {
                     for (const QJsonValue& e : it.value().toArray())
                         harvest(e);
@@ -4293,10 +4300,12 @@ private slots:
                   DialingBlocks::buildGrinderContextBlock(db, cur.grinderModel, graphScope,
                                                              QStringLiteral("espresso"),
                                                              cur.beanBrand) },
-                // Thin here: this fixture yields "directional" with pairs=0, so
-                // the block publishes no setting and cannot leak one. Listed so
-                // it is covered when the fixture grows — its absence from a
-                // failure list is not itself evidence that it scopes right.
+                // Inert in THIS fixture, for two reasons that are easy to
+                // mistake for a pass: the seeded shots are all one profile so no
+                // (batch, kbId) pair forms, and their enjoyment is below the
+                // dialed-in gate. Its leak coverage lives entirely in
+                // calibrationBlock_settingsComeFromTheAnchorsOwnBasket — do not
+                // delete that test as redundant with this one.
                 { "buildGrinderCalibrationBlock",
                   DialingBlocks::buildGrinderCalibrationBlock(db, cur.grinderModel, graphScope,
                                                               QStringLiteral("espresso"),
@@ -4337,7 +4346,7 @@ private slots:
             graph.sort();
             QVERIFY2(violations.isEmpty(),
                      qPrintable(QStringLiteral(
-                         "%1 of 5 advice-scoped selections pooled across the equipment "
+                         "%1 of 5 block-level advice-scoped selections pooled across the equipment "
                          "package for a Graph-basket shot:\n%2\nGraph dials in at %3. "
                          "Decent-basket settings are ~5 steps too fine and are not "
                          "reachable on this basket, so every one of these publishes a "

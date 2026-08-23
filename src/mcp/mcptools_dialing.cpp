@@ -387,7 +387,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     // stable per-conversation constant — re-fetch when the coffee changes.
     registry->registerAsyncTool(
         "dialing_get_grinder_calibration",
-        "Cross-profile grind guidance for this grinder and burrs, anchored on the current roast batch "
+        "Cross-profile grind guidance for this equipment package, anchored on the current roast batch "
         "(re-fetch when the coffee changes). Espresso only. Call it ONLY when the user asks about "
         "switching profiles or wants a setting for a profile other than the current shot's. Each "
         "profile comes back as a number or as finer/coarser only — never quote a number for a "
@@ -396,7 +396,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
-                {"shot_id", QJsonObject{{"type", "integer"}, {"description", "Shot whose grinder + burrs to calibrate. If omitted, uses the most recent shot."}}}
+                {"shot_id", QJsonObject{{"type", "integer"}, {"description", "Shot whose equipment package to calibrate. If omitted, uses the most recent shot."}}}
             }}
         },
         [shotHistory](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
@@ -460,7 +460,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         result["reason"] =
                             "Cross-profile grinder calibration is not available for this "
                             "grinder yet — no qualifying dialed-in espresso shots on this "
-                            "exact grinder + burrs. Advise qualitatively (finer / coarser) "
+                            "exact equipment package. Advise qualitatively (finer / coarser) "
                             "and have the user pull a reference shot on the target profile "
                             "rather than quoting a specific number.";
                     } else {

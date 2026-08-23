@@ -338,7 +338,7 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
         QStringLiteral("SELECT id FROM shots "
                        "WHERE profile_kb_id = ? AND enjoyment > 0 "
                        "AND id != ? AND timestamp >= ?")
-        + scope.andSql()
+        + QStringLiteral(" AND ") + scope.sql()
         + QStringLiteral(" ORDER BY enjoyment DESC, timestamp DESC LIMIT 1"));
     bestQ.addBindValue(profileKbId);
     bestQ.addBindValue(resolvedShotId);
@@ -1279,8 +1279,8 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     }
 
     if (rows.isEmpty()) {
-        qDebug() << "buildGrinderCalibrationBlock: no dialed-in shots for"
-                 << grinderModel;
+        qDebug() << "buildGrinderCalibrationBlock: no dialed-in shots in equipment package"
+                 << scope.bucket() << "(" << grinderModel << ")";
         return QJsonObject();
     }
 

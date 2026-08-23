@@ -31,11 +31,6 @@ public:
             .arg(column, QString::number(m_bucket));
     }
 
-    QString andSql(const QString& tableAlias = QString()) const
-    {
-        return QStringLiteral(" AND ") + sql(tableAlias);
-    }
-
 private:
     qint64 m_bucket = 0;
 };
