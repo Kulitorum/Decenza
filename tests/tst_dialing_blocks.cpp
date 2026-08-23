@@ -1726,10 +1726,12 @@ private slots:
     qint64 calSeed(QSqlDatabase& db, const QString& uuid, qint64 ts,
                    const QString& name, const QString& kbId,
                    const QString& setting, const QString& model = QStringLiteral("Niche Zero"),
-                   const QString& burrs = QStringLiteral("63mm conical"))
+                   const QString& burrs = QStringLiteral("63mm conical"),
+                   const QString& basket = QString())
     {
         // Non-empty bean so the shot is batch-knowable (#1236 empty-bean
         // guard); shared across calSeed calls so they form one roast batch.
+        // `basket` forks a second package off the same grinder.
         return insertShot(db, ShotRow{
             .uuid = uuid, .timestamp = ts,
             .profileName = name, .profileKbId = kbId,
@@ -1737,6 +1739,8 @@ private slots:
             .beanBrand = QStringLiteral("TestRoaster"),
             .beanType = QStringLiteral("TestBean"),
             .grinderModel = model, .grinderBurrs = burrs,
+            .basketBrand = basket.isEmpty() ? QString() : QStringLiteral("TestBasket"),
+            .basketModel = basket,
             .grinderSetting = setting, .enjoyment = 80 });
     }
 
@@ -1894,6 +1898,88 @@ private slots:
     // Same batch, three profiles on an exact line → gate passes →
     // approximate. Within-cap profile derived; far profile (TurboTurbo)
     // capped to directional with no number.
+    // Closes the gap the equipment-scope invariant documents: that test lists
+    // buildGrinderCalibrationBlock but its fixture is too thin to make the block
+    // publish a number, so it cannot observe a leak. This one is built on the
+    // same UGS line as calibrationBlock_approximatePublishesAndCaps, duplicated
+    // onto a second basket six steps coarser.
+    //
+    // Both baskets carry the SAME conversion key (setting = c + 2*UGS), so a
+    // pooled read still produces a plausible key and passes the IQR gate. Only
+    // the published SETTINGS separate the two, which is the point: pooling here
+    // does not look broken, it looks confident and is six steps wrong.
+    void calibrationBlock_settingsComeFromTheAnchorsOwnBasket()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_basket"), [&](QSqlDatabase& db) {
+            const QString kBasket = QStringLiteral("Stepped 58-46mm");
+            for (int i = 0; i < 2; ++i) {
+                calSeed(db, QStringLiteral("d-lo-%1").arg(i), 1000 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                        QStringLiteral("2"));
+                calSeed(db, QStringLiteral("d-dq-%1").arg(i), 1100 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                        QStringLiteral("4"));
+                calSeed(db, QStringLiteral("d-gs-%1").arg(i), 1200 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"),
+                        QStringLiteral("6"));
+
+                calSeed(db, QStringLiteral("g-lo-%1").arg(i), 1300 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                        QStringLiteral("8"), QStringLiteral("Niche Zero"),
+                        QStringLiteral("63mm conical"), kBasket);
+                calSeed(db, QStringLiteral("g-dq-%1").arg(i), 1400 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                        QStringLiteral("10"), QStringLiteral("Niche Zero"),
+                        QStringLiteral("63mm conical"), kBasket);
+            }
+            qint64 graphCur = 0;
+            for (int i = 0; i < 2; ++i)
+                graphCur = calSeed(db, QStringLiteral("g-gs-%1").arg(i), 1500 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"),
+                        QStringLiteral("12"), QStringLiteral("Niche Zero"),
+                        QStringLiteral("63mm conical"), kBasket);
+            QVERIFY(graphCur > 0);
+
+            const ShotProjection cur = projectionForShot(db, graphCur);
+            QVERIFY2(cur.equipmentId > 0, "anchor shot did not land in a package");
+
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), AdviceScope(cur.equipmentId),
+                QStringLiteral("espresso"), graphCur);
+            QVERIFY2(!r.isEmpty(), "calibration published nothing — fixture too thin to test scoping");
+
+            // Same line on both baskets, so the key survives pooling and cannot
+            // discriminate. The settings can.
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 2.0);
+
+            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
+            QVERIFY(!profiles.isEmpty());
+            int checked = 0;
+            for (const QJsonValue& v : profiles) {
+                const QJsonObject po = v.toObject();
+                if (!po.contains(QStringLiteral("rgs"))) continue;
+                // rgs is a FORMATTED string (GrinderAliases::formatGrinderSetting),
+                // not a number — toDouble() on the JSON value yields 0.
+                bool ok = false;
+                const double rgs = po.value(QStringLiteral("rgs")).toString().toDouble(&ok);
+                if (!ok) continue;
+                ++checked;
+                QVERIFY2(rgs >= 7.0,
+                         qPrintable(QStringLiteral(
+                             "profile %1 published rgs %2 for a shot on the coarse "
+                             "basket; that basket dials 8/10/12 and the other 2/4/6, "
+                             "so anything under 7 came from the other package")
+                             .arg(po.value(QStringLiteral("profileName")).toString())
+                             .arg(rgs)));
+            }
+            QVERIFY2(checked > 0,
+                     "no profile published a numeric rgs — the assertion above "
+                     "never ran, so this test would pass without testing anything");
+        });
+    }
+
     void calibrationBlock_approximatePublishesAndCaps()
     {
         const QString path = freshDbPath();
