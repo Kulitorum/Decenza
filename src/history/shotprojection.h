@@ -252,6 +252,11 @@ public:
     // is the cheapest reliable way to detect that.
     bool isValid() const { return id != 0; }
 
+    // Human-readable equipment package, e.g. "Niche Zero / Decent 18g Ridged".
+    // Empty when the shot has no package. The advisor scopes and keys on
+    // equipmentId; this is what a person reads for the same thing.
+    Q_INVOKABLE QString equipmentLabel() const;
+
     // "Is this shot linked to a coffee bag?" — the ShotProjection-typed form of
     // the shared bagIdIsSet() predicate. Q_INVOKABLE so QML can ask the same.
     Q_INVOKABLE bool hasBag() const { return bagIdIsSet(bagId); }

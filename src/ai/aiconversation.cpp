@@ -198,21 +198,9 @@ void AIConversation::setStorageKey(const QString& key)
     m_storageKey = key;
 }
 
-void AIConversation::setContextLabel(const QString& brand, const QString& type, const QString& profile)
+void AIConversation::setContextLabel(const QString& label)
 {
-    QStringList parts;
-    QString bean;
-    if (!brand.isEmpty() && !type.isEmpty())
-        bean = brand + " " + type;
-    else if (!brand.isEmpty())
-        bean = brand;
-    else if (!type.isEmpty())
-        bean = type;
-
-    if (!bean.isEmpty()) parts << bean;
-    if (!profile.isEmpty()) parts << profile;
-
-    m_contextLabel = parts.join(" / ");
+    m_contextLabel = label;
     emit contextLabelChanged();
 }
 

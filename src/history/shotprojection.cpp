@@ -3,6 +3,26 @@
 #include <QMetaType>
 #include <QDebug>
 
+namespace {
+QString joinNonEmpty(const QStringList& parts, const QString& sep)
+{
+    QStringList kept;
+    for (const QString& p : parts) {
+        const QString trimmed = p.trimmed();
+        if (!trimmed.isEmpty())
+            kept << trimmed;
+    }
+    return kept.join(sep);
+}
+}
+
+QString ShotProjection::equipmentLabel() const
+{
+    const QString grinder = joinNonEmpty({grinderBrand, grinderModel}, QStringLiteral(" "));
+    const QString basket = joinNonEmpty({basketBrand, basketModel}, QStringLiteral(" "));
+    return joinNonEmpty({grinder, basket}, QStringLiteral(" / "));
+}
+
 QVariantMap ShotProjection::toVariantMap() const
 {
     if (!isValid()) return {};

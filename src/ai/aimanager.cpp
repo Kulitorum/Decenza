@@ -1018,9 +1018,10 @@ static QString renderRecentAdviceEntry(const QJsonObject& entry)
     return out;
 }
 
-void AIManager::requestRecentShotContext(const QString& beanBrand, const QString& beanType, const QString& profileName, int excludeShotId)
+void AIManager::requestRecentShotContext(const QVariant& shotData, int excludeShotId)
 {
-    if (!m_shotHistory || (beanBrand.isEmpty() && profileName.isEmpty())) {
+    const ShotProjection shot = coerceShot(shotData);
+    if (!m_shotHistory || (shot.beanBrand.isEmpty() && shot.profileName.isEmpty())) {
         emit recentShotContextReady(QString());
         return;
     }
@@ -1034,8 +1035,8 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
     // event loop. The background thread captures `self` by value but MUST NOT dereference
     // it. All dereferences occur inside the QueuedConnection callback, which runs on the
     // main thread where QPointer's tracking is valid.
-    QThread* thread = QThread::create([self, dbPath, beanBrand, beanType, profileName, excludeShotId, serial]() {
-        auto qualifiedShots = loadQualifiedShots(dbPath, beanBrand, beanType, profileName, excludeShotId);
+    QThread* thread = QThread::create([self, dbPath, shot, excludeShotId, serial]() {
+        auto qualifiedShots = loadQualifiedShots(dbPath, shot.beanBrand, shot.beanType, shot.profileName, excludeShotId);
 
         GrinderContext grinderCtx;
         QString grinderBrand;
@@ -1080,12 +1081,7 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             // advisor's historicalContext carries the same tracking data
             // the MCP path already does.
             if (!profileKbId.isEmpty()) {
-                ShotProjection keyShot;
-                keyShot.beanBrand = beanBrand;
-                keyShot.beanType = beanType;
-                keyShot.profileName = profileName;
-                keyShot.equipmentId = shotBucket;
-                const QString convKey = AIManager::conversationKey(keyShot);
+                const QString convKey = AIManager::conversationKey(shot);
                 const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
                 if (!turns.isEmpty()) {
                     DialingBlocks::RecentAdviceInputs in;
@@ -1780,6 +1776,19 @@ void AIManager::onSettingsChanged()
 // Conversation Routing
 // ============================================================================
 
+QString AIManager::ConversationEntry::label() const
+{
+    QStringList bean;
+    if (!beanBrand.isEmpty()) bean << beanBrand;
+    if (!beanType.isEmpty()) bean << beanType;
+
+    QStringList parts;
+    if (!bean.isEmpty()) parts << bean.join(QStringLiteral(" "));
+    if (!profileName.isEmpty()) parts << profileName;
+    if (!equipmentLabel.isEmpty()) parts << equipmentLabel;
+    return parts.join(QStringLiteral(" / "));
+}
+
 QJsonObject AIManager::ConversationEntry::toJson() const
 {
     QJsonObject obj;
@@ -1787,6 +1796,8 @@ QJsonObject AIManager::ConversationEntry::toJson() const
     obj["beanBrand"] = beanBrand;
     obj["beanType"] = beanType;
     obj["profileName"] = profileName;
+    obj["equipmentLabel"] = equipmentLabel;
+    obj["equipmentId"] = equipmentId;
     obj["timestamp"] = timestamp;
     return obj;
 }
@@ -1798,8 +1809,19 @@ AIManager::ConversationEntry AIManager::ConversationEntry::fromJson(const QJsonO
     entry.beanBrand = obj["beanBrand"].toString();
     entry.beanType = obj["beanType"].toString();
     entry.profileName = obj["profileName"].toString();
+    entry.equipmentLabel = obj["equipmentLabel"].toString();
+    entry.equipmentId = obj["equipmentId"].toVariant().toLongLong();
     entry.timestamp = obj["timestamp"].toVariant().toLongLong();
     return entry;
+}
+
+AIManager::ConversationEntry AIManager::conversationEntry(const QString& key) const
+{
+    for (const auto& entry : m_conversationIndex) {
+        if (entry.key == key)
+            return entry;
+    }
+    return {};
 }
 
 QString AIManager::conversationKey(const ShotProjection& shot)
@@ -1992,31 +2014,29 @@ QString AIManager::switchConversation(const QVariant& shotData)
     // cause of the persistence gap found in manual verification of
     // fix-multishot-advice-tracking (loadFromStorage is a safe no-op when
     // the key genuinely has nothing on disk).
+    ConversationEntry entry;
+    entry.key = key;
+    entry.beanBrand = shot.beanBrand;
+    entry.beanType = shot.beanType;
+    entry.profileName = shot.profileName;
+    entry.equipmentLabel = shot.equipmentLabel();
+    entry.equipmentId = shot.equipmentId;
+    entry.timestamp = QDateTime::currentSecsSinceEpoch();
+
     m_conversation->setStorageKey(key);
-    m_conversation->setContextLabel(shot.beanBrand, shot.beanType, shot.profileName);
+    m_conversation->setContextLabel(entry.label());
     m_conversation->loadFromStorage();
 
     if (exists) {
         touchConversationEntry(key);
     } else {
-        // Evict oldest if at capacity
         evictOldestConversation();
-
-        // Add new entry to front of index
-        ConversationEntry newEntry;
-        newEntry.key = key;
-        newEntry.beanBrand = shot.beanBrand;
-        newEntry.beanType = shot.beanType;
-        newEntry.profileName = shot.profileName;
-        newEntry.timestamp = QDateTime::currentSecsSinceEpoch();
-        m_conversationIndex.prepend(newEntry);
+        m_conversationIndex.prepend(entry);
         saveConversationIndex();
     }
 
     emit m_conversation->savedConversationChanged();
-    qDebug() << "AIManager: Switched to conversation key:" << key
-             << "(" << shot.beanBrand << shot.beanType << "/" << shot.profileName
-             << "package" << shot.equipmentId << ")";
+    qDebug() << "AIManager: Switched to conversation key:" << key << "(" << entry.label() << ")";
     return key;
 }
 
@@ -2024,16 +2044,16 @@ void AIManager::loadMostRecentConversation()
 {
     if (m_conversationIndex.isEmpty()) {
         m_conversation->setStorageKey(QString());
-        m_conversation->setContextLabel(QString(), QString(), QString());
+        m_conversation->setContextLabel(QString());
         return;
     }
 
     const auto& entry = m_conversationIndex.first();
     m_conversation->setStorageKey(entry.key);
-    m_conversation->setContextLabel(entry.beanBrand, entry.beanType, entry.profileName);
+    m_conversation->setContextLabel(entry.label());
     m_conversation->loadFromStorage();
     qDebug() << "AIManager: Loaded most recent conversation:" << entry.key
-             << "(" << entry.beanBrand << entry.beanType << "/" << entry.profileName << ")";
+             << "(" << entry.label() << ")";
 }
 
 void AIManager::clearCurrentConversation()

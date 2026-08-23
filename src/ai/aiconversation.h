@@ -71,7 +71,8 @@ public:
 
     QString storageKey() const { return m_storageKey; }
     void setStorageKey(const QString& key);
-    void setContextLabel(const QString& brand, const QString& type, const QString& profile);
+    // Built by AIManager::ConversationEntry::label() — the single producer.
+    void setContextLabel(const QString& label);
 
     /**
      * Start a new conversation with system prompt and initial user message

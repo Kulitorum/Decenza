@@ -31,13 +31,10 @@ Rectangle {
     property bool contextLoading: false
     property string shotDebugLog: ""
     // Saved context for re-fetching shot history after conversation clear
-    property string savedBeanBrand: ""
     // The shot this conversation is about. switchConversation derives the key
     // from it, so a basket change opens a separate thread rather than continuing
     // this one.
     property var savedShot: ({})
-    property string savedBeanType: ""
-    property string savedProfileName: ""
 
     // Tap-only taste intake (add-ai-taste-intake): shown as a first-open gate over
     // the conversation when Settings.ai.tasteIntakeOnAsk is on, this shot hasn't
@@ -162,14 +159,10 @@ Rectangle {
 
         // Fetch recent shot history as context on a background thread.
         // Result arrives via recentShotContextReady signal → Connections handler below.
-        overlay.savedBeanBrand = beanBrand || ""
         overlay.savedShot = shotData
-        overlay.savedBeanType = beanType || ""
-        overlay.savedProfileName = profileName || ""
         overlay.historicalContext = ""
         overlay.contextLoading = true
-        MainController.aiManager.requestRecentShotContext(
-            overlay.savedBeanBrand, overlay.savedBeanType, overlay.savedProfileName, shotId)
+        MainController.aiManager.requestRecentShotContext(overlay.savedShot, shotId)
 
         // Format shot timestamp as human-readable label for AI display
         var shotTs = shotData.timestamp || 0
@@ -361,7 +354,7 @@ Rectangle {
                                         overlay.historicalContext = ""
                                         overlay.contextLoading = true
                                         MainController.aiManager.requestRecentShotContext(
-                                            overlay.savedBeanBrand, overlay.savedBeanType, overlay.savedProfileName, overlay.shotId)
+                                            overlay.savedShot, overlay.shotId)
                                     }
                                 }
                             }
@@ -720,7 +713,7 @@ Rectangle {
                                 // so the web UI shows this conversation (e.g. after a clear).
                                 MainController.aiManager.switchConversation(overlay.savedShot)
                                 var bevType = (overlay.beverageType || "espresso").toLowerCase()
-                                var systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedProfileName)
+                                var systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedShot.profileName || "")
                                 conversation.ask(systemPrompt, message)
                                 sent = true
                             } else {

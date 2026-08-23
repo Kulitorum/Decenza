@@ -59,7 +59,16 @@ public:
         QString beanBrand;
         QString beanType;
         QString profileName;
-        qint64 timestamp;
+        // Snapshot of the package the key was derived from, not a live
+        // reference: two threads for one bean differ only by equipment, so
+        // without this they are indistinguishable in every list that shows them.
+        QString equipmentLabel;
+        qint64 equipmentId = 0;
+        qint64 timestamp = 0;
+
+        // The one display join. Every surface that names a conversation calls
+        // this rather than reassembling the fields with its own separator.
+        QString label() const;
 
         QJsonObject toJson() const;
         static ConversationEntry fromJson(const QJsonObject& obj);
@@ -95,6 +104,10 @@ public:
     AIConversation* conversation() const { return m_conversation; }
     bool hasAnyConversation() const { return !m_conversationIndex.isEmpty(); }
     QList<ConversationEntry> conversationIndex() const { return m_conversationIndex; }
+
+    // Index lookup by storage key. Returns a default entry when the key has no
+    // index record — legacy or MCP-written conversations are valid without one.
+    ConversationEntry conversationEntry(const QString& key) const;
 
     // Conversation routing
     // Takes the shot, not its fields: the key is derived in exactly one place so
@@ -186,7 +199,7 @@ public:
     // time). Wired from MainController::setAiManager. Optional — falls
     // back to omitting the SAW block when null.
     void setProfileManager(ProfileManager* profileManager) { m_profileManager = profileManager; }
-    Q_INVOKABLE void requestRecentShotContext(const QString& beanBrand, const QString& beanType, const QString& profileName, int excludeShotId);
+    Q_INVOKABLE void requestRecentShotContext(const QVariant& shotData, int excludeShotId);
 
     // Provider testing
     Q_INVOKABLE void testConnection();

@@ -55,11 +55,8 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
                         msgCount = static_cast<int>(doc.array().size());
                 }
 
-                QStringList labelParts;
-                if (!entry.beanBrand.isEmpty()) labelParts << entry.beanBrand;
-                if (!entry.beanType.isEmpty()) labelParts << entry.beanType;
-                QString label = labelParts.isEmpty() ? QStringLiteral("Unknown beans") : labelParts.join(" ");
-                if (!entry.profileName.isEmpty()) label += " / " + entry.profileName;
+                const QString label = entry.label().isEmpty()
+                    ? QStringLiteral("Unknown beans") : entry.label();
 
                 QString lastUpdated;
                 if (entry.timestamp > 0) {
@@ -73,6 +70,7 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
                     {"beanBrand", entry.beanBrand},
                     {"beanType", entry.beanType},
                     {"profileName", entry.profileName},
+                    {"equipment", entry.equipmentLabel},
                     {"messageCount", msgCount},
                     {"lastUpdated", lastUpdated}
                 };
@@ -99,21 +97,12 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
             if (parseError.error != QJsonParseError::NoError || !msgDoc.isArray())
                 return QJsonObject{{"error", "Corrupted conversation data for key " + key}};
 
-            // Bean/profile identity only lives in the index — a key with no
-            // matching index entry (evicted, or a legacy conversation predating
-            // the index) leaves these blank, which is an honest "unknown"
-            // rather than an error: the transcript itself is still valid.
-            QString beanBrand, beanType, profileName;
-            qint64 indexTimestampSecs = 0;
-            for (const auto& entry : aiManager->conversationIndex()) {
-                if (entry.key == key) {
-                    beanBrand = entry.beanBrand;
-                    beanType = entry.beanType;
-                    profileName = entry.profileName;
-                    indexTimestampSecs = entry.timestamp;
-                    break;
-                }
-            }
+            // Identity only lives in the index — a key with no matching entry
+            // (evicted, or a legacy conversation predating the index) leaves
+            // these blank, which is an honest "unknown" rather than an error:
+            // the transcript itself is still valid.
+            const auto entry = aiManager->conversationEntry(key);
+            const qint64 indexTimestampSecs = entry.timestamp;
 
             // Prefer the per-conversation stored timestamp (always written
             // alongside `messages` by saveToStorage/appendAssistantTurnForKey,
@@ -133,9 +122,10 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
             return QJsonObject{
                 {"key", key},
                 {"metadata", QJsonObject{
-                    {"beanBrand", beanBrand},
-                    {"beanType", beanType},
-                    {"profileName", profileName},
+                    {"beanBrand", entry.beanBrand},
+                    {"beanType", entry.beanType},
+                    {"profileName", entry.profileName},
+                    {"equipment", entry.equipmentLabel},
                     {"lastUpdated", lastUpdated}
                 }},
                 {"systemPrompt", settings.value(prefix + "systemPrompt").toString()},
