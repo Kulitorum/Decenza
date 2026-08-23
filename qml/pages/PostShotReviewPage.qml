@@ -747,8 +747,8 @@ T.Page {
     // reads after a save. Object.assign is TOTAL over a Q_GADGET:
     // QQmlValueTypeWrapper enumerates every Q_PROPERTY as an own enumerable data
     // property (qqmlvaluetypewrapper.cpp:442-467; Attr_Data is 0 in
-    // qv4global_p.h:181). Q_INVOKABLEs are deliberately not enumerated, which is
-    // what ShotProjection::coerce() exists for.
+    // qv4global_p.h:181). Q_INVOKABLEs are not enumerated, so the clone is
+    // data-only — which is SEPARATE from why coerce() exists (shotprojection.h:280).
     //
     // This replaced a 70-field whitelist justified by the claim that Object.assign
     // strips a gadget's Q_PROPERTYs. That claim is false, and the whitelist was
@@ -756,6 +756,13 @@ T.Page {
     // tst_shotprojection's two objectAssign slots hold the line, one of them on a
     // gadget delivered as a signal argument, which is this page's provenance.
     function clonePersistedShot(src) {
+        // Object.assign IGNORES a null source and returns {} — no throw. Callers
+        // then write a few fields onto that and assign it back, silently
+        // emptying editShotData. Make it loud instead.
+        if (!src) {
+            console.warn("PostShotReviewPage: clonePersistedShot called with no source shot")
+            return {}
+        }
         return Object.assign({}, src)
     }
 
@@ -841,8 +848,8 @@ T.Page {
         // We deliberately do NOT reload from the DB on save success — an async
         // reload would overwrite an edit the user has already started in
         // another field (autosave fires on every commit point).
-        // clonePersistedShot (instead of Object.assign) preserves every
-        // non-edited Q_GADGET field — see the helper's docstring for why.
+        // Clone first so the edits below land on a copy, leaving editShotData
+        // untouched until the whole set is ready.
         var nb = clonePersistedShot(editShotData)
         nb.beanBrand = editBeanBrand
         nb.beanType = editBeanType
@@ -952,10 +959,8 @@ T.Page {
             postShotReviewPage.uploadError = ""
             postShotReviewPage.uploadSkipReason = ""
             if (url) {
-                // clonePersistedShot (not Object.assign) so a first-time upload
-                // on an unedited shot — where editShotData is still the raw
-                // Q_GADGET wrapper from onShotReady — doesn't strip durationSec,
-                // the frame arrays, dateTime, etc. See the helper's docstring.
+                // Clone so visualizerId can be set without mutating the gadget
+                // wrapper editShotData still holds on a first-time upload.
                 var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
                 nb.visualizerId = visualizerId
                 nb.visualizerUrl = url
@@ -1014,9 +1019,11 @@ T.Page {
         anchors.bottomMargin: Theme.bottomBarHeight
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
-        // implicitHeight, not height: the graph is user-resizable, and the layout's
-        // own geometry lags a child that grows, leaving the last cards unreachable.
-        // The pad clears the bottom bar. Same form as BeanInfoPage/EquipmentPage.
+        // The pad is what keeps the last card clear of the bottom bar.
+        // implicitHeight matches the form every other page here uses; it is NOT a
+        // fix for a lag between height and implicitHeight — there is none:
+        // setImplicitHeight assigns height directly while no explicit height is
+        // set (qtdeclarative/src/quick/items/qquickitem.cpp:7848-7860).
         contentHeight: mainColumn.implicitHeight + Theme.scaled(20)
         clip: true
         boundsBehavior: Flickable.StopAtBounds

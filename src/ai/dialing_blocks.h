@@ -405,8 +405,10 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
 //   - the shot is not espresso, OR
 //   - the shot lacks usable flow samples in the last 2 seconds, OR
 //   - either `settings` or `profileManager` is null, OR
-//   - no scale is configured (`Settings::scaleType()` empty), OR
-//   - no profile is configured (`ProfileManager::baseProfileName()` empty).
+//   - no scale resolves (`SettingsCalibration::currentScaleType()` empty —
+//     deliberately NOT `Settings::scaleType()`, see the body), OR
+//   - neither the shot's profile title nor the loaded profile resolves to a
+//     filename.
 //
 // Gates fire in that order — pure-shot gates first, pointer guards next,
 // then the Settings/ProfileManager-dependent gates. That ordering is

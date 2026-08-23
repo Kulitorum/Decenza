@@ -656,6 +656,9 @@ private slots:
             o["beanType"] = e.first;
             o["profileName"] = QStringLiteral("P");
             o["timestamp"] = e.second;
+            // A real package id, so the round trip exercises toJson's sparse
+            // `if (equipmentId > 0)` branch rather than only bucket 0.
+            o["equipmentId"] = shotId + 20;
             index.append(o);
         }
         settings.setValue(QStringLiteral("ai/conversations/index"),
@@ -738,11 +741,24 @@ private slots:
                                     .arg(byRecency[i].first, leftover.join(QStringLiteral(", ")))));
         }
 
-        // And it persisted: a relaunch reads back the converged index.
+        // And it persisted. Compare timestamps element-wise, not just the size:
+        // this is the only slot that drives a real save -> relaunch -> load, so
+        // it is the only cover on ConversationEntry::toJson. A dropped timestamp
+        // there is SILENT — fromJson clamps 0 to now, so every entry re-dates to
+        // the same second, LRU order collapses to insertion order, and eviction
+        // then destroys the wrong transcript. Key order alone would not catch it:
+        // with all timestamps equal, stable_sort preserves the array order.
         QNetworkAccessManager nam2;
         Settings appSettings2;
         AIManager relaunched(&nam2, &appSettings2);
-        QCOMPARE(relaunched.m_conversationIndex.size(), int(AIManager::MAX_CONVERSATIONS));
+        QCOMPARE(relaunched.m_conversationIndex.size(), mgr.m_conversationIndex.size());
+        for (int i = 0; i < relaunched.m_conversationIndex.size(); ++i) {
+            QCOMPARE(relaunched.m_conversationIndex[i].key, mgr.m_conversationIndex[i].key);
+            QCOMPARE(relaunched.m_conversationIndex[i].timestamp,
+                     mgr.m_conversationIndex[i].timestamp);
+            QCOMPARE(relaunched.m_conversationIndex[i].equipmentId,
+                     mgr.m_conversationIndex[i].equipmentId);
+        }
 
         settings.clear();
     }
@@ -1023,29 +1039,44 @@ private slots:
 
         const QString label = QStringLiteral("Niche Zero in a Graph Coffee Stepped 58-46mm basket");
         const QStringList noInvention{ QStringLiteral("Do not refer to shots you cannot see") };
-
+        // Field order: bucket, label, bucketKnown, historyReadable, userHasPackages.
         QTest::newRow("named package states the absence and the gear")
-            << EquipmentScope{ 7, label, true, true }
+            << EquipmentScope{ 7, label, true, true, true }
             << (QStringList{ QStringLiteral("No prior shots with this equipment set"),
                              QStringLiteral("Graph Coffee Stepped 58-46mm") } + noInvention)
             << QStringList{};
 
         QTest::newRow("package with no component rows stays generic")
-            << EquipmentScope{ 7, QString(), true, true }
+            << EquipmentScope{ 7, QString(), true, true, true }
             << QStringList{ QStringLiteral("this shot's equipment package") }
             << QStringList{ QStringLiteral("set ()") };
 
-        QTest::newRow("no package at all is silent")
-            << EquipmentScope{ 0, QString(), true, true }
+        // Bucket 0 splits on a fact about the USER, not the shot. With no packages
+        // the filter was a true no-op and there is nothing to say.
+        QTest::newRow("no package and the user owns none is silent")
+            << EquipmentScope{ 0, QString(), true, true, false }
             << QStringList{} << QStringList{};
 
-        QTest::newRow("unreadable equipment says so rather than going silent")
-            << EquipmentScope{ 0, QString(), false, true }
-            << (QStringList{ QStringLiteral("equipment could not be read") } + noInvention)
+        // ...but with packages, bucket 0 just excluded every packaged shot they
+        // own. Staying silent there is the "user has no history" reading this
+        // block exists to prevent.
+        QTest::newRow("no package but the user owns some states the exclusion")
+            << EquipmentScope{ 0, QString(), true, true, true }
+            << QStringList{ QStringLiteral("no equipment package recorded"),
+                            QStringLiteral("DOES have equipment packages") }
             << QStringList{};
 
+        // bucketKnown false with a readable history is reachable only when the
+        // shot ROW was not found — a query error clears historyReadable instead.
+        // Nothing was scoped, so the text must not claim shots were excluded.
+        QTest::newRow("shot not found says so and claims no exclusion")
+            << EquipmentScope{ 0, QString(), false, true, false }
+            << QStringList{ QStringLiteral("could not be found") }
+            << QStringList{ QStringLiteral("may have been excluded"),
+                            QStringLiteral("No prior shots") };
+
         QTest::newRow("unreadable history does not claim there are no shots")
-            << EquipmentScope{ 7, label, true, false }
+            << EquipmentScope{ 7, label, true, false, true }
             << (QStringList{ QStringLiteral("could not be read"),
                              QStringLiteral("Do NOT conclude") } + noInvention)
             << QStringList{ QStringLiteral("No prior shots") };
@@ -4342,6 +4373,15 @@ private slots:
                 QCOMPARE(mgr.switchConversation(bean, type, profile, expectIndexPackage),
                          expectStoredKey);
                 QVERIFY(mgr.conversation()->hasHistory());
+            } else {
+                // An unkeyed thread cannot be reached by switching, so assert the
+                // transcript directly. childGroups() alone would not: the writer
+                // always emits systemPrompt/timestamp/contextLabel, so a
+                // regression that stopped writing `messages` — or wrote "[]" —
+                // would still report a group and pass.
+                QVERIFY2(!settings.value(QStringLiteral("ai/conversations/") + expectStoredKey
+                                         + QStringLiteral("/messages")).toByteArray().isEmpty(),
+                         "an unkeyed entry must still have its transcript on disk");
             }
         } else {
             mgr.loadConversationIndex();

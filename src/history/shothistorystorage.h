@@ -153,6 +153,8 @@ public:
     // it. Bucket 0 holds them all, making the filter a no-op for a user with no
     // packages.
     //
+    // `column` lets a caller qualify the table alias (e.g. "s.equipment_id");
+    // getting it wrong in a joined statement is an ambiguous-column error.
     // `placeholder` defaults to a positional bind. A statement that already uses
     // NAMED holders must pass a named one (e.g. ":equip"): Qt sizes the value
     // array to the named holder count (qtbase/src/sql/kernel/qsqlresult.cpp:145)
@@ -265,7 +267,9 @@ public:
     // `stepSize`/`rpmStepSize` stay grinder-model-wide even so — they are the
     // grinder's mechanical resolution, unchanged by a basket swap, and must keep
     // matching the grind widget. `deriveWideSteps` false skips the two scans that
-    // produce them, for a caller querying the same grinder twice.
+    // produce them, for a caller querying the same grinder twice — but they then
+    // come back 0, and the caller MUST copy them from the context whose scan it
+    // is reusing. Emission is gated on > 0, so forgetting drops both silently.
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel,
                                               const QString& beverageType,
                                               const QString& beanBrand,

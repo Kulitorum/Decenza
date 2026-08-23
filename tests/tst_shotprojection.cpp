@@ -337,9 +337,10 @@ void TstShotProjection::everyQPropertySurvivesARoundTrip()
 QTEST_GUILESS_MAIN(TstShotProjection)
 
 
-// PostShotReviewPage clones the loaded shot with a hand-written whitelist, on the
-// stated grounds that Object.assign drops a gadget's Q_PROPERTYs. This is the
-// experiment for that claim: it is the exact expression the page used to run.
+// PostShotReviewPage USED to clone the loaded shot with a hand-written whitelist,
+// on the stated grounds that Object.assign drops a gadget's Q_PROPERTYs. It does
+// not. These two slots run the page's exact expression and pin that, so the
+// whitelist cannot come back on the old reasoning.
 void TstShotProjection::objectAssignOverTheGadget_copiesEveryQProperty()
 {
     QQmlEngine engine;
@@ -386,8 +387,11 @@ void TstShotProjection::objectAssignOverASignalArgument_copiesEveryQProperty()
         "});"));
     QVERIFY2(!setup.isError(), qPrintable(setup.toString()));
 
-    // The argument is a temporary: it is gone by the time these run, so a clone
-    // holding references into its storage rather than values would show up here.
+    // The argument is a temporary, gone by the time these run. Note what does and
+    // does not catch a clone holding references into its storage: reading freed
+    // stack memory is UB that usually returns the same bytes, so these assertions
+    // alone would likely still pass — it is ASan's use-after-scope, on by default
+    // in Debug here, that would fail the run.
     emitter.fire(makeSampleShot());
     engine.collectGarbage();
 

@@ -307,27 +307,36 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // `result.profile` is the *only* canonical surface for profile
                     // metadata.
                     //
-                    // Every field here describes the SHOT'S profile, including the
-                    // identity and the targets. It used to name the profile loaded on
-                    // the machine while carrying the shot's intent and recipe, on the
-                    // reasoning that targets are "what the user can act on now" — but a
-                    // reader cannot tell which half is which, so after a profile switch
-                    // the block attributed one profile's intent to another's name. The
-                    // machine's current profile is available from machine_get_state;
-                    // this block is shot-scoped like every other block beside it.
+                    // Identity, intent and recipe are the SHOT'S. Targets prefer the
+                    // shot's own recorded values; recommendedDoseG is not recorded per
+                    // shot at all, so it is gated on the shot being the loaded profile.
+                    // It used to name the profile loaded on the machine while carrying
+                    // the shot's intent and recipe, so after a profile switch the block
+                    // attributed one profile's intent to another's name.
                     if (profileManager) {
                         QJsonObject profileInfo;
-                        // The shot records a title; the catalog maps it to a filename.
-                        // Both fall back to the loaded profile only when the shot names
-                        // none, which is what a shot from before titles were recorded
-                        // looks like.
+                        // Discriminate on the TITLE, not on the resolved filename: an
+                        // empty filename means EITHER the shot names no profile OR the
+                        // lookup missed (imported archive, deleted profile), and
+                        // conflating them is what puts one profile's filename under
+                        // another's title.
                         const QString shotTitle = sd.profileName;
                         const QString shotFilename = shotTitle.isEmpty()
                             ? QString() : profileManager->findProfileByTitle(shotTitle);
-                        profileInfo["filename"] = shotFilename.isEmpty()
-                            ? profileManager->currentProfileName() : shotFilename;
-                        profileInfo["title"] = shotTitle.isEmpty()
-                            ? profileManager->currentProfile().title() : shotTitle;
+                        const bool shotNamesProfile = !shotTitle.isEmpty();
+                        const bool shotProfileInstalled = !shotFilename.isEmpty();
+
+                        profileInfo["title"] = shotNamesProfile
+                            ? shotTitle : profileManager->currentProfile().title();
+                        if (shotProfileInstalled)
+                            profileInfo["filename"] = shotFilename;
+                        else if (!shotNamesProfile)
+                            profileInfo["filename"] = profileManager->baseProfileName();
+                        else
+                            // Named, but not on this device. Naming the loaded file here
+                            // would put its filename under this shot's title.
+                            profileInfo["filenameUnresolved"] = true;
+
                         if (!sd.profileNotes.isEmpty())
                             profileInfo["intent"] = sd.profileNotes;
                         if (!sd.profileJson.isEmpty()) {
@@ -339,17 +348,29 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             if (!recipe.isEmpty())
                                 profileInfo["recipe"] = recipe;
                         }
-                        profileInfo["targetWeightG"] = sd.targetWeightG > 0
-                            ? sd.targetWeightG : profileManager->profileTargetWeight();
-                        profileInfo["targetTemperatureC"] = sd.temperatureOverrideC > 0
-                            ? sd.temperatureOverrideC
-                            : profileManager->profileTargetTemperature();
-                        // Not recorded per shot, so it is only reportable when the shot
-                        // was pulled on the profile still loaded — otherwise it is
-                        // another profile's dose wearing this one's name.
+
+                        // temperature_override is 0 whenever the user did not override,
+                        // which is most shots — so falling back would hand the loaded
+                        // profile's target to a shot that never had one. Only fall back
+                        // when the shot names no profile at all, where the loaded one IS
+                        // the subject.
+                        if (sd.targetWeightG > 0)
+                            profileInfo["targetWeightG"] = sd.targetWeightG;
+                        else if (!shotNamesProfile)
+                            profileInfo["targetWeightG"] = profileManager->profileTargetWeight();
+                        if (sd.temperatureOverrideC > 0)
+                            profileInfo["targetTemperatureC"] = sd.temperatureOverrideC;
+                        else if (!shotNamesProfile)
+                            profileInfo["targetTemperatureC"] = profileManager->profileTargetTemperature();
+
+                        // baseProfileName(), NOT currentProfileName(): the latter is a
+                        // DISPLAY string that gains a "*" once the profile is edited
+                        // (profilemanager.h), so comparing a filename against it fails
+                        // the moment the user nudges a dose.
                         const bool shotIsLoadedProfile =
-                            shotFilename.isEmpty()
-                            || shotFilename == profileManager->currentProfileName();
+                            (!shotNamesProfile)
+                            || (shotProfileInstalled
+                                && shotFilename == profileManager->baseProfileName());
                         if (shotIsLoadedProfile && profileManager->profileHasRecommendedDose())
                             profileInfo["recommendedDoseG"] = profileManager->profileRecommendedDose();
                         result["profile"] = profileInfo;

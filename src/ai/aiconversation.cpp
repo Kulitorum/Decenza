@@ -564,14 +564,20 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
         // (saveToStorage has no empty-history guard), and corrupt bytes must not
         // block either — a user restoring BECAUSE their copy is damaged is the
         // case that matters most.
-        if (onDisk == TranscriptState::Corrupt) {
-            qWarning() << "AIConversation::importConversationsStatic: unreadable thread on disk for key"
-                       << storageKey << "— restoring the archived copy over it";
-        }
-        if (existingKeys.contains(storageKey) || onDisk == TranscriptState::Ok) {
+        // A corrupt blob must not be blocked by its own index entry either: the
+        // user restoring BECAUSE their copy is damaged is the case that matters
+        // most, and an index entry naming a damaged thread is exactly what that
+        // user has. Logged AFTER the skip test, so the line only ever describes
+        // a restore that actually happens.
+        const bool blockedByIndex =
+            existingKeys.contains(storageKey) && onDisk != TranscriptState::Corrupt;
+        if (blockedByIndex || onDisk == TranscriptState::Ok) {
             skippedExisting++;
             continue;
         }
+        if (onDisk == TranscriptState::Corrupt)
+            qWarning() << "AIConversation::importConversationsStatic: unreadable thread on disk for key"
+                       << storageKey << "— restoring the archived copy over it";
 
         // Counted only once the entry is actually being written. Incrementing
         // before the skip above would report threads that were never restored.

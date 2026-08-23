@@ -271,10 +271,13 @@ public:
      * just-written turn.
      *
      * `systemPrompt` is the prompt a later IN-APP turn should run under, stored
-     * only when the key has none yet. Not defaulted: a stored thread with no
-     * prompt loads with history but `followUp()` refuses it, so the user's only
-     * way forward is Clear, which deletes these turns. Pass empty only for an
-     * MCP one-off override that must not become the thread's durable prompt.
+     * only when the key has none yet. Not defaulted, and never pass empty: a
+     * stored thread with no prompt loads with history but `followUp()` refuses
+     * it, so the user's only way forward is Clear, which deletes these turns.
+     * An MCP caller with a one-off `systemPromptOverride` must pass the
+     * multi-shot prompt here instead — see `promptToPersist` in mcptools_ai.cpp
+     * — so the override governs its own call without becoming durable. Empty is
+     * logged as a warning and strands the thread.
      */
     static void appendAssistantTurnForKey(
         const QString& storageKey,

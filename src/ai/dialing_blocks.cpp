@@ -570,10 +570,15 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
     // one this device no longer has (an imported archive, a deleted profile).
     const QString shotProfile = currentShot.profileName.isEmpty()
         ? QString() : profileManager->findProfileByTitle(currentShot.profileName);
+    if (!currentShot.profileName.isEmpty() && shotProfile.isEmpty())
+        qWarning() << "buildSawPredictionBlock: shot names profile" << currentShot.profileName
+                   << "which is not installed — SAW keyed on the loaded profile instead";
     const QString profileFilename = shotProfile.isEmpty() ? profileManager->baseProfileName()
                                                           : shotProfile;
     if (scaleType.isEmpty() || profileFilename.isEmpty()) return QJsonObject();
 
+    const bool basketIsShots =
+        !(currentShot.basketBrand.isEmpty() && currentShot.basketModel.isEmpty());
     const QString basketKey =
         sawBasketKeyFor(currentShot, settings->calibration()->currentBasketKey());
     const double predictedDripG =
@@ -597,12 +602,20 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
         QString::number(learnedLagSec, 'f', 2).toDouble();
     sawPrediction["sampleCount"] = sampleCount;
     sawPrediction["sourceTier"] = sourceTier;
-    // Which of the three key parts describe the SHOT. Shots do not record a
-    // scale, so that one is always the currently-connected one — say so rather
-    // than let a block sitting among shot-scoped data imply otherwise.
-    sawPrediction["keyedOn"] = QStringLiteral(
-        "this shot's profile and basket; scale is the one connected now "
-        "(shots do not record a scale)");
+    // Built from what ACTUALLY resolved, never asserted. Both the profile and
+    // the basket can fall back to the current setup, and a constant string
+    // claiming otherwise makes the block lie about its own provenance — while
+    // publishing a drip figure that can be ~2x off for a different basket.
+    const bool profileIsShots = !shotProfile.isEmpty();
+    sawPrediction["keyedOn"] = QStringLiteral("profile: %1; basket: %2; scale: the one "
+                                              "connected now (shots do not record a scale)")
+        .arg(profileIsShots ? QStringLiteral("this shot's")
+                            : QStringLiteral("the profile loaded now — this shot's is not "
+                                             "installed on this device"),
+             basketIsShots ? QStringLiteral("this shot's")
+                           : QStringLiteral("the basket selected now — this shot recorded none"));
+    if (!profileIsShots || !basketIsShots)
+        sawPrediction["predictionIsForDifferentSetup"] = true;
     if (predictedDripG >= 0.2) {
         sawPrediction["recommendation"] = QString(
             "Set the stop-at-weight target ~%1 g lower than your aim "

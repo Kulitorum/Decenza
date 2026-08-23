@@ -140,10 +140,12 @@ public:
     // baseShot is QVariant (not const ShotProjection&) so a QML caller can pass
     // EITHER a raw ShotProjection gadget OR an edited/cloned shot (a plain JS
     // object, e.g. clonePersistedShot's output) — ShotProjection::coerce()
-    // accepts both. This is why a plain object is now a supported input rather
-    // than something to avoid: coerce() reconstructs id/durationSec/frames that
-    // a bare Object.assign on a Q_GADGET would have dropped (causing isValid()
-    // to fail silently). C++ callers wrap with QVariant::fromValue(shot).
+    // accepts both. A plain object is supported because the registered
+    // QVariantMap->ShotProjection converter does not reliably engage on Qt
+    // 6.11's QML->C++ argument-binding path (shotprojection.h:280) — NOT because
+    // Object.assign drops a gadget's properties, which it does not
+    // (tst_shotprojection's objectAssign slots). C++ callers wrap with
+    // QVariant::fromValue(shot).
     Q_INVOKABLE void uploadShotFromHistoryWithOverrides(
         const QVariant& baseShot, const QVariantMap& overrides);
 

@@ -28,15 +28,26 @@ class TranslationManager;
 class ProfileManager;
 
 // What one history read resolved about the current shot's equipment. The
-// empty-history block says WHY it is empty, and the three reasons are not
-// interchangeable: no package (nothing was filtered), a package whose
-// components are all gone (filtered, cannot be named), and a read that
-// failed (filtered, cannot be described at all).
+// empty-history block says WHY it is empty, and the FOUR reasons are not
+// interchangeable: no package and the user owns none (nothing was filtered),
+// no package but the user owns some (their packaged shots WERE filtered out),
+// a package whose components are all gone (filtered, cannot be named), and a
+// read that failed (filtered, cannot be described at all).
 struct EquipmentScope {
     qint64 bucket = 0;          // COALESCE(equipment_id, 0); 0 = no package
     QString label;              // English name; empty for a package with no components
-    bool resolved = false;      // false = the shot's row could not be read
+    // false = the shot's equipment row could not be read. Gate every scoped read
+    // on this: bucket 0 is a REAL matching bucket, so an unresolved scope does
+    // not fail, it silently scopes the read to the unpackaged pool.
+    bool bucketKnown = false;
+    // false = a history QUERY failed. A DIFFERENT failure from !bucketKnown --
+    // they describe two reads on two connections and either can fail alone.
     bool historyReadable = true;
+    // Does this user own any equipment package at all? Only meaningful on
+    // bucket 0, where it decides whether the filter excluded anything: for a
+    // user with no packages it is a true no-op, for a user with some it just
+    // removed every packaged shot they have.
+    bool userHasPackages = false;
 };
 
 class AIManager : public QObject {
