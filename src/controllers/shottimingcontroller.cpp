@@ -335,24 +335,6 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         if (delta >= 0.1) {
             m_lastStableWeight = weight;
             m_lastWeightChangeTime = now;
-            // The run of stillness ends AT this sample, so it is 0 ms long — not
-            // the length of the run that preceded it. `stableMs` was sampled before
-            // this update, and the fast path below completes settling at `weight`,
-            // so leaving it stale let a sample that MOVED the scale be recorded as
-            // the settled weight, logging "stable for 1007 ms" for a run that had
-            // ended one sample ago.
-            //
-            // What reaches here is any change of at least 0.1 g the cup-removed
-            // gate above did not claim — and that gate is narrower than it looks.
-            // It tests for DROPS only (`weight < m_weight - 20.0`), and both of its
-            // clauses are additionally gated on the weight having exceeded 20 g. So
-            // every INCREASE arrives here regardless of size (a second cup or a
-            // portafilter set on the drip tray), as does a genuine cup lift on any
-            // shot whose weight never passed 20 g — a ristretto, a small SAW target.
-            // An earlier draft claimed a real cup lift "cannot happen" here; it was
-            // wrong in both of those directions. Found from a suite failure, not
-            // from #1280 — that symptom is attributed to the cup-removed path.
-            stableMs = 0;
         }
 
         // Calculate rolling average
