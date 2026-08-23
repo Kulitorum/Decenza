@@ -553,6 +553,12 @@ T.Page {
                 profileYield: shotDetailPage._shotProfileYield
                 targetWeight: (shotDetailPage.shotData.targetWeightG || 0) > 0
                     ? shotDetailPage.shotData.targetWeightG : (shotDetailPage.shotData.finalWeightG || 0)
+                // This line describes a shot that has already been pulled, so the
+                // yield segment leads with what came out and keeps the target
+                // behind it ("36.4g (target 36.0g)"). Collapses to one number when
+                // the shot landed on target, and when targetWeightG is 0 the target
+                // above already IS this value.
+                actualYield: shotDetailPage.shotData.finalWeightG || 0
                 yieldOverridden: (shotDetailPage.shotData.targetWeightG || 0) > 0
                     && shotDetailPage._shotProfileYield > 0
                     && Math.abs(shotDetailPage.shotData.targetWeightG - shotDetailPage._shotProfileYield) > 0.1
