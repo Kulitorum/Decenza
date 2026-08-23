@@ -1530,10 +1530,16 @@ int main(int argc, char *argv[])
                          mainController.profileManager()->latchForShot();
 
                          // Build snapshot of learning data and configuration.
-                         // Per-(profile, scale) lookup falls back to the global pool / scale
-                         // default automatically when the pair has not yet graduated (< 3
-                         // committed batches). The "model:" log line records which source
-                         // is driving this shot's predictions for later accuracy analysis.
+                         // Per-(profile, scale, basket) lookup falls back to the global
+                         // bootstrap / pool / scale default automatically when the triple has
+                         // not yet graduated (fewer than kSawMinMediansForGraduation committed
+                         // batches — 1 today, so one 3-shot batch). The "Model:" log line
+                         // records which source is driving this shot's predictions.
+                         //
+                         // The entries fetched below are the committed (drip, flow) pairs, and
+                         // they go straight into the WeightProcessor snapshot that decides when
+                         // to fire the stop — so a pair that describes no real shot mis-stops
+                         // one. See addSawPerPairEntry's commit step.
                          double targetWeight = machineState.targetWeight();
                          QString scaleType = machineState.activeScaleType();
                          sawScaleKeyForShot = scaleType;  // latched for the learning path

@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -258,6 +259,164 @@ private slots:
         m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
         QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale).size(), 0);
         QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 1);
+    }
+
+    void committedEntryIsOneShotsOwnDripAndFlow() {
+        // A batch whose median-drip shot is NOT its median-flow shot. Real numbers from
+        // this maintainer's device: drips 1.30/1.90/1.53 against flows 1.87/2.10/1.60.
+        //
+        // Per-shot lags are 0.695, 0.905 and 0.956 s, so the batch's median lag is 0.905 s
+        // and it belongs to the second shot, (1.90 g, 2.10 g/s).
+        //
+        // Independent medians instead give drip 1.53 over flow 1.87 = 0.818 s — a lag no
+        // shot in the batch had, from a pair that never happened. Four readers inherit
+        // whichever pair is stored: sawLearningEntriesFor hands it to the WeightProcessor
+        // snapshot that fires the stop, getExpectedDripFor smooths it, sawLearnedLagFor
+        // divides it, recomputeGlobalSawBootstrap medians it.
+        //
+        // This fixture assumes kBatchSize == 3. If that changes the test goes red rather
+        // than silently passing: a larger batch never commits and the size assertion
+        // fails; a smaller one commits the wrong shot and the drip assertion fails.
+        const double drips[] = {1.30, 1.90, 1.53};
+        const double flows[] = {1.87, 2.10, 1.60};
+        for (int i = 0; i < 3; ++i) {
+            m_settings.calibration()->addSawLearningPoint(drips[i], flows[i], kScale, 0.0,
+                                                          kProfileA);
+        }
+
+        const QJsonArray history =
+            m_settings.calibration()->perProfileSawHistory(kProfileA, kScale);
+        QCOMPARE(history.size(), qsizetype(1));
+        const QJsonObject committed = history.first().toObject();
+        const double drip = committed["drip"].toDouble();
+        const double flow = committed["flow"].toDouble();
+
+        // The pair describes one of the three shots, not a per-field composite.
+        bool isARealShot = false;
+        for (int i = 0; i < 3; ++i) {
+            if (qFuzzyCompare(drip, drips[i]) && qFuzzyCompare(flow, flows[i]))
+                isARealShot = true;
+        }
+        QVERIFY2(isARealShot, qPrintable(QStringLiteral("committed (%1, %2) is not any "
+                                                        "shot in the batch")
+                                             .arg(drip).arg(flow)));
+
+        // And it is specifically the median-lag shot: 1.90 g at 2.10 g/s. The pair the old
+        // code stored was 1.53/1.87 — 0.818 s against this shot's 0.905 s.
+        QCOMPARE(drip, 1.90);
+        QCOMPARE(flow, 2.10);
+    }
+
+    void batchWithNoUsableFlowIsDroppedNotCommitted() {
+        // Every shot below the 0.5 g/s floor, so no shot has a usable lag. The batch used
+        // to commit medianOf(drips) over medianOf(flows) — the composite the change above
+        // exists to stop storing — with a printed lag of 0.000 s and no warning.
+        //
+        // ShotTimingController returns before emitting under 0.5 g/s, so the app cannot
+        // produce this; sawLearningImport() writes a pending batch wholesale with no
+        // validation, so a transferred device can.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("no shot had a usable flow")));
+        for (int i = 0; i < 3; ++i)
+            m_settings.calibration()->addSawLearningPoint(0.2, 0.4, kScale, 0.0, kProfileA);
+
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(),
+                 qsizetype(0));
+        QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale).size(),
+                 qsizetype(0));
+    }
+
+    void dispersionGateMeasuresAgainstTheMedianLagNotTheMedianOfMedians() {
+        // Every other batch fixture in this file feeds one (drip, flow) three times, which
+        // makes medianOf(drips)/medianOf(flows) identically medianOf(lags) — so none of
+        // them can see which reference the gate uses. This one can:
+        //
+        //   A 0.6 g @ 1.50 g/s -> 0.400 s
+        //   B 1.0 g @ 0.90 g/s -> 1.111 s
+        //   C 3.6 g @ 1.44 g/s -> 2.500 s
+        //
+        // Median drip 1.0 over median flow 1.44 is 0.694 s, which lies OUTSIDE the lags it
+        // is being compared against; C then deviates 1.806 s and the batch is rejected,
+        // discarding three shots of learning. Against the median lag of 1.111 s the worst
+        // deviation is 1.389 s and the batch commits.
+        const double drips[] = {0.6, 1.0, 3.6};
+        const double flows[] = {1.50, 0.90, 1.44};
+        for (int i = 0; i < 3; ++i) {
+            m_settings.calibration()->addSawLearningPoint(drips[i], flows[i], kScale, 0.0,
+                                                          kProfileA);
+        }
+
+        // init()'s QTest::failOnWarning() means the old code's rejection warning fails this
+        // on its own; the assertions below say what should have happened instead.
+        const QJsonArray history =
+            m_settings.calibration()->perProfileSawHistory(kProfileA, kScale);
+        QCOMPARE(history.size(), qsizetype(1));
+        const QJsonObject committed = history.first().toObject();
+        QCOMPARE(committed["drip"].toDouble(), 1.0);
+        QCOMPARE(committed["flow"].toDouble(), 0.90);
+    }
+
+    void evenLagCountStillCommitsOneShotsPair() {
+        // The closest-lag search exists for the case where medianOf() averages the middle
+        // two and no shot owns the result. That is reachable without kBatchSize changing:
+        // sawLearningImport() writes a pending batch with no size validation, so a
+        // transferred device can present three entries that one more shot then completes
+        // as a batch of four.
+        QJsonObject batchMap;
+        QJsonArray seeded;
+        const double drips[] = {0.60, 1.00, 1.40};
+        const double flows[] = {1.50, 1.25, 1.40};  // lags 0.400 / 0.800 / 1.000
+        for (int i = 0; i < 3; ++i) {
+            QJsonObject e;
+            e["drip"] = drips[i]; e["flow"] = flows[i]; e["overshoot"] = 0.0;
+            e["scale"] = QString(kScale); e["profile"] = QString(kProfileA);
+            e["basket"] = QStringLiteral("(none)"); e["ts"] = 1000;
+            seeded.append(e);
+        }
+        batchMap[QStringLiteral("profile_a::decent::(none)")] = seeded;
+        {
+            QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
+            qs.setValue("saw/perProfileBatch",
+                        QJsonDocument(batchMap).toJson(QJsonDocument::Compact));
+            qs.sync();
+            m_settings.calibration()->invalidateCache();
+        }
+
+        // Fourth shot completes the batch: lags 0.400 / 0.800 / 1.000 / 1.200, whose median
+        // is 0.900 — a value no shot produced. The nearest are 0.800 and 1.000, tied at
+        // 0.100; the search keeps the first it meets.
+        m_settings.calibration()->addSawLearningPoint(1.20, 1.00, kScale, 0.0, kProfileA);
+
+        const QJsonArray history =
+            m_settings.calibration()->perProfileSawHistory(kProfileA, kScale);
+        QCOMPARE(history.size(), qsizetype(1));
+        const QJsonObject committed = history.first().toObject();
+        QCOMPARE(committed["drip"].toDouble(), 1.00);
+        QCOMPARE(committed["flow"].toDouble(), 1.25);
+    }
+
+    void twoConsecutiveBadOvershootBatchesClearCommittedHistory() {
+        // medianOver is the one median this change deliberately left alone, on the grounds
+        // that it gates this auto-reset. Nothing asserted that, so the grounds were
+        // unverified.
+        commitBatch(kProfileA, 1.0, 2.0, -7.0);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(),
+                 qsizetype(1));
+
+        // Second consecutive batch with median overshoot < -6 g wipes the history and
+        // leaves only the new median. The reset announces itself, and init()'s
+        // failOnWarning would otherwise make that announcement the failure.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("clearing committed history")));
+        commitBatch(kProfileA, 1.0, 2.0, -7.0);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(),
+                 qsizetype(1));
+
+        // A third batch with a normal overshoot appends rather than replacing, which is
+        // what makes the two above a reset and not just a trim.
+        commitBatch(kProfileA, 1.0, 2.0, 0.0);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(),
+                 qsizetype(2));
     }
 
     // ===== Basket dimension of the key =====

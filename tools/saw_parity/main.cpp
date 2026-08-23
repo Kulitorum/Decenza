@@ -1,21 +1,23 @@
 // saw_parity — confirms tools/saw_replay/'s standalone port of the SAW math
 // produces the same per-shot predictions as the production code path in
-// src/core/settings.cpp. A passing run lets us trust simulator-driven sweep
+// src/core/settings_calibration.cpp. A passing run lets us trust simulator-driven sweep
 // results (e.g. σ=0.25 vs 1.5) as predictive of what production would do
 // under the same change.
 //
 // Architecture:
 //   - Loads the same corpus the simulator consumed
 //   - Walks shots in chronological order, calling production's
-//     Settings::getExpectedDripFor(profile, scale, flow) followed by
-//     Settings::addSawLearningPoint(...) to grow the per-pair state
+//     SettingsCalibration::getExpectedDripFor(profile, scale, flow, basket) followed by
+//     SettingsCalibration::addSawLearningPoint(...) to grow the per-(profile, scale,
+//     basket) state
 //   - Reads the simulator's TSV output (the `old_pred` column, which is
 //     the simulator's OLD-model prediction at the same point)
 //   - Reports per-shot abs-deviation and aggregate by the simulator's
 //     reported `source` column
 //
 // What's actually equivalent vs not:
-//   - perPair (≥2 committed medians for the pair): both code paths run the
+//   - perPair (kSawMinMediansForGraduation committed medians for the pair, 1 today):
+//     both code paths run the
 //     same Gaussian-weighted-average algorithm. EXACT match expected.
 //   - globalBootstrap: simulator aggregates a per-scale pool across pairs
 //     (the proposal's smart-bootstrap concept). Production uses a single
@@ -29,8 +31,16 @@
 // are reported informatively but excluded from the gate.
 //
 // Usage:
-//   tools/saw_replay --corpus baseline_full.json --variant old --mode legacy --sigma 0.25 > sim.tsv
-//   saw_parity --corpus baseline_full.json --sim sim.tsv
+//   C=tools/saw_replay/data/baseline_extended.json
+//
+//   saw_parity --corpus $C                    # production MAE per flow bucket
+//   saw_parity --corpus $C --ignore-basket    # ... with the basket segment removed
+//
+//   tools/saw_replay --corpus $C --variant old --mode legacy --sigma 0.25 > sim.tsv
+//   saw_parity --corpus $C --sim sim.tsv      # ... plus simulator parity
+//
+// Only baseline_extended.json carries a basket key. The other two corpora in that
+// directory predate it; see the missing-basket warning below.
 
 #include "core/settings.h"
 #include "core/settings_calibration.h"
@@ -94,15 +104,13 @@ QHash<int, SimRow> readSimulatorOutput(const QString& path, QString* errOut) {
     return out;
 }
 
+// resetSawLearning() wipes every saw/* key — global pool, all per-(profile, scale,
+// basket) buckets, all pending batches, all bootstrap values (see its declaration in
+// settings_calibration.h). The per-pair loop that used to follow it here split pool
+// keys on "::" and acted only on two-segment ones, so once the basket key added a
+// third segment it matched nothing; it was redundant before that and dead after.
 void wipeAllSawState(Settings& s) {
     s.calibration()->resetSawLearning();
-    const QJsonObject pairs = s.calibration()->allPerProfileSawHistory();
-    for (auto it = pairs.constBegin(); it != pairs.constEnd(); ++it) {
-        const QStringList parts = it.key().split(QStringLiteral("::"));
-        if (parts.size() == 2) {
-            s.calibration()->resetSawLearningForProfile(parts[0], parts[1]);
-        }
-    }
 }
 
 }  // namespace
@@ -120,17 +128,26 @@ int main(int argc, char* argv[])
     parser.addOption(corpusOpt);
     QCommandLineOption simOpt({"s", "sim"}, "Simulator TSV output.", "path");
     parser.addOption(simOpt);
+    QCommandLineOption ignoreBasketOpt("ignore-basket",
+        "Replay with every shot filed under one basket, as a two-segment "
+        "(profile, scale) key would. Measures what the basket segment buys.");
+    parser.addOption(ignoreBasketOpt);
     QCommandLineOption tolOpt("tolerance",
         "Max allowed |production - simulator| per shot in g (default 0.001).",
         "value", "0.001");
     parser.addOption(tolOpt);
     parser.process(app);
 
-    if (!parser.isSet(corpusOpt) || !parser.isSet(simOpt)) {
-        qWarning() << "Both --corpus and --sim are required.";
+    if (!parser.isSet(corpusOpt)) {
+        qWarning() << "--corpus is required.";
         return 2;
     }
+    // --sim is optional: the production MAE table below is produced by driving the real
+    // getExpectedDripFor/addSawLearningPoint over the corpus and needs no simulator at
+    // all. Only the parity comparison does.
+    const bool haveSim = parser.isSet(simOpt);
     const double tolerance = parser.value(tolOpt).toDouble();
+    const bool ignoreBasket = parser.isSet(ignoreBasketOpt);
 
     QFile cf(parser.value(corpusOpt));
     if (!cf.open(QIODevice::ReadOnly)) {
@@ -149,15 +166,18 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    QString simErr;
-    const QHash<int, SimRow> sim = readSimulatorOutput(parser.value(simOpt), &simErr);
-    if (!simErr.isEmpty()) {
-        qWarning() << simErr;
-        return 2;
-    }
-    if (sim.isEmpty()) {
-        qWarning() << "no shot rows parsed from sim file";
-        return 2;
+    QHash<int, SimRow> sim;
+    if (haveSim) {
+        QString simErr;
+        sim = readSimulatorOutput(parser.value(simOpt), &simErr);
+        if (!simErr.isEmpty()) {
+            qWarning() << simErr;
+            return 2;
+        }
+        if (sim.isEmpty()) {
+            qWarning() << "no shot rows parsed from sim file";
+            return 2;
+        }
     }
 
     Settings settings;
@@ -185,13 +205,19 @@ int main(int argc, char* argv[])
         double worst = 0.0;
     };
     MaeBucket maeOverall, maeLow, maeMid, maeHigh;
+    int rowsWithoutBasket = 0;
     auto bumpMae = [](MaeBucket& b, double absErr) {
         b.n += 1;
         b.absSum += absErr;
         b.worst = std::max(b.worst, absErr);
     };
-    double shot887Err = 0.0;
-    bool shot887Seen = false;
+    // The archived analyses' "shot 887" is id 10887 in the extended corpus: part 1's ids
+    // come from a database that has since been renumbered and are offset by +10000. A
+    // plain 887 also exists there and is an unrelated part-2 shot, so matching both would
+    // silently report whichever came last in the array.
+    constexpr int kArchivedProbeId = 10887;
+    double archivedProbeErr = 0.0;
+    bool archivedProbeSeen = false;
 
     // Production MAE bucketed by the simulator-reported source. Lets us
     // compare "production scalar bootstrap" performance against "simulator
@@ -207,8 +233,19 @@ int main(int argc, char* argv[])
         const double flow = o.value(QStringLiteral("flow")).toDouble();
         const double drip = o.value(QStringLiteral("drip")).toDouble();
         const double overshoot = o.value(QStringLiteral("overshoot")).toDouble();
+        // baseline_extended.json rows carry the basket key the shot actually trained.
+        // Pass it through rather than letting it resolve: an empty key resolves against
+        // this process's (empty) settings to "(none)", collapsing every basket into one
+        // pool and hiding exactly the separation key-saw-learning-by-basket introduced.
+        // baseline.json and baseline_full.json predate the basket key and have no such
+        // field, so a run over either is silently that collapsed case — counted here and
+        // reported beside the results rather than left to look like a keyed run.
+        const QString corpusBasket = o.value(QStringLiteral("basket")).toString();
+        if (corpusBasket.isEmpty()) ++rowsWithoutBasket;
+        const QString basket = ignoreBasket ? QStringLiteral("all") : corpusBasket;
 
-        const double prodPred = settings.calibration()->getExpectedDripFor(profile, scale, flow);
+        const double prodPred =
+            settings.calibration()->getExpectedDripFor(profile, scale, flow, basket);
         const double prodErr = prodPred - drip;
         const double prodAbs = std::abs(prodErr);
 
@@ -217,7 +254,7 @@ int main(int argc, char* argv[])
         if (flow < 1.5) bumpMae(maeLow, prodAbs);
         else if (flow < 3.0) bumpMae(maeMid, prodAbs);
         else bumpMae(maeHigh, prodAbs);
-        if (id == 887) { shot887Err = prodErr; shot887Seen = true; }
+        if (id == kArchivedProbeId) { archivedProbeErr = prodErr; archivedProbeSeen = true; }
 
         double simPred = 0.0;
         QString simSource = QStringLiteral("(missing)");
@@ -242,10 +279,17 @@ int main(int argc, char* argv[])
             << "\t" << prodErr << "\t" << simSource << "\n";
 
         // Grow the production-side pool for the next shot.
-        settings.calibration()->addSawLearningPoint(drip, flow, scale, overshoot, profile);
+        settings.calibration()->addSawLearningPoint(drip, flow, scale, overshoot, profile, basket);
     }
 
     out << "\n=== Production MAE per flow bucket (the actual answer) ===\n";
+    out << "basket_segment=" << (ignoreBasket ? "ignored" : "used");
+    if (!ignoreBasket && rowsWithoutBasket > 0) {
+        out << "\t(WARNING: " << rowsWithoutBasket << " of " << shotsArr.size()
+            << " corpus rows carry no basket key and resolved to the process default, so "
+               "they share one pool)";
+    }
+    out << "\n";
     out << "bucket\tn\tmae\tworst\n";
     auto reportBucket = [&out](const QString& name, const MaeBucket& b) {
         const double mae = b.n ? b.absSum / b.n : 0.0;
@@ -255,8 +299,14 @@ int main(int argc, char* argv[])
     reportBucket(QStringLiteral("low (<1.5)"), maeLow);
     reportBucket(QStringLiteral("mid [1.5,3)"), maeMid);
     reportBucket(QStringLiteral("high (>=3)"), maeHigh);
-    if (shot887Seen) {
-        out << "shot887_signed_error=" << shot887Err << "\n";
+    if (archivedProbeSeen) {
+        out << "archived_shot887_signed_error=" << archivedProbeErr
+            << "\t(corpus id " << kArchivedProbeId << ")\n";
+    }
+
+    if (!haveSim) {
+        wipeAllSawState(settings);
+        return 0;
     }
 
     out << "\n=== Simulator parity by source ===\n";

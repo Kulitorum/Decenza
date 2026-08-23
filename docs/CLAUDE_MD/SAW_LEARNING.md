@@ -36,7 +36,7 @@ The same architecture that fixed the analogous problem in flow calibration ([AUT
 1. **Per-(profile, scale) history** — each pair learns its own drip dynamics. Switching profiles or scales does not contaminate the active pair's data.
 2. **Batched median commits** — accumulate 3 shots' worth of pending entries before changing the model. The median is robust to single-shot outliers (channeling, scale glitches, cup interaction). N=3 is chosen because SAW has no feedback loop (a stop command does not alter pump dynamics for the next shot), so a single confirmed 3-shot batch is sufficient signal — the conservative N=5 from flow calibration is not needed here.
 3. **Batch-level dispersion check** — if the 3 lags within a batch are too spread out (any single lag > 1.5 s from the batch median), the whole batch is dropped. Dispersion that high indicates the user changed conditions mid-batch (different beans, different grinder, manual stop). IQR gating requires ≥ 4 values; with N=3 the per-element deviation check handles all outlier cases.
-4. **Global bootstrap** — the median lag across the graduated `(profile, scale, basket)` buckets on the same scale is published as `saw/globalBootstrapLag/<scaleType>`. New pairs use this as their first-shot default instead of the scale's hardware-only `sensorLag()`.
+4. **Global bootstrap** — the median lag across the `(profile, scale, basket)` buckets on the same scale that have ANY committed history (graduation is a stricter, separate bar for the read path — see the storage table) is published as `saw/globalBootstrapLag/<scaleType>`. New pairs use this as their first-shot default instead of the scale's hardware-only `sensorLag()`.
 5. **Read-path fallback chain** — `perProfile` (≥ `kSawMinMediansForGraduation` committed batches, currently 1 = 3 SAW shots minimum) → `globalBootstrap` → `globalPool` (legacy entries) → `scaleDefault`. New users / new pairs degrade gracefully.
 
 ### Why this is the right shape
@@ -56,7 +56,7 @@ Three QSettings keys, each a JSON object keyed by `"<profileFilename>::<scaleTyp
 
 | Key | Shape | Trim | Purpose |
 |-----|-------|------|---------|
-| `saw/perProfileHistory` | array of committed batch-median entries `{drip, flow, overshoot, scale, profile, basket, ts, batchSize}` | 10 medians (~30 shots-worth) | Source of truth for `sawLearnedLagFor` / `getExpectedDripFor` once the triple has graduated (≥ `kSawMinMediansForGraduation` medians, currently 1). |
+| `saw/perProfileHistory` | array of committed batch entries `{drip, flow, overshoot, scale, profile, basket, ts, batchSize}`. **`drip` and `flow` are one batch shot's own pair** — the shot whose lag is nearest the batch's median lag — not `median(drips)` over `median(flows)`, which would be a point no shot produced and a lag no shot had. A batch in which no shot had a usable flow is dropped rather than committed, so there is no composite-pair exception. `overshoot` IS an independent median: it gates the auto-reset and, through the pool mirror, `isSawConverged`, and is never paired with a drip or a flow to form a lag. | 10 medians (~30 shots-worth) | Source of truth for `sawLearnedLagFor` / `getExpectedDripFor` once the triple has graduated (≥ `kSawMinMediansForGraduation` medians, currently 1). |
 | `saw/perProfileBatch` | array of pending raw entries `{drip, flow, overshoot, scale, profile, basket, ts}` (target size 3) | 3 (commit point) | Pending accumulator; flushed on commit or rejection. |
 | `saw/globalBootstrapLag/<scaleType>` | scalar `double` (seconds) | n/a | IQR-fenced median of the last committed median lag from each THREE-SEGMENT bucket on this scale whose newest median is not `inherited` (so neither the seed copies nor the frozen pre-basket bucket they came from can vote). Used as first-shot default for new pairs. (Graduation for the per-profile *read* path is a stricter `kSawMinMediansForGraduation` medians; the bootstrap is a cold-start prior, so it accepts pairs with any committed history — IQR fencing handles the rest.) |
 
@@ -86,7 +86,11 @@ Two mechanical notes on that query. It is windowed rather than a `DISTINCT` over
 
 ### Why the basket is in the key (and the grinder is not)
 
-Measured on this device, D-Flow / Q on a Decent Scale, same bean and dose: the Decent 18g Ridged basket drips 1.00–1.48 g (mean 1.32) while the Graph Stepped 58→46mm drips 0.52–0.70 g (mean 0.63). Every Graph shot under-delivered by ~0.7 g because the model predicted the Decent basket's drip. Flow-similarity weighting cannot absorb it — the offset is basket-shaped, not flow-shaped — and shot 1085 (Decent basket, 53.3 s, flow 1.58 g/s, drip 1.34 g) rules out shot duration as the cause against Graph shot 1098 (52.1 s, flow 1.48 g/s, drip 0.66 g).
+The split was made on 3 Graph-basket shots: D-Flow / Q on a Decent Scale, same bean and dose, the Decent 18g Ridged basket dripping 1.00–1.48 g (mean 1.32) against the Graph Stepped 58→46mm's 0.52–0.70 g (mean 0.63) — every Graph shot under-delivering by ~0.7 g, an offset flow-similarity weighting cannot absorb because it is basket-shaped, not flow-shaped. Shot duration was ruled out at the time by one duration-matched Decent shot.
+
+**That finding has not reproduced, and the section above is kept only as the reasoning of record.** Four more Graph shots (2026-08-21 onward) average a lag of 0.882 s against the Decent basket's 0.819 s over the same window — Graph slightly *higher*, the opposite sign. Over a 250-shot corpus the between-basket mean lag gap is 0.082 s against a within-basket lag standard deviation of 0.41 s, and `saw_parity --ignore-basket` shows the segment is close to neutral — it changes 11 of 250 predictions, costs about 0.001 g of MAE overall, and helps the Graph shots by about 0.005 g while costing the Decent shots in that window about 0.011 g, because their pool is now split. The sign on the Graph slice flips between builds that differ by ~1% MAE, which is the actual finding at n=7. What separates the original three Graph shots from the later four is that they ran 52–58 s at grind 15–16.5 against 32–36 s at grind 17–17.5; duration does not generalize as an explanation either (r = −0.007 corpus-wide), so both stories rest on the same three shots.
+
+**The segment stays anyway.** Both baskets measured are 58 mm and differ mainly in wall shape, which is a weak test of the hypothesis; a genuinely high-flow basket is where a real difference would show. Seven shots on a second basket is enough to say no effect is demonstrated, not that none exists. Revisit with a basket that differs materially in outlet geometry, or at ≥30 shots on a second basket. Numbers in the openspec change `fix-saw-lag-prediction`.
 
 Grinder, burrs, RPM and puck prep stay OUT of the key: they act on drip through puck permeability, which already reaches the model as flow at stop. Portafilter/spout is not modelled at all — the responsible geometry is basket plus spout, but nearly all users run bottomless. Full evidence and the rejected alternatives are in the openspec change `key-saw-learning-by-basket`.
 
@@ -142,19 +146,27 @@ addSawLearningPoint(drip, flow, scale, overshoot, profile):
 
   append entry to perProfileBatch[profile::scale]
   if pending.size < 3:
-    log "[SAW] accumulated drip=… flow=… (n/3) lag=…"
+    log "[SAW][Learning] Accumulated drip=… flow=… (n/3) lag=…"
     return
 
-  compute median drip, flow, overshoot, lag
+  lags := drip / flow, for each batch shot whose flow > 0.5 g/s
+  if lags is empty:
+    log "[SAW][Learning] batch rejected — no shot had a usable flow …"
+    drop pending, return
+
+  commit_drip, commit_flow := the pair of the shot whose lag is nearest median(lags)
+  median_lag := commit_drip / commit_flow      ← a real shot's lag, so the gate and the
+                                                 commit log describe the same shot
+  median_overshoot := median of the overshoots ← independent; gates the reset below
   if any |lag - median_lag| > 1.5 s:
-    log "[SAW] batch rejected — outlier lag=… deviates …s > …s from median …"
+    log "[SAW][Learning] batch rejected — outlier lag=… deviates …s > …s from median …"
     drop pending, return
 
   if median_overshoot < -6 g and last committed median for pair was also < -6 g:
-    log "[SAW] 2nd consecutive overshoot<-6g … clearing committed history"
+    log "[SAW][Learning] 2nd consecutive overshoot<-6g … clearing committed history"
     perProfileSawHistory[pair] := []                ← per-pair auto-reset
 
-  append median entry to perProfileSawHistory[pair], trim 10
+  append entry {commit_drip, commit_flow, median_overshoot, …} to perProfileSawHistory[pair], trim 10
   append same median to global pool, trim 50
   clear pending
   recomputeGlobalSawBootstrap(scale)
@@ -166,6 +178,10 @@ addSawLearningPoint(drip, flow, scale, overshoot, profile):
 Per-shot updates create a feedback loop: each update changes the predicted-drip threshold, which changes when the stop command fires, which changes the observed drip. The model partially chases its own tail.
 
 Batching to N=3 holds the model constant for 3 shots, so the 3 ideals are pulled under identical conditions and are directly comparable. Taking the **median** of those 3 ideals is a built-in outlier filter: a single bad shot (channeling, scale glitch, manual stop, runaway) cannot move the model.
+
+The median is taken over the **lags**, and the committed entry is then the shot that produced that lag. Taking `median(drips)` and `median(flows)` separately is not the same thing: with N=3 those two medians usually come from different shots, so their quotient is a lag none of the three had — which the dispersion gate above would then be measuring every shot against.
+
+Measured over a 250-shot corpus (`tools/saw_parity`): −1.0% MAE overall, −2.3% mid-flow, +2.4% *worse* at high flow on n=14 — inside the noise of which shots land in which batch. The correction is made because four readers divide or smooth that stored pair (`sawLearningEntriesFor`, whose pairs reach the WeightProcessor snapshot that fires the stop; `getExpectedDripFor`; `sawLearnedLagFor`; `recomputeGlobalSawBootstrap`), so it has to describe a shot that happened. Not because it predicts better — do not cite it as a performance result.
 
 Flow calibration uses N=5 for the same reason, but SAW has no feedback loop: a stop command does not alter pump pressure or flow dynamics for the next shot. Because the model update cannot shift the conditions it is measuring, N=3 converges 2× faster with equal or better accuracy. A post-hoc simulation over real shot data (Apr 2026) confirmed this: N=3 graduated D-Flow/Q at shot 6 vs never within 9 shots for N=5 (outlier in shot 3 was cleanly isolated rather than absorbed), and graduated 80's Espresso at shot 3 vs shot 10.
 
@@ -277,7 +293,7 @@ by design, and this section exists so nobody "fixes" the apparent mismatch:
 
 ## Files
 
-- [src/core/settings.h](../../src/core/settings.h) / [src/core/settings.cpp](../../src/core/settings.cpp) — schema, batch accumulator, read-path fallback chain, bootstrap recompute. The new public API mirrors flow cal: `sawLearnedLagFor`, `getExpectedDripFor`, `sawLearningEntriesFor`, `sawModelSource`, `resetSawLearningForProfile`, `globalSawBootstrapLag`, `addSawLearningPoint(…, profileFilename)`.
+- [src/core/settings_calibration.h](../../src/core/settings_calibration.h) / [src/core/settings_calibration.cpp](../../src/core/settings_calibration.cpp) — schema, batch accumulator, read-path fallback chain, bootstrap recompute. The public API mirrors flow cal: `sawLearnedLagFor`, `getExpectedDripFor`, `sawLearningEntriesFor`, `sawModelSource`, `resetSawLearningForProfile`, `globalSawBootstrapLag` (a plain getter — `recomputeGlobalSawBootstrap` is what derives the value), `addSawLearningPoint(…, profileFilename, basketKey)`.
 - [src/main.cpp](../../src/main.cpp) — wires `ProfileManager::baseProfileName()` into the WeightProcessor snapshot path and the `sawLearningComplete` handler, latches the scale AND basket key for the shot, and emits the per-shot `model:` / `accuracy:` log lines.
 - [src/controllers/shottimingcontroller.cpp](../../src/controllers/shottimingcontroller.cpp) — settling state machine, stability gate, `m_lastCleanSettlingAvg` capture, cup-removed fallback chain (#1280).
 - [qml/pages/settings/SettingsCalibrationTab.qml](../../qml/pages/settings/SettingsCalibrationTab.qml) — Calibration tab UI changes (source suffix, per-profile reset).

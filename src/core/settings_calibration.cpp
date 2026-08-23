@@ -17,6 +17,7 @@
 #include <QJsonParseError>
 #include <QtMath>
 #include <algorithm>
+#include <limits>
 
 namespace {
 
@@ -1087,16 +1088,20 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
         return;
     }
 
-    // 2. Batch full — compute medians of drip / flow / overshoot, plus IQR of lags.
-    QVector<double> drips, flows, overs, lags;
-    drips.reserve(batch.size()); flows.reserve(batch.size());
-    overs.reserve(batch.size()); lags.reserve(batch.size());
+    // 2. Batch full — collect the batch's overshoots, and each usable shot's lag beside
+    //    the pair it came from. One place derives a lag and one place decides a flow is
+    //    usable, so the filter and the ratio cannot drift apart.
+    struct BatchLag { double lag; double drip; double flow; };
+    QVector<double> overs;
+    QVector<BatchLag> lagOf;
+    overs.reserve(batch.size());
+    lagOf.reserve(batch.size());
     for (const auto& v : std::as_const(batch)) {
-        QJsonObject o = v.toObject();
-        drips.append(o["drip"].toDouble());
-        flows.append(o["flow"].toDouble());
+        const QJsonObject o = v.toObject();
+        const double entryDrip = o["drip"].toDouble();
+        const double entryFlow = o["flow"].toDouble();
         overs.append(o["overshoot"].toDouble());
-        if (o["flow"].toDouble() > 0.5) lags.append(o["drip"].toDouble() / o["flow"].toDouble());
+        if (entryFlow > 0.5) lagOf.append({entryDrip / entryFlow, entryDrip, entryFlow});
     }
 
     auto medianOf = [](QVector<double> v) -> double {
@@ -1105,20 +1110,74 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
         const qsizetype n = v.size();
         return (n % 2 == 0) ? (v[n / 2 - 1] + v[n / 2]) / 2.0 : v[n / 2];
     };
-    const double medianDrip = medianOf(drips);
-    const double medianFlow = medianOf(flows);
     const double medianOver = medianOf(overs);
-    const double medianLag = (medianFlow > 0.5) ? medianDrip / medianFlow : 0.0;
+
+    // A batch with no usable lag has nothing to commit. Dropping it is the same handling
+    // every other implausible batch gets in step 3 — the alternative, committing
+    // medianOf(drips) over medianOf(flows), is exactly the composite this block exists to
+    // stop storing, and it would arrive with no warning and a printed lag of 0.000 s.
+    // Unreachable from the app (ShotTimingController returns before emitting below
+    // 0.5 g/s, shottimingcontroller.cpp), but sawLearningImport() writes a pending batch
+    // wholesale with no validation, so a transferred device can present one.
+    if (lagOf.isEmpty()) {
+        SAWC_WARN(QStringLiteral("batch rejected — no shot had a usable flow for %1 — "
+                                 "dropping batch").arg(key));
+        batchMap.remove(key);
+        savePerProfileSawBatchMap(batchMap);
+        return;
+    }
+
+    // The committed pair is ONE batch shot's own (drip, flow), and the lag is that shot's
+    // lag — not medianOf(drips) over medianOf(flows). With a small batch those two medians
+    // usually come from different shots, so their quotient is a lag no shot had. That
+    // matters twice: the gate below compares every shot against this lag, and step 5
+    // commits the pair, which four readers then divide or smooth —
+    // sawLearningEntriesFor (main.cpp hands the pairs to the WeightProcessor snapshot that
+    // decides when to fire the stop, so this is the one a wrong pair mis-stops a shot on),
+    // getExpectedDripFor, sawLearnedLagFor, and recomputeGlobalSawBootstrap.
+    //
+    // Measured on a 250-shot corpus via tools/saw_parity: −1.0% MAE overall, −2.3%
+    // mid-flow, +2.4% WORSE at high flow (n=14) — inside the noise of which shots land in
+    // which batch. It is here because a committed pair must describe a shot that happened,
+    // not because it predicts better. Do not cite it as a performance result.
+    //
+    // medianOver is deliberately NOT selected this way. It stays the median of the three
+    // overshoots because it gates the auto-reset in step 4 and, through the step-6 pool
+    // mirror, isSawConverged(); it is never paired with a drip or a flow to form a lag.
+    //
+    // Closest-lag rather than exact equality: medianOf() averages the middle two when the
+    // count is even, and no shot owns that value. lagOf is shorter than the batch whenever
+    // a shot's flow was unusable, so an even count is reachable without kBatchSize
+    // changing. medianLag is then re-read off the chosen shot, so the gate and the commit
+    // log always describe the same real shot.
+    double commitDrip = 0.0;
+    double commitFlow = 0.0;
+    {
+        QVector<double> lags;
+        lags.reserve(lagOf.size());
+        for (const auto& l : std::as_const(lagOf)) lags.append(l.lag);
+        const double lagMedian = medianOf(lags);
+        double bestDev = std::numeric_limits<double>::max();
+        for (const auto& l : std::as_const(lagOf)) {
+            const double dev = qAbs(l.lag - lagMedian);
+            if (dev < bestDev) {
+                bestDev = dev;
+                commitDrip = l.drip;
+                commitFlow = l.flow;
+            }
+        }
+    }
+    const double medianLag = commitDrip / commitFlow;
 
     // 3. Outlier check: reject batch if any lag deviates too far from the median.
     //    IQR gating is not used here because kBatchSize=3 produces too few values
     //    for a meaningful IQR estimate; per-element deviation is sufficient.
     QString rejectReason;
-    for (double l : std::as_const(lags)) {
-        double dev = qAbs(l - medianLag);
+    for (const auto& l : std::as_const(lagOf)) {
+        const double dev = qAbs(l.lag - medianLag);
         if (dev > kBatchMaxDeviation) {
             rejectReason = QString("outlier lag=%1 deviates %2s > %3s from median")
-                               .arg(l).arg(dev).arg(kBatchMaxDeviation);
+                               .arg(l.lag).arg(dev).arg(kBatchMaxDeviation);
             break;
         }
     }
@@ -1149,8 +1208,8 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
 
     // 5. Commit median to per-pair history.
     QJsonObject medianEntry;
-    medianEntry["drip"] = medianDrip;
-    medianEntry["flow"] = medianFlow;
+    medianEntry["drip"] = commitDrip;
+    medianEntry["flow"] = commitFlow;
     medianEntry["overshoot"] = medianOver;
     medianEntry["scale"] = scaleType;
     medianEntry["profile"] = profileFilename;
@@ -1183,8 +1242,8 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
 
     SAWC_LOG(QStringLiteral("Committed median lag=%1 s (drip=%2 g flow=%3 g/s) for %4 "
                             "— n_medians=%5")
-                 .arg(medianLag, 0, 'f', 3).arg(medianDrip, 0, 'f', 2)
-                 .arg(medianFlow, 0, 'f', 2).arg(key).arg(pairHistory.size()));
+                 .arg(medianLag, 0, 'f', 3).arg(commitDrip, 0, 'f', 2)
+                 .arg(commitFlow, 0, 'f', 2).arg(key).arg(pairHistory.size()));
 
     // 8. Recompute global bootstrap lag for this scale type so other (profile, scale)
     //    pairs with no per-pair history can use it as their first-shot default.
