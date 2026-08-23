@@ -70,12 +70,15 @@ between conversations with no stated cause.
 - [x] 3.3 The history read joins the whole package. `EquipmentJoin` (`src/history/equipmentjoin.h`)
       holds the four LEFT JOINs, the column list and the reader in one place; the advisor's read
       joined the grinder alone, which is why a basket switch reached the model as one setup.
-- [ ] 3.1b The in-app hoisted `### Setup:` header gains basket and puck prep.
-- [ ] 3.2 `DialingHelpers::ShotIdentity` gains basket + puck-prep fields, picked up by the
-      existing `hoistSessionContext`.
-- [ ] 3.3 MCP session `context` gains `basketBrand` / `basketModel` / `puckPrep` under the
-      existing hoist discipline.
-- [ ] 3.4 Parity test that the two surfaces emit the same identity fields.
+- [x] 3.4 Parity test that the two surfaces emit the same identity fields —
+      `tst_dialing_blocks.cpp:898`, with `:1022` asserting it must fail if either surface drifts.
+
+**Superseded.** The remaining unchecked entries here read "the in-app `### Setup:` header gains
+basket and puck prep", "`ShotIdentity` gains basket + puck-prep fields", "MCP session `context`
+gains them" — the last two landed as 3.2/3.3 above and the first is the wrong fix. The header
+is a second renderer of data `ShotIdentity::fields()` already owns; adding two names to its
+hand-written list is the ninth copy, and the next component needs a tenth. Section 9 removes the
+renderer instead.
 
 ## 4. Explicit no-history block (NOT delivered)
 
@@ -125,3 +128,55 @@ while the stats query mirrored that split. A card counted one package and averag
 - [ ] 8.5 No test covers any of this — `tests/` has nothing for auto-favourites. The recurring
       defect shape is "a query that keys on the package does not scope to it", which is worth one
       test asserting the card count and the details count agree for a two-package fixture.
+
+## 9. One payload, one format
+
+Both surfaces build their system prompt from `ShotSummarizer::shotAnalysisSystemPrompt` — ~45,000
+characters naming the structured blocks 35 times and instructing the model to read them by field
+path. `ai_advisor_invoke` sends that payload. The in-app overlay sends prose. One prompt, two
+formats, and the prose one delivers none of the paths the prompt describes.
+
+- [ ] 9.1 Route `AIManager::emitRecentShotContext` through `DialingBlocks::buildDialInSessionsBlock`
+      and `buildBestRecentShotBlock`. Its thread already opens `withTempDb`, builds an
+      `AdviceScope`, and calls `buildGrinderCalibrationBlock` / `buildRecentAdviceBlock` — the same
+      builders MCP uses — so two of the four blocks are already shared and the remaining two are
+      hand-rendered from the same `qualifiedShots` and the same DB handle. Verify: no block is
+      built twice, in two places, from one dataset.
+- [ ] 9.2 Send the structured payload from the in-app path via
+      `AIManager::enrichUserPromptObject`, which today has exactly one caller and it is
+      `mcptools_ai.cpp`. Verify: `ai_advisor_invoke --dryRun` and the in-app send produce the same
+      top-level keys for the same shot.
+- [ ] 9.3 Delete the prose `### Setup:` header and the seven hand-declared `setup*` fields with
+      their `seedOrCompare` calls (`aimanager.cpp`). The shared-setup detection it performs is what
+      `hoistSessionContext` already does over `ShotIdentity::fields()`. Verify: adding a row to
+      that table reaches both surfaces with no further edit — the check scenario in the spec.
+- [ ] 9.4 Carry the user's question as its own field instead of concatenating it into the payload,
+      and delete the recovery heuristic in `AIConversation::getConversationText` — it searches for
+      `"Here's my latest shot:"`, takes the last `\n\n`, and guesses whether the trailing text
+      "looks like a question" by testing for `": "` and a length under 500. Verify: the conversation
+      view renders the question from a field, and the heuristic is gone rather than bypassed.
+- [ ] 9.5 Keep the displayed conversation unchanged for the user. `getConversationText` feeds four
+      QML call sites (`ConversationOverlay.qml` ×2, `SettingsAITab.qml` ×2); the `**[Shot <date>]**`
+      / `**You:** …` rendering is what a user sees and SHALL survive the format change. Verify: on
+      screen, against a conversation with history.
+- [ ] 9.6 Live A/B before merge. This changes what the in-app advisor receives, which a green suite
+      cannot judge. Run the same shot through both formats and read the replies. Verify: recorded
+      in the PR, with the shot identified by date and time.
+- [ ] 9.7 `docs/CLAUDE_MD/AI_ADVISOR.md` — one payload, one assembler, and the field paths the
+      system prompt names. Verify: no section still describes an in-app prose payload.
+- [ ] 9.8 One identity definition, sliced per increment. `ShotIdentity`'s 12 `QString` fields are
+      a **strict subset** of `CurrentBeanBlockInputs`'s 16 — every one of `basketBrand`,
+      `basketModel`, `beanBrand`, `beanType`, `defrostDate`, `frozenDate`, `grinderBrand`,
+      `grinderBurrs`, `grinderModel`, `openedDate`, `puckPrep`, `storageHint` is declared in both,
+      and the four extras (`beanBaseJson`, `grinderSetting`, `roastDate`, `roastLevel`) are what
+      makes `currentBean` a different increment, not a different dataset. The advisor slices the
+      same identity three ways — `currentBean` (the setup now), `dialInSessions[].context` (the
+      setup a past session shared), per-shot overrides (what one shot differed on) — and only the
+      last two read `ShotIdentity::fields()`. Make the increment a selection over one definition:
+      `CurrentBeanBlockInputs` composes the identity rather than redeclaring it. Verify: adding a
+      component is one row, and no struct lists an identity field a second time.
+- [ ] 9.9 Sweep the other increments for the same shape before closing this out —
+      `bestRecentShot` (grinderModel + grinderSetting), `grinderCalibration` (grinderModel),
+      `grinderContext`. Each is a narrower slice of the same identity. Verify: each names the
+      fields it needs by selecting from the table, or the task records why a slice genuinely
+      cannot.

@@ -29,32 +29,67 @@ closely its bean, profile and setting match.
 - **THEN** the qualifying shots SHALL be exactly those that qualified before this requirement
 - **AND** no shot SHALL be excluded on equipment grounds
 
-### Requirement: In-app advisor history SHALL name the equipment set its shots were pulled on
+### Requirement: Both advisor surfaces SHALL send one payload in one format
 
-The hoisted setup header of the in-app advisor's historical context SHALL name the equipment set
-shared by the history's shots: the grinder (brand, model, burrs), the basket (brand, model), and
-the puck-prep technique set. Components with no recorded value SHALL be omitted rather than
-rendered as empty text.
+The in-app advisor and `ai_advisor_invoke` build their system prompt from one function and send
+it to the same model. They SHALL therefore send the same user-prompt format, assembled by the
+same code: the structured payload whose field paths that shared system prompt names. Neither
+surface SHALL carry a second renderer of the same data.
+
+A system prompt that instructs the model to read `dialInSessions[].context` and a payload that
+delivers markdown are a contract and a breach of it. Two renderers of one dataset also drift by
+construction — the identity fields are defined once in `ShotIdentity::fields()`, and a hand-
+written second copy is what left the basket and puck prep out of one surface while the other
+picked them up from a single table row.
+
+The user's question SHALL travel as its own field rather than concatenated into the payload, so
+that recovering it for display is a field read and not a parse of prose.
+
+#### Scenario: The in-app advisor sends the structured blocks its system prompt names
+
+- **WHEN** the in-app advisor sends a shot with historical context
+- **THEN** the user prompt SHALL be the structured payload
+- **AND** SHALL carry the blocks the shared system prompt references, on the same field paths
+  `ai_advisor_invoke` uses
+
+#### Scenario: One renderer defines the payload
+
+- **WHEN** an equipment component is added to `ShotIdentity::fields()`
+- **THEN** it SHALL appear on both surfaces without a further edit to either
+- **AND** no surface SHALL hand-render an identity field it could read from that table
+
+#### Scenario: The displayed conversation reads the question from a field
+
+- **WHEN** the conversation view renders a user turn that carried shot context
+- **THEN** the question SHALL be read from the turn's own field
+- **AND** SHALL NOT be recovered by searching the payload text for delimiters
+
+### Requirement: The advisor payload SHALL name the equipment set its shots were pulled on
+
+The advisor payload SHALL name the equipment set shared by the history's shots: the grinder
+(brand, model, burrs), the basket (brand, model), and the puck-prep technique set. Components
+with no recorded value SHALL be omitted rather than emitted empty.
 
 A filter the model cannot see is a silent one: without the equipment named in the payload, the
 model can neither attribute the history to the gear it came from nor recognise that a user has
-changed baskets. The equipment set SHALL be rendered from a single shared description so the
-setup header and the no-history block below cannot describe the same package differently.
+changed baskets. The equipment set SHALL come from a single shared definition so the session
+context and the no-history block below cannot describe the same package differently.
 
-#### Scenario: Setup header names grinder, basket and puck prep
+#### Scenario: The payload names grinder, basket and puck prep
 
 - **GIVEN** a history whose shots were pulled on a Niche Zero with 63mm Mazzer Kony conical
   burrs, a Graph Coffee "Stepped 58→46mm" basket, and puck prep of shaker + puck screen + RDT
-- **WHEN** the in-app advisor renders the historical context
-- **THEN** the setup header SHALL name the grinder, the basket and the puck-prep techniques
+- **WHEN** the advisor assembles the payload
+- **THEN** the hoisted session context SHALL name the grinder, the basket and the puck-prep
+  techniques
 - **AND** SHALL continue to name the bean, roast level and roast date as before
 
-#### Scenario: A package with no basket recorded omits the basket phrase
+#### Scenario: A package with no basket recorded omits the basket fields
 
 - **GIVEN** a history whose equipment package has no basket recorded
-- **WHEN** the in-app advisor renders the historical context
-- **THEN** the setup header SHALL name the grinder and bean as before
-- **AND** SHALL NOT contain an empty or placeholder basket phrase
+- **WHEN** the advisor assembles the payload
+- **THEN** the session context SHALL name the grinder and bean as before
+- **AND** SHALL NOT carry an empty or placeholder basket field
 
 ### Requirement: In-app advisor SHALL state an empty history rather than omitting it
 

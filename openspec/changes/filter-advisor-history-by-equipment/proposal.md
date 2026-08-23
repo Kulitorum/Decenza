@@ -39,9 +39,12 @@ in its context and reasoned from it: with no anchor available, the model invente
   falls into bucket 0 and matches every other bucket-0 shot, so a user who has never created a
   package sees no change — SQL `NULL = NULL` is not true, and a bare compare would silently drop
   every unpackaged shot.
-- The equipment set SHALL be named in the payload on both surfaces: the in-app history's hoisted
-  `### Setup:` header gains basket and puck prep, and the MCP session `context` gains
-  `basketBrand` / `basketModel` / `puckPrep` under the existing hoist discipline.
+- The equipment set SHALL be named in the payload, once, in one format. `ShotIdentity::fields()`
+  already puts `basketBrand` / `basketModel` / `puckPrep` into the MCP session `context` from a
+  single table row. The in-app surface does not read that table: it hand-renders a prose
+  `### Setup:` header from its own list of setup fields, which is why the same three components
+  do not reach it. **The fix is to delete the second renderer, not to add a ninth copy of the
+  field list to it** — see "One payload, one format" below.
 - When no prior shots match, the in-app advisor SHALL emit an explicit "no prior shots with this
   equipment set" block naming the set, instead of omitting the history section. An absent block
   is indistinguishable from "this user has no history", and an unanchored model invents an
@@ -58,6 +61,55 @@ in its context and reasoned from it: with no anchor available, the model invente
   which forks the package), the advisor's history starts empty until shots accumulate on the new
   set. This is intended — those shots make different coffee at the same dial — and the explicit
   no-history block is what keeps the state legible rather than silent.
+
+## One payload, one format
+
+The advisor has two surfaces and they send the model two different things. `ai_advisor_invoke`
+(MCP) sends a JSON object — `dialInSessions`, `bestRecentShot`, `currentBean`, `grinderContext`,
+`grinderCalibration`, `recentAdvice`, `sawPrediction`. The in-app conversation overlay sends
+prose: a hand-rendered `### Setup:` header plus per-shot markdown, composed in QML and passed
+to `AIConversation::ask()` verbatim.
+
+**Both surfaces build their system prompt from the same function.**
+`AIConversation::multiShotSystemPrompt` calls `ShotSummarizer::shotAnalysisSystemPrompt` and
+appends a Multi-Shot Context paragraph; `ai_advisor_invoke` calls the same builder. That shared
+prompt is ~45,000 characters and it names the structured blocks 35 times — `currentBean` 16,
+`dialInSessions` 7, `bestRecentShot` 5, `tastingFeedback` 4, `recentAdvice` 2, `grinderContext`
+1 — instructing the model to read them by field path.
+
+The in-app surface delivers none of those paths. The model is told to read
+`dialInSessions[].context` and receives markdown. So one prompt is being served by two payload
+formats, only one of which it describes.
+
+The second renderer is not free:
+
+- **Every field is written twice.** `ShotIdentity::fields()` is the one table for shot identity,
+  and the prose header does not use it — it declares, seeds, compares and renders seven setup
+  fields by hand. That is exactly why this change's own task list contains "the `### Setup:`
+  header gains basket and puck prep": the JSON side got them from one row, the prose side needs
+  four more edits. The next component will need them again.
+- **The composed prose is parsed back out with string heuristics.**
+  `AIConversation::getConversationText` recovers the user's question from the sent message by
+  searching for `"Here's my latest shot:"`, taking the last `\n\n`, and guessing (its own
+  comment says "Simple heuristic") whether what follows "looks like a question" by testing for
+  `": "` and a length under 500. That parser exists only because the question is glued to a
+  prose payload; it is ~70 lines and it has no correct implementation.
+- **Blocks are already half-shared.** `emitRecentShotContext`'s own thread opens `withTempDb`,
+  builds an `AdviceScope`, and calls `DialingBlocks::buildGrinderCalibrationBlock` and
+  `buildRecentAdviceBlock` — the same builders MCP uses — then hand-renders the remaining two
+  blocks as prose from the same `qualifiedShots` and the same DB handle. The split is not along
+  any line in the data.
+
+So: **one format, and it is the JSON one**, because that is what the shared system prompt
+describes and what the MCP surface already proves out. The in-app path routes through
+`DialingBlocks::buildDialInSessionsBlock` / `buildBestRecentShotBlock` and
+`AIManager::enrichUserPromptObject` like the MCP path does, the prose header and its field list
+are deleted, and the user's question travels as its own field instead of being recovered from
+the text by heuristic.
+
+This is in scope here rather than deferred because this change is what surfaced it: the
+equipment-scope work has to touch every place the payload names the gear, and doing that twice
+is the cost the change exists to remove.
 
 ## Capabilities
 
