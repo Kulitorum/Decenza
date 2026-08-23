@@ -28,8 +28,10 @@ is not delivered.
       Every current test calls the block builders with a hand-made `AdviceScope`, so a call site
       passing the wrong shot's `equipmentId` — or falling back to bucket 0 — would compile clean
       and pass the whole suite.
-- [ ] 1.12 `docs/CLAUDE_MD/MCP_SERVER.md:1044-1048` cites `getRecentShotsByKbId()`, a symbol that
-      does not exist. Pre-existing, adjacent to this work.
+- [x] 1.12 `getRecentShotsByKbId()` does not exist — it was removed as callerless, and five doc
+      citations plus one source comment outlived it. The design-time "ShotHistoryStorage
+      prerequisite" section in `MCP_SERVER.md` is deleted (the tool it gated has shipped for
+      months); the rest now name `loadRecentShotsByKbIdStatic()`.
 
 ## 2. Conversation threads keyed by equipment (done)
 
@@ -121,10 +123,13 @@ renderer instead.
 
 ## 7. Documentation
 
-- [ ] 7.1 `docs/CLAUDE_MD/AI_ADVISOR.md` still describes `queryGrinderContext` as
-      "Grinder-model-wide" and `loadRecentShotsByKbIdStatic` as "Last N shots with same profile
-      family". Both are now false. The word "equipment" does not appear in the file.
-- [ ] 7.2 `docs/CLAUDE_MD/MCP_SERVER.md` — payload fields, once section 3 lands.
+- [x] 7.1 `docs/CLAUDE_MD/AI_ADVISOR.md` — a "Scoped to the Equipment Package" section carrying
+      the three things a reader needs before touching this area: the conversation key holds the
+      package, no match emits `noDialInHistory`, and an import re-keys through the package map.
+      Two stale claims fixed while there: the deleted prose readers described as still serving old
+      conversations, and `src/mcp/mcptools_dialing_blocks.h`, a path that does not exist.
+- [x] 7.2 `docs/CLAUDE_MD/MCP_SERVER.md` — `dialing_get_context` history scoped to the package and
+      the `noDialInHistory` block; `ai_conversations` list/get entries carry `equipment`.
 - [ ] 7.3 Wiki manual: no entry. This changes how the advisor selects its own context; nothing
       new is discoverable or actionable by the user.
 

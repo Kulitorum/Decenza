@@ -179,6 +179,16 @@ Both the in-app AI advisor and the MCP `dialing_get_context` tool use the same u
 | **Grinder context** | `ShotHistoryStorage::queryGrinderContext()` | Observed settings range, min/max, and `stepSize` — the grinder's effective step, the smallest gap the user makes repeatedly (`deriveGrindStep`), so a one-off mistyped setting doesn't skew it and a coarse-heavy history doesn't hide the fine step. `stepSize` stays grinder-model-wide so it matches the Grind quick-select widget's `grindStepForGrinder()`; the observed settings and RPM axes are scoped to the shot's equipment package (`AdviceScope`, `src/history/shotscope.h`). Used by both MCP and in-app AI `requestRecentShotContext()` |
 | **Dial-in history** | `ShotHistoryStorage::loadRecentShotsByKbIdStatic()` | Last N shots with same profile family, scoped to the shot's equipment package (`AdviceScope`) |
 
+### Scoped to the Equipment Package
+
+Every DB-backed block selects on the shot's **equipment package** — grinder, basket and puck prep as one unit (`AdviceScope`, `src/history/shotscope.h`) — not on the grinder alone. Package id 0 is the unpackaged pool. A grind number means nothing across a basket change, so history from another package is not comparable data, it is misleading data.
+
+Three consequences worth knowing before touching this area:
+
+- **Conversations are keyed on the package too** (`ConversationKey::derive`, `src/ai/conversationkey.h`). A saved thread replays its stored turns on every request, so scoping the payload alone would leave older turns describing another basket inside the same transcript. One bean and profile can therefore hold several threads; the index entry snapshots the package label so they can be told apart.
+- **No match emits `noDialInHistory`**, a block naming the equipment set and stating the count is zero. An omitted section reads as "no history at all", and an unanchored model invents an anchor.
+- **An import re-keys** every conversation through `ImportResult::equipmentIdMap`, because the key holds a package row id and a restore renumbers those rows. A conversation naming a package that did not come across is refused, not filed under the unpackaged pool.
+
 ### What Differs Between Paths
 
 | Aspect | In-App AI | MCP |
@@ -187,7 +197,7 @@ Both the in-app AI advisor and the MCP `dialing_get_context` tool use the same u
 | **`currentDateTime`** | Not in user prompt (cache stability) | Included at top level of `dialing_get_context` response |
 | **Wrapper fields** | `shotId` lives only on `ai_advisor_invoke` (not in the user prompt itself) | `shotId` shipped at top level |
 
-The four DB-scoped blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`) ship in **both** the in-app advisor's user prompt and `dialing_get_context`'s response, produced by shared helpers in `src/mcp/mcptools_dialing_blocks.h` so the two surfaces cannot drift. See openspec change `add-dialing-blocks-to-advisor`.
+The four DB-scoped blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`) ship in **both** the in-app advisor's user prompt and `dialing_get_context`'s response, produced by shared helpers in `src/ai/dialing_blocks.h` so the two surfaces cannot drift. See openspec change `add-dialing-blocks-to-advisor`.
 
 ### How the In-App Advisor Enriches the User Prompt
 
@@ -195,7 +205,7 @@ The four DB-scoped blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`, 
 
 The shot's own payload is a `QJsonObject` from `ShotSummarizer::buildUserPromptObject(summary)`. The five DB-backed context blocks — `dialInSessions`, `bestRecentShot`, `grinderContext`, `grinderCalibration`, `recentAdvice` — come from **one** assembler, `DialingBlocks::buildAdvisorContextBlocks(db, shot, shotId, turns)`, which both `ai_advisor_invoke` and `AIManager::requestRecentShotContext` call on a background thread. `AIManager::enrichUserPromptObject` owns the merge and adds `sawPrediction` from `m_settings` / `m_profileManager` (main-thread only). Empty blocks are suppressed — no key, no `null` placeholder.
 
-For the in-app conversation, `AIManager::buildConversationUserPrompt(shot, question, shotLabel)` assembles the finished turn: that payload plus `question`, `shotLabel`, and `changesFromPreviousShotInConversation` (what moved since the previous shot in this thread, `anyChange: false` when nothing did). **The question is a field, not text wrapped around the object.** The wrapped shape is why `AIConversation::getConversationText` carries a question-recovery heuristic and `extractShotFields` a hand-written brace-matching JSON scanner; both now serve only conversations stored before this change, which persist in QSettings under `ai/conversations/<key>/` with no expiry and so must still render.
+For the in-app conversation, `AIManager::buildConversationUserPrompt(shot, question, shotLabel)` assembles the finished turn: that payload plus `question`, `shotLabel`, and `changesFromPreviousShotInConversation` (what moved since the previous shot in this thread, `anyChange: false` when nothing did). **The question is a field, not text wrapped around the object.** The question-recovery heuristic in `getConversationText` and the brace-matching JSON scanner in `extractShotFields` existed only to undo the old wrapping and are deleted — stored content parses with a plain `QJsonDocument::fromJson`. Nothing had to be kept for old conversations because the key change wipes them once (`clearAllConversationsOnce("equipment_scoped_conversations_v2")`).
 
 Note: `dialing_get_context` (the MCP read tool) shares the four `McpDialingBlocks::*` block builders but does **not** go through `enrichUserPromptObject` — it assembles its own response envelope (top-level `dialInSessions` / `bestRecentShot` / `sawPrediction` / `grinderContext` plus `currentBean`, `profile`, `tastingFeedback`, `shotAnalysis`). The block-level shape is shared by construction; the wrapper envelope is not.
 
@@ -459,7 +469,7 @@ Blooming Espresso:
 
 ### 3. User History Summary
 
-**Same-profile dial-in history** — **Implemented.** When analyzing a shot, up to 5 recent shots with the same KB ID are included in the user prompt via `ShotHistoryStorage::getRecentShotsByKbId()`. Each historical shot includes the full profile recipe, grind setting, temperature, dose/yield, score, and tasting notes. This lets the AI track dial-in progression and correlate changes with results (e.g., "you ground 2 clicks finer and the sourness resolved").
+**Same-profile dial-in history** — **Implemented.** When analyzing a shot, up to 5 recent shots with the same KB ID and the same equipment package are included in the user prompt via `ShotHistoryStorage::loadRecentShotsByKbIdStatic()`. Each historical shot includes the full profile recipe, grind setting, temperature, dose/yield, score, and tasting notes. This lets the AI track dial-in progression and correlate changes with results (e.g., "you ground 2 clicks finer and the sourness resolved").
 
 **Cross-profile history** — Not yet implemented. The AI doesn't know the user's track record *across* different profiles. A session-level summary would enable:
 
