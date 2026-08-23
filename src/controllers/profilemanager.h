@@ -293,7 +293,15 @@ public:
     Q_INVOKABLE QVariantMap getCurrentProfile() const;
     Q_INVOKABLE void markProfileClean();
     Q_INVOKABLE QString titleToFilename(const QString& title) const;
-    Q_INVOKABLE QString findProfileByTitle(const QString& title) const;
+    // Inline, and the only definition: the dialing-block library links this
+    // header but not this class's TU, and a shot records its profile TITLE while
+    // SAW and the flow calibrations key on the FILENAME. Empty when this device
+    // has no profile by that title.
+    Q_INVOKABLE QString findProfileByTitle(const QString& title) const {
+        for (const ProfileInfo& info : m_allProfiles)
+            if (info.title == title) return info.filename;
+        return QString();
+    }
     // Installed-catalog metadata for a profile title, for read-only display
     // surfaces (e.g. the recipe wizard's Profile summary card) that want the
     // scan-time metadata without a per-call file read. Returns an empty map

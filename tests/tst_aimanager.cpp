@@ -45,6 +45,7 @@
 #include "mcp/mcpagentdocs.h"
 #include "ai/aiconversation.h"
 #include "core/settings.h"
+#include "core/settings_calibration.h"
 #include "core/settings_dye.h"
 #include "core/settings_ai.h"  // settings.ai()->set*: full type for the extraction-routing tests
 #include "history/shotprojection.h"
@@ -1898,6 +1899,48 @@ private slots:
     // omission contract (empty QJsonObject so callers suppress the key)
     // without needing real DB infrastructure.
     // ---------------------------------------------------------------------
+    // The drip figure is a number the user dials into stop-at-weight, and it
+    // differs about 2x between baskets on one profile and scale. Reading the
+    // ACTIVE basket while analysing a shot pulled on another is the same
+    // cross-equipment confound this change removes everywhere else, arriving
+    // through the one block that resolved its bucket from "right now".
+    void sawPredictionBlock_readsTheShotsBasketNotTheActiveOne_data()
+    {
+        QTest::addColumn<QString>("shotBrand");
+        QTest::addColumn<QString>("shotModel");
+        QTest::addColumn<QString>("expected");
+
+        const QString graphBrand = QStringLiteral("Graph Coffee");
+        const QString graphModel = QStringLiteral("Stepped 58->46mm");
+
+        QTest::newRow("the shot's own basket wins over the active one")
+            << graphBrand << graphModel
+            << SettingsCalibration::sawBasketKey(graphBrand, graphModel);
+        QTest::newRow("brand alone is still the shot's basket")
+            << graphBrand << QString()
+            << SettingsCalibration::sawBasketKey(graphBrand, QString());
+        QTest::newRow("model alone is still the shot's basket")
+            << QString() << graphModel
+            << SettingsCalibration::sawBasketKey(QString(), graphModel);
+        // No basket recorded means no bucket of its own, and the active one is
+        // then the right answer — that is what a live, unsaved shot looks like.
+        QTest::newRow("no basket recorded falls back to the active bucket")
+            << QString() << QString() << QStringLiteral("decent-18g-ridged");
+    }
+
+    void sawPredictionBlock_readsTheShotsBasketNotTheActiveOne()
+    {
+        QFETCH(QString, shotBrand);
+        QFETCH(QString, shotModel);
+        QFETCH(QString, expected);
+
+        ShotProjection shot;
+        shot.basketBrand = shotBrand;
+        shot.basketModel = shotModel;
+        QCOMPARE(DialingBlocks::sawBasketKeyFor(shot, QStringLiteral("decent-18g-ridged")),
+                 expected);
+    }
+
     void sawPredictionBlock_omittedWhenSettingsNull()
     {
         // Espresso shot WITH flow data so we get past the espresso and flow

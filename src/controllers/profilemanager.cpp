@@ -1005,15 +1005,6 @@ QString ProfileManager::titleToFilename(const QString& title) const {
     return Profile::titleToFilename(title);
 }
 
-QString ProfileManager::findProfileByTitle(const QString& title) const {
-    for (const ProfileInfo& info : m_allProfiles) {
-        if (info.title == title) {
-            return info.filename;
-        }
-    }
-    return QString();
-}
-
 QVariantMap ProfileManager::profileCatalogInfoForTitle(const QString& title) const {
     for (const ProfileInfo& info : m_allProfiles) {
         if (info.title != title)

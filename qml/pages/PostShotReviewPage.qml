@@ -1014,7 +1014,10 @@ T.Page {
         anchors.bottomMargin: Theme.bottomBarHeight
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
-        contentHeight: mainColumn.height
+        // implicitHeight, not height: the graph is user-resizable, and the layout's
+        // own geometry lags a child that grows, leaving the last cards unreachable.
+        // The pad clears the bottom bar. Same form as BeanInfoPage/EquipmentPage.
+        contentHeight: mainColumn.implicitHeight + Theme.scaled(20)
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         onMovementStarted: postShotReviewPage.resetAutoCloseTimer()

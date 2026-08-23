@@ -530,6 +530,13 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db, const ShotProjection& cur
     return grinderCtx;
 }
 
+QString sawBasketKeyFor(const ShotProjection& shot, const QString& activeBasketKey)
+{
+    if (shot.basketBrand.isEmpty() && shot.basketModel.isEmpty())
+        return activeBasketKey;
+    return SettingsCalibration::sawBasketKey(shot.basketBrand, shot.basketModel);
+}
+
 QJsonObject buildSawPredictionBlock(Settings* settings,
                                     ProfileManager* profileManager,
                                     const ShotProjection& currentShot)
@@ -556,12 +563,19 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
     // from the advisor's own output. Empty asks SettingsCalibration to resolve, which is
     // the same answer the learner, the Calibration tab and the MCP reset tool all get.
     const QString scaleType = settings->calibration()->currentScaleType();
-    const QString profileFilename = profileManager->baseProfileName();
+
+    // THIS SHOT'S profile, not the active one — same reason as the basket below.
+    // The shot records a TITLE; the catalog maps it to the filename SAW learned
+    // under. Falls back to the active profile when the shot names none, or names
+    // one this device no longer has (an imported archive, a deleted profile).
+    const QString shotProfile = currentShot.profileName.isEmpty()
+        ? QString() : profileManager->findProfileByTitle(currentShot.profileName);
+    const QString profileFilename = shotProfile.isEmpty() ? profileManager->baseProfileName()
+                                                          : shotProfile;
     if (scaleType.isEmpty() || profileFilename.isEmpty()) return QJsonObject();
 
-    // Basket left to resolve, for the same reason the scale is: the active basket is the
-    // bucket the learner is training and the Calibration tab is showing.
-    const QString basketKey = settings->calibration()->currentBasketKey();
+    const QString basketKey =
+        sawBasketKeyFor(currentShot, settings->calibration()->currentBasketKey());
     const double predictedDripG =
         settings->calibration()->getExpectedDripFor(profileFilename, scaleType, flowAtCutoff, basketKey);
     const QString sourceTier =
@@ -583,11 +597,17 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
         QString::number(learnedLagSec, 'f', 2).toDouble();
     sawPrediction["sampleCount"] = sampleCount;
     sawPrediction["sourceTier"] = sourceTier;
+    // Which of the three key parts describe the SHOT. Shots do not record a
+    // scale, so that one is always the currently-connected one — say so rather
+    // than let a block sitting among shot-scoped data imply otherwise.
+    sawPrediction["keyedOn"] = QStringLiteral(
+        "this shot's profile and basket; scale is the one connected now "
+        "(shots do not record a scale)");
     if (predictedDripG >= 0.2) {
         sawPrediction["recommendation"] = QString(
             "Set the stop-at-weight target ~%1 g lower than your aim "
             "to land near goal — that's the typical post-cutoff drip "
-            "on this (profile, scale) pair.")
+            "on this (profile, scale, basket) combination.")
                 .arg(predictedDripG, 0, 'f', 1);
     }
     return sawPrediction;

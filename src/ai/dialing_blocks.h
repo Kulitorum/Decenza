@@ -418,6 +418,18 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
                                     ProfileManager* profileManager,
                                     const ShotProjection& currentShot);
 
+// Which SAW bucket a shot's drip prediction reads from: THIS SHOT'S basket,
+// falling back to `activeBasketKey` only when the shot records none (an
+// unpackaged shot, or a live one not yet saved).
+//
+// Measured drip differs about 2x between baskets on one profile and scale —
+// that is why the basket is in the SAW key at all, see the openspec change
+// `key-saw-learning-by-basket` — so answering from the ACTIVE bucket while
+// analysing a shot pulled on another publishes a stop-at-weight number that
+// can be off by that factor, inside a payload whose every other block
+// describes this shot.
+QString sawBasketKeyFor(const ShotProjection& shot, const QString& activeBasketKey);
+
 // Predicted parameter changes + expected ranges out of one `structuredNext`
 // block (see ShotSummarizer's "Response Format" schema), as short
 // human-readable fragments. Shared by `buildRecentAdviceBlock`'s one-line
