@@ -324,6 +324,20 @@ public:
      * parse-and-check-empty reports damaged bytes as absent. Both mistakes have
      * shipped here.
      */
+    // Name for a log line. Beside the enum so it cannot drift from it, and one
+    // definition because a bare `int(state)` is undecodable in a submitted log:
+    // the reader needs the header AT THE MATCHING REVISION, and inserting a
+    // fifth state silently renumbers every log line ever submitted.
+    static constexpr const char* transcriptStateName(TranscriptState s) {
+        switch (s) {
+        case TranscriptState::Missing: return "missing";
+        case TranscriptState::Empty:   return "empty";
+        case TranscriptState::Corrupt: return "corrupt";
+        case TranscriptState::Ok:      return "ok";
+        }
+        return "unknown";
+    }
+
     static TranscriptState storedTranscriptState(AppSettings& settings,
                                                  const QString& storageKey,
                                                  QJsonArray* outTurns = nullptr);

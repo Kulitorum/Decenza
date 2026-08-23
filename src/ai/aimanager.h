@@ -431,8 +431,9 @@ private:
     int m_contextSerial = 0;
 
 public:
-    // Re-reads the index off disk. Does NOT trim -- which is what makes it safe to
-    // call straight after an import; see the note in loadConversationIndex().
+    // Re-reads the index off disk and re-sorts it most-recent-first in memory.
+    // Does NOT trim -- which is what makes it safe to call straight after an
+    // import; see the note in loadConversationIndex().
     void reloadConversations() { loadConversationIndex(); }
 private:
     void loadConversationIndex();

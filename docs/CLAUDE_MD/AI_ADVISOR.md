@@ -131,7 +131,7 @@ Two traps it documents, both of which silently void a run: an emission test over
 - Tasting notes and enjoyment score — **only if user enters it manually**
 - Anomaly flags (channeling, temperature instability)
 
-**Dial-in history** (~200-500 tokens per historical shot, up to 5): When the current shot has a resolved KB ID, the system queries the last 5 shots with the same KB ID from `ShotHistoryStorage::getRecentShotsByKbId()`. Each historical shot includes: profile name, recipe (frame-by-frame), dose/yield/ratio, duration, grind setting, temperature override, bean info, TDS/EY, score, and tasting notes. This lets the AI see what changed between shots (e.g., "you went 2 clicks finer and the sourness improved").
+**Dial-in history** (~200-500 tokens per historical shot, up to 5): When the current shot has a resolved KB ID, the system queries the last 5 shots with the same KB ID from `ShotHistoryStorage::loadRecentShotsByKbIdStatic()`. Each historical shot includes: profile name, recipe (frame-by-frame), dose/yield/ratio, duration, grind setting, temperature override, bean info, TDS/EY, score, and tasting notes. This lets the AI see what changed between shots (e.g., "you went 2 clicks finer and the sourness improved").
 
 **Multi-shot conversations**: Previous shots are summarized and compressed. Older messages get trimmed to manage token count.
 
@@ -177,7 +177,7 @@ Both the in-app AI advisor and the MCP `dialing_get_context` tool use the same u
 | **Dial-in reference tables** | `resources/ai/espresso_dial_in_reference.md` | Structured variable→taste tables. Loaded as Qt resource, appended in `shotAnalysisSystemPrompt()` |
 | **Profile KB matching** | `ShotSummarizer::matchProfileKey()` | Three-tier matching: direct KB ID → fuzzy title → editor type fallback |
 | **Grinder context** | `ShotHistoryStorage::queryGrinderContext()` | Observed settings range, min/max, and `stepSize` — the grinder's effective step, the smallest gap the user makes repeatedly (`deriveGrindStep`), so a one-off mistyped setting doesn't skew it and a coarse-heavy history doesn't hide the fine step. Grinder-model-wide, so it matches the Grind quick-select widget's `grindStepForGrinder()`. Used by both MCP and in-app AI `requestRecentShotContext()` |
-| **Dial-in history** | `ShotHistoryStorage::getRecentShotsByKbId()` | Last N shots with same profile family |
+| **Dial-in history** | `ShotHistoryStorage::loadRecentShotsByKbIdStatic()` | Last N shots with same profile family |
 
 ### What Differs Between Paths
 
@@ -455,7 +455,7 @@ Blooming Espresso:
 
 ### 3. User History Summary
 
-**Same-profile dial-in history** — **Implemented.** When analyzing a shot, up to 5 recent shots with the same KB ID are included in the user prompt via `ShotHistoryStorage::getRecentShotsByKbId()`. Each historical shot includes the full profile recipe, grind setting, temperature, dose/yield, score, and tasting notes. This lets the AI track dial-in progression and correlate changes with results (e.g., "you ground 2 clicks finer and the sourness resolved").
+**Same-profile dial-in history** — **Implemented.** When analyzing a shot, up to 5 recent shots with the same KB ID are included in the user prompt via `ShotHistoryStorage::loadRecentShotsByKbIdStatic()`. Each historical shot includes the full profile recipe, grind setting, temperature, dose/yield, score, and tasting notes. This lets the AI track dial-in progression and correlate changes with results (e.g., "you ground 2 clicks finer and the sourness resolved").
 
 **Cross-profile history** — Not yet implemented. The AI doesn't know the user's track record *across* different profiles. A session-level summary would enable:
 
@@ -753,7 +753,7 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 5. **New bean preset fields + AI integration** — Add origin, processing, variety, altitude, roaster tasting notes to bean presets. Extend `ShotSummarizer::buildUserPrompt()` to include enriched data.
 
 ### Phase 3: Personalization (app-side work)
-6. ~~**Dial-in history per profile family** (idea #3 partial)~~ — **Done.** Up to 5 recent shots with the same KB ID are included in the user prompt with full recipe, grind, temp, dose, score, and tasting notes. Queried via `ShotHistoryStorage::getRecentShotsByKbId()`.
+6. ~~**Dial-in history per profile family** (idea #3 partial)~~ — **Done.** Up to 5 recent shots with the same KB ID are included in the user prompt with full recipe, grind, temp, dose, score, and tasting notes. Queried via `ShotHistoryStorage::loadRecentShotsByKbIdStatic()`.
 7. ~~**Curated profile knowledge base** (idea #2)~~ — **Done.** 39 KB sections covering all built-in profile families, integrated into system prompt via `shotAnalysisSystemPrompt()`.
 8. **User history summary across profiles** (idea #3 remaining) — Aggregate shot history into per-session summary showing which profiles the user has tried, average ratings, best/worst combos. Would enable cross-profile recommendations.
 9. ~~**Cross-profile recommendation guidance**~~ (idea #6) — **Done** (April 2026). Added "When to Suggest a Different Profile" section to espresso system prompt. Triggers: roast/profile mismatch, persistent issues across multiple shots, or user request. Guards against premature switching (2-3 shots minimum). Depends on profile catalog (Phase 1 item 2, also done).

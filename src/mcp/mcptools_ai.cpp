@@ -146,20 +146,24 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // The shot record is loaded and valid, and carries this
                         // shot's package. 0 = unpackaged, a real bucket.
                         //
-                        // Three of the four builders take the whole `shot`, so the
-                        // bucket and the fields it scopes come off the same row by
-                        // construction. `buildGrinderCalibrationBlock` is the
-                        // exception: it takes discrete fields and re-loads the row
-                        // itself (dialing_blocks.cpp, loadShotRecordStatic) because
-                        // it needs the whole record. Same connection, same row.
+                        // Three of the FIVE dialing-context builders below take the
+                        // whole `shot`, so the bucket and the fields it scopes come
+                        // off the same row by construction. Two do not:
+                        // `buildGrinderCalibrationBlock` takes discrete fields and
+                        // re-loads the row itself (dialing_blocks.cpp,
+                        // loadShotRecordStatic) -- for signature stability, not
+                        // because it needs more than the others -- and
+                        // `buildRecentAdviceBlock` takes a RecentAdviceInputs struct.
+                        // Same connection, same id, so still the same row.
                         // This local exists only for conversationKey() further down.
                         //
-                        // Three drafts of this comment have been wrong: "no second
-                        // lookup" while three builders resolved their own, then
-                        // "three of the four take this value" after they stopped
-                        // taking it, then "the builders take the whole shot" which
-                        // dropped the exception. Open the call sites below before
-                        // editing this; do not reason about it from the prose.
+                        // FOUR drafts of this comment have been wrong: "no second
+                        // lookup" while three builders resolved their own; "three of
+                        // the four take this value" after they stopped taking it;
+                        // "the builders take the whole shot", dropping the exception;
+                        // then "three of the four ... the exception", which miscounted
+                        // the builders and missed the second one. Count the
+                        // `DialingBlocks::` calls below before editing this line.
                         const qint64 equipmentBucket = shot.equipmentId;
 
                         // Same dialing-context blocks the in-app advisor

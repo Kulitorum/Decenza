@@ -747,6 +747,135 @@ private slots:
         settings.clear();
     }
 
+    // A timestamp from the future is clamped, not honoured.
+    //
+    // Eviction order and which thread reopens at launch are both decided by
+    // timestamp, and an archive carries whatever clock the source device had. An
+    // absurd value left alone sorts to the head at EVERY launch: never evicted, and
+    // reopened by loadMostRecentConversation forever, with the user's actual most
+    // recent thread permanently behind it.
+    void aFutureTimestampIsClampedSoItCannotPinTheHead()
+    {
+        AppSettings settings;
+        settings.clear();
+        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
+        settings.setValue(QStringLiteral("ai/migrations/equipment_scoped_conversations_v1"), true);
+
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        const qint64 absurd = now + 10 * 365 * 24 * 3600;   // a decade ahead
+        const QString skewed = QStringLiteral("skewedClock");
+
+        QJsonArray index;
+        for (const auto& pair : {std::make_pair(skewed, absurd),
+                                 std::make_pair(QStringLiteral("normal"), now)}) {
+            AIConversation::appendAssistantTurnForKey(
+                pair.first, 1, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+                QStringLiteral("sys"));
+            QJsonObject e;
+            e["key"] = pair.first;
+            e["beanBrand"] = QStringLiteral("Brand");
+            e["beanType"] = pair.first;
+            e["profileName"] = QStringLiteral("D-Flow / Q");
+            e["timestamp"] = pair.second;
+            index.append(e);
+        }
+        settings.setValue(QStringLiteral("ai/conversations/index"),
+                          QJsonDocument(index).toJson(QJsonDocument::Compact));
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("carries a timestamp .* in the future"));
+        AIManager mgr(&nam, &appSettings);
+
+        QCOMPARE(mgr.m_conversationIndex.size(), 2);
+        for (const auto& e : mgr.m_conversationIndex) {
+            if (e.key != skewed) continue;
+            QVERIFY2(e.timestamp <= now + 86400,
+                     qPrintable(QStringLiteral("A decade-ahead timestamp survived the load "
+                                               "as %1; it would sit at the head forever")
+                                    .arg(e.timestamp)));
+        }
+
+        settings.clear();
+    }
+
+    // A restored thread must not be evicted ahead of genuinely older local ones.
+    //
+    // trimConversationsTo takes from the TAIL, which is only correct if the index is
+    // ordered most-recent-first. saveConversationIndex produces that order, but
+    // importConversationsStatic APPENDS restored entries in archive order carrying
+    // their archived timestamp -- so after a restore the tail held the newest
+    // threads, and the trim destroyed a transcript from yesterday while a local one
+    // from a year ago survived. loadConversationIndex now sorts by timestamp.
+    //
+    // Seeded in the shape a restore actually leaves behind rather than a tidy one:
+    // the existing cap test seeds already-descending timestamps, so the sort is a
+    // no-op there and deleting it leaves that test green.
+    void aRestoredThreadIsNotEvictedAheadOfOlderLocalOnes()
+    {
+        AppSettings settings;
+        settings.clear();
+        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
+        settings.setValue(QStringLiteral("ai/migrations/equipment_scoped_conversations_v1"), true);
+
+        const QString restored = QStringLiteral("restoredThread");
+        const QString oldestLocal = QStringLiteral("local4");
+
+        QJsonArray index;
+        auto addEntry = [&index](const QString& key, qint64 timestamp) {
+            QJsonObject e;
+            e["key"] = key;
+            e["beanBrand"] = QStringLiteral("Brand");
+            e["beanType"] = key;
+            e["profileName"] = QStringLiteral("D-Flow / Q");
+            e["timestamp"] = timestamp;
+            index.append(e);
+        };
+
+        // Five local threads as saveConversationIndex writes them: most recent first.
+        for (int i = 0; i < AIManager::MAX_CONVERSATIONS; ++i) {
+            const QString key = QStringLiteral("local%1").arg(i);
+            AIConversation::appendAssistantTurnForKey(
+                key, i + 1, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+                QStringLiteral("sys"));
+            addEntry(key, 5000 - i * 1000);   // local0 newest ... local4 oldest
+        }
+        // ...then the restored one, APPENDED at the tail the way an import leaves it,
+        // carrying an archived timestamp NEWER than every local thread.
+        AIConversation::appendAssistantTurnForKey(
+            restored, 9, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+            QStringLiteral("sys"));
+        addEntry(restored, 9999);
+
+        settings.setValue(QStringLiteral("ai/conversations/index"),
+                          QJsonDocument(index).toJson(QJsonDocument::Compact));
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        // The sort must have moved the restored thread off the tail.
+        QCOMPARE(mgr.m_conversationIndex.first().key, restored);
+
+        // Starting a new conversation drives the trim, which takes from the tail.
+        const QString fresh = mgr.switchConversation(
+            QStringLiteral("Fresh"), QStringLiteral("Bean"),
+            QStringLiteral("D-Flow / Q"), 12);
+        AIConversation::appendAssistantTurnForKey(
+            fresh, 12, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+            QStringLiteral("sys"));
+        mgr.indexStoredConversation();
+
+        QCOMPARE(AIConversation::storedTranscriptState(settings, restored),
+                 AIConversation::TranscriptState::Ok);
+        // ...and it was the genuinely oldest that went, not an arbitrary one.
+        QCOMPARE(AIConversation::storedTranscriptState(settings, oldestLocal),
+                 AIConversation::TranscriptState::Missing);
+
+        settings.clear();
+    }
+
     // An index that arrives over the cap must come back under it.
     //
     // The trim used to drop exactly one entry per call, which made an over-cap

@@ -2056,6 +2056,37 @@ void AIManager::loadConversationIndex()
                     qWarning() << "AIManager::loadConversationIndex: Skipping entry with empty key";
                     continue;
                 }
+                // `timestamp` decides eviction order (see the sort below), so an
+                // unusable one is not cosmetic: absent, null or non-numeric all
+                // read back as 0 from fromJson, which sorts BELOW every real entry
+                // and makes that thread the first thing destroyed -- exactly the
+                // loss the sort exists to prevent, arriving through the entry class
+                // most likely to carry a bad value. A restore reads user-supplied
+                // archive JSON, and a far-future value is just as bad in the other
+                // direction: it would sit at the head forever, never evicted and
+                // reopened at every launch.
+                const qint64 now = QDateTime::currentSecsSinceEpoch();
+                if (entry.timestamp <= 0) {
+                    // Benign and expected: an archive written before entries carried
+                    // indexTimestamp, or a hand-made one. DEBUG, not WARN -- nothing
+                    // is wrong, and dating it to now is the safe guess in the only
+                    // direction that matters: 0 would sort it below every local
+                    // thread and make it the first thing destroyed. Ties among a
+                    // restored batch keep their archive order via the stable sort.
+                    qDebug() << "AIManager::loadConversationIndex: entry" << entry.key
+                             << "carries no usable timestamp - dating it to now so it"
+                             << "is not evicted ahead of genuinely older threads";
+                    entry.timestamp = now;
+                } else if (entry.timestamp > now + 86400) {
+                    // Not benign: a clock-skewed source device or a tampered archive.
+                    // Left alone it sorts to the head at EVERY launch -- never
+                    // evicted, and reopened by loadMostRecentConversation forever.
+                    qWarning() << "AIManager::loadConversationIndex: entry" << entry.key
+                               << "carries a timestamp" << entry.timestamp
+                               << "in the future - clamping to now so it is not pinned"
+                               << "at the head of the index permanently";
+                    entry.timestamp = now;
+                }
                 m_conversationIndex.append(entry);
             }
         }
@@ -2086,17 +2117,47 @@ void AIManager::loadConversationIndex()
     // order carrying the archived timestamp, so restored threads sat at the tail
     // and were evicted FIRST regardless of age -- a thread from yesterday dropped
     // while a local one from last year survived.
-    std::sort(m_conversationIndex.begin(), m_conversationIndex.end(),
-              [](const ConversationEntry& a, const ConversationEntry& b) {
-                  return a.timestamp > b.timestamp;
-              });
+    //
+    // This also decides which thread loadMostRecentConversation() reopens at
+    // launch, since that takes first(). Before the sort that was the thread last
+    // used ON THIS DEVICE (prepend order); now it is the genuinely most recent,
+    // which after a restore can be one from the other device. That is what
+    // "most recent" should mean and what ai_conversations already documents, but
+    // it is a real change in what the user sees on the next launch after a restore.
+    // stable_sort, not sort. Timestamps are second-resolution, so ties are real --
+    // two switchConversation calls in one shot-completion sequence, or several
+    // imported entries sharing an indexTimestamp. std::sort leaves those in an
+    // unspecified order, so the same on-disk index could evict a different
+    // transcript on two launches of the same binary. Stability also preserves
+    // something a timestamp cannot express: the persisted array order is itself an
+    // exact use record, built by takeAt/prepend, and it is the right answer for a
+    // tie. (A key tie-break was written first. It is deterministic but arbitrary --
+    // it throws that record away to sort by hash.)
+    std::stable_sort(m_conversationIndex.begin(), m_conversationIndex.end(),
+                     [](const ConversationEntry& a, const ConversationEntry& b) {
+                         return a.timestamp > b.timestamp;
+                     });
 
     if (overCap) {
-        qInfo() << "AIManager: conversation index holds" << m_conversationIndex.size()
-                << "entries against a cap of" << MAX_CONVERSATIONS
-                << "- not trimmed here (see the note above); it converges when a"
-                << "conversation is next started on a key the index does not hold";
+        // DEBUG, not INFO: over-cap is a state this function argues at length is
+        // CORRECT, and it recurs at every launch until a new key is started -- which
+        // may be never. An INFO that fires forever on a healthy configuration is
+        // what trains a reader to skim the tier that means "look here".
+        qDebug() << "AIManager: conversation index holds" << m_conversationIndex.size()
+                 << "entries against a cap of" << MAX_CONVERSATIONS
+                 << "- deliberately not trimmed on this path; ai_conversations may"
+                 << "list more than" << MAX_CONVERSATIONS
+                 << "until a conversation is started on a bean/profile/equipment"
+                 << "combination the index does not already hold";
     }
+
+    // Three mutations above -- clear, append, sort -- and none of them notified.
+    // hasAnyConversation's NOTIFY is conversationIndexChanged and QML binds it
+    // (SettingsAITab.qml), so a ShotServer restore taking the index 0 -> N through
+    // reloadConversations() left the AI tab reading "no conversations" for the rest
+    // of the session. Emitting from the constructor's call is harmless: nothing is
+    // connected yet.
+    emit conversationIndexChanged();
 }
 
 void AIManager::saveConversationIndex()
@@ -2192,7 +2253,9 @@ void AIManager::trimConversationsTo(int keep)
     // sanitizer builds, CMakeLists.txt), and Release is precisely where "silently
     // and successfully" above would apply. Refuse at runtime as well.
     if (keep < 0 || keep >= MAX_CONVERSATIONS) {
-        qWarning() << "AIManager::trimConversationsTo: refusing nonsense keep =" << keep;
+        qWarning() << "AIManager::trimConversationsTo: refusing nonsense keep =" << keep
+                   << "- the conversation cap is NOT being enforced and the index will"
+                   << "grow unbounded until the caller is fixed";
         return;
     }
     if (m_conversationIndex.size() <= keep) return;
@@ -2212,19 +2275,33 @@ void AIManager::trimConversationsTo(int keep)
         // left behind -- which is what happened to `contextLabel`: only the
         // restore path writes it, so the three-field version of this loop never
         // saw it and orphaned one key per eviction on any restored device.
-        // Read what is about to be destroyed BEFORE destroying it. INFO, not
-        // DEBUG: the tier is chosen by audience, and "your oldest advisor
-        // conversation was deleted to make room" is a user-facing lifecycle fact.
-        // There is no in-app conversation list, so a submitted log is the only
-        // place this is ever recorded -- and at DEBUG it is filtered out of the
-        // retrieval a reader would make.
+        // Read what is about to be destroyed BEFORE destroying it: afterwards the
+        // value is unrecoverable and there would be nothing to report.
+        //
+        // INFO because "your oldest advisor conversation was permanently deleted"
+        // is a user-facing lifecycle fact and there is no in-app conversation list,
+        // so a submitted log is the only place it is ever recorded. Note what the
+        // tier does NOT buy, because an earlier version of this comment claimed it:
+        // the in-app connections views filter by MARKER before level
+        // (webdebuglogger.cpp) and this subsystem has no registered marker, so these
+        // lines do not reach those views at any tier. INFO makes the line survive a
+        // `debug_get_log minLevel="INFO"` retrieval; free-text search is how it is
+        // found. Registering an advisor marker is the change that would put this in
+        // front of a user, and it is not this change.
         QJsonArray lostTurns;
         const AIConversation::TranscriptState lostState =
             AIConversation::storedTranscriptState(settings, oldest.key, &lostTurns);
         settings.remove(QStringLiteral("ai/conversations/") + oldest.key);
+        // turns is only meaningful on Ok -- storedTranscriptState fills outTurns
+        // on that path alone, so printing 0 for Corrupt would read as "nothing was
+        // lost" at exactly the moment an unrecoverable transcript was destroyed.
         qInfo() << "AIManager: Evicted oldest conversation" << oldest.key
                 << oldest.beanBrand << oldest.beanType << oldest.profileName
-                << "turns:" << lostTurns.size() << "state:" << int(lostState);
+                << "state:" << AIConversation::transcriptStateName(lostState)
+                << "turns:"
+                << (lostState == AIConversation::TranscriptState::Ok
+                        ? QString::number(lostTurns.size())
+                        : QStringLiteral("unknown"));
     }
     saveConversationIndex();
 }

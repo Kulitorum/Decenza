@@ -507,8 +507,9 @@ private slots:
     // Not named for #1280: that report's symptom is attributed, in
     // shottimingcontroller.cpp, to the cup-removed path. This came from a suite
     // failure instead. The 1.7 g step below is an INCREASE, which the cup-removed
-    // gate never claims at any size — see the note at that gate for why a real
-    // lift can reach this branch too.
+    // gate never claims at any size — and see the note in onWeightSample's
+    // `delta >= 0.1` branch (around the `stableMs = 0` reset, NOT at the gate
+    // itself) for why a real lift can reach this branch too.
     //
     // onWeightSample samples the stillness duration BEFORE accounting for the
     // current reading, then the fast path completes settling at that reading. So a

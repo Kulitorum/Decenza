@@ -694,6 +694,84 @@ right, which is the reason to read agent findings rather than count them.
       and pre-existing. Note it only became SAFE to add by this change: before the backout, the
       reload would have trimmed the restored threads away.
 
+## 5k. Eighth review round — defects inside the sort
+
+Four agents over the round-seven commit. Seventh consecutive round finding defects inside the
+previous round's fixes, and this time all of them were in the one-line `std::sort` added to make
+eviction order honest — a change small enough to look obviously safe.
+
+- [x] 5k.1 **The sort had no test that could fail.** The existing cap test seeds already-descending
+      timestamps, so the sort is a no-op there and deleting it left the suite green — the same
+      shape as 5j.1, one round later. `aRestoredThreadIsNotEvictedAheadOfOlderLocalOnes` seeds
+      what a restore actually leaves: five local threads written most-recent-first, then a restored
+      one appended at the TAIL carrying a newer archived timestamp. Verified red without the sort.
+- [x] 5k.2 **The sort promoted an unvalidated, externally-supplied integer to sole decider of
+      which transcript is destroyed.** `timestamp` was cosmetic before; order came from the
+      prepend. A restore reads user-supplied archive JSON, and an absent, null or non-numeric
+      `indexTimestamp` reads back as 0 — sorting BELOW every local entry, making that thread the
+      first thing destroyed. That is the exact loss the sort was added to prevent, arriving
+      through the entry class most likely to carry a bad value, under a comment claiming it fixed.
+      A far-future value is as bad in the other direction: pinned at the head, never evicted, and
+      reopened at every launch forever. Both now handled, and split by tier — a missing timestamp
+      is benign (older archives predate the field) and logs at DEBUG; a future one is a skewed
+      clock or a tampered archive and logs at WARN. The empty-key guard three lines above was
+      already the right shape for this; `timestamp` had simply been left out of it.
+- [x] 5k.3 **`std::sort` is unstable and timestamps are second-resolution**, so a tie evicted a
+      different transcript on two launches of the same binary off the same index — and the zero
+      class above makes ties trivially reachable. Now `std::stable_sort`. A key tie-break was
+      written first and replaced: it is deterministic but arbitrary, where stability preserves the
+      persisted array order, which is itself an exact use record the timestamp cannot express.
+- [x] 5k.4 **The sort silently changed which conversation opens at launch.**
+      `loadMostRecentConversation` takes `first()`, which was the thread last used ON THIS DEVICE
+      and is now the genuinely most recent — after a restore, possibly one from the other device.
+      That is what "most recent" should mean and what the tool documents, but it is a real change
+      in what the user sees, and it was not considered when the sort was written. Recorded at the
+      sort.
+- [x] 5k.5 **`loadConversationIndex` mutates the index three ways and notifies none of them.**
+      `hasAnyConversation`'s NOTIFY is `conversationIndexChanged` and QML binds it, so a ShotServer
+      restore taking the index 0 -> N through `reloadConversations()` left the AI settings tab
+      reading "no conversations" for the rest of the session. Pre-existing for clear/append; the
+      sort made it a third mutation on the same silent path. Now emits.
+- [x] 5k.6 **The INFO promotion was justified by a false claim about the log surfaces.** The
+      in-app connections views filter by MARKER before level, and this subsystem has no registered
+      marker, so these lines reach those views at NO tier. The promotion buys survival of a
+      `minLevel="INFO"` retrieval, nothing more. Comment corrected to say what the tier does and
+      does not buy; registering an advisor marker is named as the change that would actually put
+      it in front of a user.
+- [x] 5k.7 **The over-cap line fired on a configuration this code calls correct, forever.**
+      Over-cap is the documented steady state after a restore, and convergence may never happen —
+      so an INFO at every launch is the "trains readers to skim" shape. Dropped to DEBUG, and its
+      "see the note above" pointer removed: that was a cross-reference to a source comment,
+      unactionable from a log.
+- [x] 5k.8 **`int(lostState)` and `turns: 0`.** The eviction line printed an unnamed enum ordinal —
+      undecodable without the header at the matching revision, and silently renumbered by any new
+      state — and `storedTranscriptState` fills `outTurns` only on `Ok`, so a Corrupt eviction
+      read `turns: 0`, i.e. "nothing was lost", at the moment an unrecoverable transcript was
+      destroyed. A `transcriptStateName` helper now lives beside the enum (second site wanting it,
+      so it goes in one place), and turns reports `unknown` when the state is not `Ok`.
+- [x] 5k.9 **The `mcptools_ai.cpp` comment was wrong a FOURTH time.** There are five builders, not
+      four, and `buildRecentAdviceBlock` is a second exception. The re-load reason was invented
+      too: `dialing_blocks.cpp` says it is signature stability, not needing the whole record.
+- [x] 5k.10 **A rationale invented in `MCP_SERVER.md`.** It claimed MCP tool handlers are "already
+      off the main thread". They are not — a sync action's result is produced on the main thread,
+      and `dialing_get_context` hops its own SQL to a worker. As written it licensed a tool body
+      touching the database directly. Also corrected there: the claim that `getRecentShotsByKbId`
+      "was never written under that name" (it shipped in 880d76d1 and became
+      `requestRecentShotsByKbId` in fa571337), plus two stale references and a cap row.
+
+### 5k deferred, with reasons
+
+- [ ] 5k.11 **A cup lifted on a sub-20 g shot settles at ~0 g and trains SAW on it.** The
+      cup-removed gate tests drops only AND requires the weight to have passed 20 g, so on a
+      ristretto neither clause can fire; the lift reaches the fast path, which has no
+      `avgBelowStop` guard, and one second later settling completes at the empty scale. The
+      shot saves ~0 g and feeds `sawLearningComplete` — `qAbs(overshoot)` of ~18 is under the
+      20.0 rejection threshold, and the completion-time cup-removal guard is gated on the same
+      20 g. Real, characterised, and pre-existing. NOT fixed here: the gate's thresholds are
+      corpus-tuned (`shot_eval`, SAW_LEARNING.md) and changing them means re-running the
+      regression corpus, which is a change of its own — and this round's lesson is that hasty
+      fixes in unfamiliar safety paths are what produced the round-six data loss.
+
 ## 6. Prompt rules
 
 - [x] 6.1 Add the grind-comparability rule to the shared espresso system prompt: a numeric

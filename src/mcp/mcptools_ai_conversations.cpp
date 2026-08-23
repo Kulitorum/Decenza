@@ -19,7 +19,7 @@
 // evicted first), most recently active first. The cap holds in steady
 // state, not at every instant: a restore appends uncapped and the index
 // converges only when a conversation is next started on a NEW key, so a
-// just-restored device can report more than five. Trimming on the read
+// just-restored device can report more than five. Trimming on the LOAD
 // path is what deleted freshly-restored transcripts — see the note in
 // AIManager::loadConversationIndex before "fixing" the count here. Mirrors the web UI's
 // /ai-conversations page (ShotServer::generateAIConversationsPage) so
