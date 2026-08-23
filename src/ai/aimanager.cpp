@@ -1950,10 +1950,7 @@ void AIManager::migrateFromLegacyConversation()
 QString AIManager::switchConversation(const QVariant& shotData)
 {
     const ShotProjection shot = coerceShot(shotData);
-    QString key = conversationKey(shot);
-    const QString& beanBrand = shot.beanBrand;
-    const QString& beanType = shot.beanType;
-    const QString& profileName = shot.profileName;
+    const QString key = conversationKey(shot);
 
     // Already on this key — just touch LRU
     if (m_conversation->storageKey() == key) {
@@ -1996,7 +1993,7 @@ QString AIManager::switchConversation(const QVariant& shotData)
     // fix-multishot-advice-tracking (loadFromStorage is a safe no-op when
     // the key genuinely has nothing on disk).
     m_conversation->setStorageKey(key);
-    m_conversation->setContextLabel(beanBrand, beanType, profileName);
+    m_conversation->setContextLabel(shot.beanBrand, shot.beanType, shot.profileName);
     m_conversation->loadFromStorage();
 
     if (exists) {
@@ -2008,9 +2005,9 @@ QString AIManager::switchConversation(const QVariant& shotData)
         // Add new entry to front of index
         ConversationEntry newEntry;
         newEntry.key = key;
-        newEntry.beanBrand = beanBrand;
-        newEntry.beanType = beanType;
-        newEntry.profileName = profileName;
+        newEntry.beanBrand = shot.beanBrand;
+        newEntry.beanType = shot.beanType;
+        newEntry.profileName = shot.profileName;
         newEntry.timestamp = QDateTime::currentSecsSinceEpoch();
         m_conversationIndex.prepend(newEntry);
         saveConversationIndex();
@@ -2018,7 +2015,8 @@ QString AIManager::switchConversation(const QVariant& shotData)
 
     emit m_conversation->savedConversationChanged();
     qDebug() << "AIManager: Switched to conversation key:" << key
-             << "(" << beanBrand << beanType << "/" << profileName << ")";
+             << "(" << shot.beanBrand << shot.beanType << "/" << shot.profileName
+             << "package" << shot.equipmentId << ")";
     return key;
 }
 
