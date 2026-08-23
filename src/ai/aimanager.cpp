@@ -83,6 +83,10 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
     // knows per shot; old conversations anchored on "I don't have LRV3 data"
     // are misleading. Fires once per device, then becomes a no-op.
     clearAllConversationsOnce(QStringLiteral("grinder_calibration_v1.7.2"));
+    // Pre-change threads are keyed without the package and their turns carry
+    // cross-equipment context verbatim. Changing the key already orphans them;
+    // this drops them rather than leaving dead threads in the index.
+    clearAllConversationsOnce(QStringLiteral("equipment_scoped_conversations_v1"));
 
     // Migrate legacy single-conversation storage if needed
     migrateFromLegacyConversation();
@@ -1037,6 +1041,7 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
         QString grinderBrand;
         QJsonObject grinderCalibration;
         QJsonArray recentAdvice;
+        qint64 shotBucket = 0;
         withTempDb(dbPath, "ai_grinder_ctx", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
             // Grinder identity resolves through the shot's equipment_id pointer
@@ -1061,7 +1066,8 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
                 QString model = q.value(1).toString();
                 QString bev = q.value(2).toString();
                 profileKbId = q.value(3).toString();
-                const AdviceScope scope(q.value(4).toLongLong());
+                shotBucket = q.value(4).toLongLong();
+                const AdviceScope scope(shotBucket);
                 if (!model.isEmpty()) {
                     grinderCtx = ShotHistoryStorage::queryGrinderContext(db, model, scope, bev);
                     grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
@@ -1074,7 +1080,12 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             // advisor's historicalContext carries the same tracking data
             // the MCP path already does.
             if (!profileKbId.isEmpty()) {
-                const QString convKey = AIManager::conversationKey(beanBrand, beanType, profileName);
+                ShotProjection keyShot;
+                keyShot.beanBrand = beanBrand;
+                keyShot.beanType = beanType;
+                keyShot.profileName = profileName;
+                keyShot.equipmentId = shotBucket;
+                const QString convKey = AIManager::conversationKey(keyShot);
                 const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
                 if (!turns.isEmpty()) {
                     DialingBlocks::RecentAdviceInputs in;
@@ -1791,11 +1802,16 @@ AIManager::ConversationEntry AIManager::ConversationEntry::fromJson(const QJsonO
     return entry;
 }
 
-QString AIManager::conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName)
+QString AIManager::conversationKey(const ShotProjection& shot)
 {
-    QString normalized = beanBrand.toLower().trimmed() + "|" +
-                         beanType.toLower().trimmed() + "|" +
-                         profileName.toLower().trimmed();
+    // The package is part of the identity because a saved thread REPLAYS its
+    // stored turns on every request. Scoping the payload alone leaves older turns
+    // describing another basket inside the same transcript, still informing every
+    // answer. equipmentId 0 is the unpackaged pool, matching AdviceScope.
+    QString normalized = shot.beanBrand.toLower().trimmed() + "|" +
+                         shot.beanType.toLower().trimmed() + "|" +
+                         shot.profileName.toLower().trimmed() + "|" +
+                         QString::number(shot.equipmentId);
     QByteArray hash = QCryptographicHash::hash(normalized.toUtf8(), QCryptographicHash::Sha1);
     return hash.toHex().left(16);
 }
@@ -1931,9 +1947,13 @@ void AIManager::migrateFromLegacyConversation()
     qDebug() << "AIManager: Legacy conversation migrated to key:" << legacyKey;
 }
 
-QString AIManager::switchConversation(const QString& beanBrand, const QString& beanType, const QString& profileName)
+QString AIManager::switchConversation(const QVariant& shotData)
 {
-    QString key = conversationKey(beanBrand, beanType, profileName);
+    const ShotProjection shot = coerceShot(shotData);
+    QString key = conversationKey(shot);
+    const QString& beanBrand = shot.beanBrand;
+    const QString& beanType = shot.beanType;
+    const QString& profileName = shot.profileName;
 
     // Already on this key — just touch LRU
     if (m_conversation->storageKey() == key) {

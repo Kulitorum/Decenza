@@ -97,7 +97,11 @@ public:
     QList<ConversationEntry> conversationIndex() const { return m_conversationIndex; }
 
     // Conversation routing
-    Q_INVOKABLE QString switchConversation(const QString& beanBrand, const QString& beanType, const QString& profileName);
+    // Takes the shot, not its fields: the key is derived in exactly one place so
+    // the MCP tools and the in-app overlay — which SHARE one conversation —
+    // cannot drift into writing to different threads. QVariant for the same
+    // reason as isMistakeShot below.
+    Q_INVOKABLE QString switchConversation(const QVariant& shotData);
     Q_INVOKABLE void loadMostRecentConversation();
     Q_INVOKABLE void clearCurrentConversation();
     // Accepts QVariant (not const ShotProjection&) so QML can pass either a
@@ -107,7 +111,10 @@ public:
     // coerceShot() in the .cpp.
     Q_INVOKABLE bool isMistakeShot(const QVariant& shotData) const;
     Q_INVOKABLE bool isSupportedBeverageType(const QString& beverageType) const;
-    static QString conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName);
+    // The one place a conversation key is derived. Identity includes the
+    // equipment package: a saved thread replays its turns, so a thread must
+    // describe one equipment set for its whole life.
+    static QString conversationKey(const ShotProjection& shot);
 
     // Builds the AI user-prompt envelope for a finished / historical shot,
     // returned as a `QJsonObject` so DB-scoped callers (`ai_advisor_invoke`'s

@@ -2,8 +2,8 @@
 
 Requirements are in `specs/`. This file tracks delivery against them.
 
-PR #1857 delivers the selection scoping. The conversation key and the payload work are **not**
-delivered and are the larger half of the user-visible behaviour.
+PR #1857 delivers the selection scoping and the conversation key. The payload work (sections 3-6)
+is not delivered.
 
 ## 1. Scope the advice reads (PR #1857 — done)
 
@@ -31,22 +31,24 @@ delivered and are the larger half of the user-visible behaviour.
 - [ ] 1.12 `docs/CLAUDE_MD/MCP_SERVER.md:1044-1048` cites `getRecentShotsByKbId()`, a symbol that
       does not exist. Pre-existing, adjacent to this work.
 
-## 2. Conversation threads keyed by equipment (NOT delivered)
+## 2. Conversation threads keyed by equipment (done)
 
 This is the requirement that repairs the reported case. A saved thread replays its stored turns
-on every request, so scoping future context leaves the contaminated transcript in place until it
-ages out of the five-slot LRU. For a user with an existing thread, section 1 alone changes
-nothing.
+on every request, so scoping future context alone leaves the contaminated transcript in place.
 
-- [ ] 2.1 `AIManager::conversationKey` takes the equipment package alongside bean and profile.
-- [ ] 2.2 Every caller passes it: `switchConversation`, the `recentAdvice` follow-up lookup, and
-      QML's `openWithShot`.
-- [ ] 2.3 Throw away pre-upgrade conversations for a user with equipment. They are not
-      continued; no notice, no migration, no recovery path.
-- [ ] 2.4 `src/ai/aiconversation.cpp` change detection reports an equipment-package swap between
-      consecutive shots.
-- [ ] 2.5 Tests for the three scenarios in `specs/advisor-conversation-history/spec.md`: fresh
-      thread after upgrade, separate thread per basket, resuming the earlier package's thread.
+- [x] 2.1 `conversationKey` takes the SHOT and is the only place a key is derived. The MCP tools
+      and the in-app overlay share one conversation, so the previous shape — each surface
+      unpacking a shot into four arguments — was a way for them to drift into separate threads.
+      There is nothing left to keep in agreement.
+- [x] 2.2 `switchConversation` takes the shot too (QVariant, same reason as `isMistakeShot`), so
+      QML hands over `shotData` rather than fields it could pick wrongly.
+- [x] 2.3 Pre-upgrade conversations thrown away via the existing `clearAllConversationsOnce`.
+      Changing the key already orphans them; this stops dead threads holding index slots.
+- [ ] 2.4 `aiconversation.cpp` change detection reporting an equipment-package swap between
+      consecutive shots. Not done — the key prevents the mixing; this would only narrate it.
+- [x] 2.5 `conversationKey_separatesEquipmentPackages` covers the three spec scenarios: separate
+      thread per basket, resuming a package's own thread, and a packaged shot never landing on a
+      pre-change (unpackaged) key.
 
 ## 3. Name the equipment in the payload (NOT delivered)
 

@@ -2069,15 +2069,17 @@ private slots:
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
 
-        const QString key = AIManager::conversationKey(
-            QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"), QStringLiteral("D-Flow"));
+        ShotProjection keyShot;
+        keyShot.beanBrand = QStringLiteral("Rogue Wave");
+        keyShot.beanType = QStringLiteral("Ethiopia Yirgacheffe");
+        keyShot.profileName = QStringLiteral("D-Flow");
+        const QString key = AIManager::conversationKey(keyShot);
         // Written entirely by "another writer" — never touches m_conversationIndex.
         AIConversation::appendAssistantTurnForKey(
             key, 222, QStringLiteral("mcp-only user"), QStringLiteral("mcp-only assistant"), std::nullopt);
 
         // This AIManager's index has never heard of this key.
-        mgr.switchConversation(QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
-                                QStringLiteral("D-Flow"));
+        mgr.switchConversation(QVariant::fromValue(keyShot));
 
         QVERIFY2(mgr.conversation()->hasHistory(),
                  "switchConversation must load real disk content even for a key absent from m_conversationIndex");
@@ -3154,9 +3156,11 @@ private slots:
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
 
-        const QString key = mgr.switchConversation(
-            QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
-            QStringLiteral("D-Flow"));
+        ShotProjection sw;
+        sw.beanBrand = QStringLiteral("Rogue Wave");
+        sw.beanType = QStringLiteral("Ethiopia Yirgacheffe");
+        sw.profileName = QStringLiteral("D-Flow");
+        const QString key = mgr.switchConversation(QVariant::fromValue(sw));
         AIConversation* conv = mgr.conversation();
         conv->m_systemPrompt = QStringLiteral("system prompt");
         conv->addUserMessage(QStringLiteral("Shot pulled at 19g/1:2"));
@@ -3229,8 +3233,11 @@ private slots:
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
 
-        const QString key = mgr.switchConversation(
-            QStringLiteral("Brand"), QStringLiteral("Type"), QStringLiteral("Profile"));
+        ShotProjection sw;
+        sw.beanBrand = QStringLiteral("Brand");
+        sw.beanType = QStringLiteral("Type");
+        sw.profileName = QStringLiteral("Profile");
+        const QString key = mgr.switchConversation(QVariant::fromValue(sw));
         // The index entry exists (switchConversation added it) but the
         // messages blob itself is garbage — simulating an interrupted write.
         settings.setValue(QStringLiteral("ai/conversations/") + key + "/messages",
@@ -3828,6 +3835,43 @@ private slots:
         }
         QCOMPARE(kept, 2);
     }
+    // The three scenarios in specs/advisor-conversation-history/spec.md.
+    //
+    // This is the requirement that repairs the reported case. A saved thread
+    // replays its stored turns on every request, so scoping the payload alone
+    // leaves older turns describing another basket inside the same transcript,
+    // still informing every answer. The key is what keeps a transcript describing
+    // one equipment set for its whole life.
+    void conversationKey_separatesEquipmentPackages()
+    {
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        auto keyFor = [&](qint64 bucket) {
+            ShotProjection p;
+            p.beanBrand = bean; p.beanType = type; p.profileName = profile;
+            p.equipmentId = bucket;
+            return AIManager::conversationKey(p);
+        };
+        const QString decent = keyFor(3);
+        const QString graph  = keyFor(2);
+
+        QVERIFY2(decent != graph,
+                 "same bean and profile on two equipment packages resolved to one thread — "
+                 "the package-A turns would replay into the package-B conversation");
+
+        // Returning to a package resumes its own thread, not a third one.
+        QCOMPARE(keyFor(3), decent);
+
+        // Every pre-change thread was keyed without a package. Bucket 0 is the
+        // unpackaged pool, so a packaged shot must not land on one of those keys.
+        const QString unpackaged = keyFor(0);
+        QVERIFY2(unpackaged != decent && unpackaged != graph,
+                 "a packaged shot resolved to the unpackaged thread — pre-change "
+                 "conversations would be resumed rather than retired");
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_AIManager)

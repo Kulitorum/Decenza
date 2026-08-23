@@ -163,8 +163,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // in-app advisor uses, so the two surfaces ship
                         // byte-equivalent recentAdvice for the same shot.
                         if (!shot.profileKbId.isEmpty()) {
-                            const QString convKey = AIManager::conversationKey(
-                                shot.beanBrand, shot.beanType, shot.profileName);
+                            const QString convKey = AIManager::conversationKey(shot);
                             const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
                             if (!turns.isEmpty()) {
                                 DialingBlocks::RecentAdviceInputs in;
@@ -345,8 +344,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             // it as an attribution anchor is unsafe.
                             if (!shot.beanBrand.isEmpty()
                                 && !shot.profileName.isEmpty()) {
-                                const QString convKey = AIManager::conversationKey(
-                                    shot.beanBrand, shot.beanType, shot.profileName);
+                                const QString convKey = AIManager::conversationKey(shot);
                                 AIConversation::appendAssistantTurnForKey(
                                     convKey, resolvedShotId,
                                     userPrompt, response, structured);

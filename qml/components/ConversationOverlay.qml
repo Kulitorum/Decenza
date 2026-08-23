@@ -32,6 +32,10 @@ Rectangle {
     property string shotDebugLog: ""
     // Saved context for re-fetching shot history after conversation clear
     property string savedBeanBrand: ""
+    // The shot this conversation is about. switchConversation derives the key
+    // from it, so a basket change opens a separate thread rather than continuing
+    // this one.
+    property var savedShot: ({})
     property string savedBeanType: ""
     property string savedProfileName: ""
 
@@ -154,15 +158,12 @@ Rectangle {
         }
 
         // Switch to the right conversation for this bean+profile
-        MainController.aiManager.switchConversation(
-            beanBrand || "",
-            beanType || "",
-            profileName || ""
-        )
+        MainController.aiManager.switchConversation(shotData)
 
         // Fetch recent shot history as context on a background thread.
         // Result arrives via recentShotContextReady signal → Connections handler below.
         overlay.savedBeanBrand = beanBrand || ""
+        overlay.savedShot = shotData
         overlay.savedBeanType = beanType || ""
         overlay.savedProfileName = profileName || ""
         overlay.historicalContext = ""
@@ -717,11 +718,7 @@ Rectangle {
                             if (!conversation.hasHistory) {
                                 // ask() doesn't touch the index; switchConversation() must run first
                                 // so the web UI shows this conversation (e.g. after a clear).
-                                MainController.aiManager.switchConversation(
-                                    overlay.savedBeanBrand || "",
-                                    overlay.savedBeanType || "",
-                                    overlay.savedProfileName || ""
-                                )
+                                MainController.aiManager.switchConversation(overlay.savedShot)
                                 var bevType = (overlay.beverageType || "espresso").toLowerCase()
                                 var systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedProfileName)
                                 conversation.ask(systemPrompt, message)
