@@ -32,7 +32,13 @@ private:
     }
 
     // The loop below waits on a CONDITION rather than a sample budget because
-    // QTest::qWait waits AT LEAST its argument: three tests once hand-rolled
+    // QTest::qWait waits AT LEAST its argument. It "always pauses for the full
+    // timeout" by design, and overshoots it in practice: it loops
+    // processEvents(AllEvents, deadline) then qSleep(min(10ms, remaining)) until
+    // the deadline HAS expired, so a slow handler or the 10 ms sleep granularity
+    // pushes each call past its nominal wait
+    // (qtbase/src/corelib/kernel/qtestsupport_core.cpp:137 for the documented
+    // guarantee, :167-180 for the loop). Three tests once hand-rolled
     // `for (i < 14) { sample; qWait(50) }` and budgeted ~750 ms, and under the
     // parallel ASan/UBSan suite the 15-iteration one measured 1015 ms.
     //
@@ -42,20 +48,31 @@ private:
     // The samples alternate +/-0.1 g rather than repeating one value, and that is
     // load-bearing in both directions:
     //   - It keeps the caller's path reachable. Byte-identical samples leave
-    //     `delta` at 0, so onWeightSample's fast path accumulates stillness across
+    //     `delta` at 0, so onWeightSample's FAST path accumulates stillness across
     //     the whole loop and correctly completes settling once it crosses
     //     SETTLING_STABLE_MS (1000 ms) -- which a loaded machine reaches before the
     //     loop ends. Alternating exceeds the 0.1 g change threshold on every
-    //     sample, so that clock never accumulates and the loop is bounded by SAMPLE
-    //     COUNT, not by wall clock. Do not "simplify" this back to one value.
+    //     sample, so that clock never accumulates. Do not "simplify" this back to
+    //     one value.
+    //     The jitter takes the FAST path off the wall clock, and only that path.
+    //     `m_settlingAvgStableSince` keeps running across jittered samples, so the
+    //     ROLLING path still completes at SETTLING_STABLE_MS and the loop's real
+    //     bound is the capture gate firing first. Both gates run off the SAME
+    //     origin, `m_settlingAvgStableSince`: capture at SETTLING_CLEAN_CAPTURE_MS
+    //     (250 ms), completion at SETTLING_STABLE_MS (1000 ms), so the margin is 4x
+    //     however many samples the loop took to arm the gate. The 40-sample cap is
+    //     a runaway stop, not the bound; it is deliberately past 1000 ms of qWait so
+    //     that a genuinely stuck gate fails on the QVERIFY2 below rather than
+    //     looping forever.
     //   - It stays inside the rolling-average gate: +/-0.1 g is under
     //     SETTLING_ABOVE_AVG_MARGIN (0.2 g), so no sample ever reads as above the
     //     window mean, and the window mean itself is `grams` with drift near zero.
     // A real scale jitters; a run of identical readings was the unrealistic part.
     void feedPlateauUntilCaptured(ShotTimingController& tc, double grams, double flow) {
-        // Bounded by samples, not time: SETTLING_WINDOW_SIZE (6) to arm the rolling
-        // path, then SETTLING_CLEAN_CAPTURE_MS (250 ms) of continuous gate at 50 ms
-        // a sample. ~11 needed; the cap is slack for a slow machine's qWait.
+        // Exits on the capture gate: SETTLING_WINDOW_SIZE (6) samples to arm the
+        // rolling path, then SETTLING_CLEAN_CAPTURE_MS (250 ms) of continuous gate,
+        // so ~11 samples at 50 ms each. That 250 ms is wall clock, so the sample
+        // count needed rises with qWait overshoot; the 40 cap is the runaway stop.
         for (int i = 0; i < 40 && tc.m_lastCleanSettlingAvg <= 0.0; ++i) {
             tc.onWeightSample(grams + (i % 2 ? 0.1 : -0.1), flow);
             QTest::qWait(50);
@@ -64,9 +81,11 @@ private:
                  "Capture gate never fired on the plateau");
         QVERIFY2(tc.isSawSettling(),
                  "Settling completed inside the plateau loop, so the path under test "
-                 "never ran. The jitter above exists to prevent exactly this -- if "
-                 "this fires, the fast path's stillness clock is accumulating across "
-                 "samples that changed by 0.2 g.");
+                 "never ran. Two clocks can do this: the fast path's stillness clock "
+                 "accumulating across samples that changed by 0.2 g (the jitter above "
+                 "exists to prevent exactly that), or the rolling path's "
+                 "m_settlingAvgStableSince crossing SETTLING_STABLE_MS because qWait "
+                 "overshot and the capture gate did not fire first. Check which.");
     }
 
 private slots:
@@ -283,7 +302,7 @@ private slots:
 
         // Sample stream extracted verbatim from shot 5470's debug log
         // (`[SAW] Settling: <w> g` lines + the final cup-gone reading).
-        // The stable-plateau samples are fed with QTest::qWait(30) so the
+        // The stable-plateau samples are fed with QTest::qWait(50) so the
         // controller's m_settlingAvgStableSince clock accumulates past
         // SETTLING_CLEAN_CAPTURE_MS (250 ms). Without the wait the test runs
         // in microseconds and the clean-avg gate never fires.
@@ -297,6 +316,22 @@ private slots:
             QTest::qWait(50);  // ~50 ms × 14 samples = 700 ms; gate must
                                 // cross SETTLING_CLEAN_CAPTURE_MS = 250 ms
         }
+        // The plateau above is fed on a fixed qWait budget, and its tail accumulates
+        // real stillness: the run starts at 42.2, not at the seven 42.3s, because
+        // `qAbs(42.3 - 42.2)` is 0.0999... and falls under the 0.1 change threshold.
+        // Eight samples, so seven intervals, so ~350 ms. If those overshoot far
+        // enough to cross SETTLING_STABLE_MS, the fast path completes settling before
+        // the artifacts arrive and this test passes for the WRONG reason: the
+        // !isSawSettling() below would hold because settling finished normally, and
+        // currentWeight() would be 42.3, inside the band it asserts. Fail loudly here
+        // instead, so an overshoot reads as an overshoot rather than as a pass.
+        QVERIFY2(tc.isSawSettling(),
+                 "Settling completed on the plateau, so the cup-removed path under "
+                 "test never ran -- the qWait budget above overshot");
+        QVERIFY2(tc.m_lastCleanSettlingAvg > 0.0,
+                 "Capture gate never fired on the plateau, so the fallback this test "
+                 "exercises has nothing to fall back to");
+
         // Cup-lift artifacts and removal — run fast, the gate should have
         // already captured the clean avg from the plateau above.
         tc.onWeightSample(44.0, 0.5);
@@ -541,6 +576,24 @@ private slots:
         QVERIFY2(tc.isSawSettling(),
                  "A sample 1.7 g away from the last reading completed settling, so it "
                  "was measured as still using the run of samples BEFORE it");
+
+        // ...and the fast path must still WORK. Without this half, `stableMs = 0`
+        // could be made unconditional -- killing the fast path outright, leaving SAW
+        // to settle only via the rolling path or the 10 s timeout -- and every
+        // assertion in this file would still pass, because they all assert that
+        // settling did NOT complete. Age the run that STARTED at 44.0 g, then feed a
+        // byte-identical sample so `delta` is 0 and the stillness stands.
+        // Completing settling reaches onSettlingComplete()'s no-physical-scale guard,
+        // and init()'s failOnWarning() would take that as a failure.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("No physical scale at settling"));
+        tc.m_lastWeightChangeTime -= 1100;
+        tc.onWeightSample(44.0, 0.5);
+
+        QVERIFY2(!tc.isSawSettling(),
+                 "A second of real stillness at the new weight did not complete "
+                 "settling, so the fast path is dead");
+        QCOMPARE(tc.currentWeight(), 44.0);
     }
 
     void cleanAvgSurvivesPostCaptureGateFailure_1280() {
