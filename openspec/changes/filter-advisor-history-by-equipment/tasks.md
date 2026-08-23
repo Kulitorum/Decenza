@@ -44,6 +44,10 @@ on every request, so scoping future context alone leaves the contaminated transc
       QML hands over `shotData` rather than fields it could pick wrongly.
 - [x] 2.3 Pre-upgrade conversations thrown away via the existing `clearAllConversationsOnce`.
       Changing the key already orphans them; this stops dead threads holding index slots.
+- [x] 2.6 The index names the package. Keying on equipment means one bean and profile can
+      hold several threads; `ConversationEntry` snapshots the package label and id so the app,
+      the ShotServer page and `ai_conversations` can tell them apart. `ConversationEntry::label()`
+      is the one producer for all four surfaces, replacing four copies with two separators.
 - [ ] 2.4 `aiconversation.cpp` change detection reporting an equipment-package swap between
       consecutive shots. Not done — the key prevents the mixing; this would only narrate it.
 - [x] 2.5 `conversationKey_separatesEquipmentPackages` covers the three spec scenarios: separate
@@ -55,8 +59,9 @@ on every request, so scoping future context alone leaves the contaminated transc
 Section 1 scopes the data correctly and never tells the model what changed, so numbers move
 between conversations with no stated cause.
 
-- [ ] 3.1 `describeEquipmentSet` helper; the in-app hoisted `### Setup:` header gains basket and
-      puck prep.
+- [x] 3.1 The helper exists as `ShotProjection::equipmentLabel()` (grinder / basket), used by the
+      conversation index.
+- [ ] 3.1b The in-app hoisted `### Setup:` header gains basket and puck prep.
 - [ ] 3.2 `DialingHelpers::ShotIdentity` gains basket + puck-prep fields, picked up by the
       existing `hoistSessionContext`.
 - [ ] 3.3 MCP session `context` gains `basketBrand` / `basketModel` / `puckPrep` under the
