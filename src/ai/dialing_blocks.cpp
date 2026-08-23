@@ -475,8 +475,12 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db, const ShotProjection& cur
     bool haveCrossBean = false;
     GrinderContext crossBean;
     if (!beanBrand.isEmpty() && ctx.settingsObserved.size() < 2) {
+        // Skip the wide step derivations: they read only the grinder model, so this
+        // call would re-run two table scans for the answer ctx already holds.
         crossBean = ShotHistoryStorage::queryGrinderContext(
-            db, grinderModel, bevType, QString(), equipmentBucket);
+            db, grinderModel, bevType, QString(), equipmentBucket, /*deriveWideSteps=*/false);
+        crossBean.stepSize = ctx.stepSize;
+        crossBean.rpmStepSize = ctx.rpmStepSize;
         haveCrossBean = !crossBean.settingsObserved.isEmpty();
     }
 

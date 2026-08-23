@@ -1266,7 +1266,7 @@ static QList<double> grinderWideRpms(QSqlDatabase& db, const QString& grinderMod
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     const QString& grinderModel, const QString& beverageType,
-    const QString& beanBrand, qint64 equipmentBucket)
+    const QString& beanBrand, qint64 equipmentBucket, bool deriveWideSteps)
 {
     GrinderContext ctx;
     if (grinderModel.isEmpty()) return ctx;
@@ -1341,7 +1341,8 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     // moves on the current bean still gets the fine step their grinder can do.
     // (settingsObserved / min / max stay bean- AND equipment-scoped below; the
     // step is deliberately neither — see the contract on queryGrinderContext.)
-    ctx.stepSize = deriveGrindStep(grinderWideNumericSettings(db, grinderModel));
+    if (deriveWideSteps)
+        ctx.stepSize = deriveGrindStep(grinderWideNumericSettings(db, grinderModel));
     // min/max stay gated on an all-numeric history — a mixed list has no
     // meaningful numeric range to report.
     if (ctx.allNumeric && numeric.size() >= 2) {
@@ -1387,7 +1388,8 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         }
     }
     // rpmStepSize is a GRINDER property like stepSize, and scoped the same way.
-    ctx.rpmStepSize = deriveGrindStep(grinderWideRpms(db, grinderModel));
+    if (deriveWideSteps)
+        ctx.rpmStepSize = deriveGrindStep(grinderWideRpms(db, grinderModel));
 
     return ctx;
 }

@@ -319,10 +319,17 @@ public:
     // basket swap, and are derived grinder-model-wide so they keep matching the
     // grind widget. Only `settingsObserved`, `allNumeric`, `min/maxSetting`,
     // `rpmsObserved` and `rpm{Min,Max}` narrow to the package.
+    //
+    // `deriveWideSteps` false skips the two grinder-wide scans that produce
+    // stepSize/rpmStepSize. They read only `grinderModel`, so a caller querying
+    // the same grinder twice (see buildGrinderContextBlock's cross-bean fallback)
+    // gets the same answer for ~3 ms median and up to ~87 ms of table scan each --
+    // see grinderWideNumericSettings for the measurements.
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel,
                                               const QString& beverageType,
                                               const QString& beanBrand,
-                                              qint64 equipmentBucket);
+                                              qint64 equipmentBucket,
+                                              bool deriveWideSteps = true);
 
     // Convert ShotRecord to a typed ShotProjection (shared by requestShot,
     // ShotServer, AIManager, MCP). Returns a default-constructed ShotProjection
