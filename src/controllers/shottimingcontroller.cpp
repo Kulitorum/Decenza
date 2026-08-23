@@ -238,7 +238,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         bool cupRemoved = (weight < m_settlingPeakWeight - CUP_REMOVED_DROP_G);
         if (cupRemoved) {
             SAWT_WARN(QStringLiteral("Cup removed during settling (sample: %1 g peak: %2 g) "
-                                     "- skipping learning, restoring finalWeight")
+                                     "- skipping learning")
                           .arg(weight, 0, 'f', 2).arg(m_settlingPeakWeight, 0, 'f', 2));
             // Cup removal corrupts weight data — bypass learning entirely
             // but still emit signals so the shot is saved.

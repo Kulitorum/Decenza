@@ -865,10 +865,14 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
                 r.stopWeight = w;
                 r.hasSawTrigger = true;
                 curWeight = 0.0;
-                // Production seeds m_settlingPeakWeight from the weight at settling
-                // start, not from 0. Seeding 0 here made the first settling sample
-                // test `weight < -20` instead of `weight < stopWeight - 20`, which
-                // misses a small-shot lift landing on that sample.
+                // Seeding 0 made the first settling sample test `weight < -20`
+                // instead of `weight < stopWeight - 20`, missing a small-shot lift
+                // that lands on that sample. The trigger weight is the closest seed
+                // the log offers, but it is NOT what production uses: production
+                // seeds from m_weight at endShot, which is higher by whatever drip
+                // accrued during the stop latency. So this still under-detects a
+                // first-sample lift by that margin — conservative, not equivalent.
+                // curWeight above keeps the 0 seed and the same asymmetry.
                 peakWeight = w;
                 continue;
             }
