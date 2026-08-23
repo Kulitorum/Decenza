@@ -406,43 +406,13 @@ bool DatabaseBackupManager::createBackup(bool force)
     if (m_settings) {
         settingsJson = SettingsSerializer::exportToJson(m_settings, /*includeSensitive=*/false);
 
-        // Add AI conversations
+        // Add AI conversations. Serialized by the importer's own producer, so
+        // the archive cannot carry a different set of fields than a restore
+        // reads back — see AIConversation::exportConversationsStatic.
         AppSettings qsettings;
-        QByteArray indexData = qsettings.value("ai/conversations/index").toByteArray();
-        if (!indexData.isEmpty()) {
-            QJsonDocument indexDoc = QJsonDocument::fromJson(indexData);
-            if (indexDoc.isArray()) {
-                QJsonArray conversations;
-                QJsonArray indexArr = indexDoc.array();
-                for (const QJsonValue& v : indexArr) {
-                    QJsonObject entry = v.toObject();
-                    QString key = entry["key"].toString();
-                    if (key.isEmpty()) continue;
-
-                    QString prefix = "ai/conversations/" + key + "/";
-                    QJsonObject conv;
-                    conv["key"] = key;
-                    conv["beanBrand"] = entry["beanBrand"].toString();
-                    conv["beanType"] = entry["beanType"].toString();
-                    conv["profileName"] = entry["profileName"].toString();
-                    conv["timestamp"] = qsettings.value(prefix + "timestamp").toString();
-                    conv["systemPrompt"] = qsettings.value(prefix + "systemPrompt").toString();
-                    conv["contextLabel"] = qsettings.value(prefix + "contextLabel").toString();
-                    conv["indexTimestamp"] = entry["timestamp"].toVariant().toLongLong();
-
-                    QByteArray messagesJson = qsettings.value(prefix + "messages").toByteArray();
-                    if (!messagesJson.isEmpty()) {
-                        QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
-                        conv["messages"] = msgDoc.isArray() ? msgDoc.array() : QJsonArray();
-                    } else {
-                        conv["messages"] = QJsonArray();
-                    }
-
-                    conversations.append(conv);
-                }
-                settingsJson["ai_conversations"] = conversations;
-            }
-        }
+        const QJsonArray conversations = AIConversation::exportConversationsStatic(qsettings);
+        if (!conversations.isEmpty())
+            settingsJson["ai_conversations"] = conversations;
     }
 
     // Collect paths on main thread (some accessors may use JNI/platform APIs)
@@ -1164,7 +1134,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                         const AIConversation::ImportTally convTally =
                             AIConversation::importConversationsStatic(
                                 qsettings, conversations,
-                                shotsImported ? shotImport.idMapOrNull() : nullptr);
+                                shotsImported ? shotImport.idMapOrNull() : nullptr,
+                                shotsImported ? shotImport.equipmentIdMapOrNull() : nullptr);
 
                         if (convTally.conversationsImported > 0) {
                             qsettings.sync();

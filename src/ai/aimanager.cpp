@@ -2,6 +2,7 @@
 #include "core/appsettings.h"
 #include "aiprovider.h"
 #include "aiconversation.h"
+#include "conversationkey.h"
 #include "shotsummarizer.h"
 #include "../core/settings.h"
 #include "../core/settings_ai.h"
@@ -1426,16 +1427,11 @@ AIManager::ConversationEntry AIManager::conversationEntry(const QString& key) co
 
 QString AIManager::conversationKey(const ShotProjection& shot)
 {
-    // The package is part of the identity because a saved thread REPLAYS its
-    // stored turns on every request. Scoping the payload alone leaves older turns
-    // describing another basket inside the same transcript, still informing every
-    // answer. equipmentId 0 is the unpackaged pool, matching AdviceScope.
-    QString normalized = shot.beanBrand.toLower().trimmed() + "|" +
-                         shot.beanType.toLower().trimmed() + "|" +
-                         shot.profileName.toLower().trimmed() + "|" +
-                         QString::number(shot.equipmentId);
-    QByteArray hash = QCryptographicHash::hash(normalized.toUtf8(), QCryptographicHash::Sha1);
-    return hash.toHex().left(16);
+    // Derivation lives in ConversationKey::derive — the import path re-derives
+    // it after renumbering the equipment package, and a second copy of the hash
+    // would orphan every restored thread.
+    return ConversationKey::derive(shot.beanBrand, shot.beanType,
+                                   shot.profileName, shot.equipmentId);
 }
 
 void AIManager::loadConversationIndex()

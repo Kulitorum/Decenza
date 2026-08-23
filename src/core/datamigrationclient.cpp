@@ -644,10 +644,14 @@ void DataMigrationClient::onAIConversationsReply()
                 // No map means every turn's shotId is cleared: the user imported
                 // conversations WITHOUT shots, or the shot import failed. Either
                 // way the ids name the source device's database, which this
-                // device does not have — keeping them is the bug.
+                // device does not have — keeping them is the bug. The equipment
+                // packages arrive with the shots too, so a conversations-only
+                // migration carries across only the unpackaged threads: the rest
+                // name a package this device cannot identify.
                 const AIConversation::ImportTally tally =
                     AIConversation::importConversationsStatic(settings, doc.array(),
-                                                              m_shotImport.idMapOrNull());
+                                                              m_shotImport.idMapOrNull(),
+                                                              m_shotImport.equipmentIdMapOrNull());
                 m_aiConversationsImported += tally.conversationsImported;
 
                 if (tally.conversationsImported > 0 && m_aiManager)

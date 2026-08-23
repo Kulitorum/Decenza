@@ -95,10 +95,29 @@ renderer instead.
 - [x] 5.2 Do not cite a shot, score, or taste note absent from the context. (The reported reply
       cited a "70/100 shot" that appeared nowhere in its context.)
 
-## 6. Import / backup (NOT delivered)
+## 6. Import / backup
 
-- [ ] 6.1 Package-id remap through `shotserver_backup.cpp`, `datamigrationclient.cpp` and
+- [x] 6.1 Package-id remap through `shotserver_backup.cpp`, `datamigrationclient.cpp` and
       `databasebackupmanager.cpp`, so a restored conversation keys to the destination package.
+      `ImportResult` now publishes `equipmentIdMap` beside `shotIdMap` — the map already existed
+      inside `importDatabaseStatic`, it was simply never handed out — and
+      `importConversationsStatic` RE-KEYS each conversation through it rather than writing the
+      archive's key through verbatim. Two shapes are refused instead of imported wrong: a key the
+      conversation's own fields do not derive (an archive written before the package joined the
+      key — nothing on this device would ever open it), and a package the map does not contain
+      (bucket 0 would file a thread about one basket under "no basket", which is the mixing the
+      key exists to stop). Both are counted and named in the importer's log line.
+- [x] 6.2 The key derivation moved to `ConversationKey::derive` (`src/ai/conversationkey.h`), since
+      the import path has to re-derive it and a second copy of the hash would orphan every
+      restored thread silently — the index entry present, the shot never reaching it.
+- [x] 6.3 The conversation record had TWO hand-written serializers (`databasebackupmanager.cpp`
+      and `shotserver_backup.cpp`) against one deserializer, and neither carried the equipment
+      fields section 2.6 added — so a restored conversation lost its package label and id. One
+      producer now: `AIConversation::exportConversationsStatic`.
+- [x] 6.4 Tests: re-key onto the destination package, refusal of an unresolvable package, refusal
+      of a pre-equipment archive entry, an unpackaged thread keeping its key, and an
+      export/import round trip. All five verified red by breaking the re-key, the refusal and the
+      legacy check together.
 
 ## 7. Documentation
 

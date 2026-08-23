@@ -991,6 +991,7 @@ set(HEADERS
     src/network/beanbaseclient.h
     src/network/beanbase_blob.h
     src/ai/aimanager.h
+    src/ai/conversationkey.h
     src/ai/aiprovider.h
     src/ai/airequestshape.h
     src/ai/conductance.h

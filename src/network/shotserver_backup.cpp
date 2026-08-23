@@ -408,35 +408,11 @@ QJsonArray ShotServer::serializeAIConversations() const
     if (!m_aiManager)
         return QJsonArray();
 
+    // One producer, shared with the archive writer and matched field-for-field
+    // by the importer. It reads the same `ai/conversations/index` AIManager
+    // holds in memory, and AIManager persists that index on every change.
     AppSettings settings;
-    QJsonArray result;
-
-    for (const auto& entry : m_aiManager->conversationIndex()) {
-        QString prefix = "ai/conversations/" + entry.key + "/";
-
-        QJsonObject conv;
-        conv["key"] = entry.key;
-        conv["beanBrand"] = entry.beanBrand;
-        conv["beanType"] = entry.beanType;
-        conv["profileName"] = entry.profileName;
-        conv["timestamp"] = settings.value(prefix + "timestamp").toString();
-        conv["systemPrompt"] = settings.value(prefix + "systemPrompt").toString();
-        conv["contextLabel"] = settings.value(prefix + "contextLabel").toString();
-        conv["indexTimestamp"] = entry.timestamp;
-
-        QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
-        if (!messagesJson.isEmpty()) {
-            QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
-            if (msgDoc.isArray()) conv["messages"] = msgDoc.array();
-            else conv["messages"] = QJsonArray();
-        } else {
-            conv["messages"] = QJsonArray();
-        }
-
-        result.append(conv);
-    }
-
-    return result;
+    return AIConversation::exportConversationsStatic(settings);
 }
 
 void ShotServer::handleBackupAIConversations(QTcpSocket* socket)
@@ -1226,7 +1202,8 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     const AIConversation::ImportTally tally =
                         AIConversation::importConversationsStatic(
                             settings, pendingConversations,
-                            success ? shotImport.idMapOrNull() : nullptr);
+                            success ? shotImport.idMapOrNull() : nullptr,
+                            success ? shotImport.equipmentIdMapOrNull() : nullptr);
                     aiConversationsImported += tally.conversationsImported;
                     if (tally.conversationsImported > 0) {
                         settings.sync();
@@ -1283,10 +1260,13 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
     // No shots.db in this archive, so the async path above never ran and there
     // is no id map. Every stored shotId is cleared: those ids name the source
     // device's database, and the shots they point at did not come with them.
+    // The equipment packages live in that same file, so nothing can be re-keyed
+    // either — an archive without shots imports only the unpackaged threads.
     if (!pendingConversations.isEmpty() && m_aiManager) {
         AppSettings settings;
         const AIConversation::ImportTally tally =
-            AIConversation::importConversationsStatic(settings, pendingConversations, nullptr);
+            AIConversation::importConversationsStatic(settings, pendingConversations,
+                                                      nullptr, nullptr);
         aiConversationsImported += tally.conversationsImported;
         if (tally.conversationsImported > 0) {
             settings.sync();

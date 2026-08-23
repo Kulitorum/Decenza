@@ -1,6 +1,7 @@
 #include "aiconversation.h"
 #include "core/appsettings.h"
 #include "aimanager.h"
+#include "conversationkey.h"
 #include "shotsummarizer.h"
 #include "../core/translationmanager.h"
 // Full type needed: loadFromStorage calls existingShotIds() to forget turn
@@ -402,10 +403,53 @@ static QJsonArray remapTurnShotIds(const QJsonArray& messages,
     return out;
 }
 
+QJsonArray AIConversation::exportConversationsStatic(AppSettings& settings)
+{
+    QJsonArray result;
+    const QByteArray rawIndex = settings.value(QStringLiteral("ai/conversations/index")).toByteArray();
+    if (rawIndex.isEmpty()) return result;
+
+    const QJsonDocument indexDoc = QJsonDocument::fromJson(rawIndex);
+    if (!indexDoc.isArray()) return result;
+
+    for (const QJsonValue& v : indexDoc.array()) {
+        const QJsonObject entry = v.toObject();
+        const QString key = entry.value(QStringLiteral("key")).toString();
+        if (key.isEmpty()) continue;
+
+        const QString prefix = QStringLiteral("ai/conversations/") + key + QStringLiteral("/");
+        QJsonObject conv;
+        conv[QStringLiteral("key")] = key;
+        conv[QStringLiteral("beanBrand")] = entry.value(QStringLiteral("beanBrand")).toString();
+        conv[QStringLiteral("beanType")] = entry.value(QStringLiteral("beanType")).toString();
+        conv[QStringLiteral("profileName")] = entry.value(QStringLiteral("profileName")).toString();
+        // The package the thread belongs to. `equipmentId` is what the importer
+        // re-keys through; `equipmentLabel` is the snapshot the index shows, and
+        // travels with it so a restored thread is still nameable on a device
+        // whose package rows are numbered differently.
+        conv[QStringLiteral("equipmentId")] =
+            entry.value(QStringLiteral("equipmentId")).toVariant().toLongLong();
+        conv[QStringLiteral("equipmentLabel")] = entry.value(QStringLiteral("equipmentLabel")).toString();
+        conv[QStringLiteral("indexTimestamp")] =
+            entry.value(QStringLiteral("timestamp")).toVariant().toLongLong();
+        conv[QStringLiteral("timestamp")] = settings.value(prefix + "timestamp").toString();
+        conv[QStringLiteral("systemPrompt")] = settings.value(prefix + "systemPrompt").toString();
+        conv[QStringLiteral("contextLabel")] = settings.value(prefix + "contextLabel").toString();
+
+        const QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
+        const QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
+        conv[QStringLiteral("messages")] = msgDoc.isArray() ? msgDoc.array() : QJsonArray();
+
+        result.append(conv);
+    }
+    return result;
+}
+
 AIConversation::ImportTally AIConversation::importConversationsStatic(
     AppSettings& settings,
     const QJsonArray& conversations,
-    const QHash<qint64, qint64>* shotIdMap)
+    const QHash<qint64, qint64>* shotIdMap,
+    const QHash<qint64, qint64>* equipmentIdMap)
 {
     ImportTally tally;
     if (conversations.isEmpty()) return tally;
@@ -425,9 +469,11 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
 
     int skippedExisting = 0;
     int malformed = 0;
+    int foreignKey = 0;
+    int unresolvedPackage = 0;
     for (const QJsonValue& val : conversations) {
         const QJsonObject conv = val.toObject();
-        const QString key = conv.value(QStringLiteral("key")).toString();
+        const QString srcKey = conv.value(QStringLiteral("key")).toString();
         // Two distinct outcomes that used to be one silent `continue`: a
         // damaged archive entry with no key at all, and a conversation this
         // device already has. Counting them separately is what stops "3
@@ -437,10 +483,44 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
         // conversation and be reported as a success — a card that opens to
         // nothing. Both are counted locally and named in the log line below;
         // neither belongs on ImportTally, which no caller would read them from.
-        if (key.isEmpty() || !conv.value(QStringLiteral("messages")).isArray()) {
+        if (srcKey.isEmpty() || !conv.value(QStringLiteral("messages")).isArray()) {
             malformed++;
             continue;
         }
+
+        const QString beanBrand = conv.value(QStringLiteral("beanBrand")).toString();
+        const QString beanType = conv.value(QStringLiteral("beanType")).toString();
+        const QString profileName = conv.value(QStringLiteral("profileName")).toString();
+        const qint64 srcEquipmentId =
+            conv.value(QStringLiteral("equipmentId")).toVariant().toLongLong();
+
+        // Re-derive the key the SOURCE should have had from the fields it sent.
+        // A mismatch means the archive predates the package being part of the
+        // key, so nothing on this device would ever open the thread — importing
+        // it only occupies an index slot, which is what the one-time wipe of
+        // pre-upgrade conversations already decided against.
+        if (ConversationKey::derive(beanBrand, beanType, profileName, srcEquipmentId) != srcKey) {
+            foreignKey++;
+            continue;
+        }
+
+        // Renumber the package. 0 is the unpackaged pool and means the same
+        // thing on both devices, so it passes through; anything else must be
+        // found in the map. A miss is NOT demoted to 0 — that would file a
+        // thread about one basket under "no basket", mixing it into every
+        // unpackaged answer.
+        qint64 destEquipmentId = 0;
+        if (srcEquipmentId > 0) {
+            destEquipmentId = equipmentIdMap ? equipmentIdMap->value(srcEquipmentId, 0) : 0;
+            if (destEquipmentId <= 0) {
+                unresolvedPackage++;
+                continue;
+            }
+        }
+
+        const QString key =
+            ConversationKey::derive(beanBrand, beanType, profileName, destEquipmentId);
+
         // An existing key is skipped WHOLE, never merged: the copy on this
         // device is the live one and the archive's is older by construction.
         if (existingKeys.contains(key)) {
@@ -460,9 +540,14 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
 
         QJsonObject entry;
         entry[QStringLiteral("key")] = key;
-        entry[QStringLiteral("beanBrand")] = conv.value(QStringLiteral("beanBrand")).toString();
-        entry[QStringLiteral("beanType")] = conv.value(QStringLiteral("beanType")).toString();
-        entry[QStringLiteral("profileName")] = conv.value(QStringLiteral("profileName")).toString();
+        entry[QStringLiteral("beanBrand")] = beanBrand;
+        entry[QStringLiteral("beanType")] = beanType;
+        entry[QStringLiteral("profileName")] = profileName;
+        // The DESTINATION package id, so the entry agrees with the key it is
+        // filed under; the label rides along from the source, since this
+        // device may not have named the package the same way.
+        entry[QStringLiteral("equipmentId")] = destEquipmentId;
+        entry[QStringLiteral("equipmentLabel")] = conv.value(QStringLiteral("equipmentLabel")).toString();
         entry[QStringLiteral("timestamp")] = conv.value(QStringLiteral("indexTimestamp")).toVariant().toLongLong();
         index.append(entry);
         existingKeys.insert(key);
@@ -476,7 +561,9 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
 
     qDebug() << "AIConversation::importConversationsStatic:" << tally.conversationsImported
              << "conversation(s) imported," << skippedExisting
-             << "already present," << malformed << "malformed;"
+             << "already present," << malformed << "malformed," << foreignKey
+             << "keyed before equipment," << unresolvedPackage
+             << "naming a package that did not come across;"
              << tally.turnsRemapped << "shot reference(s) remapped," << tally.turnsCleared
              << "cleared"
              << (shotIdMap ? "" : "(no shot import accompanied them — all ids cleared)");

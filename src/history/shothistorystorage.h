@@ -478,6 +478,12 @@ public:
     // "N imported, 0 skipped, 0 failed".
     struct ImportResult {
         QHash<qint64, qint64> shotIdMap;
+        // Source equipment-package ids to the ids those packages received here,
+        // same shape and same rule as shotIdMap. An AI conversation is KEYED on
+        // the package, so a restored conversation has to be re-keyed through
+        // this map; without it the thread exists in the index and no shot on
+        // this device ever opens it.
+        QHash<qint64, qint64> equipmentIdMap;
         // Destination row count before the import. MERGE MODE ONLY — replace
         // mode never reads it, so 0 there means "not measured", not "empty".
         std::optional<int> destShotsBefore;
@@ -504,6 +510,14 @@ public:
         // and skip the conversation import entirely — see the note there.
         const QHash<qint64, qint64>* idMapOrNull() const {
             return shotIdMap.isEmpty() ? nullptr : &shotIdMap;
+        }
+
+        // Same policy for the package map. Empty means no equipment crossed —
+        // a pre-equipment source, or an import that failed — and the importer
+        // reads that as "this conversation names a package this device cannot
+        // identify", not as "bucket 0".
+        const QHash<qint64, qint64>* equipmentIdMapOrNull() const {
+            return equipmentIdMap.isEmpty() ? nullptr : &equipmentIdMap;
         }
     };
 

@@ -29,6 +29,7 @@
 #include "ai/aimanager.h"
 #include "mcp/mcpagentdocs.h"
 #include "ai/aiconversation.h"
+#include "ai/conversationkey.h"
 #include "core/settings.h"
 #include "core/settings_dye.h"
 #include "core/settings_ai.h"  // settings.ai()->set*: full type for the extraction-routing tests
@@ -2659,23 +2660,35 @@ private slots:
             s.value("ai/conversations/" + key + "/messages").toByteArray()).array();
     }
 
-    static QJsonArray oneConversation(const QString& key, const QJsonArray& msgs)
+    // The key is DERIVED from the conversation's own fields, never chosen. The
+    // importer re-derives it and refuses a conversation whose carried key does
+    // not match, so a hand-picked literal would be read as an archive written
+    // before the equipment package joined the key.
+    static QString convKey(qint64 equipmentId)
+    {
+        return ConversationKey::derive(QStringLiteral("B"), QStringLiteral("T"),
+                                       QStringLiteral("P"), equipmentId);
+    }
+
+    static QJsonArray oneConversation(qint64 equipmentId, const QJsonArray& msgs)
     {
         return QJsonArray{ QJsonObject{
-            {"key", key}, {"systemPrompt", "sys"}, {"contextLabel", "l"},
+            {"key", convKey(equipmentId)}, {"systemPrompt", "sys"}, {"contextLabel", "l"},
             {"timestamp", "2026-08-22T09:00:00"}, {"messages", msgs},
-            {"beanBrand", "B"}, {"beanType", "T"}, {"profileName", "P"}} };
+            {"beanBrand", "B"}, {"beanType", "T"}, {"profileName", "P"},
+            {"equipmentId", QJsonValue(equipmentId)},
+            {"equipmentLabel", "Niche Zero / Decent 18g Ridged"}} };
     }
 
     void importedTurnsFollowTheShotRenumbering()
     {
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("remap_key");
+        const QString key = convKey(0);
 
         QHash<qint64, qint64> map{{1109, 1052}, {1096, 1041}};
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
+            settings, oneConversation(0, turnsWithShotIds({1109, 1096})), &map, nullptr);
 
         QCOMPARE(tally.conversationsImported, 1);
         QCOMPARE(tally.turnsRemapped, 4);   // two turn pairs
@@ -2694,11 +2707,11 @@ private slots:
     {
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("clear_key");
+        const QString key = convKey(0);
 
         QHash<qint64, qint64> map{{1109, 1052}};   // 1096 absent — did not import
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
+            settings, oneConversation(0, turnsWithShotIds({1109, 1096})), &map, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 2);
         QCOMPARE(tally.turnsCleared, 2);
@@ -2723,12 +2736,12 @@ private slots:
     {
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("noshots_key");
+        const QString key = convKey(0);
 
         // No map: the conversations-only import path. Those ids name a database
         // this device does not have, so keeping them is the defect.
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), nullptr);
+            settings, oneConversation(0, turnsWithShotIds({1109, 1096})), nullptr, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 0);
         QCOMPARE(tally.turnsCleared, 4);
@@ -2741,11 +2754,11 @@ private slots:
     {
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("freeform_key");
+        const QString key = convKey(0);
 
         QHash<qint64, qint64> map{{1109, 1052}};
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({0})), &map);
+            settings, oneConversation(0, turnsWithShotIds({0})), &map, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 0);
         QCOMPARE(tally.turnsCleared, 0);
@@ -2821,9 +2834,10 @@ private slots:
 
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("e2e_key");
+        const QString key = convKey(0);
         AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds(srcIds)), &r.shotIdMap);
+            settings, oneConversation(0, turnsWithShotIds(srcIds)), &r.shotIdMap,
+            r.equipmentIdMapOrNull());
 
         const QSet<qint64> sourceIds(srcIds.begin(), srcIds.end());
         int seen = 0;
@@ -3043,8 +3057,10 @@ private slots:
     {
         AppSettings settings;
         settings.clear();
-        const QString mine = QStringLiteral("mine_key");
-        const QString fresh = QStringLiteral("fresh_key");
+        // Two packages on one bean and profile — which is exactly what the key
+        // separates, and the only way two conversations can differ here.
+        const QString mine = convKey(0);
+        const QString fresh = convKey(11);
 
         // What this device already holds, with its own turn text.
         QJsonArray liveMsgs = turnsWithShotIds({1052});
@@ -3059,12 +3075,14 @@ private slots:
 
         // The archive carries an older copy of that same conversation, plus one
         // this device has never seen.
-        QJsonArray incoming = oneConversation(mine, turnsWithShotIds({1109}));
-        for (const QJsonValue& v : oneConversation(fresh, turnsWithShotIds({1109})))
+        QJsonArray incoming = oneConversation(0, turnsWithShotIds({1109}));
+        for (const QJsonValue& v : oneConversation(4, turnsWithShotIds({1109})))
             incoming.append(v);
 
         QHash<qint64, qint64> map{{1109, 1052}};
-        const auto tally = AIConversation::importConversationsStatic(settings, incoming, &map);
+        QHash<qint64, qint64> equipMap{{4, 11}};
+        const auto tally =
+            AIConversation::importConversationsStatic(settings, incoming, &map, &equipMap);
 
         QCOMPARE(tally.conversationsImported, 1);
         // Only the fresh conversation's turns were touched.
@@ -3080,6 +3098,140 @@ private slots:
         QSet<QString> keys;
         for (const QJsonValue& v : index) keys.insert(v.toObject().value("key").toString());
         QCOMPARE(keys, QSet<QString>({mine, fresh}));
+
+        settings.clear();
+    }
+
+    // ---- import re-keys a conversation onto the destination package ---------
+    //
+    // The key holds the equipment package's ROW ID, and a restore renumbers
+    // those rows. Writing the archive's key through verbatim leaves a thread in
+    // the index that no shot on this device ever opens — and if the destination
+    // happens to hold a package with the source's row id, one that opens on the
+    // wrong basket.
+
+    void aRestoredConversationIsRekeyedToTheDestinationPackage()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QHash<qint64, qint64> equipMap{{4, 11}};   // package 4 landed as 11
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(4, turnsWithShotIds({0})), nullptr, &equipMap);
+
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(storedTurns(settings, convKey(11)).size(), qsizetype(2));
+        QVERIFY2(storedTurns(settings, convKey(4)).isEmpty(),
+                 "the source key names a package row this device does not have");
+
+        // The index entry has to agree with the key it is filed under, or the
+        // conversation list names one package while the thread belongs to
+        // another.
+        const QJsonArray index = QJsonDocument::fromJson(
+            settings.value(QStringLiteral("ai/conversations/index")).toByteArray()).array();
+        QCOMPARE(index.size(), 1);
+        const QJsonObject entry = index.at(0).toObject();
+        QCOMPARE(entry.value("key").toString(), convKey(11));
+        QCOMPARE(entry.value("equipmentId").toVariant().toLongLong(), qint64(11));
+        QCOMPARE(entry.value("equipmentLabel").toString(),
+                 QStringLiteral("Niche Zero / Decent 18g Ridged"));
+
+        settings.clear();
+    }
+
+    void aConversationNamingAPackageThatDidNotComeAcrossIsNotImported()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QHash<qint64, qint64> equipMap{{9, 11}};   // package 4 is not in it
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(4, turnsWithShotIds({0})), nullptr, &equipMap);
+
+        QCOMPARE(tally.conversationsImported, 0);
+        // Not demoted to the unpackaged pool: that would file a thread about one
+        // basket under "no basket", which is the mixing the key exists to stop.
+        QVERIFY(storedTurns(settings, convKey(0)).isEmpty());
+        QVERIFY(storedTurns(settings, convKey(4)).isEmpty());
+        QVERIFY(settings.value(QStringLiteral("ai/conversations/index")).toByteArray().isEmpty());
+
+        settings.clear();
+    }
+
+    void anUnpackagedConversationKeepsItsKeyAcrossTheImport()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QHash<qint64, qint64> equipMap{{4, 11}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(0, turnsWithShotIds({0})), nullptr, &equipMap);
+
+        // Bucket 0 is the unpackaged pool on both devices, so there is nothing
+        // to renumber and the thread stays reachable.
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(storedTurns(settings, convKey(0)).size(), qsizetype(2));
+
+        settings.clear();
+    }
+
+    void anArchiveKeyedBeforeEquipmentIsNotImported()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        // What a pre-change archive carries: a key derived from bean and
+        // profile alone. No shot on this device derives that key any more, so
+        // importing it only occupies an index slot.
+        QJsonArray legacy = oneConversation(0, turnsWithShotIds({0}));
+        QJsonObject conv = legacy.at(0).toObject();
+        conv["key"] = QStringLiteral("0123456789abcdef");
+        conv.remove(QStringLiteral("equipmentId"));
+        legacy[0] = conv;
+
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, legacy, nullptr, nullptr);
+
+        QCOMPARE(tally.conversationsImported, 0);
+        QVERIFY(storedTurns(settings, QStringLiteral("0123456789abcdef")).isEmpty());
+        QVERIFY(storedTurns(settings, convKey(0)).isEmpty());
+
+        settings.clear();
+    }
+
+    // The writer and the reader are one pair, tested as one. Backup and restore
+    // are the same field list read twice; the export used to be hand-written at
+    // two call sites and a field added to one of them is invisible until a user
+    // restores an archive and finds a conversation attached to nothing.
+    void anExportedConversationCarriesItsPackageBackThroughTheImport()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        const QString sourceKey = convKey(4);
+        const QString prefix = QStringLiteral("ai/conversations/") + sourceKey + "/";
+        settings.setValue(prefix + "messages",
+                          QJsonDocument(turnsWithShotIds({0})).toJson(QJsonDocument::Compact));
+        settings.setValue(prefix + "systemPrompt", QStringLiteral("sys"));
+        settings.setValue(prefix + "timestamp", QStringLiteral("2026-08-22T09:00:00"));
+        settings.setValue(QStringLiteral("ai/conversations/index"),
+                          QJsonDocument(QJsonArray{QJsonObject{
+                              {"key", sourceKey}, {"beanBrand", "B"}, {"beanType", "T"},
+                              {"profileName", "P"}, {"equipmentId", QJsonValue(qint64(4))},
+                              {"equipmentLabel", "Niche Zero / Decent 18g Ridged"},
+                              {"timestamp", QJsonValue(qint64(1766000000))}}})
+                              .toJson(QJsonDocument::Compact));
+
+        const QJsonArray exported = AIConversation::exportConversationsStatic(settings);
+        QCOMPARE(exported.size(), 1);
+
+        settings.clear();   // the destination device
+        QHash<qint64, qint64> equipMap{{4, 11}};
+        const auto tally =
+            AIConversation::importConversationsStatic(settings, exported, nullptr, &equipMap);
+
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(storedTurns(settings, convKey(11)).size(), qsizetype(2));
 
         settings.clear();
     }

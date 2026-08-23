@@ -332,12 +332,48 @@ public:
      * @param settings   open settings object to write through
      * @param conversations  the incoming array, as carried by the backup
      *                       archive or the migration endpoint
+     * `equipmentIdMap` is the same shape for equipment packages, from
+     * ShotHistoryStorage::ImportResult::equipmentIdMap. It is needed because the
+     * conversation KEY is derived from the package id: the incoming key names a
+     * package row in the SOURCE database, and importing under it produces a
+     * thread no shot on this device can open — or worse, one that collides with
+     * a destination package that happens to share the source's row id.
+     *
+     * So each conversation is RE-KEYED through the map before it is written,
+     * and two shapes are refused rather than imported wrong:
+     *   - a conversation whose carried key is not what these fields derive
+     *     (an archive written before the key included the package), because
+     *     there is no shot on this device that would ever open it;
+     *   - a conversation naming a package the map does not contain, because
+     *     bucket 0 would put a thread about one basket into the unpackaged
+     *     pool, which is the contamination the key exists to prevent.
+     * Both are counted and named in the log line, not on ImportTally — no
+     * caller has anywhere to show them.
+     *
      * @param shotIdMap  source->destination shot ids, or nullptr
+     * @param equipmentIdMap  source->destination equipment package ids, or
+     *                        nullptr when no equipment accompanied them
      */
     static ImportTally importConversationsStatic(
         AppSettings& settings,
         const QJsonArray& conversations,
-        const QHash<qint64, qint64>* shotIdMap);
+        const QHash<qint64, qint64>* shotIdMap,
+        const QHash<qint64, qint64>* equipmentIdMap);
+
+    /**
+     * Serialize every indexed conversation into the array the importer above
+     * reads. ONE producer, for the same reason as the importer: this loop was
+     * hand-written twice — in DatabaseBackupManager (archive) and ShotServer
+     * (`/api/backup/ai-conversations`) — and the two copies had to agree on
+     * every field name for a restore to reassemble what a backup wrote. The
+     * equipment fields are exactly the kind of addition that lands in one copy
+     * and not the other, and the failure is silent: the archive is written, the
+     * restore succeeds, and the conversation is keyed to nothing.
+     *
+     * Walks `ai/conversations/index`, so a conversation with no index entry is
+     * not exported — matching what both copies already did.
+     */
+    static QJsonArray exportConversationsStatic(AppSettings& settings);
 
     /**
      * Drop `shotId` from every turn that names a shot the database does not
