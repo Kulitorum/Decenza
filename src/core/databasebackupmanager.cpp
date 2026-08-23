@@ -426,16 +426,7 @@ bool DatabaseBackupManager::createBackup(bool force)
                     // against.
                     const AIManager::ConversationEntry entry =
                         AIManager::ConversationEntry::fromJson(entryJson);
-                    AIConversation::TranscriptState state =
-                        AIConversation::TranscriptState::Missing;
-                    const QJsonObject conv =
-                        AIConversation::serializeIndexEntry(qsettings, entry, &state);
-                    if (state != AIConversation::TranscriptState::Ok) {
-                        qWarning() << "DatabaseBackupManager: conversation" << entry.key
-                                   << "has no readable transcript — backing it up without turns";
-                    }
-
-                    conversations.append(conv);
+                    conversations.append(AIConversation::serializeIndexEntry(qsettings, entry));
                 }
                 settingsJson["ai_conversations"] = conversations;
             }

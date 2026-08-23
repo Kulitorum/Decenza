@@ -452,8 +452,7 @@ static QJsonArray remapTurnShotIds(const QJsonArray& messages,
 }
 
 QJsonObject AIConversation::serializeIndexEntry(AppSettings& settings,
-                                                const AIManager::ConversationEntry& entry,
-                                                TranscriptState* outState)
+                                                const AIManager::ConversationEntry& entry)
 {
     const QString prefix = QStringLiteral("ai/conversations/") + entry.key + QStringLiteral("/");
 
@@ -473,9 +472,16 @@ QJsonObject AIConversation::serializeIndexEntry(AppSettings& settings,
 
     QJsonArray turns;
     const TranscriptState state = storedTranscriptState(settings, entry.key, &turns);
-    if (state == TranscriptState::Ok)
+    if (state == TranscriptState::Ok) {
         conv[QStringLiteral("messages")] = turns;
-    if (outState) *outState = state;
+    } else {
+        // Warn at BACKUP time. The entry is archived without turns and the importer
+        // rejects it as malformed, so silence here means the user only finds out
+        // during a restore that reports success.
+        qWarning() << "AIConversation: conversation" << entry.key << "has no readable"
+                   << "transcript (" << transcriptStateName(state)
+                   << ") — archiving it without turns";
+    }
     return conv;
 }
 

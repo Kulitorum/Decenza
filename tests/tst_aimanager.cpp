@@ -526,7 +526,7 @@ private slots:
     // Clear removes the index entry but leaves the live conversation on that
     // key, so a thread written afterwards is named by no index entry: invisible
     // to the conversation list and to loadMostRecentConversation(), and never
-    // evicted, because trimConversationsTo() only walks the index. Found on
+    // evicted, because eviction only walks the index. Found on
     // the running app — after Clear, `ai/conversations/index` stayed `[]` while
     // the thread sat on disk under its key.
     //
@@ -784,8 +784,6 @@ private slots:
 
         QNetworkAccessManager nam;
         Settings appSettings;
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("carries a timestamp .* in the future"));
         AIManager mgr(&nam, &appSettings);
 
         QCOMPARE(mgr.m_conversationIndex.size(), 2);
@@ -802,7 +800,7 @@ private slots:
 
     // A restored thread must not be evicted ahead of genuinely older local ones.
     //
-    // trimConversationsTo takes from the TAIL, which is only correct if the index is
+    // Eviction takes from the TAIL, which is only correct if the index is
     // ordered most-recent-first. saveConversationIndex produces that order, but
     // importConversationsStatic APPENDS restored entries in archive order carrying
     // their archived timestamp -- so after a restore the tail held the newest

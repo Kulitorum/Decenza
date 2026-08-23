@@ -1159,22 +1159,8 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             // cross-profile-filter without another round-trip — and so are the
             // basket and puck-prep items, which name the equipment set for the
             // no-history line below.
-            //
-            // Correlated subqueries rather than more LEFT JOINs, with
-            // `ORDER BY id LIMIT 1`: there is no unique key on
-            // (package_id, kind), so a plain join fans out over a duplicate
-            // item row. Same defence, and the same reason for it, as the
-            // basket-seed query at shothistorystorage.cpp:3022.
             q.prepare("SELECT eg.brand, eg.model, json_extract(eg.attrs, '$.burrs'), s.beverage_type, s.profile_kb_id, "
-                      "  COALESCE((SELECT b.brand FROM equipment_items b "
-                      "            WHERE b.package_id = s.equipment_id AND b.kind = 'basket' "
-                      "            ORDER BY b.id LIMIT 1), ''), "
-                      "  COALESCE((SELECT b.model FROM equipment_items b "
-                      "            WHERE b.package_id = s.equipment_id AND b.kind = 'basket' "
-                      "            ORDER BY b.id LIMIT 1), ''), "
-                      "  COALESCE((SELECT p.model FROM equipment_items p "
-                      "            WHERE p.package_id = s.equipment_id AND p.kind = 'puckprep' "
-                      "            ORDER BY p.id LIMIT 1), ''), "
+                      + ShotHistoryStorage::equipmentComponentsSql() + ", "
                       // The equipment bucket, from THIS row read rather than a
                       // second lookup. Everything below that needs to know which
                       // package this shot is on gets it from the same row it gets
@@ -2007,6 +1993,12 @@ AIManager::ConversationEntry AIManager::ConversationEntry::fromJson(const QJsonO
     entry.profileName = obj["profileName"].toString();
     entry.equipmentId = obj["equipmentId"].toVariant().toLongLong();
     entry.timestamp = obj["timestamp"].toVariant().toLongLong();
+    // The index is ordered by timestamp and evicted from the tail, and an archive
+    // carries whatever clock wrote it. 0 (absent or non-numeric) would be evicted
+    // first; a future value would sit at the head forever. Both become now.
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    if (entry.timestamp <= 0 || entry.timestamp > now + 86400)
+        entry.timestamp = now;
     return entry;
 }
 
@@ -2049,114 +2041,32 @@ void AIManager::loadConversationIndex()
         if (parseError.error != QJsonParseError::NoError) {
             qWarning() << "AIManager::loadConversationIndex: JSON parse error:" << parseError.errorString();
         } else if (doc.isArray()) {
-            QJsonArray arr = doc.array();
-            for (const QJsonValue& val : arr) {
+            for (const QJsonValue& val : doc.array()) {
                 ConversationEntry entry = ConversationEntry::fromJson(val.toObject());
                 if (entry.key.isEmpty()) {
                     qWarning() << "AIManager::loadConversationIndex: Skipping entry with empty key";
                     continue;
                 }
-                // `timestamp` decides eviction order (see the sort below), so an
-                // unusable one is not cosmetic: absent, null or non-numeric all
-                // read back as 0 from fromJson, which sorts BELOW every real entry
-                // and makes that thread the first thing destroyed -- exactly the
-                // loss the sort exists to prevent, arriving through the entry class
-                // most likely to carry a bad value. A restore reads user-supplied
-                // archive JSON, and a far-future value is just as bad in the other
-                // direction: it would sit at the head forever, never evicted and
-                // reopened at every launch.
-                const qint64 now = QDateTime::currentSecsSinceEpoch();
-                if (entry.timestamp <= 0) {
-                    // Benign and expected: an archive written before entries carried
-                    // indexTimestamp, or a hand-made one. DEBUG, not WARN -- nothing
-                    // is wrong, and dating it to now is the safe guess in the only
-                    // direction that matters: 0 would sort it below every local
-                    // thread and make it the first thing destroyed. Ties among a
-                    // restored batch keep their archive order via the stable sort.
-                    qDebug() << "AIManager::loadConversationIndex: entry" << entry.key
-                             << "carries no usable timestamp - dating it to now so it"
-                             << "is not evicted ahead of genuinely older threads";
-                    entry.timestamp = now;
-                } else if (entry.timestamp > now + 86400) {
-                    // Not benign: a clock-skewed source device or a tampered archive.
-                    // Left alone it sorts to the head at EVERY launch -- never
-                    // evicted, and reopened by loadMostRecentConversation forever.
-                    qWarning() << "AIManager::loadConversationIndex: entry" << entry.key
-                               << "carries a timestamp" << entry.timestamp
-                               << "in the future - clamping to now so it is not pinned"
-                               << "at the head of the index permanently";
-                    entry.timestamp = now;
-                }
                 m_conversationIndex.append(entry);
             }
         }
     }
-    qDebug() << "AIManager: Loaded conversation index with" << m_conversationIndex.size() << "entries";
-    // Deliberately NOT trimmed here. A trim on the load path looks like the obvious
-    // way to enforce the cap on an index that arrived over it, and it is destructive
-    // on the restore path: importConversationsStatic APPENDS restored entries to the
-    // tail (aiconversation.cpp), trimConversationsTo takes from the tail, and
-    // reloadConversations() -- which is this function -- is called immediately after
-    // an import by shotserver_backup.cpp and datamigrationclient.cpp. At the cap,
-    // restoring N conversations deleted exactly those N transcripts while the
-    // response still reported them imported.
-    //
-    // The cost of not trimming, stated rather than glossed: an over-cap index
-    // converges only when a conversation is started on a key the index does NOT
-    // already hold, because noteConversationUse returns through touchConversationEntry
-    // for a key it already has. A device that only ever revisits its existing threads
-    // never converges, and ai_conversations reports more rows than its own
-    // description promises. That is a stale number; the alternative was deleting
-    // transcripts a restore had just written.
-    const bool overCap = m_conversationIndex.size() > MAX_CONVERSATIONS;
 
-    // Sort by recency so the index is genuinely LRU-ordered, which is what
-    // trimConversationsTo's tail-eviction assumes and what ai_conversations
-    // documents ("most recently active first"). Neither was true of an index that
-    // had been through an import: importConversationsStatic appends in archive
-    // order carrying the archived timestamp, so restored threads sat at the tail
-    // and were evicted FIRST regardless of age -- a thread from yesterday dropped
-    // while a local one from last year survived.
-    //
-    // This also decides which thread loadMostRecentConversation() reopens at
-    // launch, since that takes first(). Before the sort that was the thread last
-    // used ON THIS DEVICE (prepend order); now it is the genuinely most recent,
-    // which after a restore can be one from the other device. That is what
-    // "most recent" should mean and what ai_conversations already documents, but
-    // it is a real change in what the user sees on the next launch after a restore.
-    // stable_sort, not sort. Timestamps are second-resolution, so ties are real --
-    // two switchConversation calls in one shot-completion sequence, or several
-    // imported entries sharing an indexTimestamp. std::sort leaves those in an
-    // unspecified order, so the same on-disk index could evict a different
-    // transcript on two launches of the same binary. Stability also preserves
-    // something a timestamp cannot express: the persisted array order is itself an
-    // exact use record, built by takeAt/prepend, and it is the right answer for a
-    // tie. (A key tie-break was written first. It is deterministic but arbitrary --
-    // it throws that record away to sort by hash.)
+    // stable_sort, not sort: timestamps are second-resolution, so ties are real, and
+    // for a tie the existing array order is itself an exact use record (takeAt/prepend).
     std::stable_sort(m_conversationIndex.begin(), m_conversationIndex.end(),
                      [](const ConversationEntry& a, const ConversationEntry& b) {
                          return a.timestamp > b.timestamp;
                      });
 
-    if (overCap) {
-        // DEBUG, not INFO: over-cap is a state this function argues at length is
-        // CORRECT, and it recurs at every launch until a new key is started -- which
-        // may be never. An INFO that fires forever on a healthy configuration is
-        // what trains a reader to skim the tier that means "look here".
-        qDebug() << "AIManager: conversation index holds" << m_conversationIndex.size()
-                 << "entries against a cap of" << MAX_CONVERSATIONS
-                 << "- deliberately not trimmed on this path; ai_conversations may"
-                 << "list more than" << MAX_CONVERSATIONS
-                 << "until a conversation is started on a bean/profile/equipment"
-                 << "combination the index does not already hold";
-    }
+    // Deliberately NOT trimmed here, however obvious that looks. importConversations-
+    // Static appends restored entries to the tail and eviction takes from the
+    // tail, so trimming on this path -- reloadConversations() runs after every
+    // import -- deleted the transcripts a restore had just written. An over-cap index
+    // converges instead on the next conversation started on a key it does not hold.
 
-    // Three mutations above -- clear, append, sort -- and none of them notified.
-    // hasAnyConversation's NOTIFY is conversationIndexChanged and QML binds it
-    // (SettingsAITab.qml), so a ShotServer restore taking the index 0 -> N through
-    // reloadConversations() left the AI tab reading "no conversations" for the rest
-    // of the session. Emitting from the constructor's call is harmless: nothing is
-    // connected yet.
+    qDebug() << "AIManager: Loaded conversation index with" << m_conversationIndex.size() << "entries";
+    // hasAnyConversation binds this; a restore takes the index 0 -> N via reloadConversations().
     emit conversationIndexChanged();
 }
 
@@ -2199,9 +2109,7 @@ void AIManager::noteConversationUse(const QString& key, const QString& beanBrand
         }
     }
 
-    // Make room for the entry prepended below, so the index lands ON the cap
-    // rather than one past it.
-    trimConversationsTo(MAX_CONVERSATIONS - 1);
+    makeRoomForNewConversation();
     ConversationEntry newEntry;
     newEntry.key = key;
     newEntry.beanBrand = beanBrand;
@@ -2238,70 +2146,25 @@ void AIManager::indexStoredConversation()
     noteConversationUse(key, m_liveBeanBrand, m_liveBeanType, m_liveProfileName, m_liveEquipmentId);
 }
 
-void AIManager::trimConversationsTo(int keep)
+void AIManager::makeRoomForNewConversation()
 {
-    // The postcondition framing (trim TO n) is what makes this idempotent, but it
-    // also stops a nonsense argument being obviously wrong: keep = 0 would empty
-    // the index and delete every transcript, silently and successfully.
-    //
-    // Strictly BELOW the cap, not at it. Every legitimate call is making room for
-    // an entry it is about to prepend; `keep == MAX_CONVERSATIONS` is the
-    // signature of the load-path trim that deleted freshly-restored conversations,
-    // so the one argument that must never be passed is not one to bless here.
-    Q_ASSERT(keep >= 0 && keep < MAX_CONVERSATIONS);
-    // Q_ASSERT compiles to nothing in Release (QT_FORCE_ASSERTS is set only for
-    // sanitizer builds, CMakeLists.txt), and Release is precisely where "silently
-    // and successfully" above would apply. Refuse at runtime as well.
-    if (keep < 0 || keep >= MAX_CONVERSATIONS) {
-        qWarning() << "AIManager::trimConversationsTo: refusing nonsense keep =" << keep
-                   << "- the conversation cap is NOT being enforced and the index will"
-                   << "grow unbounded until the caller is fixed";
-        return;
-    }
-    if (m_conversationIndex.size() <= keep) return;
-
-    // A loop, not a single take: this used to drop exactly one entry per call, so
-    // an index that ever exceeded the cap could never come back under it. At size
-    // 6 with a cap of 5, dropping one left 5 and the caller's prepend restored 6 --
-    // a stable state, not a transient one. Nothing pulled it back, because
-    // loadConversationIndex() appends from disk uncapped, and the ai_conversations
-    // tool then reported six threads while documenting a limit of five. Observed on
-    // a real device, where equipment-scoped keys had pushed the index past the cap.
     AppSettings settings;
-    while (m_conversationIndex.size() > keep) {
+    while (m_conversationIndex.size() >= MAX_CONVERSATIONS) {
         const ConversationEntry oldest = m_conversationIndex.takeLast();
-        // Remove the whole group, not a list of field names. QSettings::remove()
-        // on a group takes its subkeys with it, so a field added later cannot be
-        // left behind -- which is what happened to `contextLabel`: only the
-        // restore path writes it, so the three-field version of this loop never
-        // saw it and orphaned one key per eviction on any restored device.
-        // Read what is about to be destroyed BEFORE destroying it: afterwards the
-        // value is unrecoverable and there would be nothing to report.
-        //
-        // INFO because "your oldest advisor conversation was permanently deleted"
-        // is a user-facing lifecycle fact and there is no in-app conversation list,
-        // so a submitted log is the only place it is ever recorded. Note what the
-        // tier does NOT buy, because an earlier version of this comment claimed it:
-        // the in-app connections views filter by MARKER before level
-        // (webdebuglogger.cpp) and this subsystem has no registered marker, so these
-        // lines do not reach those views at any tier. INFO makes the line survive a
-        // `debug_get_log minLevel="INFO"` retrieval; free-text search is how it is
-        // found. Registering an advisor marker is the change that would put this in
-        // front of a user, and it is not this change.
-        QJsonArray lostTurns;
-        const AIConversation::TranscriptState lostState =
-            AIConversation::storedTranscriptState(settings, oldest.key, &lostTurns);
+        // Read before destroying, and remove the whole GROUP: QSettings::remove()
+        // takes subkeys with it, where a field list orphaned contextLabel.
+        QJsonArray turns;
+        const AIConversation::TranscriptState state =
+            AIConversation::storedTranscriptState(settings, oldest.key, &turns);
         settings.remove(QStringLiteral("ai/conversations/") + oldest.key);
-        // turns is only meaningful on Ok -- storedTranscriptState fills outTurns
-        // on that path alone, so printing 0 for Corrupt would read as "nothing was
-        // lost" at exactly the moment an unrecoverable transcript was destroyed.
+        // INFO: permanent deletion of user data, and there is no in-app
+        // conversation list, so a submitted log is the only record.
         qInfo() << "AIManager: Evicted oldest conversation" << oldest.key
                 << oldest.beanBrand << oldest.beanType << oldest.profileName
-                << "state:" << AIConversation::transcriptStateName(lostState)
-                << "turns:"
-                << (lostState == AIConversation::TranscriptState::Ok
-                        ? QString::number(lostTurns.size())
-                        : QStringLiteral("unknown"));
+                << "state:" << AIConversation::transcriptStateName(state)
+                << "turns:" << (state == AIConversation::TranscriptState::Ok
+                                    ? QString::number(turns.size())
+                                    : QStringLiteral("unknown"));
     }
     saveConversationIndex();
 }
@@ -2314,64 +2177,33 @@ void AIManager::clearAllConversationsOnce(const QString& migrationId)
         return;
 
     settings.beginGroup(QStringLiteral("ai/conversations"));
+    // childGroups(), not childKeys(): the group also holds the `index` key, which
+    // exists as "[]" on a cleared device and would report a deletion that did not happen.
     const bool hadKeyedThreads = !settings.childGroups().isEmpty();
     settings.remove(QString());  // removes all keys in this group
     settings.endGroup();
-    // The legacy PRE-KEYED thread is under `ai/conversation/` (singular), a
-    // different prefix that the group scan above cannot see — and it is removed
-    // below, so leaving it out understates the deletion for exactly the user who
-    // most needs the record: someone upgrading from a build that predates keyed
-    // storage, whose ENTIRE advisor history is this one key.
-    //
-    // childGroups(), not childKeys(): the group also holds the `index` key, which
-    // exists (as "[]") on a device that has cleared its conversations, and would
-    // otherwise report a deletion that did not happen.
+
+    // The pre-keyed thread lives under `ai/conversation/` (singular), which the group
+    // scan above cannot see. Removing it is what makes the wipe stick:
+    // migrateFromLegacyConversation() runs a few lines later in the constructor, its
+    // guard is "legacy data exists AND the index is empty" -- which the wipe just made
+    // true -- and it would re-seed a `_legacy` entry pointing at the one thread that
+    // spans every bean, profile and package the user has ever had.
     const bool hadLegacyThread =
         !settings.value(QStringLiteral("ai/conversation/messages")).toByteArray().isEmpty();
-    const bool hadStoredConversations = hadKeyedThreads || hadLegacyThread;
-
-    // The PRE-KEYED singular keys too. migrateFromLegacyConversation() runs a
-    // few lines after this in the constructor, and its guard is "legacy data
-    // exists AND the index is empty" — which the wipe above makes true. It
-    // would then re-create a `_legacy` index entry pointing at
-    // ai/conversation/messages: the one thread that by construction spans every
-    // bean, profile and equipment package the user has ever had, restored by
-    // loadMostRecentConversation() as the newest entry. A wipe that hands the
-    // user back the most cross-contaminated thread in the store is worse than
-    // no wipe, and it is silent — the legacy path logs "Migrating legacy
-    // conversation to keyed storage", which reads as success.
-    //
-    // Removing them is what makes the wipe stick at all: the marker suppresses
-    // the wipe on later launches but not the legacy migration, which re-seeds
-    // from keys the wipe never touched. Once is enough to undo it.
     settings.remove(QStringLiteral("ai/conversation/systemPrompt"));
     settings.remove(QStringLiteral("ai/conversation/messages"));
     settings.remove(QStringLiteral("ai/conversation/timestamp"));
 
-    // Only stamp the marker if the removals reached the backing store — but read
-    // the status as reporting on THIS write only. QSettings::status() is LATCHED:
-    // setStatus assigns only when the incoming status is NoError or the stored
-    // one is (qtbase/src/corelib/io/qsettings.cpp:312-316), and not one of its
-    // eleven call sites in that file ever passes NoError, so nothing clears it.
-    // The QSettings base constructor syncs before this function is reached
-    // (QConfFileSettingsPrivate::initAccess, :906-920), so on the INI-backed
-    // platforms — Android, Linux, and every test build, which forces IniFormat —
-    // one unparseable line latches FormatError up front (:1431, :1437). The
-    // native macOS and Windows backends have no INI parser and only ever set
-    // AccessError, so they cannot reach that state.
-    //
-    // A bare `status() != NoError` check therefore turns this into a destructive
-    // loop on such a device: the removals persist, the marker never does, and
-    // every conversation created since the last launch is deleted again at every
-    // launch, forever. Compare clean-before to dirty-after instead, and when the
-    // store was ALREADY dirty stamp optimistically — there is no signal either
-    // way, and blocking forever on stale info is the worse failure.
-    //
-    // Settings::commitFlowCalMigrationFlag (settings.cpp) is the same guard for
-    // the same reason, written after v2/v3/v4 re-ran their resets and wiped
-    // calibration data on every launch. settings_hardware.cpp:146 and
-    // settings_calibration.cpp:1432 use the bare form; they are not precedent
-    // for a gate that suppresses a one-time migration.
+    // Stamp the marker only if the removals reached the store -- but QSettings::status()
+    // is LATCHED: setStatus assigns only when the incoming status is NoError or the
+    // stored one is (qtbase/src/corelib/io/qsettings.cpp:312-316), and none of its
+    // eleven call sites passes NoError. On an INI-backed device (Android, Linux, every
+    // test build) one unparseable line latches FormatError before this runs, so a bare
+    // `status() != NoError` check would delete every conversation on every launch,
+    // forever, while never stamping. Compare clean-before to dirty-after, and stamp
+    // optimistically when it was already dirty. Same guard, same reason, as
+    // Settings::commitFlowCalMigrationFlag.
     const bool cleanBefore = (settings.status() == QSettings::NoError);
     settings.sync();
     if (cleanBefore && settings.status() != QSettings::NoError) {
@@ -2382,12 +2214,9 @@ void AIManager::clearAllConversationsOnce(const QString& migrationId)
     }
 
     settings.setValue(markerKey, true);
-    // INFO tier, not DEBUG: this is a one-time irreversible deletion of every
-    // advisor thread the user owns, and the connections views default to INFO —
-    // a user asking "where did my conversations go?" has to be able to see it.
-    // Only when something was actually there: on a fresh install this would
-    // otherwise assert a deletion that did not happen.
-    if (hadStoredConversations) {
+    // INFO: a one-time irreversible deletion of every advisor thread the user owns.
+    // Only when something was there, or it asserts a deletion that did not happen.
+    if (hadKeyedThreads || hadLegacyThread) {
         qInfo() << "AIManager: cleared all conversations for migration" << migrationId;
     } else {
         qDebug() << "AIManager: no conversations to clear for migration" << migrationId

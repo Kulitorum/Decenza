@@ -6,7 +6,6 @@
 #include <QObject>
 #include <QSqlDatabase>
 
-#include <optional>
 #include <QHash>
 #include <QSet>
 #include <QVariantList>
@@ -196,6 +195,16 @@ public:
     // here, so treat mixing as loud until someone demonstrates otherwise.
     static QString equipmentBucketSql(const QString& column = QStringLiteral("equipment_id"),
                                       const QString& placeholder = QStringLiteral("?"));
+
+    // Three SELECT columns naming a shot's package components: basket brand,
+    // basket model, puck-prep model. `shotAlias` is the alias the enclosing
+    // query gives the shots table.
+    //
+    // Correlated subqueries rather than more LEFT JOINs, with ORDER BY id LIMIT 1:
+    // there is no unique key on (package_id, kind), so a plain join fans the row
+    // out over a duplicate item. Written once because three call sites had
+    // hand-copied it, each carrying its own copy of that warning.
+    static QString equipmentComponentsSql(const QString& shotAlias = QStringLiteral("s"));
 
     // Query recent shots by KB ID (summary data, no time-series).
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.

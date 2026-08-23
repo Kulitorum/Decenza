@@ -360,8 +360,7 @@ public:
      * silently archiving `[]` — which the importer now rejects as malformed.
      */
     static QJsonObject serializeIndexEntry(AppSettings& settings,
-                                           const AIManager::ConversationEntry& entry,
-                                           TranscriptState* outState = nullptr);
+                                           const AIManager::ConversationEntry& entry);
 
     /**
      * What importConversationsStatic did. Note the units differ: the first

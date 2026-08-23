@@ -662,6 +662,20 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
 }
 
 
+QString ShotHistoryStorage::equipmentComponentsSql(const QString& shotAlias)
+{
+    return QStringLiteral(
+        "COALESCE((SELECT b.brand FROM equipment_items b "
+        "          WHERE b.package_id = %1.equipment_id AND b.kind = 'basket' "
+        "          ORDER BY b.id LIMIT 1), '') AS basket_brand, "
+        "COALESCE((SELECT b.model FROM equipment_items b "
+        "          WHERE b.package_id = %1.equipment_id AND b.kind = 'basket' "
+        "          ORDER BY b.id LIMIT 1), '') AS basket_model, "
+        "COALESCE((SELECT p.model FROM equipment_items p "
+        "          WHERE p.package_id = %1.equipment_id AND p.kind = 'puckprep' "
+        "          ORDER BY p.id LIMIT 1), '') AS puck_prep").arg(shotAlias);
+}
+
 QString ShotHistoryStorage::equipmentBucketSql(const QString& column, const QString& placeholder)
 {
     return QStringLiteral("COALESCE(%1, 0) = %2").arg(column, placeholder);
@@ -675,25 +689,13 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
     // packages task 4.1); the per-shot grinder_brand/model/burrs columns are
     // dropped in migration 23. Aliases keep the value("grinder_*") reads below
     // unchanged. burrs is json_extract'd from the grinder item's attrs blob.
-    //
-    // Basket and puck prep come from correlated subqueries rather than more
-    // LEFT JOINs: there is no unique key on (package_id, kind), so a plain join
-    // fans out over a duplicate item row. `ORDER BY id LIMIT 1` matches the
-    // basket-seed query and equipmentstorage's own loaders.
+    // Basket and puck prep come from equipmentComponentsSql().
     QString sql = QStringLiteral(R"(
         SELECT s.id, s.timestamp, s.profile_name, s.duration_seconds, s.final_weight, s.dose_weight,
                s.bean_brand, s.bean_type, s.roast_level,
                eg.brand AS grinder_brand, eg.model AS grinder_model,
                json_extract(eg.attrs, '$.burrs') AS grinder_burrs,
-               COALESCE((SELECT b.brand FROM equipment_items b
-                         WHERE b.package_id = s.equipment_id AND b.kind = 'basket'
-                         ORDER BY b.id LIMIT 1), '') AS basket_brand,
-               COALESCE((SELECT b.model FROM equipment_items b
-                         WHERE b.package_id = s.equipment_id AND b.kind = 'basket'
-                         ORDER BY b.id LIMIT 1), '') AS basket_model,
-               COALESCE((SELECT p.model FROM equipment_items p
-                         WHERE p.package_id = s.equipment_id AND p.kind = 'puckprep'
-                         ORDER BY p.id LIMIT 1), '') AS puck_prep,
+               )") + equipmentComponentsSql() + QStringLiteral(R"(,
                COALESCE(s.equipment_id, 0) AS equipment_bucket,
                s.grinder_setting, s.drink_tds, s.drink_ey, s.enjoyment,
                s.espresso_notes, s.roast_date, s.temperature_override, s.yield_override, s.profile_json, s.beverage_type,

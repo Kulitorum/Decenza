@@ -13,7 +13,6 @@
 #include <QString>
 #include <QtGlobal>
 
-#include <optional>
 
 class QSqlDatabase;
 class Settings;

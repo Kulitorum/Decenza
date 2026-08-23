@@ -25,7 +25,6 @@
 #include <QThread>
 #include <QTimer>
 
-#include <optional>
 
 // Hard cap on a single advisor call, sized to outlast the slowest
 // provider's own timeout so the MCP caller always gets a clean reply
@@ -146,24 +145,9 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // The shot record is loaded and valid, and carries this
                         // shot's package. 0 = unpackaged, a real bucket.
                         //
-                        // Three of the FIVE dialing-context builders below take the
-                        // whole `shot`, so the bucket and the fields it scopes come
-                        // off the same row by construction. Two do not:
-                        // `buildGrinderCalibrationBlock` takes discrete fields and
-                        // re-loads the row itself (dialing_blocks.cpp,
-                        // loadShotRecordStatic) -- for signature stability, not
-                        // because it needs more than the others -- and
-                        // `buildRecentAdviceBlock` takes a RecentAdviceInputs struct.
-                        // Same connection, same id, so still the same row.
-                        // This local exists only for conversationKey() further down.
-                        //
-                        // FOUR drafts of this comment have been wrong: "no second
-                        // lookup" while three builders resolved their own; "three of
-                        // the four take this value" after they stopped taking it;
-                        // "the builders take the whole shot", dropping the exception;
-                        // then "three of the four ... the exception", which miscounted
-                        // the builders and missed the second one. Count the
-                        // `DialingBlocks::` calls below before editing this line.
+                        // Every dialing block resolves the package off this same
+                        // loaded row. This local exists only for conversationKey()
+                        // below; 0 = unpackaged, a real bucket.
                         const qint64 equipmentBucket = shot.equipmentId;
 
                         // Same dialing-context blocks the in-app advisor
@@ -407,10 +391,9 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                                 const QString convKey = AIManager::conversationKey(
                                     shot.beanBrand, shot.beanType, shot.profileName,
                                     shot.equipmentId);
-                                // The system prompt rides along so the user can
-                                // CONTINUE this thread in the app. Without it
-                                // Always the multi-shot prompt — see
-                                // appendAssistantTurnForKey and promptToPersist above.
+                                // Always the multi-shot prompt, so the user can
+                                // CONTINUE this thread in the app — see
+                                // promptToPersist above.
                                 AIConversation::appendAssistantTurnForKey(
                                     convKey, resolvedShotId,
                                     userPrompt, response, structured, promptToPersist);

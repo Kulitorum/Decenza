@@ -411,21 +411,10 @@ QJsonArray ShotServer::serializeAIConversations() const
     AppSettings settings;
     QJsonArray result;
 
-    for (const auto& entry : m_aiManager->conversationIndex()) {
-        // ONE serializer, shared with DatabaseBackupManager — see
-        // AIConversation::serializeIndexEntry for why this was not two.
-        AIConversation::TranscriptState state = AIConversation::TranscriptState::Missing;
-        const QJsonObject conv = AIConversation::serializeIndexEntry(settings, entry, &state);
-        if (state != AIConversation::TranscriptState::Ok) {
-            // Say so at BACKUP time. A thread that cannot be read is archived
-            // without turns and the importer rejects it as malformed, so silence
-            // here means the user only finds out during a restore that reports
-            // success.
-            qWarning() << "ShotServer: conversation" << entry.key
-                       << "has no readable transcript — archiving it without turns";
-        }
-        result.append(conv);
-    }
+    // ONE serializer, shared with DatabaseBackupManager — it also warns about an
+    // unreadable transcript, so neither caller carries that policy.
+    for (const auto& entry : m_aiManager->conversationIndex())
+        result.append(AIConversation::serializeIndexEntry(settings, entry));
 
     return result;
 }

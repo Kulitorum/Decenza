@@ -473,16 +473,15 @@ private:
     QString m_liveBeanType;
     QString m_liveProfileName;
     qint64 m_liveEquipmentId = 0;
-    // Drop least-recently-used entries until at most `keep` remain, deleting each
-    // one's stored transcript.
+    // Evict least-recently-used conversations, deleting each one's stored
+    // transcript, until a new one fits. The index is LRU-ordered (see
+    // loadConversationIndex and touchConversationEntry), so the tail is the
+    // right end to drop from.
     //
-    // The ONLY caller is the insert path, which passes MAX_CONVERSATIONS - 1 to
-    // make room for the entry it is about to prepend. Do not call it to "enforce
-    // the cap" on an index read back from disk, however obvious that looks: this
-    // comment used to recommend exactly that, the call was added, and it deleted
-    // the conversations a backup restore had just imported. loadConversationIndex
-    // carries the full reason. An over-cap index converges on the next insert.
-    void trimConversationsTo(int keep);
+    // There is deliberately no "trim to N" parameter. One existed, and the only
+    // value it was ever passed other than this one was the cap itself, from a
+    // load-path trim that deleted freshly-restored conversations.
+    void makeRoomForNewConversation();
     void migrateFromLegacyConversation();
     // One-shot conversation wipe keyed by a migration id. Fires once per
     // device; subsequent launches are no-ops. Call before loadConversationIndex.
