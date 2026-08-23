@@ -54,6 +54,10 @@
 #include "mcp/mcptoolregistry.h"
 
 Q_DECLARE_METATYPE(EquipmentScope)
+// One seeded conversation index: (key, timestamp) in index order. Aliased
+// because the comma in the template arguments breaks Q_DECLARE_METATYPE/QFETCH.
+using SeedList = QList<QPair<QString, qint64>>;
+Q_DECLARE_METATYPE(SeedList)
 
 // Implemented in src/mcp/mcptools_ai_conversations.cpp — split into its own
 // translation unit specifically so it can be linked here against a real
@@ -626,46 +630,162 @@ private slots:
         settings.clear();
     }
 
-    // Restoring the newest thread at launch is a READ. It must not move the LRU
-    // or rewrite the timestamp: `lastUpdated` is the only recency signal the
-    // conversation list and the MCP `list` action have, and a thread untouched
-    // for a week reported as updated today is a false statement that repeats on
-    // every launch.
-    void launch_doesNotRedateTheRestoredThread()
+    // Seed threads on disk plus an index naming them, in the given order, with the
+    // one-time wipe markers already spent so constructing an AIManager loads the
+    // seed instead of deleting it. contextLabel is written only by the restore
+    // path; seeded so eviction is exercised on the whole group rather than on the
+    // transcript alone.
+    static void seedConversations(AppSettings& settings,
+                                  const SeedList& entries)
     {
+        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
+        settings.setValue(QStringLiteral("ai/migrations/equipment_scoped_conversations_v1"), true);
+        QJsonArray index;
+        int shotId = 1;
+        for (const auto& e : entries) {
+            AIConversation::appendAssistantTurnForKey(
+                e.first, shotId++, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+                QStringLiteral("sys"));
+            settings.setValue(QStringLiteral("ai/conversations/") + e.first
+                                  + QStringLiteral("/contextLabel"),
+                              QStringLiteral("Brand ") + e.first);
+            QJsonObject o;
+            o["key"] = e.first;
+            o["beanBrand"] = QStringLiteral("Brand");
+            o["beanType"] = e.first;
+            o["profileName"] = QStringLiteral("P");
+            o["timestamp"] = e.second;
+            index.append(o);
+        }
+        settings.setValue(QStringLiteral("ai/conversations/index"),
+                          QJsonDocument(index).toJson(QJsonDocument::Compact));
+    }
+
+    // Eviction takes from the TAIL, so it is only correct if the index is
+    // most-recent-first, and an over-cap index has to converge. Both used to be
+    // false: importConversationsStatic APPENDS restored entries in archive order,
+    // so a restore put the newest thread on the tail and the trim destroyed
+    // yesterday's transcript while a year-old local one survived; and the trim
+    // dropped exactly one entry per call, so at cap+1 the caller's prepend
+    // restored it, forever.
+    void anOverCapIndexConvergesOnItsMostRecent_data()
+    {
+        QTest::addColumn<SeedList>("seed");
+
+        SeedList descending;
+        for (int i = 0; i < AIManager::MAX_CONVERSATIONS + 2; ++i)
+            descending << qMakePair(QStringLiteral("seed%1").arg(i), qint64(10000 - i));
+        QTest::newRow("saved order: newest first") << descending;
+
+        // What a restore leaves: locals in saved order, then the archived entry
+        // appended at the tail carrying a timestamp newer than all of them. The
+        // descending row cannot catch a missing sort — it is already sorted.
+        SeedList restoreShaped;
+        for (int i = 0; i < AIManager::MAX_CONVERSATIONS; ++i)
+            restoreShaped << qMakePair(QStringLiteral("local%1").arg(i), qint64(5000 - i * 1000));
+        restoreShaped << qMakePair(QStringLiteral("restoredThread"), qint64(9999));
+        QTest::newRow("restore order: newest appended at the tail") << restoreShaped;
+    }
+
+    void anOverCapIndexConvergesOnItsMostRecent()
+    {
+        QFETCH(SeedList, seed);
+
         AppSettings settings;
         settings.clear();
+        seedConversations(settings, seed);
 
-        const QString bean = QStringLiteral("Sweet Bloom Coffee");
-        const QString type = QStringLiteral("Hometown Blend");
-        const QString profile = QStringLiteral("D-Flow / Q");
-        const QString key = AIManager::conversationKey(bean, type, profile, 7);
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        QCOMPARE(mgr.m_conversationIndex.size(), seed.size());   // the load does not trim
 
-        const qint64 lastWeek = QDateTime::currentSecsSinceEpoch() - 7 * 24 * 3600;
-        {
-            QNetworkAccessManager nam;
-            Settings appSettings;
-            // Constructed FIRST so the one-time wipe spends its marker before
-            // the thread exists — otherwise it deletes what this test seeds.
-            AIManager mgr(&nam, &appSettings);
-            AIConversation::appendAssistantTurnForKey(
-                key, 5, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
-                QStringLiteral("sys"));
-            mgr.switchConversation(bean, type, profile, 7);
-            QCOMPARE(mgr.m_conversationIndex.size(), 1);
-            mgr.m_conversationIndex[0].timestamp = lastWeek;
-            mgr.saveConversationIndex();
+        // Starting a new conversation is what converges it.
+        const QString fresh = mgr.switchConversation(
+            QStringLiteral("Fresh Roasters"), QStringLiteral("New Bean"),
+            QStringLiteral("D-Flow / Q"), 11);
+        AIConversation::appendAssistantTurnForKey(
+            fresh, 99, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
+            QStringLiteral("sys"));
+        mgr.indexStoredConversation();
+
+        SeedList byRecency = seed;
+        std::stable_sort(byRecency.begin(), byRecency.end(),
+                         [](const QPair<QString, qint64>& a, const QPair<QString, qint64>& b) {
+                             return a.second > b.second;
+                         });
+
+        QCOMPARE(mgr.m_conversationIndex.size(), int(AIManager::MAX_CONVERSATIONS));
+        QCOMPARE(mgr.m_conversationIndex.first().key, fresh);
+        for (int i = 1; i < AIManager::MAX_CONVERSATIONS; ++i)
+            QCOMPARE(mgr.m_conversationIndex[i].key, byRecency[i - 1].first);
+
+        // A survivor is still readable; asserting only the deletions would pass
+        // on an eviction that took everything.
+        QCOMPARE(AIConversation::storedTranscriptState(settings, byRecency.first().first),
+                 AIConversation::TranscriptState::Ok);
+
+        // Evicted threads are gone from storage entirely — every key under the
+        // group, not just the transcript. Checking only the transcript is what
+        // let contextLabel survive eviction on the running app.
+        for (int i = AIManager::MAX_CONVERSATIONS - 1; i < byRecency.size(); ++i) {
+            settings.beginGroup(QStringLiteral("ai/conversations/") + byRecency[i].first);
+            const QStringList leftover = settings.allKeys();
+            settings.endGroup();
+            QVERIFY2(leftover.isEmpty(),
+                     qPrintable(QStringLiteral("Evicted thread %1 left %2 behind")
+                                    .arg(byRecency[i].first, leftover.join(QStringLiteral(", ")))));
         }
 
+        // And it persisted: a relaunch reads back the converged index.
         QNetworkAccessManager nam2;
         Settings appSettings2;
         AIManager relaunched(&nam2, &appSettings2);
-        QCOMPARE(relaunched.m_conversationIndex.size(), 1);
-        QCOMPARE(relaunched.m_conversationIndex.first().timestamp, lastWeek);
+        QCOMPARE(relaunched.m_conversationIndex.size(), int(AIManager::MAX_CONVERSATIONS));
 
         settings.clear();
     }
 
+    // The loaded timestamp decides eviction order and which thread reopens at
+    // launch, and both ways of getting it wrong repeat on every launch: an
+    // archive's absurd future value would sit at the head forever, and a launch
+    // that re-dated the thread it restored would report a week-old conversation
+    // as updated today.
+    void aLoadedTimestampIsNeitherTrustedBlindlyNorRewritten_data()
+    {
+        QTest::addColumn<qint64>("seeded");
+        QTest::addColumn<bool>("expectClamped");
+
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        QTest::newRow("a decade ahead is clamped") << qint64(now + 10 * 365 * 24 * 3600) << true;
+        QTest::newRow("zero is clamped") << qint64(0) << true;
+        QTest::newRow("last week is left alone") << qint64(now - 7 * 24 * 3600) << false;
+    }
+
+    void aLoadedTimestampIsNeitherTrustedBlindlyNorRewritten()
+    {
+        QFETCH(qint64, seeded);
+        QFETCH(bool, expectClamped);
+
+        AppSettings settings;
+        settings.clear();
+        seedConversations(settings, {qMakePair(QStringLiteral("thread"), seeded)});
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        QCOMPARE(mgr.m_conversationIndex.size(), 1);
+
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        const qint64 loaded = mgr.m_conversationIndex.first().timestamp;
+        if (expectClamped)
+            QVERIFY2(loaded > 0 && loaded <= now + 86400,
+                     qPrintable(QStringLiteral("survived the load as %1").arg(loaded)));
+        else
+            QCOMPARE(loaded, seeded);
+
+        settings.clear();
+    }
     // Stored-and-unindexed is the DESIGNED resting state of an MCP thread until
     // switchConversation adopts it — appendAssistantTurnForKey writes storage
     // and never touches the index. A startup sweep that read unindexed as
@@ -716,227 +836,6 @@ private slots:
         QCOMPARE(relaunched.switchConversation(bean, type, profile, 7), key);
         QCOMPARE(relaunched.m_conversationIndex.size(), 1);
         QCOMPARE(relaunched.m_conversationIndex.first().key, key);
-
-        settings.clear();
-    }
-
-    // A timestamp from the future is clamped, not honoured.
-    //
-    // Eviction order and which thread reopens at launch are both decided by
-    // timestamp, and an archive carries whatever clock the source device had. An
-    // absurd value left alone sorts to the head at EVERY launch: never evicted, and
-    // reopened by loadMostRecentConversation forever, with the user's actual most
-    // recent thread permanently behind it.
-    void aFutureTimestampIsClampedSoItCannotPinTheHead()
-    {
-        AppSettings settings;
-        settings.clear();
-        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
-        settings.setValue(QStringLiteral("ai/migrations/equipment_scoped_conversations_v1"), true);
-
-        const qint64 now = QDateTime::currentSecsSinceEpoch();
-        const qint64 absurd = now + 10 * 365 * 24 * 3600;   // a decade ahead
-        const QString skewed = QStringLiteral("skewedClock");
-
-        QJsonArray index;
-        for (const auto& pair : {std::make_pair(skewed, absurd),
-                                 std::make_pair(QStringLiteral("normal"), now)}) {
-            AIConversation::appendAssistantTurnForKey(
-                pair.first, 1, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
-                QStringLiteral("sys"));
-            QJsonObject e;
-            e["key"] = pair.first;
-            e["beanBrand"] = QStringLiteral("Brand");
-            e["beanType"] = pair.first;
-            e["profileName"] = QStringLiteral("D-Flow / Q");
-            e["timestamp"] = pair.second;
-            index.append(e);
-        }
-        settings.setValue(QStringLiteral("ai/conversations/index"),
-                          QJsonDocument(index).toJson(QJsonDocument::Compact));
-
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
-
-        QCOMPARE(mgr.m_conversationIndex.size(), 2);
-        for (const auto& e : mgr.m_conversationIndex) {
-            if (e.key != skewed) continue;
-            QVERIFY2(e.timestamp <= now + 86400,
-                     qPrintable(QStringLiteral("A decade-ahead timestamp survived the load "
-                                               "as %1; it would sit at the head forever")
-                                    .arg(e.timestamp)));
-        }
-
-        settings.clear();
-    }
-
-    // Eviction takes from the TAIL, which is only correct if the index is
-    // most-recent-first. importConversationsStatic APPENDS restored entries in
-    // archive order, so the tail held the newest and a restore lost yesterday's
-    // transcript while a year-old local one survived. Seeded in the shape a
-    // restore leaves behind — the cap test's tidy descending seed makes the sort
-    // a no-op, so deleting it leaves that one green.
-    void aRestoredThreadIsNotEvictedAheadOfOlderLocalOnes()
-    {
-        AppSettings settings;
-        settings.clear();
-        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
-        settings.setValue(QStringLiteral("ai/migrations/equipment_scoped_conversations_v1"), true);
-
-        const QString restored = QStringLiteral("restoredThread");
-        const QString oldestLocal = QStringLiteral("local4");
-
-        QJsonArray index;
-        auto addEntry = [&index](const QString& key, qint64 timestamp) {
-            QJsonObject e;
-            e["key"] = key;
-            e["beanBrand"] = QStringLiteral("Brand");
-            e["beanType"] = key;
-            e["profileName"] = QStringLiteral("D-Flow / Q");
-            e["timestamp"] = timestamp;
-            index.append(e);
-        };
-
-        // Five local threads as saveConversationIndex writes them: most recent first.
-        for (int i = 0; i < AIManager::MAX_CONVERSATIONS; ++i) {
-            const QString key = QStringLiteral("local%1").arg(i);
-            AIConversation::appendAssistantTurnForKey(
-                key, i + 1, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
-                QStringLiteral("sys"));
-            addEntry(key, 5000 - i * 1000);   // local0 newest ... local4 oldest
-        }
-        // ...then the restored one, APPENDED at the tail the way an import leaves it,
-        // carrying an archived timestamp NEWER than every local thread.
-        AIConversation::appendAssistantTurnForKey(
-            restored, 9, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
-            QStringLiteral("sys"));
-        addEntry(restored, 9999);
-
-        settings.setValue(QStringLiteral("ai/conversations/index"),
-                          QJsonDocument(index).toJson(QJsonDocument::Compact));
-
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
-
-        // The sort must have moved the restored thread off the tail.
-        QCOMPARE(mgr.m_conversationIndex.first().key, restored);
-
-        // Starting a new conversation drives the trim, which takes from the tail.
-        const QString fresh = mgr.switchConversation(
-            QStringLiteral("Fresh"), QStringLiteral("Bean"),
-            QStringLiteral("D-Flow / Q"), 12);
-        AIConversation::appendAssistantTurnForKey(
-            fresh, 12, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
-            QStringLiteral("sys"));
-        mgr.indexStoredConversation();
-
-        QCOMPARE(AIConversation::storedTranscriptState(settings, restored),
-                 AIConversation::TranscriptState::Ok);
-        // ...and it was the genuinely oldest that went, not an arbitrary one.
-        QCOMPARE(AIConversation::storedTranscriptState(settings, oldestLocal),
-                 AIConversation::TranscriptState::Missing);
-
-        settings.clear();
-    }
-
-    // An over-cap index must converge. Dropping exactly one entry per call made
-    // over-cap a STABLE state: at 6 with a cap of 5, the drop left 5 and the
-    // caller's prepend restored 6. Convergence rides the INSERT path — a trim on
-    // the LOAD path is destructive on restore, see loadConversationIndex.
-    void anIndexOverTheCapIsTrimmedBackToIt()
-    {
-        AppSettings settings;
-        settings.clear();
-
-        // Seed MAX_CONVERSATIONS + 2 threads on disk, newest first, each with a
-        // real transcript so the trim has something to delete.
-        const int seeded = AIManager::MAX_CONVERSATIONS + 2;
-        QJsonArray index;
-        QStringList keys;
-        for (int i = 0; i < seeded; ++i) {
-            const QString key = QStringLiteral("seed%1").arg(i);
-            keys << key;
-            AIConversation::appendAssistantTurnForKey(
-                key, i + 1, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
-                QStringLiteral("sys"));
-            // Written only by the backup-restore path, so a thread that arrived
-            // that way carries a field appendAssistantTurnForKey never writes.
-            // Seeded here because eviction has to take the whole group, not the
-            // fields one function happens to know about.
-            settings.setValue(QStringLiteral("ai/conversations/") + key
-                                  + QStringLiteral("/contextLabel"),
-                              QStringLiteral("Brand Type %1 / P").arg(i));
-            QJsonObject entry;
-            entry["key"] = key;
-            entry["beanBrand"] = QStringLiteral("Brand");
-            entry["beanType"] = QStringLiteral("Type %1").arg(i);
-            entry["profileName"] = QStringLiteral("P");
-            entry["equipmentId"] = i;
-            // Descending, so index order is genuinely least-recently-used-last.
-            entry["timestamp"] = qint64(10000 - i);
-            index.append(entry);
-        }
-        settings.setValue(QStringLiteral("ai/conversations/index"),
-                          QJsonDocument(index).toJson(QJsonDocument::Compact));
-        // Spend the one-time wipe markers against the seeded state, or constructing
-        // AIManager below would delete the seed instead of trimming it.
-        settings.setValue(QStringLiteral("ai/migrations/grinder_calibration_v1.7.2"), true);
-        settings.setValue(QStringLiteral("ai/migrations/equipment_scoped_conversations_v1"), true);
-
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
-        // Loaded as-is: the load path does not trim.
-        QCOMPARE(mgr.m_conversationIndex.size(), seeded);
-
-        // Starting a new conversation is what converges it. With the old
-        // single-take trim this lands on seeded (7), not the cap: one dropped,
-        // one prepended, no progress -- forever.
-        const QString fresh = mgr.switchConversation(
-            QStringLiteral("Fresh Roasters"), QStringLiteral("New Bean"),
-            QStringLiteral("D-Flow / Q"), 11);
-        AIConversation::appendAssistantTurnForKey(
-            fresh, 11, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
-            QStringLiteral("sys"));
-        mgr.indexStoredConversation();
-
-        QCOMPARE(mgr.m_conversationIndex.size(), int(AIManager::MAX_CONVERSATIONS));
-        QCOMPARE(mgr.m_conversationIndex.first().key, fresh);
-        // The survivors under it must be the most recent seeds, not an arbitrary set.
-        for (int i = 1; i < AIManager::MAX_CONVERSATIONS; ++i)
-            QCOMPARE(mgr.m_conversationIndex[i].key, keys[i - 1]);
-
-        // A retained thread is still readable. Missing is also what an untouched,
-        // never-seeded or wholly-nuked store returns, so asserting only Missing
-        // below would pass just as well on an eviction that took everything.
-        QCOMPARE(AIConversation::storedTranscriptState(settings, keys[0]),
-                 AIConversation::TranscriptState::Ok);
-
-        // The trim is not bookkeeping-only: the dropped threads are gone from
-        // storage, so they cannot resurface through indexStoredConversation.
-        for (int i = AIManager::MAX_CONVERSATIONS - 1; i < seeded; ++i) {
-            QCOMPARE(AIConversation::storedTranscriptState(settings, keys[i]),
-                     AIConversation::TranscriptState::Missing);
-            // Every key under the group, not just the transcript. Checking only
-            // the transcript is what let `contextLabel` survive eviction on the
-            // running app -- storedTranscriptState reads `messages` alone, so it
-            // reported Missing while a key from the same group was still there.
-            settings.beginGroup(QStringLiteral("ai/conversations/") + keys[i]);
-            const QStringList leftover = settings.allKeys();
-            settings.endGroup();
-            QVERIFY2(leftover.isEmpty(),
-                     qPrintable(QStringLiteral("Evicted thread %1 left %2 behind")
-                                    .arg(keys[i], leftover.join(QStringLiteral(", ")))));
-        }
-
-        // And it persisted — a reload must read back the converged index, not the
-        // over-cap one.
-        QNetworkAccessManager nam2;
-        Settings appSettings2;
-        AIManager relaunched(&nam2, &appSettings2);
-        QCOMPARE(relaunched.m_conversationIndex.size(), int(AIManager::MAX_CONVERSATIONS));
 
         settings.clear();
     }
@@ -4318,69 +4217,51 @@ private slots:
         return QJsonArray{ o };
     }
 
-    // A conversation restored from ANOTHER device carries the source device's
-    // package id inside its key — an SHA1 of bean|type|profile|equipmentId. The
-    // equipment import renumbers packages, so restoring the key verbatim leaves
-    // a thread the app can never address again: opening that shot computes the
-    // key from the LOCAL package id, misses, and starts fresh. The entry must be
-    // rewritten onto the mapped key.
-    void importedConversationIsRekeyedOntoTheMappedPackage()
+    // A restored thread is only usable if it lands on the key THIS device
+    // computes for that shot — the key hashes the source device's package id,
+    // which the equipment import renumbers. Rekeying is conditional on the
+    // archived key really being the hash of the archived fields, because older
+    // archives carry entries where it is not.
+    void importedConversation_data()
     {
-        AppSettings settings;
-        settings.clear();
+        QTest::addColumn<QString>("keyBean");      // bean the archived KEY hashes on
+        QTest::addColumn<qint64>("entryPackage");  // equipmentId the entry carries
+        QTest::addColumn<bool>("hasMap");
+        QTest::addColumn<bool>("hasTurns");
+        QTest::addColumn<int>("expectImported");
+        QTest::addColumn<int>("expectUnkeyed");
+        QTest::addColumn<QString>("expectStoredKey");
+        QTest::addColumn<qint64>("expectIndexPackage");
 
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
+        const QString b = QStringLiteral("B"), t = QStringLiteral("T"), p = QStringLiteral("P");
+        auto k = [&](const QString& bean, qint64 pkg) {
+            return AIManager::conversationKey(bean, t, p, pkg);
+        };
 
-        const QString bean = QStringLiteral("B");
-        const QString type = QStringLiteral("T");
-        const QString profile = QStringLiteral("P");
-        const qint64 srcPackage = 12;
-        const qint64 destPackage = 41;
-        const QString srcKey = AIManager::conversationKey(bean, type, profile, srcPackage);
-        const QString destKey = AIManager::conversationKey(bean, type, profile, destPackage);
-        QVERIFY2(srcKey != destKey, "the two package ids must produce different keys");
-
-        const QHash<qint64, qint64> packageMap{{srcPackage, destPackage}};
-        const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(srcKey, turnsWithShotIds({7}), srcPackage),
-            nullptr, &packageMap);
-        QCOMPARE(tally.conversationsImported, 1);
-        QCOMPARE(tally.conversationsUnkeyed, 0);
-
-        // The transcript is under the key this device will actually compute...
-        QVERIFY2(!settings.value("ai/conversations/" + destKey + "/messages")
-                      .toByteArray().isEmpty(),
-                 "the thread must be stored under the remapped key");
-        QVERIFY2(settings.value("ai/conversations/" + srcKey + "/messages")
-                      .toByteArray().isEmpty(),
-                 "and not left behind under the source key");
-
-        // ...and the entry names that key and the LOCAL package.
-        mgr.loadConversationIndex();
-        QCOMPARE(mgr.m_conversationIndex.size(), 1);
-        QCOMPARE(mgr.m_conversationIndex.first().key, destKey);
-        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, destPackage);
-
-        // The real proof: switching to the shot as this device sees it lands on
-        // the restored thread instead of an empty one.
-        QCOMPARE(mgr.switchConversation(bean, type, profile, destPackage), destKey);
-        QVERIFY2(mgr.conversation()->hasHistory(),
-                 "opening the shot on this device must resume the restored thread");
-
-        settings.clear();
+        QTest::newRow("rekeyed onto the mapped package")
+            << b << qint64(12) << true << true << 1 << 0 << k(b, 41) << qint64(41);
+        QTest::newRow("no map: kept under its source key, package cleared")
+            << b << qint64(12) << false << true << 1 << 1 << k(b, 12) << qint64(0);
+        QTest::newRow("unpackaged is device-independent, never rekeyed")
+            << b << qint64(0) << true << true << 1 << 0 << k(b, 0) << qint64(0);
+        QTest::newRow("a key that does not describe its fields is not moved")
+            << QStringLiteral("Someone Else") << qint64(12) << true << true
+            << 1 << 1 << k(QStringLiteral("Someone Else"), 12) << qint64(0);
+        QTest::newRow("no turns is malformed and writes nothing")
+            << b << qint64(0) << false << false << 0 << 0 << QString() << qint64(0);
     }
 
-    // No equipment import came with the conversations, so there is nothing to
-    // map to. The thread is still restored and readable — dropping it would be
-    // worse — but it keeps its source key, is reported as unkeyed, and its
-    // equipmentId is reset to 0 rather than carrying the SOURCE device's id: the
-    // field is device-local by contract and is reported over MCP, where a
-    // foreign id would name whichever unrelated local package holds that
-    // integer.
-    void importedConversationWithNoPackageMapIsCountedAsUnkeyed()
+    void importedConversation()
     {
+        QFETCH(QString, keyBean);
+        QFETCH(qint64, entryPackage);
+        QFETCH(bool, hasMap);
+        QFETCH(bool, hasTurns);
+        QFETCH(int, expectImported);
+        QFETCH(int, expectUnkeyed);
+        QFETCH(QString, expectStoredKey);
+        QFETCH(qint64, expectIndexPackage);
+
         AppSettings settings;
         settings.clear();
 
@@ -4388,46 +4269,41 @@ private slots:
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
 
-        const QString srcKey = AIManager::conversationKey(
-            QStringLiteral("B"), QStringLiteral("T"), QStringLiteral("P"), 12);
-        const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(srcKey, turnsWithShotIds({7}), /*equipmentId=*/12),
-            nullptr, nullptr);
-        QCOMPARE(tally.conversationsImported, 1);
-        QCOMPARE(tally.conversationsUnkeyed, 1);
-
-        mgr.loadConversationIndex();
-        QCOMPARE(mgr.m_conversationIndex.size(), 1);
-        QCOMPARE(mgr.m_conversationIndex.first().key, srcKey);
-        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 0);
-
-        settings.clear();
-    }
-
-    // An unpackaged conversation is device-independent — its key hashes on 0,
-    // which means the same thing everywhere — so it must NOT be rekeyed even
-    // when a package map is present, and must not be counted as unkeyed.
-    void importedUnpackagedConversationIsNotRekeyed()
-    {
-        AppSettings settings;
-        settings.clear();
-
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
-
-        const QString key = AIManager::conversationKey(
-            QStringLiteral("B"), QStringLiteral("T"), QStringLiteral("P"), 0);
+        const QString bean = QStringLiteral("B"), type = QStringLiteral("T"),
+                      profile = QStringLiteral("P");
+        const QString srcKey = AIManager::conversationKey(keyBean, type, profile, entryPackage);
         const QHash<qint64, qint64> packageMap{{12, 41}};
-        const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({7})), nullptr, &packageMap);
-        QCOMPARE(tally.conversationsImported, 1);
-        QCOMPARE(tally.conversationsUnkeyed, 0);
 
-        mgr.loadConversationIndex();
-        QCOMPARE(mgr.m_conversationIndex.size(), 1);
-        QCOMPARE(mgr.m_conversationIndex.first().key, key);
-        QCOMPARE(mgr.m_conversationIndex.first().equipmentId, 0);
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(srcKey, hasTurns ? turnsWithShotIds({7}) : QJsonArray(),
+                                      entryPackage),
+            nullptr, hasMap ? &packageMap : nullptr);
+        QCOMPARE(tally.conversationsImported, expectImported);
+        QCOMPARE(tally.conversationsUnkeyed, expectUnkeyed);
+
+        // Exactly the expected thread is on disk — nothing left behind under the
+        // source key, and nothing written onto a key it does not describe.
+        settings.beginGroup(QStringLiteral("ai/conversations"));
+        const QStringList stored = settings.childGroups();
+        settings.endGroup();
+        QCOMPARE(stored.size(), expectImported);
+        if (expectImported > 0) {
+            QCOMPARE(stored.first(), expectStoredKey);
+            mgr.loadConversationIndex();
+            QCOMPARE(mgr.m_conversationIndex.size(), 1);
+            QCOMPARE(mgr.m_conversationIndex.first().key, expectStoredKey);
+            QCOMPARE(mgr.m_conversationIndex.first().equipmentId, expectIndexPackage);
+            // The proof that matters: opening the shot as THIS device sees it
+            // resumes the restored thread rather than starting an empty one.
+            if (expectUnkeyed == 0) {
+                QCOMPARE(mgr.switchConversation(bean, type, profile, expectIndexPackage),
+                         expectStoredKey);
+                QVERIFY(mgr.conversation()->hasHistory());
+            }
+        } else {
+            mgr.loadConversationIndex();
+            QVERIFY(mgr.m_conversationIndex.isEmpty());
+        }
 
         settings.clear();
     }
@@ -4462,46 +4338,6 @@ private slots:
         mgr.switchConversation(bean, type, profile, 7);
         QVERIFY2(mgr.m_conversationIndex.isEmpty(),
                  "a key holding an empty transcript must not be indexed");
-
-        settings.clear();
-    }
-
-    // The rekey is only "the same thread, moved" if the archived key really is
-    // the hash of the archived fields. The exporters copy the key and the
-    // bean/profile fields out of the index entry independently, so an entry
-    // written inconsistently — which the identity defects fixed earlier in this
-    // change produced, and which an older archive still contains — must NOT be
-    // moved to a third key naming nothing on either device.
-    void importedConversationWithAKeyThatDoesNotMatchItsFieldsIsNotRekeyed()
-    {
-        AppSettings settings;
-        settings.clear();
-
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
-
-        // A key that does not derive from this entry's own fields: hashed on a
-        // DIFFERENT bean than the entry carries.
-        const QString inconsistentKey = AIManager::conversationKey(
-            QStringLiteral("Someone Else"), QStringLiteral("T"), QStringLiteral("P"), 12);
-        const QString wouldBeRekeyedTo = AIManager::conversationKey(
-            QStringLiteral("B"), QStringLiteral("T"), QStringLiteral("P"), 41);
-
-        const QHash<qint64, qint64> packageMap{{12, 41}};
-        const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(inconsistentKey, turnsWithShotIds({7}), 12),
-            nullptr, &packageMap);
-
-        QCOMPARE(tally.conversationsImported, 1);
-        QCOMPARE(tally.conversationsUnkeyed, 1);
-        QVERIFY2(settings.value("ai/conversations/" + wouldBeRekeyedTo + "/messages")
-                      .toByteArray().isEmpty(),
-                 "an entry whose key does not describe it must not be moved onto a "
-                 "key derived from fields it disagrees with");
-        QVERIFY2(!settings.value("ai/conversations/" + inconsistentKey + "/messages")
-                      .toByteArray().isEmpty(),
-                 "it is still restored, under the key it arrived with");
 
         settings.clear();
     }
@@ -4550,33 +4386,6 @@ private slots:
         QVERIFY2(settings.value("ai/conversations/" + destKey + "/messages")
                       .toByteArray().contains("mcp a"),
                  "the MCP-written thread must survive an import aimed at its key");
-
-        settings.clear();
-    }
-
-    // A valid-but-EMPTY messages array is a ghost: two bytes on disk that are not
-    // an empty QByteArray, so it would survive the on-disk gate and be re-indexed
-    // as a real thread. Pre-fix archives carry exactly this shape.
-    void importedConversationWithNoTurnsIsRejectedAsMalformed()
-    {
-        AppSettings settings;
-        settings.clear();
-
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
-
-        const QString key = QStringLiteral("empty_key");
-        const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, QJsonArray()), nullptr, nullptr);
-
-        QCOMPARE(tally.conversationsImported, 0);
-        QVERIFY2(settings.value("ai/conversations/" + key + "/messages")
-                      .toByteArray().isEmpty(),
-                 "an empty thread must not be written at all");
-        mgr.loadConversationIndex();
-        QVERIFY2(mgr.m_conversationIndex.isEmpty(),
-                 "and must not produce an index entry");
 
         settings.clear();
     }
