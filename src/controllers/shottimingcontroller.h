@@ -189,9 +189,8 @@ private:
     // it onDisplayTimerTick's fires every 50 ms tick and onWeightSample's fires on
     // every sample (4-10 Hz depending on scale) — 100+ lines a shot either way.
     static constexpr int DRIP_ONGOING_LOG_THROTTLE_MS = 1000;
-    // A drop this far below the settling peak is a cup lift (or a bump, or a
-    // mid-settle tare) — never drip, which can only ADD weight. Mirrored in
-    // tools/shot_eval/main.cpp as CUP_REMOVED_DROP_G.
+    // A drop this far below the settling peak is a cup lift, never drip — drip only
+    // adds. Mirrored in tools/shot_eval/main.cpp under the same name.
     static constexpr double CUP_REMOVED_DROP_G = 20.0;
     double m_settlingWindow[SETTLING_WINDOW_SIZE] = {};
     int m_settlingWindowCount = 0;

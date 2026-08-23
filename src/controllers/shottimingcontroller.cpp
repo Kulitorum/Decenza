@@ -213,33 +213,22 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             m_settlingPeakWeight = weight;
         }
 
-        // Detect cup removal during settling: any drop of CUP_REMOVED_DROP_G
-        // below the peak this settle has seen. Measuring from the PEAK rather
-        // than from the previous sample catches a multi-step removal where no
-        // single step is large enough.
+        // Detect cup removal during settling: any drop of CUP_REMOVED_DROP_G below
+        // the settling peak. Measuring from the peak catches a multi-step removal.
         //
-        // This used to additionally require the weight to have EXCEEDED 20 g
-        // (`m_weight > 20.0 && ...`), which is what made a cup lift invisible on
-        // any shot that never got there — a ristretto, a small SAW target. The
-        // reading a lift produces is the tared-out cup mass, tens of grams
-        // NEGATIVE (shot 5470 logged -28.0), so the drop clears 20 g easily and
-        // the precondition was blocking the detector on exactly the shots that
-        // most needed it. The scale then sat still at that value and the fast
-        // path settled there, persisting a negative finalWeightG. Nothing else
-        // during settling can subtract weight — drip only adds — so the drop
-        // test alone is the whole signal.
+        // This also required the weight to have EXCEEDED 20 g, which hid the lift
+        // entirely on a shot that never got there. A lift reads as the cup's
+        // tared-out mass, tens of grams negative (shot 5470 logged -28.0), so the
+        // drop was never marginal — the precondition just blinded the detector on
+        // small shots, which then settled at that negative value. Drip can only ADD
+        // weight, so the drop test alone is the signal. The single-step clause went
+        // with it as redundant, not as a policy change: m_settlingPeakWeight is
+        // updated just above and is >= m_weight, so a drop from the previous sample
+        // implies a drop from the peak.
         //
-        // SCOPE: this catches a lift that reads NEGATIVE, which is the shape the
-        // only real sample we have takes. A lift that lands near ZERO on a small
-        // shot is a sub-20 g drop and still goes undetected — closing that needs
-        // the threshold itself lowered against a corpus, and the settling corpus
-        // currently holds one shot with settling lines and no cup-lift at all.
-        // Learning is not exposed in the negative case (`m_weight < 0` below
-        // skips it); it IS exposed in the near-zero case, which remains open.
-        //
-        // The single-step clause is gone as redundant, not as a policy change:
-        // m_settlingPeakWeight is updated just above and is >= m_weight by
-        // construction, so `weight < m_weight - DROP` implies this test.
+        // Only catches a lift that reads NEGATIVE. One landing near ZERO on a small
+        // shot is a sub-20 g drop and still gets through; lowering the threshold
+        // needs a corpus, and the settling corpus has one shot and no cup-lift.
         //
         // NOTE: cup-removed detection AND the fallback chain below are
         // mirrored in tools/shot_eval/main.cpp `analyzeShotSettling()` for
@@ -374,15 +363,12 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // ended one sample ago.
             //
             // What reaches here is any change of at least 0.1 g the cup-removed
-            // gate above did not claim — and that gate is narrower than it looks.
-            // It tests for DROPS only, so every INCREASE arrives here regardless
-            // of size (a second cup or a portafilter set on the drip tray), as
-            // does a cup lift whose drop stays under CUP_REMOVED_DROP_G — which a
-            // small shot can produce if the lift reads near zero rather than
-            // negative. An earlier draft claimed a real cup lift "cannot happen"
-            // here; it was wrong in both of those directions. (It was also gated
-            // on the weight having exceeded 20 g, which widened this hole further;
-            // that precondition is gone.) Found from a suite failure, not from
+            // gate above did not claim, and that gate tests for DROPS only. So
+            // every INCREASE arrives here regardless of size (a second cup, a
+            // portafilter on the drip tray), as does a cup lift whose drop stays
+            // under CUP_REMOVED_DROP_G — a small shot lifted to near zero. An
+            // earlier draft claimed a real cup lift "cannot happen" here; it was
+            // wrong in both directions. Found from a suite failure, not from
             // #1280 — that symptom is attributed to the cup-removed path.
             if (stableMs >= SETTLING_STABLE_MS / 2)
                 endedStillMs = stableMs;
@@ -743,10 +729,9 @@ void ShotTimingController::onSettlingComplete()
         return;
     }
 
-    // Extra cup-removal guard at completion time. Handles slow/multi-step cup
-    // removal paths that may not trigger single-sample bypass checks. Same
-    // predicate as the per-sample detector, and it carried the same 20 g
-    // precondition that hid a lift on a sub-20 g shot.
+    // Extra cup-removal guard at completion time, for slow/multi-step removals the
+    // per-sample check missed. Same predicate as that check, and it carried the
+    // same 20 g precondition.
     if (m_weight < m_settlingPeakWeight - CUP_REMOVED_DROP_G) {
         SAWT_WARN(QStringLiteral("Possible cup removal detected at settling complete "
                                  "(weight=%1 g peak=%2 g), skipping learning")

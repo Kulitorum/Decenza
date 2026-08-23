@@ -597,17 +597,11 @@ private slots:
     }
 
     void cupLiftDetectedOnShotThatNeverReached20g() {
-        // The cup-removal detector used to require the weight to have EXCEEDED
-        // 20 g before it would look at the drop at all. On a ristretto or a small
-        // SAW target that never happens, so lifting the cup mid-settle was not
-        // detected: the tared-out cup mass (tens of grams negative) went through
-        // as an ordinary sample, the scale then sat still at that value, and the
-        // fast path settled there, persisting a negative finalWeightG.
-        //
-        // 15 g target, so every weight here is under the old gate. -28.0 is the
-        // reading shot 5470 actually logged when its cup came off; it is the cup's
-        // tared-out mass, so it does not scale down with the target -- which is
-        // why the drop clears 20 g even though nothing in the shot ever did.
+        // Cup-removal used to require the weight to have EXCEEDED 20 g before it
+        // looked at the drop, so a lift on a ristretto went undetected and settling
+        // finished at the negative reading. 15 g target, so nothing here clears the
+        // old gate; -28.0 is what shot 5470 logged when its cup came off, and being
+        // the cup's tared-out mass it does not scale down with the target.
         DE1Device device;
         ShotTimingController tc(&device);
 
