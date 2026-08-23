@@ -304,48 +304,53 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
 
                     // --- Profile (single canonical block) ---
                     // Per openspec optimize-dialing-context-payload (task 8):
-                    // `result.profile` is the *only* canonical surface for
-                    // profile metadata. Replaces the legacy `currentProfile`
-                    // block and the prose-only `Profile:` / `Profile intent:` /
-                    // `## Profile Recipe` sections in `shotAnalysis`. The
-                    // intent + recipe describe the resolved SHOT's profile
-                    // (read off `dbResult.shotData.profileNotes` /
-                    // `profileJson` — already in memory, no extra DB query);
-                    // targets describe the CURRENT profile loaded on the
-                    // machine. The asymmetry is intentional — the shot is
-                    // what happened, the targets are what the user can act
-                    // on now.
+                    // `result.profile` is the *only* canonical surface for profile
+                    // metadata.
+                    //
+                    // Every field here describes the SHOT'S profile, including the
+                    // identity and the targets. It used to name the profile loaded on
+                    // the machine while carrying the shot's intent and recipe, on the
+                    // reasoning that targets are "what the user can act on now" — but a
+                    // reader cannot tell which half is which, so after a profile switch
+                    // the block attributed one profile's intent to another's name. The
+                    // machine's current profile is available from machine_get_state;
+                    // this block is shot-scoped like every other block beside it.
                     if (profileManager) {
                         QJsonObject profileInfo;
-                        profileInfo["filename"] = profileManager->currentProfileName();
-                        profileInfo["title"] = profileManager->currentProfile().title();
+                        // The shot records a title; the catalog maps it to a filename.
+                        // Both fall back to the loaded profile only when the shot names
+                        // none, which is what a shot from before titles were recorded
+                        // looks like.
+                        const QString shotTitle = sd.profileName;
+                        const QString shotFilename = shotTitle.isEmpty()
+                            ? QString() : profileManager->findProfileByTitle(shotTitle);
+                        profileInfo["filename"] = shotFilename.isEmpty()
+                            ? profileManager->currentProfileName() : shotFilename;
+                        profileInfo["title"] = shotTitle.isEmpty()
+                            ? profileManager->currentProfile().title() : shotTitle;
                         if (!sd.profileNotes.isEmpty())
                             profileInfo["intent"] = sd.profileNotes;
                         if (!sd.profileJson.isEmpty()) {
-                            // Issue #1158: shared helper appends the
-                            // stop-at-weight note so this MCP recipe
-                            // matches the in-app advisor's exactly. Gate
-                            // it on the SHOT's stored target weight
-                            // (`sd.targetWeightG`) — the same source the
-                            // recipe text comes from (`sd.profileJson`)
-                            // and the same source the advisor uses
-                            // (`summary.targetWeight`). Using the
-                            // current profile's target here instead
-                            // would re-introduce MCP/advisor drift for
-                            // historical shots whose profile differs
-                            // from the loaded one. The emitted
-                            // `targetWeightG` field below stays
-                            // current-profile per the documented
-                            // shot-vs-targets asymmetry.
+                            // Issue #1158: shared helper appends the stop-at-weight note
+                            // so this MCP recipe matches the in-app advisor's exactly.
                             const QString recipe = DialingBlocks::withStopAtWeightNote(
                                 Profile::describeFramesFromJson(sd.profileJson),
                                 sd.targetWeightG);
                             if (!recipe.isEmpty())
                                 profileInfo["recipe"] = recipe;
                         }
-                        profileInfo["targetWeightG"] = profileManager->profileTargetWeight();
-                        profileInfo["targetTemperatureC"] = profileManager->profileTargetTemperature();
-                        if (profileManager->profileHasRecommendedDose())
+                        profileInfo["targetWeightG"] = sd.targetWeightG > 0
+                            ? sd.targetWeightG : profileManager->profileTargetWeight();
+                        profileInfo["targetTemperatureC"] = sd.temperatureOverrideC > 0
+                            ? sd.temperatureOverrideC
+                            : profileManager->profileTargetTemperature();
+                        // Not recorded per shot, so it is only reportable when the shot
+                        // was pulled on the profile still loaded — otherwise it is
+                        // another profile's dose wearing this one's name.
+                        const bool shotIsLoadedProfile =
+                            shotFilename.isEmpty()
+                            || shotFilename == profileManager->currentProfileName();
+                        if (shotIsLoadedProfile && profileManager->profileHasRecommendedDose())
                             profileInfo["recommendedDoseG"] = profileManager->profileRecommendedDose();
                         result["profile"] = profileInfo;
                     }
