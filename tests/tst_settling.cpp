@@ -31,47 +31,42 @@ private:
         }
     }
 
-    // Feed a stable plateau until the clean-avg capture gate fires, then stop.
+    // The loop below waits on a CONDITION rather than a sample budget because
+    // QTest::qWait waits AT LEAST its argument: three tests once hand-rolled
+    // `for (i < 14) { sample; qWait(50) }` and budgeted ~750 ms, and under the
+    // parallel ASan/UBSan suite the 15-iteration one measured 1015 ms.
     //
-    // The gate needs SETTLING_CLEAN_CAPTURE_MS (250 ms) of continuous stability,
-    // but the WHOLE loop has to finish inside SETTLING_STABLE_MS (1000 ms) — or the
-    // stability timer completes settling on its own and the post-settling path the
-    // caller exists to test never runs at all.
+    // Feed a plateau centred on `grams` until the clean-avg capture gate fires,
+    // leaving settling still IN PROGRESS so the caller can drive what happens next.
     //
-    // Three tests each hand-rolled `for (i < 14 or 15) { sample; qWait(50) }` and
-    // budgeted it in a comment as 700-750 ms against that 1000 ms ceiling. But
-    // QTest::qWait waits AT LEAST its argument: in the parallel ASan/UBSan suite the
-    // 15-iteration one measured **1015 ms**, settling completed by timer, and the test
-    // failed on an unrelated final-weight assertion that said nothing about why. That
-    // is the "timers as guards" anti-pattern CLAUDE.md names by name, living in a test.
-    //
-    // Looping on the CONDITION instead spends the minimum wall time, so it cannot
-    // overshoot by feeding samples nobody needs. The isSawSettling() check is the point of
-    // the helper: if the ceiling is hit anyway, the failure says so instead of surfacing
-    // as a wrong final weight three assertions later.
-    //
-    // TIMING, derived from the constants rather than guessed. The window fills on the 6th
-    // sample (SETTLING_WINDOW_SIZE = 6), which is when the stability clock STARTS; the gate
-    // then needs SETTLING_CLEAN_CAPTURE_MS (250 ms) more, i.e. 5 further samples at 50 ms.
-    // So capture lands on roughly the 11th sample, ~500 ms — against a 1000 ms ceiling.
-    // An earlier version of this comment said "around sample 7, ~350 ms", which was wrong
-    // in the direction that matters: it made the margin look twice as large as it is.
-    //
-    // Hence the cap of 16 rather than 20. Twenty iterations is 1000 ms, exactly
-    // SETTLING_STABLE_MS — a bound sitting precisely on the threshold it exists to stay
-    // under, which is no bound at all. Sixteen leaves ~300 ms of headroom past the ~500 ms
-    // the gate actually needs, and still stops short of the ceiling.
+    // The samples alternate +/-0.1 g rather than repeating one value, and that is
+    // load-bearing in both directions:
+    //   - It keeps the caller's path reachable. Byte-identical samples leave
+    //     `delta` at 0, so onWeightSample's fast path accumulates stillness across
+    //     the whole loop and correctly completes settling once it crosses
+    //     SETTLING_STABLE_MS (1000 ms) -- which a loaded machine reaches before the
+    //     loop ends. Alternating exceeds the 0.1 g change threshold on every
+    //     sample, so that clock never accumulates and the loop is bounded by SAMPLE
+    //     COUNT, not by wall clock. Do not "simplify" this back to one value.
+    //   - It stays inside the rolling-average gate: +/-0.1 g is under
+    //     SETTLING_ABOVE_AVG_MARGIN (0.2 g), so no sample ever reads as above the
+    //     window mean, and the window mean itself is `grams` with drift near zero.
+    // A real scale jitters; a run of identical readings was the unrealistic part.
     void feedPlateauUntilCaptured(ShotTimingController& tc, double grams, double flow) {
-        for (int i = 0; i < 16 && tc.m_lastCleanSettlingAvg <= 0.0; ++i) {
-            tc.onWeightSample(grams, flow);
+        // Bounded by samples, not time: SETTLING_WINDOW_SIZE (6) to arm the rolling
+        // path, then SETTLING_CLEAN_CAPTURE_MS (250 ms) of continuous gate at 50 ms
+        // a sample. ~11 needed; the cap is slack for a slow machine's qWait.
+        for (int i = 0; i < 40 && tc.m_lastCleanSettlingAvg <= 0.0; ++i) {
+            tc.onWeightSample(grams + (i % 2 ? 0.1 : -0.1), flow);
             QTest::qWait(50);
         }
         QVERIFY2(tc.m_lastCleanSettlingAvg > 0.0,
                  "Capture gate never fired on the plateau");
         QVERIFY2(tc.isSawSettling(),
-                 "Settling completed on the stability timer before the plateau loop "
-                 "finished, so the path under test never ran. The machine was too "
-                 "loaded for the loop to stay inside SETTLING_STABLE_MS.");
+                 "Settling completed inside the plateau loop, so the path under test "
+                 "never ran. The jitter above exists to prevent exactly this -- if "
+                 "this fires, the fast path's stillness clock is accumulating across "
+                 "samples that changed by 0.2 g.");
     }
 
 private slots:
@@ -397,8 +392,9 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("rejected as scale fault"));
 
-        // Simulate a frozen-scale fault: a run of identical samples at 74.8 g
-        // (35+ g above stop weight), held until the capture gate fires.
+        // Simulate a stuck-scale fault: a plateau at 74.8 g (35+ g above stop
+        // weight), held until the capture gate fires. What makes it a fault is the
+        // implausible MAGNITUDE, not sample-to-sample identity -- see the helper.
         feedPlateauUntilCaptured(tc, 74.8, 0.0);
         // QVERIFY2 inside a non-slot helper returns from the HELPER, not the test, so
         // without this the test would keep asserting against state the helper just
@@ -503,6 +499,48 @@ private slots:
         tc.onSawTriggered(35.0, 2.5, 36.0);
         tc.endShot();  // triggers startSettlingTimer()
         QCOMPARE(tc.m_lastCleanSettlingAvg, 0.0);
+    }
+
+    // A sample that MOVES the scale must never be recorded as the settled weight,
+    // no matter how long the scale was still before it.
+    //
+    // Not named for #1280: that report's symptom is attributed, in
+    // shottimingcontroller.cpp, to the cup-removed path. This came from a suite
+    // failure instead. The 1.7 g step below is an INCREASE, which the cup-removed
+    // gate never claims at any size — and see the note in onWeightSample's
+    // `delta >= 0.1` branch (around the `stableMs = 0` reset, NOT at the gate
+    // itself) for why a real lift can reach this branch too.
+    //
+    // onWeightSample samples the stillness duration BEFORE accounting for the
+    // current reading, then the fast path completes settling at that reading. So a
+    // disturbing sample arriving after a second of stillness used to log "stable
+    // for 1007 ms" and settle at the disturbed value -- the stillness measured
+    // belonged to the samples before it, not to it.
+    void movingSampleDoesNotSettleOnStaleStillness() {
+        DE1Device device;
+        ShotTimingController tc(&device);
+        tc.startShot();
+        tc.onSawTriggered(41.2, 2.5, 42.0);
+        tc.endShot();
+
+        // Two identical readings: the scale is still, so the fast path's stillness
+        // clock is running and pinned to the first of them.
+        tc.onWeightSample(42.3, 0.5);
+        tc.onWeightSample(42.3, 0.5);
+
+        // Age that stillness past SETTLING_STABLE_MS. Reaching back into the clock
+        // rather than sleeping keeps this deterministic and off the suite's wall
+        // clock; it is the same state a scale that sat still for 1.1 s produces.
+        tc.m_lastWeightChangeTime -= 1100;
+
+        // The disturbance: +1.7 g. Only three samples are in the window, so the
+        // rolling path cannot fire either -- if settling completes here, it did so on the
+        // stale stillness, at 44.0 g.
+        tc.onWeightSample(44.0, 0.5);
+
+        QVERIFY2(tc.isSawSettling(),
+                 "A sample 1.7 g away from the last reading completed settling, so it "
+                 "was measured as still using the run of samples BEFORE it");
     }
 
     void cleanAvgSurvivesPostCaptureGateFailure_1280() {
