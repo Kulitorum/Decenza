@@ -43,6 +43,13 @@ Item {
     // Yield rendering: when true, suppress the "profileDefault → target" arrow
     // and show only the effective target — see _yieldStr for the full rule.
     property bool yieldTargetOnly: false
+    // The yield the shot ACTUALLY reached, for the per-shot consumers (shot
+    // review / shot detail), where the plan line describes a shot that has
+    // already been pulled: the segment then leads with what came out and keeps
+    // the target in parentheses ("36.4g (target 36.0g)"). 0 = off, which is every
+    // forward-looking consumer (home widget, recipe cards) — nothing has been
+    // poured yet, so there is no actual to show.
+    property double actualYield: 0
     // Wrap budget before eliding: 2 in the full-size widget, 1 in compact bars.
     property int maxLines: 2
 
@@ -148,8 +155,9 @@ Item {
         if (targetWeight <= 0) return ""
         // Anchor mark: a ratio-anchored target carries its ratio alongside
         // the derived grams, so the plan says which quantity is held.
-        var mark = (yieldAnchorMode === "ratio" && yieldAnchorRatio > 0)
-            ? " (1:" + yieldAnchorRatio.toFixed(1) + ")" : ""
+        var ratioStr = (yieldAnchorMode === "ratio" && yieldAnchorRatio > 0)
+            ? "1:" + yieldAnchorRatio.toFixed(1) : ""
+        var mark = ratioStr !== "" ? " (" + ratioStr + ")" : ""
         // Arrow shows baseline → target. With a recipe active the baseline is the
         // recipe's own yield — a ratio recipe's resolved through the dose — so a
         // recipe sitting at its designed yield reads "40.0g" (no arrow, no profile
@@ -158,6 +166,18 @@ Item {
         if (!yieldTargetOnly && yieldOverridden && _yieldBaseline > 0
                 && Math.abs(targetWeight - _yieldBaseline) > 0.1)
             return _yieldBaseline.toFixed(1) + " → " + targetWeight.toFixed(1) + "g" + mark
+        // Poured shot: lead with the actual yield and park the target behind it,
+        // in the same "(target ...)" grammar ShotDetailPage's achieved ratio
+        // already uses ("1:2.1 (target 1:2)") — one phrasing for one idea.
+        // Printed only when the two DIFFER at the one decimal both are rendered
+        // to: "36.0g (target 36.0g)" states one fact twice and costs a shot that
+        // hit its target the glanceable single number it earned. A ratio anchor
+        // joins that same parenthetical instead of opening a second one.
+        if (actualYield > 0 && Math.abs(actualYield - targetWeight) >= 0.05)
+            return actualYield.toFixed(1) + "g "
+                + TranslationManager.translate("shotplan.targetYield", "(target %1g%2)")
+                    .arg(targetWeight.toFixed(1))
+                    .arg(ratioStr !== "" ? ", " + ratioStr : "")
         return targetWeight.toFixed(1) + "g" + mark
     }
     readonly property string _doseStr: (_has("doseYield") && dose > 0) ? (dose.toFixed(1) + "g") : ""

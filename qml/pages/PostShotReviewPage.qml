@@ -1224,6 +1224,7 @@ T.Page {
                     property bool refMeasuring: refConnected && Refractometer.measuring
                     // R1 advertises with names starting "DFT_TDJ_*" (see DiFluidR1::isR1Device).
                     property bool isR1: (Settings.savedRefractometerName || "").toLowerCase().indexOf("dft_tdj") === 0
+                    property real tdsValue: postShotReviewPage.editDrinkTds
                     visible: Settings.savedRefractometerAddress !== ""
                     Layout.preferredWidth: Theme.scaled(80)
                     Layout.preferredHeight: Theme.scaled(36)
@@ -1238,16 +1239,27 @@ T.Page {
                     Text {
                         anchors.centerIn: parent
                         text: {
-                            if (!readTdsButton.refConnected) {
-                                return readTdsButton.isR1
-                                    ? TranslationManager.translate("postshotreview.refractometer.r1off", "R1 Off")
-                                    : TranslationManager.translate("postshotreview.refractometer.r2off", "R2 Off")
-                            }
                             // A ×3 run takes ~22s on hardware, so "..." for that long
                             // reads as hung — show which test of how many instead.
                             if (postShotReviewPage.avgTotal > 0)
                                 return postShotReviewPage.avgDone + "/" + postShotReviewPage.avgTotal
                             if (readTdsButton.refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
+                            // Once this shot has a TDS — read here with this
+                            // button, sent by the device's own Start button, or
+                            // loaded from the saved shot — show the value rather
+                            // than the invitation or the off state, so a reading
+                            // stays readable even if the refractometer link drops
+                            // afterwards. In basic mode the TDS input is hidden,
+                            // so this is the only place the reading is visible.
+                            // Tapping still re-reads (or reconnects); the
+                            // connection state stays in the accessible name.
+                            if (readTdsButton.tdsValue > 0)
+                                return readTdsButton.tdsValue.toFixed(2) + "%"
+                            if (!readTdsButton.refConnected) {
+                                return readTdsButton.isR1
+                                    ? TranslationManager.translate("postshotreview.refractometer.r1off", "R1 Off")
+                                    : TranslationManager.translate("postshotreview.refractometer.r2off", "R2 Off")
+                            }
                             return TranslationManager.translate("postshotreview.refractometer.readTds", "Read TDS")
                         }
                         color: Theme.textColor
@@ -1257,9 +1269,18 @@ T.Page {
 
                     AccessibleMouseArea {
                         anchors.fill: parent
-                        accessibleName: readTdsButton.refConnected
-                            ? TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
-                            : TranslationManager.translate("postshotreview.reconnectRefractometer", "Reconnect refractometer")
+                        accessibleName: {
+                            var action = readTdsButton.refConnected
+                                ? TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
+                                : TranslationManager.translate("postshotreview.reconnectRefractometer", "Reconnect refractometer")
+                            // The label text is Accessible.ignored, so a shown
+                            // reading has to be spoken here or it is inaudible.
+                            if (readTdsButton.tdsValue > 0)
+                                return TranslationManager.translate("postshotreview.label.tds", "TDS") + " "
+                                    + readTdsButton.tdsValue.toFixed(2) + " "
+                                    + TranslationManager.translate("postshotreview.unit.percent", "percent") + ". " + action
+                            return action
+                        }
                         accessibleItem: readTdsButton
                         enabled: !readTdsButton.refMeasuring
                         onAccessibleClicked: {
@@ -1318,6 +1339,12 @@ T.Page {
                 profileYield: postShotReviewPage._shotProfileYield
                 targetWeight: (postShotReviewPage.editShotData.targetWeightG || 0) > 0
                     ? postShotReviewPage.editShotData.targetWeightG : (postShotReviewPage.editDrinkWeight || 0)
+                // The shot is poured, so lead the yield segment with what came
+                // out and keep the target behind it ("36.4g (target 36.0g)"). Bound to
+                // the LIVE edit state like the rest of this line, so correcting
+                // the out weight moves it. Collapses to one number on target,
+                // and when targetWeightG is 0 the target above already IS this.
+                actualYield: postShotReviewPage.editDrinkWeight || 0
                 yieldOverridden: (postShotReviewPage.editShotData.targetWeightG || 0) > 0
                     && postShotReviewPage._shotProfileYield > 0
                     && Math.abs(postShotReviewPage.editShotData.targetWeightG - postShotReviewPage._shotProfileYield) > 0.1
