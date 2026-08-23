@@ -17,28 +17,6 @@
 #include <QJsonValue>
 #include <QRegularExpression>
 
-// Outer wrapper regex for the "## Shot (date)" header that
-// `addShotContext` prepends OUTSIDE the JSON envelope. The header is
-// not part of the envelope itself, so it stays a regex match. All
-// per-shot data fields (dose / yield / duration / grinder / score /
-// notes / profile) come from structured JSON fields now — see
-// extractShotFields() below. Issue #1039.
-const QRegularExpression AIConversation::s_shotLabelRe("## Shot \\(([^)]+)\\)");
-
-// Legacy fallback regexes for stored conversations whose user messages
-// were saved before issue #1034 introduced the JSON envelope and #1039
-// added the structured `shot` block. These run only when JSON parsing
-// fails AND the message looks like prose. New code should NOT add new
-// callers — read `shot.*` / `currentBean.*` / `profile.*` / `tastingFeedback.*`
-// from the parsed envelope instead.
-const QRegularExpression AIConversation::s_doseRe("\\*\\*Dose\\*\\*:\\s*([\\d.]+)g");
-const QRegularExpression AIConversation::s_yieldRe("\\*\\*Yield\\*\\*:\\s*([\\d.]+)g");
-const QRegularExpression AIConversation::s_durationRe("\\*\\*Duration\\*\\*:\\s*([\\d.]+)s");
-const QRegularExpression AIConversation::s_grinderRe("\\*\\*Grinder\\*\\*:\\s*(.+?)\\n");
-const QRegularExpression AIConversation::s_profileRe("\\*\\*Profile\\*\\*:\\s*(.+?)(?:\\s*\\(by|\\n|$)");
-const QRegularExpression AIConversation::s_scoreRe("\\*\\*Score\\*\\*:\\s*(\\d+)");
-const QRegularExpression AIConversation::s_notesRe("\\*\\*Notes\\*\\*:\\s*\"([^\"]+)\"");
-
 QString AIConversation::tr_(const char* key, const char* fallback) const
 {
     if (m_translationManager)
@@ -629,85 +607,30 @@ QString AIConversation::getConversationText() const
         if (i > 0) text += "\n\n---\n\n";
 
         if (role == "user") {
-            // A turn sent as one JSON object: the question and the shot label are
-            // fields, so reading them is a field read. Everything below this block
-            // exists for turns stored before that — conversations persist in
-            // QSettings with no expiry, so those keep arriving forever.
-            const QString trimmedContent = content.trimmed();
-            if (trimmedContent.startsWith(QLatin1Char('{'))) {
-                QJsonParseError perr{};
-                const QJsonDocument pdoc =
-                    QJsonDocument::fromJson(content.toUtf8(), &perr);
-                if (perr.error == QJsonParseError::NoError && pdoc.isObject()) {
-                    const QJsonObject turn = pdoc.object();
-                    const QString label = turn.value(QStringLiteral("shotLabel")).toString();
-                    const QString question = turn.value(QStringLiteral("question")).toString();
-                    const QString bev = turn.value(QStringLiteral("shot")).toObject()
-                                            .value(QStringLiteral("beverageType")).toString();
-                    const bool jsonIsFilter = bev.compare(QLatin1String("filter"), Qt::CaseInsensitive) == 0
-                                           || bev.compare(QLatin1String("pourover"), Qt::CaseInsensitive) == 0;
-                    if (!label.isEmpty()) {
-                        text += jsonIsFilter ? "**[Coffee " + label + "]**"
-                                             : "**[Shot " + label + "]**";
-                    } else {
-                        text += jsonIsFilter ? "**[Coffee Data]**" : "**[Shot Data]**";
-                    }
-                    if (!question.isEmpty()) text += "\n**You:** " + question;
-                    continue;
-                }
-            }
-
-            // Check if this is a shot data message
-            if (content.contains("Shot Summary") || content.contains("Here's my latest shot")) {
-                // Find the user's question after the shot data
-                // Format is: "Here's my latest shot:\n\n<shot summary>\n\n<user question>"
-                QString userQuestion;
-
-                // The shot summary contains structured data with lines like "Key: Value"
-                // Find where the shot data ends and user's question begins
-                // Look for the last double newline that separates shot data from question
-                qsizetype shotStart = content.indexOf("Here's my latest shot:");
-                if (shotStart >= 0) {
-                    // Skip past "Here's my latest shot:\n\n"
-                    qsizetype dataStart = content.indexOf("\n\n", shotStart);
-                    if (dataStart >= 0) {
-                        dataStart += 2;
-                        // Find the end of shot data (look for pattern break)
-                        // Shot data lines have format "Key: Value" or are part of structured sections
-                        // The user's question is free-form text after the data
-
-                        // Simple heuristic: find last "\n\n" and check if what follows
-                        // looks like a question (doesn't contain ":" in typical key: value pattern)
-                        qsizetype lastBreak = content.lastIndexOf("\n\n");
-                        if (lastBreak > dataStart) {
-                            QString afterBreak = content.mid(lastBreak + 2).trimmed();
-                            // If it doesn't look like shot data (no "Key:" pattern at start)
-                            if (!afterBreak.isEmpty() && !afterBreak.contains(": ") && afterBreak.length() < 500) {
-                                userQuestion = afterBreak;
-                            } else if (!afterBreak.isEmpty() && afterBreak.length() < 200) {
-                                // Short text is likely a question
-                                userQuestion = afterBreak;
-                            }
-                        }
-                    }
-                }
-
-                // Format: [Shot date] or [Coffee date] depending on beverage type
-                bool isFilter = content.contains("Beverage type**: filter", Qt::CaseInsensitive) ||
-                               content.contains("Beverage type**: pourover", Qt::CaseInsensitive);
-
-                // Extract shot label from "## Shot (date)" prefix if present
-                QRegularExpressionMatch shotNumMatch = s_shotLabelRe.match(content);
-                if (shotNumMatch.hasMatch()) {
-                    QString label = shotNumMatch.captured(1);
+            // The turn IS a JSON object; the question and the shot label are its
+            // own fields. This used to recover the question from the message text
+            // by finding "Here's my latest shot:", taking the last blank line, and
+            // guessing whether what followed "looked like a question" (no ": ",
+            // under 500 characters) — a heuristic that existed only because the
+            // question was concatenated around the payload.
+            QJsonParseError perr{};
+            const QJsonDocument pdoc = QJsonDocument::fromJson(content.toUtf8(), &perr);
+            if (perr.error == QJsonParseError::NoError && pdoc.isObject()) {
+                const QJsonObject turn = pdoc.object();
+                const QString label = turn.value(QStringLiteral("shotLabel")).toString();
+                const QString question = turn.value(QStringLiteral("question")).toString();
+                const QString bev = turn.value(QStringLiteral("shot")).toObject()
+                                        .value(QStringLiteral("beverageType")).toString();
+                const bool isFilter =
+                    bev.compare(QLatin1String("filter"), Qt::CaseInsensitive) == 0
+                    || bev.compare(QLatin1String("pourover"), Qt::CaseInsensitive) == 0;
+                if (!label.isEmpty())
                     text += isFilter ? "**[Coffee " + label + "]**" : "**[Shot " + label + "]**";
-                } else {
+                else
                     text += isFilter ? "**[Coffee Data]**" : "**[Shot Data]**";
-                }
-                if (!userQuestion.isEmpty()) {
-                    text += "\n**You:** " + userQuestion;
-                }
+                if (!question.isEmpty()) text += "\n**You:** " + question;
             } else {
+                // A free-form follow-up with no shot attached is sent as plain text.
                 text += "**You:** " + content;
             }
         } else if (role == "assistant") {
@@ -716,37 +639,6 @@ QString AIConversation::getConversationText() const
     }
 
     return text;
-}
-
-void AIConversation::addShotContext(const QString& shotSummary, const QString& shotLabel,
-                                     const QString& beverageType, const QString& profileTitle,
-                                     const QString& profileType, const QString& profileKbId)
-{
-    if (m_busy) {
-        qWarning() << "AIConversation::addShotContext ignored — already busy";
-        m_errorMessage = tr_("ai.error.waitForRequest", "Please wait for the current request to complete");
-        emit errorOccurred(m_errorMessage);
-        return;
-    }
-
-    // If no existing conversation, set up the system prompt based on beverage type + profile
-    if (m_systemPrompt.isEmpty()) {
-        m_systemPrompt = multiShotSystemPrompt(beverageType, profileTitle, profileType, profileKbId);
-    }
-
-    // Drop any stale unanswered turn from a prior failure before appending this
-    // shot's user message, so we never send two consecutive user-role messages.
-    dropTrailingFailedUserTurn();
-
-    // Add the new shot as context with its date/time label
-    QString contextMessage = "## Shot (" + shotLabel + ")" +
-                            "\n\nHere's my latest shot:\n\n" + shotSummary +
-                            "\n\nPlease analyze this shot and provide recommendations, considering any previous shots we've discussed.";
-    addUserMessage(contextMessage);
-    sendRequest();
-
-    emit historyChanged();
-    qDebug() << "AIConversation: Added new shot context, now have" << m_messages.size() << "messages";
 }
 
 QJsonObject AIConversation::changesFromPreviousShot(const QString& shotLabel,
@@ -828,78 +720,23 @@ QString AIConversation::stripStructuredNextBlock(const QString& content)
     return content.left(openerStart).trimmed();
 }
 
-QString AIConversation::extractShotProse(const QString& content)
-{
-    // Cheap pre-check: if the trimmed content doesn't look like a JSON object,
-    // skip the parse. Avoids QJsonDocument::fromJson on every legacy prose
-    // message where it would fail and we'd ignore the result anyway.
-    const QString trimmed = content.trimmed();
-    if (!trimmed.startsWith(QLatin1Char('{'))) return content;
-
-    QJsonParseError err{};
-    const QJsonDocument doc = QJsonDocument::fromJson(content.toUtf8(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject()) return content;
-
-    const QJsonObject obj = doc.object();
-    if (!obj.contains(QStringLiteral("shotAnalysis"))) return content;
-    return obj.value(QStringLiteral("shotAnalysis")).toString();
-}
 
 AIConversation::ShotFields AIConversation::extractShotFields(const QString& content)
 {
-    // Try the structured path first: the user message is the JSON
-    // envelope `ShotSummarizer::buildUserPromptObject` produces. Each
-    // numeric / string field is read from its canonical structured
-    // location — `shot.*` for shot-VARIABLE values (dose / yield /
-    // duration / score / notes), `currentBean.*` for grinder identity,
-    // `profile.title` for profile name. The shot header label remains a
-    // regex match against the OUTER message wrapper (it's not part of
-    // the envelope — `addShotContext` prepends it).
-    //
-    // The user message is shaped by `addShotContext` as:
-    //   "## Shot (label)\n\nHere's my latest shot:\n\n<json>\n\nPlease analyze..."
-    // so the JSON object lives *between* the header and the trailing
-    // user prompt. Find the first `{` and parse from there.
+    // Every stored user turn is one JSON object — the whole message, not an
+    // object embedded in prose. This used to walk the string with a brace-depth
+    // counter (skipping string literals and escapes) to find the envelope
+    // between a "## Shot (date)" header and a trailing question, because "Qt's
+    // JSON parser rejects trailing prose". Nothing writes that shape any more,
+    // and clearAllConversationsOnce drops the turns that did.
     ShotFields fields;
 
-    QRegularExpressionMatch labelMatch = s_shotLabelRe.match(content);
-    if (labelMatch.hasMatch()) fields.shotLabel = labelMatch.captured(1);
-
-    // Locate the JSON envelope inside the message body. The message is
-    // shaped as "## Shot (..)\n\nHere's my latest shot:\n\n<json>\n\n
-    // Please analyze..." so we need to find the matching `}` for the
-    // first `{` — Qt's JSON parser rejects trailing prose. Walk the
-    // string with a depth counter, skipping over string literals.
-    auto findJsonObject = [](const QString& s) -> QString {
-        const qsizetype start = s.indexOf(QLatin1Char('{'));
-        if (start < 0) return QString();
-        int depth = 0;
-        bool inString = false;
-        bool escaped = false;
-        for (qsizetype i = start; i < s.size(); ++i) {
-            const QChar c = s[i];
-            if (inString) {
-                if (escaped) { escaped = false; continue; }
-                if (c == QLatin1Char('\\')) { escaped = true; continue; }
-                if (c == QLatin1Char('"')) inString = false;
-                continue;
-            }
-            if (c == QLatin1Char('"')) { inString = true; continue; }
-            if (c == QLatin1Char('{')) ++depth;
-            else if (c == QLatin1Char('}')) {
-                --depth;
-                if (depth == 0) return s.mid(start, i - start + 1);
-            }
-        }
-        return QString();
-    };
-    const QString jsonText = findJsonObject(content);
-    if (!jsonText.isEmpty()) {
-        QJsonParseError err{};
-        const QJsonDocument doc = QJsonDocument::fromJson(
-            jsonText.toUtf8(), &err);
-        if (err.error == QJsonParseError::NoError && doc.isObject()) {
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(content.toUtf8(), &err);
+    if (err.error == QJsonParseError::NoError && doc.isObject()) {
+        {
             const QJsonObject obj = doc.object();
+            fields.shotLabel = obj.value(QStringLiteral("shotLabel")).toString();
             const QJsonObject shot = obj.value(QStringLiteral("shot")).toObject();
             const QJsonObject currentBean = obj.value(QStringLiteral("currentBean")).toObject();
             const QJsonObject profile = obj.value(QStringLiteral("profile")).toObject();
@@ -1007,51 +844,29 @@ AIConversation::ShotFields AIConversation::extractShotFields(const QString& cont
                 fields.channelingDetected = containsChannelingText(prose);
             }
 
-            fields.fromStructuredEnvelope = true;
             return fields;
         }
     }
-
-    // Legacy fallback: stored conversations whose user messages were
-    // saved before #1034 / #1039 — the body is plain prose. Run the
-    // legacy regexes against the (already extracted) prose.
-    const QString prose = extractShotProse(content);
-    auto extract = [&prose](const QRegularExpression& re) {
-        QRegularExpressionMatch m = re.match(prose);
-        return m.hasMatch() ? m.captured(1).trimmed() : QString();
-    };
-    fields.doseG = extract(s_doseRe);
-    fields.yieldG = extract(s_yieldRe);
-    fields.durationSec = extract(s_durationRe);
-    fields.grinder = extract(s_grinderRe);
-    fields.profileTitle = extract(s_profileRe);
-    fields.score = extract(s_scoreRe);
-    fields.notes = extract(s_notesRe);
-    // Same actual production strings the structured path matches above.
-    fields.channelingDetected = prose.contains(
-        QStringLiteral("channeling detected"), Qt::CaseInsensitive);
-    fields.fromStructuredEnvelope = false;
     return fields;
 }
 
 AIConversation::PreviousShotInfo AIConversation::findPreviousShot(const QString& excludeLabel) const
 {
-    // Walk backwards to find the most recent user message containing shot data,
-    // excluding the shot with the given label to avoid self-comparison
+    // Walk backwards to the most recent user turn that carried a shot, skipping
+    // the one being excluded so a shot never diffs against itself. A turn carries
+    // a shot when its payload has a `shotLabel` — a field read, where this used to
+    // be two substring probes and a regex over the message text.
     for (qsizetype i = m_messages.size() - 1; i >= 0; i--) {
-        QJsonObject msg = m_messages[i].toObject();
-        if (msg["role"].toString() == "user") {
-            QString content = msg["content"].toString();
-            if (content.contains("Shot Summary") || content.contains("Here's my latest shot")) {
-                QRegularExpressionMatch match = s_shotLabelRe.match(content);
-                QString label = match.hasMatch() ? match.captured(1) : QString();
-                // Skip if this is the shot we're excluding
-                if (!excludeLabel.isEmpty() && label == excludeLabel) {
-                    continue;
-                }
-                return { content, label };
-            }
-        }
+        const QJsonObject msg = m_messages[i].toObject();
+        if (msg["role"].toString() != "user") continue;
+        const QString content = msg["content"].toString();
+        QJsonParseError err{};
+        const QJsonDocument doc = QJsonDocument::fromJson(content.toUtf8(), &err);
+        if (err.error != QJsonParseError::NoError || !doc.isObject()) continue;
+        const QString label = doc.object().value(QStringLiteral("shotLabel")).toString();
+        if (label.isEmpty()) continue;
+        if (!excludeLabel.isEmpty() && label == excludeLabel) continue;
+        return { content, label };
     }
     return {};
 }
@@ -1330,9 +1145,11 @@ void AIConversation::trimHistory()
                 }
                 summaries.append(summary);
             } else {
-                // Check if this looks like a shot message that we failed to summarize
-                if (content.contains("Shot Summary") || content.contains("Here's my latest shot")) {
-                    qWarning() << "AIConversation::trimHistory: Shot message could not be summarized, metrics may have changed format";
+                // A turn that carried a shot but produced no summary means the
+                // payload shape moved without this code following it.
+                if (content.trimmed().startsWith(QLatin1Char('{'))
+                    && content.contains(QStringLiteral("\"shotLabel\""))) {
+                    qWarning() << "AIConversation::trimHistory: Shot message could not be summarized, payload may have changed shape";
                 }
                 droppedFollowUps++;
             }
@@ -1381,17 +1198,10 @@ void AIConversation::trimHistory()
 
 QString AIConversation::summarizeShotMessage(const QString& content)
 {
-    // Quick "is this a shot message?" guard. Both the JSON envelope and
-    // the legacy prose carry one of these substrings: the envelope's
-    // `shotAnalysis` field includes "## Shot Summary"; `addShotContext`
-    // prepends "Here's my latest shot:" to every per-shot user message.
-    if (!content.contains("Shot Summary") && !content.contains("Here's my latest shot"))
-        return QString();
-
-    // Read all per-shot fields from the JSON envelope (#1039). The
-    // legacy regex path fires automatically inside extractShotFields
-    // when the message has no parseable JSON.
+    // A turn carries a shot when its payload has a `shotLabel`. extractShotFields
+    // returns an empty label for a free-form follow-up, which is the guard.
     const ShotFields fields = extractShotFields(content);
+    if (fields.shotLabel.isEmpty()) return QString();
 
     QString summary = "- Shot";
     if (!fields.shotLabel.isEmpty()) summary += " (" + fields.shotLabel + ")";

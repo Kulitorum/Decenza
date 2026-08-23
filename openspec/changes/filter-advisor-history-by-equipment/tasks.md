@@ -151,25 +151,34 @@ formats, and the prose one delivers none of the paths the prompt describes.
       `hoistSessionContext` already does over `ShotIdentity::fields()`. Verify: adding a row to
       that table reaches both surfaces with no further edit — the check scenario in the spec.
 - [x] 9.4 Carry the user's question and the shot label as their own fields instead of
-      concatenating them around the payload. Two readers exist only to undo that concatenation:
-      `getConversationText` recovers the question by searching for `"Here's my latest shot:"`,
-      taking the last `\n\n`, and guessing whether the trailing text "looks like a question" by
-      testing for `": "` and a length under 500; `extractShotFields` carries a hand-written
-      brace-matching JSON scanner (depth counter, string-literal and escape handling) because
-      "Qt's JSON parser rejects trailing prose".
-      **Both stay, and this task does not delete them.** Conversations persist in QSettings under
-      `ai/conversations/<key>/` with no expiry, so every user keeps prose-wrapped messages after
-      the upgrade and reading them back is a real requirement. What changes is that nothing new is
-      written in that shape. Verify: new messages parse with a plain `QJsonDocument::fromJson` on
-      the whole content; both legacy readers are reachable only from stored history and say so at
-      the top; a conversation saved before the change still renders.
-- [ ] 9.5 Keep the displayed conversation unchanged for the user. `getConversationText` feeds four
+      concatenating them around the payload, and delete every reader that existed only to undo
+      that concatenation. `getConversationText` recovered the question by searching for
+      `"Here's my latest shot:"`, taking the last `\n\n`, and guessing whether the trailing text
+      "looks like a question" by testing for `": "` and a length under 500; `extractShotFields`
+      carried a hand-written brace-matching JSON scanner (depth counter, string-literal and escape
+      handling) plus seven regexes, because "Qt's JSON parser rejects trailing prose".
+      **All of it is gone**, because the change already wipes stored conversations once — they are
+      keyed on the equipment package now and the old keys cannot match. The wipe marker is
+      `equipment_scoped_conversations_v2`, not `v1`: `v1` already fired on any device that ran an
+      interim build of this branch, and those devices would otherwise keep prose turns no reader
+      can render. Verify: content parses with a plain `QJsonDocument::fromJson`; no regex, brace
+      scanner, prose extractor or question heuristic remains; the wipe is observed in the log.
+- [x] 9.5 Keep the displayed conversation unchanged for the user. `getConversationText` feeds four
       QML call sites (`ConversationOverlay.qml` ×2, `SettingsAITab.qml` ×2); the `**[Shot <date>]**`
-      / `**You:** …` rendering is what a user sees and SHALL survive the format change. Verify: on
-      screen, against a conversation with history.
-- [ ] 9.6 Live A/B before merge. This changes what the in-app advisor receives, which a green suite
-      cannot judge. Run the same shot through both formats and read the replies. Verify: recorded
-      in the PR, with the shot identified by date and time.
+      / `**You:** …` rendering is what a user sees and SHALL survive the format change. Verified on
+      screen 2026-08-23 against a two-turn conversation on the Aug 22, 9:37 AM shot: the second
+      turn renders `**[Shot Aug 22, 9:37 AM] You:** How much finer, in Niche Zero numbers?` with no
+      JSON reaching the display, and the overlay header carries the equipment package
+      (`… / D-Flow / Q / Niche Zero / Decent 18g Ridged`).
+- [x] 9.6 Live A/B before merge. This changes what the in-app advisor receives, which a green suite
+      cannot judge. Run the same shot through both formats and read the replies. Verified
+      2026-08-23 on the Aug 22, 9:37 AM shot, Gemini: the in-app reply cites the tasting feedback
+      (75/100, balanced, medium), the profile's own 84 °C / 6 bar intent, the measured 8.2 bar peak,
+      and the Aug 21, 11:33 AM shot at the same 9.5 setting — every one of those a field path the
+      shared system prompt names and the prose payload never delivered. Both surfaces' stored
+      payloads carry the same ten top-level keys for the same shot, plus `question` and `shotLabel`
+      on the conversation side; the two system prompts differ only by the intended
+      `## Multi-Shot Context` appendix.
 - [x] 9.7 `docs/CLAUDE_MD/AI_ADVISOR.md` — one payload, one assembler, and the field paths the
       system prompt names. Verify: no section still describes an in-app prose payload.
 - [x] 9.8 One identity definition, sliced per increment. `ShotIdentity`'s 12 `QString` fields are
@@ -208,6 +217,12 @@ un-render a second format:
 - Two comments in `mcptools_ai.cpp` asserting the surfaces were "produced by the
   same shared helpers so the userPromptUsed echo is byte-equivalent" — false in
   both directions until this change made it true.
+- Every reader of the prose wrapper, once the one-time conversation wipe made
+  legacy content unreachable: the brace-matching JSON scanner, seven regexes,
+  `extractShotProse`, the `fromStructuredEnvelope` flag, the ~70-line
+  question-recovery heuristic in `getConversationText`, and `addShotContext` (31
+  lines) — the last being the only remaining producer of the wrapper, and it had
+  no callers.
 - `CurrentBeanBlockInputs` now composes `DialingHelpers::ShotIdentity` instead of
   redeclaring its twelve fields; `beanInputsFromProjection` drops fourteen
   hand-written assignments for one `identityFromShot` call. The compiler found all

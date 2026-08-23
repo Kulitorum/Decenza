@@ -122,11 +122,6 @@ public:
      * profileTitle/profileType/profileKbId are forwarded to shotAnalysisSystemPrompt()
      * for profile-aware knowledge injection when initializing a new conversation.
      */
-    Q_INVOKABLE void addShotContext(const QString& shotSummary, const QString& shotLabel,
-                                     const QString& beverageType = "espresso",
-                                     const QString& profileTitle = QString(),
-                                     const QString& profileType = QString(),
-                                     const QString& profileKbId = QString());
 
     /**
      * Process a shot summary for conversation: prepends a "changes from previous" section.
@@ -398,20 +393,12 @@ private:
     static QString summarizeAdvice(const QString& response);
     static QString stripStructuredNextBlock(const QString& content);
 
-    // Legacy fallback: extracts the `shotAnalysis` prose from the JSON
-    // envelope when present, otherwise returns the message unchanged.
-    // Used only by `extractShotFields` for the legacy-prose detector
-    // substring checks. New code should prefer `extractShotFields`.
-    static QString extractShotProse(const QString& content);
-
-    // Structured per-shot data extracted from a user message — issue
-    // #1039. Numeric fields are kept as `QString` because the consumers
-    // render them into prose diffs ("Dose 18.0g→20.0g") and need to
-    // preserve the original precision. Empty string means "field
-    // absent" — the diff/summary code skips fields that are absent on
-    // either side, mirroring the legacy regex semantics.
+    // Structured per-shot data extracted from a user message. Numeric fields
+    // are kept as `QString` so the change-detection output preserves the
+    // precision the payload carried. Empty string means "field absent" — the
+    // diff skips fields absent on either side.
     struct ShotFields {
-        QString shotLabel;          // from "## Shot (label)" outer header
+        QString shotLabel;          // the payload's own `shotLabel` field
         QString doseG;
         QString yieldG;
         QString durationSec;
@@ -420,29 +407,17 @@ private:
         QString score;
         QString notes;
         bool channelingDetected = false;
-        bool fromStructuredEnvelope = false;  // false ⇒ legacy regex path fired
     };
 
-    // Read structured per-shot fields out of a user message. Prefers
-    // the JSON envelope's `shot` / `currentBean` / `profile` blocks;
-    // falls back to legacy regex on the prose body when JSON parsing
-    // fails. Pure function.
+    // Read structured per-shot fields out of a user message. The message IS a
+    // JSON object; fields come from its `shot` / `currentBean` / `profile`
+    // blocks. Pure function.
     static ShotFields extractShotFields(const QString& content);
 
     struct PreviousShotInfo { QString content; QString shotLabel; };
     PreviousShotInfo findPreviousShot(const QString& excludeLabel = QString()) const;
 
     static constexpr int MAX_VERBATIM_PAIRS = 2;
-
-    // Outer-wrapper regex for the "## Shot (date)" header that
-    // `addShotContext` prepends OUTSIDE the JSON envelope.
-    static const QRegularExpression s_shotLabelRe;
-
-    // Legacy fallback regexes. Used only by `extractShotFields` when
-    // the JSON envelope cannot be parsed (stored conversations from
-    // before issue #1034 / #1039). Do not add new callers.
-    static const QRegularExpression s_doseRe, s_yieldRe, s_durationRe,
-        s_grinderRe, s_profileRe, s_scoreRe, s_notesRe;
 
     AIManager* m_aiManager;
     TranslationManager* m_translationManager = nullptr;

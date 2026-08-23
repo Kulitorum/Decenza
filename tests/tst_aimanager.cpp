@@ -925,7 +925,6 @@ private slots:
             "}\n\nPlease analyze.");
 
         const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY(fields.fromStructuredEnvelope);
         QCOMPARE(fields.shotLabel, QStringLiteral("2026-05-01 14:30"));
         QCOMPARE(fields.doseG, QStringLiteral("18.0"));
         QCOMPARE(fields.yieldG, QStringLiteral("36.0"));
@@ -1008,7 +1007,6 @@ private slots:
             "}\n\nWhat to do?");
 
         const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY(fields.channelingDetected);
     }
 
@@ -1030,7 +1028,6 @@ private slots:
             "}");
 
         const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY2(fields.channelingDetected,
                  "detectorObservations[] takes precedence over the prose body");
     }
@@ -1054,7 +1051,6 @@ private slots:
             "}");
 
         const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY2(fields.channelingDetected,
                  "kind=channeling_sustained must set channelingDetected even when text drifts");
     }
@@ -1092,66 +1088,6 @@ private slots:
         QVERIFY(fields.channelingDetected);
     }
 
-    void aiConversation_extractShotFields_legacyProseFallsBackToRegex()
-    {
-        const QString content = QStringLiteral(
-            "## Shot (2025-12-15 09:00)\n\nHere's my latest shot:\n\n"
-            "## Shot Summary\n"
-            "- **Dose**: 18.0g \xe2\x86\x92 **Yield**: 36.0g ratio 1:2.0\n"
-            "- **Duration**: 30s\n"
-            "- **Grinder**: Niche Zero\n"
-            "- **Profile**: 80's Espresso\n"
-            "- **Score**: 85\n"
-            "- **Notes**: \"balanced\"\n"
-            "- [warning] Sustained channeling detected in dC/dt\n");
-
-        const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY2(!fields.fromStructuredEnvelope,
-                 "legacy prose must report regex-fallback path");
-        QCOMPARE(fields.shotLabel, QStringLiteral("2025-12-15 09:00"));
-        QCOMPARE(fields.doseG, QStringLiteral("18.0"));
-        QCOMPARE(fields.yieldG, QStringLiteral("36.0"));
-        QCOMPARE(fields.durationSec, QStringLiteral("30"));
-        QCOMPARE(fields.score, QStringLiteral("85"));
-        QCOMPARE(fields.notes, QStringLiteral("balanced"));
-        QCOMPARE(fields.grinder, QStringLiteral("Niche Zero"));
-        QCOMPARE(fields.profileTitle, QStringLiteral("80's Espresso"));
-        QVERIFY(fields.channelingDetected);
-    }
-
-    // Cross-era equivalence: the structured path produces the same
-    // grinder string the legacy regex would have captured from the old
-    // prose body. Both inputs use the production-historic prose format
-    // ("**Grinder**: <brand> <model> with <burrs> @ <setting>") so a
-    // conversation that spans both eras (older shot regex-extracted,
-    // newer shot structured) does not emit spurious grinder-change
-    // diffs. Critically, the legacy input is the format the regex
-    // *actually* sees in stored conversations from before #1041.
-    void aiConversation_extractShotFields_grinderStringMatchesLegacyProseFormat()
-    {
-        const QString legacyProse = QStringLiteral(
-            "## Shot Summary\n"
-            "- **Grinder**: Niche Zero with 63mm conical @ 4.5\n");
-        const QString structuredEnvelope = QStringLiteral(
-            "{"
-            "  \"currentBean\": {"
-            "    \"grinderBrand\": \"Niche\","
-            "    \"grinderModel\": \"Zero\","
-            "    \"grinderBurrs\": \"63mm conical\""
-            "  },"
-            "  \"shot\": {\"grinderSetting\": \"4.5\"}"
-            "}");
-
-        const auto legacyFields = AIConversation::extractShotFields(legacyProse);
-        const auto structuredFields = AIConversation::extractShotFields(structuredEnvelope);
-
-        QVERIFY(!legacyFields.fromStructuredEnvelope);
-        QVERIFY(structuredFields.fromStructuredEnvelope);
-        QCOMPARE(structuredFields.grinder, legacyFields.grinder);
-        QCOMPARE(structuredFields.grinder,
-                 QStringLiteral("Niche Zero with 63mm conical @ 4.5"));
-    }
-
     void aiConversation_extractShotFields_normalizesNumericPrecision()
     {
         const QString content = QStringLiteral(
@@ -1166,7 +1102,6 @@ private slots:
     {
         const QString content = QStringLiteral("{\"shotAnalysis\": \"## Shot Summary\\n\"}");
         const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY(fields.doseG.isEmpty());
         QVERIFY(fields.yieldG.isEmpty());
         QVERIFY(fields.durationSec.isEmpty());

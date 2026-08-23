@@ -83,10 +83,15 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
     // knows per shot; old conversations anchored on "I don't have LRV3 data"
     // are misleading. Fires once per device, then becomes a no-op.
     clearAllConversationsOnce(QStringLiteral("grinder_calibration_v1.7.2"));
-    // Pre-change threads are keyed without the package and their turns carry
-    // cross-equipment context verbatim. Changing the key already orphans them;
-    // this drops them rather than leaving dead threads in the index.
-    clearAllConversationsOnce(QStringLiteral("equipment_scoped_conversations_v1"));
+    // Pre-change threads are keyed without the equipment package and their turns
+    // carry cross-equipment context verbatim, so changing the key already orphans
+    // them; and their user messages are the old prose-wrapped shape, which nothing
+    // reads any more — one JSON object per turn is the only shape now.
+    //
+    // v2, not v1: the marker is per id and v1 has already fired on any device that
+    // ran an interim build of this change. Those devices would keep prose turns
+    // that no reader can render.
+    clearAllConversationsOnce(QStringLiteral("equipment_scoped_conversations_v2"));
 
     // Migrate legacy single-conversation storage if needed
     migrateFromLegacyConversation();
