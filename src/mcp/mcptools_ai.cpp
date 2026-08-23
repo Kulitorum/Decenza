@@ -225,31 +225,12 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             bevType, shot.profileName, profileType, shot.profileKbId);
                     }
 
-                    // What gets PERSISTED with the turn, which is a different
-                    // question from what this call runs under. It is always the
-                    // multi-shot prompt, never `systemPrompt`, for two reasons
-                    // that pull the same way:
-                    //
-                    //  - `systemPromptOverride` is an arbitrary caller-supplied
-                    //    MCP argument. Persisting it would make it the durable
-                    //    system prompt for every later IN-APP turn on this
-                    //    thread — a prompt the user never chose, cannot see
-                    //    anywhere in the UI, and can only clear by deleting the
-                    //    conversation. An override stays scoped to its own call.
-                    //  - `shotAnalysisSystemPrompt` is the SINGLE-shot prompt.
-                    //    The in-app advisor runs threads under
-                    //    `multiShotSystemPrompt` (that prompt plus a Multi-Shot
-                    //    Context section). Since the thread now loads with
-                    //    history, the overlay takes the followUp() branch for the
-                    //    rest of its life and never calls ask(), so whatever is
-                    //    stored here is what it keeps. Storing the single-shot
-                    //    prompt would silently narrow the thread — the exact harm
-                    //    the write-if-absent rule was meant to prevent, arriving
-                    //    from the other direction.
-                    //
-                    // Never empty: the override governs this CALL and says
-                    // nothing about what the thread should be continuable under.
-                    // The consequence of an empty one is on appendAssistantTurnForKey.
+                    // What gets PERSISTED, which is not what this call runs
+                    // under. Always the multi-shot prompt: a caller's
+                    // `systemPromptOverride` would become the durable prompt for
+                    // every later in-app turn, and `systemPrompt` is the
+                    // SINGLE-shot one, which would silently narrow a thread the
+                    // overlay will only ever continue via followUp().
                     QString promptToPersist;
                     if (aiLive->conversation()) {
                         promptToPersist = aiLive->conversation()->multiShotSystemPrompt(

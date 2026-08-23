@@ -53,6 +53,8 @@
 #include "ai/dialing_blocks.h"
 #include "mcp/mcptoolregistry.h"
 
+Q_DECLARE_METATYPE(EquipmentScope)
+
 // Implemented in src/mcp/mcptools_ai_conversations.cpp — split into its own
 // translation unit specifically so it can be linked here against a real
 // AIManager without MainController/ShotHistoryStorage/BeanBaseClient.
@@ -360,13 +362,9 @@ private slots:
         storage.close();
     }
 
-    // The in-app advisor's own history query is scoped to the current shot's
-    // equipment package. `AIManager::loadQualifiedShots` is what fills the
-    // "Previous Shots with This Bean & Profile" section, and before the scoping
-    // landed it matched on bean + profile + a 21-day window alone. It is the one
-    // selection point not reachable through DialingBlocks, so nothing else in
-    // the suite covers it — but note this is backfill for the commit that
-    // introduced the scoping, not coverage of the review fixes on top of it.
+    // loadQualifiedShots fills "Previous Shots with This Bean & Profile" and is
+    // the one selection point not reachable through DialingBlocks, so nothing
+    // else in the suite covers it.
     void loadQualifiedShots_scopesHistoryToTheShotsEquipmentPackage()
     {
         using namespace ShotRowFixtures;
@@ -485,13 +483,10 @@ private slots:
         settings.clear();
     }
 
-    // The wipe must also take the PRE-KEYED singular keys. migrateFromLegacyConversation()
-    // runs right after it and fires when legacy data exists and the index is
-    // empty — which the wipe itself makes true — re-creating a `_legacy` entry
-    // pointing at the one thread that spans every bean, profile and equipment
-    // package the user ever had, which loadMostRecentConversation() then
-    // restores. A wipe that hands back the most cross-contaminated thread in
-    // the store is worse than no wipe.
+    // The wipe must also take the PRE-KEYED singular keys.
+    // migrateFromLegacyConversation() runs right after and fires when legacy
+    // data exists and the index is empty — which the wipe itself makes true —
+    // handing back the one thread that spans every bean, profile and package.
     void construction_wipeAlsoRemovesTheLegacyThread()
     {
         AppSettings settings;
@@ -523,16 +518,11 @@ private slots:
         settings.clear();
     }
 
-    // Clear removes the index entry but leaves the live conversation on that
-    // key, so a thread written afterwards is named by no index entry: invisible
-    // to the conversation list and to loadMostRecentConversation(), and never
-    // evicted, because eviction only walks the index. Found on
-    // the running app — after Clear, `ai/conversations/index` stayed `[]` while
-    // the thread sat on disk under its key.
-    //
-    // The entry is created when the thread is WRITTEN, not when its key is
-    // selected. Indexing at selection time also "fixes" this, and manufactures
-    // ghosts — see clearThenReopenWithoutSending_createsNoGhostEntry below.
+    // Clear drops the index entry but leaves the live conversation on that key,
+    // so a thread written afterwards was named by nothing — invisible to the
+    // list and never evicted. The entry is created when the thread is WRITTEN;
+    // indexing at key-selection time also "fixes" this and manufactures ghosts
+    // (clearThenReopenWithoutSending_createsNoGhostEntry).
     void clearThenWrite_putsTheConversationBackInTheIndex()
     {
         AppSettings settings;
@@ -589,21 +579,11 @@ private slots:
         settings.clear();
     }
 
-    // A thread the MCP ai_advisor_invoke path wrote lives in QSettings with no
-    // index entry — the in-app index never sees appendAssistantTurnForKey. The
-    // first time the app switches to it, it must be indexed under ITS OWN shot.
-    // It was not: switchConversation set the live identity AFTER loadFromStorage(),
-    // whose emit did the indexing, so the entry was stamped with whichever
-    // conversation was open before — permanently, because the corrected call two
-    // lines later only touches an entry that already exists.
-    //
-    // What this slot pins TODAY is the explicit indexStoredConversation() call in
-    // switchConversation's full path: delete that line and the size assertion
-    // below fails. It does NOT pin the m_live* ordering any more — under the
-    // conversationPersisted wiring, loadFromStorage() no longer reaches the
-    // indexer, so moving those four assignments back below the load leaves this
-    // green. Said plainly because a comment describing the original defect reads
-    // like a guarantee against it.
+    // An MCP-written thread has no index entry. The first in-app switch to it
+    // must index it under ITS OWN shot, not whichever was open before. Pins the
+    // explicit indexStoredConversation() call in switchConversation — delete
+    // that line and the size assertion fails. It does NOT pin the m_live*
+    // ordering, which the conversationPersisted wiring now makes irrelevant.
     void switchToAnMcpWrittenThread_indexesItUnderItsOwnShot()
     {
         AppSettings settings;
@@ -686,18 +666,11 @@ private slots:
         settings.clear();
     }
 
-    // An MCP-written thread must survive a relaunch.
-    //
-    // appendAssistantTurnForKey is the ai_advisor_invoke write path: a static that
-    // writes storage and never touches the index, so the thread sits stored-and-
-    // unindexed until switchConversation adopts it on first in-app open. That is a
-    // DESIGNED resting state, not debris -- ai_conversations get, the ShotServer
-    // download and switchConversation all read such a thread by key.
-    //
-    // This exists because a startup sweep deleting "unindexed" groups was added and
-    // backed out: it destroyed two real MCP threads on a live device, and its
-    // justification ("every write path indexes at save time") was false for exactly
-    // this path. Anything that reads unindexed as orphaned turns this red.
+    // Stored-and-unindexed is the DESIGNED resting state of an MCP thread until
+    // switchConversation adopts it — appendAssistantTurnForKey writes storage
+    // and never touches the index. A startup sweep that read unindexed as
+    // orphaned destroyed two real threads on a live device. Anything that reads
+    // it that way again turns this red.
     void anMcpWrittenThreadSurvivesARelaunch()
     {
         AppSettings settings;
@@ -798,18 +771,12 @@ private slots:
         settings.clear();
     }
 
-    // A restored thread must not be evicted ahead of genuinely older local ones.
-    //
     // Eviction takes from the TAIL, which is only correct if the index is
-    // ordered most-recent-first. saveConversationIndex produces that order, but
-    // importConversationsStatic APPENDS restored entries in archive order carrying
-    // their archived timestamp -- so after a restore the tail held the newest
-    // threads, and the trim destroyed a transcript from yesterday while a local one
-    // from a year ago survived. loadConversationIndex now sorts by timestamp.
-    //
-    // Seeded in the shape a restore actually leaves behind rather than a tidy one:
-    // the existing cap test seeds already-descending timestamps, so the sort is a
-    // no-op there and deleting it leaves that test green.
+    // most-recent-first. importConversationsStatic APPENDS restored entries in
+    // archive order, so the tail held the newest and a restore lost yesterday's
+    // transcript while a year-old local one survived. Seeded in the shape a
+    // restore leaves behind — the cap test's tidy descending seed makes the sort
+    // a no-op, so deleting it leaves that one green.
     void aRestoredThreadIsNotEvictedAheadOfOlderLocalOnes()
     {
         AppSettings settings;
@@ -874,17 +841,10 @@ private slots:
         settings.clear();
     }
 
-    // An index that arrives over the cap must come back under it.
-    //
-    // The trim used to drop exactly one entry per call, which made an over-cap
-    // index a STABLE state rather than a transient one: at size 6 with a cap of 5,
-    // dropping one left 5 and the caller's prepend restored 6, and nothing pulled
-    // it back down. Seen on the running app once equipment-scoped keys had pushed
-    // it past the cap.
-    //
-    // Convergence is driven by the INSERT path, deliberately. A trim on the load
-    // path would fix this without a new conversation being started, and is
-    // destructive on restore -- see the note in loadConversationIndex.
+    // An over-cap index must converge. Dropping exactly one entry per call made
+    // over-cap a STABLE state: at 6 with a cap of 5, the drop left 5 and the
+    // caller's prepend restored 6. Convergence rides the INSERT path — a trim on
+    // the LOAD path is destructive on restore, see loadConversationIndex.
     void anIndexOverTheCapIsTrimmedBackToIt()
     {
         AppSettings settings;
@@ -1150,13 +1110,53 @@ private slots:
                  "absent segments must not leave a double space in the Setup header");
     }
 
-    // Zero qualifying shots must STATE the absence and name the equipment set,
-    // not emit nothing. An empty payload is indistinguishable from "this user
-    // has no history", and a model with no anchor in context supplies one: the
-    // reported failure cited a 70/100 shot that appeared nowhere in its context
-    // and then reasoned from it.
-    void emitRecentShotContext_emptyHistoryStatesTheEquipmentSet()
+    // The empty-history block is the model's only defence against inventing an
+    // anchor — the reported failure cited a 70/100 shot that appeared nowhere in
+    // its context — so each way of ending up with no shots must produce its own
+    // reason, and bucket 0 must stay silent rather than describe a filter that
+    // was a no-op.
+    void emitRecentShotContext_emptyHistory_data()
     {
+        QTest::addColumn<EquipmentScope>("scope");
+        QTest::addColumn<QStringList>("mustContain");
+        QTest::addColumn<QStringList>("mustNotContain");
+
+        const QString label = QStringLiteral("Niche Zero in a Graph Coffee Stepped 58-46mm basket");
+        const QStringList noInvention{ QStringLiteral("Do not refer to shots you cannot see") };
+
+        QTest::newRow("named package states the absence and the gear")
+            << EquipmentScope{ 7, label, true, true }
+            << (QStringList{ QStringLiteral("No prior shots with this equipment set"),
+                             QStringLiteral("Graph Coffee Stepped 58-46mm") } + noInvention)
+            << QStringList{};
+
+        QTest::newRow("package with no component rows stays generic")
+            << EquipmentScope{ 7, QString(), true, true }
+            << QStringList{ QStringLiteral("this shot's equipment package") }
+            << QStringList{ QStringLiteral("set ()") };
+
+        QTest::newRow("no package at all is silent")
+            << EquipmentScope{ 0, QString(), true, true }
+            << QStringList{} << QStringList{};
+
+        QTest::newRow("unreadable equipment says so rather than going silent")
+            << EquipmentScope{ 0, QString(), false, true }
+            << (QStringList{ QStringLiteral("equipment could not be read") } + noInvention)
+            << QStringList{};
+
+        QTest::newRow("unreadable history does not claim there are no shots")
+            << EquipmentScope{ 7, label, true, false }
+            << (QStringList{ QStringLiteral("could not be read"),
+                             QStringLiteral("Do NOT conclude") } + noInvention)
+            << QStringList{ QStringLiteral("No prior shots") };
+    }
+
+    void emitRecentShotContext_emptyHistory()
+    {
+        QFETCH(EquipmentScope, scope);
+        QFETCH(QStringList, mustContain);
+        QFETCH(QStringList, mustNotContain);
+
         QNetworkAccessManager nam;
         Settings settings;
         AIManager mgr(&nam, &settings);
@@ -1165,89 +1165,17 @@ private slots:
         QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
         QVERIFY(spy.isValid());
         mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
-                                  QJsonObject(), QJsonArray(),
-                                  QStringLiteral("Niche Zero in a Graph Coffee Stepped 58-46mm basket"),
-                                  /*equipmentBucketKnown=*/true, /*equipmentBucket=*/7);
+                                  QJsonObject(), QJsonArray(), scope);
         QCOMPARE(spy.count(), 1);
         const QString payload = spy.takeFirst().at(0).toString();
 
-        QVERIFY2(!payload.isEmpty(), "an empty history must still say so");
-        QVERIFY(payload.contains(QStringLiteral("No prior shots with this equipment set")));
-        QVERIFY2(payload.contains(QStringLiteral("Graph Coffee Stepped 58-46mm")),
-                 "the block must name the equipment set that was matched on");
-        QVERIFY2(payload.contains(QStringLiteral("do not refer to shots you cannot see")),
-                 "the block must tell the model not to invent an anchor");
+        QCOMPARE(payload.isEmpty(), mustContain.isEmpty());
+        for (const QString& s : mustContain)
+            QVERIFY2(payload.contains(s), qPrintable(QStringLiteral("missing: ") + s));
+        for (const QString& s : mustNotContain)
+            QVERIFY2(!payload.contains(s), qPrintable(QStringLiteral("must not say: ") + s));
     }
 
-    // A shot on NO package has no equipment set to name, so the block stays
-    // silent rather than emitting a sentence with an empty parenthetical —
-    // exactly as it did before equipment scoping existed. (Silence here is a
-    // choice, not a claim that nothing was filtered: bucket 0 still excludes
-    // packaged shots for a user who has both kinds.)
-    void emitRecentShotContext_emptyHistoryOnNoPackageStaysSilent()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 1;
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        QVERIFY(spy.isValid());
-        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
-                                  QJsonObject(), QJsonArray(), QString(),
-                                  /*equipmentBucketKnown=*/true, /*equipmentBucket=*/0);
-        QCOMPARE(spy.count(), 1);
-        QVERIFY(spy.takeFirst().at(0).toString().isEmpty());
-    }
-
-    // ...but an equipment read that FAILED is not that. The history is scoped on
-    // a separate connection which resolves the bucket itself, so shots may have
-    // been excluded and this side cannot name what by. Falling through to the
-    // same silence would hand the model the one reading that is certainly wrong:
-    // "this user has no history."
-    void emitRecentShotContext_unreadableEquipmentSaysSoRatherThanGoingSilent()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 1;
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        QVERIFY(spy.isValid());
-        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
-                                  QJsonObject(), QJsonArray(), QString(),
-                                  /*equipmentBucketKnown=*/false, /*equipmentBucket=*/0);
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-        QVERIFY2(!payload.isEmpty(),
-                 "a failed equipment read must not render as 'no history'");
-        QVERIFY(payload.contains(QStringLiteral("equipment could not be read")));
-        QVERIFY2(payload.contains(QStringLiteral("do not refer to shots you cannot see")),
-                 "the block must tell the model not to invent an anchor");
-    }
-
-    // A package whose component rows are all gone describes as "" while still
-    // being a real bucket that filtered the history. Branching on the label
-    // would drop this case into the no-package silence; branching on the bucket
-    // keeps the absence stated, generically.
-    void emitRecentShotContext_packagedShotWithNoLabelStillStatesTheAbsence()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 1;
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        QVERIFY(spy.isValid());
-        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
-                                  QJsonObject(), QJsonArray(), QString(),
-                                  /*equipmentBucketKnown=*/true, /*equipmentBucket=*/7);
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-        QVERIFY(payload.contains(QStringLiteral("this shot's equipment package")));
-        QVERIFY2(!payload.contains(QStringLiteral("set ()")),
-                 "an unnamed package must not render as an empty parenthetical");
-    }
 
     // The equipment package is part of the conversation identity. Two shots on
     // the same bean and profile but different gear are different conversations,
@@ -4536,32 +4464,6 @@ private slots:
                  "a key holding an empty transcript must not be indexed");
 
         settings.clear();
-    }
-
-    // The history read FAILING is not the same as the user having no history,
-    // and the block that states an absence must not state one it cannot know.
-    void emitRecentShotContext_unreadableHistoryDoesNotClaimThereAreNoShots()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 1;
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        QVERIFY(spy.isValid());
-        mgr.emitRecentShotContext({}, GrinderContext{}, QStringLiteral("Niche"), 1,
-                                  QJsonObject(), QJsonArray(),
-                                  QStringLiteral("Niche Zero in a Graph Coffee basket"),
-                                  /*equipmentBucketKnown=*/true, /*equipmentBucket=*/7,
-                                  /*historyReadable=*/false);
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        QVERIFY(payload.contains(QStringLiteral("could not be read")));
-        QVERIFY2(!payload.contains(QStringLiteral("No prior shots")),
-                 "a failed read must not be reported as an absence of shots");
-        QVERIFY2(payload.contains(QStringLiteral("Do NOT conclude")),
-                 "and must tell the model not to infer one");
     }
 
     // The rekey is only "the same thread, moved" if the archived key really is

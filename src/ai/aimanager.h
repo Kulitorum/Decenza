@@ -21,10 +21,23 @@ class AIConversation;
 class ShotSummarizer;
 class ShotDataModel;
 class Profile;
+class AppSettings;
 class Settings;
 class ShotHistoryStorage;
 class TranslationManager;
 class ProfileManager;
+
+// What one history read resolved about the current shot's equipment. The
+// empty-history block says WHY it is empty, and the three reasons are not
+// interchangeable: no package (nothing was filtered), a package whose
+// components are all gone (filtered, cannot be named), and a read that
+// failed (filtered, cannot be described at all).
+struct EquipmentScope {
+    qint64 bucket = 0;          // COALESCE(equipment_id, 0); 0 = no package
+    QString label;              // English name; empty for a package with no components
+    bool resolved = false;      // false = the shot's row could not be read
+    bool historyReadable = true;
+};
 
 class AIManager : public QObject {
     Q_OBJECT
@@ -59,29 +72,29 @@ public:
         QString beanBrand;
         QString beanType;
         QString profileName;
-        // Equipment package the thread belongs to (0 = none recorded). Carried
-        // so a conversation list can tell apart two threads that share a bean
-        // and profile but were pulled on different gear — without it they are
-        // indistinguishable rows. Reported as `equipmentPackageId` by
-        // `ai_conversations list`. Absent on entries saved before equipment
-        // became part of the key; those read as 0.
+        // Equipment package the thread belongs to (0 = none recorded), so a
+        // conversation list can tell apart two threads on the same bean and
+        // profile pulled on different gear. Reported as `equipmentPackageId`.
         //
-        // DEVICE-LOCAL, and kept that way on import. Package ids are renumbered
-        // when a database is imported, so AIConversation::importConversationsStatic
-        // remaps this field through the equipment package map AND recomputes the
-        // QSettings key from the mapped id — the key is a hash that includes it,
-        // so moving one without the other would leave a thread nothing can
-        // address. When no map is available (conversations restored without an
-        // equipment import), the entry keeps its source key and this field is
-        // reset to 0 rather than holding a foreign id: it is reported over MCP as
-        // `equipmentPackageId`, where a source-device id would name whichever
-        // unrelated local package happens to hold that integer.
+        // DEVICE-LOCAL. importConversationsStatic remaps it through the package
+        // map AND recomputes the key from the mapped id — the key hashes it, so
+        // moving one without the other strands the thread. With no map the entry
+        // keeps its source key and this resets to 0 rather than holding a
+        // foreign id that would name an unrelated local package.
         qint64 equipmentId = 0;
         qint64 timestamp;
 
         QJsonObject toJson() const;
         static ConversationEntry fromJson(const QJsonObject& obj);
     };
+
+    // One conversation-index entry plus its stored thread, in the archive shape
+    // importConversationsStatic reads. ONE definition: this was written twice —
+    // DatabaseBackupManager against the raw index JSON, ShotServer against the
+    // parsed entry — and adding `equipmentId` patched the copies differently.
+    // A missing, empty or corrupt thread yields no `messages` array and warns.
+    static QJsonObject serializeIndexEntry(AppSettings& settings,
+                                           const ConversationEntry& entry);
 
     // Properties
     QString selectedProvider() const;
@@ -496,16 +509,15 @@ private:
     // `friend class tst_AIManager` can assert the equipment scoping on a real
     // database — the scoping is the whole point of this function, and there is
     // no other seam that reaches its query.
-    // `outHistoryReadable` (optional) reports whether the queries actually ran.
-    // An empty return means "no qualifying shots" OR "the read failed", and the
-    // caller cannot treat those alike: it turns the first into an explicit
-    // statement to the model that no prior shots exist on this equipment, which
-    // is a fabricated fact if the truth is that the query errored.
+    // `outScope` reports what the read resolved. An empty return means "no
+    // qualifying shots" OR "the read failed", and the caller cannot treat those
+    // alike: it turns the first into an explicit statement to the model that no
+    // prior shots exist, which is a fabricated fact if the query errored.
     static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
         const QString& dbPath,
         const QString& beanBrand, const QString& beanType,
         const QString& profileName, int excludeShotId,
-        bool* outHistoryReadable = nullptr);
+        EquipmentScope* outScope = nullptr);
 
     // Render the recent-shot-context prose from already-loaded data and
     // emit `recentShotContextReady` (or an empty string when stale).
@@ -521,26 +533,7 @@ private:
         int serial,
         const QJsonObject& grinderCalibration = QJsonObject(),
         const QJsonArray& recentAdvice = QJsonArray(),
-        // English description of the current shot's equipment package. Only
-        // consulted when the history came back empty, to state which equipment
-        // set the shots were matched on instead of emitting nothing. May be
-        // empty for a package whose component rows are all missing, which is
-        // why it is not the thing the empty-history branch discriminates on.
-        const QString& equipmentLabel = QString(),
-        // Did the equipment read succeed, and what did it return? The history
-        // is scoped on a SEPARATE connection that resolves the bucket itself,
-        // so a failure here does NOT mean the history came back unscoped — it
-        // means shots were excluded and this side cannot say by what. Passing
-        // the fact rather than inferring it from `equipmentLabel` is what keeps
-        // "no package, nothing was filtered" apart from "filtered, but the
-        // equipment could not be read".
-        bool equipmentBucketKnown = false,
-        qint64 equipmentBucket = 0,
-        // False when the history QUERY failed, as opposed to returning nothing.
-        // Separate from equipmentBucketKnown: that one describes the grinder-
-        // context connection, this one the history connection, and either can
-        // fail alone.
-        bool historyReadable = true);
+        const EquipmentScope& scope = EquipmentScope());
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;

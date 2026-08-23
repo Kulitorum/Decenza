@@ -1240,25 +1240,11 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
 
     QSqlQuery q(db);
     // Scoped to the resolved shot's own equipment PACKAGE, not to every package
-    // sharing a grinder model + burrs. Two reasons, and the second is the one
-    // that is easy to miss:
-    //
-    //  - Endpoint medians below are pooled by (batch, kbId) BEFORE any pair is
-    //    formed, so pooling packages corrupts the ENDPOINT, not merely a pair
-    //    that happens to straddle two baskets. One profile's median on one
-    //    coffee would mix a straight-wall dial (~9.75) with a stepped one (~17).
-    //  - The anchor selected further down is the intercept every emitted number
-    //    is built on, and it is drawn from these same rows.
-    //
-    // This block publishes a NUMBER the user is expected to dial in, so a
-    // polluted estimate is indistinguishable from a clean one at the point of
-    // use. When the package-scoped pool has too little signal the block degrades
-    // to directional ("pull a reference shot"), which is its designed failure
-    // mode since #1223 — never a widening to other gear.
-    //
-    // Comparing package ids also removes the case/whitespace-folding this clause
-    // used to need: an integer key cannot disagree with EquipmentStorage's own
-    // identity lookup about padding or capitalisation.
+    // sharing a grinder model + burrs. The endpoint medians below are pooled by
+    // (batch, kbId) BEFORE any pair is formed, so pooling packages corrupts the
+    // ENDPOINT — not merely a pair that straddles two baskets — and the anchor
+    // comes from these same rows. This block publishes a number the user dials
+    // in, so it degrades to directional rather than widening to other gear.
     QString calSql = QStringLiteral(
             "SELECT profile_kb_id, profile_name, grinder_setting, timestamp, "
             "       bean_brand, bean_type, roast_date, final_weight, "

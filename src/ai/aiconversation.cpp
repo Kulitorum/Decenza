@@ -451,40 +451,6 @@ static QJsonArray remapTurnShotIds(const QJsonArray& messages,
     return out;
 }
 
-QJsonObject AIConversation::serializeIndexEntry(AppSettings& settings,
-                                                const AIManager::ConversationEntry& entry)
-{
-    const QString prefix = QStringLiteral("ai/conversations/") + entry.key + QStringLiteral("/");
-
-    QJsonObject conv;
-    conv[QStringLiteral("key")] = entry.key;
-    conv[QStringLiteral("beanBrand")] = entry.beanBrand;
-    conv[QStringLiteral("beanType")] = entry.beanType;
-    conv[QStringLiteral("profileName")] = entry.profileName;
-    conv[QStringLiteral("timestamp")] = settings.value(prefix + "timestamp").toString();
-    conv[QStringLiteral("systemPrompt")] = settings.value(prefix + "systemPrompt").toString();
-    conv[QStringLiteral("contextLabel")] = settings.value(prefix + "contextLabel").toString();
-    conv[QStringLiteral("indexTimestamp")] = entry.timestamp;
-    // Sparse, matching ConversationEntry::toJson — absent means "no package",
-    // which fromJson reads back as 0.
-    if (entry.equipmentId > 0)
-        conv[QStringLiteral("equipmentId")] = static_cast<double>(entry.equipmentId);
-
-    QJsonArray turns;
-    const TranscriptState state = storedTranscriptState(settings, entry.key, &turns);
-    if (state == TranscriptState::Ok) {
-        conv[QStringLiteral("messages")] = turns;
-    } else {
-        // Warn at BACKUP time. The entry is archived without turns and the importer
-        // rejects it as malformed, so silence here means the user only finds out
-        // during a restore that reports success.
-        qWarning() << "AIConversation: conversation" << entry.key << "has no readable"
-                   << "transcript (" << transcriptStateName(state)
-                   << ") — archiving it without turns";
-    }
-    return conv;
-}
-
 AIConversation::TranscriptState AIConversation::storedTranscriptState(
     AppSettings& settings, const QString& storageKey, QJsonArray* outTurns)
 {
@@ -567,14 +533,9 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
             const qint64 mapped = packageIdMap
                 ? packageIdMap->value(srcEquipmentId, 0) : 0;
             // Rekeying is only "the same thread, moved" if the archived key
-            // really is the hash of the archived fields. The exporters copy the
-            // key and the bean/profile fields out of the index entry
-            // INDEPENDENTLY and never re-derive one from the other, so an entry
-            // written inconsistently — which is exactly what the two identity
-            // defects fixed earlier in this change produced, and what an archive
-            // from an older build still contains — would be moved to a THIRD key
-            // matching nothing on either device. Check the derivation rather than
-            // assuming it.
+            // really is the hash of the archived fields. Older archives carry
+            // entries where it is not, and moving one lands on a THIRD key
+            // matching nothing on either device.
             const bool keyDerivesFromFields =
                 (key == AIManager::conversationKey(beanBrand, beanType, profileName,
                                                    srcEquipmentId));
@@ -583,45 +544,26 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
                 storageKey = AIManager::conversationKey(beanBrand, beanType, profileName,
                                                         destEquipmentId);
             } else {
-                // No equipment import came with these, this package was not in
-                // it, or the entry does not describe its own key. Keep the source
-                // key — the thread stays readable in the list, it just will not be
-                // matched to a shot on this device.
-                //
-                // equipmentId goes to 0, NOT the source id: the field is
-                // documented device-local and is now reported over MCP as
-                // `equipmentPackageId`, where a foreign id would name whichever
-                // unrelated package happens to hold that integer here.
+                // Keep the source key: readable in the list, not matched to a
+                // shot here. equipmentId goes to 0, not the source id — it is
+                // device-local, and a foreign id would name whichever unrelated
+                // package happens to hold that integer on this device.
                 destEquipmentId = 0;
                 unkeyed = true;
             }
         }
 
-        // An existing key is skipped WHOLE, never merged: the copy on this
-        // device is the live one and the archive's is older by construction.
-        // Checked on the key the entry will actually be WRITTEN under, not the
-        // one the archive carried — otherwise a remapped conversation could
-        // overwrite a live thread on the destination key.
-        //
-        // And checked against DISK, not only the index. AIConversation::
-        // appendAssistantTurnForKey — the MCP ai_advisor_invoke write path —
-        // writes the thread and never touches the index, which is why
-        // AIManager::switchConversation has to index such threads when it first
-        // opens one. An index-only test therefore cannot see a live MCP thread,
-        // and the four setValue calls below would destroy it silently. The
-        // recompute makes that collision the NORMAL case rather than a freak
-        // one: storageKey is now aimed at exactly the key this device computes
-        // for that shot.
+        // An existing key is skipped WHOLE, never merged, and the check is on
+        // the key it will be WRITTEN under. Against DISK as well as the index:
+        // appendAssistantTurnForKey (the MCP write path) never touches the
+        // index, so an index-only test cannot see a live MCP thread and the
+        // writes below would destroy it silently.
         const QString prefix = QStringLiteral("ai/conversations/") + storageKey + QStringLiteral("/");
         const TranscriptState onDisk = storedTranscriptState(settings, storageKey);
-        // Only a REAL thread blocks the restore. A byte test here reported "[]"
-        // as live — and "[]" is written by ordinary use, because saveToStorage
-        // has no empty-history guard, so opening the advisor and closing without
-        // sending leaves one under exactly the key the rekey aims at. The
-        // archived thread would then be refused, reported "already present", and
-        // unrecoverable by retrying, since the ghost is still there next time.
-        // Corrupt bytes must not block it either: a user restoring a backup
-        // BECAUSE their local copy is damaged is the case that matters most.
+        // Only a REAL thread blocks the restore. "[]" is written by ordinary use
+        // (saveToStorage has no empty-history guard), and corrupt bytes must not
+        // block either — a user restoring BECAUSE their copy is damaged is the
+        // case that matters most.
         if (onDisk == TranscriptState::Corrupt) {
             qWarning() << "AIConversation::importConversationsStatic: unreadable thread on disk for key"
                        << storageKey << "— restoring the archived copy over it";

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QSettings>
+#include <QDebug>
+#include <QString>
 
 // The one handle onto Decenza's settings store.
 //
@@ -32,3 +34,30 @@ class AppSettings : public QSettings
 public:
     AppSettings();
 };
+
+// Stamp a one-time-migration flag, but only if the write actually reached the
+// store. Returns false — leaving the flag unset so the migration retries next
+// launch — when it is known to have failed.
+//
+// QSettings::status() is a sticky first-error latch: setStatus assigns only when
+// the incoming status is NoError or the stored one already is
+// (qtbase/src/corelib/io/qsettings.cpp:312-316), and none of its eleven call
+// sites passes NoError. So a bare `status() != NoError` test on a store that
+// latched an error earlier reports failure forever — re-running the migration's
+// destructive work on every launch while never stamping. Only clean-before to
+// dirty-after says anything about THIS write; when the store was already dirty
+// there is no signal either way, so stamp optimistically.
+inline bool commitMigrationFlag(QSettings& settings, const QString& flagKey,
+                                const QString& what)
+{
+    const bool cleanBefore = (settings.status() == QSettings::NoError);
+    settings.sync();
+    if (cleanBefore && settings.status() != QSettings::NoError) {
+        qWarning() << what << "may not have persisted (QSettings status"
+                   << settings.status() << ") — leaving" << flagKey
+                   << "unset so it retries next launch";
+        return false;
+    }
+    settings.setValue(flagKey, true);
+    return true;
+}

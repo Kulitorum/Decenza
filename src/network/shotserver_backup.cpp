@@ -414,7 +414,7 @@ QJsonArray ShotServer::serializeAIConversations() const
     // ONE serializer, shared with DatabaseBackupManager — it also warns about an
     // unreadable transcript, so neither caller carries that policy.
     for (const auto& entry : m_aiManager->conversationIndex())
-        result.append(AIConversation::serializeIndexEntry(settings, entry));
+        result.append(AIManager::serializeIndexEntry(settings, entry));
 
     return result;
 }

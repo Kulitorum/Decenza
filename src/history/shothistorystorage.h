@@ -137,85 +137,41 @@ public:
     // Async: runs on background thread, emits shotReady()
     Q_INVOKABLE void requestShot(qint64 shotId);
 
-    // An equipment package forks — or merges into an existing one — when the
-    // grinder brand/model/burrs, the basket, or the puck-prep set changes on a
-    // package that already has shots (EquipmentStorage::supersedeOrEditStatic).
-    // An unused package is edited in place, as is one whose every differing
-    // component was previously empty (enrichment) — EXCEPT a grinder-less
-    // package gaining a grinder, which forks, and except an enrichment whose
-    // result matches a package already in the inventory, which merges into it.
-    // So `shots.equipment_id` answers the grinder, basket and prep questions at
-    // once, and a user who re-points a used package gets a DIFFERENT bucket from
-    // that point on — the shots already recorded stay on the old id either way,
-    // which is what the advisor's equipment scoping relies on.
+    // Shot rows carry `equipment_id`, an FK to the package holding the grinder,
+    // basket and puck prep. The package forks when any of those changes on a
+    // package that already has shots, so one integer answers all three questions
+    // and shots already recorded keep their old id.
     //
-    // There is deliberately NO shot-id-to-bucket helper. One existed, returning
-    // std::optional<qint64> with nullopt covering both "no such shot" and "the
-    // query failed" — two causes callers could not tell apart and could only
-    // answer by picking a degradation policy. Two call sites two lines apart
-    // picked opposite policies, which is the defect that removed it. Every
-    // caller now resolves the bucket from a row it is ALREADY reading — either
-    // off a loaded ShotRecord/ShotProjection (`equipmentId`, 0 = unpackaged) or
-    // as a `COALESCE(equipment_id, 0)` column in its own query
-    // (`AIManager::loadQualifiedShots`, and the grinder-context join) — and hands
-    // it to `equipmentBucketSql()`. So no caller has an unresolved case to pick a
-    // degradation policy for. That is NOT the same as one read per request:
-    // requestRecentShotContext still resolves it twice on two connections, which
-    // can disagree under a concurrent equipment re-point — see the note at that
-    // query.
+    // There is deliberately no shot-id-to-bucket helper: it returned
+    // std::optional and two call sites two lines apart picked opposite policies
+    // for nullopt. Callers resolve the bucket from a row they are already
+    // reading and hand it to equipmentBucketSql().
 
     // SQL predicate matching a shot row against an equipment bucket. COALESCE on
     // BOTH sides is load-bearing: SQL `NULL = NULL` is not true, so a bare
-    // `equipment_id = ?` silently drops every unpackaged shot instead of
-    // matching it. Bucket 0 holds all unpackaged shots, so a user who has never
-    // created a package matches their whole history and the filter is a no-op
-    // for them. Same idiom as the history-cards grouping in
-    // shothistorystorage_queries.cpp.
-    // `column` lets a caller qualify the table alias (e.g. "s.equipment_id").
-    // `placeholder` defaults to a POSITIONAL bind and exists because Qt will not
-    // mix positional and named binds in one statement. The mechanism is the
-    // shared value array, not a mode flag: `savePrepare` sizes `d->values` to
-    // the NAMED holder count (qtbase/src/sql/kernel/qsqlresult.cpp:145) while
-    // `bindValue(int)` writes `d->values[index]` directly (:690), so a
-    // positional bind appended to a ":model"/":bev" statement overwrites the
-    // named value at that ordinal and leaves `values.size()` short of the
-    // statement's parameter count. The SQLite driver then reports "Parameter
-    // count mismatch" and exec() returns false
-    // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:459-460,566-568).
-    // A query already using named holders must therefore pass a named
-    // placeholder here (e.g. ":equip").
+    // `equipment_id = ?` silently drops every unpackaged shot instead of matching
+    // it. Bucket 0 holds them all, making the filter a no-op for a user with no
+    // packages.
     //
-    // An earlier version of this comment blamed `QSqlResultPrivate::binds`,
-    // "one mode flag [where] the last bindValue wins". That flag is read only
-    // by QSqlResult::exec()'s fallback for drivers without PreparedQueries
-    // (:637) and by bindingSyntax() (:830) — QSQLiteResult overrides exec() and
-    // consults neither, so it is dead code on this driver. The same version
-    // claimed the mix can be silent when the counts coincide; that needs a
-    // REUSED named holder for sqlite to collapse, which is not a shape written
-    // here, so treat mixing as loud until someone demonstrates otherwise.
+    // `placeholder` defaults to a positional bind. A statement that already uses
+    // NAMED holders must pass a named one (e.g. ":equip"): Qt sizes the value
+    // array to the named holder count (qtbase/src/sql/kernel/qsqlresult.cpp:145)
+    // while bindValue(int) writes that ordinal directly (:690), so mixing leaves
+    // the array short and SQLite fails the exec with "Parameter count mismatch"
+    // (qsql_sqlite.cpp:459-460,566-568) — the whole block then disappears.
     static QString equipmentBucketSql(const QString& column = QStringLiteral("equipment_id"),
                                       const QString& placeholder = QStringLiteral("?"));
 
     // Three SELECT columns naming a shot's package components: basket brand,
-    // basket model, puck-prep model. `shotAlias` is the alias the enclosing
-    // query gives the shots table.
-    //
-    // Correlated subqueries rather than more LEFT JOINs, with ORDER BY id LIMIT 1:
-    // there is no unique key on (package_id, kind), so a plain join fans the row
-    // out over a duplicate item. Written once because three call sites had
-    // hand-copied it, each carrying its own copy of that warning.
+    // basket model, puck-prep model. Correlated subqueries rather than LEFT
+    // JOINs, ORDER BY id LIMIT 1: there is no unique key on (package_id, kind),
+    // so a join fans the row out over a duplicate item.
     static QString equipmentComponentsSql(const QString& shotAlias = QStringLiteral("s"));
 
     // Query recent shots by KB ID (summary data, no time-series).
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
-    //
-    // `equipmentBucket` scopes the result to one equipment package (see the note
-    // above on why there is no shot-id-to-bucket helper). Required, and 0 means
-    // unpackaged — a real, matching bucket, not "unscoped".
-    //
-    // It was briefly optional, justified by a second caller that wanted an
-    // unscoped read. That caller had no callers of its own and has been deleted,
-    // so the justification described a need nothing had.
+    // `equipmentBucket` is required; 0 (unpackaged) is a real, matching bucket,
+    // not "unscoped".
     static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit,
                                                     qint64 excludeShotId, qint64 equipmentBucket);
 
@@ -305,26 +261,11 @@ public:
     // separate `allBeansSettings` field). Do not collapse that fallback
     // into this function — a future caller may want bean-scoped only.
     //
-    // `equipmentBucket` scopes the observed settings to one equipment package.
-    // This list is what the advisor uses to judge whether a proposed setting is
-    // plausible for the user's grinder, so pooling across packages presents two
-    // baskets' dials as one continuous range and a setting that is absurd on one
-    // reads as reasonable. `equipmentBucket` is required and 0 (unpackaged) is a
-    // real, matching bucket — there is no "don't scope" option, because the one
-    // that existed pooled every package the user owns and published the result
-    // as a single observed range.
-    //
-    // `stepSize` and `rpmStepSize` are NOT equipment-scoped even when a bucket
-    // is given: they are the grinder's mechanical resolution, unchanged by a
-    // basket swap, and are derived grinder-model-wide so they keep matching the
-    // grind widget. Only `settingsObserved`, `allNumeric`, `min/maxSetting`,
-    // `rpmsObserved` and `rpm{Min,Max}` narrow to the package.
-    //
-    // `deriveWideSteps` false skips the two grinder-wide scans that produce
-    // stepSize/rpmStepSize. They read only `grinderModel`, so a caller querying
-    // the same grinder twice (see buildGrinderContextBlock's cross-bean fallback)
-    // gets the same answer for ~3 ms median and up to ~87 ms of table scan each --
-    // see grinderWideNumericSettings for the measurements.
+    // `equipmentBucket` is required; 0 (unpackaged) is a real, matching bucket.
+    // `stepSize`/`rpmStepSize` stay grinder-model-wide even so — they are the
+    // grinder's mechanical resolution, unchanged by a basket swap, and must keep
+    // matching the grind widget. `deriveWideSteps` false skips the two scans that
+    // produce them, for a caller querying the same grinder twice.
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel,
                                               const QString& beverageType,
                                               const QString& beanBrand,

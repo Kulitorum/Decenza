@@ -9,12 +9,7 @@
 #include <optional>
 #include <QtQml/qqmlregistration.h>
 
-// For AIManager::ConversationEntry, used by serializeIndexEntry below.
-// aimanager.h does not include this header (it forward-declares AIConversation),
-// so this direction is safe.
-#include "aimanager.h"
-
-
+class AIManager;
 class TranslationManager;
 class AppSettings;
 
@@ -275,22 +270,11 @@ public:
      * otherwise the in-app's next `saveToStorage` will overwrite the
      * just-written turn.
      *
-     * `systemPrompt` is the prompt a later IN-APP turn should run under. It is
-     * stored only when the key has none yet, so appending to a thread the in-app
-     * advisor started leaves that thread's own prompt alone.
-     *
-     * Not defaulted, deliberately. A stored thread with no system prompt loads
-     * with history but an empty `m_systemPrompt`, and `followUp()` refuses it —
-     * "Please start a new conversation first" — so the user's only way forward
-     * in the app is Clear, which DELETES the turns written here. Pass an empty
-     * string only when that is the intended outcome (an MCP caller supplying its
-     * own one-off `systemPromptOverride`, which must not become the thread's
-     * durable prompt). Doing so is logged as a warning when the key has no
-     * prompt of its own — which is the case that strands the thread; appending
-     * an empty prompt to a key that already has one is silent and harmless.
-     *
-     * Note this is not necessarily the prompt the turn was GENERATED under —
-     * see the persist-vs-run distinction at the mcptools_ai.cpp call site.
+     * `systemPrompt` is the prompt a later IN-APP turn should run under, stored
+     * only when the key has none yet. Not defaulted: a stored thread with no
+     * prompt loads with history but `followUp()` refuses it, so the user's only
+     * way forward is Clear, which deletes these turns. Pass empty only for an
+     * MCP one-off override that must not become the thread's durable prompt.
      */
     static void appendAssistantTurnForKey(
         const QString& storageKey,
@@ -302,11 +286,8 @@ public:
 
     /**
      * The four states a stored transcript can be in. "Is there a thread on disk
-     * under this key?" was answered five different ways in this subsystem and
-     * two of them disagreed about a corrupt blob — one treated it as present and
-     * refused to restore over it, the other treated it as absent and silently
-     * dropped it. Callers pick a POLICY from a named state instead of
-     * re-deriving the question.
+     * under this key?" was answered five ways here, and two disagreed about a
+     * corrupt blob. Callers pick a policy from a named state instead.
      */
     enum class TranscriptState {
         Missing,   ///< no `messages` value at all
@@ -315,19 +296,8 @@ public:
         Ok         ///< a real thread with at least one turn
     };
 
-    /**
-     * Classify the transcript stored under `storageKey`. `outTurns` receives the
-     * parsed array when the state is `Ok`.
-     *
-     * NOTE `Empty` and `Corrupt` are deliberately distinct: `"[]"` is two bytes,
-     * so a raw-byte emptiness test reports it as a live thread, and a bare
-     * parse-and-check-empty reports damaged bytes as absent. Both mistakes have
-     * shipped here.
-     */
-    // Name for a log line. Beside the enum so it cannot drift from it, and one
-    // definition because a bare `int(state)` is undecodable in a submitted log:
-    // the reader needs the header AT THE MATCHING REVISION, and inserting a
-    // fifth state silently renumbers every log line ever submitted.
+    // Name for a log line, beside the enum so it cannot drift from it. A bare
+    // int(state) is undecodable in a submitted log.
     static constexpr const char* transcriptStateName(TranscriptState s) {
         switch (s) {
         case TranscriptState::Missing: return "missing";
@@ -338,29 +308,14 @@ public:
         return "unknown";
     }
 
+    // Classify the transcript under `storageKey`; `outTurns` receives the parsed
+    // array when the state is Ok. Empty and Corrupt are distinct because "[]" is
+    // two bytes — a raw-byte test reports it as a live thread — and a bare
+    // parse-and-check-empty reports damaged bytes as absent. Both have shipped.
     static TranscriptState storedTranscriptState(AppSettings& settings,
                                                  const QString& storageKey,
                                                  QJsonArray* outTurns = nullptr);
 
-    /**
-     * Serialize one conversation-index entry plus its stored thread into the
-     * archive shape `importConversationsStatic` reads.
-     *
-     * ONE definition, for the same reason the importer is one: this was written
-     * twice — DatabaseBackupManager against the raw index JSON,
-     * ShotServer against the parsed ConversationEntry — and the two copies were
-     * patched DIFFERENTLY when `equipmentId` was added (`contains()` versus
-     * `> 0`). The importer's `keyDerivesFromFields` check exists precisely
-     * because these copies emitted the key and the bean/profile fields from
-     * independent reads; with one definition it becomes a compatibility shim for
-     * older archives rather than a permanent guard against our own exporter.
-     *
-     * A thread that is missing, empty or corrupt yields no `messages` array and
-     * is reported through the return value, so a caller can warn rather than
-     * silently archiving `[]` — which the importer now rejects as malformed.
-     */
-    static QJsonObject serializeIndexEntry(AppSettings& settings,
-                                           const AIManager::ConversationEntry& entry);
 
     /**
      * What importConversationsStatic did. Note the units differ: the first
@@ -375,16 +330,10 @@ public:
         int conversationsImported = 0;  // written to storage
         int turnsRemapped = 0;          // turn shotIds rewritten to a destination id
         int turnsCleared = 0;           // turn shotIds dropped, source shot not in the map
-        // Conversations that WERE restored, but under their source key, because
-        // their equipment package could not be mapped to one on this device.
-        // Readable in the conversation list; the app will never compute that key
-        // again, so opening the shot starts a fresh thread instead of resuming.
-        // Counted only for entries actually written — an archive entry skipped as
-        // a duplicate is not in here.
-        //
-        // Reported by every caller alongside the turn counts, because "12
-        // imported" is a misleading thing to tell a user when none of the twelve
-        // will be found again from a shot.
+        // Restored, but under their source key because their equipment package
+        // could not be mapped here: readable in the list, never found again from
+        // a shot. Reported alongside the turn counts, because "12 imported" is
+        // misleading when none of the twelve will be found again.
         int conversationsUnkeyed = 0;
     };
 
@@ -422,25 +371,16 @@ public:
      * Callers keep their own policy: replace-mode pre-clearing, sync(), and
      * reloading the live conversation all stay with the caller.
      *
-     * A conversation's storage KEY is a hash of
-     * bean|type|profile|equipmentId, so a thread pulled on an equipment
-     * package carries the SOURCE device's package id inside its identity. That
-     * id is renumbered by the equipment import like every other package
-     * reference, which means an entry restored verbatim names a package this
-     * device may not have and — worse — sits under a key the app will never
-     * compute again, so opening that shot silently starts a fresh thread.
-     * `packageIdMap` closes that: the entry's `equipmentId` is remapped and the
-     * key is RECOMPUTED from the mapped id before anything is written, so the
-     * restored thread is the one the app finds.
+     * The storage KEY hashes bean|type|profile|equipmentId, so an archived
+     * thread carries the SOURCE device's package id inside its identity.
+     * `packageIdMap` remaps `equipmentId` and RECOMPUTES the key before writing,
+     * so the restored thread is the one this device will find.
      *
-     * The rekey is conditional on the archived key actually being the hash of
-     * the archived fields. The exporters copy the key and the bean/profile
-     * fields out of the index entry independently, so an inconsistent entry
-     * would otherwise be moved to a third key naming nothing. A packaged
-     * conversation with no map, whose package is absent from the map, or whose
-     * key does not derive from its own fields, is imported under its original
-     * key with `equipmentId` reset to 0 and counted in `conversationsUnkeyed` —
-     * still readable in the conversation list, just not matched to a shot.
+     * Conditional on the archived key really being the hash of the archived
+     * fields — the exporter used to emit them from independent reads, and an
+     * inconsistent entry would be moved to a third key naming nothing. An entry
+     * that fails any of those tests is imported under its original key with
+     * `equipmentId` reset to 0 and counted in `conversationsUnkeyed`.
      *
      * @param settings   open settings object to write through
      * @param conversations  the incoming array, as carried by the backup
@@ -484,11 +424,9 @@ signals:
     void providerChanged();
     void savedConversationChanged();
 
-    // A thread was just WRITTEN to disk under this object's storage key.
-    // Distinct from savedConversationChanged(), which is the NOTIFY for
-    // hasSavedConversation and therefore also fires on load and on clear —
-    // states in which nothing was written and the live identity may not yet
-    // match the key. Only saveToStorage() emits this one.
+    // A thread was just WRITTEN under this object's storage key. Distinct from
+    // savedConversationChanged(), which also fires on load and on clear, when
+    // nothing was written and the live identity may not match the key.
     void conversationPersisted();
 
 private slots:

@@ -7,6 +7,7 @@
 #include "profilestorage.h"
 #include "../history/shothistorystorage.h"
 #include "../ai/aiconversation.h"
+#include "../ai/aimanager.h"
 #include "../profile/profile.h"
 #include "../profile/profilesavehelper.h"
 #include "../screensaver/screensavervideomanager.h"
@@ -418,15 +419,10 @@ bool DatabaseBackupManager::createBackup(bool force)
                     const QJsonObject entryJson = v.toObject();
                     if (entryJson["key"].toString().isEmpty()) continue;
 
-                    // Parse into the same struct ShotServer exports from, then
-                    // share one serializer. These two exporters were separate
-                    // copies reading the index different ways, and adding
-                    // `equipmentId` patched them differently — which is exactly
-                    // the drift the importer's key-derivation check has to guard
-                    // against.
+                    // Same struct ShotServer exports from, one serializer.
                     const AIManager::ConversationEntry entry =
                         AIManager::ConversationEntry::fromJson(entryJson);
-                    conversations.append(AIConversation::serializeIndexEntry(qsettings, entry));
+                    conversations.append(AIManager::serializeIndexEntry(qsettings, entry));
                 }
                 settingsJson["ai_conversations"] = conversations;
             }

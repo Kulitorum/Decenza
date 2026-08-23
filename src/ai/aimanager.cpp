@@ -81,14 +81,8 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
     // Create conversation handler for multi-turn interactions
     m_conversation = new AIConversation(this, this);
 
-    // Index a thread when it is WRITTEN, not when its key is selected — see
-    // indexStoredConversation(). Deliberately NOT savedConversationChanged:
-    // that signal is the NOTIFY for hasSavedConversation and also fires from
-    // loadFromStorage(), which would re-date the restored thread's LRU entry on
-    // every launch — a read reported as an update, forever. (It would also have
-    // indexed a thread under the identity of the one just switched away from;
-    // that half is now closed on its own by switchConversation assigning
-    // m_live* before the load, so this wiring is not what prevents it.)
+    // Deliberately NOT savedConversationChanged, which also fires from
+    // loadFromStorage() and would re-date the restored thread on every launch.
     connect(m_conversation, &AIConversation::conversationPersisted,
             this, &AIManager::indexStoredConversation);
 
@@ -97,14 +91,10 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
     // are misleading. Fires once per device, then becomes a no-op.
     clearAllConversationsOnce(QStringLiteral("grinder_calibration_v1.7.2"));
 
-    // One-time clear: the equipment package is now part of the conversation
-    // key, so a pre-upgrade thread is simply unreferenced by the new key —
-    // EXCEPT on this path. loadMostRecentConversation() below restores
-    // whatever the index says is newest, by key, with no bean/profile/equipment
-    // lookup; a pre-upgrade thread would therefore come back at startup with a
-    // history that mixes two baskets, which is the defect this change removes.
-    // Dropping the threads is cheap (they are advice, not data) and leaves
-    // every user with a package on a clean first conversation.
+    // The new key leaves pre-upgrade threads unreferenced by every lookup path,
+    // but loadMostRecentConversation() below restores the newest BY KEY with no
+    // bean/profile lookup to fail — so a two-basket thread still returns at
+    // startup unless it is actually removed.
     clearAllConversationsOnce(QStringLiteral("equipment_scoped_conversations_v1"));
 
     // Migrate legacy single-conversation storage if needed
@@ -913,43 +903,35 @@ static QString describeEquipmentSet(const QString& grinderBrand, const QString& 
 QList<QPair<qint64, ShotProjection>> AIManager::loadQualifiedShots(
     const QString& dbPath,
     const QString& beanBrand, const QString& beanType,
-    const QString& profileName, int excludeShotId, bool* outHistoryReadable)
+    const QString& profileName, int excludeShotId, EquipmentScope* outScope)
 {
     QList<QPair<qint64, ShotProjection>> qualifiedShots;
-    // Assume readable; a failed query — or a connection that never opens —
-    // clears it. An empty list has to be distinguishable from a failed read,
-    // because the caller turns "empty" into an explicit statement to the model
-    // that the user has no history here.
-    if (outHistoryReadable) *outHistoryReadable = true;
+    EquipmentScope scope;
 
     // The return matters: withTempDb does NOT run the lambda when the open fails
     // (dbutils.h), so on a locked or unreadable database not one query runs and
     // "each query that fails clears the flag" is true and useless.
     const bool opened = withTempDb(dbPath, "ai_context", [&](QSqlDatabase& db) {
-        // 1. Look up the current shot's timestamp
-        // The equipment package comes from this same row. Baskets of different
-        // wall profile make genuinely different coffee at the same dial, so a
-        // history that mixes them teaches the advisor a grind ordering that does
-        // not exist. No issue number: this was found by reading a live advisor
-        // conversation, where a stepped 58->46mm basket at setting 17 sat beside
-        // a straight-wall 18g basket at 9.75 and the advisor concluded from the
-        // jump that the burrs had "crossed a zero-point threshold".
-        //
-        // Read here rather than through a second lookup so there is no
-        // "bucket unknown" case to pick a degradation policy for: past the
-        // timestamp guard below, the row was read and the bucket is known.
+        // Timestamp and equipment package from one row — the only resolution of
+        // the bucket in this request, so nothing downstream can disagree with it.
+        // Baskets of different wall profile make genuinely different coffee at
+        // the same dial, so a history that mixes them teaches the advisor a
+        // grind ordering that does not exist: found by reading a live advisor
+        // conversation where a stepped 58->46mm basket at setting 17 sat beside
+        // a straight-wall 18 g basket at 9.75, and the advisor concluded the
+        // burrs had "crossed a zero-point threshold".
         qint64 shotTimestamp = 0;
-        qint64 equipmentId = 0;
         {
             QSqlQuery q(db);
             q.prepare("SELECT timestamp, COALESCE(equipment_id, 0) FROM shots WHERE id = ?");
             q.bindValue(0, static_cast<qint64>(excludeShotId));
             if (!q.exec()) {
                 qWarning() << "AIManager::requestRecentShotContext: timestamp query failed:" << q.lastError().text();
-                if (outHistoryReadable) *outHistoryReadable = false;
+                scope.historyReadable = false;
             } else if (q.next()) {
                 shotTimestamp = q.value(0).toLongLong();
-                equipmentId = q.value(1).toLongLong();
+                scope.bucket = q.value(1).toLongLong();
+                scope.resolved = true;
             } else {
                 qDebug() << "AIManager::requestRecentShotContext: no shot found for excludeShotId=" << excludeShotId;
             }
@@ -970,7 +952,7 @@ QList<QPair<qint64, ShotProjection>> AIManager::loadQualifiedShots(
         // unpackaged shot, so this is a no-op for a user with no packages
         // rather than a filter that has to be skipped.
         conditions << ShotHistoryStorage::equipmentBucketSql();
-        bindValues << equipmentId;
+        bindValues << scope.bucket;
         conditions << "timestamp >= ?" << "timestamp <= ?";
         bindValues << dateFrom << shotTimestamp;
 
@@ -992,13 +974,13 @@ QList<QPair<qint64, ShotProjection>> AIManager::loadQualifiedShots(
             }
         } else {
             qWarning() << "AIManager::requestRecentShotContext: candidate query failed:" << q.lastError().text();
-            if (outHistoryReadable) *outHistoryReadable = false;
+            scope.historyReadable = false;
         }
 
         qDebug() << "AIManager::requestRecentShotContext: excludeShotId=" << excludeShotId
                  << "shotTimestamp=" << QDateTime::fromSecsSinceEpoch(shotTimestamp).toString("yyyy-MM-dd HH:mm")
                  << "filter: bean=" << beanBrand << beanType << "profile=" << profileName
-                 << "equipmentId=" << equipmentId
+                 << "equipmentId=" << scope.bucket
                  << "candidates=" << candidates.size();
 
         // 3. Filter and load full records for up to 3 qualifying shots
@@ -1041,7 +1023,8 @@ QList<QPair<qint64, ShotProjection>> AIManager::loadQualifiedShots(
             ++included;
         }
     });
-    if (!opened && outHistoryReadable) *outHistoryReadable = false;
+    if (!opened) scope.historyReadable = false;
+    if (outScope) *outScope = std::move(scope);
     return qualifiedShots;
 }
 
@@ -1126,56 +1109,21 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
     // it. All dereferences occur inside the QueuedConnection callback, which runs on the
     // main thread where QPointer's tracking is valid.
     QThread* thread = QThread::create([self, dbPath, beanBrand, beanType, profileName, excludeShotId, serial]() {
-        bool historyReadable = true;
+        EquipmentScope scope;
         auto qualifiedShots = loadQualifiedShots(dbPath, beanBrand, beanType, profileName,
-                                                 excludeShotId, &historyReadable);
-
-        // Set from the grinder-context row read below. NOTE this is a SECOND
-        // resolution of the same fact: loadQualifiedShots resolves it on its own
-        // connection, so a concurrent equipment re-point can make the two
-        // disagree — see the note on that query. An earlier draft threaded it
-        // over from loadQualifiedShots and left it optional; that
-        // gave `queryGrinderContext` an unresolved value to degrade on, and its
-        // degrade is to run UNSCOPED — publishing a settings list and "range
-        // explored" pooled across every package the user owns, which is the
-        // exact confound this change exists to remove, reintroduced through the
-        // failure path with no warning. Reading it from the row that is already
-        // being read removes the unresolved case instead of handling it.
-        qint64 equipmentBucket = 0;
-        bool equipmentBucketKnown = false;
+                                                 excludeShotId, &scope);
 
         GrinderContext grinderCtx;
         QString grinderBrand;
-        QString equipmentLabel;
         QJsonObject grinderCalibration;
         QJsonArray recentAdvice;
         withTempDb(dbPath, "ai_grinder_ctx", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
-            // Grinder identity resolves through the shot's equipment_id pointer
-            // (the per-shot grinder_brand/model/burrs columns are dropped in
-            // migration 23, add-equipment-packages task 4.1). burrs is in the
-            // grinder item's attrs JSON blob. profile_kb_id is pulled here too
-            // (not a separate query) so the recentAdvice build below can
-            // cross-profile-filter without another round-trip — and so are the
-            // basket and puck-prep items, which name the equipment set for the
-            // no-history line below.
+            // Grinder identity resolves through equipment_id; the per-shot
+            // grinder_* columns were dropped in migration 23. profile_kb_id and
+            // the basket/puck-prep items ride along to save a round-trip.
             q.prepare("SELECT eg.brand, eg.model, json_extract(eg.attrs, '$.burrs'), s.beverage_type, s.profile_kb_id, "
-                      + ShotHistoryStorage::equipmentComponentsSql() + ", "
-                      // The equipment bucket, from THIS row read rather than a
-                      // second lookup. Everything below that needs to know which
-                      // package this shot is on gets it from the same row it gets
-                      // the grinder identity from, so there is no unresolved case
-                      // to degrade on: if q.next() is true the bucket is known,
-                      // and if it is false nothing below runs at all.
-                      //
-                      // Not the same read as the history's. `loadQualifiedShots`
-                      // resolves the bucket on its own connection, so a user who
-                      // re-points this shot's equipment mid-request can get a
-                      // history scoped to one package and grinder numbers scoped
-                      // to another. That window is not closed here; what IS
-                      // guaranteed is that everything derived from this query
-                      // agrees with itself.
-                      "  COALESCE(s.equipment_id, 0) "
+                      + ShotHistoryStorage::equipmentComponentsSql() + " "
                       "FROM shots s "
                       "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
                       "WHERE s.id = ?");
@@ -1190,16 +1138,14 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
                 QString burrs = q.value(2).toString();
                 QString bev = q.value(3).toString();
                 profileKbId = q.value(4).toString();
-                equipmentBucket = q.value(8).toLongLong();
-                equipmentBucketKnown = true;
                 if (!model.isEmpty()) {
                     grinderCtx = ShotHistoryStorage::queryGrinderContext(
-                        db, model, bev, QString(), equipmentBucket);
+                        db, model, bev, QString(), scope.bucket);
                     grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
                         db, model, burrs, bev, excludeShotId);
                 }
                 // Equipment set for the no-history line.
-                equipmentLabel = describeEquipmentSet(grinderBrand, model, burrs,
+                scope.label = describeEquipmentSet(grinderBrand, model, burrs,
                                                       q.value(5).toString(),
                                                       q.value(6).toString(),
                                                       q.value(7).toString());
@@ -1211,13 +1157,11 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             // the MCP path already does.
             //
             // Requires the bucket: the key IS bean|type|profile|equipment, so
-            // defaulting to 0 here would read the UNPACKAGED user's thread and
-            // score this shot against advice given for other gear. Unknown only
-            // when the row read above failed or found nothing, in which case
-            // profileKbId is empty too and this block is skipped anyway.
-            if (!profileKbId.isEmpty() && equipmentBucketKnown) {
+            // defaulting to 0 would read the UNPACKAGED user's thread and score
+            // this shot against advice given for other gear.
+            if (!profileKbId.isEmpty() && scope.resolved) {
                 const QString convKey = AIManager::conversationKey(beanBrand, beanType, profileName,
-                                                                   equipmentBucket);
+                                                                   scope.bucket);
                 const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
                 if (!turns.isEmpty()) {
                     DialingBlocks::RecentAdviceInputs in;
@@ -1238,18 +1182,47 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
                                          grinderBrand = std::move(grinderBrand),
                                          grinderCalibration = std::move(grinderCalibration),
                                          recentAdvice = std::move(recentAdvice),
-                                         equipmentLabel = std::move(equipmentLabel),
-                                         equipmentBucketKnown, equipmentBucket,
-                                         historyReadable]() mutable {
+                                         scope = std::move(scope)]() mutable {
             if (!self) return;
             self->emitRecentShotContext(qualifiedShots, grinderCtx, grinderBrand, serial,
-                                        grinderCalibration, recentAdvice, equipmentLabel,
-                                        equipmentBucketKnown, equipmentBucket, historyReadable);
+                                        grinderCalibration, recentAdvice, scope);
         }, Qt::QueuedConnection);
     });
 
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
+}
+
+// Why the history block came back empty, as a sentence for the model — or ""
+// for the one case that stays silent. An absent block reads as "this user has no
+// history", and an unanchored model invents an anchor: the conversation this
+// change came from cited a "70/100 shot" that appears nowhere in its context. So
+// the block always states a reason, and never states more than was established.
+static QString emptyHistoryReason(const EquipmentScope& scope)
+{
+    if (!scope.historyReadable)
+        return QStringLiteral(
+            "Shot history could not be read for this request, so prior shots cannot be "
+            "listed here. Do NOT conclude that the user has no history with this bean, "
+            "profile or equipment.");
+    if (!scope.resolved)
+        return QStringLiteral(
+            "This shot's equipment could not be read, so prior shots cannot be listed or "
+            "described here. The history was still scoped to it, so shots may have been "
+            "excluded; do NOT conclude that the user has no history.");
+    // Bucket 0 is silent by design: an unpackaged shot has no gear to name, and
+    // for a user with no packages at all nothing was excluded. The LABEL can be
+    // empty while the bucket is real (all component rows gone), hence the
+    // generic phrase rather than "set ()".
+    if (scope.bucket == 0)
+        return QString();
+    const QString setPhrase = scope.label.isEmpty()
+        ? QStringLiteral("this shot's equipment package")
+        : QStringLiteral("this equipment set (") + scope.label + QStringLiteral(")");
+    return "No prior shots with " + setPhrase + " on this bean and profile. Shot history "
+           "is matched on the equipment package — a different grinder or basket makes "
+           "different coffee at the same grind setting, so those shots are deliberately "
+           "excluded rather than compared. Judge this shot on its own curve and taste.";
 }
 
 void AIManager::emitRecentShotContext(
@@ -1259,10 +1232,7 @@ void AIManager::emitRecentShotContext(
     int serial,
     const QJsonObject& grinderCalibration,
     const QJsonArray& recentAdvice,
-    const QString& equipmentLabel,
-    bool equipmentBucketKnown,
-    qint64 equipmentBucket,
-    bool historyReadable)
+    const EquipmentScope& scope)
 {
     if (serial != m_contextSerial) {
         // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
@@ -1381,56 +1351,11 @@ void AIManager::emitRecentShotContext(
         }
 
         result += shotSections.join("\n\n");
-    } else if (!historyReadable) {
-        // The history query itself errored. Zero shots here is not a fact about
-        // the user, and saying it is would be the fabrication this whole block
-        // exists to prevent — the model would reason from "you have no history
-        // on this gear" when the truth is that we could not look.
-        result = "## Previous Shots with This Bean & Profile\n\n"
-                 "Shot history could not be read for this request, so prior shots cannot be "
-                 "listed here. Do NOT conclude that the user has no history with this bean, "
-                 "profile or equipment, and do not refer to shots you cannot see here.\n";
-    } else if (!equipmentBucketKnown) {
-        // Zero qualifying shots, and this side could not read the equipment. The
-        // history was still scoped — `loadQualifiedShots` resolves the bucket on
-        // its own connection — so shots may well have been excluded and we
-        // cannot say by what. Saying nothing here would be the same silence a
-        // genuinely unpackaged user gets, which is the one reading that is
-        // certainly wrong.
-        result = "## Previous Shots with This Bean & Profile\n\n"
-                 "This shot's equipment could not be read, so prior shots cannot be "
-                 "listed or described here. Any shots you were told about elsewhere in "
-                 "this context stand; do not refer to shots you cannot see here, and "
-                 "do not treat this as evidence that the user has no history.\n";
-    } else if (equipmentBucket > 0) {
-        // Zero qualifying shots, on a shot that IS on a package. Say so, and say
-        // what was filtered on, rather than emitting nothing: an absent history
-        // block is indistinguishable from "this user has no history", and a model
-        // with no anchor in context is a model that invents one — the live
-        // conversation this change came from cited a "70/100 shot" that appears
-        // nowhere in its context and then reasoned from it. A stated absence is a
-        // fact it can use instead.
-        //
-        // Bucket 0 falls through to silence deliberately. For a user with no
-        // packages anywhere the scoping is a true no-op — bucket 0 matches their
-        // whole history. For a user with both kinds it DOES exclude the packaged
-        // shots, so this is a choice, not a claim that nothing was filtered: an
-        // unpackaged shot has no gear to name, and "you have no shots without
-        // equipment recorded" is not something the model can act on.
-        //
-        // The label, not the bucket, is what can be empty here — a package whose
-        // component rows are all gone describes as "". Name the package
-        // generically in that case rather than emitting "(  )".
-        const QString setPhrase = equipmentLabel.isEmpty()
-            ? QStringLiteral("this shot's equipment package")
-            : QStringLiteral("this equipment set (") + equipmentLabel + QStringLiteral(")");
-        result = "## Previous Shots with This Bean & Profile\n\n"
-                 "No prior shots with " + setPhrase + " "
-                 "on this bean and profile. Shot history is matched on the equipment "
-                 "package — a different grinder or basket makes different coffee at "
-                 "the same grind setting, so those shots are deliberately excluded "
-                 "rather than compared. Judge this shot on its own curve and taste; "
-                 "do not refer to shots you cannot see here.\n";
+    } else {
+        const QString reason = emptyHistoryReason(scope);
+        if (!reason.isEmpty())
+            result = "## Previous Shots with This Bean & Profile\n\n" + reason +
+                     " Do not refer to shots you cannot see here.\n";
     }
 
     // Append grinder context if available (observed settings range and step size)
@@ -1984,6 +1909,41 @@ QJsonObject AIManager::ConversationEntry::toJson() const
     return obj;
 }
 
+QJsonObject AIManager::serializeIndexEntry(AppSettings& settings,
+                                          const ConversationEntry& entry)
+{
+    const QString prefix = QStringLiteral("ai/conversations/") + entry.key + QStringLiteral("/");
+
+    QJsonObject conv;
+    conv[QStringLiteral("key")] = entry.key;
+    conv[QStringLiteral("beanBrand")] = entry.beanBrand;
+    conv[QStringLiteral("beanType")] = entry.beanType;
+    conv[QStringLiteral("profileName")] = entry.profileName;
+    conv[QStringLiteral("timestamp")] = settings.value(prefix + "timestamp").toString();
+    conv[QStringLiteral("systemPrompt")] = settings.value(prefix + "systemPrompt").toString();
+    conv[QStringLiteral("contextLabel")] = settings.value(prefix + "contextLabel").toString();
+    conv[QStringLiteral("indexTimestamp")] = entry.timestamp;
+    // Sparse, matching ConversationEntry::toJson — absent means "no package",
+    // which fromJson reads back as 0.
+    if (entry.equipmentId > 0)
+        conv[QStringLiteral("equipmentId")] = static_cast<double>(entry.equipmentId);
+
+    QJsonArray turns;
+    const AIConversation::TranscriptState state =
+        AIConversation::storedTranscriptState(settings, entry.key, &turns);
+    if (state == AIConversation::TranscriptState::Ok) {
+        conv[QStringLiteral("messages")] = turns;
+    } else {
+        // Warn at BACKUP time. The entry is archived without turns and the importer
+        // rejects it as malformed, so silence here means the user only finds out
+        // during a restore that reports success.
+        qWarning() << "AIManager: conversation" << entry.key << "has no readable"
+                   << "transcript (" << AIConversation::transcriptStateName(state)
+                   << ") — archiving it without turns";
+    }
+    return conv;
+}
+
 AIManager::ConversationEntry AIManager::ConversationEntry::fromJson(const QJsonObject& obj)
 {
     ConversationEntry entry;
@@ -1993,9 +1953,8 @@ AIManager::ConversationEntry AIManager::ConversationEntry::fromJson(const QJsonO
     entry.profileName = obj["profileName"].toString();
     entry.equipmentId = obj["equipmentId"].toVariant().toLongLong();
     entry.timestamp = obj["timestamp"].toVariant().toLongLong();
-    // The index is ordered by timestamp and evicted from the tail, and an archive
-    // carries whatever clock wrote it. 0 (absent or non-numeric) would be evicted
-    // first; a future value would sit at the head forever. Both become now.
+    // An archive carries whatever clock wrote it. 0 would be evicted first, a
+    // future value would sit at the head forever. Both become now.
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     if (entry.timestamp <= 0 || entry.timestamp > now + 86400)
         entry.timestamp = now;
@@ -2005,20 +1964,10 @@ AIManager::ConversationEntry AIManager::ConversationEntry::fromJson(const QJsonO
 QString AIManager::conversationKey(const QString& beanBrand, const QString& beanType,
                                    const QString& profileName, qint64 equipmentId)
 {
-    // The equipment package is part of the identity — see switchConversation's
-    // declaration for why. Appending it changes every previously-stored key,
-    // which is deliberate: that IS the clean-start-on-upgrade mechanism. Old
-    // threads are not deleted, just unreferenced; the one-time wipe in the
-    // constructor is what actually removes them.
-    //
-    // Clamp negatives to 0 here rather than at each caller. "No package" has two
-    // encodings — C++ shot records use 0, PostShotReviewPage's edit fields use
-    // -1 — and both store as SQL NULL, which COALESCE reads back as bucket 0.
-    // A -1 reaching this hash would key a third thread for a shot the database
-    // says is in bucket 0. The sentinel enters through switchConversation, which
-    // IS the Q_INVOKABLE one and clamps too; this function is a plain static and
-    // QML cannot reach it directly. The clamp is kept here anyway because it is
-    // the last point every caller passes through, present and future.
+    // "No package" has two encodings — 0 in C++ shot records, -1 in
+    // PostShotReviewPage's edit fields — and both store as SQL NULL, which
+    // COALESCE reads back as bucket 0. Clamp here, the last point every caller
+    // passes through, so a -1 cannot key a third thread for a bucket-0 shot.
     if (equipmentId < 0) equipmentId = 0;
 
     QString normalized = beanBrand.toLower().trimmed() + "|" +
@@ -2052,21 +2001,18 @@ void AIManager::loadConversationIndex()
         }
     }
 
-    // stable_sort, not sort: timestamps are second-resolution, so ties are real, and
-    // for a tie the existing array order is itself an exact use record (takeAt/prepend).
+    // stable_sort: timestamps are second-resolution, and for a tie the existing
+    // array order is itself an exact use record (takeAt/prepend).
     std::stable_sort(m_conversationIndex.begin(), m_conversationIndex.end(),
                      [](const ConversationEntry& a, const ConversationEntry& b) {
                          return a.timestamp > b.timestamp;
                      });
 
-    // Deliberately NOT trimmed here, however obvious that looks. importConversations-
+    // Deliberately NOT trimmed, however obvious that looks: importConversations-
     // Static appends restored entries to the tail and eviction takes from the
-    // tail, so trimming on this path -- reloadConversations() runs after every
-    // import -- deleted the transcripts a restore had just written. An over-cap index
-    // converges instead on the next conversation started on a key it does not hold.
+    // tail, so trimming here deleted the transcripts a restore had just written.
 
     qDebug() << "AIManager: Loaded conversation index with" << m_conversationIndex.size() << "entries";
-    // hasAnyConversation binds this; a restore takes the index 0 -> N via reloadConversations().
     emit conversationIndexChanged();
 }
 
@@ -2195,25 +2141,9 @@ void AIManager::clearAllConversationsOnce(const QString& migrationId)
     settings.remove(QStringLiteral("ai/conversation/messages"));
     settings.remove(QStringLiteral("ai/conversation/timestamp"));
 
-    // Stamp the marker only if the removals reached the store -- but QSettings::status()
-    // is LATCHED: setStatus assigns only when the incoming status is NoError or the
-    // stored one is (qtbase/src/corelib/io/qsettings.cpp:312-316), and none of its
-    // eleven call sites passes NoError. On an INI-backed device (Android, Linux, every
-    // test build) one unparseable line latches FormatError before this runs, so a bare
-    // `status() != NoError` check would delete every conversation on every launch,
-    // forever, while never stamping. Compare clean-before to dirty-after, and stamp
-    // optimistically when it was already dirty. Same guard, same reason, as
-    // Settings::commitFlowCalMigrationFlag.
-    const bool cleanBefore = (settings.status() == QSettings::NoError);
-    settings.sync();
-    if (cleanBefore && settings.status() != QSettings::NoError) {
-        qWarning() << "AIManager: conversation wipe for" << migrationId
-                   << "may not have persisted (QSettings status" << settings.status()
-                   << ") — not stamping the marker; it will retry on the next launch";
+    if (!commitMigrationFlag(settings, markerKey,
+                             QStringLiteral("AIManager: conversation wipe for ") + migrationId))
         return;
-    }
-
-    settings.setValue(markerKey, true);
     // INFO: a one-time irreversible deletion of every advisor thread the user owns.
     // Only when something was there, or it asserts a deletion that did not happen.
     if (hadKeyedThreads || hadLegacyThread) {
@@ -2309,17 +2239,9 @@ QString AIManager::switchConversation(const QString& beanBrand, const QString& b
     // Clear in-memory state without touching QSettings (clearHistory() would delete stored data)
     m_conversation->resetInMemory();
 
-    // Set new storage key and load whatever is actually on disk for it —
-    // regardless of `exists` (m_conversationIndex only tracks conversations
-    // the IN-APP flow has touched before; it's never updated by the MCP
-    // ai_advisor_invoke path's AIConversation::appendAssistantTurnForKey,
-    // which writes turns directly to QSettings). Without this, a key with
-    // real MCP-written turns but no in-app history looks empty here,
-    // hasHistory() reads false, QML calls ask() instead of followUp(), and
-    // the next saveToStorage() silently destroys those turns — the root
-    // cause of the persistence gap found in manual verification of
-    // fix-multishot-advice-tracking (loadFromStorage is a safe no-op when
-    // the key genuinely has nothing on disk).
+    // Load from disk regardless of `exists`: the index never sees MCP threads,
+    // which appendAssistantTurnForKey writes straight to QSettings. Skipping the
+    // load makes such a key read empty, and the next save destroys its turns.
     m_liveBeanBrand = beanBrand;
     m_liveBeanType = beanType;
     m_liveProfileName = profileName;
