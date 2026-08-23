@@ -62,16 +62,22 @@ T.Page {
         }
     }
 
-    // Determine which fields to include based on current groupBy setting
-    function getGroupByIncludes() {
-        var groupBy = Settings.network.autoFavoritesGroupBy
-        var hasGrinder = (groupBy === "bean_profile_grinder" || groupBy === "bean_profile_grinder_weight")
+    // Which fields the current grouping actually keys on. Taking the mode as an
+    // argument rather than reading Settings inside: a binding records no
+    // dependency on a property a called function reads, so `groupByIncludes`
+    // below would never re-evaluate when the user changes the mode.
+    function includesFor(groupBy) {
+        var hasGrindSetting = (groupBy === "bean_profile_grinder" || groupBy === "bean_profile_grinder_weight")
+        var hasEquipment = (groupBy === "bean_profile" || hasGrindSetting)
         return {
-            bean: (groupBy === "bean" || groupBy === "bean_profile" || hasGrinder),
-            profile: (groupBy === "profile" || groupBy === "bean_profile" || hasGrinder),
-            grinder: hasGrinder
+            bean: (groupBy === "bean" || hasEquipment),
+            profile: (groupBy === "profile" || hasEquipment),
+            grinder: hasEquipment
         }
     }
+
+    readonly property var groupByIncludes: autoFavoritesPage.includesFor(Settings.network.autoFavoritesGroupBy)
+
 
     // Target yield for the card chip. The SQL returns the latest shot's saved
     // target weight (from the yield_override DB column). Weight mode uses the
@@ -89,7 +95,7 @@ T.Page {
 
     // Build accessible text based on current groupBy setting
     function buildGroupByText(beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting, doseWeight, targetWeight, finalWeight, shotCount, avgEnjoyment) {
-        var includes = getGroupByIncludes()
+        var includes = autoFavoritesPage.groupByIncludes
         var parts = []
 
         var includeBean = includes.bean
@@ -220,12 +226,16 @@ T.Page {
                 property bool _hasRecipe: (favoriteDelegate.model.recipeId || 0) > 0
                     && !!favoriteDelegate.model.recipeName
                 property bool _recipeArchived: _hasRecipe && (favoriteDelegate.model.recipeArchived === true)
-                property bool _hasGrinder: Settings.network.autoFavoritesGroupBy.indexOf("grinder") >= 0 &&
-                    !!(favoriteDelegate.model.grinderBrand || favoriteDelegate.model.grinderModel || favoriteDelegate.model.grinderSetting)
-                property string _grinderText: {
-                    var name = ((favoriteDelegate.model.grinderBrand || "") + " " + (favoriteDelegate.model.grinderModel || "")).trim()
-                    return name + (favoriteDelegate.model.grinderSetting ? " @ " + favoriteDelegate.model.grinderSetting : "")
-                }
+                // The package NAME, the way a history row prefers the recipe name
+                // over the profile: "Graph" is the thing the user set up, and
+                // brand+model is the fallback for a package they never named.
+                property string _equipmentText: favoriteDelegate.model.equipmentName
+                    || ((favoriteDelegate.model.grinderBrand || "") + " " + (favoriteDelegate.model.grinderModel || "")).trim()
+                // A recipe already names its equipment, so printing the package
+                // beside it says the same thing twice.
+                property bool _hasEquipment: !favoriteDelegate._hasRecipe
+                    && autoFavoritesPage.groupByIncludes.grinder
+                    && favoriteDelegate._equipmentText !== ""
                 // Recipe first, and carrying the archived state as TEXT — the card
                 // shows that state only by dimming, so without this it is
                 // unreachable by screen reader.
@@ -259,18 +269,17 @@ T.Page {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
 
-                        // Recipe on its OWN line, above the bean/profile flow — not
-                        // inline with a separator. Inside the Flow the separator is
-                        // a sibling item, so when the bean wraps to the next line the
-                        // separator stays behind as a dangling middot. Its own line
-                        // also matches the Shot History row, where the recipe is the
-                        // identity and bean/profile sit below it.
+                        // Same three-line grammar as a Shot History row: an
+                        // identity line, a secondary line of the identity fields
+                        // that did not win it, then the dial-in numbers. The
+                        // identity is the recipe when there is one and the profile
+                        // otherwise — history makes the same substitution.
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Theme.scaled(4)
-                            visible: favoriteDelegate._hasRecipe
+                            spacing: Theme.spacingSmall
 
                             ThemedIcon {
+                                visible: favoriteDelegate._hasRecipe
                                 source: DrinkType.icon(favoriteDelegate.model.recipeDrinkType || "")
                                 iconSize: Theme.subtitleFont.pixelSize
                                 color: favoriteDelegate._recipeArchived ? Theme.textSecondaryColor
@@ -279,74 +288,34 @@ T.Page {
                             }
 
                             Text {
-                                text: favoriteDelegate.model.recipeName || ""
-                                font.family: Theme.subtitleFont.family
-                                font.pixelSize: Theme.subtitleFont.pixelSize
+                                text: favoriteDelegate._hasRecipe ? (favoriteDelegate.model.recipeName || "")
+                                                                  : (favoriteDelegate.model.profileName || "")
+                                font: Theme.subtitleFont
                                 color: favoriteDelegate._recipeArchived ? Theme.textSecondaryColor
                                                                         : Theme.primaryColor
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
+                                visible: text !== ""
                                 Accessible.ignored: true
                             }
                         }
 
-                        // Bean · Profile · Grinder — wraps to 2 rows on small screens
-                        Flow {
+                        // Secondary line: whatever the identity line did not carry.
+                        Text {
+                            text: {
+                                var parts = []
+                                if (favoriteDelegate._hasRecipe && favoriteDelegate._hasProfile)
+                                    parts.push(favoriteDelegate.model.profileName)
+                                if (favoriteDelegate._hasBean) parts.push(favoriteDelegate._beanText)
+                                if (favoriteDelegate._hasEquipment) parts.push(favoriteDelegate._equipmentText)
+                                return parts.join("  \u00b7  ")
+                            }
+                            font: Theme.labelFont
+                            color: Theme.textSecondaryColor
                             Layout.fillWidth: true
-                            spacing: 0
-
-                            Text {
-                                text: favoriteDelegate._beanText
-                                font.family: Theme.subtitleFont.family
-                                font.pixelSize: Theme.subtitleFont.pixelSize
-                                color: Theme.textColor
-                                visible: favoriteDelegate._hasBean
-                                width: Math.min(implicitWidth, parent.width)
-                                elide: Text.ElideRight
-                                Accessible.ignored: true
-                            }
-
-                            Text {
-                                text: "  ·  "
-                                font.family: Theme.subtitleFont.family
-                                font.pixelSize: Theme.subtitleFont.pixelSize
-                                font.bold: true
-                                color: Theme.textSecondaryColor
-                                visible: favoriteDelegate._hasBean && favoriteDelegate._hasProfile
-                                Accessible.ignored: true
-                            }
-
-                            Text {
-                                text: favoriteDelegate.model.profileName || ""
-                                font.family: Theme.subtitleFont.family
-                                font.pixelSize: Theme.subtitleFont.pixelSize
-                                color: Theme.primaryColor
-                                visible: favoriteDelegate._hasProfile
-                                width: Math.min(implicitWidth, parent.width)
-                                elide: Text.ElideRight
-                                Accessible.ignored: true
-                            }
-
-                            Text {
-                                text: "  ·  "
-                                font.family: Theme.subtitleFont.family
-                                font.pixelSize: Theme.subtitleFont.pixelSize
-                                font.bold: true
-                                color: Theme.textSecondaryColor
-                                visible: favoriteDelegate._hasGrinder && (favoriteDelegate._hasBean || favoriteDelegate._hasProfile)
-                                Accessible.ignored: true
-                            }
-
-                            Text {
-                                text: favoriteDelegate._grinderText
-                                font.family: Theme.subtitleFont.family
-                                font.pixelSize: Theme.subtitleFont.pixelSize
-                                color: Theme.textSecondaryColor
-                                visible: favoriteDelegate._hasGrinder
-                                width: Math.min(implicitWidth, parent.width)
-                                elide: Text.ElideRight
-                                Accessible.ignored: true
-                            }
+                            elide: Text.ElideRight
+                            visible: text !== ""
+                            Accessible.ignored: true
                         }
 
                         // Recipe summary
@@ -356,8 +325,7 @@ T.Page {
                             Text {
                                 text: (favoriteDelegate.model.doseWeightG || 0).toFixed(1) + "g \u2192 " +
                                       autoFavoritesPage.recipeYield(favoriteDelegate.model.targetWeightG, favoriteDelegate.model.finalWeightG).toFixed(1) + "g"
-                                font.family: Theme.labelFont.family
-                                font.pixelSize: Theme.labelFont.pixelSize
+                                font: Theme.labelFont
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true
                             }
@@ -365,16 +333,14 @@ T.Page {
                             Text {
                                 text: favoriteDelegate.model.shotCount + " " +
                                       TranslationManager.translate("autofavorites.shots", "shots")
-                                font.family: Theme.labelFont.family
-                                font.pixelSize: Theme.labelFont.pixelSize
+                                font: Theme.labelFont
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true
                             }
 
                             Text {
                                 text: favoriteDelegate.model.avgEnjoyment > 0 ? favoriteDelegate.model.avgEnjoyment + "%" : ""
-                                font.family: Theme.labelFont.family
-                                font.pixelSize: Theme.labelFont.pixelSize
+                                font: Theme.labelFont
                                 color: Theme.warningColor
                                 visible: favoriteDelegate.model.avgEnjoyment > 0
                                 Accessible.ignored: true
@@ -418,6 +384,7 @@ T.Page {
                                     profileName: favoriteDelegate.model.profileName || "",
                                     grinderBrand: favoriteDelegate.model.grinderBrand || "",
                                     grinderModel: favoriteDelegate.model.grinderModel || "",
+                                    equipmentName: favoriteDelegate.model.equipmentName || "",
                                     equipmentId: favoriteDelegate.model.equipmentId || 0,
                                     grinderSetting: favoriteDelegate.model.grinderSetting || "",
                                     doseBucket: favoriteDelegate.model.doseBucket || 0,
@@ -453,7 +420,7 @@ T.Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: showButton
                             onAccessibleClicked: {
-                                var includes = autoFavoritesPage.getGroupByIncludes()
+                                var includes = autoFavoritesPage.groupByIncludes
                                 var filter = {}
 
                                 if (includes.bean) {
@@ -645,9 +612,9 @@ T.Page {
                     model: [
                         TranslationManager.translate("autofavorites.groupby.bean", "Bean only"),
                         TranslationManager.translate("autofavorites.groupby.profile", "Profile only"),
-                        TranslationManager.translate("autofavorites.groupby.beanprofile", "Bean + Profile"),
-                        TranslationManager.translate("autofavorites.groupby.all", "Bean + Profile + Grinder"),
-                        TranslationManager.translate("autofavorites.groupby.allweight", "Bean + Profile + Grinder + Weight")
+                        TranslationManager.translate("autofavorites.groupby.beanprofile", "Bean + Profile + Equipment"),
+                        TranslationManager.translate("autofavorites.groupby.all", "Bean + Profile + Grind setting"),
+                        TranslationManager.translate("autofavorites.groupby.allweight", "Bean + Profile + Grind setting + Weight")
                     ]
                     currentIndex: {
                         switch(Settings.network.autoFavoritesGroupBy) {

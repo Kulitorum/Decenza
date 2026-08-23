@@ -106,28 +106,10 @@ QJsonObject shotToJson(const ShotProjection& shot,
     // never the hoisted session context. Sparse: non-RPM shots omit it.
     if (shot.rpm > 0)
         h["rpm"] = shot.rpm;
-    if (!override.grinderBrand.isEmpty())
-        h["grinderBrand"] = override.grinderBrand;
-    if (!override.grinderModel.isEmpty())
-        h["grinderModel"] = override.grinderModel;
-    if (!override.grinderBurrs.isEmpty())
-        h["grinderBurrs"] = override.grinderBurrs;
-    if (!override.beanBrand.isEmpty())
-        h["beanBrand"] = override.beanBrand;
-    if (!override.beanType.isEmpty())
-        h["beanType"] = override.beanType;
-    // Bean storage lifecycle (bean-freshness-followup): emitted per-shot only
-    // when it differs from the session context (e.g. a session spanning a thaw
-    // or open event), so the AI can tell a best-rated anchor came from a
-    // different, longer-rested portion. Hoisted to context otherwise.
-    if (!override.frozenDate.isEmpty())
-        h["frozenDate"] = override.frozenDate;
-    if (!override.defrostDate.isEmpty())
-        h["defrostDate"] = override.defrostDate;
-    if (!override.storageHint.isEmpty())
-        h["storageHint"] = override.storageHint;
-    if (!override.openedDate.isEmpty())
-        h["openedDate"] = override.openedDate;
+    // Only what differs from the session context; see hoistSessionContext.
+    const QJsonObject overrides = DialingHelpers::identityToJson(override);
+    for (auto it = overrides.begin(); it != overrides.end(); ++it)
+        h[it.key()] = it.value();
     h["notes"] = shot.espressoNotes;
     // Structured taste taps (add-ai-taste-intake): emitted per history shot so
     // the advisor can see how a prior shot tasted (e.g. "last time you tapped
@@ -187,19 +169,8 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
 
         QList<DialingHelpers::ShotIdentity> identities;
         identities.reserve(ordered.size());
-        for (const ShotProjection& s : ordered) {
-            DialingHelpers::ShotIdentity id;
-            id.grinderBrand = s.grinderBrand;
-            id.grinderModel = s.grinderModel;
-            id.grinderBurrs = s.grinderBurrs;
-            id.beanBrand = s.beanBrand;
-            id.beanType = s.beanType;
-            id.frozenDate = s.frozenDate;
-            id.defrostDate = s.defrostDate;
-            id.storageHint = s.storageHint;
-            id.openedDate = s.openedDate;
-            identities.append(id);
-        }
+        for (const ShotProjection& s : ordered)
+            identities.append(DialingHelpers::identityFromShot(s));
         const DialingHelpers::HoistedSession hoisted =
             DialingHelpers::hoistSessionContext(identities);
 
@@ -270,28 +241,7 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             sessionShots.append(h);
         }
 
-        QJsonObject contextObj;
-        if (!hoisted.context.grinderBrand.isEmpty())
-            contextObj["grinderBrand"] = hoisted.context.grinderBrand;
-        if (!hoisted.context.grinderModel.isEmpty())
-            contextObj["grinderModel"] = hoisted.context.grinderModel;
-        if (!hoisted.context.grinderBurrs.isEmpty())
-            contextObj["grinderBurrs"] = hoisted.context.grinderBurrs;
-        if (!hoisted.context.beanBrand.isEmpty())
-            contextObj["beanBrand"] = hoisted.context.beanBrand;
-        if (!hoisted.context.beanType.isEmpty())
-            contextObj["beanType"] = hoisted.context.beanType;
-        // Bean storage lifecycle (bean-freshness-followup): hoisted to the
-        // session context when shared across every shot, overridden per-shot
-        // when a session spans a thaw/open event (see shotToJson).
-        if (!hoisted.context.frozenDate.isEmpty())
-            contextObj["frozenDate"] = hoisted.context.frozenDate;
-        if (!hoisted.context.defrostDate.isEmpty())
-            contextObj["defrostDate"] = hoisted.context.defrostDate;
-        if (!hoisted.context.storageHint.isEmpty())
-            contextObj["storageHint"] = hoisted.context.storageHint;
-        if (!hoisted.context.openedDate.isEmpty())
-            contextObj["openedDate"] = hoisted.context.openedDate;
+        QJsonObject contextObj = DialingHelpers::identityToJson(hoisted.context);
         // Issue #1158: hoisted pour control mode — one field for the
         // whole session instead of repeating it on every shot.
         if (pourControlUniform)

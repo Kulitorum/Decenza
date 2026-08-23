@@ -33,6 +33,7 @@ T.Page {
     // bucket the group was keyed by.
     property string grinderBrand: ""
     property string grinderModel: ""
+    property string equipmentName: ""
     property int equipmentId: 0
     property string grinderSetting: ""
     property real doseBucket: 0
@@ -81,17 +82,17 @@ T.Page {
     // Helper properties for conditional display
     property bool _hasBean: !!(beanBrand || beanType)
     property bool _hasProfile: !!(profileName && profileName.length > 0)
-    property bool _hasGrinder: !!(grinderBrand || grinderModel || grinderSetting)
+    property bool _hasGrinder: !!(grinderBrand || grinderModel || equipmentName)
     property string _beanText: {
         var parts = []
         if (beanBrand) parts.push(beanBrand)
         if (beanType) parts.push(beanType)
         return parts.join(" - ")
     }
-    property string _grinderText: {
-        var name = ((grinderBrand || "") + " " + (grinderModel || "")).trim()
-        return name + (grinderSetting ? " @ " + grinderSetting : "")
-    }
+    property bool _groupHoldsOneGrind: grinderSetting !== ""
+        && (groupBy === "bean_profile_grinder" || groupBy === "bean_profile_grinder_weight")
+    property string _grinderText: equipmentName
+        || ((grinderBrand || "") + " " + (grinderModel || "")).trim()
     property var _notes: groupDetails.notes || []
     property bool _hasRoastDate: !!(shotData.roastDate && shotData.roastDate !== "")
     property bool _hasRoastLevel: !!(shotData.roastLevel && shotData.roastLevel !== "")
@@ -304,7 +305,7 @@ T.Page {
             // Graph legend
             GraphLegend { visible: autoFavoriteInfoPage.shotId > 0 }
 
-            // Metrics row: Avg Duration, Avg Dose, Avg Yield, Avg Rating
+            // Metrics row: Avg Duration, Avg Dose, Avg Yield, Avg Rating, Last Grind
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingLarge
@@ -389,6 +390,31 @@ T.Page {
                         text: autoFavoriteInfoPage.avgEnjoyment + "%"
                         font: Theme.subtitleFont
                         color: Theme.warningColor
+                        Accessible.ignored: true
+                    }
+                }
+
+                // Not an average like the tiles beside it: this is the group's
+                // LATEST setting, which is the one Load applies. The group spans
+                // several, so it is labelled "Last" rather than presented as the
+                // group's grind.
+                ColumnLayout {
+                    spacing: Theme.scaled(2)
+                    visible: autoFavoriteInfoPage.grinderSetting !== ""
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: TranslationManager.translate("autofavoriteinfo.lastgrind", "Last Grind") + ": " +
+                        autoFavoriteInfoPage.grinderSetting
+                    Tr {
+                        key: "autofavoriteinfo.lastgrind"
+                        fallback: "Last Grind"
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        Accessible.ignored: true
+                    }
+                    Text {
+                        text: autoFavoriteInfoPage.grinderSetting
+                        font: Theme.subtitleFont
+                        color: Theme.textColor
                         Accessible.ignored: true
                     }
                 }
@@ -524,11 +550,14 @@ T.Page {
                         Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(autoFavoriteInfoPage.shotData.roastLevel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage._hasRoastLevel; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         // Grinder info
-                        Tr { key: "shotdetail.grinder"; fallback: "Grinder:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: autoFavoriteInfoPage.grinderBrand !== "" || autoFavoriteInfoPage.grinderModel !== ""; Accessible.ignored: true }
-                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(((autoFavoriteInfoPage.grinderBrand || "") + " " + (autoFavoriteInfoPage.grinderModel || "")).trim(), Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage.grinderBrand !== "" || autoFavoriteInfoPage.grinderModel !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Tr { key: "autofavorites.equipment"; fallback: "Equipment:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: autoFavoriteInfoPage._grinderText !== ""; Accessible.ignored: true }
+                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(autoFavoriteInfoPage._grinderText, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage._grinderText !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.grindersetting"; fallback: "Grind Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: autoFavoriteInfoPage.grinderSetting !== ""; Accessible.ignored: true }
-                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(autoFavoriteInfoPage.grinderSetting, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage.grinderSetting !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        // Only the grind-setting modes hold ONE setting for the whole
+                        // group. Everywhere else the group spans several, and naming
+                        // the latest shot's would describe none of the others.
+                        Tr { key: "shotdetail.grindersetting"; fallback: "Grind Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: autoFavoriteInfoPage._groupHoldsOneGrind; Accessible.ignored: true }
+                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(autoFavoriteInfoPage.grinderSetting, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage._groupHoldsOneGrind; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
                     }
                 }
             }

@@ -54,13 +54,22 @@ on every request, so scoping future context alone leaves the contaminated transc
       thread per basket, resuming a package's own thread, and a packaged shot never landing on a
       pre-change (unpackaged) key.
 
-## 3. Name the equipment in the payload (NOT delivered)
+## 3. Name the equipment in the payload (mostly delivered)
 
 Section 1 scopes the data correctly and never tells the model what changed, so numbers move
 between conversations with no stated cause.
 
-- [x] 3.1 The helper exists as `ShotProjection::equipmentLabel()` (grinder / basket), used by the
-      conversation index.
+- [x] 3.1 `ShotProjection::equipmentLabel()` (grinder / basket) for display, used by the
+      conversation index and the auto-favourite cards.
+- [x] 3.2 `DialingHelpers::ShotIdentity` carries the whole package. Its fields are now one table
+      (`ShotIdentity::fields()`) naming both ends of each mapping, walked by the hoist, the
+      session-context emit, the per-shot override emit and the fill from a shot — so tracking a
+      new component is one row, not the same name written in four places. Verified live: every
+      `dialInSessions[].context` now carries basketBrand / basketModel / puckPrep beside the
+      grinder.
+- [x] 3.3 The history read joins the whole package. `EquipmentJoin` (`src/history/equipmentjoin.h`)
+      holds the four LEFT JOINs, the column list and the reader in one place; the advisor's read
+      joined the grinder alone, which is why a basket switch reached the model as one setup.
 - [ ] 3.1b The in-app hoisted `### Setup:` header gains basket and puck prep.
 - [ ] 3.2 `DialingHelpers::ShotIdentity` gains basket + puck-prep fields, picked up by the
       existing `hoistSessionContext`.
@@ -96,3 +105,23 @@ between conversations with no stated cause.
 - [ ] 7.2 `docs/CLAUDE_MD/MCP_SERVER.md` — payload fields, once section 3 lands.
 - [ ] 7.3 Wiki manual: no entry. This changes how the advisor selects its own context; nothing
       new is discoverable or actionable by the user.
+
+## 8. Auto-favourites (folded in — same PR)
+
+The grouping already keyed on `equipment_id` in the "+ Grinder" modes and not in the default one,
+while the stats query mirrored that split. A card counted one package and averaged another.
+
+- [x] 8.1 `bean_profile` (the default) keys on the package. Two baskets on one bean and profile are
+      two cards; verified live, a 41-shot card became 34 + 7.
+- [x] 8.2 The details query scopes to the package for every mode that keys on it, with the
+      condition hoisted out of the per-mode branches so a new mode cannot skip it. Verified
+      against the database: the 7-shot card's averages are exactly those 7.
+- [x] 8.3 Cards follow the Shot History row: identity line (recipe, else profile), secondary line
+      for what it did not carry, then the metrics. The package appears only when there is no
+      recipe name — a recipe already names its equipment.
+- [x] 8.4 Info page names the package rather than composing the grinder, and shows "Last Grind"
+      (the group's latest, which is what Load applies) instead of presenting one setting as the
+      group's. The "Grind Setting:" row now appears only in the modes that key on one.
+- [ ] 8.5 No test covers any of this — `tests/` has nothing for auto-favourites. The recurring
+      defect shape is "a query that keys on the package does not scope to it", which is worth one
+      test asserting the card count and the details count agree for a two-package fixture.

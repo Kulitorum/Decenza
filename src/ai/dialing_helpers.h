@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../history/shotprojection.h"
+
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
@@ -73,6 +75,46 @@ struct ShotIdentity {
     QString defrostDate;
     QString storageHint;
     QString openedDate;
+    // The rest of the equipment package. The grinder alone used to stand for it,
+    // which is what let one bean+profile session mix two baskets: the payload
+    // said the gear was identical because the only gear it named was.
+    QString basketBrand;
+    QString basketModel;
+    QString puckPrep;
+
+    // Every identity field, once, with both ends of its mapping: where it lives
+    // on the shot and what it is called in the payload. The hoist, the
+    // session-context emit, the per-shot override emit and the fill from a shot
+    // all walk this list, so tracking a new piece of equipment is ONE row here
+    // rather than the same name written out in four places free to fall out of
+    // step. That drift is not hypothetical: the payload named the grinder and
+    // nothing else, so a session that switched baskets read as one setup.
+    struct Field {
+        const char* key;
+        QString ShotIdentity::* member;
+        QString ShotProjection::* source;
+    };
+    static const QList<Field>& fields()
+    {
+        static const QList<Field> f = {
+            { "grinderBrand", &ShotIdentity::grinderBrand, &ShotProjection::grinderBrand },
+            { "grinderModel", &ShotIdentity::grinderModel, &ShotProjection::grinderModel },
+            { "grinderBurrs", &ShotIdentity::grinderBurrs, &ShotProjection::grinderBurrs },
+            { "basketBrand",  &ShotIdentity::basketBrand,  &ShotProjection::basketBrand },
+            { "basketModel",  &ShotIdentity::basketModel,  &ShotProjection::basketModel },
+            { "puckPrep",     &ShotIdentity::puckPrep,     &ShotProjection::puckPrep },
+            { "beanBrand",    &ShotIdentity::beanBrand,    &ShotProjection::beanBrand },
+            { "beanType",     &ShotIdentity::beanType,     &ShotProjection::beanType },
+            // Bean storage lifecycle (bean-freshness-followup): hoisted like any
+            // other identity field, so a session spanning a thaw or open event
+            // carries the shared date and the differing shot overrides it.
+            { "frozenDate",   &ShotIdentity::frozenDate,   &ShotProjection::frozenDate },
+            { "defrostDate",  &ShotIdentity::defrostDate,  &ShotProjection::defrostDate },
+            { "storageHint",  &ShotIdentity::storageHint,  &ShotProjection::storageHint },
+            { "openedDate",   &ShotIdentity::openedDate,   &ShotProjection::openedDate },
+        };
+        return f;
+    }
 };
 
 // Output of `hoistSessionContext`: the field values that go on the
@@ -83,6 +125,30 @@ struct HoistedSession {
     ShotIdentity context;
     QList<ShotIdentity> perShotOverrides;
 };
+
+// The identity a shot carries. One row in ShotIdentity::fields() puts a new
+// piece of equipment here, in the hoisted context, and in the per-shot override.
+inline ShotIdentity identityFromShot(const ShotProjection& shot)
+{
+    ShotIdentity id;
+    for (const auto& f : ShotIdentity::fields())
+        id.*f.member = shot.*f.source;
+    return id;
+}
+
+// The identity fields as JSON, omitting the empty ones. Both callers want that
+// same sparse shape: the session context drops a field no shot carried, and a
+// per-shot override drops every field that matched the context.
+inline QJsonObject identityToJson(const ShotIdentity& identity)
+{
+    QJsonObject obj;
+    for (const auto& f : ShotIdentity::fields()) {
+        const QString v = identity.*f.member;
+        if (!v.isEmpty())
+            obj[QLatin1String(f.key)] = v;
+    }
+    return obj;
+}
 
 // Hoist common shot-identity fields to a session-level context. For each
 // field independently:
@@ -103,52 +169,20 @@ inline HoistedSession hoistSessionContext(const QList<ShotIdentity>& shots)
 
     out.perShotOverrides.resize(shots.size());
 
-    auto firstNonEmpty = [&](auto getter) -> QString {
+    auto fillField = [&](QString ShotIdentity::* member) {
+        QString ctx;
         for (const auto& s : shots) {
-            const QString v = getter(s);
-            if (!v.isEmpty()) return v;
+            if (!(s.*member).isEmpty()) { ctx = s.*member; break; }
         }
-        return QString();
-    };
-
-    auto fillField = [&](auto getter, auto setterCtx, auto setterOverride) {
-        const QString ctx = firstNonEmpty(getter);
-        setterCtx(out.context, ctx);
+        out.context.*member = ctx;
         for (qsizetype i = 0; i < shots.size(); ++i) {
-            const QString v = getter(shots[i]);
-            if (v != ctx) {
-                setterOverride(out.perShotOverrides[i], v);
-            }
+            if (shots[i].*member != ctx)
+                out.perShotOverrides[i].*member = shots[i].*member;
         }
     };
 
-    fillField([](const ShotIdentity& s) { return s.grinderBrand; },
-              [](ShotIdentity& c, const QString& v) { c.grinderBrand = v; },
-              [](ShotIdentity& o, const QString& v) { o.grinderBrand = v; });
-    fillField([](const ShotIdentity& s) { return s.grinderModel; },
-              [](ShotIdentity& c, const QString& v) { c.grinderModel = v; },
-              [](ShotIdentity& o, const QString& v) { o.grinderModel = v; });
-    fillField([](const ShotIdentity& s) { return s.grinderBurrs; },
-              [](ShotIdentity& c, const QString& v) { c.grinderBurrs = v; },
-              [](ShotIdentity& o, const QString& v) { o.grinderBurrs = v; });
-    fillField([](const ShotIdentity& s) { return s.beanBrand; },
-              [](ShotIdentity& c, const QString& v) { c.beanBrand = v; },
-              [](ShotIdentity& o, const QString& v) { o.beanBrand = v; });
-    fillField([](const ShotIdentity& s) { return s.beanType; },
-              [](ShotIdentity& c, const QString& v) { c.beanType = v; },
-              [](ShotIdentity& o, const QString& v) { o.beanType = v; });
-    fillField([](const ShotIdentity& s) { return s.frozenDate; },
-              [](ShotIdentity& c, const QString& v) { c.frozenDate = v; },
-              [](ShotIdentity& o, const QString& v) { o.frozenDate = v; });
-    fillField([](const ShotIdentity& s) { return s.defrostDate; },
-              [](ShotIdentity& c, const QString& v) { c.defrostDate = v; },
-              [](ShotIdentity& o, const QString& v) { o.defrostDate = v; });
-    fillField([](const ShotIdentity& s) { return s.storageHint; },
-              [](ShotIdentity& c, const QString& v) { c.storageHint = v; },
-              [](ShotIdentity& o, const QString& v) { o.storageHint = v; });
-    fillField([](const ShotIdentity& s) { return s.openedDate; },
-              [](ShotIdentity& c, const QString& v) { c.openedDate = v; },
-              [](ShotIdentity& o, const QString& v) { o.openedDate = v; });
+    for (const auto& f : ShotIdentity::fields())
+        fillField(f.member);
 
     return out;
 }
