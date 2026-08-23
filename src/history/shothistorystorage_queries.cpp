@@ -8,7 +8,7 @@
 // Owning concerns (per openspec/changes/split-shothistorystorage-by-concern/):
 //   - filtered queries: requestShotsFiltered + buildFilterQuery + parseFilterMap +
 //     formatFtsQuery (FTS5 query construction) + s_sortColumnMap (sort-column whitelist).
-//   - recents-by-kbId: requestRecentShotsByKbId + loadRecentShotsByKbIdStatic.
+//   - recents-by-kbId: loadRecentShotsByKbIdStatic.
 //   - distinct-value getters: queryDistinctList + getDistinctValues +
 //     getDistinct* getters + s_allowedColumns whitelist + sortGrinderSettings.
 //   - auto-favorites: requestAutoFavorites + requestAutoFavoriteGroupDetails.
@@ -662,34 +662,9 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
 }
 
 
-void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit)
-{
-    if (!m_ready || kbId.isEmpty()) {
-        emit recentShotsByKbIdReady(kbId, QVariantList());
-        return;
-    }
-
-    const QString dbPath = m_dbPath;
-    auto destroyed = m_destroyed;
-    runDetachedDbThread([this, dbPath, kbId, limit, destroyed]() {
-        QVariantList results;
-        withTempDb(dbPath, "shs_kbid", [&](QSqlDatabase& db) {
-            results = loadRecentShotsByKbIdStatic(db, kbId, limit);
-        });
-
-        if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, kbId, results = std::move(results), destroyed]() {
-            if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: recentShotsByKbId callback dropped (object destroyed)";
-                return;
-            }
-            emit recentShotsByKbIdReady(kbId, results);
-        }, Qt::QueuedConnection);
-    });
-
-}
-
-QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId)
+QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId,
+                                                            const AdviceScope& scope, int limit,
+                                                            qint64 excludeShotId)
 {
     QVariantList results;
     // Grinder identity resolved via the equipment_id pointer (add-equipment-
@@ -711,6 +686,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
     )");
     if (excludeShotId >= 0)
         sql += QStringLiteral(" AND s.id != ?");
+    sql += scope.andSql(QStringLiteral("s"));
     sql += QStringLiteral(" ORDER BY s.timestamp DESC LIMIT ?");
 
     QSqlQuery query(db);
@@ -1250,7 +1226,7 @@ static QList<double> grinderWideRpms(QSqlDatabase& db, const QString& grinderMod
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
-    const QString& grinderModel, const QString& beverageType,
+    const QString& grinderModel, const AdviceScope& scope, const QString& beverageType,
     const QString& beanBrand)
 {
     GrinderContext ctx;
@@ -1259,23 +1235,20 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     ctx.model = grinderModel;
     ctx.beverageType = beverageType.isEmpty() ? QStringLiteral("espresso") : beverageType;
 
-    // Build SQL with an optional bean_brand filter — same conditional-
-    // append pattern used by loadRecentShotsByKbIdStatic and
-    // buildFilterQuery in this file.
-    // Grinder model resolves through the equipment_id pointer (the per-shot
-    // grinder_model column is dropped in migration 23, add-equipment-packages
-    // task 4.1). grinder_setting (per-shot dial-in) stays on the shot row.
+    // Package-scoped, not grinder-scoped: a setting dialled on another basket is
+    // not one this user dialled on this gear. The scope implies the grinder, so
+    // the grinder-model subquery and its `:model` bind are gone.
+    // ctx.stepSize is the grinder-wide half — see grinderWideNumericSettings().
     QString sql = QStringLiteral(
-        "SELECT DISTINCT grinder_setting FROM shots WHERE %1 "
-        "AND beverage_type = :bev "
-        "AND grinder_setting != ''").arg(grinderModelMatchSql(":model"));
+        "SELECT DISTINCT grinder_setting FROM shots WHERE ") + scope.sql()
+        + QStringLiteral(" AND beverage_type = :bev "
+                         "AND grinder_setting != ''");
     if (!beanBrand.isEmpty()) {
         sql += QStringLiteral(" AND bean_brand = :brand");
     }
 
     QSqlQuery q(db);
     q.prepare(sql);
-    q.bindValue(":model", grinderModel);
     q.bindValue(":bev", ctx.beverageType);
     if (!beanBrand.isEmpty()) {
         q.bindValue(":brand", beanBrand);
@@ -1328,21 +1301,19 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         ctx.maxSetting = numeric.last();
     }
 
-    // RPM axis: the observed RPMs (and their range) are per-bean context, so
-    // they stay bean/beverage-scoped like settingsObserved. rpm > 0 = a real
-    // dial-in. ORDER BY rpm makes first()/last() the min/max.
+    // Scoped like settingsObserved. rpm > 0 = a real dial-in; ORDER BY rpm makes
+    // first()/last() the min/max. ctx.rpmStepSize is the grinder-wide half.
     {
         QString rpmSql = QStringLiteral(
-            "SELECT DISTINCT rpm FROM shots WHERE %1 "
-            "AND beverage_type = :bev "
-            "AND rpm > 0").arg(grinderModelMatchSql(":model"));
+            "SELECT DISTINCT rpm FROM shots WHERE ") + scope.sql()
+            + QStringLiteral(" AND beverage_type = :bev "
+                             "AND rpm > 0");
         if (!beanBrand.isEmpty())
             rpmSql += QStringLiteral(" AND bean_brand = :brand");
         rpmSql += QStringLiteral(" ORDER BY rpm");
 
         QSqlQuery rq(db);
         rq.prepare(rpmSql);
-        rq.bindValue(":model", grinderModel);
         rq.bindValue(":bev", ctx.beverageType);
         if (!beanBrand.isEmpty())
             rq.bindValue(":brand", beanBrand);

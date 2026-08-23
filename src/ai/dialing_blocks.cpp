@@ -156,6 +156,7 @@ namespace DialingBlocks {
 
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
+                                    const AdviceScope& scope,
                                     qint64 resolvedShotId,
                                     int historyLimit)
 {
@@ -163,7 +164,7 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
     if (profileKbId.isEmpty()) return sessions;
 
     QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(
-        db, profileKbId, historyLimit, resolvedShotId);
+        db, profileKbId, scope, historyLimit, resolvedShotId);
 
     QList<ShotProjection> shots;
     shots.reserve(history.size());
@@ -319,6 +320,7 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
 
 QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
                                      const QString& profileKbId,
+                                     const AdviceScope& scope,
                                      qint64 resolvedShotId,
                                      const ShotProjection& currentShot)
 {
@@ -333,10 +335,11 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     // elicitation paths (the rating slider, conversational capture) keep
     // this pool populated.
     bestQ.prepare(
-        "SELECT id FROM shots "
-        "WHERE profile_kb_id = ? AND enjoyment > 0 "
-        "AND id != ? AND timestamp >= ? "
-        "ORDER BY enjoyment DESC, timestamp DESC LIMIT 1");
+        QStringLiteral("SELECT id FROM shots "
+                       "WHERE profile_kb_id = ? AND enjoyment > 0 "
+                       "AND id != ? AND timestamp >= ?")
+        + scope.andSql()
+        + QStringLiteral(" ORDER BY enjoyment DESC, timestamp DESC LIMIT 1"));
     bestQ.addBindValue(profileKbId);
     bestQ.addBindValue(resolvedShotId);
     bestQ.addBindValue(windowFloorSec);
@@ -419,6 +422,7 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
 
 QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
                                      const QString& grinderModel,
+                                     const AdviceScope& scope,
                                      const QString& beverageType,
                                      const QString& beanBrand)
 {
@@ -428,14 +432,15 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
         ? QStringLiteral("espresso") : beverageType;
 
     GrinderContext ctx = ShotHistoryStorage::queryGrinderContext(
-        db, grinderModel, bevType, beanBrand);
+        db, grinderModel, scope, bevType, beanBrand);
 
-    // Cross-bean fallback for sparse OR empty bean-scoped results.
+    // Cross-bean fallback for sparse OR empty bean-scoped results. Widens the
+    // bean only — the equipment scope is not a strength dial.
     bool haveCrossBean = false;
     GrinderContext crossBean;
     if (!beanBrand.isEmpty() && ctx.settingsObserved.size() < 2) {
         crossBean = ShotHistoryStorage::queryGrinderContext(
-            db, grinderModel, bevType);
+            db, grinderModel, scope, bevType);
         haveCrossBean = !crossBean.settingsObserved.isEmpty();
     }
 

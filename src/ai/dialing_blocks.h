@@ -5,6 +5,7 @@
 #include "../core/basketaliases.h"  // basket spec derivation inside buildCurrentBeanBlock
 #include "../core/puckprep.h"       // puck-prep flags + distribution inside buildCurrentBeanBlock
 #include "../history/shotprojection.h"  // source type for beanInputsFromProjection (inline)
+#include "../history/shotscope.h"       // AdviceScope — required by every DB-backed builder
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -145,6 +146,7 @@ inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
 // QJsonArray; the array is empty when the profile has no prior shots.
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
+                                    const AdviceScope& scope,
                                     qint64 resolvedShotId,
                                     int historyLimit);
 
@@ -155,6 +157,7 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
 // `profileKbId` is empty.
 QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
                                      const QString& profileKbId,
+                                     const AdviceScope& scope,
                                      qint64 resolvedShotId,
                                      const ShotProjection& currentShot);
 
@@ -163,6 +166,7 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
 // when `grinderModel` is empty OR when both queries return no rows.
 QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
                                      const QString& grinderModel,
+                                     const AdviceScope& scope,
                                      const QString& beverageType,
                                      const QString& beanBrand);
 

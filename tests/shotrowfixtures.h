@@ -54,10 +54,8 @@ struct ShotRow {
     QString grinderBrand{};
     QString grinderModel{};
     QString grinderBurrs{};
-    // Basket identity. Empty = a package with no basket, which is what every
-    // fixture predating equipment scoping produces. Present = the package is
-    // keyed on grinder AND basket, so two rows sharing a grinder but differing
-    // here land in two packages -- the case the advisor must not pool.
+    // Present = the package is keyed on grinder AND basket, so two rows sharing
+    // a grinder but differing here land in two packages.
     QString basketBrand{};
     QString basketModel{};
     QString grinderSetting{};
@@ -114,16 +112,9 @@ void withRawDb(const QString& path, const QString& connName, Work&& work)
     QVERIFY2(openError.isEmpty(), qPrintable(openError));
 }
 
-// Find-or-create the package for a fixture row's FULL equipment identity:
-// grinder AND basket.
-//
-// Deliberately not EquipmentStorage::findPackageByGrinderIdentityStatic(), which
-// matches on the grinder alone. That is the right question for folding an
-// ACCIDENTAL fork (one real basket, two rows, because a model string was
-// re-typed) and the wrong one here: two different baskets on one grinder are two
-// genuinely different packages. A fixture built on the grinder-only lookup
-// cannot express that, which is why the equipment-scoping tests below could not
-// have been written against it.
+// Find-or-create by grinder AND basket. Not
+// EquipmentStorage::findPackageByGrinderIdentityStatic(), which matches the
+// grinder alone and so cannot express two baskets on one grinder.
 inline qint64 findOrCreatePackage(QSqlDatabase& db, const ShotRow& r)
 {
     const bool hasGrinder = !(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty()
@@ -137,9 +128,15 @@ inline qint64 findOrCreatePackage(QSqlDatabase& db, const ShotRow& r)
         "SELECT p.id FROM equipment_packages p "
         "LEFT JOIN equipment_items g ON g.package_id = p.id AND g.kind = 'grinder' "
         "LEFT JOIN equipment_items b ON b.package_id = p.id AND b.kind = 'basket' "
-        "WHERE COALESCE(g.brand,'') = ? AND COALESCE(g.model,'') = ? "
-        "  AND COALESCE(json_extract(g.attrs,'$.burrs'),'') = ? "
-        "  AND COALESCE(b.brand,'') = ? AND COALESCE(b.model,'') = ?"));
+        // COALESCE on the BOUND side too: an unset ShotRow field is a null
+        // QString, which Qt binds as SQL NULL, and `x = NULL` is never true --
+        // so without this the lookup never matches and every shot forks its own
+        // package.
+        "WHERE COALESCE(g.brand,'') = COALESCE(?,'') "
+        "  AND COALESCE(g.model,'') = COALESCE(?,'') "
+        "  AND COALESCE(json_extract(g.attrs,'$.burrs'),'') = COALESCE(?,'') "
+        "  AND COALESCE(b.brand,'') = COALESCE(?,'') "
+        "  AND COALESCE(b.model,'') = COALESCE(?,'')"));
     find.addBindValue(r.grinderBrand);
     find.addBindValue(r.grinderModel);
     find.addBindValue(r.grinderBurrs);
@@ -173,12 +170,10 @@ inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     // row. An empty identity leaves equipment_id NULL.
     const qint64 equipmentId = findOrCreatePackage(db, r);
 
-    // shots.uuid is NOT NULL, and a default-constructed QString binds as NULL --
-    // so a fixture that forgets it fails the INSERT with a constraint error that
-    // names the column but not the caller. Every ShotRow literal in the suite
-    // therefore set it by hand. Fill it here instead: an empty uuid could never
-    // have inserted, so supplying one cannot change a test that passes today.
-    // Counter, not QUuid: fixtures should be deterministic across runs.
+    // shots.uuid is NOT NULL and a default QString binds as NULL, so every
+    // ShotRow literal had to set it by hand. An empty uuid could never insert,
+    // so filling it cannot change a passing test. Counter, not QUuid: fixtures
+    // should be deterministic.
     QString uuid = r.uuid;
     if (uuid.isEmpty()) {
         static int autoUuid = 0;
@@ -237,6 +232,31 @@ inline qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
         return -1;
     }
     return q.lastInsertId().toLongLong();
+}
+
+// The AdviceScope for a DB whose shots all sit in one equipment package.
+// Warns when there is more than one: picking either by convention is how a
+// scoped read ends up tested against a pool it never uses.
+inline AdviceScope soleScope(QSqlDatabase& db)
+{
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral(
+            "SELECT DISTINCT COALESCE(equipment_id, 0) FROM shots ORDER BY 1"))) {
+        qWarning() << "soleScope: query failed:" << q.lastError().text();
+        return AdviceScope(0);
+    }
+    QList<qint64> buckets;
+    while (q.next())
+        buckets.append(q.value(0).toLongLong());
+    if (buckets.isEmpty())
+        return AdviceScope(0);   // no shots yet: nothing to be ambiguous about
+    if (buckets.size() != 1) {
+        qWarning() << "soleScope: expected exactly one equipment bucket, found"
+                   << buckets.size() << buckets
+                   << "-- name the intended one with AdviceScope(id) instead";
+        return AdviceScope(buckets.isEmpty() ? 0 : buckets.first());
+    }
+    return AdviceScope(buckets.first());
 }
 
 inline ShotProjection projectionForShot(QSqlDatabase& db, qint64 shotId)

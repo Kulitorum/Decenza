@@ -1089,7 +1089,7 @@ private slots:
         // this test pins the gating, not the DB query path.)
         QSqlDatabase db; // default-constructed: invalid, never used
         const QJsonArray arr = DialingBlocks::buildDialInSessionsBlock(
-            db, QString(), 1, 5);
+            db, QString(), AdviceScope(0), 1, 5);
         QVERIFY(arr.isEmpty());
     }
 
@@ -1098,7 +1098,7 @@ private slots:
         QSqlDatabase db;
         ShotProjection shot;
         const QJsonObject obj = DialingBlocks::buildBestRecentShotBlock(
-            db, QString(), 1, shot);
+            db, QString(), AdviceScope(0), 1, shot);
         QVERIFY(obj.isEmpty());
     }
 
@@ -1106,7 +1106,7 @@ private slots:
     {
         QSqlDatabase db;
         const QJsonObject obj = DialingBlocks::buildGrinderContextBlock(
-            db, QString(), QStringLiteral("espresso"), QString());
+            db, QString(), AdviceScope(0), QStringLiteral("espresso"), QString());
         QVERIFY(obj.isEmpty());
     }
 

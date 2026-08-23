@@ -146,12 +146,13 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // the userPromptUsed echo is byte-equivalent
                         // across surfaces. See openspec
                         // add-dialing-blocks-to-advisor.
+                        const AdviceScope scope(shot.equipmentId);
                         dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                            db, shot.profileKbId, resolvedShotId, 5);
+                            db, shot.profileKbId, scope, resolvedShotId, 5);
                         bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
-                            db, shot.profileKbId, resolvedShotId, shot);
+                            db, shot.profileKbId, scope, resolvedShotId, shot);
                         grinderContext = DialingBlocks::buildGrinderContextBlock(
-                            db, shot.grinderModel, shot.beverageType, shot.beanBrand);
+                            db, shot.grinderModel, scope, shot.beverageType, shot.beanBrand);
                         grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
                             db, shot.grinderModel, shot.grinderBurrs,
                             shot.beverageType, resolvedShotId);

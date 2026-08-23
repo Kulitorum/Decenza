@@ -2,6 +2,7 @@
 
 #include "shothistory_types.h"
 #include "shotprojection.h"
+#include "shotscope.h"
 
 #include <QObject>
 #include <QSqlDatabase>
@@ -136,13 +137,14 @@ public:
     // Async: runs on background thread, emits shotReady()
     Q_INVOKABLE void requestShot(qint64 shotId);
 
-    // Async: runs on background thread, emits recentShotsByKbIdReady()
-    // Returns summary data (not full time-series) for dial-in history queries.
-    Q_INVOKABLE void requestRecentShotsByKbId(const QString& kbId, int limit = 10);
 
     // Query recent shots by KB ID (summary data, no time-series).
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
-    static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1);
+    // Dial-in history for one profile family, scoped to one equipment package.
+    // `scope` has no default on purpose: an omittable filter gets omitted.
+    static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId,
+                                                    const AdviceScope& scope, int limit,
+                                                    qint64 excludeShotId = -1);
 
     // Async: profiles used with a bean, for the recipe wizard's ranked profile
     // step (add-recipe-wizard-tea). Emits rankedProfilesForBeanReady() with
@@ -229,7 +231,11 @@ public:
     // the `dialing_get_context` tool calls this twice and surfaces a
     // separate `allBeansSettings` field). Do not collapse that fallback
     // into this function — a future caller may want bean-scoped only.
+    //
+    // `scope` bounds the observed axes only. stepSize / rpmStepSize stay
+    // grinder-wide so the advisor's step equals grindStepForGrinder().
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel,
+                                              const AdviceScope& scope,
                                               const QString& beverageType,
                                               const QString& beanBrand = QString());
 
@@ -548,7 +554,6 @@ signals:
     void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
     void loadingFilteredChanged();
     void shotReady(qint64 shotId, const ShotProjection& shot);
-    void recentShotsByKbIdReady(const QString& kbId, const QVariantList& shots);
     void rankedProfilesForBeanReady(const QVariantMap& result);
     void latestShotForBeanProfileReady(const QVariantMap& shot);
     void latestGrindForBeanReady(const QVariantMap& grind);

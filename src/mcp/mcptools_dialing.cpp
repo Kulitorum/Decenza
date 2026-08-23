@@ -119,12 +119,15 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // one-shot in-app advisor and ai_advisor_invoke still
                     // build it inline because they have no follow-up
                     // tool-call channel.
+                    // From the shot being analysed, not live machine state —
+                    // that shot's gear may not be what is mounted now.
+                    const AdviceScope scope(dbResult.shotData.equipmentId);
                     dbResult.dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                        db, dbResult.profileKbId, resolvedShotId, historyLimit);
+                        db, dbResult.profileKbId, scope, resolvedShotId, historyLimit);
                     dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
-                        db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
+                        db, dbResult.profileKbId, scope, resolvedShotId, dbResult.shotData);
                     dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
-                        db, dbResult.shotData.grinderModel,
+                        db, dbResult.shotData.grinderModel, scope,
                         dbResult.shotData.beverageType, dbResult.shotData.beanBrand);
                 });
 

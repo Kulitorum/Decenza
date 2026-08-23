@@ -1039,7 +1039,10 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             // grinder item's attrs JSON blob. profile_kb_id is pulled here too
             // (not a separate query) so the recentAdvice build below can
             // cross-profile-filter without another round-trip.
-            q.prepare("SELECT eg.brand, eg.model, json_extract(eg.attrs, '$.burrs'), s.beverage_type, s.profile_kb_id "
+            // s.equipment_id rides this row rather than a second lookup, so the
+            // identity and the scope cannot come from different shots.
+            q.prepare("SELECT eg.brand, eg.model, json_extract(eg.attrs, '$.burrs'), s.beverage_type, s.profile_kb_id, "
+                      "COALESCE(s.equipment_id, 0) "
                       "FROM shots s "
                       "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
                       "WHERE s.id = ?");
@@ -1054,8 +1057,9 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
                 QString burrs = q.value(2).toString();
                 QString bev = q.value(3).toString();
                 profileKbId = q.value(4).toString();
+                const AdviceScope scope(q.value(5).toLongLong());
                 if (!model.isEmpty()) {
-                    grinderCtx = ShotHistoryStorage::queryGrinderContext(db, model, bev);
+                    grinderCtx = ShotHistoryStorage::queryGrinderContext(db, model, scope, bev);
                     grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
                         db, model, burrs, bev, excludeShotId);
                 }
