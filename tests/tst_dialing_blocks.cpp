@@ -1762,7 +1762,7 @@ private slots:
         initAndClose(path);
         withRawDb(path, QStringLiteral("calib_empty_model"), [&](QSqlDatabase& db) {
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral(""), QStringLiteral(""), QStringLiteral("espresso"), 0);
+                db, QStringLiteral(""), soleScope(db), QStringLiteral("espresso"), 0);
             QVERIFY2(r.isEmpty(), "empty grinderModel → empty block");
         });
     }
@@ -1773,10 +1773,10 @@ private slots:
         initAndClose(path);
         withRawDb(path, QStringLiteral("calib_filter_bev"), [&](QSqlDatabase& db) {
             QVERIFY(DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral(""),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("filter"), 0).isEmpty());
             QVERIFY(DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral(""),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("pourover"), 0).isEmpty());
         });
     }
@@ -1790,7 +1790,7 @@ private slots:
             QTest::ignoreMessage(QtWarningMsg,
                 "ShotHistoryStorage::loadShotRecordStatic: Shot not found: 999999");
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), 999999);
             QVERIFY2(r.isEmpty(), "invalid resolved shot → empty block");
         });
@@ -1811,57 +1811,11 @@ private slots:
                 .grinderBurrs = QStringLiteral("63mm conical"),
                 .grinderSetting = QStringLiteral("6"), .enjoyment = 0 });
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             QVERIFY2(r.isEmpty(), "no dialed-in shots → empty block");
         });
     }
-
-    // The grinder identity compare is case- and whitespace-FOLDED, like the
-    // identity matcher that writes the packages. An exact compare made a model or
-    // burr string differing only in case or padding return no history at all —
-    // and an empty history is indistinguishable from a grinder that has never
-    // been used, so the failure is silent (#1713).
-    void calibrationBlock_grinderIdentityMatchIsCaseAndSpaceInsensitive()
-    {
-        const QString path = freshDbPath();
-        initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_fold"), [&](QSqlDatabase& db) {
-            calSeed(db, QStringLiteral("f1"), 1000,
-                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
-                    QStringLiteral("6"));
-            const qint64 cur = calSeed(db, QStringLiteral("f2"), 1100,
-                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
-                    QStringLiteral("6"));
-            // Stored as "Niche Zero" / "63mm conical"; asked for in another case,
-            // with padding.
-            const QJsonObject folded = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("  niche ZERO "), QStringLiteral("63MM Conical"),
-                QStringLiteral("espresso"), cur);
-            QVERIFY2(!folded.isEmpty(), "case/padding difference must still find the history");
-            const QJsonObject exact = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), cur);
-            // Everything derived from history is identical. grinderModel itself is
-            // echoed back as the caller wrote it, so it is compared separately
-            // rather than folded — the block reports the identity it was ASKED
-            // about, and the AI reads it as a label, not as a key.
-            QCOMPARE(folded.value(QStringLiteral("profiles")),
-                     exact.value(QStringLiteral("profiles")));
-            QCOMPARE(folded.value(QStringLiteral("confidence")),
-                     exact.value(QStringLiteral("confidence")));
-
-            // Folding is not matching everything: a different grinder still has no
-            // history here.
-            QVERIFY(DialingBlocks::buildGrinderCalibrationBlock(
-                        db, QStringLiteral("Niche Duo"), QStringLiteral("63mm conical"),
-                        QStringLiteral("espresso"), cur).isEmpty());
-        });
-    }
-
-    // #1223 core: dialed-in on D-Flow / Q, asking about far profiles →
-    // directional only. No conversionKey, no rgs anywhere, no negative
-    // numbers; TurboTurbo (UGS 6, far above current UGS 1.0) is coarser.
     void calibrationBlock_directionalSparse_1223()
     {
         const QString path = freshDbPath();
@@ -1874,7 +1828,7 @@ private slots:
                     QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
                     QStringLiteral("6"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             QVERIFY(!r.isEmpty());
             QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
@@ -1926,7 +1880,7 @@ private slots:
                     .grinderSetting = QStringLiteral("9"), .enjoyment = 80 });
             }
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             QVERIFY(!r.isEmpty());
             QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
@@ -1964,7 +1918,7 @@ private slots:
                         QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"),
                         QStringLiteral("6"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             QVERIFY(!r.isEmpty());
             QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
@@ -2007,7 +1961,7 @@ private slots:
                     QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
                     QStringLiteral("6"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
                      QStringLiteral("directional"));
@@ -2035,7 +1989,7 @@ private slots:
                 .grinderBurrs = QStringLiteral("63mm conical"),
                 .grinderSetting = QStringLiteral("6"), .enjoyment = 80 });
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             QVERIFY(!r.isEmpty());
             QVERIFY2(!r.value(QStringLiteral("currentProfileUgsPlaced")).toBool(),
@@ -2059,10 +2013,10 @@ private slots:
                     QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
                     QStringLiteral("6"));
             const QJsonObject a = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             const QJsonObject b = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             QCOMPARE(QJsonDocument(a).toJson(QJsonDocument::Compact),
                      QJsonDocument(b).toJson(QJsonDocument::Compact));
@@ -2108,7 +2062,7 @@ private slots:
                            QStringLiteral("gentle-and-sweet"),
                            QStringLiteral("6 1400rpm"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("DF83V"), QStringLiteral("83mm flat steel"),
+                db, QStringLiteral("DF83V"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
                      QStringLiteral("approximate"));
@@ -2158,8 +2112,7 @@ private slots:
                            QStringLiteral("gentle-and-sweet"),
                            QStringLiteral("3+12"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Mignon Specialita"),
-                QStringLiteral("55mm flat steel"),
+                db, QStringLiteral("Mignon Specialita"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
                      QStringLiteral("approximate"));
@@ -2214,7 +2167,7 @@ private slots:
                 .grinderBurrs = QStringLiteral("63mm conical"),
                 .grinderSetting = QStringLiteral("6"), .enjoyment = 80 });
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), cur);
             // 3 compound-syntax shots rejected; the one cur shot is the
             // only kept row → only one profile, no pairs → directional.
@@ -4254,18 +4207,14 @@ private slots:
                   DialingBlocks::buildGrinderContextBlock(db, cur.grinderModel, graphScope,
                                                              QStringLiteral("espresso"),
                                                              cur.beanBrand) },
-                // KNOWN GAP: with this fixture the calibration block resolves to
-                // "directional" with pairs=0, so it publishes no setting and
-                // cannot leak one. Its silence here is the fixture being too thin
-                // to make it speak, NOT evidence that it scopes correctly -- it
-                // needs several (batch, kbId) endpoint pairs before it emits a
-                // number. Listed anyway so it is covered the moment the fixture
-                // grows; do not read its absence from the failure list as a pass.
+                // Thin here: this fixture yields "directional" with pairs=0, so
+                // the block publishes no setting and cannot leak one. Listed so
+                // it is covered when the fixture grows — its absence from a
+                // failure list is not itself evidence that it scopes right.
                 { "buildGrinderCalibrationBlock",
-                  DialingBlocks::buildGrinderCalibrationBlock(db, cur.grinderModel,
-                                                                 cur.grinderBurrs,
-                                                                 QStringLiteral("espresso"),
-                                                                 f.graphShotId) },
+                  DialingBlocks::buildGrinderCalibrationBlock(db, cur.grinderModel, graphScope,
+                                                              QStringLiteral("espresso"),
+                                                              f.graphShotId) },
             };
 
             // Accumulate rather than QVERIFY2 per path: aborting on the first

@@ -154,7 +154,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         grinderContext = DialingBlocks::buildGrinderContextBlock(
                             db, shot.grinderModel, scope, shot.beverageType, shot.beanBrand);
                         grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
-                            db, shot.grinderModel, shot.grinderBurrs,
+                            db, shot.grinderModel, scope,
                             shot.beverageType, resolvedShotId);
 
                         // Closed-loop recentAdvice (issue #1053). Read

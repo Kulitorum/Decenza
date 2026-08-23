@@ -381,7 +381,7 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 // owns `db` (same tier as `buildGrinderContextBlock`).
 QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& grinderModel,
-                                         const QString& grinderBurrs,
+                                         const AdviceScope& scope,
                                          const QString& beverageType,
                                          qint64 resolvedShotId);
 

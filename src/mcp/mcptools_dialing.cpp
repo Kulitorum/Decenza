@@ -440,7 +440,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     shotValid = shot.isValid();
                     if (!shotValid) return;
                     calibration = DialingBlocks::buildGrinderCalibrationBlock(
-                        db, shot.grinderModel, shot.grinderBurrs,
+                        db, shot.grinderModel, AdviceScope(shot.equipmentId),
                         shot.beverageType, resolvedShotId);
                 });
 

@@ -1096,7 +1096,7 @@ constexpr qint64 kCalibUndatedBatchDays = 90;    // single-linkage gap for undat
 
 QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& grinderModel,
-                                         const QString& grinderBurrs,
+                                         const AdviceScope& scope,
                                          const QString& beverageType,
                                          qint64 resolvedShotId)
 {
@@ -1178,39 +1178,31 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // reading). Replaces the old "≥5g, no-badge-only" filter that admitted
     // undershoot/aborted experiments and corrupted the medians.
     QSqlQuery q(db);
+    // Package-scoped, like every other advice read. The endpoint medians below
+    // are pooled per (batch, kbId) before any pair is formed, so a shot from
+    // another basket corrupts the endpoint rather than merely adding a stray
+    // pair -- and this block publishes a number the user dials in.
+    //
+    // This is not a reversal of the grinder-identity folding that
+    // EquipmentStorage::findPackageByGrinderIdentityStatic() does: that answers
+    // "are these two rows the same real package", which still merges accidental
+    // forks. This answers "may these shots be compared", which baskets decide.
     q.prepare(
+        QStringLiteral(
         "SELECT profile_kb_id, profile_name, grinder_setting, timestamp, "
         "       bean_brand, bean_type, roast_date, final_weight, "
         "       COALESCE(enjoyment,0), COALESCE(drink_tds,0), "
         "       COALESCE(yield_override, 0), "
         "       json_extract(profile_json,'$.target_weight'), "
         "       COALESCE(rpm, 0) "
-        "FROM shots "
-        // Grinder identity resolves through the equipment_id pointer, not the
-        // dropped per-shot grinder_model/grinder_burrs columns (add-equipment-
-        // packages migration 23). Match the grinder item (model + burrs from its
-        // attrs blob) then keep shots pointing at one of those packages.
-        //
-        // Case- and whitespace-folded, so this read agrees with the identity LOOKUP
-        // that decides two packages are the same gear
-        // (EquipmentStorage::findPackageByGrinderIdentityStatic, which folds case in
-        // SQL and trims its search values in C++ — this trims both sides, so it is
-        // if anything more forgiving). An exact compare here meant a model string
-        // differing only in case or padding silently matched no history at all, and
-        // a calibration built on no history is indistinguishable from a grinder
-        // that has never been used.
-        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "    WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(?)) "
-        "    AND LOWER(TRIM(COALESCE(json_extract(attrs, '$.burrs'), ''))) = LOWER(TRIM(COALESCE(?, '')))) "
+        "FROM shots WHERE ") + scope.sql() + QStringLiteral(
         "  AND (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
         "  AND COALESCE(final_weight, 0) >= 15 "
         "  AND COALESCE(grind_issue_detected, 0) = 0 "
         "  AND COALESCE(channeling_detected, 0) = 0 "
         "  AND COALESCE(pour_truncated_detected, 0) = 0 "
         "  AND COALESCE(skip_first_frame_detected, 0) = 0 "
-        "ORDER BY timestamp DESC");
-    q.addBindValue(grinderModel);
-    q.addBindValue(grinderBurrs);
+        "ORDER BY timestamp DESC"));
     if (!q.exec ()) {
         qWarning() << "buildGrinderCalibrationBlock: history query failed:" << q.lastError().text();
         return QJsonObject();
@@ -1288,7 +1280,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
 
     if (rows.isEmpty()) {
         qDebug() << "buildGrinderCalibrationBlock: no dialed-in shots for"
-                 << grinderModel << grinderBurrs;
+                 << grinderModel;
         return QJsonObject();
     }
 

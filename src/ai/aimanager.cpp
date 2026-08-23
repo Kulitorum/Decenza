@@ -1035,13 +1035,12 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             QSqlQuery q(db);
             // Grinder identity resolves through the shot's equipment_id pointer
             // (the per-shot grinder_brand/model/burrs columns are dropped in
-            // migration 23, add-equipment-packages task 4.1). burrs is in the
-            // grinder item's attrs JSON blob. profile_kb_id is pulled here too
+            // migration 23, add-equipment-packages task 4.1). profile_kb_id is here too
             // (not a separate query) so the recentAdvice build below can
             // cross-profile-filter without another round-trip.
             // s.equipment_id rides this row rather than a second lookup, so the
             // identity and the scope cannot come from different shots.
-            q.prepare("SELECT eg.brand, eg.model, json_extract(eg.attrs, '$.burrs'), s.beverage_type, s.profile_kb_id, "
+            q.prepare("SELECT eg.brand, eg.model, s.beverage_type, s.profile_kb_id, "
                       "COALESCE(s.equipment_id, 0) "
                       "FROM shots s "
                       "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
@@ -1054,14 +1053,13 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             } else if (q.next()) {
                 grinderBrand = q.value(0).toString();
                 QString model = q.value(1).toString();
-                QString burrs = q.value(2).toString();
-                QString bev = q.value(3).toString();
-                profileKbId = q.value(4).toString();
-                const AdviceScope scope(q.value(5).toLongLong());
+                QString bev = q.value(2).toString();
+                profileKbId = q.value(3).toString();
+                const AdviceScope scope(q.value(4).toLongLong());
                 if (!model.isEmpty()) {
                     grinderCtx = ShotHistoryStorage::queryGrinderContext(db, model, scope, bev);
                     grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
-                        db, model, burrs, bev, excludeShotId);
+                        db, model, scope, bev, excludeShotId);
                 }
             }
 

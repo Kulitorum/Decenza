@@ -1353,12 +1353,6 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
 // One definition for every model-scoped lookup in THIS file — there were six
 // hand-written copies, which is exactly the drift CLAUDE.md's centralization rule
 // describes. %1 is the placeholder style the call site uses (":model" or "?").
-//
-// One copy is deliberately NOT collapsed: src/ai/dialing_blocks.cpp:1194 inserts
-// an extra burrs clause INSIDE the same subquery, and this helper emits that
-// subquery's closing paren, so it cannot be reused without a second parameter
-// nothing else would want. It must still fold identically — if you change the
-// folding here, change it there.
 QString ShotHistoryStorage::grinderModelMatchSql(const QString& placeholder)
 {
     return QStringLiteral(
