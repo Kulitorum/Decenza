@@ -260,6 +260,49 @@ private slots:
         QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 1);
     }
 
+    void committedEntryIsOneShotsOwnDripAndFlow() {
+        // A batch whose median-drip shot is NOT its median-flow shot. Real numbers from
+        // this maintainer's device: drips 1.30/1.90/1.53 against flows 1.87/2.10/1.60.
+        //
+        // Per-shot lags are 0.695, 0.905 and 0.956 s, so the batch's median lag is 0.905 s
+        // and it belongs to the second shot, (1.90 g, 2.10 g/s).
+        //
+        // Independent medians instead give drip 1.53 over flow 1.87 = 0.818 s — a lag no
+        // shot in the batch had, from a pair that never happened. Every reader inherits
+        // whichever pair is stored: getExpectedDripFor smooths it, sawLearnedLagFor
+        // divides it, globalSawBootstrapLag medians it.
+        const double drips[] = {1.30, 1.90, 1.53};
+        const double flows[] = {1.87, 2.10, 1.60};
+        for (int i = 0; i < 3; ++i) {
+            m_settings.calibration()->addSawLearningPoint(drips[i], flows[i], kScale, 0.0,
+                                                          kProfileA);
+        }
+
+        const QJsonArray history =
+            m_settings.calibration()->perProfileSawHistory(kProfileA, kScale);
+        QCOMPARE(history.size(), qsizetype(1));
+        const QJsonObject committed = history.first().toObject();
+        const double drip = committed["drip"].toDouble();
+        const double flow = committed["flow"].toDouble();
+
+        // The pair describes one of the three shots, not a per-field composite.
+        bool isARealShot = false;
+        for (int i = 0; i < 3; ++i) {
+            if (qFuzzyCompare(drip, drips[i]) && qFuzzyCompare(flow, flows[i]))
+                isARealShot = true;
+        }
+        QVERIFY2(isARealShot, qPrintable(QStringLiteral("committed (%1, %2) is not any "
+                                                        "shot in the batch")
+                                             .arg(drip).arg(flow)));
+
+        // And it is specifically the median-lag shot: 1.90 g at 2.10 g/s.
+        QCOMPARE(drip, 1.90);
+        QCOMPARE(flow, 2.10);
+        QVERIFY(qAbs(drip / flow - 1.90 / 2.10) < 1e-9);
+        // The pair the old code stored, 1.53/1.87, is a full 0.087 s of lag lower.
+        QVERIFY(qAbs(drip / flow - 1.53 / 1.87) > 0.08);
+    }
+
     // ===== Basket dimension of the key =====
 
     void twoBasketsOnOneProfileAndScaleLearnIndependently() {

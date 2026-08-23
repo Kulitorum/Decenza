@@ -17,6 +17,7 @@
 #include <QJsonParseError>
 #include <QtMath>
 #include <algorithm>
+#include <limits>
 
 namespace {
 
@@ -1087,7 +1088,7 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
         return;
     }
 
-    // 2. Batch full — compute medians of drip / flow / overshoot, plus IQR of lags.
+    // 2. Batch full — collect the batch's drips, flows, overshoots and per-shot lags.
     QVector<double> drips, flows, overs, lags;
     drips.reserve(batch.size()); flows.reserve(batch.size());
     overs.reserve(batch.size()); lags.reserve(batch.size());
@@ -1105,10 +1106,43 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
         const qsizetype n = v.size();
         return (n % 2 == 0) ? (v[n / 2 - 1] + v[n / 2]) / 2.0 : v[n / 2];
     };
-    const double medianDrip = medianOf(drips);
-    const double medianFlow = medianOf(flows);
     const double medianOver = medianOf(overs);
-    const double medianLag = (medianFlow > 0.5) ? medianDrip / medianFlow : 0.0;
+
+    // The batch's median LAG, and the shot that produced it — not medianOf(drips) over
+    // medianOf(flows). Those two medians usually come from different shots, so their
+    // quotient is a lag no shot in the batch had. That matters twice: the gate below
+    // compares each shot's lag against this value, and step 5 commits the pair, which
+    // every reader then divides or smooths (getExpectedDripFor feeds it to the Gaussian
+    // smoother, sawLearnedLagFor divides it, globalSawBootstrapLag medians it).
+    //
+    // Measured on this maintainer's 250-shot corpus via tools/saw_parity: the change is
+    // worth about −1% MAE overall, which is inside the noise of which shots land in which
+    // batch. It is here because a committed entry must describe a shot that happened, not
+    // because it predicts better.
+    //
+    // medianOver stays an independent median: it gates the auto-reset in step 4 and is
+    // never divided by anything.
+    double medianDrip = medianOf(drips);
+    double medianFlow = medianOf(flows);
+    double medianLag = (medianFlow > 0.5) ? medianDrip / medianFlow : 0.0;
+    if (!lags.isEmpty()) {
+        medianLag = medianOf(lags);
+        // Closest-lag rather than exact equality: with an even batch size medianOf()
+        // averages the middle two and no shot owns the result. kBatchSize is odd today,
+        // so this picks the exact shot; it stays correct if that ever changes.
+        double bestDev = std::numeric_limits<double>::max();
+        for (const auto& v : std::as_const(batch)) {
+            const QJsonObject o = v.toObject();
+            const double f = o["flow"].toDouble();
+            if (f <= 0.5) continue;
+            const double dev = qAbs(o["drip"].toDouble() / f - medianLag);
+            if (dev < bestDev) {
+                bestDev = dev;
+                medianDrip = o["drip"].toDouble();
+                medianFlow = f;
+            }
+        }
+    }
 
     // 3. Outlier check: reject batch if any lag deviates too far from the median.
     //    IQR gating is not used here because kBatchSize=3 produces too few values

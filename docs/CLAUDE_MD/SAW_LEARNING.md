@@ -56,7 +56,7 @@ Three QSettings keys, each a JSON object keyed by `"<profileFilename>::<scaleTyp
 
 | Key | Shape | Trim | Purpose |
 |-----|-------|------|---------|
-| `saw/perProfileHistory` | array of committed batch-median entries `{drip, flow, overshoot, scale, profile, basket, ts, batchSize}` | 10 medians (~30 shots-worth) | Source of truth for `sawLearnedLagFor` / `getExpectedDripFor` once the triple has graduated (≥ `kSawMinMediansForGraduation` medians, currently 1). |
+| `saw/perProfileHistory` | array of committed batch-median entries `{drip, flow, overshoot, scale, profile, basket, ts, batchSize}`. **`drip` and `flow` are one batch shot's own pair** — the shot whose lag is the batch's median lag — not `median(drips)` over `median(flows)`, which would be a point no shot produced and a lag no shot had. `overshoot` IS an independent median: it gates the auto-reset and is never divided. | 10 medians (~30 shots-worth) | Source of truth for `sawLearnedLagFor` / `getExpectedDripFor` once the triple has graduated (≥ `kSawMinMediansForGraduation` medians, currently 1). |
 | `saw/perProfileBatch` | array of pending raw entries `{drip, flow, overshoot, scale, profile, basket, ts}` (target size 3) | 3 (commit point) | Pending accumulator; flushed on commit or rejection. |
 | `saw/globalBootstrapLag/<scaleType>` | scalar `double` (seconds) | n/a | IQR-fenced median of the last committed median lag from each THREE-SEGMENT bucket on this scale whose newest median is not `inherited` (so neither the seed copies nor the frozen pre-basket bucket they came from can vote). Used as first-shot default for new pairs. (Graduation for the per-profile *read* path is a stricter `kSawMinMediansForGraduation` medians; the bootstrap is a cold-start prior, so it accepts pairs with any committed history — IQR fencing handles the rest.) |
 
@@ -145,7 +145,9 @@ addSawLearningPoint(drip, flow, scale, overshoot, profile):
     log "[SAW] accumulated drip=… flow=… (n/3) lag=…"
     return
 
-  compute median drip, flow, overshoot, lag
+  median_lag := median of the 3 per-shot lags (drip / flow)
+  median_drip, median_flow := the (drip, flow) of the batch shot whose lag IS median_lag
+  median_overshoot := median of the 3 overshoots        ← independent; gates the reset below
   if any |lag - median_lag| > 1.5 s:
     log "[SAW] batch rejected — outlier lag=… deviates …s > …s from median …"
     drop pending, return
@@ -166,6 +168,8 @@ addSawLearningPoint(drip, flow, scale, overshoot, profile):
 Per-shot updates create a feedback loop: each update changes the predicted-drip threshold, which changes when the stop command fires, which changes the observed drip. The model partially chases its own tail.
 
 Batching to N=3 holds the model constant for 3 shots, so the 3 ideals are pulled under identical conditions and are directly comparable. Taking the **median** of those 3 ideals is a built-in outlier filter: a single bad shot (channeling, scale glitch, manual stop, runaway) cannot move the model.
+
+The median is taken over the **lags**, and the committed entry is then the shot that produced that lag. Taking `median(drips)` and `median(flows)` separately is not the same thing: with N=3 those two medians usually come from different shots, so their quotient is a lag none of the three had. Measured over a 250-shot corpus (`tools/saw_parity`), correcting this is worth about −1% MAE — inside the noise. It is done because a stored entry that every reader divides or smooths has to describe a shot that happened, not because it predicts better.
 
 Flow calibration uses N=5 for the same reason, but SAW has no feedback loop: a stop command does not alter pump pressure or flow dynamics for the next shot. Because the model update cannot shift the conditions it is measuring, N=3 converges 2× faster with equal or better accuracy. A post-hoc simulation over real shot data (Apr 2026) confirmed this: N=3 graduated D-Flow/Q at shot 6 vs never within 9 shots for N=5 (outlier in shot 3 was cleanly isolated rather than absorbed), and graduated 80's Espresso at shot 3 vs shot 10.
 

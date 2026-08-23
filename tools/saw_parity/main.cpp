@@ -29,8 +29,9 @@
 // are reported informatively but excluded from the gate.
 //
 // Usage:
-//   tools/saw_replay --corpus baseline_full.json --variant old --mode legacy --sigma 0.25 > sim.tsv
-//   saw_parity --corpus baseline_full.json --sim sim.tsv
+//   saw_parity --corpus baseline_extended.json                      # production MAE only
+//   tools/saw_replay --corpus baseline_extended.json --variant old --mode legacy --sigma 0.25 > sim.tsv
+//   saw_parity --corpus baseline_extended.json --sim sim.tsv        # + simulator parity
 
 #include "core/settings.h"
 #include "core/settings_calibration.h"
@@ -94,15 +95,13 @@ QHash<int, SimRow> readSimulatorOutput(const QString& path, QString* errOut) {
     return out;
 }
 
+// resetSawLearning() wipes every saw/* key — global pool, all per-(profile, scale,
+// basket) buckets, all pending batches, all bootstrap values (see its declaration in
+// settings_calibration.h). The per-pair loop that used to follow it here split pool
+// keys on "::" and acted only on two-segment ones, so once the basket key added a
+// third segment it matched nothing; it was redundant before that and dead after.
 void wipeAllSawState(Settings& s) {
     s.calibration()->resetSawLearning();
-    const QJsonObject pairs = s.calibration()->allPerProfileSawHistory();
-    for (auto it = pairs.constBegin(); it != pairs.constEnd(); ++it) {
-        const QStringList parts = it.key().split(QStringLiteral("::"));
-        if (parts.size() == 2) {
-            s.calibration()->resetSawLearningForProfile(parts[0], parts[1]);
-        }
-    }
 }
 
 }  // namespace
@@ -120,17 +119,26 @@ int main(int argc, char* argv[])
     parser.addOption(corpusOpt);
     QCommandLineOption simOpt({"s", "sim"}, "Simulator TSV output.", "path");
     parser.addOption(simOpt);
+    QCommandLineOption ignoreBasketOpt("ignore-basket",
+        "Replay with every shot filed under one basket, as a two-segment "
+        "(profile, scale) key would. Measures what the basket segment buys.");
+    parser.addOption(ignoreBasketOpt);
     QCommandLineOption tolOpt("tolerance",
         "Max allowed |production - simulator| per shot in g (default 0.001).",
         "value", "0.001");
     parser.addOption(tolOpt);
     parser.process(app);
 
-    if (!parser.isSet(corpusOpt) || !parser.isSet(simOpt)) {
-        qWarning() << "Both --corpus and --sim are required.";
+    if (!parser.isSet(corpusOpt)) {
+        qWarning() << "--corpus is required.";
         return 2;
     }
+    // --sim is optional: the production MAE table below is produced by driving the real
+    // getExpectedDripFor/addSawLearningPoint over the corpus and needs no simulator at
+    // all. Only the parity comparison does.
+    const bool haveSim = parser.isSet(simOpt);
     const double tolerance = parser.value(tolOpt).toDouble();
+    const bool ignoreBasket = parser.isSet(ignoreBasketOpt);
 
     QFile cf(parser.value(corpusOpt));
     if (!cf.open(QIODevice::ReadOnly)) {
@@ -149,15 +157,18 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    QString simErr;
-    const QHash<int, SimRow> sim = readSimulatorOutput(parser.value(simOpt), &simErr);
-    if (!simErr.isEmpty()) {
-        qWarning() << simErr;
-        return 2;
-    }
-    if (sim.isEmpty()) {
-        qWarning() << "no shot rows parsed from sim file";
-        return 2;
+    QHash<int, SimRow> sim;
+    if (haveSim) {
+        QString simErr;
+        sim = readSimulatorOutput(parser.value(simOpt), &simErr);
+        if (!simErr.isEmpty()) {
+            qWarning() << simErr;
+            return 2;
+        }
+        if (sim.isEmpty()) {
+            qWarning() << "no shot rows parsed from sim file";
+            return 2;
+        }
     }
 
     Settings settings;
@@ -207,8 +218,15 @@ int main(int argc, char* argv[])
         const double flow = o.value(QStringLiteral("flow")).toDouble();
         const double drip = o.value(QStringLiteral("drip")).toDouble();
         const double overshoot = o.value(QStringLiteral("overshoot")).toDouble();
+        // Corpus rows carry the basket key the shot actually trained. Pass it through
+        // rather than letting it resolve: an empty key resolves against this process's
+        // (empty) settings, which would collapse every basket into one pool and hide
+        // exactly the separation key-saw-learning-by-basket introduced.
+        const QString basket = ignoreBasket ? QStringLiteral("all")
+                                            : o.value(QStringLiteral("basket")).toString();
 
-        const double prodPred = settings.calibration()->getExpectedDripFor(profile, scale, flow);
+        const double prodPred =
+            settings.calibration()->getExpectedDripFor(profile, scale, flow, basket);
         const double prodErr = prodPred - drip;
         const double prodAbs = std::abs(prodErr);
 
@@ -217,7 +235,7 @@ int main(int argc, char* argv[])
         if (flow < 1.5) bumpMae(maeLow, prodAbs);
         else if (flow < 3.0) bumpMae(maeMid, prodAbs);
         else bumpMae(maeHigh, prodAbs);
-        if (id == 887) { shot887Err = prodErr; shot887Seen = true; }
+        if (id == 887 || id == 10887) { shot887Err = prodErr; shot887Seen = true; }
 
         double simPred = 0.0;
         QString simSource = QStringLiteral("(missing)");
@@ -242,10 +260,11 @@ int main(int argc, char* argv[])
             << "\t" << prodErr << "\t" << simSource << "\n";
 
         // Grow the production-side pool for the next shot.
-        settings.calibration()->addSawLearningPoint(drip, flow, scale, overshoot, profile);
+        settings.calibration()->addSawLearningPoint(drip, flow, scale, overshoot, profile, basket);
     }
 
     out << "\n=== Production MAE per flow bucket (the actual answer) ===\n";
+    out << "basket_segment=" << (ignoreBasket ? "ignored" : "used") << "\n";
     out << "bucket\tn\tmae\tworst\n";
     auto reportBucket = [&out](const QString& name, const MaeBucket& b) {
         const double mae = b.n ? b.absSum / b.n : 0.0;
@@ -257,6 +276,11 @@ int main(int argc, char* argv[])
     reportBucket(QStringLiteral("high (>=3)"), maeHigh);
     if (shot887Seen) {
         out << "shot887_signed_error=" << shot887Err << "\n";
+    }
+
+    if (!haveSim) {
+        wipeAllSawState(settings);
+        return 0;
     }
 
     out << "\n=== Simulator parity by source ===\n";
