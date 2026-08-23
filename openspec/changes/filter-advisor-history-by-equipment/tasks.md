@@ -130,8 +130,11 @@ renderer instead.
       conversations, and `src/mcp/mcptools_dialing_blocks.h`, a path that does not exist.
 - [x] 7.2 `docs/CLAUDE_MD/MCP_SERVER.md` — `dialing_get_context` history scoped to the package and
       the `noDialInHistory` block; `ai_conversations` list/get entries carry `equipment`.
-- [ ] 7.3 Wiki manual: no entry. This changes how the advisor selects its own context; nothing
-      new is discoverable or actionable by the user.
+- [x] 7.3 Wiki manual: no entry, decided 2026-08-23. This changes how the advisor selects its own
+      context, which nothing asks the user to do differently. The one user-visible consequence is
+      that the conversation list can hold several threads for one bean and profile, told apart by
+      the package in their labels — a label that explains itself, which is not what the manual is
+      for.
 
 ## 8. Auto-favourites (folded in — same PR)
 
