@@ -136,6 +136,41 @@ QJsonObject shotToJson(const ShotProjection& shot,
 
 namespace DialingBlocks {
 
+AdvisorContextBlocks buildAdvisorContextBlocks(
+    QSqlDatabase& db,
+    const ShotProjection& shot,
+    qint64 resolvedShotId,
+    const QList<AIConversation::HistoricalAssistantTurn>& recentAssistantTurns,
+    int historyLimit)
+{
+    AdvisorContextBlocks out;
+    if (!shot.isValid()) return out;
+
+    // One scope for every block. Built from the SHOT's package, not the active
+    // one — the shot is what the advice is about, and the two differ the moment
+    // a user swaps gear between pulling and asking.
+    const AdviceScope scope(shot.equipmentId);
+
+    out.dialInSessions = buildDialInSessionsBlock(
+        db, shot.profileKbId, scope, resolvedShotId, historyLimit);
+    out.bestRecentShot = buildBestRecentShotBlock(
+        db, shot.profileKbId, scope, resolvedShotId, shot);
+    out.grinderContext = buildGrinderContextBlock(
+        db, shot.grinderModel, scope, shot.beverageType, shot.beanBrand);
+    out.grinderCalibration = buildGrinderCalibrationBlock(
+        db, shot.grinderModel, scope, shot.beverageType, resolvedShotId);
+
+    if (!shot.profileKbId.isEmpty() && !recentAssistantTurns.isEmpty()) {
+        RecentAdviceInputs in;
+        in.turns = recentAssistantTurns;
+        in.currentProfileKbId = shot.profileKbId;
+        in.currentShotId = resolvedShotId;
+        out.recentAdvice = buildRecentAdviceBlock(db, in);
+    }
+
+    return out;
+}
+
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
                                     const AdviceScope& scope,

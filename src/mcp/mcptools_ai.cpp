@@ -141,38 +141,25 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     shot = ShotHistoryStorage::convertShotRecord(record);
 
                     if (shot.isValid()) {
-                        // Same dialing-context blocks the in-app advisor
-                        // ships, produced by the same shared helpers so
-                        // the userPromptUsed echo is byte-equivalent
-                        // across surfaces. See openspec
-                        // add-dialing-blocks-to-advisor.
-                        const AdviceScope scope(shot.equipmentId);
-                        dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                            db, shot.profileKbId, scope, resolvedShotId, 5);
-                        bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
-                            db, shot.profileKbId, scope, resolvedShotId, shot);
-                        grinderContext = DialingBlocks::buildGrinderContextBlock(
-                            db, shot.grinderModel, scope, shot.beverageType, shot.beanBrand);
-                        grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
-                            db, shot.grinderModel, scope,
-                            shot.beverageType, resolvedShotId);
-
-                        // Closed-loop recentAdvice (issue #1053). Read
-                        // the conversation history straight from QSettings
-                        // — the conversation key is the same hash the
-                        // in-app advisor uses, so the two surfaces ship
-                        // byte-equivalent recentAdvice for the same shot.
+                        // The five dialing-context blocks, from the one
+                        // assembler the in-app advisor also calls, so the
+                        // two surfaces cannot ship different context for
+                        // the same shot. Loading the conversation turns
+                        // stays here: see buildAdvisorContextBlocks on why
+                        // it is a parameter.
+                        QList<AIConversation::HistoricalAssistantTurn> turns;
                         if (!shot.profileKbId.isEmpty()) {
-                            const QString convKey = AIManager::conversationKey(shot);
-                            const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
-                            if (!turns.isEmpty()) {
-                                DialingBlocks::RecentAdviceInputs in;
-                                in.turns = turns;
-                                in.currentProfileKbId = shot.profileKbId;
-                                in.currentShotId = resolvedShotId;
-                                recentAdvice = DialingBlocks::buildRecentAdviceBlock(db, in);
-                            }
+                            turns = AIConversation::loadRecentAssistantTurnsForKey(
+                                AIManager::conversationKey(shot),
+                                DialingBlocks::kRecentAdviceTurns);
                         }
+                        const auto blocks = DialingBlocks::buildAdvisorContextBlocks(
+                            db, shot, resolvedShotId, turns);
+                        dialInSessions = blocks.dialInSessions;
+                        bestRecentShot = blocks.bestRecentShot;
+                        grinderContext = blocks.grinderContext;
+                        grinderCalibration = blocks.grinderCalibration;
+                        recentAdvice = blocks.recentAdvice;
                     }
                 });
 

@@ -175,13 +175,11 @@ Rectangle {
         if (isMistake) {
             overlay.pendingShotSummary = ""
         } else {
-            // Prose body for change-detection regex — `processShotForConversation`
-            // accepts either prose or the JSON envelope (its `extractShotProse`
-            // is a no-op for prose), so passing prose directly skips the parse +
-            // shotAnalysis-field extraction. Pre-#1042 this called
-            // `generateHistoryShotSummary` which returned the JSON envelope.
-            var raw = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
-            overlay.pendingShotSummary = MainController.aiManager.conversation.processShotForConversation(raw, shotLabel)
+            // Prose body for the on-screen "shot data attached" indicator only.
+            // What gets SENT is assembled at send time by
+            // buildConversationUserPrompt, which folds the change-detection in as
+            // a payload field rather than a banner prepended to the text.
+            overlay.pendingShotSummary = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
         }
 
         overlay.shotId = shotId
@@ -687,15 +685,13 @@ Rectangle {
                             // If there's a pending shot, include it with the user's question
                             var hasShotData = overlay.pendingShotSummary.length > 0
                             if (hasShotData) {
-                                // For new conversations with historical context, prepend previous shots
-                                var shotSection = "## Shot (" + overlay.shotLabel + ")\n\nHere's my latest shot:\n\n" +
-                                                  overlay.pendingShotSummary + "\n\n" + text
-                                if (overlay.historicalContext.length > 0) {
-                                    message = overlay.historicalContext + "\n\n" + shotSection
-                                    overlay.historicalContext = ""
-                                } else {
-                                    message = shotSection
-                                }
+                                // One JSON object per turn, assembled in C++ from the same
+                                // helpers ai_advisor_invoke uses. The question and the shot
+                                // label are fields on it, not text wrapped around it — see
+                                // AIManager::buildConversationUserPrompt.
+                                message = MainController.aiManager.buildConversationUserPrompt(
+                                    overlay.savedShot, text, overlay.shotLabel)
+                                overlay.historicalContext = ""
                             }
 
                             // Stamp the resolved shot onto this turn pair before

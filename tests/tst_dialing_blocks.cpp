@@ -3674,8 +3674,8 @@ private slots:
     void beanBaseBlockRemapsBlobKeys()
     {
         DialingBlocks::CurrentBeanBlockInputs in;
-        in.beanBrand = "Prodigal Coffee";
-        in.beanType = "Milk Blend";
+        in.identity.beanBrand = "Prodigal Coffee";
+        in.identity.beanType = "Milk Blend";
         in.beanBaseJson = QStringLiteral(
             "{\"id\":\"abc-123\",\"tastingNotes\":\"Orange, Honeycomb\","
             "\"degree\":\"Light To Medium-light\",\"beanType\":\"Espresso\","
@@ -3699,7 +3699,7 @@ private slots:
     void beanBaseBlockOmittedWhenEmptyOrGarbage()
     {
         DialingBlocks::CurrentBeanBlockInputs in;
-        in.beanBrand = "X";
+        in.identity.beanBrand = "X";
         QVERIFY(!DialingBlocks::buildCurrentBeanBlock(in).contains("beanBase"));
         in.beanBaseJson = "not json";
         QVERIFY(!DialingBlocks::buildCurrentBeanBlock(in).contains("beanBase"));
@@ -3715,13 +3715,13 @@ private slots:
     void basketBlockEmitsIdentityAndDerivedSpecs()
     {
         DialingBlocks::CurrentBeanBlockInputs in;
-        in.beanBrand = "Saka";
+        in.identity.beanBrand = "Saka";
         // No basket -> no sub-object.
         QVERIFY(!DialingBlocks::buildCurrentBeanBlock(in).contains("basket"));
 
         // Registry basket -> identity + derived specs (human-readable strings).
-        in.basketBrand = "Weber Workshops";
-        in.basketModel = "20g Unibasket";
+        in.identity.basketBrand = "Weber Workshops";
+        in.identity.basketModel = "20g Unibasket";
         const QJsonObject bean = DialingBlocks::buildCurrentBeanBlock(in);
         QVERIFY(bean.contains("basket"));
         const QJsonObject b = bean["basket"].toObject();
@@ -3734,8 +3734,8 @@ private slots:
         QCOMPARE(b["doseRangeG"].toObject()["max"].toDouble(), 21.0);
 
         // Custom (off-registry) basket -> identity only, derived specs omitted.
-        in.basketBrand = "Acme";
-        in.basketModel = "Mystery Basket";
+        in.identity.basketBrand = "Acme";
+        in.identity.basketModel = "Mystery Basket";
         const QJsonObject custom = DialingBlocks::buildCurrentBeanBlock(in)["basket"].toObject();
         QCOMPARE(custom["brand"].toString(), QString("Acme"));
         QVERIFY(!custom.contains("wallProfile"));
@@ -3749,12 +3749,12 @@ private slots:
     void puckPrepBlockEmitsFlagsAndDistribution()
     {
         DialingBlocks::CurrentBeanBlockInputs in;
-        in.beanBrand = "Saka";
+        in.identity.beanBrand = "Saka";
         // No puck prep -> no sub-object.
         QVERIFY(!DialingBlocks::buildCurrentBeanBlock(in).contains("puckPrep"));
 
         // Canonical flag string -> flags + derived distribution.
-        in.puckPrep = "shaker,wdt";
+        in.identity.puckPrep = "shaker,wdt";
         const QJsonObject bean = DialingBlocks::buildCurrentBeanBlock(in);
         QVERIFY(bean.contains("puckPrep"));
         const QJsonObject p = bean["puckPrep"].toObject();
@@ -3766,14 +3766,14 @@ private slots:
         QCOMPARE(p["distribution"].toString(), QString("thorough"));
 
         // Shaker alone is ALSO thorough — equal weight with WDT, not ranked below it.
-        in.puckPrep = "shaker";
+        in.identity.puckPrep = "shaker";
         QCOMPARE(DialingBlocks::buildCurrentBeanBlock(in)["puckPrep"].toObject()["distribution"].toString(),
                  QString("thorough"));
         // A non-distribution flag alone → none; RDT alone (anti-static) → light.
-        in.puckPrep = "puckScreen";
+        in.identity.puckPrep = "puckScreen";
         QCOMPARE(DialingBlocks::buildCurrentBeanBlock(in)["puckPrep"].toObject()["distribution"].toString(),
                  QString("none"));
-        in.puckPrep = "rdt";
+        in.identity.puckPrep = "rdt";
         QCOMPARE(DialingBlocks::buildCurrentBeanBlock(in)["puckPrep"].toObject()["distribution"].toString(),
                  QString("light"));
     }

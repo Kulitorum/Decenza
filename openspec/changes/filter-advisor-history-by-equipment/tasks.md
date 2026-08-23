@@ -136,25 +136,33 @@ characters naming the structured blocks 35 times and instructing the model to re
 path. `ai_advisor_invoke` sends that payload. The in-app overlay sends prose. One prompt, two
 formats, and the prose one delivers none of the paths the prompt describes.
 
-- [ ] 9.1 Route `AIManager::emitRecentShotContext` through `DialingBlocks::buildDialInSessionsBlock`
+- [x] 9.1 Route `AIManager::emitRecentShotContext` through `DialingBlocks::buildDialInSessionsBlock`
       and `buildBestRecentShotBlock`. Its thread already opens `withTempDb`, builds an
       `AdviceScope`, and calls `buildGrinderCalibrationBlock` / `buildRecentAdviceBlock` — the same
       builders MCP uses — so two of the four blocks are already shared and the remaining two are
       hand-rendered from the same `qualifiedShots` and the same DB handle. Verify: no block is
       built twice, in two places, from one dataset.
-- [ ] 9.2 Send the structured payload from the in-app path via
+- [x] 9.2 Send the structured payload from the in-app path via
       `AIManager::enrichUserPromptObject`, which today has exactly one caller and it is
       `mcptools_ai.cpp`. Verify: `ai_advisor_invoke --dryRun` and the in-app send produce the same
       top-level keys for the same shot.
-- [ ] 9.3 Delete the prose `### Setup:` header and the seven hand-declared `setup*` fields with
+- [x] 9.3 Delete the prose `### Setup:` header and the seven hand-declared `setup*` fields with
       their `seedOrCompare` calls (`aimanager.cpp`). The shared-setup detection it performs is what
       `hoistSessionContext` already does over `ShotIdentity::fields()`. Verify: adding a row to
       that table reaches both surfaces with no further edit — the check scenario in the spec.
-- [ ] 9.4 Carry the user's question as its own field instead of concatenating it into the payload,
-      and delete the recovery heuristic in `AIConversation::getConversationText` — it searches for
-      `"Here's my latest shot:"`, takes the last `\n\n`, and guesses whether the trailing text
-      "looks like a question" by testing for `": "` and a length under 500. Verify: the conversation
-      view renders the question from a field, and the heuristic is gone rather than bypassed.
+- [x] 9.4 Carry the user's question and the shot label as their own fields instead of
+      concatenating them around the payload. Two readers exist only to undo that concatenation:
+      `getConversationText` recovers the question by searching for `"Here's my latest shot:"`,
+      taking the last `\n\n`, and guessing whether the trailing text "looks like a question" by
+      testing for `": "` and a length under 500; `extractShotFields` carries a hand-written
+      brace-matching JSON scanner (depth counter, string-literal and escape handling) because
+      "Qt's JSON parser rejects trailing prose".
+      **Both stay, and this task does not delete them.** Conversations persist in QSettings under
+      `ai/conversations/<key>/` with no expiry, so every user keeps prose-wrapped messages after
+      the upgrade and reading them back is a real requirement. What changes is that nothing new is
+      written in that shape. Verify: new messages parse with a plain `QJsonDocument::fromJson` on
+      the whole content; both legacy readers are reachable only from stored history and say so at
+      the top; a conversation saved before the change still renders.
 - [ ] 9.5 Keep the displayed conversation unchanged for the user. `getConversationText` feeds four
       QML call sites (`ConversationOverlay.qml` ×2, `SettingsAITab.qml` ×2); the `**[Shot <date>]**`
       / `**You:** …` rendering is what a user sees and SHALL survive the format change. Verify: on
@@ -162,9 +170,9 @@ formats, and the prose one delivers none of the paths the prompt describes.
 - [ ] 9.6 Live A/B before merge. This changes what the in-app advisor receives, which a green suite
       cannot judge. Run the same shot through both formats and read the replies. Verify: recorded
       in the PR, with the shot identified by date and time.
-- [ ] 9.7 `docs/CLAUDE_MD/AI_ADVISOR.md` — one payload, one assembler, and the field paths the
+- [x] 9.7 `docs/CLAUDE_MD/AI_ADVISOR.md` — one payload, one assembler, and the field paths the
       system prompt names. Verify: no section still describes an in-app prose payload.
-- [ ] 9.8 One identity definition, sliced per increment. `ShotIdentity`'s 12 `QString` fields are
+- [x] 9.8 One identity definition, sliced per increment. `ShotIdentity`'s 12 `QString` fields are
       a **strict subset** of `CurrentBeanBlockInputs`'s 16 — every one of `basketBrand`,
       `basketModel`, `beanBrand`, `beanType`, `defrostDate`, `frozenDate`, `grinderBrand`,
       `grinderBurrs`, `grinderModel`, `openedDate`, `puckPrep`, `storageHint` is declared in both,
@@ -175,8 +183,32 @@ formats, and the prose one delivers none of the paths the prompt describes.
       last two read `ShotIdentity::fields()`. Make the increment a selection over one definition:
       `CurrentBeanBlockInputs` composes the identity rather than redeclaring it. Verify: adding a
       component is one row, and no struct lists an identity field a second time.
-- [ ] 9.9 Sweep the other increments for the same shape before closing this out —
+- [x] 9.9 Sweep the other increments for the same shape before closing this out —
       `bestRecentShot` (grinderModel + grinderSetting), `grinderCalibration` (grinderModel),
       `grinderContext`. Each is a narrower slice of the same identity. Verify: each names the
       fields it needs by selecting from the table, or the task records why a slice genuinely
       cannot.
+
+### Landed under section 9
+
+Net −814 lines before the docs, all from code that existed only to render or
+un-render a second format:
+
+- `AIManager::emitRecentShotContext` — the 264-line prose renderer, and
+  `renderRecentAdviceEntry` (57) and `loadQualifiedShots` (112) with it, the last
+  being the bean+profile+window history query `buildDialInSessionsBlock` already
+  does.
+- `tests/tst_aimanager.cpp` — 14 test slots (596 lines) pinning `### Setup:` header
+  text. The invariant they asserted (identity shared across a session is hoisted
+  once) is asserted by `tst_dialing_helpers.cpp` against `hoistSessionContext`;
+  rewriting them would have been the same invariant in two places.
+- `AIConversation::processShotForConversation` — replaced by
+  `changesFromPreviousShot`, which returns the diff as an object instead of
+  prepending a `**Changes from Shot (X)**` banner to the payload.
+- Two comments in `mcptools_ai.cpp` asserting the surfaces were "produced by the
+  same shared helpers so the userPromptUsed echo is byte-equivalent" — false in
+  both directions until this change made it true.
+- `CurrentBeanBlockInputs` now composes `DialingHelpers::ShotIdentity` instead of
+  redeclaring its twelve fields; `beanInputsFromProjection` drops fourteen
+  hand-written assignments for one `identityFromShot` call. The compiler found all
+  18 call sites.

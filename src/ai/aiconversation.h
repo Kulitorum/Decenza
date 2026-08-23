@@ -133,7 +133,14 @@ public:
      * Call this before sending via ask()/followUp() to avoid redundant data.
      * shotLabel is a human-readable date/time string (e.g. "Feb 15, 14:30") identifying the shot.
      */
-    Q_INVOKABLE QString processShotForConversation(const QString& shotSummary, const QString& shotLabel);
+    // What changed between this shot and the previous shot in this conversation,
+    // as a field on the turn's payload rather than a prose banner glued to the
+    // front of it. Empty object when there is no previous shot to compare with;
+    // `anyChange: false` when there is one and nothing moved — which the model
+    // needs as much as a diff, since it separates "your change did nothing" from
+    // "you changed nothing".
+    QJsonObject changesFromPreviousShot(const QString& shotLabel,
+                                        const QString& shotPayload) const;
 
     /**
      * Get the full system prompt for multi-shot conversations.

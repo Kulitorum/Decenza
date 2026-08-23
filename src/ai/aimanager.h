@@ -13,6 +13,7 @@
 
 #include "../history/shotprojection.h"
 #include "../history/shothistory_types.h"
+#include "dialing_blocks.h"  // AdvisorContextBlocks — cached between the context request and the send
 
 #include <QtQml/qqmlregistration.h>
 class QNetworkAccessManager;
@@ -152,6 +153,21 @@ public:
     // isMistakeShot above: QML may pass the plain-JS edit clone. C++ callers
     // (e.g. mcptools_dialing) wrap with QVariant::fromValue(shot).
     Q_INVOKABLE QString buildShotAnalysisProseForShot(const QVariant& shotData);
+
+    // The whole user turn, as one JSON object: the shot's own payload
+    // (`shot` / `shotAnalysis` / `currentBean` / `profile` / `tastingFeedback` /
+    // `sawPrediction`), the context blocks the last `requestRecentShotContext`
+    // resolved, and the user's `question` and `shotLabel` as their own fields.
+    //
+    // One assembler for both surfaces: `ai_advisor_invoke` builds the same object
+    // from the same helpers. The question is a FIELD rather than text
+    // concatenated around the object, so reading it back is a field read — the
+    // wrapped shape is what forced `getConversationText`'s recovery heuristic and
+    // `extractShotFields`' hand-written brace scanner, both of which now serve
+    // stored history only.
+    Q_INVOKABLE QString buildConversationUserPrompt(const QVariant& shotData,
+                                                    const QString& question,
+                                                    const QString& shotLabel);
 
     // Merge the four dialing-context blocks into a user-prompt envelope.
     // Both the in-app advisor and `ai_advisor_invoke` call this on the
@@ -430,20 +446,20 @@ private:
     // device; subsequent launches are no-ops. Call before loadConversationIndex.
     static void clearAllConversationsOnce(const QString& migrationId);
 
-    // Render the recent-shot-context prose from already-loaded data and
-    // emit `recentShotContextReady` (or an empty string when stale).
-    // `requestRecentShotContext`'s main-thread lambda calls this helper
-    // after the background DB work resolves. Extracted so the
-    // canonical-source separation logic (Profile/Setup hoisting,
-    // HistoryBlock per-shot rendering) can be exercised by tests via
-    // `friend class tst_AIManager` without standing up a real DB.
-    void emitRecentShotContext(
-        const QList<QPair<qint64, ShotProjection>>& qualifiedShots,
-        const GrinderContext& grinderCtx,
-        const QString& grinderBrand,
-        int serial,
-        const QJsonObject& grinderCalibration = QJsonObject(),
-        const QJsonArray& recentAdvice = QJsonArray());
+    // Cache the resolved context blocks and emit `recentShotContextReady`
+    // (empty when stale). `requestRecentShotContext`'s main-thread lambda calls
+    // this after the background DB work resolves; the cached blocks are what
+    // `buildConversationUserPrompt` folds into the turn's payload.
+    void emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks& blocks,
+                               qint64 contextShotId,
+                               int serial);
+
+    // The blocks the last completed context request resolved, and the shot they
+    // were resolved for. Guarded by the id so a payload can never be built from
+    // another shot's context — the request is asynchronous and the user can open
+    // a different shot while one is in flight.
+    DialingBlocks::AdvisorContextBlocks m_contextBlocks;
+    qint64 m_contextBlocksShotId = 0;
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;

@@ -629,6 +629,34 @@ QString AIConversation::getConversationText() const
         if (i > 0) text += "\n\n---\n\n";
 
         if (role == "user") {
+            // A turn sent as one JSON object: the question and the shot label are
+            // fields, so reading them is a field read. Everything below this block
+            // exists for turns stored before that — conversations persist in
+            // QSettings with no expiry, so those keep arriving forever.
+            const QString trimmedContent = content.trimmed();
+            if (trimmedContent.startsWith(QLatin1Char('{'))) {
+                QJsonParseError perr{};
+                const QJsonDocument pdoc =
+                    QJsonDocument::fromJson(content.toUtf8(), &perr);
+                if (perr.error == QJsonParseError::NoError && pdoc.isObject()) {
+                    const QJsonObject turn = pdoc.object();
+                    const QString label = turn.value(QStringLiteral("shotLabel")).toString();
+                    const QString question = turn.value(QStringLiteral("question")).toString();
+                    const QString bev = turn.value(QStringLiteral("shot")).toObject()
+                                            .value(QStringLiteral("beverageType")).toString();
+                    const bool jsonIsFilter = bev.compare(QLatin1String("filter"), Qt::CaseInsensitive) == 0
+                                           || bev.compare(QLatin1String("pourover"), Qt::CaseInsensitive) == 0;
+                    if (!label.isEmpty()) {
+                        text += jsonIsFilter ? "**[Coffee " + label + "]**"
+                                             : "**[Shot " + label + "]**";
+                    } else {
+                        text += jsonIsFilter ? "**[Coffee Data]**" : "**[Shot Data]**";
+                    }
+                    if (!question.isEmpty()) text += "\n**You:** " + question;
+                    continue;
+                }
+            }
+
             // Check if this is a shot data message
             if (content.contains("Shot Summary") || content.contains("Here's my latest shot")) {
                 // Find the user's question after the shot data
@@ -721,56 +749,36 @@ void AIConversation::addShotContext(const QString& shotSummary, const QString& s
     qDebug() << "AIConversation: Added new shot context, now have" << m_messages.size() << "messages";
 }
 
-QString AIConversation::processShotForConversation(const QString& shotSummary, const QString& shotLabel)
+QJsonObject AIConversation::changesFromPreviousShot(const QString& shotLabel,
+                                                    const QString& shotPayload) const
 {
-    QString processed = shotSummary;
+    // Find the previous shot in this conversation, excluding the current one so a
+    // shot never diffs against itself.
+    const PreviousShotInfo prev = findPreviousShot(shotLabel);
+    if (prev.content.isEmpty() || prev.shotLabel.isEmpty()) return QJsonObject();
 
-    // Find previous shot in conversation (exclude the current shot to avoid self-comparison)
-    PreviousShotInfo prev = findPreviousShot(shotLabel);
-    QString prevContent = prev.content;
-    QString prevLabel = prev.shotLabel;
+    // extractShotFields reads the structured envelope, falling back to the legacy
+    // prose regex for turns stored before the payload became one JSON object.
+    const ShotFields curr = extractShotFields(shotPayload);
+    const ShotFields prevFields = extractShotFields(prev.content);
 
-    if (!prevContent.isEmpty()) {
-        // === Change detection ===
-        // Read shot-VARIABLE fields directly from the JSON envelope
-        // (issue #1039). Falls back to legacy prose regex automatically
-        // when either message predates the JSON envelope.
-        const ShotFields curr = extractShotFields(processed);
-        const ShotFields prevFields = extractShotFields(prevContent);
+    QJsonObject changed;
+    auto diffField = [&changed](const QString& a, const QString& b, const char* key) {
+        if (a.isEmpty() || b.isEmpty() || a == b) return;
+        changed[QLatin1String(key)] = QJsonObject{{"from", a}, {"to", b}};
+    };
+    diffField(prevFields.doseG, curr.doseG, "doseG");
+    diffField(prevFields.yieldG, curr.yieldG, "yieldG");
+    diffField(prevFields.durationSec, curr.durationSec, "durationSec");
+    diffField(prevFields.grinder, curr.grinder, "grinder");
 
-        QStringList changes;
-
-        auto diffField = [&](const QString& a, const QString& b,
-                             const QString& label, const QString& unit) {
-            if (!a.isEmpty() && !b.isEmpty() && a != b)
-                changes << QString("%1 %2%3\u2192%4%5")
-                    .arg(label, a, unit, b, unit);
-        };
-        diffField(prevFields.doseG, curr.doseG, QStringLiteral("Dose"), QStringLiteral("g"));
-        diffField(prevFields.yieldG, curr.yieldG, QStringLiteral("Yield"), QStringLiteral("g"));
-        diffField(prevFields.durationSec, curr.durationSec, QStringLiteral("Duration"), QStringLiteral("s"));
-        // Grinder diff string keeps a different separator (" \u2192 " with
-        // spaces) for legibility \u2014 the grinder string can be long
-        // ("Niche Zero (63mm conical) at 4.0").
-        if (!prevFields.grinder.isEmpty() && !curr.grinder.isEmpty() && prevFields.grinder != curr.grinder)
-            changes << "Grinder " + prevFields.grinder + " \u2192 " + curr.grinder;
-
-        // Prepend changes section
-        QString changesSection;
-        if (!prevLabel.isEmpty()) {
-            if (!changes.isEmpty()) {
-                changesSection = "**Changes from Shot (" + prevLabel + ")**: " + changes.join(", ") + "\n\n";
-            } else {
-                changesSection = "**No parameter changes from Shot (" + prevLabel + ")**\n\n";
-            }
-        }
-
-        if (!changesSection.isEmpty()) {
-            processed = changesSection + processed;
-        }
-    }
-
-    return processed;
+    // "Nothing changed" is a fact the model needs as much as a diff is — it is the
+    // difference between "your change did nothing" and "you changed nothing".
+    QJsonObject out;
+    out["comparedToShot"] = prev.shotLabel;
+    out["changed"] = changed;
+    out["anyChange"] = !changed.isEmpty();
+    return out;
 }
 
 QString AIConversation::multiShotSystemPrompt(const QString& beverageType, const QString& profileTitle,
