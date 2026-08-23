@@ -704,6 +704,13 @@ private slots:
             AIConversation::appendAssistantTurnForKey(
                 key, i + 1, QStringLiteral("u"), QStringLiteral("a"), std::nullopt,
                 QStringLiteral("sys"));
+            // Written only by the backup-restore path, so a thread that arrived
+            // that way carries a field appendAssistantTurnForKey never writes.
+            // Seeded here because eviction has to take the whole group, not the
+            // fields one function happens to know about.
+            settings.setValue(QStringLiteral("ai/conversations/") + key
+                                  + QStringLiteral("/contextLabel"),
+                              QStringLiteral("Brand Type %1 / P").arg(i));
             QJsonObject entry;
             entry["key"] = key;
             entry["beanBrand"] = QStringLiteral("Brand");
@@ -730,11 +737,21 @@ private slots:
         for (int i = 0; i < AIManager::MAX_CONVERSATIONS; ++i)
             QCOMPARE(mgr.m_conversationIndex[i].key, keys[i]);
 
-        // The trim is not bookkeeping-only: the dropped threads' transcripts are
-        // gone from storage, so they cannot resurface through indexStoredConversation.
+        // The trim is not bookkeeping-only: the dropped threads are gone from
+        // storage, so they cannot resurface through indexStoredConversation.
         for (int i = AIManager::MAX_CONVERSATIONS; i < seeded; ++i) {
             QCOMPARE(AIConversation::storedTranscriptState(settings, keys[i]),
                      AIConversation::TranscriptState::Missing);
+            // Every key under the group, not just the transcript. Checking only
+            // the transcript is what let `contextLabel` survive eviction on the
+            // running app -- storedTranscriptState reads `messages` alone, so it
+            // reported Missing while a key from the same group was still there.
+            settings.beginGroup(QStringLiteral("ai/conversations/") + keys[i]);
+            const QStringList leftover = settings.allKeys();
+            settings.endGroup();
+            QVERIFY2(leftover.isEmpty(),
+                     qPrintable(QStringLiteral("Evicted thread %1 left %2 behind")
+                                    .arg(keys[i], leftover.join(QStringLiteral(", ")))));
         }
 
         // And it persisted — a reload must not read the over-cap index back.

@@ -2160,10 +2160,12 @@ void AIManager::trimConversationsTo(int keep)
     AppSettings settings;
     while (m_conversationIndex.size() > keep) {
         const ConversationEntry oldest = m_conversationIndex.takeLast();
-        const QString prefix = QStringLiteral("ai/conversations/") + oldest.key + QStringLiteral("/");
-        settings.remove(prefix + QStringLiteral("systemPrompt"));
-        settings.remove(prefix + QStringLiteral("messages"));
-        settings.remove(prefix + QStringLiteral("timestamp"));
+        // Remove the whole group, not a list of field names. QSettings::remove()
+        // on a group takes its subkeys with it, so a field added later cannot be
+        // left behind -- which is what happened to `contextLabel`: only the
+        // restore path writes it, so the three-field version of this loop never
+        // saw it and orphaned one key per eviction on any restored device.
+        settings.remove(QStringLiteral("ai/conversations/") + oldest.key);
         qDebug() << "AIManager: Evicted oldest conversation:"
                  << oldest.beanBrand << oldest.beanType << oldest.profileName;
     }
