@@ -952,6 +952,11 @@ void WeightProcessor::setPreShotZeroOffset(double offsetG)
     emit preShotZeroOffsetChanged(offsetG);
 }
 
+void WeightProcessor::clearPreShotZeroOffset()
+{
+    setPreShotZeroOffset(0.0);
+}
+
 void WeightProcessor::markExtractionStart()
 {
     if (!m_active || m_extractionStartTime != 0) return;

@@ -154,6 +154,24 @@ private slots:
         QCOMPARE(spy.last().at(0).toDouble(), 36.0);
     }
 
+    void theShotsZeroIsRetiredWhenTheShotIsSaved() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy offsets(&wp, &WeightProcessor::preShotZeroOffsetChanged);
+
+        armWithPreShotZero(wp, -0.4);
+        QVERIFY(!offsets.isEmpty());
+        QCOMPARE(offsets.last().at(0).toDouble(), -0.4);
+
+        wp.stopExtraction();
+        // The signal is the ONLY channel to the surfaces that mirror the offset --
+        // live readout, MQTT, MCP, widget. An offset dropped without notifying leaves
+        // them subtracting this shot's number from the idle scale until app restart,
+        // which no tare can undo (the scale zeroes, the app keeps subtracting).
+        wp.clearPreShotZeroOffset();
+        QCOMPARE(offsets.last().at(0).toDouble(), 0.0);
+    }
+
     // ==========================================
     // LSLR flow estimation
     // ==========================================

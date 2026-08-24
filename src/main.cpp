@@ -1626,6 +1626,22 @@ int main(int argc, char *argv[])
                          }, Qt::QueuedConnection);
                      });
 
+    // Retire the shot's zero correction once the shot has been saved. shotProcessingReady
+    // is the right edge: shotEnded fires while drip is still settling, and the settle
+    // samples run through the same correction, so clearing there would step the graph and
+    // the saved finalWeightG by the offset. Queued into the worker, and posted after the
+    // direct-connected onShotEnded above has already read the shot, so the record is safe.
+    // Without this the offset outlived its shot and every surface reading MachineState::
+    // scaleWeight (idle readout, steam, dose weighing, MQTT, MCP, widget) stayed skewed by
+    // it — and a manual tare could not fix it, because the scale zeroed while the app went
+    // on subtracting. Only an app restart cleared it.
+    QObject::connect(&timingController, &ShotTimingController::shotProcessingReady,
+                     [&weightProcessor]() {
+                         QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
+                             weightProcessor.clearPreShotZeroOffset();
+                         }, Qt::QueuedConnection);
+                     });
+
     // Release the shot latch on espressoCycleEnded, NOT shotEnded: the latch is
     // armed at espressoCycleStarted, and only espressoCycleEnded is that
     // signal's pair. shotEnded is gated on flow having started, so a cycle
