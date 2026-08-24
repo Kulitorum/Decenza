@@ -1,3 +1,10 @@
+// `layer.effect` declares an inline component, so this file's ids are not statically
+// resolvable inside it without this pragma -- the gear now colorizes with the zone's
+// contrast colour, which is a read of `root` from inside that component. No delegate in
+// this file takes an injected model role, so no `required property` is needed; the two
+// structural twins (HistoryItem, AutoFavoritesItem) carry the same header.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Effects
 import Decenza
@@ -5,8 +12,11 @@ import Decenza
 LayoutWidgetItem {
     id: root
 
-    implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
-    implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
+    // Compact only: in a centre zone this type is compiled to CustomItem
+    // (LayoutItemDelegate.isCompiled), so this file is never loaded with
+    // isCompact false. The full-mode branch it used to carry rendered nowhere.
+    implicitWidth: compactContent.implicitWidth
+    implicitHeight: compactContent.implicitHeight
 
     function goToSettings() {
             AppShell.settingsRequested("")
@@ -15,7 +25,6 @@ LayoutWidgetItem {
     // --- COMPACT MODE ---
     Item {
         id: compactContent
-        visible: root.isCompact
         anchors.fill: parent
         implicitWidth: Theme.bottomBarHeight
         implicitHeight: Theme.bottomBarHeight
@@ -31,44 +40,27 @@ LayoutWidgetItem {
             layer.smooth: true
             layer.effect: MultiEffect {
                 colorization: 1.0
-                colorizationColor: Theme.textColor
+                colorizationColor: root.zoneTextColor
             }
         }
 
         AccessibleTapHandler {
             anchors.fill: parent
             accessibleName: TranslationManager.translate("layout.settings.accessible.open", "Settings. Open application settings")
+            accessibleDescription: LayoutActions.gestureHint(root.modelData)
             supportDoubleClick: true
             onAccessibleClicked: root.goToSettings()
             // Tap already opens the page, so BOTH gestures are free to override.
             //
-            // supportLongPress is what makes the handler below reachable AT ALL: with it
-            // false the press timer never starts, so a long press ran no override and the
-            // release opened the page instead -- the handler was declared and dead. It is
-            // gated on a stored override, matching the compiled CustomItem twin
-            // (CustomItem.qml): unset, the press falls through to the tap that opens this
-            // page, and a stored "none" is consumed so the gesture is silent.
+            // Gated, not `true`: this widget reserves no destination
+            // (gestureReservedDestination(), settings_network.cpp), so the release tap is
+            // the ONLY route to its page -- and a long press that starts the timer
+            // swallows that tap whether or not it dispatches anything. Unset therefore
+            // has to leave the timer alone. See AccessibleTapHandler.supportLongPress.
             supportLongPress: !!(root.modelData && root.modelData.longPressAction)
             onAccessibleLongPressed: LayoutActions.runGesture(root.modelData, "longPressAction", null)
             onAccessibleDoubleClicked: LayoutActions.runGesture(root.modelData, "doubleclickAction", null)
         }
     }
 
-    // --- FULL MODE ---
-    Item {
-        id: fullContent
-        visible: !root.isCompact
-        anchors.fill: parent
-        implicitWidth: Theme.scaled(150)
-        implicitHeight: Theme.scaled(120)
-
-        ActionButton {
-            anchors.fill: parent
-            translationKey: "idle.button.settings"
-            translationFallback: "Settings"
-            iconSource: "qrc:/icons/settings.svg"
-            enabled: true
-            onClicked: root.goToSettings()
-        }
-    }
 }

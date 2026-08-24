@@ -51,6 +51,7 @@ private slots:
     void historyFilterKeysAreUnderstoodByTheStorageLayer();
     void gestureDestinationsAreDeclaredExactlyOnce();
     void everyGestureCapableTypeRoutesThroughTheSharedHelper();
+    void everyGestureHandlerCanActuallyFire();
 
 private:
     QJSEngine m_engine;
@@ -77,6 +78,17 @@ inline QString widgetItem(const QString &name) {
     return QStringLiteral("/qml/components/layout/items/%1.qml").arg(name);
 }
 }
+
+// The ten action widgets whose gestures a user can override, as their dedicated
+// items/<Type>Item.qml render format. One declaration, because two slots need it and
+// two hand-kept copies of the same ten names is the drift this file exists to prevent.
+// (kOneSlot/kTwoSlot below split the same set by whether the type RESERVES a
+// destination, which is a different question about the same widgets.)
+static const QStringList kGestureWidgetFiles{
+    QStringLiteral("RecipesItem"), QStringLiteral("BeansItem"), QStringLiteral("SteamItem"),
+    QStringLiteral("HotWaterItem"), QStringLiteral("FlushItem"), QStringLiteral("EspressoItem"),
+    QStringLiteral("EquipmentItem"), QStringLiteral("HistoryItem"),
+    QStringLiteral("AutoFavoritesItem"), QStringLiteral("SettingsItem") };
 
 
 // Lift the JS segmentsToHtml() out of the raw string literal it is served from. Brace-matched
@@ -528,11 +540,7 @@ void TestCustomWidgetHtml::gestureDestinationsAreDeclaredExactlyOnce()
 // except by using that widget in that zone.
 void TestCustomWidgetHtml::everyGestureCapableTypeRoutesThroughTheSharedHelper()
 {
-    static const QStringList kFiles{
-        QStringLiteral("RecipesItem"), QStringLiteral("BeansItem"), QStringLiteral("SteamItem"),
-        QStringLiteral("HotWaterItem"), QStringLiteral("FlushItem"), QStringLiteral("EspressoItem"),
-        QStringLiteral("EquipmentItem"), QStringLiteral("HistoryItem"),
-        QStringLiteral("AutoFavoritesItem"), QStringLiteral("SettingsItem") };
+    const QStringList &kFiles = kGestureWidgetFiles;
 
     QStringList problems;
     for (const QString &f : kFiles) {
@@ -574,43 +582,6 @@ void TestCustomWidgetHtml::everyGestureCapableTypeRoutesThroughTheSharedHelper()
                                        "added at any time: ")
                         + hardcoded.join(QStringLiteral("; "))));
 
-    // A declared onAccessibleLongPressed does NOTHING unless the same handler enables
-    // supportLongPress: AccessibleTapHandler gates its press timer on that flag, so
-    // without it the gesture never fires and the release opens the page instead. Three
-    // widgets shipped exactly that -- handler present, routed correctly through
-    // LayoutActions, and dead -- which every check above passes over, because they all
-    // read the handler and none of them ask whether it can run.
-    QStringList unreachable;
-    for (const QString &f : kFiles) {
-        const QString src = readSource(SrcPath::widgetItem(f));
-        if (src.isEmpty()) { unreachable << f + QStringLiteral(" (unreadable)"); continue; }
-        qsizetype at = 0;
-        while ((at = src.indexOf(QStringLiteral("onAccessibleLongPressed"), at)) >= 0) {
-            // The enclosing handler is the nearest AccessibleTapHandler above this line.
-            const qsizetype open = src.lastIndexOf(QStringLiteral("AccessibleTapHandler"), at);
-            // Declared, not merely MENTIONED: the block above each of these handlers
-            // explains supportLongPress in prose, so a substring match over the block
-            // passes on the very files this was written to catch. Only a line that
-            // assigns the property counts.
-            bool declared = false;
-            if (open >= 0) {
-                const QStringList lines = src.mid(open, at - open).split(QLatin1Char('\n'));
-                for (const QString &l : lines) {
-                    const QString t = l.trimmed();
-                    if (t.startsWith(QStringLiteral("supportLongPress:"))) { declared = true; break; }
-                }
-            }
-            if (!declared)
-                unreachable << f;
-            at += 1;
-        }
-    }
-    QVERIFY2(unreachable.isEmpty(),
-             qPrintable(QStringLiteral("onAccessibleLongPressed declared in a handler that "
-                                       "never enables supportLongPress, so the gesture can "
-                                       "never fire: ")
-                        + unreachable.join(QStringLiteral("; "))));
-
     // And the dispatch itself stays in one place: CustomItem must delegate, not carry a
     // second copy of the switch.
     const QString custom = readSource(SrcPath::kCustomItem);
@@ -618,6 +589,81 @@ void TestCustomWidgetHtml::everyGestureCapableTypeRoutesThroughTheSharedHelper()
              "CustomItem no longer delegates to the shared dispatch");
     QVERIFY2(!custom.contains(QStringLiteral("category === \"navigate\"")),
              "CustomItem has re-grown its own action dispatch");
+}
+
+// A gesture handler that cannot fire. AccessibleTapHandler gates its press timer on
+// supportLongPress and its tap delay on supportDoubleClick, so a handler declared
+// without the matching flag is dead code that reads as live: the gesture runs nothing
+// and the release performs the widget's ordinary tap action instead. Three widgets
+// shipped exactly that on long press, past a check that read the handler line and
+// never asked whether it could run.
+//
+// Its own slot rather than more assertions on the routing test: QVERIFY2 aborts the
+// slot, so a routing regression would hide a reachability one. A new slot in an
+// existing file costs milliseconds; only a new FILE is expensive (CLAUDE.md).
+void TestCustomWidgetHtml::everyGestureHandlerCanActuallyFire()
+{
+    // handler signal -> the flag that arms it, and the model key a conditional gate
+    // must read. Accepting the KEY, not just any expression, is what catches the
+    // realistic version of this bug: `modelData.longpressAction` (lower-case p) is a
+    // gate that is false forever and would otherwise pass as "declared".
+    struct Gesture { const char *handler; const char *flag; const char *key; };
+    static const Gesture kGestures[] = {
+        { "onAccessibleLongPressed",   "supportLongPress:",   "longPressAction" },
+        { "onAccessibleDoubleClicked", "supportDoubleClick:", "doubleclickAction" },
+    };
+
+    QStringList problems;
+    // CustomItem included: it is the render format EVERY one of these widgets takes in
+    // a centre zone, so deleting either of its two flags kills the gesture for all ten
+    // at once.
+    for (const QString &f : kGestureWidgetFiles + QStringList{ QStringLiteral("CustomItem") }) {
+        const QString src = readSource(SrcPath::widgetItem(f));
+        if (src.isEmpty()) { problems << f + QStringLiteral(" (unreadable)"); continue; }
+        for (const Gesture &g : kGestures) {
+            const QString handler = QLatin1String(g.handler);
+            qsizetype at = 0;
+            while ((at = src.indexOf(handler, at)) >= 0) {
+                // Anchor on the opening BRACE, not the bare type name: a comment that
+                // merely mentions AccessibleTapHandler would otherwise be taken for the
+                // handler's start and hide a flag declared above it. PageTitleItem.qml
+                // has such a comment today, so this is a live shape, not a hypothetical.
+                const qsizetype open =
+                    src.lastIndexOf(QStringLiteral("AccessibleTapHandler {"), at);
+                // Only the lines ABOVE the signal are scanned. QML does not care about
+                // order, this check does, and the failure message says so -- a window
+                // that ran past the signal would have to brace-match through comments
+                // and string literals to know where the handler ends.
+                bool armed = false;
+                if (open >= 0) {
+                    const QStringList lines = src.mid(open, at - open).split(QLatin1Char('\n'));
+                    for (const QString &l : lines) {
+                        const QString t = l.trimmed();
+                        // Declared, not merely MENTIONED: these handlers explain the flag
+                        // in prose directly above it, so a substring match over the block
+                        // passes on the very files this was written to catch.
+                        if (!t.startsWith(QLatin1String(g.flag)))
+                            continue;
+                        // And armed, not merely declared: `supportLongPress: false`, or a
+                        // gate on a misspelled key, is the shipped bug with a line of
+                        // code in front of it.
+                        armed = t.contains(QLatin1String("true")) || t.contains(QLatin1String(g.key));
+                        if (armed)
+                            break;
+                    }
+                }
+                if (!armed)
+                    problems << QStringLiteral("%1.%2").arg(f, handler);
+                at += 1;
+            }
+        }
+    }
+    QVERIFY2(problems.isEmpty(),
+             qPrintable(QStringLiteral("gesture handler with no armed support flag above it "
+                                       "in the same AccessibleTapHandler -- it can never fire "
+                                       "(declare supportLongPress/supportDoubleClick before "
+                                       "the handler, and not as a constant false): ")
+                        + problems.join(QStringLiteral("; "))));
 }
 
 QString TestCustomWidgetHtml::viaJs(const QVariantList &segments)

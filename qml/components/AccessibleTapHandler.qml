@@ -18,7 +18,17 @@ MouseArea {
     // The item to track for "tap again to activate" (defaults to parent)
     property var accessibleItem: parent
 
-    // Whether long-press is supported
+    // Whether long-press is supported. This is what makes accessibleLongPressed
+    // reachable AT ALL: false means the press timer below never starts, so the
+    // signal never fires and the release runs the ordinary tap instead. A handler
+    // declared without it is dead code that looks live -- three widgets shipped
+    // exactly that (gated now by tst_customwidgethtml).
+    //
+    // Widgets whose long press has a DESTINATION of its own set this true. A widget
+    // whose tap is the only route to its page gates it on a stored override instead
+    // (see the three tap-only layout widgets): with it unconditionally true, a slow
+    // press sets _longPressTriggered, onReleased returns early, and the tap that
+    // would have opened the page is swallowed.
     property bool supportLongPress: false
 
     // Whether double-tap is supported (adds delay to single taps)

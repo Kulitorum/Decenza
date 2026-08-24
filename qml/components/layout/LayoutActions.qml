@@ -187,6 +187,33 @@ QtObject {
         return items
     }
 
+    // What TalkBack/VoiceOver says after the widget's name when a gesture carries an
+    // override. Action labels stay generic: a stored action string ("navigate:settings")
+    // has no human-readable label at this point.
+    //
+    // Lives here rather than on CustomItem for the reason the dispatch does — every
+    // built-in action widget needs the same sentence, and the dedicated items cannot
+    // reach a property on CustomItem. Three of them announced nothing at all, which
+    // matters most to the users who cannot see the widget: AccessibleTapHandler
+    // disables double-tap detection in accessibility mode, so long press is the ONLY
+    // secondary gesture a screen-reader user has.
+    // A stored kNoAction is an explicit silence, so it announces nothing: promising a
+    // secondary action that deliberately does nothing is worse than promising none.
+    // CustomItem's own hint used to count it as an action; this is that fix too.
+    function gestureHint(modelData) {
+        var lp = modelData ? modelData.longPressAction : ""
+        var dc = modelData ? modelData.doubleclickAction : ""
+        var hasLP = !!lp && lp !== layoutActions.kNoAction
+        var hasDC = !!dc && dc !== layoutActions.kNoAction
+        if (hasLP && hasDC)
+            return TranslationManager.translate("customitem.accessible.hint.both", "Long-press or double-tap for additional actions.")
+        if (hasLP)
+            return TranslationManager.translate("customitem.accessible.hint.longpress", "Long-press for additional action.")
+        if (hasDC)
+            return TranslationManager.translate("customitem.accessible.hint.doubletap", "Double-tap for additional action.")
+        return ""
+    }
+
     // Explicitly "do nothing on this gesture" — DISTINCT from unset. Unset ("")
     // means "whatever this widget does by default", which on most action widgets
     // is opening its page. A user who wants the gesture silenced needs a way to
