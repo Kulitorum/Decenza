@@ -686,6 +686,7 @@ set(SOURCES
     src/widget/machinestatussnapshot.cpp
     src/core/batterymanager.cpp
     src/core/memorymonitor.cpp
+    src/core/fddiagnostics.cpp
     src/core/accessibilitymanager.cpp
     src/core/autowakemanager.cpp
     src/core/crashhandler.cpp
@@ -919,6 +920,7 @@ set(HEADERS
     src/core/widgetlibrary.h
     src/core/batterymanager.h
     src/core/memorymonitor.h
+    src/core/fddiagnostics.h
     src/core/logcollapse.h
     src/core/logpaths.h
     src/core/sanitizers.h

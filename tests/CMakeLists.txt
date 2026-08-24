@@ -1454,6 +1454,7 @@ add_decenza_test(tst_profilemanager
     tst_profilemanager.cpp
     ${MCP_MOC_HEADERS}
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpresources.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/fddiagnostics.cpp
     ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
@@ -1566,6 +1567,12 @@ target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib)
 # (mcplogfilter.h is header-only — nothing to link beyond decenza_testlib's Qt Core.)
 add_decenza_test(tst_mcplogfilter
     tst_mcplogfilter.cpp
+)
+
+# --- tst_fddiagnostics: in-process /proc descriptor and socket census ---
+add_decenza_test(tst_fddiagnostics
+    tst_fddiagnostics.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/fddiagnostics.cpp
 )
 
 # --- tst_mcptools_shots_debuglog: shots_get_debug_log filter/regex/tail (improve-mcp-debug-log-search) ---
