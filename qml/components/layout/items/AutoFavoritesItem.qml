@@ -12,8 +12,11 @@ LayoutWidgetItem {
     id: root
 
 
-    implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
-    implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
+    // Compact only: in a centre zone this type is compiled to CustomItem
+    // (LayoutItemDelegate.isCompiled), so this file is never loaded with
+    // isCompact false. The full-mode branch it used to carry rendered nowhere.
+    implicitWidth: compactContent.implicitWidth
+    implicitHeight: compactContent.implicitHeight
 
     function goToAutoFavorites() {
             AppShell.autoFavoritesRequested()
@@ -22,7 +25,6 @@ LayoutWidgetItem {
     // --- COMPACT MODE ---
     Item {
         id: compactContent
-        visible: root.isCompact
         anchors.fill: parent
         implicitWidth: compactFavRow.implicitWidth + Theme.scaled(16)
         implicitHeight: Theme.bottomBarHeight
@@ -56,31 +58,20 @@ LayoutWidgetItem {
         AccessibleTapHandler {
             anchors.fill: parent
             accessibleName: TranslationManager.translate("idle.accessible.autofavorites.description", "Open auto-favorites list of recent bean and profile combinations")
+            accessibleDescription: LayoutActions.gestureHint(root.modelData)
             supportDoubleClick: true
             onAccessibleClicked: root.goToAutoFavorites()
             // Tap already opens the page, so BOTH gestures are free to override.
-            // With nothing stored these do nothing, which is exactly today's behaviour.
+            //
+            // Gated, not `true`: this widget reserves no destination
+            // (gestureReservedDestination(), settings_network.cpp), so the release tap is
+            // the ONLY route to its page -- and a long press that starts the timer
+            // swallows that tap whether or not it dispatches anything. Unset therefore
+            // has to leave the timer alone. See AccessibleTapHandler.supportLongPress.
+            supportLongPress: !!(root.modelData && root.modelData.longPressAction)
             onAccessibleLongPressed: LayoutActions.runGesture(root.modelData, "longPressAction", null)
             onAccessibleDoubleClicked: LayoutActions.runGesture(root.modelData, "doubleclickAction", null)
         }
     }
 
-    // --- FULL MODE ---
-    Item {
-        id: fullContent
-        visible: !root.isCompact
-        anchors.fill: parent
-        implicitWidth: Theme.scaled(150)
-        implicitHeight: Theme.scaled(120)
-
-        ActionButton {
-            anchors.fill: parent
-            translationKey: "idle.button.autofavorites"
-            translationFallback: "Favorites"
-            iconSource: "qrc:/icons/star.svg"
-            iconSize: Theme.scaled(43)
-            backgroundColor: Theme.actionButtonFillOn(Theme.primaryColor, root.zoneFillOverride)
-            onClicked: root.goToAutoFavorites()
-        }
-    }
 }

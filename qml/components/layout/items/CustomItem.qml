@@ -37,20 +37,11 @@ LayoutWidgetItem {
     readonly property bool hasEmoji: emoji !== ""
     readonly property bool emojiIsSvg: hasEmoji && emoji.indexOf("qrc:") === 0
 
-    // Accessibility hint describing configured secondary actions (for TalkBack/VoiceOver)
-    // Action labels are intentionally generic because action strings (e.g. "navigate:settings") have no associated human-readable label.
-    readonly property string _accessibleHint: {
-        var _ = TranslationManager.translationVersion  // re-evaluate on language change
-        var hasLP = root.longPressAction !== ""
-        var hasDC = root.doubleclickAction !== ""
-        if (hasLP && hasDC)
-            return TranslationManager.translate("customitem.accessible.hint.both", "Long-press or double-tap for additional actions.")
-        if (hasLP)
-            return TranslationManager.translate("customitem.accessible.hint.longpress", "Long-press for additional action.")
-        if (hasDC)
-            return TranslationManager.translate("customitem.accessible.hint.doubletap", "Double-tap for additional action.")
-        return ""
-    }
+    // Accessibility hint describing configured secondary actions (for TalkBack/VoiceOver).
+    // The sentence itself lives in LayoutActions, which is where the dedicated action
+    // widgets can reach it too -- they need the identical hint and cannot read a
+    // property on this file.
+    readonly property string _accessibleHint: LayoutActions.gestureHint(root.modelData)
 
     // Action tiles use Theme.actionTileColor (neutral over a custom background
     // image so they match the bars/cards, standard accent otherwise); an explicit
