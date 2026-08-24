@@ -70,9 +70,16 @@ public slots:
     // was the only reset, so a shot's offset survived into idle, steam and dose
     // weighing, and a manual tare could not shift it because the scale zeroed while
     // the app kept subtracting. Restarting the app was the only cure.
-    // Called on shotProcessingReady, which is AFTER the SAW settle window and the
-    // save: clearing at espresso-cycle exit instead would jump the drip-settle
-    // samples (and so the saved finalWeightG) by the offset mid-capture.
+    // Called on shotProcessingReady, which closes the SAW settle window and is what
+    // TRIGGERS the save — the clear lands after the save only because it is queued
+    // onto this worker while onShotEnded runs directly on the main thread. Do not
+    // move it to a direct same-thread site on that signal: it would then run before
+    // the shot has been read. Clearing at espresso-cycle exit instead is no fix
+    // either — that signal is emitted synchronously while shotEnded is queued, so it
+    // precedes the settle window and would jump the drip samples, and with them the
+    // saved finalWeightG, by the offset mid-capture. The one exit that does clear
+    // here is a mid-pour disconnect, which never reaches shotEnded at all (see the
+    // espressoCycleEnded wiring in main.cpp).
     void clearPreShotZeroOffset();
 
 #ifdef DECENZA_TESTING

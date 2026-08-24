@@ -1653,7 +1653,7 @@ int main(int argc, char *argv[])
     // exit rather than the narrowest. Fires after the save path has read the
     // snapshot (which survives release by design), and is idempotent.
     QObject::connect(&machineState, &MachineState::espressoCycleEnded,
-                     [&weightProcessor, &mainController]() {
+                     [&weightProcessor, &mainController, &machineState]() {
                          mainController.profileManager()->releaseShotLatch();
                          // Disarm the SAW worker for the same reason and by the
                          // same asymmetry: startExtraction arms it at cycle
@@ -1664,6 +1664,27 @@ int main(int argc, char *argv[])
                          QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
                              weightProcessor.endShotCycle();
                          }, Qt::QueuedConnection);
+                         // Same asymmetry, third time: the pre-shot zero is retired on
+                         // shotProcessingReady (above), which is reached only through
+                         // shotEnded. A mid-pour disconnect sets Phase::Disconnected,
+                         // emits THIS signal and returns before the queued shotEnded ever
+                         // fires (MachineState::updateFromDevice), so the offset a flowing
+                         // shot had already adopted would stay applied to the idle scale
+                         // for the rest of the session — the bug this fix exists to remove,
+                         // reached by a different road.
+                         //
+                         // Guarded on Disconnected rather than clearing unconditionally,
+                         // because this signal is emitted SYNCHRONOUSLY on the normal
+                         // Ending -> Idle exit while shotEnded is queued: an unguarded
+                         // clear here would land before the settle window and step the
+                         // drip samples, and so the saved finalWeightG, by the offset.
+                         // A disconnect has no such window — the shot is dead and nothing
+                         // further will be captured from it.
+                         if (machineState.phase() == MachineState::Phase::Disconnected) {
+                             QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
+                                 weightProcessor.clearPreShotZeroOffset();
+                             }, Qt::QueuedConnection);
+                         }
                      });
 
     // Machine phase → WeightProcessor: extend scale-feed-liveness detection to
