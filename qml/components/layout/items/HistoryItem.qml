@@ -60,7 +60,14 @@ LayoutWidgetItem {
             supportDoubleClick: true
             onAccessibleClicked: root.goToHistory()
             // Tap already opens the page, so BOTH gestures are free to override.
-            // With nothing stored these do nothing, which is exactly today's behaviour.
+            //
+            // supportLongPress is what makes the handler below reachable AT ALL: with it
+            // false the press timer never starts, so a long press ran no override and the
+            // release opened the page instead -- the handler was declared and dead. It is
+            // gated on a stored override, matching the compiled CustomItem twin
+            // (CustomItem.qml): unset, the press falls through to the tap that opens this
+            // page, and a stored "none" is consumed so the gesture is silent.
+            supportLongPress: !!(root.modelData && root.modelData.longPressAction)
             onAccessibleLongPressed: LayoutActions.runGesture(root.modelData, "longPressAction", null)
             onAccessibleDoubleClicked: LayoutActions.runGesture(root.modelData, "doubleclickAction", null)
         }
