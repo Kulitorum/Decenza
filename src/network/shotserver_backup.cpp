@@ -1161,9 +1161,13 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                                               settingsRestored, profilesImported, profilesSkipped,
                                               mediaImported, mediaSkipped, aiConversationsImported,
                                               pendingConversations]() mutable {
-                // Local, not the outer one: this continuation runs after the
-                // synchronous path has returned, so the two never share a run.
-                QString aiConversationsNote;
+                // Named differently from the outer `aiConversationsNote` on
+                // purpose. Semantically it could reuse the name — this lambda has
+                // no capture-default, so the outer one is not in scope — and
+                // Clang accepts that, which is why macOS, iOS and Windows all
+                // compiled it. GCC's -Wshadow flags the DECLARATION regardless of
+                // capture, so both Linux builds failed the release on it.
+                QString restoreNote;
                 if (*destroyed) {
                     // Nothing to rescue here, and an attempt to rescue was
                     // removed: it wrote the stashed conversations with a NULL id
@@ -1212,7 +1216,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     // nullptr: this page is English throughout — every other
                     // line it renders ("Settings restored", "Shots merged") is a
                     // literal, and ShotServer holds no TranslationManager.
-                    aiConversationsNote = AIConversation::importHeldBackNote(
+                    restoreNote = AIConversation::importHeldBackNote(
                         pendingConversations.size(), nullptr);
                     qWarning() << "ShotServer: shot import was refused, so AI conversations were"
                                << "NOT imported — restore again rather than lose their shot links";
@@ -1227,7 +1231,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     // What was refused travels with the count. Reporting only
                     // the survivors is what let a restore that dropped most of
                     // the threads render as an unqualified success.
-                    aiConversationsNote = AIConversation::importRefusalNote(tally, /*tm=*/nullptr);
+                    restoreNote = AIConversation::importRefusalNote(tally, /*tm=*/nullptr);
                     if (tally.conversationsImported > 0) {
                         settings.sync();
                         m_aiManager->reloadConversations();
@@ -1268,8 +1272,10 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     result["mediaImported"] = mediaImported;
                     result["mediaSkipped"] = mediaSkipped;
                     result["aiConversationsImported"] = aiConversationsImported;
-                    if (!aiConversationsNote.isEmpty())
-                        result["aiConversationsNote"] = aiConversationsNote;
+                    // The JSON KEY stays as it was — the page reads
+                    // r.aiConversationsNote; only the local was renamed.
+                    if (!restoreNote.isEmpty())
+                        result["aiConversationsNote"] = restoreNote;
                     sendJson(socketGuard, QJsonDocument(result).toJson(QJsonDocument::Compact));
                 } else {
                     qDebug() << "ShotServer: Restore response dropped (socket disconnected)";
