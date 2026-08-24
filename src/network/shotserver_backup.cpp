@@ -1205,6 +1205,15 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     // upload the archive again — and importing now with every id
                     // cleared makes that retry useless, because the keys would
                     // already exist and the retry skips them as duplicates.
+                    //
+                    // Reported, not only logged: the page otherwise says the shots
+                    // were refused and nothing at all about the conversations held
+                    // back with them.
+                    // nullptr: this page is English throughout — every other
+                    // line it renders ("Settings restored", "Shots merged") is a
+                    // literal, and ShotServer holds no TranslationManager.
+                    aiConversationsNote = AIConversation::importHeldBackNote(
+                        pendingConversations.size(), nullptr);
                     qWarning() << "ShotServer: shot import was refused, so AI conversations were"
                                << "NOT imported — restore again rather than lose their shot links";
                 } else if (!pendingConversations.isEmpty() && m_aiManager) {
@@ -1218,7 +1227,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     // What was refused travels with the count. Reporting only
                     // the survivors is what let a restore that dropped most of
                     // the threads render as an unqualified success.
-                    aiConversationsNote = AIConversation::importRefusalNote(tally);
+                    aiConversationsNote = AIConversation::importRefusalNote(tally, /*tm=*/nullptr);
                     if (tally.conversationsImported > 0) {
                         settings.sync();
                         m_aiManager->reloadConversations();
@@ -1284,7 +1293,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
             AIConversation::importConversationsStatic(settings, pendingConversations,
                                                       nullptr, nullptr);
         aiConversationsImported += tally.conversationsImported;
-        aiConversationsNote = AIConversation::importRefusalNote(tally);
+        aiConversationsNote = AIConversation::importRefusalNote(tally, /*tm=*/nullptr);
         if (tally.conversationsImported > 0) {
             settings.sync();
             m_aiManager->reloadConversations();

@@ -303,10 +303,29 @@ public:
      * ONE producer for the same reason the importer is one: three surfaces
      * report this run (the in-app import popup, the device-migration dialog and
      * the ShotServer restore page), and a count without its remedy is what made
-     * the silence worth fixing in the first place. Plain English, already
-     * specific about the fix; callers pair it with their own lead-in.
+     * the silence worth fixing in the first place. Already specific about the
+     * fix; callers pair it with their own lead-in.
+     *
+     * `tm` may be null, which yields the English fallback — the same contract as
+     * the tr_() helper every other user-visible string in this file uses. It is a
+     * parameter because this is static and tr_() is not. NOT QObject::tr(): this
+     * app installs no QTranslator at all, so QObject::tr() would make the string
+     * permanently English AND render "%n" literally, giving "1 conversation(s)".
+     *
+     * Main thread only, like everything reaching TranslationManager.
      */
-    static QString importRefusalNote(const ImportTally& tally);
+    static QString importRefusalNote(const ImportTally& tally, TranslationManager* tm);
+
+    /**
+     * The note for conversations HELD BACK — not refused inside the importer,
+     * but never handed to it, because the shot import was refused and importing
+     * now would consume their keys and make the retry useless.
+     *
+     * Separate from importRefusalNote because there is no ImportTally to report:
+     * the importer did not run. Same null-`tm` contract, same main-thread rule.
+     * Empty when `count` is 0.
+     */
+    static QString importHeldBackNote(qsizetype count, TranslationManager* tm);
 
     /**
      * Import conversations from a backup or a peer device into QSettings.

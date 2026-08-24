@@ -466,9 +466,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     result["shotId"] = resolvedShotId;
                     if (calibration.isEmpty()) {
                         // {} comes from the hard guards (empty grinder model,
-                        // filter/pourover, invalid shot, no dialed-in shots on
-                        // this package) AND from a failed query — the builder
-                        // logs that and returns the same empty object.
+                        // filter/pourover, no dialed-in shots on this package)
+                        // AND from a failed query — the builder logs that and
+                        // returns the same empty object. An invalid shot is not
+                        // in that list: it returns above, before this branch.
                         //
                         // So the reason names the OUTCOME, not a cause. It used
                         // to assert "no qualifying shots", which on a database
@@ -480,9 +481,12 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         result["available"] = false;
                         result["reason"] =
                             "No cross-profile grinder calibration could be produced for this "
-                            "equipment package. Advise qualitatively (finer / coarser) "
-                            "and have the user pull a reference shot on the target profile "
-                            "rather than quoting a specific number.";
+                            "shot. Advise qualitatively (finer / coarser) rather than quoting a "
+                            "specific number. If the user has not yet pulled dialed-in shots on "
+                            "this equipment package, a reference shot on the target profile is "
+                            "what would produce one — but do not assert that as the reason, "
+                            "because this answer does not distinguish it from a lookup that "
+                            "could not complete.";
                     } else {
                         // Block is present and self-describing via
                         // `confidence`: "approximate" carries numbers within

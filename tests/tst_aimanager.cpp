@@ -2900,6 +2900,50 @@ private slots:
         settings.clear();
     }
 
+    // The note is the only thing that tells a user an import refused anything —
+    // the counts reach three surfaces through it and nowhere else. Nothing
+    // asserted it was ever produced, which is how its first version shipped
+    // reaching one of two QML handlers and rendering "1 conversation(s)".
+    void aRefusedImportProducesANoteNamingTheRemedy()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        // A packaged conversation with no equipment map: the conversations-only
+        // import, and the case the note exists for.
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(7, QJsonArray{}), nullptr, nullptr);
+
+        QCOMPARE(tally.conversationsImported, 0);
+        QCOMPARE(tally.refusedNeedShots, 1);
+        QCOMPARE(tally.refused(), 1);
+
+        // nullptr TranslationManager is the English-fallback contract.
+        const QString note = AIConversation::importRefusalNote(tally, nullptr);
+        QVERIFY2(!note.isEmpty(), "a refusal produced no note, so no surface can report it");
+        QVERIFY2(note.contains(QStringLiteral("1 conversation")),
+                 qPrintable(QStringLiteral("the count must render as a number, not a placeholder "
+                                           "or a plural form this app cannot resolve: %1").arg(note)));
+        QVERIFY2(!note.contains(QStringLiteral("(s)")),
+                 qPrintable(QStringLiteral("Qt plural markup reached the user — this app installs "
+                                           "no QTranslator, so %n renders literally: %1").arg(note)));
+        QVERIFY2(note.contains(QStringLiteral("Import the shots")),
+                 "the note must name the remedy, which is the whole reason to show a count");
+
+        // Nothing refused: no note, so a clean run says nothing extra.
+        AIConversation::ImportTally clean;
+        clean.conversationsImported = 3;
+        QVERIFY(AIConversation::importRefusalNote(clean, nullptr).isEmpty());
+
+        // Held back is a DIFFERENT message with a different remedy.
+        const QString held = AIConversation::importHeldBackNote(40, nullptr);
+        QVERIFY(held.contains(QStringLiteral("40 conversations")));
+        QVERIFY2(held.contains(QStringLiteral("again")),
+                 "held-back conversations are recovered by retrying, and must say so");
+        QVERIFY(AIConversation::importHeldBackNote(0, nullptr).isEmpty());
+        settings.clear();
+    }
+
     // The package map, produced by the REAL importer rather than written by
     // hand. Every other re-key test builds the QHash itself, so the line in
     // importDatabaseStatic that publishes it could be deleted and only this

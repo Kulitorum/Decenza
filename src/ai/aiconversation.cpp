@@ -568,19 +568,46 @@ AIConversation::ImportTally AIConversation::importConversationsStatic(
     return tally;
 }
 
-QString AIConversation::importRefusalNote(const ImportTally& tally)
+// Shared by both note producers: translate through TranslationManager when it is
+// available, fall back to English when it is not, and substitute the count.
+//
+// A count argument rather than a Qt plural form. "%n" needs a QTranslator to
+// pick a form and this app installs none — every language reaches the UI through
+// TranslationManager instead — so "%n conversation(s)" renders the literal source
+// string, "(s)" and all, for everyone.
+static QString noteLine(TranslationManager* tm, const char* key, const char* fallback, qsizetype n)
+{
+    const QString text = tm ? tm->translateString(QString::fromUtf8(key),
+                                                  QString::fromUtf8(fallback))
+                            : QString::fromUtf8(fallback);
+    return text.arg(n);
+}
+
+QString AIConversation::importHeldBackNote(qsizetype count, TranslationManager* tm)
+{
+    if (count <= 0) return QString();
+    return noteLine(tm, "import.conversations.heldBack",
+                    "%1 conversations were not imported, because the shot history they refer "
+                    "to could not be. Run the import again — importing them now would leave "
+                    "them with no shots to point at.",
+                    count);
+}
+
+QString AIConversation::importRefusalNote(const ImportTally& tally, TranslationManager* tm)
 {
     QStringList parts;
     if (tally.refusedNeedShots > 0) {
-        parts << QObject::tr("%n conversation(s) could not be matched to this device's "
-                             "equipment. Import the shots as well — that is what carries the "
-                             "grinder and basket across.",
-                             nullptr, tally.refusedNeedShots);
+        parts << noteLine(tm, "import.conversations.refusedNeedShots",
+                     "%1 conversations could not be matched to this device's equipment. "
+                     "Import the shots as well — that is what carries the grinder and "
+                     "basket across.",
+                     tally.refusedNeedShots);
     }
     if (tally.refusedLegacyKey > 0) {
-        parts << QObject::tr("%n conversation(s) were saved before threads were kept per "
-                             "equipment set and can no longer be reopened.",
-                             nullptr, tally.refusedLegacyKey);
+        parts << noteLine(tm, "import.conversations.refusedLegacyKey",
+                     "%1 conversations were saved before threads were kept per equipment "
+                     "set and can no longer be reopened.",
+                     tally.refusedLegacyKey);
     }
     return parts.join(QStringLiteral(" "));
 }

@@ -402,7 +402,7 @@ T.Page {
                                     grinderBrand: favoriteDelegate.model.grinderBrand || "",
                                     grinderModel: favoriteDelegate.model.grinderModel || "",
                                     equipmentName: favoriteDelegate.model.equipmentName || "",
-                                    equipmentId: favoriteDelegate.model.equipmentId || 0,
+                                    equipmentId: favoriteDelegate.model.equipmentId ?? 0,
                                     grinderSetting: favoriteDelegate.model.grinderSetting || "",
                                     doseBucket: favoriteDelegate.model.doseBucket || 0,
                                     targetWeight: favoriteDelegate.model.targetWeightG || 0,
@@ -451,11 +451,16 @@ T.Page {
                                     // the card is grouped on the package, and two baskets
                                     // on one grinder are two cards. Filtering by brand and
                                     // model is the approximation the grouping query itself
-                                    // stopped using. `undefined` means the row predates the
-                                    // id, and is left unfiltered rather than sent as 0 —
-                                    // bucket 0 is a real, different group.
-                                    if (favoriteDelegate.model.equipmentId !== undefined)
-                                        filter.equipmentId = favoriteDelegate.model.equipmentId
+                                    // stopped using.
+                                    //
+                                    // The role is always present — requestAutoFavorites sets
+                                    // it unconditionally over COALESCE(equipment_id, 0), and
+                                    // a ListModel takes its roles from the first appended
+                                    // item — so there is no undefined case to guard.
+                                    filter.equipmentId = favoriteDelegate.model.equipmentId
+                                    // Banner-only: names the package the id selects, so the
+                                    // "Filtered:" line describes the filter being applied.
+                                    filter.equipmentLabel = favoriteDelegate._equipmentText
                                 }
                                 if (includes.grindSetting && favoriteDelegate.model.grinderSetting)
                                     filter.grinderSetting = favoriteDelegate.model.grinderSetting

@@ -513,7 +513,7 @@ The later `dialing_get_grinder_calibration` split (#1164) does **not** reverse t
 | Shot data (curves, phases, anomalies) | `ShotSummarizer` | `dialing_get_context` / `shots_get_detail` |
 | Dial-in history (last N shots, same profile **and equipment package**) | `ShotHistoryStorage::loadRecentShotsByKbIdStatic()` | `dialing_get_context` |
 | Grinder context (observed settings range, noise-filtered `stepSize`, burr-swappable flag) | `ShotHistoryStorage::queryGrinderContext()` + `GrinderAliases` — shared with in-app AI | `dialing_get_context` |
-| Grinder calibration (per-user RGS for every KB profile, derived from all-time anchor shots on the same equipment package) | `DialingBlocks::buildGrinderCalibrationBlock()` — shared with in-app AI | `dialing_get_grinder_calibration` (on demand); in-app advisor / `ai_advisor_invoke` inline |
+| Grinder calibration (per-user RGS for every KB profile, derived from all-time anchor shots on the same equipment package) | `DialingBlocks::buildGrinderCalibrationBlock()` — shared with in-app AI | `dialing_get_grinder_calibration` (on demand); in-app advisor / `ai_advisor_invoke` through `buildAdvisorContextBlocks` |
 | Bean metadata (brand, type, roast, grinder, burrs) | Shot metadata / Settings DYE | `dialing_get_context` |
 | Machine telemetry (live pressure/flow/temp) | `MachineState` / `DE1Device` | `machine_get_telemetry` |
 | All available profiles | Profile list | `profiles_list` |

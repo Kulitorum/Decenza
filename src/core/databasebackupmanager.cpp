@@ -89,6 +89,13 @@ DatabaseBackupManager::~DatabaseBackupManager()
     }
 }
 
+void DatabaseBackupManager::setAiConversationNote(const QString& note)
+{
+    if (m_aiConversationNote == note) return;
+    m_aiConversationNote = note;
+    emit aiConversationNoteChanged();
+}
+
 void DatabaseBackupManager::start()
 {
     if (!m_settings || !m_storage) {
@@ -1128,6 +1135,12 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     // then already exist and the retry skips them. Leave the
                     // conversations in the archive for the retry to do properly.
                     if (shotImport.refused()) {
+                        // Held back, and SAID so. Without this the user is told
+                        // the shot history was refused and never that their
+                        // conversations were held back with it, which makes the
+                        // retry that recovers both look optional.
+                        conversationNote = AIConversation::importHeldBackNote(
+                            conversations.size(), m_translationManager);
                         qWarning() << "DatabaseBackupManager: shot import was refused, so AI"
                                    << "conversations were NOT imported — retry the restore"
                                    << "rather than lose their shot links";
@@ -1152,16 +1165,20 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                         // Reported to the user, not only to the log: the count of
                         // survivors was already on screen, so refusing 37 of 40
                         // rendered as a green "3 imported".
-                        conversationNote = AIConversation::importRefusalNote(convTally);
+                        conversationNote = AIConversation::importRefusalNote(convTally, m_translationManager);
                     }
                 }
             }
 
             m_restoreInProgress = false;
+            // Published before either terminal signal, so the note survives the
+            // failure path too: in merge mode a failed shot or settings import
+            // still reaches here having held every conversation back.
+            setAiConversationNote(conversationNote);
             if (!restoreErrors.isEmpty()) {
                 emit restoreFailed(joinErrors(restoreErrors));
             } else {
-                emit restoreCompleted(filename, conversationNote);
+                emit restoreCompleted(filename);
             }
         }, Qt::QueuedConnection);
     });

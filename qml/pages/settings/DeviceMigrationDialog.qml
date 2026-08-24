@@ -42,9 +42,17 @@ DecenzaDialog {
             if (shots > 0) parts.push(shots + " shots")
             if (media > 0) parts.push(media + " media")
             if (aiConversations > 0) parts.push(aiConversations + " conversations")
-            migrationDialog.importResult = parts.length > 0
+            // The note is read from the PROPERTY rather than a handler argument.
+            // This dialog is where the conversations-only button lives, and that
+            // is the case the note exists for: with no shot import there is no
+            // equipment map, so every packaged thread is refused. It also has to
+            // show when the run ended with an error, which never reaches this
+            // handler at all — hence the binding below rather than more code here.
+            var note = MainController.dataMigration.aiConversationNote
+            var summary = parts.length > 0
                 ? TranslationManager.translate("settings.data.importComplete", "Import complete:") + " " + parts.join(", ")
                 : TranslationManager.translate("settings.data.importNothingNew", "Import complete — nothing new to import")
+            migrationDialog.importResult = note ? summary + "\n" + note : summary
         }
     }
 
@@ -342,6 +350,22 @@ DecenzaDialog {
             color: Theme.errorColor
             font.pixelSize: Theme.scaled(11)
             wrapMode: Text.WordWrap
+        }
+
+        // What the AI-conversation step could not do. Separate from the error
+        // above and from importResult below, because it has to appear in BOTH
+        // states: a refused shot history ends the run with an error AND holds
+        // every conversation back, and the import-complete summary never renders
+        // on that path.
+        Text {
+            Layout.fillWidth: true
+            visible: text.length > 0 && MainController.dataMigration.errorMessage !== ""
+            text: MainController.dataMigration.aiConversationNote
+            color: Theme.warningColor
+            font.pixelSize: Theme.scaled(11)
+            wrapMode: Text.WordWrap
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
         }
 
         // Authentication prompt (when server requires TOTP)

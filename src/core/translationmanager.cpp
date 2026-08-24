@@ -400,9 +400,15 @@ QString TranslationManager::translateString(const QString& key, const QString& f
 
         // Propagate existing translation from other keys with the same fallback
         // This ensures new keys get translations that were applied before they were registered.
-        // It now also runs for a key whose English was REWORDED: noteSourceString has just
-        // dropped that key's old translation, and if the new wording matches a string already
-        // translated elsewhere, this refills it for free rather than waiting for a re-translate.
+        // It also runs for a key whose English was REWORDED, where it can fill in a translation
+        // for free if the new wording matches a string already translated elsewhere.
+        //
+        // It does NOT run because the old translation was dropped: noteSourceString deliberately
+        // leaves the translation alone on a reword — see the long note there, and the 26 keys
+        // that legitimately carry two fallbacks in one build. This comment used to assert the
+        // opposite, which matters because "a reword loses its translation" is exactly the
+        // premise that decides whether reworded UI text needs a NEW key. It does: the old
+        // translation is kept and would keep rendering the old meaning.
         if (m_currentLanguage != "en") {
             QString normalizedFallback = fallback.trimmed();
             for (auto it = m_stringRegistry.constBegin(); it != m_stringRegistry.constEnd(); ++it) {

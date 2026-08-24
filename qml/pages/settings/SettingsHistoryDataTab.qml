@@ -435,6 +435,26 @@ KeyboardAwareContainer {
                     }
                 }
 
+                // What the last restore's AI-conversation step could not do.
+                //
+                // Here, and not appended to the status pill: the pill is painted
+                // in success green and auto-dismissed after five seconds, and
+                // this message names an action the user has to take ("import the
+                // shots as well", "run the import again"). It also has to appear
+                // when the restore FAILED, which the pill's success path never
+                // reaches. Bound to the property so it survives both.
+                Text {
+                    Layout.fillWidth: true
+                    visible: text.length > 0
+                    text: MainController.backupManager
+                          ? MainController.backupManager.aiConversationNote : ""
+                    wrapMode: Text.WordWrap
+                    color: Theme.warningColor
+                    font.pixelSize: Theme.scaled(12)
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+
                 // Restore from backup section
                 Tr {
                     key: "settings.data.restorefrombackup"
@@ -977,16 +997,16 @@ KeyboardAwareContainer {
     Connections {
         target: MainController.dataMigration
 
-        function onImportComplete(settingsImported, profilesImported, shotsImported, mediaImported, aiConversationsImported, aiConversationNote) {
+        function onImportComplete(settingsImported, profilesImported, shotsImported, mediaImported, aiConversationsImported) {
             importCompletePopup.settingsCount = settingsImported
             importCompletePopup.profilesCount = profilesImported
             importCompletePopup.shotsCount = shotsImported
             importCompletePopup.mediaCount = mediaImported
             importCompletePopup.aiConversationsCount = aiConversationsImported
-            // What the import REFUSED. Without it the popup shows only the
-            // survivors, so a run that dropped most of the conversations reads
-            // as an unqualified success.
-            importCompletePopup.aiConversationNote = aiConversationNote || ""
+            // Read from the PROPERTY, not from a handler argument: the cases
+            // that produce a note are often the cases that never emit this
+            // signal at all, and the property survives them.
+            importCompletePopup.aiConversationNote = MainController.dataMigration.aiConversationNote
             importCompletePopup.open()
 
             // Refresh profiles list
@@ -1540,20 +1560,13 @@ KeyboardAwareContainer {
         target: MainController.backupManager
         enabled: historyDataTab.visible || historyDataTab.restoreInProgress
 
-        function onRestoreCompleted(filename, note) {
+        function onRestoreCompleted(filename) {
             historyDataTab.restoreInProgress = false;
             restoreConfirmDialog.resetDefaults();
             restoreConfirmDialog.close();
             console.log("Restore completed:", filename);
-            // `note` says what the restore REFUSED — empty on a clean one. It is
-            // appended rather than replacing the success line, because the
-            // restore did succeed; what it dropped is the part the count of
-            // survivors could not tell the user.
-            var restoreMsg = TranslationManager.translate("settings.data.restoresuccess",
+            backupStatusText.text = TranslationManager.translate("settings.data.restoresuccess",
                 "✓ Backup restored successfully");
-            if (note)
-                restoreMsg += "\n" + note;
-            backupStatusText.text = restoreMsg;
             backupStatusText.color = Theme.successColor;
             backupStatusBackground.visible = true;
             backupStatusTimer.restart();

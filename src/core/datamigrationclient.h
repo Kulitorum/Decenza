@@ -19,6 +19,7 @@
 #include <memory>
 
 #include <QtQml/qqmlregistration.h>
+class TranslationManager;
 class QTcpSocket;
 
 class Settings;
@@ -48,6 +49,16 @@ class DataMigrationClient : public QObject {
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(QString currentOperation READ currentOperation NOTIFY currentOperationChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
+    // What the AI-conversation step could not do, empty when it did everything.
+    //
+    // A PROPERTY, not a parameter on importComplete: the cases that produce it
+    // are the cases that end the run with an error, and importComplete only
+    // fires on a clean run. Carried as a signal argument it evaporated exactly
+    // when it mattered — a refused shot history holds every conversation back,
+    // sets an error, and the note went with it. A property is also one fewer
+    // handler signature to keep in step; the first version of this reached one
+    // of its two QML handlers and silently dropped out of the other.
+    Q_PROPERTY(QString aiConversationNote READ aiConversationNote NOTIFY aiConversationNoteChanged)
     Q_PROPERTY(QVariantMap manifest READ manifest NOTIFY manifestChanged)
     Q_PROPERTY(QString serverUrl READ serverUrl NOTIFY serverUrlChanged)
     Q_PROPERTY(QVariantList discoveredDevices READ discoveredDevices NOTIFY discoveredDevicesChanged)
@@ -71,6 +82,13 @@ public:
     double progress() const { return m_progress; }
     QString currentOperation() const { return m_currentOperation; }
     QString errorMessage() const { return m_errorMessage; }
+    QString aiConversationNote() const { return m_aiConversationNote; }
+
+    // Inject the TranslationManager so the AI-conversation note localizes; until
+    // injected, the English fallback is used. Same shape as
+    // DatabaseBackupManager's. Main thread only — TranslationManager is not
+    // thread-safe, and every producer of the note above runs on it.
+    void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
     QVariantMap manifest() const { return m_manifest; }
     QString serverUrl() const { return m_serverUrl; }
     QVariantList discoveredDevices() const { return m_discoveredDevices; }
@@ -162,18 +180,14 @@ signals:
     void progressChanged();
     void currentOperationChanged();
     void errorMessageChanged();
+    void aiConversationNoteChanged();
     void manifestChanged();
     void serverUrlChanged();
     void discoveredDevicesChanged();
     void connected();
     void connectionFailed(const QString& error);
-    // `aiConversationNote` is empty when nothing was refused. It exists because
-    // the conversations-only import is the case that needs it most: with no shot
-    // import there is no equipment map, so every thread that names a package is
-    // refused and the button that offered "Import AI Conversations (40)" would
-    // otherwise report 0 with no reason given.
-    void importComplete(int settingsImported, int profilesImported, int shotsImported, int mediaImported,
-                        int aiConversationsImported, const QString& aiConversationNote = QString());
+    void importComplete(int settingsImported, int profilesImported, int shotsImported,
+                        int mediaImported, int aiConversationsImported);
     void importFailed(const QString& error);
     void discoveryComplete();
     void needsAuthenticationChanged();
@@ -212,6 +226,11 @@ private:
     void setProgress(double progress);
     void setCurrentOperation(const QString& operation);
     void setError(const QString& error);
+    // Report `error` only when no failure has been reported yet. See the .cpp:
+    // the steps run in a fixed order and the dialog shows one message, so an
+    // unconditional write lets the LAST failure hide the first and worst.
+    void setErrorIfFirst(const QString& error);
+    void setAiConversationNote(const QString& note);
     void setupSslHandling(QNetworkReply* reply);
     void addSessionCookie(QNetworkRequest& request);
     void saveSessionToken(const QString& serverHost, const QString& token);
@@ -262,7 +281,8 @@ private:
     double m_progress = 0.0;
     QString m_currentOperation;
     QString m_errorMessage;
-    QString m_aiConversationNote;   // what the conversation import refused, for importComplete
+    QString m_aiConversationNote;   // what the conversation step could not do; see the property
+    TranslationManager* m_translationManager = nullptr;
 
     // Import queue for importAll()
     QStringList m_importQueue;

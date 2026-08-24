@@ -145,7 +145,19 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.grinderModel = filterMap.value("grinderModel").toString();
     filter.grinderBurrs = filterMap.value("grinderBurrs").toString();
     filter.grinderSetting = filterMap.value("grinderSetting").toString();
-    filter.equipmentId = filterMap.value("equipmentId", -1).toLongLong();
+    // Not value(key, -1): QVariantMap returns the default only when the key is
+    // ABSENT, so a present-but-malformed value (null, a non-numeric string) would
+    // convert to 0 — and 0 is a real bucket here, the unpackaged pool, so a bad
+    // value would silently scope to the wrong group instead of being ignored.
+    // bagId two hundred lines down guards the same shape; its guard is allowed to
+    // be simpler because a bag id is AUTOINCREMENT and never 0, which is exactly
+    // what is not true of an equipment bucket.
+    {
+        const QVariant rawEquipmentId = filterMap.value("equipmentId");
+        bool equipmentIdOk = false;
+        const qint64 parsed = rawEquipmentId.toLongLong(&equipmentIdOk);
+        filter.equipmentId = equipmentIdOk ? parsed : -1;
+    }
     filter.roastLevel = filterMap.value("roastLevel").toString();
     filter.minEnjoyment = filterMap.value("minEnjoyment", -1).toInt();
     filter.maxEnjoyment = filterMap.value("maxEnjoyment", -1).toInt();

@@ -884,6 +884,18 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contex
             const ShotRecord record =
                 ShotHistoryStorage::loadShotRecordStatic(db, contextShotId);
             const ShotProjection ctxShot = ShotHistoryStorage::convertShotRecord(record);
+            // The database is the only source of this shot now, and
+            // loadShotRecordStatic returns a default record for BOTH a failed
+            // query and a genuine miss. Without this the blocks come back empty,
+            // get cached, and QML clears its spinner — byte-identical to a
+            // successful empty result, so the advisor answers with no history and
+            // nobody is told why. Bail with a log instead; the caller's bare
+            // "ready" still fires below.
+            if (!ctxShot.isValid()) {
+                qWarning() << "AIManager::requestRecentShotContext: shot" << contextShotId
+                           << "did not resolve — advisor context will be empty";
+                return;
+            }
 
             // Loaded here rather than inside the assembler: see
             // buildAdvisorContextBlocks on why it is a parameter.

@@ -13,10 +13,14 @@ describing shots from other equipment inside the same transcript, where they con
 every subsequent answer. Threading on equipment is what keeps a transcript describing one
 equipment set for its whole life.
 
-Threads whose identity no longer matches any current thread — including every thread saved
-before this requirement — SHALL remain readable if reached but SHALL NOT be resumed for a new
-shot. Existing thread-retention behaviour SHALL be unchanged: retired threads age out under the
-same limit as any other, and nothing is deleted eagerly.
+Threads saved before this requirement SHALL be cleared once, at the upgrade. They cannot be
+resumed — their key does not carry a package, so no shot on this device derives it — and they
+cannot be read either: their turns are stored in the prose format whose only readers were deleted
+with it. Retaining them would hold slots in a five-thread limit for transcripts nothing can
+render.
+
+Threads created under this requirement SHALL be retained unchanged: they age out under the same
+limit as any other, and nothing is deleted eagerly.
 
 #### Scenario: First advisor use after upgrading starts a fresh thread
 

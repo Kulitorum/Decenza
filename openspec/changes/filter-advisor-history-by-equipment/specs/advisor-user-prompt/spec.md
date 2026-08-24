@@ -119,26 +119,32 @@ the model can use in place of an invented one.
 - **THEN** the rendered context SHALL contain the per-shot history blocks
 - **AND** SHALL NOT contain the empty-history statement
 
-### Requirement: Shot-to-shot change detection SHALL report an equipment change
+### Requirement: Shot-to-shot change detection SHALL compare only within one equipment package
 
-The advisor's per-shot change detection, which reports what the user altered between the
-previous shot in the conversation and the current one, SHALL report a change of equipment
-package alongside the dose, yield, duration and grinder changes it already reports. The reported
-change SHALL name the previous and current equipment so the change is legible without consulting
-another part of the payload.
+Change detection compares the current shot with the previous shot IN THE SAME THREAD. A thread is
+identified by its equipment package, so both shots necessarily share one, and an equipment change
+cannot appear in that comparison — a basket switch opens a different thread instead. Change
+detection SHALL continue to report dose, yield, duration and grind setting, and SHALL NOT report
+an equipment change: the arm would compare a value with itself and could never emit.
 
-#### Scenario: Switching basket is reported as a change
+This requirement is recorded rather than dropped because an earlier draft of this change asked
+for the opposite, and the reasoning is not obvious from the code. It was written when a thread
+was keyed on bean and profile alone, where a swap genuinely could land two packages in one
+transcript and narrating it was the mitigation on the table. Keying on the package removed the
+condition instead of describing it.
 
-- **GIVEN** a conversation whose previous shot was pulled with a Decent "18g Ridged" basket
-- **AND** whose current shot was pulled with a Graph Coffee "Stepped 58→46mm" basket
-- **WHEN** the advisor assembles the current shot's message
-- **THEN** the changes line SHALL report the basket change, naming both baskets
+#### Scenario: Switching basket does not appear as a change within a thread
 
-#### Scenario: Same equipment reports no equipment change
+- **GIVEN** a thread on equipment package A
+- **WHEN** the user pulls a shot on package B with the same bean and profile
+- **THEN** a separate thread SHALL be used
+- **AND** the package B shot's changes line SHALL NOT reference package A's shots
 
-- **GIVEN** consecutive shots on the same equipment package
-- **WHEN** the advisor assembles the current shot's message
-- **THEN** the changes line SHALL NOT mention equipment
+#### Scenario: A grind change on the same package is still reported
+
+- **GIVEN** consecutive shots in one thread at grinder settings 9.5 and 9.25
+- **WHEN** the advisor assembles the second shot's message
+- **THEN** the changes line SHALL report the grind change
 
 ### Requirement: System prompt SHALL scope grind-setting comparability to one equipment set
 

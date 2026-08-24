@@ -132,6 +132,28 @@ renderer instead.
       export/import round trip. All five verified red by breaking the re-key, the refusal and the
       legacy check together.
 
+## 6b. Reporting what an import could not do
+
+- [x] 6b.1 Refusals reach the user. The counts were local to a `qDebug`, on the reasoning that no
+      caller had anywhere to show them — false: every caller already reported
+      `conversationsImported`, so the survivors were shown and the casualties were not. They ride
+      `ImportTally` now, rendered once by `AIConversation::importRefusalNote`.
+- [x] 6b.2 The note is a PROPERTY on both managers, not an argument on their success signals. The
+      cases that produce a note are largely the cases that end the run with an error, and the
+      success signal never fires on those — carried as a signal argument it evaporated exactly
+      when it mattered. It also removes a handler-signature to keep in step; the first version
+      reached one of its two QML handlers and was silently dropped by the other.
+- [x] 6b.3 Conversations HELD BACK by a refused shot import say so too
+      (`importHeldBackNote`). Nothing is lost in that case, but the retry that recovers them
+      looked optional when the only word about it was in a log.
+- [x] 6b.4 The refusal guard that decides all of the above was DEAD in the migration client:
+      `m_shotImport` was stored only on success, and an integrity refusal returns false, so
+      `refused()` could never be true. Conversations imported anyway with null maps, consuming
+      their keys, which is what made the retry useless.
+- [x] 6b.5 Notes localize through `TranslationManager`. The first version used `QObject::tr` with
+      a `%n` plural — this app installs no `QTranslator` at all, so it would have rendered "1
+      conversation(s)" in English, forever, on three surfaces.
+
 ## 7. Documentation
 
 - [x] 7.1 `docs/CLAUDE_MD/AI_ADVISOR.md` — a "Scoped to the Equipment Package" section carrying
