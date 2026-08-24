@@ -63,6 +63,24 @@ public slots:
     // flow never began, which stopExtraction (gated on shotEnded) misses.
     void endShotCycle();
     void resetForRetare();  // Clear LSLR buffer after auto-tare during preheat
+    // Drop this shot's zero correction once the shot has been saved. The offset is a
+    // PER-SHOT number: it belongs to the pour it was measured at flow start, and every
+    // surface that mirrors it (live readout, MQTT, MCP, widget) keeps subtracting it
+    // from the idle scale until something clears it. Nothing did — startExtraction()
+    // was the only reset, so a shot's offset survived into idle, steam and dose
+    // weighing, and a manual tare could not shift it because the scale zeroed while
+    // the app kept subtracting. Restarting the app was the only cure.
+    // Called on shotProcessingReady, which closes the SAW settle window and is what
+    // TRIGGERS the save — the clear lands after the save only because it is queued
+    // onto this worker while onShotEnded runs directly on the main thread. Do not
+    // move it to a direct same-thread site on that signal: it would then run before
+    // the shot has been read. Clearing at espresso-cycle exit instead is no fix
+    // either — that signal is emitted synchronously while shotEnded is queued, so it
+    // precedes the settle window and would jump the drip samples, and with them the
+    // saved finalWeightG, by the offset mid-capture. The one exit that does clear
+    // here is a mid-pour disconnect, which never reaches shotEnded at all (see the
+    // espressoCycleEnded wiring in main.cpp).
+    void clearPreShotZeroOffset();
 
 #ifdef DECENZA_TESTING
 public:

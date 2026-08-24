@@ -2367,6 +2367,16 @@ private slots:
 
         QSignalSpy cycleEnded(&f.machineState, &MachineState::espressoCycleEnded);
 
+        // The phase AS IT STANDS INSIDE the emission, which a spy cannot see. The
+        // pre-shot-zero clear in main.cpp hangs off this signal and is guarded on
+        // Phase::Disconnected precisely to tell this exit from the normal one, where
+        // clearing early would step the drip-settle samples. Assigning m_phase after
+        // the emit instead of before would leave that guard reading Pouring and
+        // silently stop it firing, with nothing else here failing.
+        MachineState::Phase phaseAtEmit = MachineState::Phase::Idle;
+        QObject::connect(&f.machineState, &MachineState::espressoCycleEnded,
+                         [&f, &phaseAtEmit]() { phaseAtEmit = f.machineState.phase(); });
+
         f.device.m_state = DE1::State::Espresso;
         f.device.m_subState = DE1::SubState::Pouring;
         f.machineState.updatePhase();
@@ -2387,6 +2397,7 @@ private slots:
 
         QCOMPARE(f.machineState.phase(), MachineState::Phase::Disconnected);
         QCOMPARE(cycleEnded.count(), 1);
+        QCOMPARE(phaseAtEmit, MachineState::Phase::Disconnected);
 
         // Idempotent: further disconnected updates must not re-fire it.
         f.machineState.updatePhase();
