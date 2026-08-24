@@ -460,6 +460,31 @@ private slots:
         const quint16 port = startRemote(settings, server, remote);
         QVERIFY(port != 0);
 
+        // Drive the listener's own routing decision, not a re-derivation of it,
+        // but without a TCP round trip per request.
+        //
+        // This used to open 105 fresh connections and read 105 replies, which
+        // put wall clock inside the assertion. McpRateWindow's window is 60
+        // seconds (mcpratewindow.h), so a loaded machine that stretched the
+        // loop past a minute rolled the window mid-test: the count reset, the
+        // suppression slot re-armed, three more per-request lines were written,
+        // and `seen` never reached 100. The same slowness walked the loop into
+        // pumpConnected's and readResponse's 3-second caps, and 105 of those
+        // exceed QtTest's 300-second watchdog by construction — which is how
+        // this test aborted the whole suite four times in one day, hung in
+        // pumpConnected. Nothing about the log budget needs a socket to be
+        // connected: routeRequest is the production decision, and the transport
+        // that reaches it is already proven end-to-end by routeGating() and the
+        // initialize round trip below.
+        //
+        // The socket is never handed to the listener, so it stays out of
+        // m_sockets and nothing deletes it underneath the loop. Unconnected,
+        // refuseRequest's write and close() are both no-ops — close() returns
+        // early on UnconnectedState (qabstractsocket.cpp, QAbstractSocket::close)
+        // — and the write's "device not open" warning is swallowed by the
+        // counting handler, which forwards nothing it does not count.
+        QTcpSocket offSocket;
+
         // Past the first milestone (100), so the branch that keeps recording
         // SCALE after per-request logging stops is actually exercised. Stopping
         // at a handful would leave that code able to be deleted with the suite
@@ -468,7 +493,8 @@ private slots:
         {
             WarningCounterGuard counting;
             for (int i = 0; i < requests; ++i)
-                fetch(port, httpRequest("POST", "/mcp/not-the-real-token", rpc("initialize")));
+                remote.routeRequest(&offSocket, QStringLiteral("POST"),
+                                    QStringLiteral("/mcp/not-the-real-token"), {}, {});
         }
 
         // One line per request while under budget, one transition line, and one

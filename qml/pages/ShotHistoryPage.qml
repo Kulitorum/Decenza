@@ -333,7 +333,7 @@ T.Page {
         // reads, which is where a typo like `bagID` is caught — at build time,
         // rather than by a runtime warning nobody reads.
         if (initialFilter) {
-            var bannerOnlyKeys = ["recipeName", "bagLabel"]
+            var bannerOnlyKeys = ["recipeName", "bagLabel", "equipmentLabel"]
             for (var key in initialFilter) {
                 if (bannerOnlyKeys.indexOf(key) >= 0)
                     continue
@@ -657,11 +657,22 @@ T.Page {
                         if (shotHistoryPage.initialFilter.beanBrand) parts.push(shotHistoryPage.initialFilter.beanBrand)
                         if (shotHistoryPage.initialFilter.beanType) parts.push(shotHistoryPage.initialFilter.beanType)
                         if (shotHistoryPage.initialFilter.profileName) parts.push(shotHistoryPage.initialFilter.profileName)
-                        if (shotHistoryPage.initialFilter.grinderBrand || shotHistoryPage.initialFilter.grinderModel) {
-                            var g = ((shotHistoryPage.initialFilter.grinderBrand || "") + " " + (shotHistoryPage.initialFilter.grinderModel || "")).trim()
-                            if (shotHistoryPage.initialFilter.grinderSetting) g += " @ " + shotHistoryPage.initialFilter.grinderSetting
-                            parts.push(g)
-                        }
+                        // Equipment, then the grind setting, as SEPARATE clauses.
+                        // They used to be one: the setting was nested inside a
+                        // guard on grinderBrand/grinderModel. An auto-favourite
+                        // card now filters by `equipmentId` and sends no brand or
+                        // model, so that guard went false and the banner claimed
+                        // a narrower filter than the query was applying — the
+                        // user's shots on their other basket absent, with nothing
+                        // on screen saying why. `equipmentLabel` is banner-only:
+                        // it names the package the id selects.
+                        var pkg = shotHistoryPage.initialFilter.equipmentLabel
+                            || ((shotHistoryPage.initialFilter.grinderBrand || "") + " "
+                                + (shotHistoryPage.initialFilter.grinderModel || "")).trim()
+                        if (pkg) parts.push(pkg)
+                        if (shotHistoryPage.initialFilter.grinderSetting)
+                            parts.push(TranslationManager.translate("shothistory.filter.grind", "grind %1")
+                                       .arg(shotHistoryPage.initialFilter.grinderSetting))
                         if (shotHistoryPage.initialFilter.minDose !== undefined && shotHistoryPage.initialFilter.maxDose !== undefined) {
                             var mid = (shotHistoryPage.initialFilter.minDose + shotHistoryPage.initialFilter.maxDose) / 2
                             parts.push(TranslationManager.translate("shothistory.filter.doseGrams", "%1g dose").arg(mid.toFixed(1)))

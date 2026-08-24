@@ -1189,11 +1189,10 @@ private slots:
     // openspec migrate-advisor-user-prompt-to-json: shotAnalysis prose
     // preservation. The prose body the legacy buildUserPrompt produced
     // moves under `shotAnalysis` verbatim — same headers, same per-line
-    // tags, same numeric formatting. Regex consumers
-    // (AIConversation::processShotForConversation,
-    // AIConversation::summarizeShotMessage) match on those substrings;
-    // any drift breaks change-detection between adjacent shots in a
-    // multi-shot conversation.
+    // tags, same numeric formatting. The regex consumers this originally
+    // protected are gone with the prose payload; what it pins now is that
+    // the prose the MODEL reads under `shotAnalysis` did not lose content
+    // when it moved into the envelope.
     void buildUserPrompt_shotAnalysisFieldPreservesProseSubstrings()
     {
         QVariantMap shot = makeHealthyShotMap();

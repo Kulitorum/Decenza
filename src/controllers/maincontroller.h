@@ -241,13 +241,15 @@ public:
     LiveSteamCoach* liveSteamCoach() const { return m_liveSteamCoach; }
     // Injects the TranslationManager into the components that localize
     // user-visible strings: the live steam coach (cue i18n), the Visualizer
-    // importer and uploader (error/status messages), and the update checker
-    // (update error messages).
+    // importer and uploader (error/status messages), the update checker
+    // (update error messages), and the migration client (what its AI-conversation
+    // step could not do).
     void setTranslationManager(TranslationManager* tm) {
         if (m_liveSteamCoach) m_liveSteamCoach->setTranslationManager(tm);
         if (m_visualizerImporter) m_visualizerImporter->setTranslationManager(tm);
         if (m_visualizer) m_visualizer->setTranslationManager(tm);
         if (m_updateChecker) m_updateChecker->setTranslationManager(tm);
+        if (m_dataMigration) m_dataMigration->setTranslationManager(tm);
     }
     void setAiManager(AIManager* aiManager) {
         m_aiManager = aiManager;

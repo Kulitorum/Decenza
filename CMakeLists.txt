@@ -991,6 +991,7 @@ set(HEADERS
     src/network/beanbaseclient.h
     src/network/beanbase_blob.h
     src/ai/aimanager.h
+    src/ai/conversationkey.h
     src/ai/aiprovider.h
     src/ai/airequestshape.h
     src/ai/conductance.h
@@ -1005,7 +1006,9 @@ set(HEADERS
     src/history/recipestorage.h
     src/history/recipepromotion.h
     src/history/unifiedbeansearchmodel.h
+    src/history/equipmentjoin.h
     src/history/shotprojection.h
+    src/history/shotscope.h
     src/history/shotdebuglogger.h
     src/history/shotfileparser.h
     src/history/shotimporter.h

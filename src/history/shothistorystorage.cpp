@@ -837,7 +837,7 @@ bool ShotHistoryStorage::runMigrations()
 
     // Migration 9: Add profile_kb_id column for AI knowledge base matching.
     // New shots get this computed at save time. Old shots won't appear in
-    // dial-in history queries (getRecentShotsByKbId), but system prompt
+    // dial-in history queries (loadRecentShotsByKbIdStatic), but system prompt
     // profile matching falls back to fuzzy title/editorType matching.
     if (currentVersion < 9) {
         qDebug() << "ShotHistoryStorage: Running migration to version 9 (profile_kb_id)";
@@ -4251,6 +4251,11 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 destDb.rollback();
                 goto cleanup;
             }
+            // Published for the same reason as shotIdMap: an AI conversation is
+            // keyed on the equipment package, so a caller carrying conversations
+            // across this import must re-key them through these ids or the
+            // restored thread is orphaned (see AIConversation::importConversationsStatic).
+            tally.equipmentIdMap = packageIdMap;
 
             // Import coffee bags next so shots.bag_id can be remapped
             // (bean-bag-inventory): bag row ids change on insert, exactly
@@ -4808,8 +4813,10 @@ cleanup:
     // A failed import's map names ids that do not exist. Clearing it here makes
     // every caller correct by construction, whichever way each phrases its own
     // "do we have a map" test. Counts are kept — they are diagnostic and true.
-    if (!result)
+    if (!result) {
         tally.shotIdMap.clear();
+        tally.equipmentIdMap.clear();
+    }
     if (outResult)
         *outResult = tally;
     return result;

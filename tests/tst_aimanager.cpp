@@ -1,18 +1,11 @@
-// tst_aimanager — pins the canonical-source separation contract from
-// openspec optimize-dialing-context-payload, task 10.5.
+// tst_aimanager — conversation index, keys, and the advisor payload helpers.
 //
-// Specifically: when AIManager renders a multi-shot history block via
-// requestRecentShotContext (the in-app "Previous Shots with This Bean &
-// Profile" path), profile metadata + setup identity must be hoisted to
-// a single header at the top of the section. Per-shot blocks render in
-// HistoryBlock mode and must NOT carry repeated profile intent or
-// grinder/bean identity strings.
-//
-// The test exercises emitRecentShotContext directly via the
-// `friend class tst_AIManager` pattern so it can synthesize a 4-shot
-// `qualifiedShots` list inline — no real DB stand-up needed. The
-// resulting payload is captured by QSignalSpy on recentShotContextReady
-// and asserted for exactly-once occurrences of the hoisted strings.
+// The hoisting this file used to pin lived in a prose renderer that no longer
+// exists: both advisor surfaces now send one JSON payload, and the identity
+// fields shared across a session are hoisted by
+// DialingHelpers::hoistSessionContext, which tst_dialing_helpers.cpp covers
+// directly. Fourteen test slots asserting `### Setup:` header text went with the
+// renderer rather than being rewritten to assert the same invariant twice.
 
 #include <QtTest>
 #include "core/appsettings.h"
@@ -31,11 +24,13 @@
 #include <QJsonArray>
 #include <QSettings>
 #include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QDate>
 
 #include "ai/aimanager.h"
 #include "mcp/mcpagentdocs.h"
 #include "ai/aiconversation.h"
+#include "ai/conversationkey.h"
 #include "core/settings.h"
 #include "core/settings_dye.h"
 #include "core/settings_ai.h"  // settings.ai()->set*: full type for the extraction-routing tests
@@ -338,254 +333,6 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
     }
 
-    // Task 10.5 end-to-end: the assembled payload from emitRecentShotContext
-    // contains exactly one ### Profile: header (with intent + recipe), exactly
-    // one ### Setup: header, and the per-shot blocks render in HistoryBlock
-    // mode (no per-shot ## Shot Summary header, no per-shot Profile/Setup
-    // duplicates).
-    void emitRecentShotContext_hoistsProfileAndSetupOnce()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-
-        // Match the serial counter so the staleness gate doesn't suppress.
-        mgr.m_contextSerial = 1;
-
-        const QString intent = QStringLiteral("0.5–1.2 ml/s target through extraction");
-        // Frames-style profile JSON so describeFramesFromJson parses cleanly
-        // and the recipe block renders.
-        const QString profileJson = QStringLiteral(R"({
-            "title": "80's Espresso",
-            "type": "advanced",
-            "version": 2,
-            "steps": [
-                {"name":"preinfusion","temperature":92,"seconds":8,"flow":4.0,"transition":"fast","exit":{"type":"pressure","condition":"over","value":4.0}},
-                {"name":"pour","temperature":92,"seconds":22,"pressure":9.0,"transition":"smooth"}
-            ]
-        })");
-
-        QList<QPair<qint64, ShotProjection>> qualifiedShots;
-        const qint64 base = QDateTime::currentSecsSinceEpoch() - 86400 * 4;
-        for (int i = 0; i < 4; ++i) {
-            qualifiedShots.append({
-                base + i * 3600,
-                makeShot(i + 1, base + i * 3600,
-                         QStringLiteral("Niche"),
-                         QStringLiteral("Zero"),
-                         QStringLiteral("63mm Mazzer Kony conical"),
-                         QString::number(4.0 + i * 0.1),
-                         QStringLiteral("Northbound Coffee Roasters"),
-                         QStringLiteral("Spring Tour 2026 #2"),
-                         QStringLiteral("80's Espresso"),
-                         intent,
-                         profileJson)
-            });
-        }
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        QVERIFY(spy.isValid());
-
-        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QStringLiteral("Niche"), 1);
-
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-        QVERIFY2(!payload.isEmpty(), "payload must not be empty for a populated 4-shot history");
-
-        // Profile + Setup headers each appear exactly once.
-        QCOMPARE(payload.count(QStringLiteral("### Profile: 80's Espresso")), 1);
-        QCOMPARE(payload.count(QStringLiteral("### Setup:")), 1);
-
-        // The intent paragraph appears exactly once (hoisted) — not 4×.
-        QCOMPARE(payload.count(intent), 1);
-
-        // Setup header carries grinder + bean identity.
-        QVERIFY2(payload.contains(QStringLiteral("### Setup: Niche Zero with 63mm Mazzer Kony conical on Northbound Coffee Roasters - Spring Tour 2026 #2")),
-                 "Setup header must combine grinder + bean identity");
-
-        // Per-shot blocks render in HistoryBlock mode — no ## Shot Summary headers.
-        QCOMPARE(payload.count(QStringLiteral("## Shot Summary")), 0);
-
-        // Per-shot blocks must not carry the profile intent again (would mean
-        // HistoryBlock mode regressed to Standalone).
-        QVERIFY2(!payload.contains(QStringLiteral("**Profile intent**:")),
-                 "per-shot blocks must not carry Profile intent: lines");
-    }
-
-    // Empty grinder/bean fields on later shots must be treated as
-    // "unrecorded, inherit" — not "different" — so the Setup header stays
-    // populated for histories that mix pre-DYE and post-DYE shots. This
-    // pins the fix for the setupShared empty-vs-populated comparison flagged
-    // in PR review of #1030.
-    void emitRecentShotContext_legacyEmptyShotDoesNotSuppressSetup()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 7;
-
-        const qint64 base = QDateTime::currentSecsSinceEpoch() - 86400 * 4;
-        QList<QPair<qint64, ShotProjection>> qualifiedShots;
-        // Shot 0: fully recorded (post-DYE).
-        qualifiedShots.append({
-            base + 3 * 3600,
-            makeShot(1, base + 3 * 3600,
-                     QStringLiteral("Niche"), QStringLiteral("Zero"),
-                     QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
-                     QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
-                     QStringLiteral("80's Espresso"), QStringLiteral("intent"),
-                     QString())
-        });
-        // Shot 1: legacy unrecorded grinder/bean (pre-DYE).
-        qualifiedShots.append({
-            base + 2 * 3600,
-            makeShot(2, base + 2 * 3600,
-                     QString(), QString(), QString(), QStringLiteral("4.0"),
-                     QString(), QString(),
-                     QStringLiteral("80's Espresso"), QString(), QString())
-        });
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QStringLiteral("Niche"), 7);
-
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        // Legacy empty shot must NOT flip setupShared to false — the Setup
-        // header should still emit with shot[0]'s recorded identity.
-        QCOMPARE(payload.count(QStringLiteral("### Setup:")), 1);
-        QVERIFY2(payload.contains(QStringLiteral("Niche Zero with 63mm Kony")),
-                 "Setup header must carry the recorded grinder identity even when later shots are blank");
-    }
-
-    // A genuine identity conflict (two shots with different non-empty grinder
-    // brands) must suppress the Setup header — regression guard in case the
-    // empty-string fix above accidentally swallows real mismatches.
-    void emitRecentShotContext_genuineConflictSuppressesSetup()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 9;
-
-        const qint64 base = QDateTime::currentSecsSinceEpoch() - 86400 * 4;
-        QList<QPair<qint64, ShotProjection>> qualifiedShots;
-        qualifiedShots.append({
-            base + 2 * 3600,
-            makeShot(1, base + 2 * 3600,
-                     QStringLiteral("Niche"), QStringLiteral("Zero"),
-                     QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
-                     QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
-                     QStringLiteral("80's Espresso"), QString(), QString())
-        });
-        qualifiedShots.append({
-            base + 1 * 3600,
-            makeShot(2, base + 1 * 3600,
-                     QStringLiteral("Eureka"), QStringLiteral("Atom 75"),
-                     QStringLiteral("75mm flat"), QStringLiteral("3.5"),
-                     QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
-                     QStringLiteral("80's Espresso"), QString(), QString())
-        });
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QStringLiteral("Niche"), 9);
-
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        QCOMPARE(payload.count(QStringLiteral("### Setup:")), 0);
-    }
-
-    // The Setup header builder must produce clean prose for partial-DYE
-    // shapes — no double spaces, no trailing/leading separators, no "on"
-    // before an empty bean name. Regression guard for the multi-segment
-    // join introduced post-#1030.
-    void emitRecentShotContext_setupHeader_partialFieldShapes_data()
-    {
-        QTest::addColumn<QString>("grinderBrand");
-        QTest::addColumn<QString>("grinderModel");
-        QTest::addColumn<QString>("grinderBurrs");
-        QTest::addColumn<QString>("beanBrand");
-        QTest::addColumn<QString>("beanType");
-        QTest::addColumn<QString>("expectedSetupLine");
-
-        // Full identity (sanity baseline).
-        QTest::newRow("full")
-            << "Niche" << "Zero" << "63mm Kony" << "Northbound" << "Spring Tour"
-            << "### Setup: Niche Zero with 63mm Kony on Northbound - Spring Tour";
-        // Burrs recorded without grinder brand+model (rare but possible if
-        // user clears brand/model after entering burrs). Pre-fix this
-        // rendered with a double-space artifact: `### Setup:  with 63mm`.
-        QTest::newRow("burrsNoGrinderName")
-            << "" << "" << "63mm Kony" << "Northbound" << "Spring Tour"
-            << "### Setup: 63mm Kony on Northbound - Spring Tour";
-        // Cultivar entered without roaster brand (full grinder identity).
-        QTest::newRow("beanTypeNoBrand")
-            << "Niche" << "Zero" << "63mm Kony" << "" << "Spring Tour"
-            << "### Setup: Niche Zero with 63mm Kony on Spring Tour";
-        // Roaster entered without specific cultivar (full grinder identity).
-        QTest::newRow("beanBrandNoType")
-            << "Niche" << "Zero" << "63mm Kony" << "Northbound" << ""
-            << "### Setup: Niche Zero with 63mm Kony on Northbound";
-        // Grinder brand only — no model, no burrs.
-        QTest::newRow("grinderBrandOnly")
-            << "Niche" << "" << "" << "Northbound" << "Spring Tour"
-            << "### Setup: Niche on Northbound - Spring Tour";
-        // Grinder model only — no brand, no burrs.
-        QTest::newRow("grinderModelOnly")
-            << "" << "Zero" << "" << "Northbound" << "Spring Tour"
-            << "### Setup: Zero on Northbound - Spring Tour";
-        // Grinder identity only — no bean fields at all.
-        QTest::newRow("grinderOnly")
-            << "Niche" << "Zero" << "63mm Kony" << "" << ""
-            << "### Setup: Niche Zero with 63mm Kony";
-        // Bean only — no grinder fields at all.
-        QTest::newRow("beanOnly")
-            << "" << "" << "" << "Northbound" << "Spring Tour"
-            << "### Setup: Northbound - Spring Tour";
-    }
-    void emitRecentShotContext_setupHeader_partialFieldShapes()
-    {
-        QFETCH(QString, grinderBrand);
-        QFETCH(QString, grinderModel);
-        QFETCH(QString, grinderBurrs);
-        QFETCH(QString, beanBrand);
-        QFETCH(QString, beanType);
-        QFETCH(QString, expectedSetupLine);
-
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 11;
-
-        const qint64 base = QDateTime::currentSecsSinceEpoch() - 3600;
-        QList<QPair<qint64, ShotProjection>> qualifiedShots;
-        qualifiedShots.append({
-            base,
-            makeShot(1, base, grinderBrand, grinderModel, grinderBurrs,
-                     QStringLiteral("4.0"), beanBrand, beanType,
-                     QStringLiteral("Profile"), QString(), QString())
-        });
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, grinderBrand, 11);
-
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        QVERIFY2(payload.contains(expectedSetupLine),
-                 qPrintable(QString("expected '%1' in payload, got: %2")
-                                .arg(expectedSetupLine)
-                                .arg(payload.left(500))));
-        // Defensive: no double-space artifacts anywhere in the Setup line.
-        const qsizetype setupStart = payload.indexOf(QStringLiteral("### Setup:"));
-        QVERIFY(setupStart >= 0);
-        const qsizetype setupEnd = payload.indexOf(QChar('\n'), setupStart);
-        const QString setupLine = payload.mid(setupStart, setupEnd - setupStart);
-        QVERIFY2(!setupLine.contains(QStringLiteral("  ")),
-                 qPrintable("Setup line has double space: " + setupLine));
-    }
-
     // ---------------------------------------------------------------------
     // openspec add-dialing-blocks-to-advisor — user-prompt envelope
     //
@@ -747,13 +494,13 @@ private slots:
         // mapping from `sd` (the resolved shot) into
         // `CurrentBeanBlockInputs`).
         DialingBlocks::CurrentBeanBlockInputs in;
-        in.beanBrand = shot.beanBrand;
-        in.beanType = shot.beanType;
+        in.identity.beanBrand = shot.beanBrand;
+        in.identity.beanType = shot.beanType;
         in.roastLevel = shot.roastLevel;
         in.roastDate = shot.roastDate;
-        in.grinderBrand = shot.grinderBrand;
-        in.grinderModel = shot.grinderModel;
-        in.grinderBurrs = shot.grinderBurrs;
+        in.identity.grinderBrand = shot.grinderBrand;
+        in.identity.grinderModel = shot.grinderModel;
+        in.identity.grinderBurrs = shot.grinderBurrs;
         in.grinderSetting = shot.grinderSetting;
         in.rpm = static_cast<int>(shot.rpm);
         in.doseWeightG = shot.doseWeightG;
@@ -859,11 +606,11 @@ private slots:
 
     // ---------------------------------------------------------------------
     // enrichUserPromptObject — single-source merge step shared by the in-app
-    // advisor and ai_advisor_invoke. Pins that the four blocks land at the
-    // right keys, that empty blocks are suppressed (no nulls), and that the
-    // merged envelope is byte-stable across calls.
+    // advisor and ai_advisor_invoke. Pins that every block lands at the right
+    // key, that empty blocks are suppressed (no nulls), and that the merged
+    // envelope is byte-stable across calls.
     // ---------------------------------------------------------------------
-    void enrichUserPromptObject_mergesAllFourBlocks()
+    void enrichUserPromptObject_mergesEveryBlock()
     {
         QNetworkAccessManager nam;
         Settings settings;
@@ -885,12 +632,28 @@ private slots:
                         {"shotCount", 1}}};
         const QJsonObject bestRecentShot{{"id", 42}, {"enjoyment0to100", 85}};
         const QJsonObject grinderContext{{"model", "Zero"}, {"stepSize", 0.25}};
+        const QJsonObject grinderCalibration{{"confidence", "directional"}};
+        const QJsonArray recentAdvice{QJsonObject{{"turnsAgo", 1}}};
 
-        mgr.enrichUserPromptObject(payload, shot, dialInSessions, bestRecentShot, grinderContext);
+        DialingBlocks::AdvisorContextBlocks blocks;
+        blocks.dialInSessions = dialInSessions;
+        blocks.bestRecentShot = bestRecentShot;
+        blocks.grinderContext = grinderContext;
+        blocks.grinderCalibration = grinderCalibration;
+        blocks.recentAdvice = recentAdvice;
+        mgr.enrichUserPromptObject(payload, shot, blocks);
 
         QVERIFY(payload.contains(QStringLiteral("dialInSessions")));
         QVERIFY(payload.contains(QStringLiteral("bestRecentShot")));
         QVERIFY(payload.contains(QStringLiteral("grinderContext")));
+        // Every block on the struct, not the three the builders happened to
+        // populate first: a merge line that is never asserted can be deleted
+        // without a test noticing, which is how noDialInHistory — the whole
+        // point of stating an absence — reached the struct and not the payload.
+        QVERIFY2(payload.contains(QStringLiteral("grinderCalibration")),
+                 "grinderCalibration is on the struct and must reach the envelope");
+        QVERIFY2(payload.contains(QStringLiteral("recentAdvice")),
+                 "recentAdvice is on the struct and must reach the envelope");
         // SAW correctly suppressed — no flow data on a synthetic ShotProjection.
         QVERIFY2(!payload.contains(QStringLiteral("sawPrediction")),
                  "SAW must be suppressed when ShotProjection has no usable flow data");
@@ -900,6 +663,38 @@ private slots:
         QVERIFY(payload.contains(QStringLiteral("profile")));
         QVERIFY(payload.contains(QStringLiteral("tastingFeedback")));
         QVERIFY(payload.contains(QStringLiteral("shotAnalysis")));
+    }
+
+    // The absence block is the reason this change exists: an omitted history
+    // section reads to the model as "no history at all" and it invents an
+    // anchor. Built correctly and then dropped at the merge, it would be
+    // invisible — every other test asserts it at the builder.
+    void enrichUserPromptObject_carriesTheStatedAbsence()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        QJsonObject payload = mgr.buildUserPromptObjectForShot(shot);
+
+        DialingBlocks::AdvisorContextBlocks blocks;
+        blocks.noDialInHistory = QJsonObject{
+            {"matchedShotCount", 0},
+            {"equipment", QJsonObject{{"grinderBrand", "Niche"}}}};
+        mgr.enrichUserPromptObject(payload, shot, blocks);
+
+        QVERIFY2(payload.contains(QStringLiteral("noDialInHistory")),
+                 "the stated absence must reach the payload, not stop at the struct");
+        QCOMPARE(payload.value(QStringLiteral("noDialInHistory")).toObject()
+                     .value(QStringLiteral("matchedShotCount")).toInt(), 0);
+        // And it never travels beside the history it replaces.
+        QVERIFY(!payload.contains(QStringLiteral("dialInSessions")));
     }
 
     void enrichUserPromptObject_suppressesEmptyBlocks()
@@ -919,8 +714,7 @@ private slots:
         // All blocks empty — none of the four enrichment keys should appear,
         // and crucially no `null` placeholders. dialing_get_context's omission
         // contract requires absent key, not `null`.
-        mgr.enrichUserPromptObject(payload, shot,
-            QJsonArray{}, QJsonObject{}, QJsonObject{});
+        mgr.enrichUserPromptObject(payload, shot, DialingBlocks::AdvisorContextBlocks{});
 
         QVERIFY2(!payload.contains(QStringLiteral("dialInSessions")),
                  "empty dialInSessions must not be added as a key");
@@ -956,10 +750,14 @@ private slots:
         const QJsonObject grinderContext{{"model", "Zero"}};
 
         QJsonObject a = mgr.buildUserPromptObjectForShot(shot);
-        mgr.enrichUserPromptObject(a, shot, dialInSessions, bestRecentShot, grinderContext);
+        DialingBlocks::AdvisorContextBlocks blocks;
+        blocks.dialInSessions = dialInSessions;
+        blocks.bestRecentShot = bestRecentShot;
+        blocks.grinderContext = grinderContext;
+        mgr.enrichUserPromptObject(a, shot, blocks);
 
         QJsonObject b = mgr.buildUserPromptObjectForShot(shot);
-        mgr.enrichUserPromptObject(b, shot, dialInSessions, bestRecentShot, grinderContext);
+        mgr.enrichUserPromptObject(b, shot, blocks);
 
         const QString jsonA = QString::fromUtf8(QJsonDocument(a).toJson(QJsonDocument::Indented));
         const QString jsonB = QString::fromUtf8(QJsonDocument(b).toJson(QJsonDocument::Indented));
@@ -991,8 +789,9 @@ private slots:
                                                       {"outcomeRating0to100", 75}}}}
         };
 
-        mgr.enrichUserPromptObject(payload, shot,
-            QJsonArray{}, QJsonObject{}, QJsonObject{}, recentAdvice);
+        DialingBlocks::AdvisorContextBlocks blocks;
+        blocks.recentAdvice = recentAdvice;
+        mgr.enrichUserPromptObject(payload, shot, blocks);
 
         QVERIFY(payload.contains(QStringLiteral("recentAdvice")));
         QCOMPARE(payload.value("recentAdvice").toArray().size(), 1);
@@ -1015,8 +814,7 @@ private slots:
         QJsonObject payload = mgr.buildUserPromptObjectForShot(shot);
         // Explicit empty recentAdvice → key omitted (no `recentAdvice: []`
         // placeholder), matching the dialing_get_context omission contract.
-        mgr.enrichUserPromptObject(payload, shot,
-            QJsonArray{}, QJsonObject{}, QJsonObject{}, QJsonArray{});
+        mgr.enrichUserPromptObject(payload, shot, DialingBlocks::AdvisorContextBlocks{});
 
         QVERIFY2(!payload.contains(QStringLiteral("recentAdvice")),
                  "empty recentAdvice must not be added as a key");
@@ -1089,7 +887,7 @@ private slots:
         // this test pins the gating, not the DB query path.)
         QSqlDatabase db; // default-constructed: invalid, never used
         const QJsonArray arr = DialingBlocks::buildDialInSessionsBlock(
-            db, QString(), 1, 5);
+            db, QString(), AdviceScope(0), 1, 5);
         QVERIFY(arr.isEmpty());
     }
 
@@ -1098,7 +896,7 @@ private slots:
         QSqlDatabase db;
         ShotProjection shot;
         const QJsonObject obj = DialingBlocks::buildBestRecentShotBlock(
-            db, QString(), 1, shot);
+            db, QString(), AdviceScope(0), 1, shot);
         QVERIFY(obj.isEmpty());
     }
 
@@ -1106,153 +904,9 @@ private slots:
     {
         QSqlDatabase db;
         const QJsonObject obj = DialingBlocks::buildGrinderContextBlock(
-            db, QString(), QStringLiteral("espresso"), QString());
+            db, QString(), AdviceScope(0), QStringLiteral("espresso"), QString());
         QVERIFY(obj.isEmpty());
     }
-
-    // Stale serial — a request that's been superseded by a newer one — emits
-    // an empty string so QML clears its contextLoading flag.
-    void emitRecentShotContext_staleSerialEmitsEmpty()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 5;
-
-        QList<QPair<qint64, ShotProjection>> qualifiedShots;
-        qualifiedShots.append({
-            42,
-            makeShot(1, 42, QStringLiteral("Niche"), QStringLiteral("Zero"),
-                     QStringLiteral("63mm"), QStringLiteral("4.0"),
-                     QStringLiteral("Bean"), QStringLiteral("Type"),
-                     QStringLiteral("Profile"), QString(), QString())
-        });
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        // Caller's serial (3) doesn't match the current serial (5).
-        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QStringLiteral("Niche"), 3);
-
-        QCOMPARE(spy.count(), 1);
-        QVERIFY2(spy.takeFirst().at(0).toString().isEmpty(),
-                 "stale request must emit empty string");
-    }
-
-    void emitRecentShotContext_appendsGrinderCalibrationBlock()
-    {
-        // Pins the rewritten ## Grinder Calibration prose (issue #1223):
-        // approximate → usageConstraint verbatim + anchored numbers for
-        // history/derived; directional → no numbers, finer/coarser only.
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 42;
-
-        const QString usage = QStringLiteral(
-            "UGS is a relative ordering of profiles by grind coarseness, "
-            "not grinder clicks. SENTINEL-USAGE-STRING.");
-
-        // --- approximate branch ---
-        QJsonObject calib;
-        calib[QStringLiteral("grinderModel")] = QStringLiteral("Niche Zero");
-        calib[QStringLiteral("confidence")] = QStringLiteral("approximate");
-        calib[QStringLiteral("currentProfileUgsPlaced")] = true;
-        calib[QStringLiteral("usageConstraint")] = usage;
-        calib[QStringLiteral("conversionKey")] = 2.0;
-        calib[QStringLiteral("calibratedUgsRange")] = QJsonArray{ 0.0, 2.0 };
-        QJsonObject anchor;
-        anchor[QStringLiteral("profileName")] = QStringLiteral("Londinium");
-        anchor[QStringLiteral("ugs")] = 0.0;
-        anchor[QStringLiteral("setting")] = QStringLiteral("6");
-        anchor[QStringLiteral("coffee")] = QStringLiteral("RoasterX / BeanY");
-        calib[QStringLiteral("coffeeAnchor")] = anchor;
-        QJsonArray profiles;
-        auto addP = [&](const QString& n, double u, const QString& src,
-                        const QString& rgs, const QString& dir) {
-            QJsonObject p;
-            p[QStringLiteral("profileName")] = n;
-            p[QStringLiteral("ugs")] = u;
-            p[QStringLiteral("source")] = src;
-            if (!rgs.isEmpty()) p[QStringLiteral("rgs")] = rgs;
-            if (!dir.isEmpty()) p[QStringLiteral("direction")] = dir;
-            profiles.append(p);
-        };
-        addP(QStringLiteral("Londinium"), 0.0, QStringLiteral("history"),
-             QStringLiteral("6"), QString());
-        addP(QStringLiteral("Adaptive v2"), 1.25, QStringLiteral("derived"),
-             QStringLiteral("4.5"), QString());
-        addP(QStringLiteral("TurboTurbo"), 6.0, QStringLiteral("directional"),
-             QString(), QStringLiteral("coarser"));
-        calib[QStringLiteral("profiles")] = profiles;
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        QVERIFY(spy.isValid());
-        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 42, calib);
-        QCOMPARE(spy.count(), 1);
-        QString payload = spy.takeFirst().at(0).toString();
-
-        QVERIFY2(payload.contains(QStringLiteral("## Grinder Calibration")),
-                 "calibration header missing");
-        QVERIFY2(payload.contains(QStringLiteral("SENTINEL-USAGE-STRING")),
-                 "usageConstraint must be repeated verbatim");
-        QVERIFY2(payload.contains(QStringLiteral("Niche Zero")),
-                 "grinder model missing");
-        QVERIFY2(payload.contains(QStringLiteral("Londinium")),
-                 "history profile entry missing");
-        QVERIFY2(payload.contains(QStringLiteral("Adaptive v2")),
-                 "derived profile entry missing");
-        QVERIFY2(payload.contains(QStringLiteral("4.5")),
-                 "derived rgs missing");
-        QVERIFY2(payload.contains(QStringLiteral("TurboTurbo")),
-                 "directional profile must still be listed");
-        QVERIFY2(payload.contains(QStringLiteral("coarser")),
-                 "directional entry must say coarser");
-        QVERIFY2(!payload.contains(QStringLiteral("fineAnchor"))
-                 && !payload.contains(QStringLiteral("Profile RGS")),
-                 "legacy anchor/table wording must be gone");
-
-        // --- directional branch: no numbers at all ---
-        QJsonObject dir;
-        dir[QStringLiteral("grinderModel")] = QStringLiteral("Niche Zero");
-        dir[QStringLiteral("confidence")] = QStringLiteral("directional");
-        dir[QStringLiteral("currentProfileUgsPlaced")] = true;
-        dir[QStringLiteral("usageConstraint")] = usage;
-        QJsonArray dprofiles;
-        {
-            QJsonObject p;
-            p[QStringLiteral("profileName")] = QStringLiteral("TurboTurbo");
-            p[QStringLiteral("ugs")] = 6.0;
-            p[QStringLiteral("source")] = QStringLiteral("directional");
-            p[QStringLiteral("direction")] = QStringLiteral("coarser");
-            dprofiles.append(p);
-        }
-        dir[QStringLiteral("profiles")] = dprofiles;
-
-        mgr.m_contextSerial = 43;
-        QSignalSpy spy2(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 43, dir);
-        QCOMPARE(spy2.count(), 1);
-        payload = spy2.takeFirst().at(0).toString();
-        QVERIFY2(payload.contains(QStringLiteral("SENTINEL-USAGE-STRING")),
-                 "directional must still repeat usageConstraint");
-        QVERIFY2(payload.contains(QStringLiteral("No numeric cross-profile")),
-                 "directional must state no numeric calibration");
-        QVERIFY2(payload.contains(QStringLiteral("coarser")),
-                 "directional must still give finer/coarser");
-        QVERIFY2(!payload.contains(QStringLiteral("conversionKey"))
-                 && !payload.contains(QStringLiteral("Conversion ≈")),
-                 "directional must emit no conversion key");
-    }
-
-    // =====================================================================
-    // fix-multishot-advice-tracking: emitRecentShotContext renders the
-    // `## Recent Advice Tracking` markdown section from the same
-    // recentAdvice QJsonArray shape DialingBlocks::buildRecentAdviceBlock
-    // produces for the MCP `ai_advisor_invoke` path — see
-    // tst_dialing_blocks.cpp for the block-builder's own DB-backed
-    // coverage. These tests exercise the in-app renderer directly (friend-
-    // class access to emitRecentShotContext) rather than duplicating that
-    // DB fixture.
-    // =====================================================================
 
     // Builds one recentAdvice entry matching buildRecentAdviceBlock's shape
     // (dialing_blocks.cpp) so the renderer tests below exercise the exact
@@ -1287,103 +941,13 @@ private slots:
         return entry;
     }
 
-    void emitRecentShotContext_appendsRecentAdviceTrackingSection()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 50;
-
-        QJsonArray recentAdvice;
-        recentAdvice.append(makeRecentAdviceEntry(1, QStringLiteral("followed"), 75));
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 50, QJsonObject(), recentAdvice);
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        QVERIFY2(payload.contains(QStringLiteral("## Recent Advice Tracking")),
-                 "section header missing");
-        QVERIFY2(payload.contains(QStringLiteral("Slow flow toward profile target")),
-                 "recommendation text missing");
-        QVERIFY2(payload.contains(QStringLiteral("grinder 4.75")),
-                 "predicted grinderSetting missing");
-        QVERIFY2(payload.contains(QStringLiteral("adherence: **followed**")),
-                 "adherence value missing");
-        QVERIFY2(payload.contains(QStringLiteral("75/100")),
-                 "outcome rating missing");
-    }
-
-    void emitRecentShotContext_omitsRecentAdviceSectionWhenEmpty()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 51;
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 51, QJsonObject(), QJsonArray());
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        QVERIFY2(!payload.contains(QStringLiteral("Recent Advice Tracking")),
-                 "no qualifying recentAdvice entries must produce no section at all — "
-                 "not even an empty placeholder header");
-    }
-
-    // Parity intent (advisor-user-prompt spec, "Parity between in-app
-    // advisor and ai_advisor_invoke"): the in-app markdown and the MCP
-    // `recentAdvice` JSON array are two renderings of the SAME QJsonArray
-    // — this pins that the in-app renderer doesn't drop or mangle any of
-    // the underlying turnsAgo/adherence/outcome fields relative to the
-    // JSON a caller would see under `userPromptUsed.recentAdvice`.
-    void emitRecentShotContext_recentAdviceSection_matchesUnderlyingJsonFields()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 52;
-
-        QJsonArray recentAdvice;
-        recentAdvice.append(makeRecentAdviceEntry(1, QStringLiteral("ignored")));  // no rating
-        recentAdvice.append(makeRecentAdviceEntry(2, QStringLiteral("partial"), 40));
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 52, QJsonObject(), recentAdvice);
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        for (const QJsonValue& v : recentAdvice) {
-            const QJsonObject entry = v.toObject();
-            const QJsonObject resp = entry.value("userResponse").toObject();
-            const int turnsAgo = entry.value("turnsAgo").toInt();
-            const QString adherence = resp.value("adherence").toString();
-            QVERIFY2(payload.contains(QStringLiteral("%1 shot").arg(turnsAgo)),
-                     qPrintable(QStringLiteral("turnsAgo=%1 label missing").arg(turnsAgo)));
-            QVERIFY2(payload.contains(QStringLiteral("adherence: **%1**").arg(adherence)),
-                     qPrintable(QStringLiteral("adherence=%1 missing for turnsAgo=%2")
-                                    .arg(adherence).arg(turnsAgo)));
-            if (resp.contains(QStringLiteral("outcomeRating0to100"))) {
-                QVERIFY2(payload.contains(QStringLiteral("%1/100")
-                             .arg(resp.value("outcomeRating0to100").toInt())),
-                         "rated entry's score missing from rendered text");
-            }
-        }
-        // Unrated entry (turnsAgo=1) must not show a Score line derived
-        // from the rated entry (turnsAgo=2) — i.e. no cross-entry bleed.
-        QVERIFY2(!payload.section(QStringLiteral("### 1 shot"), 1)
-                      .section(QStringLiteral("### 2 shots"), 0, 0)
-                      .contains(QStringLiteral("Score:")),
-                 "unrated entry must not carry a Score line");
-    }
-
     // =====================================================================
     // AIConversation::extractShotFields — issue #1039
     // Pins the structured-field migration: dose / yield / duration /
-    // grinder / score / notes are now read directly from the JSON
-    // envelope's `shot`, `currentBean`, and `profile` blocks. Legacy
-    // stored conversations whose user messages predate the JSON
-    // envelope still resolve via a regex fallback path.
+    // grinder / score / notes are read from the JSON payload's `shot`,
+    // `currentBean` and `profile` blocks. The content is the payload and
+    // nothing else — no prose header, no trailing question — so this is a
+    // plain QJsonDocument::fromJson over the whole string.
     //
     // Friend-class access (`friend class tst_AIManager` under
     // DECENZA_TESTING) lets these tests reach the private static
@@ -1392,9 +956,9 @@ private slots:
     void aiConversation_extractShotFields_structuredEnvelope_readsCanonicalKeys()
     {
         const QString content = QStringLiteral(
-            "## Shot (2026-05-01 14:30)\n\n"
-            "Here's my latest shot:\n\n"
             "{"
+            "  \"shotLabel\": \"2026-05-01 14:30\","
+            "  \"question\": \"Please analyze.\","
             "  \"currentBean\": {"
             "    \"grinderBrand\": \"Niche\","
             "    \"grinderModel\": \"Zero\","
@@ -1411,10 +975,9 @@ private slots:
             "    \"notes\": \"balanced\""
             "  },"
             "  \"shotAnalysis\": \"## Shot Summary\\n- Dose: 18g, etc.\""
-            "}\n\nPlease analyze.");
+            "}");
 
         const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY(fields.fromStructuredEnvelope);
         QCOMPARE(fields.shotLabel, QStringLiteral("2026-05-01 14:30"));
         QCOMPARE(fields.doseG, QStringLiteral("18.0"));
         QCOMPARE(fields.yieldG, QStringLiteral("36.0"));
@@ -1490,14 +1053,13 @@ private slots:
         // detector pipeline writes into summaryLines.text, and the
         // substring matcher in extractShotFields is tuned to it.
         const QString content = QStringLiteral(
-            "## Shot (2026-05-01)\n\nHere's my latest shot:\n\n"
             "{"
             "  \"shot\": {\"doseG\": 18.0, \"yieldG\": 36.0},"
-            "  \"shotAnalysis\": \"## Shot Summary\\n- [warning] Sustained channeling detected in dC/dt\""
-            "}\n\nWhat to do?");
+            "  \"shotAnalysis\": \"## Shot Summary\\n- [warning] Sustained channeling detected in dC/dt\","
+            "  \"question\": \"What to do?\""
+            "}");
 
         const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY(fields.channelingDetected);
     }
 
@@ -1519,7 +1081,6 @@ private slots:
             "}");
 
         const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY2(fields.channelingDetected,
                  "detectorObservations[] takes precedence over the prose body");
     }
@@ -1543,7 +1104,6 @@ private slots:
             "}");
 
         const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY2(fields.channelingDetected,
                  "kind=channeling_sustained must set channelingDetected even when text drifts");
     }
@@ -1581,66 +1141,6 @@ private slots:
         QVERIFY(fields.channelingDetected);
     }
 
-    void aiConversation_extractShotFields_legacyProseFallsBackToRegex()
-    {
-        const QString content = QStringLiteral(
-            "## Shot (2025-12-15 09:00)\n\nHere's my latest shot:\n\n"
-            "## Shot Summary\n"
-            "- **Dose**: 18.0g \xe2\x86\x92 **Yield**: 36.0g ratio 1:2.0\n"
-            "- **Duration**: 30s\n"
-            "- **Grinder**: Niche Zero\n"
-            "- **Profile**: 80's Espresso\n"
-            "- **Score**: 85\n"
-            "- **Notes**: \"balanced\"\n"
-            "- [warning] Sustained channeling detected in dC/dt\n");
-
-        const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY2(!fields.fromStructuredEnvelope,
-                 "legacy prose must report regex-fallback path");
-        QCOMPARE(fields.shotLabel, QStringLiteral("2025-12-15 09:00"));
-        QCOMPARE(fields.doseG, QStringLiteral("18.0"));
-        QCOMPARE(fields.yieldG, QStringLiteral("36.0"));
-        QCOMPARE(fields.durationSec, QStringLiteral("30"));
-        QCOMPARE(fields.score, QStringLiteral("85"));
-        QCOMPARE(fields.notes, QStringLiteral("balanced"));
-        QCOMPARE(fields.grinder, QStringLiteral("Niche Zero"));
-        QCOMPARE(fields.profileTitle, QStringLiteral("80's Espresso"));
-        QVERIFY(fields.channelingDetected);
-    }
-
-    // Cross-era equivalence: the structured path produces the same
-    // grinder string the legacy regex would have captured from the old
-    // prose body. Both inputs use the production-historic prose format
-    // ("**Grinder**: <brand> <model> with <burrs> @ <setting>") so a
-    // conversation that spans both eras (older shot regex-extracted,
-    // newer shot structured) does not emit spurious grinder-change
-    // diffs. Critically, the legacy input is the format the regex
-    // *actually* sees in stored conversations from before #1041.
-    void aiConversation_extractShotFields_grinderStringMatchesLegacyProseFormat()
-    {
-        const QString legacyProse = QStringLiteral(
-            "## Shot Summary\n"
-            "- **Grinder**: Niche Zero with 63mm conical @ 4.5\n");
-        const QString structuredEnvelope = QStringLiteral(
-            "{"
-            "  \"currentBean\": {"
-            "    \"grinderBrand\": \"Niche\","
-            "    \"grinderModel\": \"Zero\","
-            "    \"grinderBurrs\": \"63mm conical\""
-            "  },"
-            "  \"shot\": {\"grinderSetting\": \"4.5\"}"
-            "}");
-
-        const auto legacyFields = AIConversation::extractShotFields(legacyProse);
-        const auto structuredFields = AIConversation::extractShotFields(structuredEnvelope);
-
-        QVERIFY(!legacyFields.fromStructuredEnvelope);
-        QVERIFY(structuredFields.fromStructuredEnvelope);
-        QCOMPARE(structuredFields.grinder, legacyFields.grinder);
-        QCOMPARE(structuredFields.grinder,
-                 QStringLiteral("Niche Zero with 63mm conical @ 4.5"));
-    }
-
     void aiConversation_extractShotFields_normalizesNumericPrecision()
     {
         const QString content = QStringLiteral(
@@ -1655,7 +1155,6 @@ private slots:
     {
         const QString content = QStringLiteral("{\"shotAnalysis\": \"## Shot Summary\\n\"}");
         const auto fields = AIConversation::extractShotFields(content);
-        QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY(fields.doseG.isEmpty());
         QVERIFY(fields.yieldG.isEmpty());
         QVERIFY(fields.durationSec.isEmpty());
@@ -2069,15 +1568,17 @@ private slots:
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
 
-        const QString key = AIManager::conversationKey(
-            QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"), QStringLiteral("D-Flow"));
+        ShotProjection keyShot;
+        keyShot.beanBrand = QStringLiteral("Rogue Wave");
+        keyShot.beanType = QStringLiteral("Ethiopia Yirgacheffe");
+        keyShot.profileName = QStringLiteral("D-Flow");
+        const QString key = AIManager::conversationKey(keyShot);
         // Written entirely by "another writer" — never touches m_conversationIndex.
         AIConversation::appendAssistantTurnForKey(
             key, 222, QStringLiteral("mcp-only user"), QStringLiteral("mcp-only assistant"), std::nullopt);
 
         // This AIManager's index has never heard of this key.
-        mgr.switchConversation(QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
-                                QStringLiteral("D-Flow"));
+        mgr.switchConversation(QVariant::fromValue(keyShot));
 
         QVERIFY2(mgr.conversation()->hasHistory(),
                  "switchConversation must load real disk content even for a key absent from m_conversationIndex");
@@ -2894,137 +2395,6 @@ private slots:
     }
 
     // -----------------------------------------------------------------
-    // emitRecentShotContext — roast level / date in Setup header
-    // Pins the fix from PR #1074: roastLevel and roastDate must appear in
-    // the hoisted ### Setup: header alongside grinder + bean identity.
-    // -----------------------------------------------------------------
-
-    void emitRecentShotContext_setupHeader_includesRoastLevelAndDate()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 20;
-
-        const qint64 base = QDateTime::currentSecsSinceEpoch() - 3600;
-        QList<QPair<qint64, ShotProjection>> qualifiedShots;
-        ShotProjection shot = makeShot(1, base,
-            QString(), QString(), QString(), QStringLiteral("4.0"),
-            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
-            QStringLiteral("Profile"), QString(), QString());
-        shot.roastLevel = QStringLiteral("Medium-Dark");
-        shot.roastDate  = QStringLiteral("2026-03-15");
-        qualifiedShots.append({base, shot});
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QString(), 20);
-
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        QVERIFY2(payload.contains(QStringLiteral("(Medium-Dark)")),
-                 "roastLevel must appear in parentheses after bean name");
-        QVERIFY2(payload.contains(QStringLiteral(", roasted 2026-03-15")),
-                 "roastDate must appear as ', roasted <date>' after roast level");
-        QVERIFY2(payload.contains(
-                     QStringLiteral("Northbound - Spring Tour (Medium-Dark), roasted 2026-03-15")),
-                 qPrintable("Expected bean+roast segment in Setup header; payload: "
-                            + payload.left(500)));
-    }
-
-    void emitRecentShotContext_setupHeader_roastLevelOnly()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 21;
-
-        const qint64 base = QDateTime::currentSecsSinceEpoch() - 3600;
-        QList<QPair<qint64, ShotProjection>> qualifiedShots;
-        ShotProjection shot = makeShot(1, base,
-            QString(), QString(), QString(), QStringLiteral("4.0"),
-            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
-            QStringLiteral("Profile"), QString(), QString());
-        shot.roastLevel = QStringLiteral("Light");
-        qualifiedShots.append({base, shot});
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QString(), 21);
-
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        QVERIFY2(payload.contains(QStringLiteral("(Light)")),
-                 "roastLevel must appear in parentheses even when roastDate is absent");
-        QVERIFY2(!payload.contains(QStringLiteral("roasted")),
-                 "no 'roasted' text when roastDate is absent");
-    }
-
-    void emitRecentShotContext_setupHeader_roastDateOnly()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 22;
-
-        const qint64 base = QDateTime::currentSecsSinceEpoch() - 3600;
-        QList<QPair<qint64, ShotProjection>> qualifiedShots;
-        ShotProjection shot = makeShot(1, base,
-            QString(), QString(), QString(), QStringLiteral("4.0"),
-            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
-            QStringLiteral("Profile"), QString(), QString());
-        shot.roastDate = QStringLiteral("2026-01-10");
-        qualifiedShots.append({base, shot});
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QString(), 22);
-
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        QVERIFY2(payload.contains(QStringLiteral("roasted 2026-01-10")),
-                 "roastDate must appear as 'roasted <date>' even when roastLevel is absent");
-        QVERIFY2(!payload.contains(QStringLiteral("()")),
-                 "no empty parentheses when roastLevel is absent");
-    }
-
-    void emitRecentShotContext_roastLevelConflictSuppressesSetup()
-    {
-        QNetworkAccessManager nam;
-        Settings settings;
-        AIManager mgr(&nam, &settings);
-        mgr.m_contextSerial = 23;
-
-        const qint64 base = QDateTime::currentSecsSinceEpoch() - 86400;
-        QList<QPair<qint64, ShotProjection>> qualifiedShots;
-
-        ShotProjection shot1 = makeShot(1, base + 3600,
-            QStringLiteral("Niche"), QStringLiteral("Zero"),
-            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
-            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
-            QStringLiteral("Profile"), QString(), QString());
-        shot1.roastLevel = QStringLiteral("Light");
-
-        ShotProjection shot2 = makeShot(2, base,
-            QStringLiteral("Niche"), QStringLiteral("Zero"),
-            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
-            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
-            QStringLiteral("Profile"), QString(), QString());
-        shot2.roastLevel = QStringLiteral("Dark");
-
-        qualifiedShots.append({base + 3600, shot1});
-        qualifiedShots.append({base, shot2});
-
-        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
-        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QStringLiteral("Niche"), 23);
-
-        QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
-
-        QCOMPARE(payload.count(QStringLiteral("### Setup:")), 0);
-    }
-
-    // -----------------------------------------------------------------
     // AIConversation::stripStructuredNextBlock
     // Pins the fix from PR #1074: the trailing ```json ... ``` block the
     // AI appends must be stripped before display in getConversationText.
@@ -3154,9 +2524,11 @@ private slots:
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
 
-        const QString key = mgr.switchConversation(
-            QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
-            QStringLiteral("D-Flow"));
+        ShotProjection sw;
+        sw.beanBrand = QStringLiteral("Rogue Wave");
+        sw.beanType = QStringLiteral("Ethiopia Yirgacheffe");
+        sw.profileName = QStringLiteral("D-Flow");
+        const QString key = mgr.switchConversation(QVariant::fromValue(sw));
         AIConversation* conv = mgr.conversation();
         conv->m_systemPrompt = QStringLiteral("system prompt");
         conv->addUserMessage(QStringLiteral("Shot pulled at 19g/1:2"));
@@ -3229,8 +2601,11 @@ private slots:
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
 
-        const QString key = mgr.switchConversation(
-            QStringLiteral("Brand"), QStringLiteral("Type"), QStringLiteral("Profile"));
+        ShotProjection sw;
+        sw.beanBrand = QStringLiteral("Brand");
+        sw.beanType = QStringLiteral("Type");
+        sw.profileName = QStringLiteral("Profile");
+        const QString key = mgr.switchConversation(QVariant::fromValue(sw));
         // The index entry exists (switchConversation added it) but the
         // messages blob itself is garbage — simulating an interrupted write.
         settings.setValue(QStringLiteral("ai/conversations/") + key + "/messages",
@@ -3330,23 +2705,35 @@ private slots:
             s.value("ai/conversations/" + key + "/messages").toByteArray()).array();
     }
 
-    static QJsonArray oneConversation(const QString& key, const QJsonArray& msgs)
+    // The key is DERIVED from the conversation's own fields, never chosen. The
+    // importer re-derives it and refuses a conversation whose carried key does
+    // not match, so a hand-picked literal would be read as an archive written
+    // before the equipment package joined the key.
+    static QString convKey(qint64 equipmentId)
+    {
+        return ConversationKey::derive(QStringLiteral("B"), QStringLiteral("T"),
+                                       QStringLiteral("P"), equipmentId);
+    }
+
+    static QJsonArray oneConversation(qint64 equipmentId, const QJsonArray& msgs)
     {
         return QJsonArray{ QJsonObject{
-            {"key", key}, {"systemPrompt", "sys"}, {"contextLabel", "l"},
+            {"key", convKey(equipmentId)}, {"systemPrompt", "sys"}, {"contextLabel", "l"},
             {"timestamp", "2026-08-22T09:00:00"}, {"messages", msgs},
-            {"beanBrand", "B"}, {"beanType", "T"}, {"profileName", "P"}} };
+            {"beanBrand", "B"}, {"beanType", "T"}, {"profileName", "P"},
+            {"equipmentId", QJsonValue(equipmentId)},
+            {"equipmentLabel", "Niche Zero / Decent 18g Ridged"}} };
     }
 
     void importedTurnsFollowTheShotRenumbering()
     {
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("remap_key");
+        const QString key = convKey(0);
 
         QHash<qint64, qint64> map{{1109, 1052}, {1096, 1041}};
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
+            settings, oneConversation(0, turnsWithShotIds({1109, 1096})), &map, nullptr);
 
         QCOMPARE(tally.conversationsImported, 1);
         QCOMPARE(tally.turnsRemapped, 4);   // two turn pairs
@@ -3365,11 +2752,11 @@ private slots:
     {
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("clear_key");
+        const QString key = convKey(0);
 
         QHash<qint64, qint64> map{{1109, 1052}};   // 1096 absent — did not import
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), &map);
+            settings, oneConversation(0, turnsWithShotIds({1109, 1096})), &map, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 2);
         QCOMPARE(tally.turnsCleared, 2);
@@ -3394,12 +2781,12 @@ private slots:
     {
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("noshots_key");
+        const QString key = convKey(0);
 
         // No map: the conversations-only import path. Those ids name a database
         // this device does not have, so keeping them is the defect.
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({1109, 1096})), nullptr);
+            settings, oneConversation(0, turnsWithShotIds({1109, 1096})), nullptr, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 0);
         QCOMPARE(tally.turnsCleared, 4);
@@ -3412,11 +2799,11 @@ private slots:
     {
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("freeform_key");
+        const QString key = convKey(0);
 
         QHash<qint64, qint64> map{{1109, 1052}};
         const auto tally = AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds({0})), &map);
+            settings, oneConversation(0, turnsWithShotIds({0})), &map, nullptr);
 
         QCOMPARE(tally.turnsRemapped, 0);
         QCOMPARE(tally.turnsCleared, 0);
@@ -3492,9 +2879,10 @@ private slots:
 
         AppSettings settings;
         settings.clear();
-        const QString key = QStringLiteral("e2e_key");
+        const QString key = convKey(0);
         AIConversation::importConversationsStatic(
-            settings, oneConversation(key, turnsWithShotIds(srcIds)), &r.shotIdMap);
+            settings, oneConversation(0, turnsWithShotIds(srcIds)), &r.shotIdMap,
+            r.equipmentIdMapOrNull());
 
         const QSet<qint64> sourceIds(srcIds.begin(), srcIds.end());
         int seen = 0;
@@ -3509,6 +2897,149 @@ private slots:
         QVERIFY(!sourceIds.isEmpty());
         QCOMPARE(seen, srcIds.size() * 2);
 
+        settings.clear();
+    }
+
+    // The note is the only thing that tells a user an import refused anything —
+    // the counts reach three surfaces through it and nowhere else. Nothing
+    // asserted it was ever produced, which is how its first version shipped
+    // reaching one of two QML handlers and rendering "1 conversation(s)".
+    void aRefusedImportProducesANoteNamingTheRemedy()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        // A packaged conversation with no equipment map: the conversations-only
+        // import, and the case the note exists for.
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(7, QJsonArray{}), nullptr, nullptr);
+
+        QCOMPARE(tally.conversationsImported, 0);
+        QCOMPARE(tally.refusedNeedShots, 1);
+        QCOMPARE(tally.refused(), 1);
+
+        // nullptr TranslationManager is the English-fallback contract.
+        const QString note = AIConversation::importRefusalNote(tally, nullptr);
+        QVERIFY2(!note.isEmpty(), "a refusal produced no note, so no surface can report it");
+        QVERIFY2(note.contains(QStringLiteral("1 conversation")),
+                 qPrintable(QStringLiteral("the count must render as a number, not a placeholder "
+                                           "or a plural form this app cannot resolve: %1").arg(note)));
+        QVERIFY2(!note.contains(QStringLiteral("(s)")),
+                 qPrintable(QStringLiteral("Qt plural markup reached the user — this app installs "
+                                           "no QTranslator, so %n renders literally: %1").arg(note)));
+        QVERIFY2(note.contains(QStringLiteral("Import the shots")),
+                 "the note must name the remedy, which is the whole reason to show a count");
+
+        // Nothing refused: no note, so a clean run says nothing extra.
+        AIConversation::ImportTally clean;
+        clean.conversationsImported = 3;
+        QVERIFY(AIConversation::importRefusalNote(clean, nullptr).isEmpty());
+
+        // Held back is a DIFFERENT message with a different remedy.
+        const QString held = AIConversation::importHeldBackNote(40, nullptr);
+        QVERIFY(held.contains(QStringLiteral("40 conversations")));
+        QVERIFY2(held.contains(QStringLiteral("again")),
+                 "held-back conversations are recovered by retrying, and must say so");
+        QVERIFY(AIConversation::importHeldBackNote(0, nullptr).isEmpty());
+        settings.clear();
+    }
+
+    // The package map, produced by the REAL importer rather than written by
+    // hand. Every other re-key test builds the QHash itself, so the line in
+    // importDatabaseStatic that publishes it could be deleted and only this
+    // test would notice — the symptom being that every packaged conversation
+    // silently fails to restore while the tally reports a clean zero.
+    void aRealImportMapRekeysAPackagedConversation()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        const QString srcPath = dir.filePath("pkg_src.db");
+        qint64 srcPackageId = 0;
+        {
+            ShotHistoryStorage src;
+            QVERIFY(src.initialize(srcPath));
+            src.close();
+        }
+        // The package, written straight to the source schema: the shot save path
+        // takes an equipmentId, it does not invent one.
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                        QStringLiteral("pkg_src_conn"));
+            db.setDatabaseName(srcPath);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            QVERIFY(q.exec ("INSERT INTO equipment_packages (name) VALUES ('Graph')"));
+            srcPackageId = q.lastInsertId().toLongLong();
+            QVERIFY(srcPackageId > 0);
+            QVERIFY(q.exec (QStringLiteral("INSERT INTO equipment_items (package_id, kind, brand, model) "
+                                           "VALUES (%1, 'grinder', 'Niche', 'Zero')").arg(srcPackageId)));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("pkg_src_conn"));
+        {
+            ShotHistoryStorage src;
+            QVERIFY(src.initialize(srcPath));
+            ShotRecord r;
+            r.summary.uuid = QStringLiteral("pkg-shot");
+            r.summary.timestamp = 1765300000;
+            r.summary.profileName = QStringLiteral("D-Flow / Q");
+            r.summary.beverageType = QStringLiteral("espresso");
+            r.equipmentId = srcPackageId;
+            r.pressure.append(QPointF(0.0, 6.0));
+            QVERIFY(src.importShotRecord(r, false) > 0);
+            src.close();
+        }
+
+        // The destination already holds a package of its own, so the source's
+        // row id is NOT the id it receives here. Without that, an un-remapped
+        // key would be indistinguishable from a correctly remapped one.
+        const QString destPath = dir.filePath("pkg_dest.db");
+        {
+            ShotHistoryStorage dest;
+            QVERIFY(dest.initialize(destPath));
+            dest.close();
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                        QStringLiteral("pkg_dest_conn"));
+            db.setDatabaseName(destPath);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            for (int i = 0; i < 5; i++) {
+                QVERIFY(q.exec (QStringLiteral("INSERT INTO equipment_packages (name) VALUES ('Pad %1')")
+                                    .arg(i)));
+                QVERIFY(q.exec (QStringLiteral("INSERT INTO equipment_items (package_id, kind, brand, model) "
+                                               "VALUES (%1, 'grinder', 'Pad', 'M%2')")
+                                    .arg(q.lastInsertId().toLongLong()).arg(i)));
+            }
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("pkg_dest_conn"));
+
+        ShotHistoryStorage::ImportResult r;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, true, &r));
+        QVERIFY2(!r.equipmentIdMap.isEmpty(),
+                 "the import published no package map — the re-key below cannot mean anything");
+        const qint64 destPackageId = r.equipmentIdMap.value(srcPackageId, 0);
+        QVERIFY2(destPackageId > 0, "the source package did not reach the destination");
+        QVERIFY2(destPackageId != srcPackageId,
+                 "source and destination package ids coincide — pad the destination further, "
+                 "or this test cannot tell a re-key from a passthrough");
+
+        AppSettings settings;
+        settings.clear();
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(srcPackageId, QJsonArray{}), r.idMapOrNull(),
+            r.equipmentIdMapOrNull());
+
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(tally.refusedNeedShots, 0);
+        QVERIFY2(!settings.value(QStringLiteral("ai/conversations/") + convKey(destPackageId)
+                                 + QStringLiteral("/timestamp")).toString().isEmpty(),
+                 "the conversation was not stored under the DESTINATION package's key");
+        QVERIFY2(settings.value(QStringLiteral("ai/conversations/") + convKey(srcPackageId)
+                                + QStringLiteral("/timestamp")).toString().isEmpty(),
+                 "the conversation was stored under the SOURCE package's key — that key names a "
+                 "row in a database this device does not have");
         settings.clear();
     }
 
@@ -3714,8 +3245,10 @@ private slots:
     {
         AppSettings settings;
         settings.clear();
-        const QString mine = QStringLiteral("mine_key");
-        const QString fresh = QStringLiteral("fresh_key");
+        // Two packages on one bean and profile — which is exactly what the key
+        // separates, and the only way two conversations can differ here.
+        const QString mine = convKey(0);
+        const QString fresh = convKey(11);
 
         // What this device already holds, with its own turn text.
         QJsonArray liveMsgs = turnsWithShotIds({1052});
@@ -3730,12 +3263,14 @@ private slots:
 
         // The archive carries an older copy of that same conversation, plus one
         // this device has never seen.
-        QJsonArray incoming = oneConversation(mine, turnsWithShotIds({1109}));
-        for (const QJsonValue& v : oneConversation(fresh, turnsWithShotIds({1109})))
+        QJsonArray incoming = oneConversation(0, turnsWithShotIds({1109}));
+        for (const QJsonValue& v : oneConversation(4, turnsWithShotIds({1109})))
             incoming.append(v);
 
         QHash<qint64, qint64> map{{1109, 1052}};
-        const auto tally = AIConversation::importConversationsStatic(settings, incoming, &map);
+        QHash<qint64, qint64> equipMap{{4, 11}};
+        const auto tally =
+            AIConversation::importConversationsStatic(settings, incoming, &map, &equipMap);
 
         QCOMPARE(tally.conversationsImported, 1);
         // Only the fresh conversation's turns were touched.
@@ -3751,6 +3286,140 @@ private slots:
         QSet<QString> keys;
         for (const QJsonValue& v : index) keys.insert(v.toObject().value("key").toString());
         QCOMPARE(keys, QSet<QString>({mine, fresh}));
+
+        settings.clear();
+    }
+
+    // ---- import re-keys a conversation onto the destination package ---------
+    //
+    // The key holds the equipment package's ROW ID, and a restore renumbers
+    // those rows. Writing the archive's key through verbatim leaves a thread in
+    // the index that no shot on this device ever opens — and if the destination
+    // happens to hold a package with the source's row id, one that opens on the
+    // wrong basket.
+
+    void aRestoredConversationIsRekeyedToTheDestinationPackage()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QHash<qint64, qint64> equipMap{{4, 11}};   // package 4 landed as 11
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(4, turnsWithShotIds({0})), nullptr, &equipMap);
+
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(storedTurns(settings, convKey(11)).size(), qsizetype(2));
+        QVERIFY2(storedTurns(settings, convKey(4)).isEmpty(),
+                 "the source key names a package row this device does not have");
+
+        // The index entry has to agree with the key it is filed under, or the
+        // conversation list names one package while the thread belongs to
+        // another.
+        const QJsonArray index = QJsonDocument::fromJson(
+            settings.value(QStringLiteral("ai/conversations/index")).toByteArray()).array();
+        QCOMPARE(index.size(), 1);
+        const QJsonObject entry = index.at(0).toObject();
+        QCOMPARE(entry.value("key").toString(), convKey(11));
+        QCOMPARE(entry.value("equipmentId").toVariant().toLongLong(), qint64(11));
+        QCOMPARE(entry.value("equipmentLabel").toString(),
+                 QStringLiteral("Niche Zero / Decent 18g Ridged"));
+
+        settings.clear();
+    }
+
+    void aConversationNamingAPackageThatDidNotComeAcrossIsNotImported()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QHash<qint64, qint64> equipMap{{9, 11}};   // package 4 is not in it
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(4, turnsWithShotIds({0})), nullptr, &equipMap);
+
+        QCOMPARE(tally.conversationsImported, 0);
+        // Not demoted to the unpackaged pool: that would file a thread about one
+        // basket under "no basket", which is the mixing the key exists to stop.
+        QVERIFY(storedTurns(settings, convKey(0)).isEmpty());
+        QVERIFY(storedTurns(settings, convKey(4)).isEmpty());
+        QVERIFY(settings.value(QStringLiteral("ai/conversations/index")).toByteArray().isEmpty());
+
+        settings.clear();
+    }
+
+    void anUnpackagedConversationKeepsItsKeyAcrossTheImport()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        QHash<qint64, qint64> equipMap{{4, 11}};
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, oneConversation(0, turnsWithShotIds({0})), nullptr, &equipMap);
+
+        // Bucket 0 is the unpackaged pool on both devices, so there is nothing
+        // to renumber and the thread stays reachable.
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(storedTurns(settings, convKey(0)).size(), qsizetype(2));
+
+        settings.clear();
+    }
+
+    void anArchiveKeyedBeforeEquipmentIsNotImported()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        // What a pre-change archive carries: a key derived from bean and
+        // profile alone. No shot on this device derives that key any more, so
+        // importing it only occupies an index slot.
+        QJsonArray legacy = oneConversation(0, turnsWithShotIds({0}));
+        QJsonObject conv = legacy.at(0).toObject();
+        conv["key"] = QStringLiteral("0123456789abcdef");
+        conv.remove(QStringLiteral("equipmentId"));
+        legacy[0] = conv;
+
+        const auto tally = AIConversation::importConversationsStatic(
+            settings, legacy, nullptr, nullptr);
+
+        QCOMPARE(tally.conversationsImported, 0);
+        QVERIFY(storedTurns(settings, QStringLiteral("0123456789abcdef")).isEmpty());
+        QVERIFY(storedTurns(settings, convKey(0)).isEmpty());
+
+        settings.clear();
+    }
+
+    // The writer and the reader are one pair, tested as one. Backup and restore
+    // are the same field list read twice; the export used to be hand-written at
+    // two call sites and a field added to one of them is invisible until a user
+    // restores an archive and finds a conversation attached to nothing.
+    void anExportedConversationCarriesItsPackageBackThroughTheImport()
+    {
+        AppSettings settings;
+        settings.clear();
+
+        const QString sourceKey = convKey(4);
+        const QString prefix = QStringLiteral("ai/conversations/") + sourceKey + "/";
+        settings.setValue(prefix + "messages",
+                          QJsonDocument(turnsWithShotIds({0})).toJson(QJsonDocument::Compact));
+        settings.setValue(prefix + "systemPrompt", QStringLiteral("sys"));
+        settings.setValue(prefix + "timestamp", QStringLiteral("2026-08-22T09:00:00"));
+        settings.setValue(QStringLiteral("ai/conversations/index"),
+                          QJsonDocument(QJsonArray{QJsonObject{
+                              {"key", sourceKey}, {"beanBrand", "B"}, {"beanType", "T"},
+                              {"profileName", "P"}, {"equipmentId", QJsonValue(qint64(4))},
+                              {"equipmentLabel", "Niche Zero / Decent 18g Ridged"},
+                              {"timestamp", QJsonValue(qint64(1766000000))}}})
+                              .toJson(QJsonDocument::Compact));
+
+        const QJsonArray exported = AIConversation::exportConversationsStatic(settings);
+        QCOMPARE(exported.size(), 1);
+
+        settings.clear();   // the destination device
+        QHash<qint64, qint64> equipMap{{4, 11}};
+        const auto tally =
+            AIConversation::importConversationsStatic(settings, exported, nullptr, &equipMap);
+
+        QCOMPARE(tally.conversationsImported, 1);
+        QCOMPARE(storedTurns(settings, convKey(11)).size(), qsizetype(2));
 
         settings.clear();
     }
@@ -3828,6 +3497,77 @@ private slots:
         }
         QCOMPARE(kept, 2);
     }
+    // equipmentLabel() names the package on the conversation index, the
+    // ShotServer AI page and ai_conversations — the only thing that tells two
+    // threads on one bean and profile apart. Its whole job is joining parts that
+    // may be missing, so the partial cases are the ones worth pinning: a stray
+    // separator either side reads as a component the user does not have.
+    void equipmentLabel_joinsOnlyThePartsThatExist()
+    {
+        auto label = [](const QString& gb, const QString& gm,
+                        const QString& bb, const QString& bm) {
+            ShotProjection p;
+            p.grinderBrand = gb; p.grinderModel = gm;
+            p.basketBrand = bb; p.basketModel = bm;
+            return p.equipmentLabel();
+        };
+
+        QCOMPARE(label("Niche", "Zero", "Decent", "18g Ridged"),
+                 QStringLiteral("Niche Zero / Decent 18g Ridged"));
+        QCOMPARE(label("Niche", "Zero", QString(), QString()), QStringLiteral("Niche Zero"));
+        QCOMPARE(label(QString(), QString(), "Decent", "18g Ridged"),
+                 QStringLiteral("Decent 18g Ridged"));
+        QCOMPARE(label("Niche", QString(), QString(), "18g Ridged"),
+                 QStringLiteral("Niche / 18g Ridged"));
+        QCOMPARE(label(QString(), QString(), QString(), QString()), QString());
+    }
+
+    // The three scenarios in specs/advisor-conversation-history/spec.md.
+    //
+    // This is the requirement that repairs the reported case. A saved thread
+    // replays its stored turns on every request, so scoping the payload alone
+    // leaves older turns describing another basket inside the same transcript,
+    // still informing every answer. The key is what keeps a transcript describing
+    // one equipment set for its whole life.
+    void conversationKey_separatesEquipmentPackages()
+    {
+        const QString bean = QStringLiteral("Sweet Bloom Coffee");
+        const QString type = QStringLiteral("Hometown Blend");
+        const QString profile = QStringLiteral("D-Flow / Q");
+
+        auto keyFor = [&](qint64 bucket) {
+            ShotProjection p;
+            p.beanBrand = bean; p.beanType = type; p.profileName = profile;
+            p.equipmentId = bucket;
+            return AIManager::conversationKey(p);
+        };
+        const QString decent = keyFor(3);
+        const QString graph  = keyFor(2);
+
+        QVERIFY2(decent != graph,
+                 "same bean and profile on two equipment packages resolved to one thread — "
+                 "the package-A turns would replay into the package-B conversation");
+
+        // Returning to a package resumes its own thread. Asserted through a
+        // fresh SHOT rather than by calling keyFor(3) twice — one pure function
+        // called twice with one argument cannot fail, and the scenario is about
+        // a later shot on the same gear landing on the same key.
+        ShotProjection returning;
+        returning.beanBrand = bean; returning.beanType = type;
+        returning.profileName = profile;
+        returning.equipmentId = 3;
+        returning.id = 991;                       // a different shot
+        returning.grinderSetting = QStringLiteral("9.25");   // dialled since
+        QCOMPARE(AIManager::conversationKey(returning), decent);
+
+        // Every pre-change thread was keyed without a package. Bucket 0 is the
+        // unpackaged pool, so a packaged shot must not land on one of those keys.
+        const QString unpackaged = keyFor(0);
+        QVERIFY2(unpackaged != decent && unpackaged != graph,
+                 "a packaged shot resolved to the unpackaged thread — pre-change "
+                 "conversations would be resumed rather than retired");
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_AIManager)

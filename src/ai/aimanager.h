@@ -13,6 +13,7 @@
 
 #include "../history/shotprojection.h"
 #include "../history/shothistory_types.h"
+#include "dialing_blocks.h"  // AdvisorContextBlocks — cached between the context request and the send
 
 #include <QtQml/qqmlregistration.h>
 class QNetworkAccessManager;
@@ -59,7 +60,16 @@ public:
         QString beanBrand;
         QString beanType;
         QString profileName;
-        qint64 timestamp;
+        // Snapshot of the package the key was derived from, not a live
+        // reference: two threads for one bean differ only by equipment, so
+        // without this they are indistinguishable in every list that shows them.
+        QString equipmentLabel;
+        qint64 equipmentId = 0;
+        qint64 timestamp = 0;
+
+        // The one display join. Every surface that names a conversation calls
+        // this rather than reassembling the fields with its own separator.
+        QString label() const;
 
         QJsonObject toJson() const;
         static ConversationEntry fromJson(const QJsonObject& obj);
@@ -96,8 +106,16 @@ public:
     bool hasAnyConversation() const { return !m_conversationIndex.isEmpty(); }
     QList<ConversationEntry> conversationIndex() const { return m_conversationIndex; }
 
+    // Index lookup by storage key. Returns a default entry when the key has no
+    // index record — legacy or MCP-written conversations are valid without one.
+    ConversationEntry conversationEntry(const QString& key) const;
+
     // Conversation routing
-    Q_INVOKABLE QString switchConversation(const QString& beanBrand, const QString& beanType, const QString& profileName);
+    // Takes the shot, not its fields: the key is derived in exactly one place so
+    // the MCP tools and the in-app overlay — which SHARE one conversation —
+    // cannot drift into writing to different threads. QVariant for the same
+    // reason as isMistakeShot below.
+    Q_INVOKABLE QString switchConversation(const QVariant& shotData);
     Q_INVOKABLE void loadMostRecentConversation();
     Q_INVOKABLE void clearCurrentConversation();
     // Accepts QVariant (not const ShotProjection&) so QML can pass either a
@@ -107,7 +125,10 @@ public:
     // coerceShot() in the .cpp.
     Q_INVOKABLE bool isMistakeShot(const QVariant& shotData) const;
     Q_INVOKABLE bool isSupportedBeverageType(const QString& beverageType) const;
-    static QString conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName);
+    // The one place a conversation key is derived. Identity includes the
+    // equipment package: a saved thread replays its turns, so a thread must
+    // describe one equipment set for its whole life.
+    static QString conversationKey(const ShotProjection& shot);
 
     // Builds the AI user-prompt envelope for a finished / historical shot,
     // returned as a `QJsonObject` so DB-scoped callers (`ai_advisor_invoke`'s
@@ -133,23 +154,38 @@ public:
     // (e.g. mcptools_dialing) wrap with QVariant::fromValue(shot).
     Q_INVOKABLE QString buildShotAnalysisProseForShot(const QVariant& shotData);
 
-    // Merge the four dialing-context blocks into a user-prompt envelope.
-    // Both the in-app advisor and `ai_advisor_invoke` call this on the
-    // main-thread continuation of their bg-thread DB closures, after they
-    // produce `dialInSessions` / `bestRecentShot` / `grinderContext` from
-    // their own DB connections. The SAW block is built here (it touches
-    // `Settings::calibration()` and `ProfileManager`, both main-thread
-    // only). Empty blocks are suppressed — no key, no null placeholder.
+    // The whole user turn, as one JSON object: the shot's own payload
+    // (`shot` / `shotAnalysis` / `currentBean` / `profile` / `tastingFeedback` /
+    // `sawPrediction`), the context blocks the last `requestRecentShotContext`
+    // resolved, and the user's `question` and `shotLabel` as their own fields.
     //
-    // Single source of truth for the merge step, so the in-app and MCP
-    // surfaces cannot drift on which blocks land where.
+    // One assembler for both surfaces: `ai_advisor_invoke` builds the same object
+    // from the same helpers. The question is a FIELD rather than text
+    // concatenated around the object, so reading it back is a field read — the
+    // wrapped shape is what forced `getConversationText`'s recovery heuristic and
+    // `extractShotFields`' hand-written brace scanner, both of which now serve
+    // stored history only.
+    Q_INVOKABLE QString buildConversationUserPrompt(const QVariant& shotData,
+                                                    const QString& question,
+                                                    const QString& shotLabel);
+
+    // Merge the DB-derived context blocks into a user-prompt envelope, and add
+    // the one block that cannot come from the database pass: `sawPrediction`
+    // touches `Settings::calibration()` and `ProfileManager`, both main-thread
+    // only. Both the in-app advisor and `ai_advisor_invoke` call this on the
+    // main-thread continuation of their background DB closures. Empty blocks are
+    // suppressed — no key, no null placeholder.
+    //
+    // Single source of truth for the merge step, so the in-app and MCP surfaces
+    // cannot drift on which blocks land where.
+    //
+    // Takes the struct rather than one argument per block, so that a block added
+    // to AdvisorContextBlocks reaches both surfaces by construction. With one
+    // argument per block, a new block means editing every call site, and a
+    // surface that misses the edit silently sends one block fewer.
     void enrichUserPromptObject(QJsonObject& payload,
                                 const ShotProjection& shotData,
-                                const QJsonArray& dialInSessions,
-                                const QJsonObject& bestRecentShot,
-                                const QJsonObject& grinderContext,
-                                const QJsonArray& recentAdvice = QJsonArray(),
-                                const QJsonObject& grinderCalibration = QJsonObject()) const;
+                                const DialingBlocks::AdvisorContextBlocks& blocks) const;
 
     // Shot history access for contextual recommendations
     void setShotHistoryStorage(ShotHistoryStorage* storage);
@@ -179,7 +215,12 @@ public:
     // time). Wired from MainController::setAiManager. Optional — falls
     // back to omitting the SAW block when null.
     void setProfileManager(ProfileManager* profileManager) { m_profileManager = profileManager; }
-    Q_INVOKABLE void requestRecentShotContext(const QString& beanBrand, const QString& beanType, const QString& profileName, int excludeShotId);
+    // `contextShotId` is the shot to BUILD the context for — the worker loads it
+    // whole. It was called `excludeShotId` while it meant only "leave this one
+    // out of the history", which stopped being true when the worker started
+    // reading the shot from it; qint64 because that is what a shot id is
+    // everywhere else.
+    Q_INVOKABLE void requestRecentShotContext(const QVariant& shotData, qint64 contextShotId);
 
     // Provider testing
     Q_INVOKABLE void testConnection();
@@ -341,7 +382,9 @@ signals:
     void testResultChanged();
     void ollamaModelsChanged();
     void conversationIndexChanged();
-    void recentShotContextReady(const QString& context);
+    // Bare notification: the context blocks for the pending shot have resolved
+    // and are cached. Carries no payload — see emitRecentShotContext.
+    void recentShotContextReady();
     void conversationResponseReceived(const QString& response);
     void conversationErrorOccurred(const QString& error);
 
@@ -410,20 +453,20 @@ private:
     // device; subsequent launches are no-ops. Call before loadConversationIndex.
     static void clearAllConversationsOnce(const QString& migrationId);
 
-    // Render the recent-shot-context prose from already-loaded data and
-    // emit `recentShotContextReady` (or an empty string when stale).
-    // `requestRecentShotContext`'s main-thread lambda calls this helper
-    // after the background DB work resolves. Extracted so the
-    // canonical-source separation logic (Profile/Setup hoisting,
-    // HistoryBlock per-shot rendering) can be exercised by tests via
-    // `friend class tst_AIManager` without standing up a real DB.
-    void emitRecentShotContext(
-        const QList<QPair<qint64, ShotProjection>>& qualifiedShots,
-        const GrinderContext& grinderCtx,
-        const QString& grinderBrand,
-        int serial,
-        const QJsonObject& grinderCalibration = QJsonObject(),
-        const QJsonArray& recentAdvice = QJsonArray());
+    // Cache the resolved context blocks and emit `recentShotContextReady`
+    // (empty when stale). `requestRecentShotContext`'s main-thread lambda calls
+    // this after the background DB work resolves; the cached blocks are what
+    // `buildConversationUserPrompt` folds into the turn's payload.
+    void emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks& blocks,
+                               qint64 contextShotId,
+                               int serial);
+
+    // The blocks the last completed context request resolved, and the shot they
+    // were resolved for. Guarded by the id so a payload can never be built from
+    // another shot's context — the request is asynchronous and the user can open
+    // a different shot while one is in flight.
+    DialingBlocks::AdvisorContextBlocks m_contextBlocks;
+    qint64 m_contextBlocksShotId = 0;
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;

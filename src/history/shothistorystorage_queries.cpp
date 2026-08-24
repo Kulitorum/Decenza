@@ -8,13 +8,14 @@
 // Owning concerns (per openspec/changes/split-shothistorystorage-by-concern/):
 //   - filtered queries: requestShotsFiltered + buildFilterQuery + parseFilterMap +
 //     formatFtsQuery (FTS5 query construction) + s_sortColumnMap (sort-column whitelist).
-//   - recents-by-kbId: requestRecentShotsByKbId + loadRecentShotsByKbIdStatic.
+//   - recents-by-kbId: loadRecentShotsByKbIdStatic.
 //   - distinct-value getters: queryDistinctList + getDistinctValues +
 //     getDistinct* getters + s_allowedColumns whitelist + sortGrinderSettings.
 //   - auto-favorites: requestAutoFavorites + requestAutoFavoriteGroupDetails.
 //   - grinder context: queryGrinderContext.
 
 #include "shothistorystorage.h"
+#include "equipmentjoin.h"
 #include "shothistorystorage_internal.h"
 
 #include "core/dbutils.h"
@@ -144,6 +145,19 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.grinderModel = filterMap.value("grinderModel").toString();
     filter.grinderBurrs = filterMap.value("grinderBurrs").toString();
     filter.grinderSetting = filterMap.value("grinderSetting").toString();
+    // Not value(key, -1): QVariantMap returns the default only when the key is
+    // ABSENT, so a present-but-malformed value (null, a non-numeric string) would
+    // convert to 0 — and 0 is a real bucket here, the unpackaged pool, so a bad
+    // value would silently scope to the wrong group instead of being ignored.
+    // bagId two hundred lines down guards the same shape; its guard is allowed to
+    // be simpler because a bag id is AUTOINCREMENT and never 0, which is exactly
+    // what is not true of an equipment bucket.
+    {
+        const QVariant rawEquipmentId = filterMap.value("equipmentId");
+        bool equipmentIdOk = false;
+        const qint64 parsed = rawEquipmentId.toLongLong(&equipmentIdOk);
+        filter.equipmentId = equipmentIdOk ? parsed : -1;
+    }
     filter.roastLevel = filterMap.value("roastLevel").toString();
     filter.minEnjoyment = filterMap.value("minEnjoyment", -1).toInt();
     filter.maxEnjoyment = filterMap.value("maxEnjoyment", -1).toInt();
@@ -230,6 +244,12 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
             bindValues << grinderItemBinds;
         }
     }
+    // Exact package. Applied INSTEAD of nothing — it composes with the grinder
+    // identity conditions above, but a caller that knows the package (an
+    // auto-favourite card) passes this and gets the card's own set rather than
+    // every basket that shares the grinder.
+    if (filter.equipmentId >= 0)
+        conditions << AdviceScope(filter.equipmentId).sql(QStringLiteral("shots"));
     if (!filter.grinderSetting.isEmpty()) {
         conditions << "shots.grinder_setting = ?";
         bindValues << filter.grinderSetting;
@@ -662,60 +682,39 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
 }
 
 
-void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit)
-{
-    if (!m_ready || kbId.isEmpty()) {
-        emit recentShotsByKbIdReady(kbId, QVariantList());
-        return;
-    }
-
-    const QString dbPath = m_dbPath;
-    auto destroyed = m_destroyed;
-    runDetachedDbThread([this, dbPath, kbId, limit, destroyed]() {
-        QVariantList results;
-        withTempDb(dbPath, "shs_kbid", [&](QSqlDatabase& db) {
-            results = loadRecentShotsByKbIdStatic(db, kbId, limit);
-        });
-
-        if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, kbId, results = std::move(results), destroyed]() {
-            if (*destroyed) {
-                qDebug() << "ShotHistoryStorage: recentShotsByKbId callback dropped (object destroyed)";
-                return;
-            }
-            emit recentShotsByKbIdReady(kbId, results);
-        }, Qt::QueuedConnection);
-    });
-
-}
-
-QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId)
+QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId,
+                                                            const AdviceScope& scope, int limit,
+                                                            qint64 excludeShotId, bool* ok)
 {
     QVariantList results;
-    // Grinder identity resolved via the equipment_id pointer (add-equipment-
-    // packages task 4.1); the per-shot grinder_brand/model/burrs columns are
-    // dropped in migration 23. Aliases keep the value("grinder_*") reads below
-    // unchanged. burrs is json_extract'd from the grinder item's attrs blob.
+    if (ok) *ok = false;
+    // Equipment resolves through the shot's equipment_id pointer (the per-shot
+    // grinder columns are dropped in migration 23). The whole package rides
+    // along, not just the grinder — see EquipmentJoin.
     QString sql = QStringLiteral(R"(
         SELECT s.id, s.timestamp, s.profile_name, s.duration_seconds, s.final_weight, s.dose_weight,
                s.bean_brand, s.bean_type, s.roast_level,
-               eg.brand AS grinder_brand, eg.model AS grinder_model,
-               json_extract(eg.attrs, '$.burrs') AS grinder_burrs,
+               )") + EquipmentJoin::selectList() + QStringLiteral(R"(,
                s.grinder_setting, s.drink_tds, s.drink_ey, s.enjoyment,
                s.espresso_notes, s.roast_date, s.temperature_override, s.yield_override, s.profile_json, s.beverage_type,
                s.stopped_by,
                s.frozen_date, s.defrost_date, s.storage_hint, s.opened_date
         FROM shots s
-        LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
+    )") + EquipmentJoin::joins() + QStringLiteral(R"(
         WHERE s.profile_kb_id = ?
     )");
     if (excludeShotId >= 0)
         sql += QStringLiteral(" AND s.id != ?");
+    sql += QStringLiteral(" AND ") + scope.sql(QStringLiteral("s"));
     sql += QStringLiteral(" ORDER BY s.timestamp DESC LIMIT ?");
 
     QSqlQuery query(db);
     if (!query.prepare(sql)) {
-        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: prepare failed:" << query.lastError().text();
+        // kbId and bucket named: this failure surfaces as "the advisor sees no
+        // history", and the bucket is now embedded in the SQL rather than bound,
+        // so it is not recoverable from a bind list in the log.
+        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: prepare failed for kbId"
+                   << kbId << "bucket" << scope.bucket() << ":" << query.lastError().text();
         return results;
     }
 
@@ -726,6 +725,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
     query.bindValue(idx, limit);
 
     if (query.exec()) {
+        if (ok) *ok = true;
         while (query.next()) {
             QVariantMap shot;
             shot["id"] = query.value("id").toLongLong();
@@ -737,9 +737,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             shot["durationSec"] = query.value("duration_seconds").toDouble();
             shot["enjoyment0to100"] = query.value("enjoyment").toInt();
             shot["grinderSetting"] = query.value("grinder_setting").toString();
-            shot["grinderModel"] = query.value("grinder_model").toString();
-            shot["grinderBrand"] = query.value("grinder_brand").toString();
-            shot["grinderBurrs"] = query.value("grinder_burrs").toString();
+            EquipmentJoin::readInto(query, shot);
             shot["espressoNotes"] = query.value("espresso_notes").toString();
             shot["beanBrand"] = query.value("bean_brand").toString();
             shot["beanType"] = query.value("bean_type").toString();
@@ -785,7 +783,8 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             results.append(shot);
         }
     } else {
-        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: query failed:" << query.lastError().text();
+        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: query failed for kbId"
+                   << kbId << "bucket" << scope.bucket() << ":" << query.lastError().text();
     }
     return results;
 }
@@ -1250,7 +1249,7 @@ static QList<double> grinderWideRpms(QSqlDatabase& db, const QString& grinderMod
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
-    const QString& grinderModel, const QString& beverageType,
+    const QString& grinderModel, const AdviceScope& scope, const QString& beverageType,
     const QString& beanBrand)
 {
     GrinderContext ctx;
@@ -1259,23 +1258,20 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     ctx.model = grinderModel;
     ctx.beverageType = beverageType.isEmpty() ? QStringLiteral("espresso") : beverageType;
 
-    // Build SQL with an optional bean_brand filter — same conditional-
-    // append pattern used by loadRecentShotsByKbIdStatic and
-    // buildFilterQuery in this file.
-    // Grinder model resolves through the equipment_id pointer (the per-shot
-    // grinder_model column is dropped in migration 23, add-equipment-packages
-    // task 4.1). grinder_setting (per-shot dial-in) stays on the shot row.
+    // Package-scoped, not grinder-scoped: a setting dialled on another basket is
+    // not one this user dialled on this gear. The scope implies the grinder, so
+    // the grinder-model subquery and its `:model` bind are gone.
+    // ctx.stepSize is the grinder-wide half — see grinderWideNumericSettings().
     QString sql = QStringLiteral(
-        "SELECT DISTINCT grinder_setting FROM shots WHERE %1 "
-        "AND beverage_type = :bev "
-        "AND grinder_setting != ''").arg(grinderModelMatchSql(":model"));
+        "SELECT DISTINCT grinder_setting FROM shots WHERE ") + scope.sql()
+        + QStringLiteral(" AND beverage_type = :bev "
+                         "AND grinder_setting != ''");
     if (!beanBrand.isEmpty()) {
         sql += QStringLiteral(" AND bean_brand = :brand");
     }
 
     QSqlQuery q(db);
     q.prepare(sql);
-    q.bindValue(":model", grinderModel);
     q.bindValue(":bev", ctx.beverageType);
     if (!beanBrand.isEmpty()) {
         q.bindValue(":brand", beanBrand);
@@ -1328,21 +1324,19 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         ctx.maxSetting = numeric.last();
     }
 
-    // RPM axis: the observed RPMs (and their range) are per-bean context, so
-    // they stay bean/beverage-scoped like settingsObserved. rpm > 0 = a real
-    // dial-in. ORDER BY rpm makes first()/last() the min/max.
+    // Scoped like settingsObserved. rpm > 0 = a real dial-in; ORDER BY rpm makes
+    // first()/last() the min/max. ctx.rpmStepSize is the grinder-wide half.
     {
         QString rpmSql = QStringLiteral(
-            "SELECT DISTINCT rpm FROM shots WHERE %1 "
-            "AND beverage_type = :bev "
-            "AND rpm > 0").arg(grinderModelMatchSql(":model"));
+            "SELECT DISTINCT rpm FROM shots WHERE ") + scope.sql()
+            + QStringLiteral(" AND beverage_type = :bev "
+                             "AND rpm > 0");
         if (!beanBrand.isEmpty())
             rpmSql += QStringLiteral(" AND bean_brand = :brand");
         rpmSql += QStringLiteral(" ORDER BY rpm");
 
         QSqlQuery rq(db);
         rq.prepare(rpmSql);
-        rq.bindValue(":model", grinderModel);
         rq.bindValue(":bev", ctx.beverageType);
         if (!beanBrand.isEmpty())
             rq.bindValue(":brand", beanBrand);
@@ -1382,12 +1376,6 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
 // One definition for every model-scoped lookup in THIS file — there were six
 // hand-written copies, which is exactly the drift CLAUDE.md's centralization rule
 // describes. %1 is the placeholder style the call site uses (":model" or "?").
-//
-// One copy is deliberately NOT collapsed: src/ai/dialing_blocks.cpp:1194 inserts
-// an extra burrs clause INSIDE the same subquery, and this helper emits that
-// subquery's closing paren, so it cannot be reused without a second parameter
-// nothing else would want. It must still fold identically — if you change the
-// folding here, change it there.
 QString ShotHistoryStorage::grinderModelMatchSql(const QString& placeholder)
 {
     return QStringLiteral(
@@ -1501,14 +1489,21 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                          "AND COALESCE(s.equipment_id, 0) = g.gb_equipment_id "
                          "AND COALESCE(s.grinder_setting, '') = g.gb_grinder_setting";
     } else {
-        // Default: bean_profile
+        // Default: bean_profile. The equipment package is part of the key, not
+        // an extra the "+ Grinder" mode adds: the same bean and profile on two
+        // baskets are two different dial-ins, and pooling them puts a grind
+        // setting on the card that is wrong for both. What "+ Grinder" adds
+        // over this is the per-shot grind SETTING.
         selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
                         "COALESCE(bean_type, '') AS gb_bean_type, "
-                        "COALESCE(profile_name, '') AS gb_profile_name";
-        groupColumns = "COALESCE(bean_brand, ''), COALESCE(bean_type, ''), COALESCE(profile_name, '')";
+                        "COALESCE(profile_name, '') AS gb_profile_name, "
+                        "COALESCE(equipment_id, 0) AS gb_equipment_id";
+        groupColumns = "COALESCE(bean_brand, ''), COALESCE(bean_type, ''), "
+                       "COALESCE(profile_name, ''), COALESCE(equipment_id, 0)";
         joinConditions = "COALESCE(s.bean_brand, '') = g.gb_bean_brand "
                          "AND COALESCE(s.bean_type, '') = g.gb_bean_type "
-                         "AND COALESCE(s.profile_name, '') = g.gb_profile_name";
+                         "AND COALESCE(s.profile_name, '') = g.gb_profile_name "
+                         "AND COALESCE(s.equipment_id, 0) = g.gb_equipment_id";
     }
 
     if (weightAware) {
@@ -1542,12 +1537,15 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         "SELECT s.id, r.id AS recipe_id, r.name AS recipe_name, r.drink_type AS recipe_drink_type, "
         "r.archived AS recipe_archived, "
         "s.profile_name, s.bean_brand, s.bean_type, "
+        "COALESCE(s.equipment_id, 0) AS equipment_bucket, "
+        "ep.name AS equipment_name, "
         "eg.brand AS grinder_brand, eg.model AS grinder_model, "
         "json_extract(eg.attrs, '$.burrs') AS grinder_burrs, s.grinder_setting, "
         "s.dose_weight, s.final_weight, %5, %6, "
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
         "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
+        "LEFT JOIN equipment_packages ep ON ep.id = s.equipment_id "
         // The recipe's own profile MUST equal the group's profile. A favourites
         // card is a bean+profile group and a recipe is a bean+profile+extras, so
         // the two are the same grain — a card captioned with a recipe built on a
@@ -1620,6 +1618,11 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     entry["profileName"] = query.value("profile_name").toString();
                     entry["beanBrand"] = query.value("bean_brand").toString();
                     entry["beanType"] = query.value("bean_type").toString();
+                    // The bucket this group was keyed on. The card hands it back
+                    // to requestAutoFavoriteGroupDetails so the stats scope to the
+                    // same package the group boundary used.
+                    entry["equipmentId"] = query.value("equipment_bucket").toLongLong();
+                    entry["equipmentName"] = query.value("equipment_name").toString();
                     entry["grinderBrand"] = query.value("grinder_brand").toString();
                     entry["grinderModel"] = query.value("grinder_model").toString();
                     entry["grinderBurrs"] = query.value("grinder_burrs").toString();
@@ -1660,8 +1663,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
                                                           const QString& beanBrand,
                                                           const QString& beanType,
                                                           const QString& profileName,
-                                                          const QString& grinderBrand,
-                                                          const QString& grinderModel,
+                                                          qint64 equipmentId,
                                                           const QString& grinderSetting,
                                                           double doseBucket,
                                                           double targetWeight)
@@ -1683,6 +1685,13 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         bindValues << value;
     };
 
+    // Every mode that KEYS on the package must also scope its stats to it, or
+    // the card counts one package and its details average another. The two
+    // coarse modes (bean, profile) deliberately span packages, so they are the
+    // two branches below without a scope. This used to approximate the package
+    // with correlated brand+model subqueries, which pulled in every package
+    // sharing a brand and model — two baskets on one grinder grouped apart and
+    // then shared one set of stats.
     if (groupBy == "bean") {
         addCondition("bean_brand", beanBrand);
         addCondition("bean_type", beanType);
@@ -1692,20 +1701,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         addCondition("bean_brand", beanBrand);
         addCondition("bean_type", beanType);
         addCondition("profile_name", profileName);
-        // Grinder identity resolves through the equipment_id pointer (the
-        // dropped grinder_brand/model columns no longer exist — migration 23).
-        // Correlated subqueries against the package's grinder item reproduce the
-        // old COALESCE(col,'')=? semantics, so a card with no grinder (NULL
-        // equipment_id → NULL → '') still matches empty brand/model. This
-        // APPROXIMATES requestAutoFavorites' grouping key (which groups on the
-        // raw equipment_id): when two packages share a brand+model — e.g. a
-        // superseded fork and its in-inventory successor — these brand+model
-        // conditions match shots across both, which is acceptable for the card's
-        // aggregate stats scope. (burrs is intentionally not matched here.)
-        addCondition("(SELECT brand FROM equipment_items "
-                     "WHERE package_id = shots.equipment_id AND kind = 'grinder')", grinderBrand);
-        addCondition("(SELECT model FROM equipment_items "
-                     "WHERE package_id = shots.equipment_id AND kind = 'grinder')", grinderModel);
+        conditions << AdviceScope(equipmentId).sql(QStringLiteral("shots"));
         addCondition("grinder_setting", grinderSetting);
         if (groupBy == "bean_profile_grinder_weight") {
             // Match requestAutoFavorites's weight-mode bucketing exactly so stats scope
@@ -1722,6 +1718,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         addCondition("bean_brand", beanBrand);
         addCondition("bean_type", beanType);
         addCondition("profile_name", profileName);
+        conditions << AdviceScope(equipmentId).sql(QStringLiteral("shots"));
     }
 
     QString whereClause = " WHERE " + conditions.join(" AND ");

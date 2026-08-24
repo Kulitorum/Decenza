@@ -71,7 +71,8 @@ public:
 
     QString storageKey() const { return m_storageKey; }
     void setStorageKey(const QString& key);
-    void setContextLabel(const QString& brand, const QString& type, const QString& profile);
+    // Built by AIManager::ConversationEntry::label() — the single producer.
+    void setContextLabel(const QString& label);
 
     /**
      * Start a new conversation with system prompt and initial user message
@@ -114,25 +115,14 @@ public:
      */
     Q_INVOKABLE QString getSystemPrompt() const { return m_systemPrompt; }
 
-    /**
-     * Add new shot context to existing conversation (for multi-shot dialing)
-     * This appends shot data as a new user message without clearing history.
-     * shotLabel is a human-readable date/time string (e.g. "Feb 15, 14:30") identifying the shot.
-     * profileTitle/profileType/profileKbId are forwarded to shotAnalysisSystemPrompt()
-     * for profile-aware knowledge injection when initializing a new conversation.
-     */
-    Q_INVOKABLE void addShotContext(const QString& shotSummary, const QString& shotLabel,
-                                     const QString& beverageType = "espresso",
-                                     const QString& profileTitle = QString(),
-                                     const QString& profileType = QString(),
-                                     const QString& profileKbId = QString());
-
-    /**
-     * Process a shot summary for conversation: prepends a "changes from previous" section.
-     * Call this before sending via ask()/followUp() to avoid redundant data.
-     * shotLabel is a human-readable date/time string (e.g. "Feb 15, 14:30") identifying the shot.
-     */
-    Q_INVOKABLE QString processShotForConversation(const QString& shotSummary, const QString& shotLabel);
+    // What changed between this shot and the previous shot in this conversation,
+    // as a field on the turn's payload rather than a prose banner glued to the
+    // front of it. Empty object when there is no previous shot to compare with;
+    // `anyChange: false` when there is one and nothing moved — which the model
+    // needs as much as a diff, since it separates "your change did nothing" from
+    // "you changed nothing".
+    QJsonObject changesFromPreviousShot(const QString& shotLabel,
+                                        const QString& shotPayload) const;
 
     /**
      * Get the full system prompt for multi-shot conversations.
@@ -279,18 +269,63 @@ public:
 
     /**
      * What importConversationsStatic did. Note the units differ: the first
-     * field counts CONVERSATIONS, the last two count TURNS.
+     * three fields count CONVERSATIONS, the last two count TURNS.
      *
      * Skipped-as-duplicate and malformed entries are counted inside the
-     * importer and go to its own log line, not here: a field only its producer
-     * reads is weight on a shared type, and no caller has anywhere to show
-     * them.
+     * importer and go to its own log line, not here: the user's copy is already
+     * the live one, and a damaged archive entry names no remedy.
+     *
+     * The two REFUSED counts are different — each names something the user can
+     * act on, and reporting only `conversationsImported` turns a run that
+     * dropped 37 of 40 into a green "3 imported". They are separate fields
+     * because the remedy differs, which is the whole reason to show them.
      */
     struct ImportTally {
         int conversationsImported = 0;  // written to storage
+        // Named a package this device could not identify, because no equipment
+        // accompanied them. Remedy: import the shots too — the shot import is
+        // what carries equipment across and produces the id map.
+        int refusedNeedShots = 0;
+        // Keyed before the equipment package joined the key. No shot on this
+        // device derives that key, so the thread could never be opened again.
+        // No remedy; stated so the count is not mistaken for the one above.
+        int refusedLegacyKey = 0;
         int turnsRemapped = 0;          // turn shotIds rewritten to a destination id
         int turnsCleared = 0;           // turn shotIds dropped, source shot not in the map
+
+        int refused() const { return refusedNeedShots + refusedLegacyKey; }
     };
+
+    /**
+     * One user-facing sentence for what an import refused, or empty when it
+     * refused nothing.
+     *
+     * ONE producer for the same reason the importer is one: three surfaces
+     * report this run (the in-app import popup, the device-migration dialog and
+     * the ShotServer restore page), and a count without its remedy is what made
+     * the silence worth fixing in the first place. Already specific about the
+     * fix; callers pair it with their own lead-in.
+     *
+     * `tm` may be null, which yields the English fallback — the same contract as
+     * the tr_() helper every other user-visible string in this file uses. It is a
+     * parameter because this is static and tr_() is not. NOT QObject::tr(): this
+     * app installs no QTranslator at all, so QObject::tr() would make the string
+     * permanently English AND render "%n" literally, giving "1 conversation(s)".
+     *
+     * Main thread only, like everything reaching TranslationManager.
+     */
+    static QString importRefusalNote(const ImportTally& tally, TranslationManager* tm);
+
+    /**
+     * The note for conversations HELD BACK — not refused inside the importer,
+     * but never handed to it, because the shot import was refused and importing
+     * now would consume their keys and make the retry useless.
+     *
+     * Separate from importRefusalNote because there is no ImportTally to report:
+     * the importer did not run. Same null-`tm` contract, same main-thread rule.
+     * Empty when `count` is 0.
+     */
+    static QString importHeldBackNote(qsizetype count, TranslationManager* tm);
 
     /**
      * Import conversations from a backup or a peer device into QSettings.
@@ -326,15 +361,55 @@ public:
      * Callers keep their own policy: replace-mode pre-clearing, sync(), and
      * reloading the live conversation all stay with the caller.
      *
+     * `equipmentIdMap` is the same shape for equipment packages, from
+     * ShotHistoryStorage::ImportResult::equipmentIdMap. It is needed because the
+     * conversation KEY is derived from the package id: the incoming key names a
+     * package row in the SOURCE database, and importing under it produces a
+     * thread no shot on this device can open — or worse, one that collides with
+     * a destination package that happens to share the source's row id.
+     *
+     * So each conversation is RE-KEYED through the map before it is written,
+     * and two shapes are refused rather than imported wrong:
+     *   - a conversation whose carried key is not what these fields derive
+     *     (an archive written before the key included the package), because
+     *     there is no shot on this device that would ever open it;
+     *   - a conversation naming a package the map does not contain, because
+     *     bucket 0 would put a thread about one basket into the unpackaged
+     *     pool, which is the contamination the key exists to prevent.
+     * Both are counted on ImportTally (`refusedNeedShots` / `refusedLegacyKey`)
+     * and rendered by `importRefusalNote`. They were briefly log-only, on the
+     * reasoning that no caller had anywhere to show them — which was wrong:
+     * every caller already reports `conversationsImported` to the user, so the
+     * survivors were shown and the casualties were not.
+     *
+     *
      * @param settings   open settings object to write through
      * @param conversations  the incoming array, as carried by the backup
      *                       archive or the migration endpoint
      * @param shotIdMap  source->destination shot ids, or nullptr
+     * @param equipmentIdMap  source->destination equipment package ids, or
+     *                        nullptr when no equipment accompanied them
      */
     static ImportTally importConversationsStatic(
         AppSettings& settings,
         const QJsonArray& conversations,
-        const QHash<qint64, qint64>* shotIdMap);
+        const QHash<qint64, qint64>* shotIdMap,
+        const QHash<qint64, qint64>* equipmentIdMap);
+
+    /**
+     * Serialize every indexed conversation into the array the importer above
+     * reads. ONE producer, for the same reason as the importer: this loop was
+     * hand-written twice — in DatabaseBackupManager (archive) and ShotServer
+     * (`/api/backup/ai-conversations`) — and the two copies had to agree on
+     * every field name for a restore to reassemble what a backup wrote. The
+     * equipment fields are exactly the kind of addition that lands in one copy
+     * and not the other, and the failure is silent: the archive is written, the
+     * restore succeeds, and the conversation is keyed to nothing.
+     *
+     * Walks `ai/conversations/index`, so a conversation with no index entry is
+     * not exported — matching what both copies already did.
+     */
+    static QJsonArray exportConversationsStatic(AppSettings& settings);
 
     /**
      * Drop `shotId` from every turn that names a shot the database does not
@@ -390,20 +465,12 @@ private:
     static QString summarizeAdvice(const QString& response);
     static QString stripStructuredNextBlock(const QString& content);
 
-    // Legacy fallback: extracts the `shotAnalysis` prose from the JSON
-    // envelope when present, otherwise returns the message unchanged.
-    // Used only by `extractShotFields` for the legacy-prose detector
-    // substring checks. New code should prefer `extractShotFields`.
-    static QString extractShotProse(const QString& content);
-
-    // Structured per-shot data extracted from a user message — issue
-    // #1039. Numeric fields are kept as `QString` because the consumers
-    // render them into prose diffs ("Dose 18.0g→20.0g") and need to
-    // preserve the original precision. Empty string means "field
-    // absent" — the diff/summary code skips fields that are absent on
-    // either side, mirroring the legacy regex semantics.
+    // Structured per-shot data extracted from a user message. Numeric fields
+    // are kept as `QString` so the change-detection output preserves the
+    // precision the payload carried. Empty string means "field absent" — the
+    // diff skips fields absent on either side.
     struct ShotFields {
-        QString shotLabel;          // from "## Shot (label)" outer header
+        QString shotLabel;          // the payload's own `shotLabel` field
         QString doseG;
         QString yieldG;
         QString durationSec;
@@ -412,29 +479,17 @@ private:
         QString score;
         QString notes;
         bool channelingDetected = false;
-        bool fromStructuredEnvelope = false;  // false ⇒ legacy regex path fired
     };
 
-    // Read structured per-shot fields out of a user message. Prefers
-    // the JSON envelope's `shot` / `currentBean` / `profile` blocks;
-    // falls back to legacy regex on the prose body when JSON parsing
-    // fails. Pure function.
+    // Read structured per-shot fields out of a user message. The message IS a
+    // JSON object; fields come from its `shot` / `currentBean` / `profile`
+    // blocks. Pure function.
     static ShotFields extractShotFields(const QString& content);
 
     struct PreviousShotInfo { QString content; QString shotLabel; };
     PreviousShotInfo findPreviousShot(const QString& excludeLabel = QString()) const;
 
     static constexpr int MAX_VERBATIM_PAIRS = 2;
-
-    // Outer-wrapper regex for the "## Shot (date)" header that
-    // `addShotContext` prepends OUTSIDE the JSON envelope.
-    static const QRegularExpression s_shotLabelRe;
-
-    // Legacy fallback regexes. Used only by `extractShotFields` when
-    // the JSON envelope cannot be parsed (stored conversations from
-    // before issue #1034 / #1039). Do not add new callers.
-    static const QRegularExpression s_doseRe, s_yieldRe, s_durationRe,
-        s_grinderRe, s_profileRe, s_scoreRe, s_notesRe;
 
     AIManager* m_aiManager;
     TranslationManager* m_translationManager = nullptr;

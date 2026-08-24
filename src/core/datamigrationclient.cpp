@@ -491,6 +491,7 @@ void DataMigrationClient::startImport(const QStringList& types)
     m_shotsImported = 0;
     m_mediaImported = 0;
     m_aiConversationsImported = 0;
+    setAiConversationNote(QString());
     // Reset with the other per-run counters. It is a member so the conversations
     // step can read the shots step's map, and a member that survives a run is
     // how a second import — importOnlyAIConversations(), or a reconnect to a
@@ -612,12 +613,26 @@ void DataMigrationClient::onAIConversationsReply()
     }
 
     if (reply->error() != QNetworkReply::NoError) {
+        // Reported, not just logged: without this the run ends `clean` and the
+        // dialog prints a green "Import complete" for a transfer that failed.
+        // Same defect as the non-array case below — they are two arms of one if,
+        // and only the second was fixed the first time.
+        setErrorIfFirst(tr("The AI conversations could not be fetched from the other device."));
         qWarning() << "DataMigrationClient: Failed to import AI conversations:" << reply->errorString();
     } else {
         QByteArray data = reply->readAll();
         m_receivedBytes += data.size();
 
         QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (!doc.isArray()) {
+            // Not an array means the peer answered with something else — an
+            // error page, a truncated body, an object. Silence here fell
+            // through to a green "Import complete" with nothing imported.
+            setErrorIfFirst(tr("The other device did not return a usable list of "
+                               "AI conversations."));
+            qWarning() << "DataMigrationClient: AI conversations payload was not a JSON array ("
+                       << data.size() << "bytes )";
+        }
         if (doc.isArray()) {
             AppSettings settings;
 
@@ -637,6 +652,12 @@ void DataMigrationClient::onAIConversationsReply()
             // that retry useless, because the keys would already exist and the
             // retry skips them as duplicates.
             if (m_shotImport.refused()) {
+                // Held back, and SAID so. The user is already being told the shot
+                // history was refused; without this they are not told that their
+                // conversations were held back with it, and the retry that
+                // recovers both looks optional.
+                setAiConversationNote(
+                    AIConversation::importHeldBackNote(doc.array().size(), m_translationManager));
                 qWarning() << "DataMigrationClient: shot import was refused, so AI conversations"
                            << "were NOT imported — retry the migration rather than lose their"
                            << "shot links";
@@ -644,11 +665,16 @@ void DataMigrationClient::onAIConversationsReply()
                 // No map means every turn's shotId is cleared: the user imported
                 // conversations WITHOUT shots, or the shot import failed. Either
                 // way the ids name the source device's database, which this
-                // device does not have — keeping them is the bug.
+                // device does not have — keeping them is the bug. The equipment
+                // packages arrive with the shots too, so a conversations-only
+                // migration carries across only the unpackaged threads: the rest
+                // name a package this device cannot identify.
                 const AIConversation::ImportTally tally =
                     AIConversation::importConversationsStatic(settings, doc.array(),
-                                                              m_shotImport.idMapOrNull());
+                                                              m_shotImport.idMapOrNull(),
+                                                              m_shotImport.equipmentIdMapOrNull());
                 m_aiConversationsImported += tally.conversationsImported;
+                setAiConversationNote(AIConversation::importRefusalNote(tally, m_translationManager));
 
                 if (tally.conversationsImported > 0 && m_aiManager)
                     m_aiManager->reloadConversations();
@@ -1111,8 +1137,17 @@ void DataMigrationClient::onShotsReply()
 
             // Held for the ai_conversations step, which importAll() queues after
             // this one and which must remap its stored shot ids through this map.
-            if (success)
-                m_shotImport = shotImport;
+            //
+            // Stored UNCONDITIONALLY. It used to be stored only on success, which
+            // silently disabled the refusal guard below: an integrity refusal
+            // returns false, so `m_shotImport` stayed default-constructed, and
+            // `refused()` — which tests `integrityFailure` — was therefore always
+            // false. The conversations then imported anyway with null maps,
+            // clearing every shot link and consuming every key, so the retry that
+            // a refusal is supposed to invite skipped them all as duplicates.
+            // Storing a failed result is safe because importDatabaseStatic clears
+            // both id maps when it returns false.
+            m_shotImport = shotImport;
 
             if (!success) {
                 // Three outcomes used to share one silent branch. Split them:
@@ -1340,11 +1375,35 @@ void DataMigrationClient::setCurrentOperation(const QString& operation)
     }
 }
 
+void DataMigrationClient::setAiConversationNote(const QString& note)
+{
+    if (m_aiConversationNote == note) return;
+    m_aiConversationNote = note;
+    emit aiConversationNoteChanged();
+}
+
 void DataMigrationClient::setError(const QString& error)
 {
     m_errorMessage = error;
     emit errorMessageChanged();
     qWarning() << "DataMigrationClient:" << error;
+}
+
+void DataMigrationClient::setErrorIfFirst(const QString& error)
+{
+    // The dialog shows ONE errorMessage, and the steps run in a fixed order with
+    // ai_conversations last (importAll). An unconditional write therefore lets a
+    // late, minor failure replace an early, serious one: a refused shot history
+    // — the message that names which counts disagreed and says the existing
+    // shots are intact — was being overwritten by "the conversations list was
+    // not usable", so the user never learned their history had been refused.
+    // First failure wins; every failure is still logged by its own call site.
+    if (!m_errorMessage.isEmpty()) {
+        qWarning() << "DataMigrationClient: additional failure (not shown, an earlier one "
+                      "is already displayed) -" << error;
+        return;
+    }
+    setError(error);
 }
 
 // ============================================================================

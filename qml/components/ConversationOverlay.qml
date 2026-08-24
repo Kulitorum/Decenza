@@ -27,13 +27,13 @@ Rectangle {
     property string beverageType: "espresso"
     property string overlayTitle: TranslationManager.translate("conversation.title", "AI Conversation")
     property bool isMistakeShot: false
-    property string historicalContext: ""
     property bool contextLoading: false
     property string shotDebugLog: ""
     // Saved context for re-fetching shot history after conversation clear
-    property string savedBeanBrand: ""
-    property string savedBeanType: ""
-    property string savedProfileName: ""
+    // The shot this conversation is about. switchConversation derives the key
+    // from it, so a basket change opens a separate thread rather than continuing
+    // this one.
+    property var savedShot: ({})
 
     // Tap-only taste intake (add-ai-taste-intake): shown as a first-open gate over
     // the conversation when Settings.ai.tasteIntakeOnAsk is on, this shot hasn't
@@ -154,21 +154,13 @@ Rectangle {
         }
 
         // Switch to the right conversation for this bean+profile
-        MainController.aiManager.switchConversation(
-            beanBrand || "",
-            beanType || "",
-            profileName || ""
-        )
+        MainController.aiManager.switchConversation(shotData)
 
         // Fetch recent shot history as context on a background thread.
         // Result arrives via recentShotContextReady signal → Connections handler below.
-        overlay.savedBeanBrand = beanBrand || ""
-        overlay.savedBeanType = beanType || ""
-        overlay.savedProfileName = profileName || ""
-        overlay.historicalContext = ""
+        overlay.savedShot = shotData
         overlay.contextLoading = true
-        MainController.aiManager.requestRecentShotContext(
-            overlay.savedBeanBrand, overlay.savedBeanType, overlay.savedProfileName, shotId)
+        MainController.aiManager.requestRecentShotContext(overlay.savedShot, shotId)
 
         // Format shot timestamp as human-readable label for AI display
         var shotTs = shotData.timestamp || 0
@@ -181,13 +173,11 @@ Rectangle {
         if (isMistake) {
             overlay.pendingShotSummary = ""
         } else {
-            // Prose body for change-detection regex — `processShotForConversation`
-            // accepts either prose or the JSON envelope (its `extractShotProse`
-            // is a no-op for prose), so passing prose directly skips the parse +
-            // shotAnalysis-field extraction. Pre-#1042 this called
-            // `generateHistoryShotSummary` which returned the JSON envelope.
-            var raw = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
-            overlay.pendingShotSummary = MainController.aiManager.conversation.processShotForConversation(raw, shotLabel)
+            // Prose body for the on-screen "shot data attached" indicator only.
+            // What gets SENT is assembled at send time by
+            // buildConversationUserPrompt, which folds the change-detection in as
+            // a payload field rather than a banner prepended to the text.
+            overlay.pendingShotSummary = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
         }
 
         overlay.shotId = shotId
@@ -228,8 +218,7 @@ Rectangle {
     // Receive async historical context from background thread
     Connections {
         target: MainController.aiManager
-        function onRecentShotContextReady(context) {
-            overlay.historicalContext = context
+        function onRecentShotContextReady() {
             overlay.contextLoading = false
         }
     }
@@ -357,10 +346,9 @@ Rectangle {
                                     overlay._preResponseHeight = 0
                                     // Re-fetch historical context on background thread
                                     if (overlay.shotId > 0) {
-                                        overlay.historicalContext = ""
                                         overlay.contextLoading = true
                                         MainController.aiManager.requestRecentShotContext(
-                                            overlay.savedBeanBrand, overlay.savedBeanType, overlay.savedProfileName, overlay.shotId)
+                                            overlay.savedShot, overlay.shotId)
                                     }
                                 }
                             }
@@ -693,15 +681,12 @@ Rectangle {
                             // If there's a pending shot, include it with the user's question
                             var hasShotData = overlay.pendingShotSummary.length > 0
                             if (hasShotData) {
-                                // For new conversations with historical context, prepend previous shots
-                                var shotSection = "## Shot (" + overlay.shotLabel + ")\n\nHere's my latest shot:\n\n" +
-                                                  overlay.pendingShotSummary + "\n\n" + text
-                                if (overlay.historicalContext.length > 0) {
-                                    message = overlay.historicalContext + "\n\n" + shotSection
-                                    overlay.historicalContext = ""
-                                } else {
-                                    message = shotSection
-                                }
+                                // One JSON object per turn, assembled in C++ from the same
+                                // helpers ai_advisor_invoke uses. The question and the shot
+                                // label are fields on it, not text wrapped around it — see
+                                // AIManager::buildConversationUserPrompt.
+                                message = MainController.aiManager.buildConversationUserPrompt(
+                                    overlay.savedShot, text, overlay.shotLabel)
                             }
 
                             // Stamp the resolved shot onto this turn pair before
@@ -717,13 +702,9 @@ Rectangle {
                             if (!conversation.hasHistory) {
                                 // ask() doesn't touch the index; switchConversation() must run first
                                 // so the web UI shows this conversation (e.g. after a clear).
-                                MainController.aiManager.switchConversation(
-                                    overlay.savedBeanBrand || "",
-                                    overlay.savedBeanType || "",
-                                    overlay.savedProfileName || ""
-                                )
+                                MainController.aiManager.switchConversation(overlay.savedShot)
                                 var bevType = (overlay.beverageType || "espresso").toLowerCase()
-                                var systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedProfileName)
+                                var systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedShot.profileName || "")
                                 conversation.ask(systemPrompt, message)
                                 sent = true
                             } else {

@@ -106,28 +106,10 @@ QJsonObject shotToJson(const ShotProjection& shot,
     // never the hoisted session context. Sparse: non-RPM shots omit it.
     if (shot.rpm > 0)
         h["rpm"] = shot.rpm;
-    if (!override.grinderBrand.isEmpty())
-        h["grinderBrand"] = override.grinderBrand;
-    if (!override.grinderModel.isEmpty())
-        h["grinderModel"] = override.grinderModel;
-    if (!override.grinderBurrs.isEmpty())
-        h["grinderBurrs"] = override.grinderBurrs;
-    if (!override.beanBrand.isEmpty())
-        h["beanBrand"] = override.beanBrand;
-    if (!override.beanType.isEmpty())
-        h["beanType"] = override.beanType;
-    // Bean storage lifecycle (bean-freshness-followup): emitted per-shot only
-    // when it differs from the session context (e.g. a session spanning a thaw
-    // or open event), so the AI can tell a best-rated anchor came from a
-    // different, longer-rested portion. Hoisted to context otherwise.
-    if (!override.frozenDate.isEmpty())
-        h["frozenDate"] = override.frozenDate;
-    if (!override.defrostDate.isEmpty())
-        h["defrostDate"] = override.defrostDate;
-    if (!override.storageHint.isEmpty())
-        h["storageHint"] = override.storageHint;
-    if (!override.openedDate.isEmpty())
-        h["openedDate"] = override.openedDate;
+    // Only what differs from the session context; see hoistSessionContext.
+    const QJsonObject overrides = DialingHelpers::identityToJson(override);
+    for (auto it = overrides.begin(); it != overrides.end(); ++it)
+        h[it.key()] = it.value();
     h["notes"] = shot.espressoNotes;
     // Structured taste taps (add-ai-taste-intake): emitted per history shot so
     // the advisor can see how a prior shot tasted (e.g. "last time you tapped
@@ -154,16 +136,92 @@ QJsonObject shotToJson(const ShotProjection& shot,
 
 namespace DialingBlocks {
 
+AdvisorContextBlocks buildAdvisorContextBlocks(
+    QSqlDatabase& db,
+    const ShotProjection& shot,
+    qint64 resolvedShotId,
+    const QList<AIConversation::HistoricalAssistantTurn>& recentAssistantTurns,
+    int historyLimit,
+    GrinderCalibration calibration)
+{
+    AdvisorContextBlocks out;
+    if (!shot.isValid()) return out;
+
+    // One scope for every block. Built from the SHOT's package, not the active
+    // one — the shot is what the advice is about, and the two differ the moment
+    // a user swaps gear between pulling and asking.
+    const AdviceScope scope(shot.equipmentId);
+
+    bool historyQueryRan = false;
+    out.dialInSessions = buildDialInSessionsBlock(
+        db, shot.profileKbId, scope, resolvedShotId, historyLimit, &historyQueryRan);
+    // Say so when the query ran and matched nothing. Not when it failed: an
+    // error is not evidence of an empty history, and the two arrive here as the
+    // same empty array.
+    if (out.dialInSessions.isEmpty() && historyQueryRan)
+        out.noDialInHistory = buildNoDialInHistoryBlock(shot);
+    out.bestRecentShot = buildBestRecentShotBlock(
+        db, shot.profileKbId, scope, resolvedShotId, shot);
+    out.grinderContext = buildGrinderContextBlock(
+        db, shot.grinderModel, scope, shot.beverageType, shot.beanBrand);
+    if (calibration == GrinderCalibration::Include)
+        out.grinderCalibration = buildGrinderCalibrationBlock(
+            db, shot.grinderModel, scope, shot.beverageType, resolvedShotId);
+
+    if (!shot.profileKbId.isEmpty() && !recentAssistantTurns.isEmpty()) {
+        RecentAdviceInputs in;
+        in.turns = recentAssistantTurns;
+        in.currentProfileKbId = shot.profileKbId;
+        in.currentShotId = resolvedShotId;
+        out.recentAdvice = buildRecentAdviceBlock(db, in);
+    }
+
+    return out;
+}
+
+QJsonObject buildNoDialInHistoryBlock(const ShotProjection& shot)
+{
+    if (!shot.isValid()) return QJsonObject();
+
+    QJsonObject block;
+    block["matchedShotCount"] = 0;
+    const QJsonObject equipment =
+        DialingHelpers::equipmentSetToJson(DialingHelpers::identityFromShot(shot));
+    if (!equipment.isEmpty())
+        block["equipment"] = equipment;
+    // What the query ACTUALLY filtered on: profile family and equipment
+    // package. There is no bean predicate in it (shothistorystorage_queries.cpp
+    // — `profile_kb_id = ?` plus the scope), and naming the bean here would
+    // invite the model to read `matchedShotCount: 0` as "never pulled this bean
+    // on this gear", which the data does not say.
+    block["matchedOn"] = QStringLiteral(
+        "profile family and equipment package — grinder, basket and puck prep together");
+    block["instruction"] = QStringLiteral(
+        "No prior shot matches this equipment package. Shots pulled on other gear were "
+        "excluded deliberately: a grind number means nothing across grinders, and a basket "
+        "changes flow at the same grind, so those shots would mislead rather than inform. "
+        "Judge this shot on its own data. Do NOT cite, score or compare against any earlier "
+        "shot — none is present in this context, and one you recall or infer is not the "
+        "user's.");
+    return block;
+}
+
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
+                                    const AdviceScope& scope,
                                     qint64 resolvedShotId,
-                                    int historyLimit)
+                                    int historyLimit,
+                                    bool* queryRan)
 {
     QJsonArray sessions;
+    if (queryRan) *queryRan = false;
+    // No profile identity is not "the query matched nothing" — nothing was
+    // asked. Leaving queryRan false keeps the caller from stating an absence it
+    // did not establish.
     if (profileKbId.isEmpty()) return sessions;
 
     QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(
-        db, profileKbId, historyLimit, resolvedShotId);
+        db, profileKbId, scope, historyLimit, resolvedShotId, queryRan);
 
     QList<ShotProjection> shots;
     shots.reserve(history.size());
@@ -186,19 +244,8 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
 
         QList<DialingHelpers::ShotIdentity> identities;
         identities.reserve(ordered.size());
-        for (const ShotProjection& s : ordered) {
-            DialingHelpers::ShotIdentity id;
-            id.grinderBrand = s.grinderBrand;
-            id.grinderModel = s.grinderModel;
-            id.grinderBurrs = s.grinderBurrs;
-            id.beanBrand = s.beanBrand;
-            id.beanType = s.beanType;
-            id.frozenDate = s.frozenDate;
-            id.defrostDate = s.defrostDate;
-            id.storageHint = s.storageHint;
-            id.openedDate = s.openedDate;
-            identities.append(id);
-        }
+        for (const ShotProjection& s : ordered)
+            identities.append(DialingHelpers::identityFromShot(s));
         const DialingHelpers::HoistedSession hoisted =
             DialingHelpers::hoistSessionContext(identities);
 
@@ -269,28 +316,7 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             sessionShots.append(h);
         }
 
-        QJsonObject contextObj;
-        if (!hoisted.context.grinderBrand.isEmpty())
-            contextObj["grinderBrand"] = hoisted.context.grinderBrand;
-        if (!hoisted.context.grinderModel.isEmpty())
-            contextObj["grinderModel"] = hoisted.context.grinderModel;
-        if (!hoisted.context.grinderBurrs.isEmpty())
-            contextObj["grinderBurrs"] = hoisted.context.grinderBurrs;
-        if (!hoisted.context.beanBrand.isEmpty())
-            contextObj["beanBrand"] = hoisted.context.beanBrand;
-        if (!hoisted.context.beanType.isEmpty())
-            contextObj["beanType"] = hoisted.context.beanType;
-        // Bean storage lifecycle (bean-freshness-followup): hoisted to the
-        // session context when shared across every shot, overridden per-shot
-        // when a session spans a thaw/open event (see shotToJson).
-        if (!hoisted.context.frozenDate.isEmpty())
-            contextObj["frozenDate"] = hoisted.context.frozenDate;
-        if (!hoisted.context.defrostDate.isEmpty())
-            contextObj["defrostDate"] = hoisted.context.defrostDate;
-        if (!hoisted.context.storageHint.isEmpty())
-            contextObj["storageHint"] = hoisted.context.storageHint;
-        if (!hoisted.context.openedDate.isEmpty())
-            contextObj["openedDate"] = hoisted.context.openedDate;
+        QJsonObject contextObj = DialingHelpers::identityToJson(hoisted.context);
         // Issue #1158: hoisted pour control mode — one field for the
         // whole session instead of repeating it on every shot.
         if (pourControlUniform)
@@ -319,6 +345,7 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
 
 QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
                                      const QString& profileKbId,
+                                     const AdviceScope& scope,
                                      qint64 resolvedShotId,
                                      const ShotProjection& currentShot)
 {
@@ -333,10 +360,11 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     // elicitation paths (the rating slider, conversational capture) keep
     // this pool populated.
     bestQ.prepare(
-        "SELECT id FROM shots "
-        "WHERE profile_kb_id = ? AND enjoyment > 0 "
-        "AND id != ? AND timestamp >= ? "
-        "ORDER BY enjoyment DESC, timestamp DESC LIMIT 1");
+        QStringLiteral("SELECT id FROM shots "
+                       "WHERE profile_kb_id = ? AND enjoyment > 0 "
+                       "AND id != ? AND timestamp >= ?")
+        + QStringLiteral(" AND ") + scope.sql()
+        + QStringLiteral(" ORDER BY enjoyment DESC, timestamp DESC LIMIT 1"));
     bestQ.addBindValue(profileKbId);
     bestQ.addBindValue(resolvedShotId);
     bestQ.addBindValue(windowFloorSec);
@@ -419,6 +447,7 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
 
 QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
                                      const QString& grinderModel,
+                                     const AdviceScope& scope,
                                      const QString& beverageType,
                                      const QString& beanBrand)
 {
@@ -428,14 +457,15 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
         ? QStringLiteral("espresso") : beverageType;
 
     GrinderContext ctx = ShotHistoryStorage::queryGrinderContext(
-        db, grinderModel, bevType, beanBrand);
+        db, grinderModel, scope, bevType, beanBrand);
 
-    // Cross-bean fallback for sparse OR empty bean-scoped results.
+    // Cross-bean fallback for sparse OR empty bean-scoped results. Widens the
+    // bean only — the equipment scope is not a strength dial.
     bool haveCrossBean = false;
     GrinderContext crossBean;
     if (!beanBrand.isEmpty() && ctx.settingsObserved.size() < 2) {
         crossBean = ShotHistoryStorage::queryGrinderContext(
-            db, grinderModel, bevType);
+            db, grinderModel, scope, bevType);
         haveCrossBean = !crossBean.settingsObserved.isEmpty();
     }
 
@@ -527,9 +557,29 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
         settings->calibration()->perProfileSawHistory(profileFilename, scaleType, basketKey).size();
 
     QJsonObject sawPrediction;
-    sawPrediction["profileFilename"] = profileFilename;
-    sawPrediction["scaleType"] = scaleType;
-    sawPrediction["basket"] = basketKey;
+    // The pool this prediction came out of, which is the setup loaded NOW and
+    // not necessarily the one the shot was pulled on — the learner trains the
+    // active pool, and shots record no scale to key a historical one by. Named
+    // as a setup rather than left as bare `basket`/`scaleType` fields beside the
+    // shot's own data: on a review of an older shot those read as the shot's,
+    // and an advisor repeated the wrong basket back to the user.
+    QJsonObject appliesTo;
+    appliesTo["profileFilename"] = profileFilename;
+    appliesTo["scaleType"] = scaleType;
+    appliesTo["basket"] = basketKey;
+    // Flagged rather than left for the reader to diff: when the shot in hand ran
+    // on other gear or another profile, the drip figure below is not about it.
+    // Only where the comparison is honest — the pool keys on a profile FILENAME
+    // and the shot stores a title, so the profile check compares the two titles.
+    const QString shotBasketKey =
+        SettingsCalibration::sawBasketKey(currentShot.basketBrand, currentShot.basketModel);
+    if (!shotBasketKey.isEmpty() && shotBasketKey != basketKey)
+        appliesTo["differsFromShotBasket"] = shotBasketKey;
+    const QString loadedTitle = profileManager->currentProfile().title();
+    if (!currentShot.profileName.isEmpty() && !loadedTitle.isEmpty()
+        && currentShot.profileName != loadedTitle)
+        appliesTo["differsFromShotProfile"] = currentShot.profileName;
+    sawPrediction["appliesTo"] = appliesTo;
     sawPrediction["flowAtCutoffMlPerSec"] =
         QString::number(flowAtCutoff, 'f', 2).toDouble();
     sawPrediction["predictedDripG"] =
@@ -542,7 +592,7 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
         sawPrediction["recommendation"] = QString(
             "Set the stop-at-weight target ~%1 g lower than your aim "
             "to land near goal — that's the typical post-cutoff drip "
-            "on this (profile, scale) pair.")
+            "on the currently loaded profile, scale and basket.")
                 .arg(predictedDripG, 0, 'f', 1);
     }
     return sawPrediction;
@@ -1091,7 +1141,7 @@ constexpr qint64 kCalibUndatedBatchDays = 90;    // single-linkage gap for undat
 
 QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& grinderModel,
-                                         const QString& grinderBurrs,
+                                         const AdviceScope& scope,
                                          const QString& beverageType,
                                          qint64 resolvedShotId)
 {
@@ -1173,39 +1223,31 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // reading). Replaces the old "≥5g, no-badge-only" filter that admitted
     // undershoot/aborted experiments and corrupted the medians.
     QSqlQuery q(db);
+    // Package-scoped, like every other advice read. The endpoint medians below
+    // are pooled per (batch, kbId) before any pair is formed, so a shot from
+    // another basket corrupts the endpoint rather than merely adding a stray
+    // pair -- and this block publishes a number the user dials in.
+    //
+    // This is not a reversal of the grinder-identity folding that
+    // EquipmentStorage::findPackageByGrinderIdentityStatic() does: that answers
+    // "are these two rows the same real package", which still merges accidental
+    // forks. This answers "may these shots be compared", which baskets decide.
     q.prepare(
+        QStringLiteral(
         "SELECT profile_kb_id, profile_name, grinder_setting, timestamp, "
         "       bean_brand, bean_type, roast_date, final_weight, "
         "       COALESCE(enjoyment,0), COALESCE(drink_tds,0), "
         "       COALESCE(yield_override, 0), "
         "       json_extract(profile_json,'$.target_weight'), "
         "       COALESCE(rpm, 0) "
-        "FROM shots "
-        // Grinder identity resolves through the equipment_id pointer, not the
-        // dropped per-shot grinder_model/grinder_burrs columns (add-equipment-
-        // packages migration 23). Match the grinder item (model + burrs from its
-        // attrs blob) then keep shots pointing at one of those packages.
-        //
-        // Case- and whitespace-folded, so this read agrees with the identity LOOKUP
-        // that decides two packages are the same gear
-        // (EquipmentStorage::findPackageByGrinderIdentityStatic, which folds case in
-        // SQL and trims its search values in C++ — this trims both sides, so it is
-        // if anything more forgiving). An exact compare here meant a model string
-        // differing only in case or padding silently matched no history at all, and
-        // a calibration built on no history is indistinguishable from a grinder
-        // that has never been used.
-        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "    WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(?)) "
-        "    AND LOWER(TRIM(COALESCE(json_extract(attrs, '$.burrs'), ''))) = LOWER(TRIM(COALESCE(?, '')))) "
+        "FROM shots WHERE ") + scope.sql() + QStringLiteral(
         "  AND (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
         "  AND COALESCE(final_weight, 0) >= 15 "
         "  AND COALESCE(grind_issue_detected, 0) = 0 "
         "  AND COALESCE(channeling_detected, 0) = 0 "
         "  AND COALESCE(pour_truncated_detected, 0) = 0 "
         "  AND COALESCE(skip_first_frame_detected, 0) = 0 "
-        "ORDER BY timestamp DESC");
-    q.addBindValue(grinderModel);
-    q.addBindValue(grinderBurrs);
+        "ORDER BY timestamp DESC"));
     if (!q.exec ()) {
         qWarning() << "buildGrinderCalibrationBlock: history query failed:" << q.lastError().text();
         return QJsonObject();
@@ -1282,8 +1324,8 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     }
 
     if (rows.isEmpty()) {
-        qDebug() << "buildGrinderCalibrationBlock: no dialed-in shots for"
-                 << grinderModel << grinderBurrs;
+        qDebug() << "buildGrinderCalibrationBlock: no dialed-in shots in equipment package"
+                 << scope.bucket() << "(" << grinderModel << ")";
         return QJsonObject();
     }
 

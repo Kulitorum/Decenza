@@ -33,6 +33,15 @@ class DatabaseBackupManager : public QObject {
     QML_UNCREATABLE("DatabaseBackupManager is created in C++ and reached via MainController")
 
     Q_PROPERTY(QStringList availableBackups READ availableBackups NOTIFY availableBackupsChanged)
+    // What the AI-conversation part of the last restore could not do, empty when
+    // it did everything.
+    //
+    // A PROPERTY, not an argument on restoreCompleted: the cases that produce it
+    // include the ones that end the restore with an error — a refused shot import
+    // holds every conversation back, and in merge mode a failed shot or settings
+    // import still finishes through restoreFailed. Carried on the success signal
+    // it would evaporate exactly when it matters.
+    Q_PROPERTY(QString aiConversationNote READ aiConversationNote NOTIFY aiConversationNoteChanged)
 
 public:
     explicit DatabaseBackupManager(Settings* settings, ShotHistoryStorage* storage,
@@ -89,7 +98,11 @@ public:
     /// Request storage permissions (Android only)
     Q_INVOKABLE void requestStoragePermission();
 
+    QString aiConversationNote() const { return m_aiConversationNote; }
+
 signals:
+    void aiConversationNoteChanged();
+
     /// Emitted when backup succeeds
     void backupCreated(const QString& path);
 
@@ -146,6 +159,8 @@ private:
     QDate m_lastBackupDate;  // Track when we last backed up
     bool m_backupInProgress = false;  // Prevent concurrent backups
     bool m_restoreInProgress = false;  // Prevent concurrent restores
+    QString m_aiConversationNote;      // see the property above
+    void setAiConversationNote(const QString& note);
     QStringList m_cachedBackups;       // Cached result of getAvailableBackups()
     QVector<QThread*> m_activeThreads; // Track background threads for cleanup
 

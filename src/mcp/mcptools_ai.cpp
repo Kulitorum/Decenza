@@ -112,11 +112,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                  aiPtr, respond]() {
                 ShotProjection shot;
                 qint64 resolvedShotId = shotId;
-                QJsonArray dialInSessions;
-                QJsonObject bestRecentShot;
-                QJsonObject grinderContext;
-                QJsonObject grinderCalibration;
-                QJsonArray recentAdvice;
+                DialingBlocks::AdvisorContextBlocks blocks;
 
                 if (resolvedShotId <= 0) {
                     withTempDb(dbPath, "mcp_advisor_latest", [&](QSqlDatabase& db) {
@@ -141,45 +137,28 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     shot = ShotHistoryStorage::convertShotRecord(record);
 
                     if (shot.isValid()) {
-                        // Same dialing-context blocks the in-app advisor
-                        // ships, produced by the same shared helpers so
-                        // the userPromptUsed echo is byte-equivalent
-                        // across surfaces. See openspec
-                        // add-dialing-blocks-to-advisor.
-                        dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                            db, shot.profileKbId, resolvedShotId, 5);
-                        bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
-                            db, shot.profileKbId, resolvedShotId, shot);
-                        grinderContext = DialingBlocks::buildGrinderContextBlock(
-                            db, shot.grinderModel, shot.beverageType, shot.beanBrand);
-                        grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
-                            db, shot.grinderModel, shot.grinderBurrs,
-                            shot.beverageType, resolvedShotId);
-
-                        // Closed-loop recentAdvice (issue #1053). Read
-                        // the conversation history straight from QSettings
-                        // — the conversation key is the same hash the
-                        // in-app advisor uses, so the two surfaces ship
-                        // byte-equivalent recentAdvice for the same shot.
+                        // The dialing-context blocks, from the one assembler
+                        // the in-app advisor also calls, so the two surfaces
+                        // cannot ship different context for the same shot. The
+                        // struct travels whole rather than being unpacked into
+                        // one local per block: that is what kept a new block
+                        // from reaching only one of the two surfaces. Loading
+                        // the conversation turns stays here — see
+                        // buildAdvisorContextBlocks on why it is a parameter.
+                        QList<AIConversation::HistoricalAssistantTurn> turns;
                         if (!shot.profileKbId.isEmpty()) {
-                            const QString convKey = AIManager::conversationKey(
-                                shot.beanBrand, shot.beanType, shot.profileName);
-                            const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
-                            if (!turns.isEmpty()) {
-                                DialingBlocks::RecentAdviceInputs in;
-                                in.turns = turns;
-                                in.currentProfileKbId = shot.profileKbId;
-                                in.currentShotId = resolvedShotId;
-                                recentAdvice = DialingBlocks::buildRecentAdviceBlock(db, in);
-                            }
+                            turns = AIConversation::loadRecentAssistantTurnsForKey(
+                                AIManager::conversationKey(shot),
+                                DialingBlocks::kRecentAdviceTurns);
                         }
+                        blocks = DialingBlocks::buildAdvisorContextBlocks(
+                            db, shot, resolvedShotId, turns);
                     }
                 });
 
                 QMetaObject::invokeMethod(qApp,
                     [aiPtr, shot, dryRun, userPromptOverride, systemPromptOverride,
-                     resolvedShotId, dialInSessions, bestRecentShot, grinderContext,
-                     grinderCalibration, recentAdvice, respond]() {
+                     resolvedShotId, blocks, respond]() {
                     if (!aiPtr) {
                         respond(QJsonObject{{"error", "App shut down before advisor call could start"}});
                         return;
@@ -233,9 +212,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             respond(QJsonObject{{"error", "Failed to assemble shot summary for shot " + QString::number(resolvedShotId)}});
                             return;
                         }
-                        aiLive->enrichUserPromptObject(userPromptObj, shot,
-                            dialInSessions, bestRecentShot, grinderContext, recentAdvice,
-                            grinderCalibration);
+                        aiLive->enrichUserPromptObject(userPromptObj, shot, blocks);
                         userPrompt = QString::fromUtf8(
                             QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
                     }
@@ -344,8 +321,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             // it as an attribution anchor is unsafe.
                             if (!shot.beanBrand.isEmpty()
                                 && !shot.profileName.isEmpty()) {
-                                const QString convKey = AIManager::conversationKey(
-                                    shot.beanBrand, shot.beanType, shot.profileName);
+                                const QString convKey = AIManager::conversationKey(shot);
                                 AIConversation::appendAssistantTurnForKey(
                                     convKey, resolvedShotId,
                                     userPrompt, response, structured);

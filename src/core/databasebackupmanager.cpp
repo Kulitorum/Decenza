@@ -89,6 +89,13 @@ DatabaseBackupManager::~DatabaseBackupManager()
     }
 }
 
+void DatabaseBackupManager::setAiConversationNote(const QString& note)
+{
+    if (m_aiConversationNote == note) return;
+    m_aiConversationNote = note;
+    emit aiConversationNoteChanged();
+}
+
 void DatabaseBackupManager::start()
 {
     if (!m_settings || !m_storage) {
@@ -406,43 +413,13 @@ bool DatabaseBackupManager::createBackup(bool force)
     if (m_settings) {
         settingsJson = SettingsSerializer::exportToJson(m_settings, /*includeSensitive=*/false);
 
-        // Add AI conversations
+        // Add AI conversations. Serialized by the importer's own producer, so
+        // the archive cannot carry a different set of fields than a restore
+        // reads back — see AIConversation::exportConversationsStatic.
         AppSettings qsettings;
-        QByteArray indexData = qsettings.value("ai/conversations/index").toByteArray();
-        if (!indexData.isEmpty()) {
-            QJsonDocument indexDoc = QJsonDocument::fromJson(indexData);
-            if (indexDoc.isArray()) {
-                QJsonArray conversations;
-                QJsonArray indexArr = indexDoc.array();
-                for (const QJsonValue& v : indexArr) {
-                    QJsonObject entry = v.toObject();
-                    QString key = entry["key"].toString();
-                    if (key.isEmpty()) continue;
-
-                    QString prefix = "ai/conversations/" + key + "/";
-                    QJsonObject conv;
-                    conv["key"] = key;
-                    conv["beanBrand"] = entry["beanBrand"].toString();
-                    conv["beanType"] = entry["beanType"].toString();
-                    conv["profileName"] = entry["profileName"].toString();
-                    conv["timestamp"] = qsettings.value(prefix + "timestamp").toString();
-                    conv["systemPrompt"] = qsettings.value(prefix + "systemPrompt").toString();
-                    conv["contextLabel"] = qsettings.value(prefix + "contextLabel").toString();
-                    conv["indexTimestamp"] = entry["timestamp"].toVariant().toLongLong();
-
-                    QByteArray messagesJson = qsettings.value(prefix + "messages").toByteArray();
-                    if (!messagesJson.isEmpty()) {
-                        QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
-                        conv["messages"] = msgDoc.isArray() ? msgDoc.array() : QJsonArray();
-                    } else {
-                        conv["messages"] = QJsonArray();
-                    }
-
-                    conversations.append(conv);
-                }
-                settingsJson["ai_conversations"] = conversations;
-            }
-        }
+        const QJsonArray conversations = AIConversation::exportConversationsStatic(qsettings);
+        if (!conversations.isEmpty())
+            settingsJson["ai_conversations"] = conversations;
     }
 
     // Collect paths on main thread (some accessors may use JNI/platform APIs)
@@ -1117,6 +1094,11 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                 }
             }
 
+            // What the conversation import refused, empty when it refused
+            // nothing. Declared out here because it is produced deep inside the
+            // settings branch and reported at the very end.
+            QString conversationNote;
+
             // Restore AI conversations (writes to QSettings)
             if (settingsJson.contains("ai_conversations")) {
                 QJsonArray conversations = settingsJson["ai_conversations"].toArray();
@@ -1153,6 +1135,12 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     // then already exist and the retry skips them. Leave the
                     // conversations in the archive for the retry to do properly.
                     if (shotImport.refused()) {
+                        // Held back, and SAID so. Without this the user is told
+                        // the shot history was refused and never that their
+                        // conversations were held back with it, which makes the
+                        // retry that recovers both look optional.
+                        conversationNote = AIConversation::importHeldBackNote(
+                            conversations.size(), m_translationManager);
                         qWarning() << "DatabaseBackupManager: shot import was refused, so AI"
                                    << "conversations were NOT imported — retry the restore"
                                    << "rather than lose their shot links";
@@ -1164,7 +1152,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                         const AIConversation::ImportTally convTally =
                             AIConversation::importConversationsStatic(
                                 qsettings, conversations,
-                                shotsImported ? shotImport.idMapOrNull() : nullptr);
+                                shotsImported ? shotImport.idMapOrNull() : nullptr,
+                                shotsImported ? shotImport.equipmentIdMapOrNull() : nullptr);
 
                         if (convTally.conversationsImported > 0) {
                             qsettings.sync();
@@ -1173,11 +1162,19 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                                      << "shot reference(s) remapped," << convTally.turnsCleared
                                      << "cleared";
                         }
+                        // Reported to the user, not only to the log: the count of
+                        // survivors was already on screen, so refusing 37 of 40
+                        // rendered as a green "3 imported".
+                        conversationNote = AIConversation::importRefusalNote(convTally, m_translationManager);
                     }
                 }
             }
 
             m_restoreInProgress = false;
+            // Published before either terminal signal, so the note survives the
+            // failure path too: in merge mode a failed shot or settings import
+            // still reaches here having held every conversation back.
+            setAiConversationNote(conversationNote);
             if (!restoreErrors.isEmpty()) {
                 emit restoreFailed(joinErrors(restoreErrors));
             } else {

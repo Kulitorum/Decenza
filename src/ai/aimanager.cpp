@@ -2,6 +2,7 @@
 #include "core/appsettings.h"
 #include "aiprovider.h"
 #include "aiconversation.h"
+#include "conversationkey.h"
 #include "shotsummarizer.h"
 #include "../core/settings.h"
 #include "../core/settings_ai.h"
@@ -83,6 +84,15 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
     // knows per shot; old conversations anchored on "I don't have LRV3 data"
     // are misleading. Fires once per device, then becomes a no-op.
     clearAllConversationsOnce(QStringLiteral("grinder_calibration_v1.7.2"));
+    // Pre-change threads are keyed without the equipment package and their turns
+    // carry cross-equipment context verbatim, so changing the key already orphans
+    // them; and their user messages are the old prose-wrapped shape, which nothing
+    // reads any more — one JSON object per turn is the only shape now.
+    //
+    // v2, not v1: the marker is per id and v1 has already fired on any device that
+    // ran an interim build of this change. Those devices would keep prose turns
+    // that no reader can render.
+    clearAllConversationsOnce(QStringLiteral("equipment_scoped_conversations_v2"));
 
     // Migrate legacy single-conversation storage if needed
     migrateFromLegacyConversation();
@@ -759,25 +769,25 @@ QString AIManager::buildShotAnalysisProseForShot(const QVariant& shotVariant)
 
 void AIManager::enrichUserPromptObject(QJsonObject& payload,
                                        const ShotProjection& shotData,
-                                       const QJsonArray& dialInSessions,
-                                       const QJsonObject& bestRecentShot,
-                                       const QJsonObject& grinderContext,
-                                       const QJsonArray& recentAdvice,
-                                       const QJsonObject& grinderCalibration) const
+                                       const DialingBlocks::AdvisorContextBlocks& blocks) const
 {
-    if (!dialInSessions.isEmpty())
-        payload["dialInSessions"] = dialInSessions;
-    if (!bestRecentShot.isEmpty())
-        payload["bestRecentShot"] = bestRecentShot;
-    if (!grinderContext.isEmpty())
-        payload["grinderContext"] = grinderContext;
-    if (!grinderCalibration.isEmpty())
-        payload["grinderCalibration"] = grinderCalibration;
+    if (!blocks.dialInSessions.isEmpty())
+        payload["dialInSessions"] = blocks.dialInSessions;
+    // Mutually exclusive with dialInSessions by construction — the builder only
+    // fills this one when the history query ran and matched nothing.
+    if (!blocks.noDialInHistory.isEmpty())
+        payload["noDialInHistory"] = blocks.noDialInHistory;
+    if (!blocks.bestRecentShot.isEmpty())
+        payload["bestRecentShot"] = blocks.bestRecentShot;
+    if (!blocks.grinderContext.isEmpty())
+        payload["grinderContext"] = blocks.grinderContext;
+    if (!blocks.grinderCalibration.isEmpty())
+        payload["grinderCalibration"] = blocks.grinderCalibration;
     // Closed-loop coaching: prior advisor turns paired with the user's
     // actual next shots (issue #1053). Empty array (no qualifying turns
     // yet) → key omitted; never `recentAdvice: []` placeholder.
-    if (!recentAdvice.isEmpty())
-        payload["recentAdvice"] = recentAdvice;
+    if (!blocks.recentAdvice.isEmpty())
+        payload["recentAdvice"] = blocks.recentAdvice;
     if (shotData.isValid()) {
         const QJsonObject sawPrediction = DialingBlocks::buildSawPredictionBlock(
             m_settings, m_profileManager, shotData);
@@ -837,112 +847,6 @@ void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
     }
 }
 
-// File-scope helper: runs on a background thread with its own SQLite connection.
-// Returns (timestamp, fullShot) pairs. Extracted from requestRecentShotContext
-// to reduce lambda nesting. NOT safe to call from the main thread (would conflict
-// with the primary DB connection).
-static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
-    const QString& dbPath,
-    const QString& beanBrand, const QString& beanType,
-    const QString& profileName, int excludeShotId)
-{
-    QList<QPair<qint64, ShotProjection>> qualifiedShots;
-
-    withTempDb(dbPath, "ai_context", [&](QSqlDatabase& db) {
-        // 1. Look up the current shot's timestamp
-        qint64 shotTimestamp = 0;
-        {
-            QSqlQuery q(db);
-            q.prepare("SELECT timestamp FROM shots WHERE id = ?");
-            q.bindValue(0, static_cast<qint64>(excludeShotId));
-            if (!q.exec()) {
-                qWarning() << "AIManager::requestRecentShotContext: timestamp query failed:" << q.lastError().text();
-            } else if (q.next()) {
-                shotTimestamp = q.value(0).toLongLong();
-            } else {
-                qDebug() << "AIManager::requestRecentShotContext: no shot found for excludeShotId=" << excludeShotId;
-            }
-        }
-
-        if (shotTimestamp <= 0) return;
-
-        // 2. Query candidates: same bean/profile, up to 3 weeks before this shot
-        qint64 dateFrom = shotTimestamp - 21 * 24 * 3600;
-        QStringList conditions;
-        QVariantList bindValues;
-        if (!beanBrand.isEmpty()) { conditions << "bean_brand = ?"; bindValues << beanBrand; }
-        if (!beanType.isEmpty()) { conditions << "bean_type = ?"; bindValues << beanType; }
-        if (!profileName.isEmpty()) { conditions << "profile_name = ?"; bindValues << profileName; }
-        conditions << "timestamp >= ?" << "timestamp <= ?";
-        bindValues << dateFrom << shotTimestamp;
-
-        QString sql = "SELECT id, timestamp, profile_name, duration_seconds, final_weight "
-                      "FROM shots WHERE " + conditions.join(" AND ") +
-                      " ORDER BY timestamp DESC LIMIT 6";
-
-        QSqlQuery q(db);
-        q.prepare(sql);
-        for (int i = 0; i < bindValues.size(); ++i)
-            q.bindValue(i, bindValues[i]);
-
-        struct Candidate { qint64 id; qint64 timestamp; QString profileName; double duration; double finalWeight; };
-        QList<Candidate> candidates;
-        if (q.exec()) {
-            while (q.next()) {
-                candidates.append({q.value(0).toLongLong(), q.value(1).toLongLong(),
-                                   q.value(2).toString(), q.value(3).toDouble(), q.value(4).toDouble()});
-            }
-        } else {
-            qWarning() << "AIManager::requestRecentShotContext: candidate query failed:" << q.lastError().text();
-        }
-
-        qDebug() << "AIManager::requestRecentShotContext: excludeShotId=" << excludeShotId
-                 << "shotTimestamp=" << QDateTime::fromSecsSinceEpoch(shotTimestamp).toString("yyyy-MM-dd HH:mm")
-                 << "filter: bean=" << beanBrand << beanType << "profile=" << profileName
-                 << "candidates=" << candidates.size();
-
-        // 3. Filter and load full records for up to 3 qualifying shots
-        int included = 0;
-        for (const auto& c : candidates) {
-            if (included >= 3) break;
-
-            if (c.id == excludeShotId) {
-                qDebug() << "  Shot id=" << c.id << "-> SKIPPED (current shot)";
-                continue;
-            }
-
-            // Lightweight mistake check (duration < 10s or weight < 5g)
-            if (c.duration < 10.0 || c.finalWeight < 5.0) {
-                qDebug() << "  Shot id=" << c.id << "-> SKIPPED (mistake)";
-                continue;
-            }
-
-            ShotProjection fullShot;
-            try {
-                ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, c.id);
-                fullShot = ShotHistoryStorage::convertShotRecord(record);
-            } catch (const std::exception& e) {
-                qWarning() << "  Shot id=" << c.id << "-> SKIPPED (exception:" << e.what() << ")";
-                continue;
-            }
-            if (!fullShot.isValid()) {
-                qWarning() << "  Shot id=" << c.id << "-> SKIPPED (convertShotRecord returned empty)";
-                continue;
-            }
-
-            // Check targetWeight-based mistake filter (needs full record)
-            if (fullShot.targetWeightG > 0.0 && c.finalWeight < fullShot.targetWeightG / 3.0) {
-                qDebug() << "  Shot id=" << c.id << "-> SKIPPED (mistake, weight < 1/3 target)";
-                continue;
-            }
-
-            qDebug() << "  Shot id=" << c.id << "-> INCLUDED";
-            qualifiedShots.append({c.timestamp, std::move(fullShot)});
-            ++included;
-        }
-    });
-    return qualifiedShots;
-}
 
 // File-scope helper: render one `recentAdvice` entry (see
 // DialingBlocks::buildRecentAdviceBlock) as a markdown block. Every other
@@ -950,68 +854,12 @@ static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
 // JSON blob, so this keeps the format consistent — the underlying data is
 // identical to what the MCP `recentAdvice` JSON array carries for the same
 // inputs (turnsAgo/recommendation/structuredNext/userResponse).
-static QString renderRecentAdviceEntry(const QJsonObject& entry)
+
+void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contextShotId)
 {
-    const int turnsAgo = entry.value("turnsAgo").toInt();
-    const QString recommendation = entry.value("recommendation").toString();
-    const QJsonObject sn = entry.value("structuredNext").toObject();
-    const QJsonObject resp = entry.value("userResponse").toObject();
-
-    QString out = QStringLiteral("### %1 shot%2 ago\n\n")
-        .arg(turnsAgo).arg(turnsAgo == 1 ? "" : "s");
-    if (!recommendation.isEmpty())
-        out += QStringLiteral("**You recommended**: %1\n\n").arg(recommendation);
-
-    const DialingBlocks::StructuredNextSummary snSummary = DialingBlocks::summarizeStructuredNext(sn);
-    if (!snSummary.predictedParts.isEmpty())
-        out += QStringLiteral("- Predicted: %1\n").arg(snSummary.predictedParts.join(QStringLiteral(", ")));
-    if (!snSummary.expectedParts.isEmpty())
-        out += QStringLiteral("- Expected: %1\n").arg(snSummary.expectedParts.join(QStringLiteral(", ")));
-
-    QStringList actual;
-    const QString actualGrinder = resp.value("grinderSetting").toString();
-    if (!actualGrinder.isEmpty())
-        actual << QStringLiteral("grinder %1").arg(actualGrinder);
-    const int actualRpm = resp.value("rpm").toInt();
-    if (actualRpm > 0)
-        actual << QStringLiteral("%1 RPM").arg(actualRpm);
-    const double actualDose = resp.value("doseG").toDouble();
-    if (actualDose > 0)
-        actual << QStringLiteral("dose %1g").arg(actualDose, 0, 'f', 1);
-    out += QStringLiteral("- Your next shot: %1 — adherence: **%2**\n")
-        .arg(actual.isEmpty() ? QStringLiteral("(no change recorded)") : actual.join(QStringLiteral(", ")))
-        .arg(resp.value("adherence").toString());
-
-    if (resp.contains(QStringLiteral("outcomeRating0to100"))) {
-        QString ratingLine = QStringLiteral("- Score: %1/100").arg(resp.value("outcomeRating0to100").toInt());
-        const QString notes = resp.value("outcomeNotes").toString();
-        if (!notes.isEmpty())
-            ratingLine += QStringLiteral(" (\"%1\")").arg(notes);
-        out += ratingLine + QStringLiteral("\n");
-    } else if (resp.contains(QStringLiteral("outcomeNotes"))) {
-        out += QStringLiteral("- Notes: \"%1\"\n").arg(resp.value("outcomeNotes").toString());
-    }
-
-    const QJsonObject inRange = resp.value(QStringLiteral("outcomeInPredictedRange")).toObject();
-    if (!inRange.isEmpty()) {
-        QStringList rangeParts;
-        if (inRange.contains(QStringLiteral("duration")))
-            rangeParts << QStringLiteral("duration %1").arg(inRange.value("duration").toBool() ? "in range" : "out of range");
-        if (inRange.contains(QStringLiteral("flow")))
-            rangeParts << QStringLiteral("flow %1").arg(inRange.value("flow").toBool() ? "in range" : "out of range");
-        if (inRange.contains(QStringLiteral("pressure")))
-            rangeParts << QStringLiteral("pressure %1").arg(inRange.value("pressure").toBool() ? "in range" : "out of range");
-        if (!rangeParts.isEmpty())
-            out += QStringLiteral("- Outcome vs prediction: %1\n").arg(rangeParts.join(QStringLiteral(", ")));
-    }
-
-    return out;
-}
-
-void AIManager::requestRecentShotContext(const QString& beanBrand, const QString& beanType, const QString& profileName, int excludeShotId)
-{
-    if (!m_shotHistory || (beanBrand.isEmpty() && profileName.isEmpty())) {
-        emit recentShotContextReady(QString());
+    const ShotProjection shot = coerceShot(shotData);
+    if (!m_shotHistory || (shot.beanBrand.isEmpty() && shot.profileName.isEmpty())) {
+        emit recentShotContextReady();
         return;
     }
 
@@ -1024,71 +872,45 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
     // event loop. The background thread captures `self` by value but MUST NOT dereference
     // it. All dereferences occur inside the QueuedConnection callback, which runs on the
     // main thread where QPointer's tracking is valid.
-    QThread* thread = QThread::create([self, dbPath, beanBrand, beanType, profileName, excludeShotId, serial]() {
-        auto qualifiedShots = loadQualifiedShots(dbPath, beanBrand, beanType, profileName, excludeShotId);
-
-        GrinderContext grinderCtx;
-        QString grinderBrand;
-        QJsonObject grinderCalibration;
-        QJsonArray recentAdvice;
-        withTempDb(dbPath, "ai_grinder_ctx", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            // Grinder identity resolves through the shot's equipment_id pointer
-            // (the per-shot grinder_brand/model/burrs columns are dropped in
-            // migration 23, add-equipment-packages task 4.1). burrs is in the
-            // grinder item's attrs JSON blob. profile_kb_id is pulled here too
-            // (not a separate query) so the recentAdvice build below can
-            // cross-profile-filter without another round-trip.
-            q.prepare("SELECT eg.brand, eg.model, json_extract(eg.attrs, '$.burrs'), s.beverage_type, s.profile_kb_id "
-                      "FROM shots s "
-                      "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
-                      "WHERE s.id = ?");
-            q.bindValue(0, static_cast<qint64>(excludeShotId));
-            QString profileKbId;
-            if (!q.exec()) {
-                qWarning() << "AIManager::requestRecentShotContext: grinder ctx query failed:"
-                           << q.lastError().text();
-            } else if (q.next()) {
-                grinderBrand = q.value(0).toString();
-                QString model = q.value(1).toString();
-                QString burrs = q.value(2).toString();
-                QString bev = q.value(3).toString();
-                profileKbId = q.value(4).toString();
-                if (!model.isEmpty()) {
-                    grinderCtx = ShotHistoryStorage::queryGrinderContext(db, model, bev);
-                    grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
-                        db, model, burrs, bev, excludeShotId);
-                }
+    // `shot` is deliberately NOT captured: it is only the validity gate above.
+    // The worker re-reads the shot whole from the database so both surfaces feed
+    // the assembler identical input.
+    QThread* thread = QThread::create([self, dbPath, contextShotId, serial]() {
+        DialingBlocks::AdvisorContextBlocks blocks;
+        withTempDb(dbPath, "ai_advisor_ctx", [&](QSqlDatabase& db) {
+            // The shot the advice is about, read whole — the same record
+            // ai_advisor_invoke resolves, so both surfaces feed the one
+            // assembler identical input.
+            const ShotRecord record =
+                ShotHistoryStorage::loadShotRecordStatic(db, contextShotId);
+            const ShotProjection ctxShot = ShotHistoryStorage::convertShotRecord(record);
+            // The database is the only source of this shot now, and
+            // loadShotRecordStatic returns a default record for BOTH a failed
+            // query and a genuine miss. Without this the blocks come back empty,
+            // get cached, and QML clears its spinner — byte-identical to a
+            // successful empty result, so the advisor answers with no history and
+            // nobody is told why. Bail with a log instead; the caller's bare
+            // "ready" still fires below.
+            if (!ctxShot.isValid()) {
+                qWarning() << "AIManager::requestRecentShotContext: shot" << contextShotId
+                           << "did not resolve — advisor context will be empty";
+                return;
             }
 
-            // Closed-loop recentAdvice (issue #1053) — same pattern
-            // ai_advisor_invoke uses (mcptools_ai.cpp), so the in-app
-            // advisor's historicalContext carries the same tracking data
-            // the MCP path already does.
-            if (!profileKbId.isEmpty()) {
-                const QString convKey = AIManager::conversationKey(beanBrand, beanType, profileName);
-                const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
-                if (!turns.isEmpty()) {
-                    DialingBlocks::RecentAdviceInputs in;
-                    in.turns = turns;
-                    in.currentProfileKbId = profileKbId;
-                    in.currentShotId = excludeShotId;
-                    recentAdvice = DialingBlocks::buildRecentAdviceBlock(db, in);
-                }
+            // Loaded here rather than inside the assembler: see
+            // buildAdvisorContextBlocks on why it is a parameter.
+            QList<AIConversation::HistoricalAssistantTurn> turns;
+            if (!ctxShot.profileKbId.isEmpty()) {
+                turns = AIConversation::loadRecentAssistantTurnsForKey(
+                    AIManager::conversationKey(ctxShot), DialingBlocks::kRecentAdviceTurns);
             }
+            blocks = DialingBlocks::buildAdvisorContextBlocks(
+                db, ctxShot, contextShotId, turns);
         });
 
-        // Summarization runs on main thread (ShotSummarizer is owned by AIManager).
-        // The render+emit work is in `emitRecentShotContext` so the
-        // canonical-source separation logic can be exercised by tests
-        // (`friend class tst_AIManager`) without standing up a real DB.
-        QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots),
-                                         grinderCtx = std::move(grinderCtx),
-                                         grinderBrand = std::move(grinderBrand),
-                                         grinderCalibration = std::move(grinderCalibration),
-                                         recentAdvice = std::move(recentAdvice)]() mutable {
+        QMetaObject::invokeMethod(qApp, [self, serial, contextShotId, blocks]() {
             if (!self) return;
-            self->emitRecentShotContext(qualifiedShots, grinderCtx, grinderBrand, serial, grinderCalibration, recentAdvice);
+            self->emitRecentShotContext(blocks, contextShotId, serial);
         }, Qt::QueuedConnection);
     });
 
@@ -1096,269 +918,75 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
     thread->start();
 }
 
-void AIManager::emitRecentShotContext(
-    const QList<QPair<qint64, ShotProjection>>& qualifiedShots,
-    const GrinderContext& grinderCtx,
-    const QString& grinderBrand,
-    int serial,
-    const QJsonObject& grinderCalibration,
-    const QJsonArray& recentAdvice)
+void AIManager::emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks& blocks,
+                                      qint64 contextShotId,
+                                      int serial)
 {
     if (serial != m_contextSerial) {
-        // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
-        emit recentShotContextReady(QString());
+        // Stale request superseded by a newer one — emit empty so QML clears
+        // contextLoading, and leave the cache alone: the newer request owns it.
+        emit recentShotContextReady();
         return;
     }
 
-    QString result;
+    m_contextBlocks = blocks;
+    m_contextBlocksShotId = contextShotId;
 
-    // Per openspec optimize-dialing-context-payload (task 10.3):
-    // hoist profile + setup constants to a single header at the
-    // top of the history section, then render each shot in
-    // `HistoryBlock` mode so the per-shot blocks carry shot-
-    // variable data only. Saves ~5,400 chars across a 4-shot
-    // history (Northbound 80's Espresso baseline) by killing
-    // N× repetition of profile intent + recipe + grinder/bean
-    // identity.
-    QString profileTitle, profileIntent, profileRecipe;
-    QString setupGrinderBrand, setupGrinderModel, setupGrinderBurrs;
-    QString setupBeanBrand, setupBeanType, setupRoastLevel, setupRoastDate;
-    // Empty fields read as "unrecorded, inherit" — not "different."
-    // Older shots predating DYE recording have empty grinder/bean
-    // strings; treating those as a mismatch would suppress the
-    // hoisted Setup header for any history that mixes
-    // pre-DYE shots with post-DYE shots. Only flip setupShared
-    // false when both sides are non-empty AND differ. The shared
-    // values are populated lazily via firstNonEmpty so a recorded
-    // value seeds the canonical even if shot[0] was unrecorded.
-    bool setupShared = !qualifiedShots.isEmpty();
-    auto seedOrCompare = [&setupShared](QString& canonical, const QString& v) {
-        if (canonical.isEmpty()) {
-            canonical = v;
-        } else if (!v.isEmpty() && v != canonical) {
-            setupShared = false;
-        }
-    };
-    for (const auto& qs : qualifiedShots) {
-        const ShotProjection& s = qs.second;
-        seedOrCompare(setupGrinderBrand, s.grinderBrand);
-        seedOrCompare(setupGrinderModel, s.grinderModel);
-        seedOrCompare(setupGrinderBurrs, s.grinderBurrs);
-        seedOrCompare(setupBeanBrand, s.beanBrand);
-        seedOrCompare(setupBeanType, s.beanType);
-        seedOrCompare(setupRoastLevel, s.roastLevel);
-        seedOrCompare(setupRoastDate, s.roastDate);
-        if (profileTitle.isEmpty() && !s.profileName.isEmpty())
-            profileTitle = s.profileName;
-        if (profileIntent.isEmpty() && !s.profileNotes.isEmpty())
-            profileIntent = s.profileNotes;
-        if (profileRecipe.isEmpty() && !s.profileJson.isEmpty())
-            profileRecipe = Profile::describeFramesFromJson(s.profileJson);
+    // A bare "ready", with no payload. It used to carry a JSON rendering of the
+    // blocks, "so the web surface and the tests can see what resolved" — no such
+    // reader existed: the one consumer stored the string in a QML property
+    // nothing read. That left a SECOND assembler over AdvisorContextBlocks, and
+    // it had already fallen behind, omitting noDialInHistory while
+    // enrichUserPromptObject included it. The payload QML sends is assembled
+    // once, by buildConversationUserPrompt, from the cache above.
+    emit recentShotContextReady();
+}
+
+QString AIManager::buildConversationUserPrompt(const QVariant& shotData,
+                                               const QString& question,
+                                               const QString& shotLabel)
+{
+    const ShotProjection shot = coerceShot(shotData);
+    if (!shot.isValid()) return question;
+
+    // The shot's own payload, from the same builder ai_advisor_invoke uses.
+    ShotSummary summary = m_summarizer->summarizeFromHistory(shot);
+    QJsonParseError err{};
+    const QJsonDocument doc =
+        QJsonDocument::fromJson(m_summarizer->buildUserPrompt(summary).toUtf8(), &err);
+    QJsonObject payload = (err.error == QJsonParseError::NoError && doc.isObject())
+                              ? doc.object()
+                              : QJsonObject();
+
+    // Context blocks, only when they were resolved for THIS shot. A mismatch means
+    // the user opened another shot while the request was in flight; sending the
+    // other shot's history would be worse than sending none.
+    if (m_contextBlocksShotId == shot.id) {
+        enrichUserPromptObject(payload, shot, m_contextBlocks);
+    } else {
+        // The function returned above on an invalid shot, so no second validity
+        // test is needed here.
+        // sawPrediction does not come from the DB pass, so it is available either way.
+        const QJsonObject sawPrediction =
+            DialingBlocks::buildSawPredictionBlock(m_settings, m_profileManager, shot);
+        if (!sawPrediction.isEmpty()) payload["sawPrediction"] = sawPrediction;
     }
 
-    QStringList shotSections;
-    for (const auto& qs : qualifiedShots) {
-        ShotSummary summary = m_summarizer->summarizeFromHistory(qs.second);
-        QString summaryText = m_summarizer->buildUserPrompt(
-            summary, ShotSummarizer::RenderMode::HistoryBlock);
-        if (summaryText.isEmpty()) continue;
+    if (!shotLabel.isEmpty()) payload["shotLabel"] = shotLabel;
 
-        static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
-        QString dateStr = QDateTime::fromSecsSinceEpoch(qs.first).toString(use12h ? "MMM d, h:mm AP" : "MMM d, HH:mm");
-        shotSections.prepend(QString("### Shot (%1)\n\n%2").arg(dateStr).arg(summaryText));
+    // What moved since the previous shot in this conversation. A field, not a
+    // banner prepended to the text — the banner is what made the payload a
+    // prose/JSON sandwich that then had to be taken apart again to be read.
+    if (m_conversation) {
+        const QString soFar =
+            QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
+        const QJsonObject changes = m_conversation->changesFromPreviousShot(shotLabel, soFar);
+        if (!changes.isEmpty()) payload["changesFromPreviousShotInConversation"] = changes;
     }
 
-    if (!shotSections.isEmpty()) {
-        result = "## Previous Shots with This Bean & Profile\n\n"
-                 "All shots below use the same profile as the current shot. "
-                 "Do not comment on frame-level recipe details unless they changed between shots. "
-                 "Focus on what the user changed (grind, dose, temperature) and how it affected the outcome.\n\n";
+    if (!question.isEmpty()) payload["question"] = question;
 
-        if (!profileTitle.isEmpty()) {
-            result += "### Profile: " + profileTitle + "\n";
-            if (!profileIntent.isEmpty())
-                result += profileIntent + "\n";
-            if (!profileRecipe.isEmpty())
-                result += profileRecipe;
-            result += "\n";
-        }
-
-        if (setupShared && (!setupGrinderBrand.isEmpty() || !setupGrinderModel.isEmpty()
-                            || !setupBeanBrand.isEmpty() || !setupBeanType.isEmpty())) {
-            // Build each segment as a complete fragment, then join with " "
-            // — that way no segment owns a leading space, and absent fields
-            // don't produce double-space artifacts (e.g. burrs without a
-            // grinder brand+model used to render "### Setup:  with 63mm").
-            QStringList parts;
-            QString grinderName;
-            if (!setupGrinderBrand.isEmpty()) grinderName = setupGrinderBrand;
-            if (!setupGrinderModel.isEmpty()) {
-                if (!grinderName.isEmpty()) grinderName += " ";
-                grinderName += setupGrinderModel;
-            }
-            if (!setupGrinderBurrs.isEmpty()) {
-                grinderName += grinderName.isEmpty()
-                    ? setupGrinderBurrs
-                    : " with " + setupGrinderBurrs;
-            }
-            if (!grinderName.isEmpty()) parts << grinderName;
-
-            QString beanName;
-            if (!setupBeanBrand.isEmpty() && !setupBeanType.isEmpty())
-                beanName = setupBeanBrand + " - " + setupBeanType;
-            else if (!setupBeanBrand.isEmpty())
-                beanName = setupBeanBrand;
-            else if (!setupBeanType.isEmpty())
-                beanName = setupBeanType;
-            if (!beanName.isEmpty()) {
-                QString beanFull = beanName;
-                if (!setupRoastLevel.isEmpty()) beanFull += " (" + setupRoastLevel + ")";
-                if (!setupRoastDate.isEmpty()) beanFull += ", roasted " + setupRoastDate;
-                parts << (parts.isEmpty() ? beanFull : "on " + beanFull);
-            }
-
-            result += "### Setup: " + parts.join(" ") + "\n\n";
-        }
-
-        result += shotSections.join("\n\n");
-    }
-
-    // Append grinder context if available (observed settings range and step size)
-    if (!grinderCtx.settingsObserved.isEmpty()) {
-        QString section = "\n\n## Grinder Context\n\n"
-            "From the user's own shot history with this grinder:\n\n";
-        section += "- **Model**: " + grinderCtx.model + "\n";
-
-        // Burr specs are already shown per-shot in buildUserPrompt().
-        // Only add swappability here — it's grinder-level info not in per-shot data.
-        if (GrinderAliases::isBurrSwappable(grinderBrand, grinderCtx.model))
-            section += "- **Burr-swappable**: yes (aftermarket burrs available for this grinder)\n";
-
-        section += "- **Settings used for " + grinderCtx.beverageType + "**: "
-                 + grinderCtx.settingsObserved.join(", ") + "\n";
-        if (grinderCtx.allNumeric && grinderCtx.maxSetting > grinderCtx.minSetting) {
-            section += "- **Range explored**: " + QString::number(grinderCtx.minSetting) + " \u2013 "
-                     + QString::number(grinderCtx.maxSetting) + "\n";
-        }
-        // Noise-filtered typical dial increment (mirrors grinderContext.stepSize
-        // in the MCP payload). Decoupled from the range gate so it shows for a
-        // mixed-notation grinder too.
-        if (grinderCtx.stepSize > 0) {
-            section += "- **Typical step**: " + QString::number(grinderCtx.stepSize) + "\n";
-        }
-        // RPM axis (variable-RPM grinders): mirrors grinderContext.rpmsObserved /
-        // observedMin/MaxRpm / rpmStepSize in the MCP payload.
-        if (!grinderCtx.rpmsObserved.isEmpty()) {
-            QStringList rpmStrs;
-            for (int r : grinderCtx.rpmsObserved)
-                rpmStrs << QString::number(r);
-            section += "- **RPMs used**: " + rpmStrs.join(", ") + "\n";
-            if (grinderCtx.rpmMax > grinderCtx.rpmMin) {
-                section += "- **RPM range**: " + QString::number(grinderCtx.rpmMin) + " – "
-                         + QString::number(grinderCtx.rpmMax) + "\n";
-            }
-            if (grinderCtx.rpmStepSize > 0) {
-                section += "- **Typical RPM step**: " + QString::number(grinderCtx.rpmStepSize) + "\n";
-            }
-        }
-        result += section;
-    }
-
-    // Append grinder calibration. Rewritten for issue #1223
-    // (openspec `fix-grinder-calibration-cross-profile`): the block is now
-    // `confidence`-tagged and may be directional-only (no numbers). The
-    // `usageConstraint` string is repeated verbatim so the model cannot
-    // misuse UGS as click arithmetic; directional profiles get finer/
-    // coarser only — never a number, never a click delta. Goes into
-    // historicalContext → first user message → cached like the rest.
-    if (!grinderCalibration.isEmpty()) {
-        const QString model = grinderCalibration[QStringLiteral("grinderModel")].toString();
-        const QString confidence = grinderCalibration[QStringLiteral("confidence")].toString();
-        const QString usage = grinderCalibration[QStringLiteral("usageConstraint")].toString();
-        const bool curUgsPlaced =
-            grinderCalibration[QStringLiteral("currentProfileUgsPlaced")].toBool();
-        const QJsonArray profiles =
-            grinderCalibration[QStringLiteral("profiles")].toArray();
-
-        QString cal = QStringLiteral("\n\n## Grinder Calibration\n\n");
-        if (!usage.isEmpty())
-            cal += usage + QStringLiteral("\n\n");
-
-        if (confidence == QStringLiteral("approximate")) {
-            const QJsonObject anchor =
-                grinderCalibration[QStringLiteral("coffeeAnchor")].toObject();
-            const QJsonArray range =
-                grinderCalibration[QStringLiteral("calibratedUgsRange")].toArray();
-            const double ck = grinderCalibration[QStringLiteral("conversionKey")].toDouble();
-            cal += QStringLiteral(
-                "Approximate calibration for your %1, anchored on your recent "
-                "**%2** shot (setting %3) for the current coffee (%4). "
-                "Conversion ≈ %5 grinder steps per UGS unit; numbers are "
-                "valid only within UGS %6–%7. Treat as a rough starting "
-                "point, not a precise dial.\n\n")
-                .arg(model)
-                .arg(anchor[QStringLiteral("profileName")].toString())
-                .arg(anchor[QStringLiteral("setting")].toString())
-                .arg(anchor[QStringLiteral("coffee")].toString())
-                .arg(ck)
-                .arg(range.size() == 2 ? range.at(0).toDouble() : 0.0)
-                .arg(range.size() == 2 ? range.at(1).toDouble() : 0.0);
-        } else {
-            cal += QStringLiteral(
-                "No numeric cross-profile calibration is available for the "
-                "current coffee on your %1 — not enough same-batch dial-in "
-                "data. Give only relative grind direction (finer/coarser) "
-                "and tell the user to pull a reference shot on the target "
-                "profile; do NOT quote or compute a grinder number.\n\n")
-                .arg(model);
-        }
-
-        if (!curUgsPlaced) {
-            cal += QStringLiteral(
-                "Your current profile is not on the UGS chart, so finer/"
-                "coarser ordering against it cannot be given — say so rather "
-                "than guess.\n");
-        } else {
-            QStringList lines;
-            for (const QJsonValue& v : profiles) {
-                const QJsonObject p = v.toObject();
-                const QString name = p[QStringLiteral("profileName")].toString();
-                const double ugs = p[QStringLiteral("ugs")].toDouble();
-                const QString src = p[QStringLiteral("source")].toString();
-                if (src == QStringLiteral("history") || src == QStringLiteral("derived")) {
-                    lines << QStringLiteral("- **%1** (UGS %2): **%3** (%4)")
-                        .arg(name).arg(ugs)
-                        .arg(p[QStringLiteral("rgs")].toString()).arg(src);
-                } else {
-                    const QString dir = p[QStringLiteral("direction")].toString();
-                    lines << QStringLiteral("- **%1** (UGS %2): grind %3 — pull a reference shot")
-                        .arg(name).arg(ugs)
-                        .arg(dir.isEmpty()
-                             ? QStringLiteral("similar; relative position unclear")
-                             : dir);
-                }
-            }
-            if (!lines.isEmpty())
-                cal += QStringLiteral("Cross-profile guidance (relative to your "
-                                      "current profile):\n\n") + lines.join('\n') + '\n';
-        }
-
-        result += cal;
-    }
-
-    // Recent Advice Tracking goes first — "what I told you last time"
-    // should read before the raw shot-by-shot history so the model sees
-    // its own prior call before re-deriving from scratch.
-    if (!recentAdvice.isEmpty()) {
-        QStringList entries;
-        for (const QJsonValue& v : recentAdvice)
-            entries << renderRecentAdviceEntry(v.toObject());
-        result = QStringLiteral("## Recent Advice Tracking\n\n")
-                + entries.join(QStringLiteral("\n"))
-                + QStringLiteral("\n\n") + result;
-    }
-
-    emit recentShotContextReady(result);
+    return QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
 }
 
 void AIManager::testConnection()
@@ -1761,6 +1389,19 @@ void AIManager::onSettingsChanged()
 // Conversation Routing
 // ============================================================================
 
+QString AIManager::ConversationEntry::label() const
+{
+    QStringList bean;
+    if (!beanBrand.isEmpty()) bean << beanBrand;
+    if (!beanType.isEmpty()) bean << beanType;
+
+    QStringList parts;
+    if (!bean.isEmpty()) parts << bean.join(QStringLiteral(" "));
+    if (!profileName.isEmpty()) parts << profileName;
+    if (!equipmentLabel.isEmpty()) parts << equipmentLabel;
+    return parts.join(QStringLiteral(" / "));
+}
+
 QJsonObject AIManager::ConversationEntry::toJson() const
 {
     QJsonObject obj;
@@ -1768,6 +1409,8 @@ QJsonObject AIManager::ConversationEntry::toJson() const
     obj["beanBrand"] = beanBrand;
     obj["beanType"] = beanType;
     obj["profileName"] = profileName;
+    obj["equipmentLabel"] = equipmentLabel;
+    obj["equipmentId"] = equipmentId;
     obj["timestamp"] = timestamp;
     return obj;
 }
@@ -1779,17 +1422,28 @@ AIManager::ConversationEntry AIManager::ConversationEntry::fromJson(const QJsonO
     entry.beanBrand = obj["beanBrand"].toString();
     entry.beanType = obj["beanType"].toString();
     entry.profileName = obj["profileName"].toString();
+    entry.equipmentLabel = obj["equipmentLabel"].toString();
+    entry.equipmentId = obj["equipmentId"].toVariant().toLongLong();
     entry.timestamp = obj["timestamp"].toVariant().toLongLong();
     return entry;
 }
 
-QString AIManager::conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName)
+AIManager::ConversationEntry AIManager::conversationEntry(const QString& key) const
 {
-    QString normalized = beanBrand.toLower().trimmed() + "|" +
-                         beanType.toLower().trimmed() + "|" +
-                         profileName.toLower().trimmed();
-    QByteArray hash = QCryptographicHash::hash(normalized.toUtf8(), QCryptographicHash::Sha1);
-    return hash.toHex().left(16);
+    for (const auto& entry : m_conversationIndex) {
+        if (entry.key == key)
+            return entry;
+    }
+    return {};
+}
+
+QString AIManager::conversationKey(const ShotProjection& shot)
+{
+    // Derivation lives in ConversationKey::derive — the import path re-derives
+    // it after renumbering the equipment package, and a second copy of the hash
+    // would orphan every restored thread.
+    return ConversationKey::derive(shot.beanBrand, shot.beanType,
+                                   shot.profileName, shot.equipmentId);
 }
 
 void AIManager::loadConversationIndex()
@@ -1923,9 +1577,10 @@ void AIManager::migrateFromLegacyConversation()
     qDebug() << "AIManager: Legacy conversation migrated to key:" << legacyKey;
 }
 
-QString AIManager::switchConversation(const QString& beanBrand, const QString& beanType, const QString& profileName)
+QString AIManager::switchConversation(const QVariant& shotData)
 {
-    QString key = conversationKey(beanBrand, beanType, profileName);
+    const ShotProjection shot = coerceShot(shotData);
+    const QString key = conversationKey(shot);
 
     // Already on this key — just touch LRU
     if (m_conversation->storageKey() == key) {
@@ -1967,30 +1622,29 @@ QString AIManager::switchConversation(const QString& beanBrand, const QString& b
     // cause of the persistence gap found in manual verification of
     // fix-multishot-advice-tracking (loadFromStorage is a safe no-op when
     // the key genuinely has nothing on disk).
+    ConversationEntry entry;
+    entry.key = key;
+    entry.beanBrand = shot.beanBrand;
+    entry.beanType = shot.beanType;
+    entry.profileName = shot.profileName;
+    entry.equipmentLabel = shot.equipmentLabel();
+    entry.equipmentId = shot.equipmentId;
+    entry.timestamp = QDateTime::currentSecsSinceEpoch();
+
     m_conversation->setStorageKey(key);
-    m_conversation->setContextLabel(beanBrand, beanType, profileName);
+    m_conversation->setContextLabel(entry.label());
     m_conversation->loadFromStorage();
 
     if (exists) {
         touchConversationEntry(key);
     } else {
-        // Evict oldest if at capacity
         evictOldestConversation();
-
-        // Add new entry to front of index
-        ConversationEntry newEntry;
-        newEntry.key = key;
-        newEntry.beanBrand = beanBrand;
-        newEntry.beanType = beanType;
-        newEntry.profileName = profileName;
-        newEntry.timestamp = QDateTime::currentSecsSinceEpoch();
-        m_conversationIndex.prepend(newEntry);
+        m_conversationIndex.prepend(entry);
         saveConversationIndex();
     }
 
     emit m_conversation->savedConversationChanged();
-    qDebug() << "AIManager: Switched to conversation key:" << key
-             << "(" << beanBrand << beanType << "/" << profileName << ")";
+    qDebug() << "AIManager: Switched to conversation key:" << key << "(" << entry.label() << ")";
     return key;
 }
 
@@ -1998,16 +1652,16 @@ void AIManager::loadMostRecentConversation()
 {
     if (m_conversationIndex.isEmpty()) {
         m_conversation->setStorageKey(QString());
-        m_conversation->setContextLabel(QString(), QString(), QString());
+        m_conversation->setContextLabel(QString());
         return;
     }
 
     const auto& entry = m_conversationIndex.first();
     m_conversation->setStorageKey(entry.key);
-    m_conversation->setContextLabel(entry.beanBrand, entry.beanType, entry.profileName);
+    m_conversation->setContextLabel(entry.label());
     m_conversation->loadFromStorage();
     qDebug() << "AIManager: Loaded most recent conversation:" << entry.key
-             << "(" << entry.beanBrand << entry.beanType << "/" << entry.profileName << ")";
+             << "(" << entry.label() << ")";
 }
 
 void AIManager::clearCurrentConversation()

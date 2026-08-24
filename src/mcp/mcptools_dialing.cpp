@@ -30,6 +30,7 @@ struct DialingDbResult {
     ShotProjection shotData;
     QString profileKbId;
     QJsonArray dialInSessions;
+    QJsonObject noDialInHistory;     // Emitted INSTEAD of dialInSessions when nothing matched
     QJsonObject grinderContext;
     QJsonObject bestRecentShot;      // Empty when no rated shot exists on this profile
 };
@@ -109,23 +110,29 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // add-dialing-blocks-to-advisor.
                     //
                     // Cross-profile grinder calibration is deliberately NOT
-                    // built here (#1164). It is a ~33-row table that is a
-                    // stable physical property of the grinder+burrs pair and
-                    // is only relevant when the user is weighing a profile
-                    // switch — shipping it on every conversational turn
-                    // bloated multi-turn dial-in. It now lives in the
-                    // on-demand dialing_get_grinder_calibration tool, which
-                    // calls the same buildGrinderCalibrationBlock helper. The
-                    // one-shot in-app advisor and ai_advisor_invoke still
-                    // build it inline because they have no follow-up
-                    // tool-call channel.
-                    dbResult.dialInSessions = DialingBlocks::buildDialInSessionsBlock(
-                        db, dbResult.profileKbId, resolvedShotId, historyLimit);
-                    dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
-                        db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
-                    dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
-                        db, dbResult.shotData.grinderModel,
-                        dbResult.shotData.beverageType, dbResult.shotData.beanBrand);
+                    // built here (#1164) — see GrinderCalibration::Omit. The
+                    // one-shot in-app advisor and ai_advisor_invoke include it
+                    // because they have no follow-up tool-call channel.
+                    //
+                    // The whole bundle comes from the shared assembler, which
+                    // also derives the advice scope from the shot being analysed
+                    // rather than live machine state (that shot's gear may not be
+                    // what is mounted now). Hand-writing the individual builder
+                    // calls here would be a second scope construction and a
+                    // second decision about which blocks exist — that is how a
+                    // surface ends up without noDialInHistory.
+                    //
+                    // recentAdvice is empty here on purpose: an MCP client owns
+                    // its own conversation, so prior assistant turns are already
+                    // in its context.
+                    const DialingBlocks::AdvisorContextBlocks blocks =
+                        DialingBlocks::buildAdvisorContextBlocks(
+                            db, dbResult.shotData, resolvedShotId, {}, historyLimit,
+                            DialingBlocks::GrinderCalibration::Omit);
+                    dbResult.dialInSessions = blocks.dialInSessions;
+                    dbResult.noDialInHistory = blocks.noDialInHistory;
+                    dbResult.bestRecentShot = blocks.bestRecentShot;
+                    dbResult.grinderContext = blocks.grinderContext;
                 });
 
                 // --- Deliver results to main thread for final assembly ---
@@ -145,6 +152,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
 
                     if (!dbResult.dialInSessions.isEmpty())
                         result["dialInSessions"] = dbResult.dialInSessions;
+                    if (!dbResult.noDialInHistory.isEmpty())
+                        result["noDialInHistory"] = dbResult.noDialInHistory;
                     if (!dbResult.bestRecentShot.isEmpty())
                         result["bestRecentShot"] = dbResult.bestRecentShot;
                     if (!dbResult.grinderContext.isEmpty())
@@ -302,18 +311,21 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // `result.profile` is the *only* canonical surface for
                     // profile metadata. Replaces the legacy `currentProfile`
                     // block and the prose-only `Profile:` / `Profile intent:` /
-                    // `## Profile Recipe` sections in `shotAnalysis`. The
-                    // intent + recipe describe the resolved SHOT's profile
-                    // (read off `dbResult.shotData.profileNotes` /
-                    // `profileJson` — already in memory, no extra DB query);
-                    // targets describe the CURRENT profile loaded on the
-                    // machine. The asymmetry is intentional — the shot is
-                    // what happened, the targets are what the user can act
-                    // on now.
+                    // `## Profile Recipe` sections in `shotAnalysis`. Identity,
+                    // intent and recipe describe the resolved SHOT's profile
+                    // (read off `dbResult.shotData` — already in memory, no
+                    // extra DB query); the targets below describe the profile
+                    // CURRENTLY loaded on the machine. The asymmetry is
+                    // intentional — the shot is what happened, the targets are
+                    // what the user can act on now — but it stops at identity:
+                    // `title` naming the loaded profile while `recipe` described
+                    // the shot's put the wrong name on the shot's own frames,
+                    // and the knowledge block tells the model to refer to the
+                    // shot by exactly this field.
                     if (profileManager) {
                         QJsonObject profileInfo;
-                        profileInfo["filename"] = profileManager->currentProfileName();
-                        profileInfo["title"] = profileManager->currentProfile().title();
+                        profileInfo["title"] = profileTitle;
+                        profileInfo["loadedProfileFilename"] = profileManager->currentProfileName();
                         if (!sd.profileNotes.isEmpty())
                             profileInfo["intent"] = sd.profileNotes;
                         if (!sd.profileJson.isEmpty()) {
@@ -338,10 +350,13 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             if (!recipe.isEmpty())
                                 profileInfo["recipe"] = recipe;
                         }
-                        profileInfo["targetWeightG"] = profileManager->profileTargetWeight();
-                        profileInfo["targetTemperatureC"] = profileManager->profileTargetTemperature();
+                        // The loaded profile's, not the shot's — see the asymmetry
+                        // above. Named so a reader cannot take them for the shot's
+                        // own settings when the two profiles differ.
+                        profileInfo["loadedTargetWeightG"] = profileManager->profileTargetWeight();
+                        profileInfo["loadedTargetTemperatureC"] = profileManager->profileTargetTemperature();
                         if (profileManager->profileHasRecommendedDose())
-                            profileInfo["recommendedDoseG"] = profileManager->profileRecommendedDose();
+                            profileInfo["loadedRecommendedDoseG"] = profileManager->profileRecommendedDose();
                         result["profile"] = profileInfo;
                     }
 
@@ -384,7 +399,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     // stable per-conversation constant — re-fetch when the coffee changes.
     registry->registerAsyncTool(
         "dialing_get_grinder_calibration",
-        "Cross-profile grind guidance for this grinder and burrs, anchored on the current roast batch "
+        "Cross-profile grind guidance for this equipment package, anchored on the current roast batch "
         "(re-fetch when the coffee changes). Espresso only. Call it ONLY when the user asks about "
         "switching profiles or wants a setting for a profile other than the current shot's. Each "
         "profile comes back as a number or as finer/coarser only — never quote a number for a "
@@ -393,7 +408,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
-                {"shot_id", QJsonObject{{"type", "integer"}, {"description", "Shot whose grinder + burrs to calibrate. If omitted, uses the most recent shot."}}}
+                {"shot_id", QJsonObject{{"type", "integer"}, {"description", "Shot whose equipment package to calibrate. If omitted, uses the most recent shot."}}}
             }}
         },
         [shotHistory](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
@@ -437,7 +452,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     shotValid = shot.isValid();
                     if (!shotValid) return;
                     calibration = DialingBlocks::buildGrinderCalibrationBlock(
-                        db, shot.grinderModel, shot.grinderBurrs,
+                        db, shot.grinderModel, AdviceScope(shot.equipmentId),
                         shot.beverageType, resolvedShotId);
                 });
 
@@ -450,16 +465,28 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     QJsonObject result;
                     result["shotId"] = resolvedShotId;
                     if (calibration.isEmpty()) {
-                        // {} only on hard guards: empty grinder model,
-                        // filter/pourover, invalid shot, or no dialed-in
-                        // shots at all. The AI explicitly asked, so explain.
+                        // {} comes from the hard guards (empty grinder model,
+                        // filter/pourover, no dialed-in shots on this package)
+                        // AND from a failed query — the builder logs that and
+                        // returns the same empty object. An invalid shot is not
+                        // in that list: it returns above, before this branch.
+                        //
+                        // So the reason names the OUTCOME, not a cause. It used
+                        // to assert "no qualifying shots", which on a database
+                        // error tells the model as fact something the database
+                        // never said — the defect noDialInHistory exists to
+                        // avoid, and one this scoping makes far easier to hit,
+                        // since narrowing from grinder to package makes an
+                        // empty result the common case rather than the rare one.
                         result["available"] = false;
                         result["reason"] =
-                            "Cross-profile grinder calibration is not available for this "
-                            "grinder yet — no qualifying dialed-in espresso shots on this "
-                            "exact grinder + burrs. Advise qualitatively (finer / coarser) "
-                            "and have the user pull a reference shot on the target profile "
-                            "rather than quoting a specific number.";
+                            "No cross-profile grinder calibration could be produced for this "
+                            "shot. Advise qualitatively (finer / coarser) rather than quoting a "
+                            "specific number. If the user has not yet pulled dialed-in shots on "
+                            "this equipment package, a reference shot on the target profile is "
+                            "what would produce one — but do not assert that as the reason, "
+                            "because this answer does not distinguish it from a lookup that "
+                            "could not complete.";
                     } else {
                         // Block is present and self-describing via
                         // `confidence`: "approximate" carries numbers within

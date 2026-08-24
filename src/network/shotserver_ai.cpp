@@ -155,13 +155,8 @@ QString ShotServer::generateAIConversationsPage() const
         AppSettings settings;
         const auto conversations = m_aiManager->conversationIndex();
         for (const auto& entry : conversations) {
-            // Build context label
-            QStringList parts;
-            if (!entry.beanBrand.isEmpty()) parts << entry.beanBrand.toHtmlEscaped();
-            if (!entry.beanType.isEmpty()) parts << entry.beanType.toHtmlEscaped();
-            QString label = parts.isEmpty() ? QStringLiteral("Unknown beans") : parts.join(" ");
-            if (!entry.profileName.isEmpty())
-                label += " / " + entry.profileName.toHtmlEscaped();
+            const QString label = entry.label().isEmpty()
+                ? QStringLiteral("Unknown beans") : entry.label().toHtmlEscaped();
 
             // Read message count from QSettings
             QString prefix = "ai/conversations/" + entry.key + "/";
@@ -275,25 +270,9 @@ void ShotServer::handleAIConversationDownload(QTcpSocket* socket, const QString&
 
     QJsonArray messages = msgDoc.array();
 
-    // Find conversation metadata from index
-    QString beanBrand, beanType, profileName;
-    if (m_aiManager) {
-        for (const auto& entry : m_aiManager->conversationIndex()) {
-            if (entry.key == key) {
-                beanBrand = entry.beanBrand;
-                beanType = entry.beanType;
-                profileName = entry.profileName;
-                break;
-            }
-        }
-    }
-
-    // Build context label for filename
-    QStringList parts;
-    if (!beanBrand.isEmpty()) parts << beanBrand;
-    if (!beanType.isEmpty()) parts << beanType;
-    if (!profileName.isEmpty()) parts << profileName;
-    QString contextLabel = parts.isEmpty() ? QStringLiteral("AI Conversation") : parts.join(" - ");
+    const auto entry = m_aiManager ? m_aiManager->conversationEntry(key) : AIManager::ConversationEntry{};
+    const QString contextLabel = entry.label().isEmpty()
+        ? QStringLiteral("AI Conversation") : entry.label();
 
     // Sanitize filename
     QString safeFilename = contextLabel;
@@ -339,9 +318,10 @@ void ShotServer::handleAIConversationDownload(QTcpSocket* socket, const QString&
         QJsonObject root;
 
         QJsonObject metadata;
-        metadata["beanBrand"] = beanBrand;
-        metadata["beanType"] = beanType;
-        metadata["profileName"] = profileName;
+        metadata["beanBrand"] = entry.beanBrand;
+        metadata["beanType"] = entry.beanType;
+        metadata["profileName"] = entry.profileName;
+        metadata["equipment"] = entry.equipmentLabel;
         metadata["timestamp"] = timestamp;
         metadata["messageCount"] = messages.size();
         root["metadata"] = metadata;

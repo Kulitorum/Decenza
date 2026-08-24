@@ -1,8 +1,10 @@
 #include <QtTest>
+#include "httpframing.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QTcpServer>
+#include <QElapsedTimer>
 #include <QTcpSocket>
 
 #include "mcp/mcpserver.h"
@@ -58,31 +60,76 @@ private:
         QString sessionId;
     };
 
+    // The connection every sendRpc() in this binary shares.
+    //
+    // It used to build a fresh QTcpServer AND a fresh QTcpSocket per call — two
+    // ephemeral ports each, both left in TIME_WAIT for 2*MSL (30 s on macOS).
+    // Across 29 call sites that is ~60 ports a run here, and the same pattern in
+    // tst_mcpserver_protocol.cpp cost 895 (measured). Repeated runs exhausted
+    // the machine's whole 33,768-port ephemeral range, after which every
+    // loopback connect failed EADDRNOTAVAIL, waitForNewConnection(1000) burned
+    // its full second per call, and the binaries ran until QtTest's 300 s
+    // watchdog aborted them. Reuse is sound because McpServer::sendHttpResponse
+    // writes and flushes but never closes the socket (mcpserver.cpp).
+    struct Pooled {
+        QTcpServer tcp;
+        QTcpSocket client;
+        QTcpSocket* serverSocket = nullptr;
+
+        bool isLive() const
+        {
+            return serverSocket && client.state() == QAbstractSocket::ConnectedState
+                   && serverSocket->state() == QAbstractSocket::ConnectedState;
+        }
+
+        bool ensureOpen()
+        {
+            if (isLive()) return true;
+            // A DELETE that ends a session drops the connection with it, so
+            // reopening is a normal step rather than a failure.
+            serverSocket = nullptr;
+            client.abort();
+            if (tcp.isListening()) tcp.close();
+            if (!tcp.listen(QHostAddress::LocalHost)) return false;
+            client.connectToHost(QHostAddress::LocalHost, tcp.serverPort());
+            if (!tcp.waitForNewConnection(1000)) return false;
+            serverSocket = tcp.nextPendingConnection();
+            return serverSocket && client.waitForConnected(1000);
+        }
+    };
+
+    // Heap, not a static by value: a static Pooled destructs at static-
+    // destruction time, and deleting a QTcpServer and its child socket after
+    // QCoreApplication is gone is undefined — the other pooled binary carries
+    // the same note and the same shape. cleanupTestCase() deletes it while the
+    // event loop is still up, which is also what keeps the nightly Linux ASan
+    // run clean.
+    static Pooled*& pooledConnection()
+    {
+        static Pooled* pool = nullptr;
+        return pool;
+    }
+
+    // Framing helper shared with the other pooled-connection test binary.
+    static QByteArray readOneResponse(QTcpSocket& client)
+    {
+        return HttpFraming::readOneResponse(client);
+    }
+
     static RpcResult sendRpc(McpServer& server, const QString& method,
                              const QJsonObject& params, const QString& sessionId = QString(),
                              int id = 1)
     {
         RpcResult result;
 
-        // Create a local TCP server + connected socket pair for the response
-        QTcpServer tcpServer;
-        tcpServer.listen(QHostAddress::LocalHost);
-
-        QTcpSocket clientSocket;
-        clientSocket.connectToHost(QHostAddress::LocalHost, tcpServer.serverPort());
-        if (!tcpServer.waitForNewConnection(1000)) {
-            qWarning("sendRpc: TCP server accept failed");
+        Pooled*& pool = pooledConnection();
+        if (!pool) pool = new Pooled;
+        if (!pool->ensureOpen()) {
+            qWarning("sendRpc: could not open the pooled connection");
             return result;
         }
-        QTcpSocket* serverSocket = tcpServer.nextPendingConnection();
-        if (!serverSocket) {
-            qWarning("sendRpc: nextPendingConnection returned null");
-            return result;
-        }
-        if (!clientSocket.waitForConnected(1000)) {
-            qWarning("sendRpc: TCP client connect failed");
-            return result;
-        }
+        QTcpSocket* serverSocket = pool->serverSocket;
+        QTcpSocket& clientSocket = pool->client;
 
         // Build request
         QJsonObject request;
@@ -99,9 +146,7 @@ private:
 
         server.handleHttpRequest(serverSocket, "POST", "/mcp", headers, body);
 
-        // Read response from the client side
-        clientSocket.waitForReadyRead(1000);
-        QByteArray rawResponse = clientSocket.readAll();
+        QByteArray rawResponse = readOneResponse(clientSocket);
 
         // Extract session ID from response headers
         for (const QByteArray& line : rawResponse.split('\n')) {
@@ -119,13 +164,25 @@ private:
             result.response = QJsonDocument::fromJson(jsonBody).object();
         }
 
-        serverSocket->close();
-        clientSocket.close();
         return result;
     }
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    // Close the pooled connection while QCoreApplication is still alive. The
+    // Pooled itself is a function-local static, so its QTcpServer would
+    // otherwise be destroyed after the application object is gone.
+    void cleanupTestCase()
+    {
+        Pooled*& pool = pooledConnection();
+        if (!pool) return;
+        pool->serverSocket = nullptr;
+        pool->client.abort();
+        pool->tcp.close();
+        delete pool;
+        pool = nullptr;
+    }
+
     void initTestCase()
     {
         // No setup needed — warnings from McpServer without full wiring are expected

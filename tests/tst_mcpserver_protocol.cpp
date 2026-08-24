@@ -9,11 +9,13 @@
 // access — observable behavior is what the wire format actually emits.
 
 #include <QtTest>
+#include "httpframing.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QRegularExpression>
 #include <QTcpServer>
+#include <QElapsedTimer>
 #include <QTcpSocket>
 #include <QPair>
 
@@ -160,6 +162,40 @@ private:
         return parseHttpResponse(conn.client.readAll());
     }
 
+    // The connection every request/response exchange in this binary shares.
+    //
+    // sendHttp() used to build a fresh QTcpServer AND a fresh QTcpSocket per
+    // call — two ephemeral ports each, both left in TIME_WAIT for 2*MSL (30 s
+    // on macOS). There are 88 call sites in this file and several sit inside
+    // loops sized by the limit under test, so
+    // modernControlCallsAreRateLimitedPerCaller() alone burned 130. One suite
+    // run consumed thousands, and repeated runs exhausted the machine's whole
+    // 33,768-port ephemeral range: every loopback connect then failed
+    // EADDRNOTAVAIL, the client never reached the listener,
+    // waitForNewConnection(1000) burned its full second, and sendHttp returned
+    // an empty HttpResponse indistinguishable from a real one. The rate-limit
+    // loop therefore never saw its refusal, ran all 65 iterations at ~3 s of
+    // timeouts apiece, and QtTest's 300 s watchdog aborted the binary. It took
+    // the suite down four times in one day. No individual test was at fault —
+    // the harness was the thing consuming the resource, so the fix belongs here.
+    //
+    // Reuse is sound because sendHttpResponse() writes and flushes but never
+    // closes the socket (McpServer::sendHttpResponse, mcpserver.cpp), the same
+    // property HeldConnection above already depends on. It does not change what
+    // the server sees either: callerKeyFor() keys on peerAddress, which was
+    // 127.0.0.1 for every per-call socket too (mcpserver.cpp:1802).
+    static HeldConnection*& pooledConnection()
+    {
+        static HeldConnection* pool = nullptr;
+        return pool;
+    }
+
+    // Framing helper shared with the other pooled-connection test binary.
+    static QByteArray readOneResponse(QTcpSocket& client)
+    {
+        return HttpFraming::readOneResponse(client);
+    }
+
     static HttpResponse sendHttp(McpServer& server,
                                  const QByteArray& method,
                                  const QByteArray& body,
@@ -169,29 +205,67 @@ private:
     {
         HttpResponse out;
 
-        QTcpServer tcp;
-        tcp.listen(QHostAddress::LocalHost);
-        QTcpSocket client;
-        client.connectToHost(QHostAddress::LocalHost, tcp.serverPort());
-        if (!tcp.waitForNewConnection(1000)) return out;
-        QTcpSocket* serverSocket = tcp.nextPendingConnection();
-        if (!serverSocket) return out;
-        if (!client.waitForConnected(1000)) return out;
-
         QByteArray headers = "Content-Type: application/json\r\n";
         if (!sessionId.isEmpty())
             headers += "Mcp-Session-Id: " + sessionId.toUtf8() + "\r\n";
         for (const auto& kv : extraHeaders)
             headers += kv.first + ": " + kv.second + "\r\n";
 
-        server.handleHttpRequest(serverSocket, method, "/mcp", headers, body,
+        // An SSE GET holds its stream open by design and never frames a
+        // response, so it gets its own pair rather than leaving the shared one
+        // permanently mid-message for every request after it. Two call sites.
+        if (method == "GET") {
+            HeldConnection sse;
+            if (!sse.open()) return out;
+            server.handleHttpRequest(sse.serverSocket, method, "/mcp", headers, body,
+                                     /*remote=*/!callerLabel.isEmpty(), callerLabel);
+            sse.client.waitForReadyRead(1000);
+            return parseHttpResponse(sse.client.readAll());
+        }
+
+        HeldConnection*& pool = pooledConnection();
+        // Reopen only if the previous exchange actually lost the connection —
+        // a DELETE that ends a session, or a server-side drop.
+        if (pool
+            && (pool->client.state() != QAbstractSocket::ConnectedState || !pool->serverSocket
+                || pool->serverSocket->state() != QAbstractSocket::ConnectedState)) {
+            delete pool;
+            pool = nullptr;
+        }
+        if (!pool) {
+            pool = new HeldConnection;
+            if (!pool->open()) {
+                delete pool;
+                pool = nullptr;
+                return out;
+            }
+        }
+
+        server.handleHttpRequest(pool->serverSocket, method, "/mcp", headers, body,
                                  /*remote=*/!callerLabel.isEmpty(), callerLabel);
 
-        client.waitForReadyRead(1000);
-        out = parseHttpResponse(client.readAll());
+        return parseHttpResponse(readOneResponse(pool->client));
+    }
 
-        serverSocket->close();
-        client.close();
+    // sendHttp() with a connection that dies when it returns.
+    //
+    // Exactly one caller wants this, and for it the dying socket IS the thing
+    // under test: confirmationIsAbandonedWhenTheConnectionDrops() asserts that a
+    // pending confirmation is dropped when its requester goes away. Everything
+    // else shares the pooled connection, so this costs one port pair per run
+    // rather than one per request — see pooledConnection() for why that matters.
+    static HttpResponse sendHttpClosingConnection(McpServer& server, const QByteArray& method,
+                                                  const QByteArray& body)
+    {
+        HttpResponse out;
+        HeldConnection one;
+        if (!one.open()) return out;
+        server.handleHttpRequest(one.serverSocket, method, "/mcp",
+                                 "Content-Type: application/json\r\n", body);
+        one.client.waitForReadyRead(1000);
+        out = parseHttpResponse(one.client.readAll());
+        one.serverSocket->close();
+        one.client.close();
         return out;
     }
 
@@ -260,6 +334,17 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    // The pooled connection outlives every test, so it is torn down here rather
+    // than at static-destruction time — after QCoreApplication is gone, deleting
+    // a QTcpServer and its child socket is undefined. Also keeps the nightly
+    // Linux ASan run from reporting it, since LeakSanitizer does not exist on
+    // macOS and a local run would never have caught it.
+    void cleanupTestCase()
+    {
+        delete pooledConnection();
+        pooledConnection() = nullptr;
+    }
 
     // ─── Protocol version negotiation ──────────────────────────────────────
 
@@ -2559,15 +2644,17 @@ private slots:
         QJsonObject params;
         params["name"] = "machine_start";
         params["arguments"] = QJsonObject{{"action", "espresso"}};
-        // Expected BEFORE the send: sendHttp closes its socket on return, so the
+        // Expected BEFORE the send: the connection closes on return, so the
         // backstop fires inside that call, not after it.
         QTest::ignoreMessage(QtWarningMsg,
                              QRegularExpression("Pending confirmation for machine_start "
                                                 "abandoned — its connection closed"));
 
-        // sendHttp deliberately, NOT HeldConnection: its socket dies on return,
-        // which is the very condition under test.
-        sendHttp(server, "POST", modernBody("tools/call", params, 94));
+        // The one caller of sendHttpClosingConnection(), and not by accident:
+        // plain sendHttp() shares a pooled connection that outlives the call, so
+        // the confirmation would still be answerable and this test would assert
+        // nothing. The socket dying on return is the condition under test.
+        sendHttpClosingConnection(server, "POST", modernBody("tools/call", params, 94));
         QCOMPARE(spy.count(), 1);
 
         // Answering a confirmation that is already gone must do nothing at all.

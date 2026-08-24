@@ -435,6 +435,26 @@ KeyboardAwareContainer {
                     }
                 }
 
+                // What the last restore's AI-conversation step could not do.
+                //
+                // Here, and not appended to the status pill: the pill is painted
+                // in success green and auto-dismissed after five seconds, and
+                // this message names an action the user has to take ("import the
+                // shots as well", "run the import again"). It also has to appear
+                // when the restore FAILED, which the pill's success path never
+                // reaches. Bound to the property so it survives both.
+                Text {
+                    Layout.fillWidth: true
+                    visible: text.length > 0
+                    text: MainController.backupManager
+                          ? MainController.backupManager.aiConversationNote : ""
+                    wrapMode: Text.WordWrap
+                    color: Theme.warningColor
+                    font.pixelSize: Theme.scaled(12)
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+
                 // Restore from backup section
                 Tr {
                     key: "settings.data.restorefrombackup"
@@ -983,6 +1003,10 @@ KeyboardAwareContainer {
             importCompletePopup.shotsCount = shotsImported
             importCompletePopup.mediaCount = mediaImported
             importCompletePopup.aiConversationsCount = aiConversationsImported
+            // Read from the PROPERTY, not from a handler argument: the cases
+            // that produce a note are often the cases that never emit this
+            // signal at all, and the property survives them.
+            importCompletePopup.aiConversationNote = MainController.dataMigration.aiConversationNote
             importCompletePopup.open()
 
             // Refresh profiles list
@@ -1016,6 +1040,10 @@ KeyboardAwareContainer {
         property int shotsCount: 0
         property int mediaCount: 0
         property int aiConversationsCount: 0
+        // What the import REFUSED, empty when it refused nothing. Rendered
+        // below the counts because a count of survivors alone let a run that
+        // dropped most of the conversations read as an unqualified success.
+        property string aiConversationNote: ""
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1125,6 +1153,18 @@ KeyboardAwareContainer {
                     font.pixelSize: Theme.scaled(13)
                     visible: importCompletePopup.aiConversationsCount > 0
                 }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                Layout.maximumWidth: Theme.scaled(340)
+                text: importCompletePopup.aiConversationNote
+                visible: text.length > 0
+                wrapMode: Text.WordWrap
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(13)
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
             }
 
             AccessibleButton {

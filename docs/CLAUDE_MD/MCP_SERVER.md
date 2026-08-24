@@ -477,10 +477,10 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 
 | Tool | Description | Category |
 |------|-------------|----------|
-| `dialing_get_context` | Get full dial-in context bundle: current profile recipe + profile knowledge (includes espresso system prompt, dial-in reference tables, and profile-specific KB) + recent shot summary (via `ShotSummarizer`) + dial-in history (last N shots with same profile family) + bean metadata + grinder context (observed settings range and noise-filtered typical `stepSize`). This is the primary read tool for dial-in — a single call gives the AI everything it needs to analyze a shot and suggest changes. The cross-profile grinder calibration table is **not** in this bundle — see `dialing_get_grinder_calibration` (#1164). | read |
-| `dialing_get_grinder_calibration` | On-demand cross-profile grinder calibration: per-user recommended grinder setting (rgs) for every KB espresso profile, derived from all-time shot history on the same grinder model + burrs. Returns `fineAnchor` / `coarseAnchor`, `conversionKey`, `calibratedUgsRange`, and a `profiles[]` array (each with `ugs`, `rgs`, `source` ∈ history/derived/extrapolated). Split out of `dialing_get_context` (#1164) because it is a ~33-row table that only matters when the user is weighing a profile switch and is a stable physical property of the grinder — so the AI fetches it once on demand instead of re-receiving it every conversational turn. Returns `{available:false, reason}` when fewer than 2 qualifying anchor profiles exist. Same shared `DialingBlocks::buildGrinderCalibrationBlock()` builder the one-shot in-app advisor / `ai_advisor_invoke` still use inline. | read |
-| `ai_conversations` action=`list` | List saved multi-shot AI dialing conversations (in-app advisor + `ai_advisor_invoke` turns both land here), most recently active first. Up to `AIManager::MAX_CONVERSATIONS` (5) are retained, oldest evicted. Each entry: `key`, `label`, `beanBrand`/`beanType`/`profileName`, `messageCount`, `lastUpdated`; `corrupted: true` is added (omitted otherwise) when the entry's stored transcript failed to parse, in which case `messageCount` is unreliable. Same underlying index as the web UI's `/ai-conversations` page. | read |
-| `ai_conversations` action=`get` | Get the full transcript for one conversation `key` from action=list: top-level `key` echo, a `metadata` object (`beanBrand`/`beanType`/`profileName`/`lastUpdated`), `systemPrompt`, and `messages[]` — every turn in order (`role`, `content`, optional `shotId`, optional `structuredNext` on assistant turns that made a concrete recommendation). Same QSettings data as the web UI's JSON download, returned as structured JSON. Useful for collecting real conversation transcripts to validate prompt changes (issue #639). | read |
+| `dialing_get_context` | Get full dial-in context bundle: current profile recipe + profile knowledge (includes espresso system prompt, dial-in reference tables, and profile-specific KB) + recent shot summary (via `ShotSummarizer`) + dial-in history (last N shots with the same profile family **and the same equipment package** — grinder, basket and puck prep together) + bean metadata + grinder context (observed settings range and noise-filtered typical `stepSize`). When the package has no prior shots, the response carries `noDialInHistory` — the package named, `matchedShotCount: 0` — instead of omitting the history section. This is the primary read tool for dial-in — a single call gives the AI everything it needs to analyze a shot and suggest changes. The cross-profile grinder calibration table is **not** in this bundle — see `dialing_get_grinder_calibration` (#1164). | read |
+| `dialing_get_grinder_calibration` | On-demand cross-profile grinder calibration: per-user recommended grinder setting (rgs) for every KB espresso profile, derived from all-time shot history on the same equipment package. Returns `fineAnchor` / `coarseAnchor`, `conversionKey`, `calibratedUgsRange`, and a `profiles[]` array (each with `ugs`, `rgs`, `source` ∈ history/derived/extrapolated). Split out of `dialing_get_context` (#1164) because it is a ~33-row table that only matters when the user is weighing a profile switch, and changes only as the dial-in history does — so the AI fetches it once on demand instead of re-receiving it every conversational turn. Returns `{available:false, reason}` when fewer than 2 qualifying anchor profiles exist. Same shared `DialingBlocks::buildGrinderCalibrationBlock()` builder the one-shot in-app advisor / `ai_advisor_invoke` reach through `buildAdvisorContextBlocks`. | read |
+| `ai_conversations` action=`list` | List saved multi-shot AI dialing conversations (in-app advisor + `ai_advisor_invoke` turns both land here), most recently active first. Up to `AIManager::MAX_CONVERSATIONS` (5) are retained, oldest evicted. Each entry: `key`, `label`, `beanBrand`/`beanType`/`profileName`, `equipment` (the package the thread belongs to — one bean and profile can hold several threads, one per equipment package), `messageCount`, `lastUpdated`; `corrupted: true` is added (omitted otherwise) when the entry's stored transcript failed to parse, in which case `messageCount` is unreliable. Same underlying index as the web UI's `/ai-conversations` page. | read |
+| `ai_conversations` action=`get` | Get the full transcript for one conversation `key` from action=list: top-level `key` echo, a `metadata` object (`beanBrand`/`beanType`/`profileName`/`equipment`/`lastUpdated`), `systemPrompt`, and `messages[]` — every turn in order (`role`, `content`, optional `shotId`, optional `structuredNext` on assistant turns that made a concrete recommendation). Same QSettings data as the web UI's JSON download, returned as structured JSON. Useful for collecting real conversation transcripts to validate prompt changes (issue #639). | read |
 | ~~`dialing_suggest_change`~~ | **Removed.** Was a no-op stub that returned `"suggestion_displayed"` without actually displaying anything or changing settings. The AI mistakenly treated it as applying changes (e.g., grind size). Use `settings_set` to change grind (`dyeGrinderSetting`), dose (`dyeBeanWeight`), yield (`targetWeight`), temperature (`espressoTemperature`), etc. | — |
 | ~~`dialing_apply_change`~~ | **Removed.** Was a convenience wrapper that duplicated `settings_set` + `profiles_set_active`. Caused the advanced-profile-corruption bug due to duplicated code paths. Use `settings_set` for temp/weight/DYE changes and `profiles_set_active` for profile switches. | — |
 
@@ -511,9 +511,9 @@ The later `dialing_get_grinder_calibration` split (#1164) does **not** reverse t
 | Profile recipe (frame-by-frame) | Profile JSON | `dialing_get_context` / `profiles_get_detail` |
 | Profile knowledge (system prompt + reference tables + per-profile KB + profile catalog + cross-profile guidance) | `ShotSummarizer::shotAnalysisSystemPrompt()` — shared with in-app AI | `dialing_get_context` |
 | Shot data (curves, phases, anomalies) | `ShotSummarizer` | `dialing_get_context` / `shots_get_detail` |
-| Dial-in history (last N shots, same profile) | `ShotHistoryStorage::getRecentShotsByKbId()` | `dialing_get_context` |
+| Dial-in history (last N shots, same profile **and equipment package**) | `ShotHistoryStorage::loadRecentShotsByKbIdStatic()` | `dialing_get_context` |
 | Grinder context (observed settings range, noise-filtered `stepSize`, burr-swappable flag) | `ShotHistoryStorage::queryGrinderContext()` + `GrinderAliases` — shared with in-app AI | `dialing_get_context` |
-| Grinder calibration (per-user RGS for every KB profile, derived from all-time anchor shots on same grinder+burrs) | `DialingBlocks::buildGrinderCalibrationBlock()` — shared with in-app AI | `dialing_get_grinder_calibration` (on demand); in-app advisor / `ai_advisor_invoke` inline |
+| Grinder calibration (per-user RGS for every KB profile, derived from all-time anchor shots on the same equipment package) | `DialingBlocks::buildGrinderCalibrationBlock()` — shared with in-app AI | `dialing_get_grinder_calibration` (on demand); in-app advisor / `ai_advisor_invoke` through `buildAdvisorContextBlocks` |
 | Bean metadata (brand, type, roast, grinder, burrs) | Shot metadata / Settings DYE | `dialing_get_context` |
 | Machine telemetry (live pressure/flow/temp) | `MachineState` / `DE1Device` | `machine_get_telemetry` |
 | All available profiles | Profile list | `profiles_list` |
@@ -1040,13 +1040,6 @@ engine.rootContext()->setContextProperty("McpServer", &mcpServer);
 ### CMakeLists.txt
 Add all `src/mcp/*.cpp` to SOURCES and `src/mcp/*.h` to HEADERS. Add `McpConfirmDialog.qml` to QML_FILES. No new Qt modules needed.
 
-### ShotHistoryStorage prerequisite
-
-The `dialing_get_context` tool requires `ShotHistoryStorage::getRecentShotsByKbId(const QString& kbId, int limit)` which does not yet exist (only referenced as a TODO comment at `shothistorystorage.cpp:649`). This must be implemented before the dial-in tools. It should:
-- Follow the existing async pattern: `requestRecentShotsByKbId()` on main thread → `QThread::create()` background query → emit `recentShotsByKbIdReady()` signal
-- Query: `SELECT ... FROM shots WHERE profile_kb_id = :kbId ORDER BY created_at DESC LIMIT :limit`
-- Return summary data (not full time-series) for each shot: id, timestamp (ISO 8601 with timezone), profileName, doseG, yieldG, durationSec, enjoyment0to100, grinderSetting, temperature, notes
-
 ## Thread Safety
 
 - **State reads** (telemetry, machine state): Direct reads of cached members — safe from any thread
@@ -1206,7 +1199,7 @@ palette/chip lists this plan referenced were unified into one catalog table):
 
 1. ~~**Settings + UI**: Add `mcpEnabled`/`mcpAccessLevel`/`mcpConfirmationLevel`/`discussShotApp`/`discussShotCustomUrl` to Settings. Reorganize SettingsAITab.qml into sections with MCP controls and Discuss Shot subsection.~~ ✅
 2. ~~**Discuss Shot feature**: Add Discuss button to PostShotReviewPage and ShotDetailPage. Create DiscussItem layout widget with registration in all 5 places. Implement clipboard summary + `Qt.openUrlExternally()` flow.~~ ✅
-3. ~~**Prerequisites**: Implement `ShotHistoryStorage::getRecentShotsByKbId()` for dial-in history queries.~~ ✅
+3. ~~**Prerequisites**: Implement `ShotHistoryStorage::getRecentShotsByKbId()` for dial-in history queries.~~ ✅ (that async method was later removed as callerless; the live equivalent is `loadRecentShotsByKbIdStatic()`)
 4. ~~**Core protocol**: McpServer, McpSession, JSON-RPC dispatch, ShotServer route integration, CMake setup.~~ ✅
 5. ~~**Read-only tools**: machine_get_state, machine_get_telemetry, shots_list, shots_get_detail, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, settings_get.~~ ✅
 6. ~~**Dial-in read tool**: dialing_get_context — the highest-value tool for AI dial-in conversations. Bundles shot summary, history, profile knowledge, bean metadata, and reference tables.~~ ✅
@@ -1311,7 +1304,7 @@ After this proposal landed, additional phases added scale tools, device tools, M
 |---|-------|--------|-------|
 | 1 | Settings + UI | ✅ Done | MCP settings, AI tab redesign |
 | 2 | Discuss Shot | ✅ Done | Discuss button + layout widget |
-| 3 | Prerequisites | ✅ Done | getRecentShotsByKbId() |
+| 3 | Prerequisites | ✅ Done | getRecentShotsByKbId(), since replaced by loadRecentShotsByKbIdStatic() |
 | 4 | Core protocol | ✅ Done | McpServer, JSON-RPC, ShotServer routing |
 | 5 | Read-only tools | ✅ Done | 9 tools: state, telemetry, shots, profiles, settings |
 | 6 | Dial-in read tool | ✅ Done | dialing_get_context context bundle |
@@ -1345,7 +1338,7 @@ After this proposal landed, additional phases added scale tools, device tools, M
 ## Key Files to Modify
 
 - `src/core/settings.h/cpp` — add mcpEnabled, mcpAccessLevel, mcpConfirmationLevel, discussShotApp, discussShotCustomUrl properties
-- `src/history/shothistorystorage.h/cpp` — add `getRecentShotsByKbId()` async method
+- `src/history/shothistorystorage.h/cpp` — add `getRecentShotsByKbId()` async method (removed later as callerless; `loadRecentShotsByKbIdStatic()` is what serves this today)
 - `qml/pages/settings/SettingsAITab.qml` — reorganize into sections, add MCP controls + Discuss Shot subsection
 - `qml/pages/PostShotReviewPage.qml` — add Discuss button next to AI Advice button in bottom bar
 - `qml/pages/ShotDetailPage.qml` — add Discuss button next to AI Advice button

@@ -5,6 +5,7 @@
 #include "../core/basketaliases.h"  // basket spec derivation inside buildCurrentBeanBlock
 #include "../core/puckprep.h"       // puck-prep flags + distribution inside buildCurrentBeanBlock
 #include "../history/shotprojection.h"  // source type for beanInputsFromProjection (inline)
+#include "../history/shotscope.h"       // AdviceScope — required by every DB-backed builder
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -140,13 +141,91 @@ inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
     return recipe;
 }
 
+// The DB-derived context blocks, together. Both advisor surfaces need exactly
+// this set for exactly one shot, and they used to build it twice: the MCP path
+// produced them all as JSON while the in-app path built three, hand-rendered
+// those as prose, and never built the other two at all.
+//
+// One assembler, so a new block is added once and both surfaces get it.
+struct AdvisorContextBlocks {
+    QJsonArray dialInSessions;
+    // Emitted INSTEAD of dialInSessions when the history query ran and matched
+    // nothing. An absent history block is indistinguishable from "this user has
+    // no history at all", and a model given no anchor supplies one: the failure
+    // this change came from cited a "70/100 shot" that appears nowhere in its
+    // context and then reasoned from it. A stated absence is a fact the model
+    // can use in place of an invented one.
+    //
+    // Empty when dialInSessions has entries, and ALSO empty when the query
+    // failed — a failure is not evidence that nothing matched, and saying so
+    // would assert something the database never told us.
+    QJsonObject noDialInHistory;
+    QJsonObject bestRecentShot;
+    QJsonObject grinderContext;
+    QJsonObject grinderCalibration;
+    QJsonArray recentAdvice;
+};
+
+// How many prior assistant turns the recentAdvice block considers, and how many
+// dial-in sessions the history block returns. Both surfaces used to spell these
+// out at their own call site.
+constexpr int kRecentAdviceTurns = 3;
+constexpr int kDialInHistoryLimit = 5;
+
+// Whether to build the cross-profile grinder calibration table.
+//
+// `dialing_get_context` omits it (#1164): it is a ~33-row table that changes
+// only when the user's dial-in history does, and it is only relevant when they
+// are weighing a profile switch — so the MCP client fetches it once on demand
+// from `dialing_get_grinder_calibration` instead of receiving it on every turn.
+// The one-shot advisor paths include it because they have no follow-up tool
+// call. (It was described here as "a stable physical property of the grinder and
+// burrs". That was the pre-scoping justification and this change invalidated it:
+// the table is keyed on the equipment package now, so a basket swap changes it.)
+//
+// A parameter rather than a second assembler. Hand-writing the three builder
+// calls at the MCP tool for this one difference is what put a second advice-scope
+// construction in the tree and left that surface with no `noDialInHistory`
+// block — one difference is an argument, never a copy of the assembler.
+enum class GrinderCalibration { Include, Omit };
+
+// Builds every block in AdvisorContextBlocks for `shot`, on the caller's open
+// database. Blocks with nothing to say come back empty, and callers suppress an
+// empty block rather than emitting a placeholder.
+//
+// `recentAssistantTurns` is passed in rather than loaded here on purpose:
+// loading it needs AIConversation, and dialing_blocks.cpp is compiled into the
+// narrow decenza_dialingblockslib that tst_dialing_blocks links. Pulling a
+// QObject with QSettings and network dependencies into that library to save two
+// lines at two call sites is the link fan-out CLAUDE.md's testing rules warn
+// about. Callers load it with kRecentAdviceTurns.
+AdvisorContextBlocks buildAdvisorContextBlocks(
+    QSqlDatabase& db,
+    const ShotProjection& shot,
+    qint64 resolvedShotId,
+    const QList<AIConversation::HistoricalAssistantTurn>& recentAssistantTurns,
+    int historyLimit = kDialInHistoryLimit,
+    GrinderCalibration calibration = GrinderCalibration::Include);
+
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped
 // QJsonArray; the array is empty when the profile has no prior shots.
+// `queryRan`, when given, reports whether the underlying history query
+// executed. An empty return means "matched nothing" only when it comes back
+// true; on false the caller must stay silent rather than state an absence.
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
+                                    const AdviceScope& scope,
                                     qint64 resolvedShotId,
-                                    int historyLimit);
+                                    int historyLimit,
+                                    bool* queryRan = nullptr);
+
+// States that no prior shot matched, and names the equipment package that was
+// matched on so the model can see the filter rather than infer one. The
+// equipment comes from DialingHelpers::equipmentSetToJson, the same selection
+// the hoisted session context uses, so the two blocks cannot describe one
+// package differently.
+QJsonObject buildNoDialInHistoryBlock(const ShotProjection& shot);
 
 // Highest-rated past shot on the same profile within the last
 // `kBestRecentShotWindowDays`, with a `changeFromBest` diff against
@@ -155,6 +234,7 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
 // `profileKbId` is empty.
 QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
                                      const QString& profileKbId,
+                                     const AdviceScope& scope,
                                      qint64 resolvedShotId,
                                      const ShotProjection& currentShot);
 
@@ -163,6 +243,7 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
 // when `grinderModel` is empty OR when both queries return no rows.
 QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
                                      const QString& grinderModel,
+                                     const AdviceScope& scope,
                                      const QString& beverageType,
                                      const QString& beanBrand);
 
@@ -182,32 +263,20 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
 // can call the helper without round-tripping through the heavyweight
 // projection type.
 struct CurrentBeanBlockInputs {
-    QString beanBrand;
-    QString beanType;
+    // The shot-identity fields, composed rather than redeclared: this is the same
+    // set ShotIdentity::fields() maps, and the extras below are what makes
+    // currentBean a different INCREMENT of it, not a different dataset.
+    //
+    // Bean storage lifecycle (frozenDate / defrostDate / storageHint / openedDate)
+    // rides in there too: when any is set, buildBeanFreshness reports storage as
+    // KNOWN and ages the beans from the most recent thaw/open date instead of asking
+    // the user. Basket specs (wall/flow/precision/dose range) and the puck-prep flag
+    // rollup are DERIVED below from BasketAliases / PuckPrep — the caller supplies
+    // identity only.
+    DialingHelpers::ShotIdentity identity;
+
     QString roastLevel;
     QString roastDate;
-    // Bean storage lifecycle (bean-bag-inventory), snapshotted at shot time.
-    // When any is set, buildBeanFreshness reports storage as KNOWN and ages
-    // the beans from the most recent thaw/open date instead of asking the
-    // user. Empty = no storage history recorded for this shot.
-    // storageHint/openedDate (bean-freshness-followup) are the non-frozen
-    // analogues of frozenDate/defrostDate.
-    QString frozenDate;
-    QString defrostDate;
-    QString storageHint;
-    QString openedDate;
-    QString grinderBrand;
-    QString grinderModel;
-    QString grinderBurrs;
-    // Basket identity (resolved via the shot's equipment_id; empty = no basket).
-    // Specs (wall/flow/precision/dose range) are DERIVED here from BasketAliases,
-    // not passed in — the caller supplies identity only (add-basket-equipment).
-    QString basketBrand;
-    QString basketModel;
-    // Puck-prep canonical flag string (resolved via the shot's equipment_id; empty
-    // = no puck prep). The individual flags + the derived `distribution` rollup are
-    // computed here from PuckPrep, not passed in (add-puckprep-equipment).
-    QString puckPrep;
     QString grinderSetting;
     // Grinder RPM the shot was ground at (0 = unset / not an adjustable-RPM
     // grinder). A second grind axis alongside grinderSetting on variable-RPM
@@ -231,20 +300,10 @@ struct CurrentBeanBlockInputs {
 inline CurrentBeanBlockInputs beanInputsFromProjection(const ShotProjection& sd)
 {
     CurrentBeanBlockInputs in;
-    in.beanBrand = sd.beanBrand;
-    in.beanType = sd.beanType;
+    // One row in ShotIdentity::fields() now reaches all three slices.
+    in.identity = DialingHelpers::identityFromShot(sd);
     in.roastLevel = sd.roastLevel;
     in.roastDate = sd.roastDate;
-    in.frozenDate = sd.frozenDate;
-    in.defrostDate = sd.defrostDate;
-    in.storageHint = sd.storageHint;
-    in.openedDate = sd.openedDate;
-    in.grinderBrand = sd.grinderBrand;
-    in.grinderModel = sd.grinderModel;
-    in.grinderBurrs = sd.grinderBurrs;
-    in.basketBrand = sd.basketBrand;
-    in.basketModel = sd.basketModel;
-    in.puckPrep = sd.puckPrep;
     in.grinderSetting = sd.grinderSetting;
     in.rpm = static_cast<int>(sd.rpm);
     in.doseWeightG = sd.doseWeightG;
@@ -259,12 +318,12 @@ inline CurrentBeanBlockInputs beanInputsFromProjection(const ShotProjection& sd)
 inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 {
     QJsonObject bean;
-    bean["brand"] = in.beanBrand;
-    bean["type"] = in.beanType;
+    bean["brand"] = in.identity.beanBrand;
+    bean["type"] = in.identity.beanType;
     bean["roastLevel"] = in.roastLevel;
-    bean["grinderBrand"] = in.grinderBrand;
-    bean["grinderModel"] = in.grinderModel;
-    bean["grinderBurrs"] = in.grinderBurrs;
+    bean["grinderBrand"] = in.identity.grinderBrand;
+    bean["grinderModel"] = in.identity.grinderModel;
+    bean["grinderBurrs"] = in.identity.grinderBurrs;
     bean["grinderSetting"] = in.grinderSetting;
     // Only emit rpm when set, so non-adjustable grinders don't carry a noisy 0.
     if (in.rpm > 0)
@@ -276,12 +335,12 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     // off-registry basket carries identity alone). relativeFlow is the key
     // cross-basket signal — a directional word, not an ordered scale — and the
     // dose range lets the advisor flag a dose outside the basket's rating.
-    if (!in.basketBrand.isEmpty() || !in.basketModel.isEmpty()) {
+    if (!in.identity.basketBrand.isEmpty() || !in.identity.basketModel.isEmpty()) {
         QJsonObject basket;
-        basket["brand"] = in.basketBrand;
-        basket["model"] = in.basketModel;
+        basket["brand"] = in.identity.basketBrand;
+        basket["model"] = in.identity.basketModel;
         if (const BasketAliases::BasketEntry* e =
-                BasketAliases::findEntry(in.basketBrand, in.basketModel)) {
+                BasketAliases::findEntry(in.identity.basketBrand, in.identity.basketModel)) {
             basket["wallProfile"] = BasketAliases::wallProfileName(e->wall);
             basket["relativeFlow"] = BasketAliases::flowRateName(e->flow);
             basket["precision"] = e->precision;
@@ -299,16 +358,16 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     // `distribution` rollup — the signal the advisor branches its channeling
     // guidance on ("none/light → fix prep" vs "thorough → grind/dose"). Omitted
     // when the package has no puck prep.
-    if (!in.puckPrep.isEmpty()) {
+    if (!in.identity.puckPrep.isEmpty()) {
         QJsonObject puck;
         for (const QString& k : PuckPrep::flagKeys())
-            puck[k] = PuckPrep::has(in.puckPrep, k);
-        puck["distribution"] = PuckPrep::distribution(in.puckPrep);
+            puck[k] = PuckPrep::has(in.identity.puckPrep, k);
+        puck["distribution"] = PuckPrep::distribution(in.identity.puckPrep);
         bean["puckPrep"] = puck;
     }
 
     const QJsonObject freshness = DialingHelpers::buildBeanFreshness(
-        in.roastDate, in.frozenDate, in.defrostDate, in.storageHint, in.openedDate);
+        in.roastDate, in.identity.frozenDate, in.identity.defrostDate, in.identity.storageHint, in.identity.openedDate);
     if (!freshness.isEmpty())
         bean["beanFreshness"] = freshness;
 
@@ -370,14 +429,14 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 //   - `grinderModel` is empty, OR
 //   - `beverageType` is filter / pourover, OR
 //   - the resolved shot is invalid, OR
-//   - there are no dialed-in shots on this grinder + burrs.
+//   - there are no dialed-in shots in this equipment package.
 // Otherwise the block is always present (directional at minimum).
 //
 // Background-thread / DB-owning: must be called from the same thread that
 // owns `db` (same tier as `buildGrinderContextBlock`).
 QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& grinderModel,
-                                         const QString& grinderBurrs,
+                                         const AdviceScope& scope,
                                          const QString& beverageType,
                                          qint64 resolvedShotId);
 
