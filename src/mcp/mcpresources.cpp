@@ -384,7 +384,8 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
         "debug_get_fds",
         "Read a live, in-process file-descriptor and socket census. Each descriptor includes its "
         "target; sockets also include their inode and any procfs-visible family, protocol, state "
-        "and endpoints. Use this to diagnose descriptor growth. Read-only.",
+        "and endpoints. Use this to diagnose descriptor growth. Read-only. get_agent_file topic "
+        "\"debug_get_fds\".",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [](const QJsonObject&) -> QJsonObject {
             return FdDiagnostics::snapshot();

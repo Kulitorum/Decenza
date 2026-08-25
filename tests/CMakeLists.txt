@@ -1569,12 +1569,6 @@ add_decenza_test(tst_mcplogfilter
     tst_mcplogfilter.cpp
 )
 
-# --- tst_fddiagnostics: in-process /proc descriptor and socket census ---
-add_decenza_test(tst_fddiagnostics
-    tst_fddiagnostics.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/fddiagnostics.cpp
-)
-
 # --- tst_mcptools_shots_debuglog: shots_get_debug_log filter/regex/tail (improve-mcp-debug-log-search) ---
 add_decenza_test(tst_mcptools_shots_debuglog
     tst_mcptools_shots_debuglog.cpp

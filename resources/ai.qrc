@@ -10,6 +10,7 @@
         <file>ai/tools/ai_advisor_invoke.md</file>
         <file>ai/tools/auto_load.md</file>
         <file>ai/tools/bag.md</file>
+        <file>ai/tools/debug_get_fds.md</file>
         <file>ai/tools/debug_get_log.md</file>
         <file>ai/tools/devices_set_scale_priority_mode.md</file>
         <file>ai/tools/devices_wifi.md</file>
