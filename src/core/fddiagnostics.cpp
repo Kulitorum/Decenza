@@ -182,13 +182,20 @@ QHash<qulonglong, SocketDetails> socketDetailsByInode()
     return sockets;
 }
 
+QString kernelDescriptorTarget(const QString& target)
+{
+    static const QString procFdPrefix = QStringLiteral("/proc/self/fd/");
+    return target.startsWith(procFdPrefix) ? target.mid(procFdPrefix.size()) : target;
+}
+
 QString descriptorKind(const QString& target)
 {
-    if (target.startsWith(QStringLiteral("socket:[")))
+    const QString kernelTarget = kernelDescriptorTarget(target);
+    if (kernelTarget.startsWith(QStringLiteral("socket:[")))
         return QStringLiteral("socket");
-    if (target.startsWith(QStringLiteral("pipe:[")))
+    if (kernelTarget.startsWith(QStringLiteral("pipe:[")))
         return QStringLiteral("pipe");
-    if (target.startsWith(QStringLiteral("anon_inode:")))
+    if (kernelTarget.startsWith(QStringLiteral("anon_inode:")))
         return QStringLiteral("anon_inode");
     if (target.startsWith(QLatin1Char('/')))
         return QStringLiteral("file");
@@ -198,7 +205,7 @@ QString descriptorKind(const QString& target)
 bool socketInode(const QString& target, qulonglong* inode)
 {
     static const QRegularExpression pattern(QStringLiteral("^socket:\\[(\\d+)\\]$"));
-    const QRegularExpressionMatch match = pattern.match(target);
+    const QRegularExpressionMatch match = pattern.match(kernelDescriptorTarget(target));
     if (!match.hasMatch())
         return false;
     bool ok = false;
