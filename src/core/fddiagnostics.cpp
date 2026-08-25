@@ -96,7 +96,7 @@ QString ipv6Address(const QString& encoded)
 
 bool parseEndpoint(const QString& encoded, bool ipv6, QString* address, int* port)
 {
-    const int separator = encoded.indexOf(QLatin1Char(':'));
+    const qsizetype separator = encoded.indexOf(QLatin1Char(':'));
     if (separator <= 0 || separator == encoded.size() - 1)
         return false;
 
