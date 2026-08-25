@@ -1491,7 +1491,29 @@ private slots:
         QCOMPARE(result["targetTemperatureC"].toDouble(), 91.5);
     }
 
-    // === MCP tool: debug_get_log ===
+    // === MCP tools: debug_get_fds / debug_get_log ===
+
+    void debugGetFds_returnsExplicitDescriptorCensus() {
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        const QJsonObject result = f.callTool("debug_get_fds", QJsonObject{});
+        QVERIFY(result.contains("supported"));
+        if (!result.value("supported").toBool()) {
+            QVERIFY(!result.value("error").toString().isEmpty());
+            return;
+        }
+
+        QVERIFY(result.value("openFdCount").toInt() > 0);
+        QVERIFY(result.value("descriptorKinds").isObject());
+        QVERIFY(result.value("descriptors").isArray());
+        const QJsonArray descriptors = result.value("descriptors").toArray();
+        QVERIFY(!descriptors.isEmpty());
+        const QJsonObject descriptor = descriptors.first().toObject();
+        QVERIFY(descriptor.contains("fd"));
+        QVERIFY(descriptor.contains("kind"));
+        QVERIFY(descriptor.contains("target"));
+    }
 
     static void writeLogFile(const QString& path, const QString& content) {
         QFile f(path);

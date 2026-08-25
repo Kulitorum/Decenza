@@ -8,6 +8,7 @@
 #include "../history/bagid.h"
 #include "../core/logtags.h"
 #include "../core/memorymonitor.h"
+#include "../core/fddiagnostics.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
 #include "../network/webdebuglogger.h"
@@ -379,6 +380,18 @@ static void appendLogFields(QJsonObject& result, const QList<McpLogFilter::LineM
 
 void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
 {
+    registry->registerTool(
+        "debug_get_fds",
+        "Read a live, in-process file-descriptor and socket census. Each descriptor includes its "
+        "target; sockets also include their inode and any procfs-visible family, protocol, state "
+        "and endpoints. Use this to diagnose descriptor growth. Read-only. get_agent_file topic "
+        "\"debug_get_fds\".",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [](const QJsonObject&) -> QJsonObject {
+            return FdDiagnostics::snapshot();
+        },
+        "read", McpTierNiche);
+
     // The subsystem-marker paragraph, BUILT FROM THE REGISTRY (core/logtags.h) rather
     // than restated here.
     //

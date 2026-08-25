@@ -1454,6 +1454,7 @@ add_decenza_test(tst_profilemanager
     tst_profilemanager.cpp
     ${MCP_MOC_HEADERS}
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpresources.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/fddiagnostics.cpp
     ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
