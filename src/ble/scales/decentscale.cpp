@@ -91,7 +91,10 @@ void DecentScale::onTransportDisconnected() {
     // Re-log the firmware version on the next connect — the LED-response
     // packet only arrives periodically, but capturing it fresh per connect
     // is what makes the line useful for triage.
-    m_firmwareVersion.clear();
+    if (!m_firmwareVersion.isEmpty()) {
+        m_firmwareVersion.clear();
+        emit firmwareVersionChanged();
+    }
     m_lastBatteryByte = -1;
     m_ticksSinceBatteryPoll = 0;
     m_lcdOn = true;
@@ -317,21 +320,19 @@ void DecentScale::parseWeightData(const QByteArray& data) {
         // Log once per connect; a subsequent packet reporting a different
         // value warn-logs the transition (shouldn't happen on a live
         // scale — a change would itself be diagnostic).
-        const int major = ((d[5] >> 4) & 0x0F) * 10 + (d[5] & 0x0F);
-        const int minor = (d[6] >> 4) & 0x0F;
-        const int patch = d[6] & 0x0F;
-        const QString version = QStringLiteral("%1.%2.%3 (raw 0x%4 0x%5)")
-            .arg(major).arg(minor).arg(patch)
-            .arg(d[5], 2, 16, QLatin1Char('0'))
-            .arg(d[6], 2, 16, QLatin1Char('0'));
+        const QString version = DecentScaleProtocol::decodeHdsFirmwareVersion(d[5], d[6]);
         if (m_firmwareVersion != version) {
             if (m_firmwareVersion.isEmpty()) {
-                DECENT_LOG(QString("Firmware version: %1").arg(version));
+                DECENT_LOG(QString("Firmware version: %1 (raw 0x%2 0x%3)")
+                               .arg(version)
+                               .arg(d[5], 2, 16, QLatin1Char('0'))
+                               .arg(d[6], 2, 16, QLatin1Char('0')));
             } else {
                 DECENT_WARN(QString("Firmware version changed mid-connect: %1 -> %2")
                             .arg(m_firmwareVersion, version));
             }
             m_firmwareVersion = version;
+            emit firmwareVersionChanged();
         }
     } else if (command == 0xAA) {
         // Button pressed
@@ -496,6 +497,14 @@ void DecentScale::stopTimer() {
 
 void DecentScale::resetTimer() {
     sendCommand(QByteArray::fromHex("0B0200"));
+}
+
+void DecentScale::startFirmwareUpdate() {
+    if (!supportsFirmwareUpdate()) {
+        DECENT_LOG("Firmware update command dropped - HDS firmware version is unknown");
+        return;
+    }
+    sendCommand(QByteArray::fromHex("1B"));
 }
 
 void DecentScale::sleep() {

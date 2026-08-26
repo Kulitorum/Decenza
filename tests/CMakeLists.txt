@@ -1,4 +1,7 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Core Bluetooth Sql Network WebSockets)
+if(NOT IOS)
+    find_package(Qt6 REQUIRED COMPONENTS SerialPort)
+endif()
 
 # Every test links decenza_testlib directly (see add_decenza_test), and the
 # targets that also link decenza_shotlib get it a second time through that
@@ -741,9 +744,24 @@ add_decenza_test(tst_dbtxn
 add_decenza_test(tst_updatechecker
     tst_updatechecker.cpp
     ${CMAKE_SOURCE_DIR}/src/core/updatechecker.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/githubreleaseclient.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
 target_include_directories(tst_updatechecker PRIVATE ${CMAKE_BINARY_DIR})
+
+# --- tst_hdsfirmwarecatalog: OpenScale manifest parsing and HDS eligibility ---
+add_decenza_test(tst_hdsfirmwarecatalog
+    tst_hdsfirmwarecatalog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/hdsfirmwarecatalog.cpp
+)
+
+# --- tst_hdsfirmwareupdatecontroller: manifest lifecycle, active-scale gate, and stale replies ---
+add_decenza_test(tst_hdsfirmwareupdatecontroller
+    tst_hdsfirmwareupdatecontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/githubreleaseclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/hdsfirmwarecatalog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/hdsfirmwareupdatecontroller.cpp
+)
 
 # --- tst_tclimport: TCL profile import round-trip against de1app profiles ---
 add_decenza_test(tst_tclimport
@@ -1216,6 +1234,15 @@ add_decenza_test(tst_scaleprotocol
     ${CMAKE_SOURCE_DIR}/src/ble/scales/difluidscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/acaiascale.cpp
 )
+
+if(NOT IOS)
+    # --- tst_usbdecentscale: HDS USB version and OTA trigger packet ---
+    add_decenza_test(tst_usbdecentscale
+        tst_usbdecentscale.cpp
+        ${CMAKE_SOURCE_DIR}/src/usb/usbdecentscale.cpp
+    )
+    target_link_libraries(tst_usbdecentscale PRIVATE Qt6::SerialPort)
+endif()
 
 # --- tst_decentscalewifi: WiFi scale driver (WebSocket protocol) ---
 add_decenza_test(tst_decentscalewifi

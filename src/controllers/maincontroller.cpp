@@ -1,6 +1,7 @@
 #include "core/settings_app.h"
 #include "core/appsettings.h"
 #include "maincontroller.h"
+#include "ble/scaledeviceproxy.h"
 #include <QUuid>
 #include "shottimingcontroller.h"
 #include "autoflowcalclassifier.h"
@@ -111,6 +112,18 @@ MainController *MainController::create(QQmlEngine *qmlEngine, QJSEngine *jsEngin
     // owned by main().
     QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
     return s_qmlInstance;
+}
+
+void MainController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
+{
+    if (!m_hdsFirmwareUpdate)
+        return;
+    m_hdsFirmwareUpdate->setScaleDevice(proxy ? proxy->target() : nullptr);
+    if (proxy) {
+        connect(proxy, &ScaleDeviceProxy::targetChanged, m_hdsFirmwareUpdate, [this, proxy]() {
+            m_hdsFirmwareUpdate->setScaleDevice(proxy->target());
+        });
+    }
 }
 
 MainController::MainController(QNetworkAccessManager* networkManager,
@@ -868,6 +881,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     // Initialize update checker
     m_updateChecker = new UpdateChecker(m_networkManager, m_settings, this);
+    m_hdsFirmwareUpdate = new HdsFirmwareUpdateController(m_networkManager, this);
 
     // Initialize DE1 firmware update pipeline. FirmwareAssetCache shares
     // the MainController's QNetworkAccessManager (so proxy/TLS settings

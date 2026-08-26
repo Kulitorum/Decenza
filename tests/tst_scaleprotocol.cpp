@@ -86,6 +86,7 @@ public:
     QBluetoothUuid m_lastWriteService;
 };
 
+
 class tst_ScaleProtocol : public QObject {
     Q_OBJECT
 
@@ -375,6 +376,28 @@ private slots:
             QRegularExpression(".*Firmware version changed mid-connect.*3\\.0\\.9.*3\\.1\\.0.*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt2);
     }
+
+    void hdsBluetoothFirmwareVersionAndUpdateCommand() {
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+        scale.m_characteristicsReady = true;
+
+        QSignalSpy versionSpy(&scale, &ScaleDevice::firmwareVersionChanged);
+        const auto response = buildDecentLedResponse(50, 3, 1, 13);
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte d\\[4\\]=.*"));
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Firmware version: 3\\.1\\.13 \\(raw 0x03 0x1d\\).*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, response);
+
+        QCOMPARE(scale.firmwareVersion(), QStringLiteral("3.1.13"));
+        QVERIFY(scale.supportsFirmwareUpdate());
+        QCOMPARE(versionSpy.count(), 1);
+
+        transport->m_writes.clear();
+        scale.startFirmwareUpdate();
+        QCOMPARE(transport->m_writes, QList<QByteArray>{QByteArray::fromHex("031B0000000018")});
+    }
+
 
     // ==========================================
     // DecentScale: error handling

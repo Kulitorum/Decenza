@@ -63,6 +63,8 @@ class ScaleDeviceProxy : public QObject {
     Q_PROPERTY(double flowRate READ flowRate NOTIFY flowRateChanged)
     Q_PROPERTY(int batteryLevel READ batteryLevel NOTIFY batteryLevelChanged)
     Q_PROPERTY(bool charging READ charging NOTIFY chargingChanged)
+    Q_PROPERTY(QString firmwareVersion READ firmwareVersion NOTIFY firmwareVersionChanged)
+    Q_PROPERTY(bool supportsFirmwareUpdate READ supportsFirmwareUpdate NOTIFY firmwareVersionChanged)
     Q_PROPERTY(QString name READ name NOTIFY targetChanged)
     Q_PROPERTY(bool isFlowScale READ isFlowScale NOTIFY targetChanged)
     Q_PROPERTY(bool isSimulated READ isSimulated NOTIFY targetChanged)
@@ -84,6 +86,8 @@ public:
     // proxy with no scale attached is at least as unknown as that.
     int batteryLevel() const { return m_target ? m_target->batteryLevel() : -1; }
     bool charging() const { return m_target && m_target->charging(); }
+    QString firmwareVersion() const { return m_target ? m_target->firmwareVersion() : QString(); }
+    bool supportsFirmwareUpdate() const { return m_target && m_target->supportsFirmwareUpdate(); }
     QString name() const { return m_target ? m_target->name() : QString(); }
     bool isFlowScale() const { return m_target && m_target->isFlowScale(); }
     bool isSimulated() const { return m_target && m_target->isSimulated(); }
@@ -101,6 +105,7 @@ public slots:
     void wake();
     void disableLcd();
     void sendKeepAlive();
+    void startFirmwareUpdate();
     void disconnectFromScale();
     void resetFlowCalculation();
     void addFlowSample(double flowRate, double deltaTime);
@@ -124,6 +129,7 @@ signals:
     void flowRateChanged(double rate);
     void batteryLevelChanged(int level);
     void chargingChanged(bool charging);
+    void firmwareVersionChanged();
     void buttonPressed(int button);
     void errorOccurred(const QString& error);
     void simulationModeChanged();

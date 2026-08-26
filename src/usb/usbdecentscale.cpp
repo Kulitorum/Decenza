@@ -90,6 +90,15 @@ void UsbDecentScale::sleep()
     emit sleepCompleted();
 }
 
+void UsbDecentScale::startFirmwareUpdate()
+{
+    if (!supportsFirmwareUpdate()) {
+        USB_SCALE_LOG("Firmware update command dropped - HDS firmware version is unknown");
+        return;
+    }
+    sendCommand(QByteArray::fromHex("1B"));
+}
+
 // ===========================================================================
 // USB-specific API
 // ===========================================================================
@@ -169,6 +178,11 @@ void UsbDecentScale::close()
 #endif
 
     m_buffer.clear();
+
+    if (!m_firmwareVersion.isEmpty()) {
+        m_firmwareVersion.clear();
+        emit firmwareVersionChanged();
+    }
 
     if (isConnected()) {
         setConnected(false);
@@ -314,6 +328,15 @@ void UsbDecentScale::processPacket(const QByteArray& packet)
             setCharging(true);
             setBatteryLevel(100);  // Keep "100" reporting so existing UI bindings don't regress
         }
+        const QString version = DecentScaleProtocol::decodeHdsFirmwareVersion(d[5], d[6]);
+        if (m_firmwareVersion != version) {
+            USB_SCALE_LOG(QStringLiteral("Firmware version: %1 (raw 0x%2 0x%3)")
+                              .arg(version)
+                              .arg(d[5], 2, 16, QLatin1Char('0'))
+                              .arg(d[6], 2, 16, QLatin1Char('0')));
+            m_firmwareVersion = version;
+            emit firmwareVersionChanged();
+        }
     } else if (command == 0xAA) {
         // Button press
         int button = d[2];
@@ -351,5 +374,3 @@ void UsbDecentScale::writeRaw(const QByteArray& data)
     }
 #endif
 }
-
-

@@ -19,6 +19,8 @@ class ScaleDevice : public QObject {
     Q_PROPERTY(double flowRate READ flowRate NOTIFY flowRateChanged)
     Q_PROPERTY(int batteryLevel READ batteryLevel NOTIFY batteryLevelChanged)
     Q_PROPERTY(bool charging READ charging NOTIFY chargingChanged)
+    Q_PROPERTY(QString firmwareVersion READ firmwareVersion NOTIFY firmwareVersionChanged)
+    Q_PROPERTY(bool supportsFirmwareUpdate READ supportsFirmwareUpdate NOTIFY firmwareVersionChanged)
     Q_PROPERTY(QString name READ name CONSTANT)
     Q_PROPERTY(bool isFlowScale READ isFlowScale CONSTANT)
     Q_PROPERTY(bool isSimulated READ isSimulated CONSTANT)
@@ -34,6 +36,8 @@ public:
     double flowRate() const { return m_flowRate; }
     int batteryLevel() const { return m_batteryLevel; }
     bool charging() const { return m_charging; }
+    virtual QString firmwareVersion() const { return {}; }
+    virtual bool supportsFirmwareUpdate() const { return false; }
     virtual QString name() const { return QString(); }
     virtual QString type() const { return QString(); }
     virtual bool isFlowScale() const { return false; }
@@ -78,6 +82,7 @@ public slots:
     virtual void wake() {}   // Wake scale from sleep (enable LCD)
     virtual void disableLcd() {}  // Turn off LCD but keep scale powered (for screensaver)
     virtual void sendKeepAlive() {}  // Override to send BLE keepalive (e.g., re-enable notifications)
+    virtual void startFirmwareUpdate() {}
     virtual void disconnectFromScale();  // Disconnect BLE from scale
     void resetFlowCalculation();  // Call after tare to avoid flow rate spikes
 
@@ -103,6 +108,7 @@ signals:
     void flowRateChanged(double rate);
     void batteryLevelChanged(int level);
     void chargingChanged(bool charging);
+    void firmwareVersionChanged();
     void buttonPressed(int button);
     void errorOccurred(const QString& error);
     void simulationModeChanged();

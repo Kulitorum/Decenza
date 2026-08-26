@@ -215,7 +215,6 @@ private:
     // Generation counter lives at file scope in updatechecker.cpp so background
     // QFile::remove threads don't capture `this` (see s_downloadGeneration).
 
-    static const QString GITHUB_API_URL;
     static const QString GITHUB_REPO;
 
 #ifdef DECENZA_TESTING

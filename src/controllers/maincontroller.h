@@ -42,6 +42,7 @@
 // The cost is real but bounded: touching mqttclient.h rebuilds 26 objects.
 #include "../network/mqttclient.h"
 #include "../core/updatechecker.h"
+#include "../core/hdsfirmwareupdatecontroller.h"
 #include "../core/firmwareassetcache.h"
 #include "firmwareupdater.h"
 #include "../core/datamigrationclient.h"
@@ -62,6 +63,7 @@ class ShotDebugLogger;
 class LocationProvider;
 class ShotTimingController;
 class TranslationManager;
+class ScaleDeviceProxy;
 struct ShotSample;
 
 class MainController : public QObject {
@@ -192,6 +194,7 @@ class MainController : public QObject {
     Q_PROPERTY(ShotServer* shotServer READ shotServer CONSTANT FINAL)
     Q_PROPERTY(MqttClient* mqttClient READ mqttClient CONSTANT FINAL)
     Q_PROPERTY(UpdateChecker* updateChecker READ updateChecker CONSTANT FINAL)
+    Q_PROPERTY(HdsFirmwareUpdateController* hdsFirmwareUpdate READ hdsFirmwareUpdate CONSTANT FINAL)
     Q_PROPERTY(FirmwareUpdater* firmwareUpdater READ firmwareUpdater CONSTANT FINAL)
     Q_PROPERTY(ShotReporter* shotReporter READ shotReporter CONSTANT FINAL)
     Q_PROPERTY(DataMigrationClient* dataMigration READ dataMigration CONSTANT FINAL)
@@ -301,6 +304,8 @@ public:
     ShotServer* shotServer() const { return m_shotServer; }
     MqttClient* mqttClient() const { return m_mqttClient; }
     UpdateChecker* updateChecker() const { return m_updateChecker; }
+    HdsFirmwareUpdateController* hdsFirmwareUpdate() const { return m_hdsFirmwareUpdate; }
+    void setScaleDeviceProxy(ScaleDeviceProxy* proxy);
     FirmwareUpdater* firmwareUpdater() const { return m_firmwareUpdater; }
     ShotReporter* shotReporter() const { return m_shotReporter; }
     DataMigrationClient* dataMigration() const { return m_dataMigration; }
@@ -856,6 +861,7 @@ private:
     ShotServer* m_shotServer = nullptr;
     MqttClient* m_mqttClient = nullptr;
     UpdateChecker* m_updateChecker = nullptr;
+    HdsFirmwareUpdateController* m_hdsFirmwareUpdate = nullptr;
     DE1::Firmware::FirmwareAssetCache* m_firmwareAssetCache = nullptr;
     FirmwareUpdater* m_firmwareUpdater = nullptr;
     QTimer* m_firmwareCheckTimer = nullptr;   // weekly recurring check
