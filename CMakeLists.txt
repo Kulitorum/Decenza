@@ -693,6 +693,9 @@ set(SOURCES
     src/core/profilestorage.cpp
     src/core/translationmanager.cpp
     src/core/updatechecker.cpp
+    src/core/githubreleaseclient.cpp
+    src/core/hdsfirmwarecatalog.cpp
+    src/core/hdsfirmwareupdatecontroller.cpp
     src/core/firmwareassetcache.cpp
     src/core/fileshare.cpp
     src/ble/protocol/binarycodec.cpp
@@ -930,6 +933,9 @@ set(HEADERS
     src/core/profilestorage.h
     src/core/translationmanager.h
     src/core/updatechecker.h
+    src/core/githubreleaseclient.h
+    src/core/hdsfirmwarecatalog.h
+    src/core/hdsfirmwareupdatecontroller.h
     src/ble/protocol/binarycodec.h
     src/ble/protocol/de1characteristics.h
     src/ble/protocol/decentscaleprotocol.h

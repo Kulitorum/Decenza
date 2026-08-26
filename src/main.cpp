@@ -2134,6 +2134,7 @@ int main(int argc, char *argv[])
     // re-point the `ScaleDevice` context property now call setTarget() on this.
     ScaleDeviceProxy scaleProxy;
     RefractometerProxy refractometerProxy;
+    mainController.setScaleDeviceProxy(&scaleProxy);
 
     // Hoisted for the same rule, and note it was ALREADY exposed to QML from below the engine —
     // as a context property, which QML drops on destroyed(), so the ordering hazard was papered
@@ -4428,6 +4429,7 @@ int main(int argc, char *argv[])
         else if (state == Qt::ApplicationActive && wasSuspended) {
             qDebug() << "App resumed from suspended state";
             wasSuspended = false;
+            mainController.hdsFirmwareUpdate()->checkForUpdates();
 
 #ifdef Q_OS_ANDROID
             // Re-enable accessibility bridge now that the EGL surface is valid again

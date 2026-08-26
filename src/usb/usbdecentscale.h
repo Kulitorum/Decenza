@@ -36,6 +36,8 @@ public:
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
     QString name() const override { return QStringLiteral("Half Decent Scale (USB)"); }
     QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleUsb); }
+    QString firmwareVersion() const override { return m_firmwareVersion; }
+    bool supportsFirmwareUpdate() const override { return !m_firmwareVersion.isEmpty(); }
 
 public slots:
     void tare() override;
@@ -45,6 +47,7 @@ public slots:
     void resetTimer() override;
     void wake() override;
     void sleep() override;
+    void startFirmwareUpdate() override;
 
     // -- USB-specific API --
 
@@ -68,10 +71,18 @@ private slots:
     void onHeartbeatTimer();
 
 private:
+#ifdef DECENZA_TESTING
+    friend class tst_ScaleProtocol;
+    friend class tst_UsbDecentScale;
+#endif
     void processBuffer();
     void processPacket(const QByteArray& packet);
     void sendCommand(const QByteArray& commandData);
-    void writeRaw(const QByteArray& data);
+
+protected:
+    virtual void writeRaw(const QByteArray& data);
+
+private:
 
     QByteArray m_buffer;
     QTimer m_heartbeatTimer;
@@ -81,4 +92,5 @@ private:
 #else
     QSerialPort* m_port = nullptr;
 #endif
+    QString m_firmwareVersion;
 };

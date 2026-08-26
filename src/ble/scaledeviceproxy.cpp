@@ -30,6 +30,7 @@ void ScaleDeviceProxy::setTarget(ScaleDevice* target)
         connect(m_target, &ScaleDevice::flowRateChanged, this, &ScaleDeviceProxy::flowRateChanged);
         connect(m_target, &ScaleDevice::batteryLevelChanged, this, &ScaleDeviceProxy::batteryLevelChanged);
         connect(m_target, &ScaleDevice::chargingChanged, this, &ScaleDeviceProxy::chargingChanged);
+        connect(m_target, &ScaleDevice::firmwareVersionChanged, this, &ScaleDeviceProxy::firmwareVersionChanged);
         connect(m_target, &ScaleDevice::buttonPressed, this, &ScaleDeviceProxy::buttonPressed);
         connect(m_target, &ScaleDevice::errorOccurred, this, &ScaleDeviceProxy::errorOccurred);
         connect(m_target, &ScaleDevice::simulationModeChanged, this, &ScaleDeviceProxy::simulationModeChanged);
@@ -46,6 +47,7 @@ void ScaleDeviceProxy::setTarget(ScaleDevice* target)
     emit flowRateChanged(flowRate());
     emit batteryLevelChanged(batteryLevel());
     emit chargingChanged(charging());
+    emit firmwareVersionChanged();
     emit simulationModeChanged();
 }
 
@@ -62,6 +64,7 @@ void ScaleDeviceProxy::resetTimer()          { if (m_target) m_target->resetTime
 void ScaleDeviceProxy::wake()                { if (m_target) m_target->wake(); }
 void ScaleDeviceProxy::disableLcd()          { if (m_target) m_target->disableLcd(); }
 void ScaleDeviceProxy::sendKeepAlive()       { if (m_target) m_target->sendKeepAlive(); }
+void ScaleDeviceProxy::startFirmwareUpdate() { if (m_target) m_target->startFirmwareUpdate(); }
 void ScaleDeviceProxy::disconnectFromScale() { if (m_target) m_target->disconnectFromScale(); }
 void ScaleDeviceProxy::resetFlowCalculation() { if (m_target) m_target->resetFlowCalculation(); }
 

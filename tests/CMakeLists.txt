@@ -1,4 +1,7 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Core Bluetooth Sql Network WebSockets)
+if(NOT IOS)
+    find_package(Qt6 REQUIRED COMPONENTS SerialPort)
+endif()
 
 # Every test links decenza_testlib directly (see add_decenza_test), and the
 # targets that also link decenza_shotlib get it a second time through that
@@ -358,6 +361,19 @@ add_library(decenza_firmwareassetcachelib STATIC
 )
 set_target_properties(decenza_firmwareassetcachelib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_link_libraries(decenza_firmwareassetcachelib PUBLIC decenza_testlib)
+
+# GitHub release requests and HDS manifest parsing are each exercised by two
+# focused targets. Keep them narrow: adding either to decenza_testlib would
+# relink all test executables for two sources that only these targets need.
+add_library(decenza_githubreleaseclientlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/core/githubreleaseclient.cpp
+)
+target_link_libraries(decenza_githubreleaseclientlib PUBLIC decenza_testlib)
+
+add_library(decenza_hdsfirmwarecataloglib STATIC
+    ${CMAKE_SOURCE_DIR}/src/core/hdsfirmwarecatalog.cpp
+)
+target_link_libraries(decenza_hdsfirmwarecataloglib PUBLIC decenza_testlib)
 
 add_decenza_test(tst_binarycodec
     tst_binarycodec.cpp
@@ -744,6 +760,23 @@ add_decenza_test(tst_updatechecker
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
 target_include_directories(tst_updatechecker PRIVATE ${CMAKE_BINARY_DIR})
+target_link_libraries(tst_updatechecker PRIVATE decenza_githubreleaseclientlib)
+
+# --- tst_hdsfirmwarecatalog: OpenScale manifest parsing and HDS eligibility ---
+add_decenza_test(tst_hdsfirmwarecatalog
+    tst_hdsfirmwarecatalog.cpp
+)
+target_link_libraries(tst_hdsfirmwarecatalog PRIVATE decenza_hdsfirmwarecataloglib)
+
+# --- tst_hdsfirmwareupdatecontroller: manifest lifecycle, active-scale gate, and stale replies ---
+add_decenza_test(tst_hdsfirmwareupdatecontroller
+    tst_hdsfirmwareupdatecontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/hdsfirmwareupdatecontroller.cpp
+)
+target_link_libraries(tst_hdsfirmwareupdatecontroller PRIVATE
+    decenza_githubreleaseclientlib
+    decenza_hdsfirmwarecataloglib
+)
 
 # --- tst_tclimport: TCL profile import round-trip against de1app profiles ---
 add_decenza_test(tst_tclimport
@@ -1216,6 +1249,15 @@ add_decenza_test(tst_scaleprotocol
     ${CMAKE_SOURCE_DIR}/src/ble/scales/difluidscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/acaiascale.cpp
 )
+
+if(NOT IOS)
+    # --- tst_usbdecentscale: HDS USB version and OTA trigger packet ---
+add_decenza_test(tst_usbdecentscale
+    tst_usbdecentscale.cpp
+    ${CMAKE_SOURCE_DIR}/src/usb/usbdecentscale.cpp
+)
+target_link_libraries(tst_usbdecentscale PRIVATE Qt6::SerialPort)
+endif()
 
 # --- tst_decentscalewifi: WiFi scale driver (WebSocket protocol) ---
 add_decenza_test(tst_decentscalewifi
