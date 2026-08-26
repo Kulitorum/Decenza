@@ -28,3 +28,4 @@ Half Decent Scale owners can already run a signed WiFi update from the scale, bu
 - `SettingsConnectionsTab.qml` gains only a conditional action and dialog; no new normal-state page content.
 - Uses the existing application `QNetworkAccessManager` and the OpenScale public manifest and release APIs.
 - Follow-up coordination with `../openscale` is documented but does not gate this Decenza change or require a new HDS firmware release.
+- Manual UI and Bluetooth/USB hardware verification of an actually available update is deferred until the next compatible HDS firmware release is public; this does not block merging the availability and handoff implementation.

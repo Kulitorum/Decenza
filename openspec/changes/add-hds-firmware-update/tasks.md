@@ -7,13 +7,13 @@
 ## 2. Connections experience
 
 - [x] 2.1 Wire the controller to the active-scale lifecycle so only the selected connected Bluetooth or USB HDS can expose an eligible release, and verify target changes or disconnects clear availability without a stale command.
-- [ ] 2.2 Add the conditional Update button beside Forget and its accessible confirmation dialog, and verify no-update, available-update, Cancel, and selected-scale-change flows in QML-focused tests or manual UI checks.
+- [ ] 2.2 Add the conditional Update button beside Forget and its accessible confirmation dialog, and verify no-update, available-update, Cancel, and selected-scale-change flows in QML-focused tests or manual UI checks. Deferred until the next compatible published HDS firmware release makes the available-update path testable.
 - [x] 2.3 Dispatch the existing HDS WiFi-update command only after dialog confirmation and present accurate device-display handoff copy, and verify a command send is never represented as install success.
 
 ## 3. Verification and documentation
 
 - [x] 3.1 Add concise Settings manual guidance for the HDS update handoff and its requirement to finish selection and confirmation on the scale display; verify the wiki entry follows the project’s short-form manual convention.
-- [ ] 3.2 Run the relevant Qt Creator test targets and the full test suite, then manually verify the Connections page is unchanged when no HDS update is available and the dialog works over both Bluetooth and USB.
+- [ ] 3.2 Run the relevant Qt Creator test targets and the full test suite, then manually verify the Connections page is unchanged when no HDS update is available and the dialog works over both Bluetooth and USB. Automated Qt Creator coverage is complete; Bluetooth/USB hardware verification is deferred until the next compatible published HDS firmware release.
 
 ## Deferred follow-up — not part of this change
 

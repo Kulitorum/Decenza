@@ -57,6 +57,6 @@ A future OpenScale capability can accept a requested semantic version and emit s
 ## Migration Plan
 
 1. Release Decenza with the conditional availability control and existing HDS command handoff.
-2. Validate on Bluetooth and USB HDS devices that the current on-device picker remains unchanged and update failure leaves the installed firmware running.
+2. After the next compatible HDS firmware release is public, validate on Bluetooth and USB HDS devices that the current on-device picker remains unchanged and update failure leaves the installed firmware running.
 3. In a later OpenScale release, add remote update capability/version reporting and progress events.
 4. Extend Decenza only after that capability is available; retain the current device-display flow for older HDS firmware.
