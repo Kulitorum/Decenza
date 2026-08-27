@@ -64,9 +64,24 @@ The calibration formula depends on whether the DE1 was holding flow or pressure 
 
 **Why window-level matters.** Hybrid profiles like ASL9-3 have both pressure decline frames and a flow-controlled tail. A profile-level scan classifies the whole profile as "flow" because any flow frame is present, even when every observed steady window lands in the pressure declines. Under v3's flow formula this produced false `"flow profile ratio … outside bounds"` rejections and occasional 20%+ single-shot jumps when a short window slipped through. Window-level classification routes those same windows to the pressure branch instead — see issue #739 for the full analysis.
 
-**Achieved-flow deviation check (v4).** A flow-controlled frame can still carry a pressure ceiling — D-Flow and D-Flow/Q both pour flow-controlled with a pressure limit (`limiter.value` in the frame JSON). When the puck's resistance would need more pressure than that ceiling to hold the frame's target flow, the DE1 caps pressure instead and flow falls below target for the rest of the frame. Before choosing a formula, the algorithm now compares the window's measured `meanMachineFlow` against the touched frame's target flow (`autoFlowCalWindowTargetCheck()` in `autoflowcalclassifier.{h,cpp}`); an **undershoot** over 10% reclassifies the window as pressure-controlled for formula-selection purposes only, so it uses the achieved-flow formula and ratio guard below instead of dividing by a target flow the pump never reached. Real-world numbers from [Kulitorum/Decenza#1823](https://github.com/Kulitorum/Decenza/issues/1823): target-achieved windows measured 99-101% of target flow; target-missed (pressure-capped) windows measured 57-67%, well clear of the 10% threshold on both sides.
+**Off-target windows are skipped (v5).** A flow-controlled frame can still carry a pressure ceiling — D-Flow and D-Flow/Q both pour flow-controlled with a pressure limit (`limiter.value` in the frame JSON). When the puck's resistance would need more pressure than that ceiling to hold the frame's target flow, the DE1 caps pressure instead and flow falls below target for the rest of the frame. Before computing an ideal, the algorithm compares the window's measured `meanMachineFlow` against the touched frame's target flow (`autoFlowCalWindowTargetCheck()` in `autoflowcalclassifier.{h,cpp}`); an **undershoot** over 10% skips the window entirely — that shot contributes no ideal.
 
-The check is deliberately one-sided: only undershoot reclassifies, never overshoot. A pressure ceiling can hold flow below its setpoint but has no mechanism to push flow above one, so an overshoot reading has no pressure-cap explanation. Reclassifying overshoot too would route a window that may still be genuinely PID-locked through the achieved-flow formula's reported-flow denominator — exactly the v2 feedback-loop bug below, reintroduced for a case this check has no evidence for.
+**Why skip rather than measure it another way.** The window is a real measurement, but of a flow rate this profile does not pour at, and one multiplier cannot describe two operating points. Measured on one DE1 at a *fixed* multiplier, the ratio of scale weight flow to reported machine flow rises monotonically as flow falls:
+
+| mean machine flow | weight flow / machine flow |
+|---|---|
+| 1.90 ml/s | 0.76 |
+| 1.79 | 0.87 |
+| 1.10 | 1.03 |
+| 0.72 | 1.13 |
+
+A 48% swing with no calibration change. So a capped window and a target-met window on the same profile produce ideals 30-40% apart, and averaging them is what makes a stored multiplier wander.
+
+Between 2.0.4 and v5 such a window was instead **re-routed** through the achieved-flow (pressure-branch) formula. That did not remove the disagreement, it reversed its sign: the [#1872](https://github.com/Kulitorum/Decenza/issues/1872) reporter's capped window produced 0.902 through the flow branch (dragging his multiplier down — the original [#1823](https://github.com/Kulitorum/Decenza/issues/1823) complaint) and 1.351 through the achieved-flow branch (pushing it up), so his value oscillated with how many of the week's shots capped. Do not reinstate the re-route without new evidence; the replay across three machines is in `openspec/changes/skip-off-target-flow-cal-windows/`.
+
+A consequence worth stating: a profile that *always* caps accumulates no ideals and its multiplier never moves. That is the honest outcome — there is no on-target data to learn from — and each skip is logged, so it is diagnosable from a submitted debug log rather than silent.
+
+The check is deliberately one-sided: only undershoot skips, never overshoot. A pressure ceiling can hold flow below its setpoint but has no mechanism to push flow above one, so an overshoot reading has no pressure-cap explanation; the window is still genuinely flow-controlled and keeps the target-flow formula, which is what protects flow windows from the v2 feedback-loop bug below. Real-world numbers from #1823: target-achieved windows measured 99-101% of target flow; target-missed (pressure-capped) windows measured 57-67%, well clear of the 10% threshold on both sides.
 
 **Flow profiles** (e.g., D-Flow, Filter) or **flow-controlled windows**: The DE1's PID servo holds the reported flow at the target flow regardless of the calibration factor. Using the reported flow in the formula creates a feedback loop: lowering the factor → less pumping → lower weight flow → factor keeps drifting down, never converging. Instead, the formula uses the target flow directly:
 
@@ -166,12 +181,24 @@ A one-time migration resets all per-profile flow calibrations and the global mul
 
 A one-time migration clears every profile's *pending* flow-cal batch only (`calibration/flowCalBatch` → `{}`) — unlike v2 and v3, it does **not** reset stored per-profile or global multipliers. The v3 formula assumed a flow-controlled frame always achieves its target flow; on a pressure-capped flow frame it often doesn't (see "Achieved-flow deviation check" above), producing a bad ideal for that specific window. That's a per-window defect the batch median's outlier rejection already partially absorbs, not evidence the *stored* multiplier is wrong the way v2/v3's corrupted values were — so a full reset would cost every user several shots' worth of reconvergence to fix a defect that's workload-dependent and often dormant (profiles that reliably hit target flow were never affected). Clearing only the pending accumulator is enough to stop a batch from mixing ideals computed under the old and new formula-selection logic in one median.
 
+### Recorded per shot
+
+Each saved shot stores the effective multiplier it POURED under, in `shots.flow_calibration` (migration 39). Without it a shot's `flow` curve is uninterpretable on its own — reported flow is a calibrated quantity, so comparing two shots or recovering a raw sensor reading needs the multiplier that produced them, and diagnosing [#1872](https://github.com/Kulitorum/Decenza/issues/1872) needed a debug log beside the shot data for exactly that reason.
+
+The value is latched at shot START (`ProfileManager::latchForShot()`), not read at save time: `computeAutoFlowCalibration()` runs at shot end BEFORE the save and can write a new per-profile multiplier first, so a save-time read would record the value the shot PRODUCED on exactly the shots where it changed.
+
+NULL means **not recorded** — a shot saved before the column existed, an imported shot whose source lacked it, or the dev fake-shot path. It is never read as 1.0, which is a legitimate multiplier; the projection omits the field entirely rather than emitting a sentinel.
+
+## v5 Migration (Off-Target Windows Skipped)
+
+Same shape as v4 and for the same reason: which windows produce an ideal changed, so a batch must not mix the two rules in one median. A one-time migration (`calibration/v5SkipOffTargetReset`) clears every profile's *pending* batch only. Stored per-profile and global multipliers are deliberately left alone — the defect is per-window, and auto-calibration walks the value back within a few batches once capped windows stop contributing. Resetting would cost every well-dialled user several batches of reconvergence for a defect their data does not show: replayed over 30 D-Flow shots from a well-dialled machine, contribution drops 30/30 → 29/30 and the median ideal moves under 2%.
+
 ## Limitations
 
 - **Requires Bluetooth scale**: No scale data = no auto-calibration (silently skipped)
 - **Needs steady-state flow**: Very short shots or highly variable profiles may not have a qualifying window
 - **Density is approximated**: Uses a fixed 0.963 factor; actual density varies slightly with temperature
-- **One multiplier per profile**: Does not calibrate different flow rate ranges within a single profile
+- **One multiplier per profile**: Does not calibrate different flow rate ranges within a single profile — and the sensor's error genuinely varies with flow rate (see the table under "Window-level Classification"), which is why windows that miss their frame's target flow are skipped rather than averaged in. A profile whose pours consistently cap will never calibrate.
 - **Not retroactive**: Only applies to shots made after enabling the feature
 - **5-shot batch delay**: First calibration update requires 5 qualifying shots on a profile. The pump runs at the global multiplier (or 1.0 on fresh install) until then.
 - **Bean/grind changes within a batch**: If beans or grinder setting change within a 5-shot batch, the median blends data from different conditions. The median's outlier rejection mitigates this for small numbers of changed shots.

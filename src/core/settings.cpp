@@ -293,6 +293,23 @@ Settings::Settings(QObject* parent)
         commitFlowCalMigrationFlag("calibration/v4AchievedFlowFormulaReset");
     }
 
+    // One-time clear of pending flow-cal batches, same shape as v4 and for the same
+    // reason: which windows produce an ideal changed, so a batch must not mix the two
+    // rules in one median. v4 routed a flow window that missed its target through the
+    // achieved-flow formula; v5 skips such a window entirely, because it measured the
+    // sensor at a flow rate the profile does not pour at (Kulitorum/Decenza#1872).
+    // Stored multipliers are deliberately NOT reset — the defect is per-window, and
+    // auto calibration walks the value back within a few batches once capped windows
+    // stop contributing. Resetting would cost every well-dialled user several batches
+    // for a defect their data does not show.
+    if (!m_settings.contains("calibration/v5SkipOffTargetReset")) {
+        if (!freshInstall) {
+            m_calibration->clearAllFlowCalPendingIdeals();
+            qDebug() << "Settings: Cleared pending flow-cal batches (v5 off-target window skip)";
+        }
+        commitFlowCalMigrationFlag("calibration/v5SkipOffTargetReset");
+    }
+
     // Migrate theme/customColors → theme/customColorsDark (one-time, for light/dark mode support)
     if (m_settings.contains("theme/customColors") && !m_settings.contains("theme/customColorsDark")) {
         m_settings.setValue("theme/customColorsDark", m_settings.value("theme/customColors"));

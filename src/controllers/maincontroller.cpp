@@ -3358,25 +3358,32 @@ void MainController::computeAutoFlowCalibration() {
     // pressure ceiling (D-Flow, D-Flow/Q, similar) — when the puck's
     // resistance would need more pressure than that ceiling to hold target
     // flow, the DE1 caps pressure and flow falls below target for the rest
-    // of the frame. The flow-branch formula below assumes target was
-    // achieved; dividing by an unattained target manufactures an ideal that
-    // measures nothing about sensor accuracy (Kulitorum/Decenza#1823).
+    // of the frame. Such a window is SKIPPED: it measured the flow sensor at
+    // an operating point the profile does not pour at, and one per-profile
+    // multiplier cannot describe two operating points at once.
+    //
+    // That last claim is measured, not assumed. On this repo's own DE1 at a
+    // FIXED multiplier, the ratio of scale weight flow to reported machine
+    // flow rises monotonically as flow falls — 0.76 at 1.9 ml/s, 1.03 at
+    // 1.1 ml/s, 1.13 at 0.72 ml/s, a 48% swing with no calibration change.
+    // A capped window and a target-met window on the same profile therefore
+    // yield ideals ~30-40% apart, and averaging them into one median is what
+    // makes the stored multiplier wander (Kulitorum/Decenza#1872).
+    //
+    // This block used to RE-ROUTE such a window through the achieved-flow
+    // (pressure-branch) formula instead of skipping it. That did not remove
+    // the error, it reversed its sign: the #1872 reporter's capped window
+    // produced 0.902 through the flow branch before that change (dragging
+    // his multiplier down — the original #1823 complaint) and 1.351 through
+    // the achieved-flow branch after it (pushing it up). Do not reinstate it
+    // without new evidence; the full replay across three machines is in
+    // openspec/changes/skip-off-target-flow-cal-windows/.
+    //
     // Deliberately checked as UNDERSHOOT only (autoFlowCalWindowTargetCheck
     // never sets missedTarget on overshoot) — a pressure ceiling holds flow
     // BELOW its setpoint, it cannot push flow above one, so an overshoot
-    // reading has no pressure-cap explanation. Reclassifying overshoot too
-    // would route a window that may still be genuinely PID-locked through
-    // the achieved-flow formula's reported-flow denominator below — exactly
-    // the feedback-loop bug that using TARGET flow (the flow-branch formula)
-    // exists to avoid for flow-controlled windows (see "v3 Migration" in
-    // AUTO_FLOW_CALIBRATION.md).
-    //
-    // `isFlowProfile` is left untouched here — its value is never reassigned
-    // or repurposed below; it's what the "window mode=" log above reports.
-    // `useFlowFormula` is the separate, formula-selection-only verdict (true
-    // classification, downgraded when the window missed target), and it's
-    // what the later summary log lines report via `formulaModeLabel`.
-    bool reclassifiedAsPressureCapped = false;
+    // reading has no pressure-cap explanation and the window is still
+    // genuinely flow-controlled.
     if (isFlowProfile) {
         AutoFlowCalTargetCheck targetCheck = autoFlowCalWindowTargetCheck(
             meanMachineFlow, profileTargetFlow, kFlowTargetDeviationThreshold);
@@ -3385,31 +3392,26 @@ void MainController::computeAutoFlowCalibration() {
                      << meanMachineFlow << "ml/s vs target" << profileTargetFlow << "ml/s"
                      << "(" << (targetCheck.deviation * 100.0) << "% deviation, threshold"
                      << (kFlowTargetDeviationThreshold * 100.0) << "%)"
-                     << "— treating as pressure-capped, using achieved-flow formula";
-            reclassifiedAsPressureCapped = true;
+                     << "— skipping (window measured a flow rate this profile does not pour at)";
+            return;
         }
     }
-    bool useFlowFormula = isFlowProfile && !reclassifiedAsPressureCapped;
-    // Shared "mode:" label for the two summary log lines below (accumulated
-    // ideal, updated). Reports which FORMULA computed the ideal, not raw
-    // classification — but calls out reclassification explicitly, so a
-    // reader doesn't mistake "mode: pressure" for "this was a pressure
-    // profile" on a window that was actually flow-controlled but capped.
-    const QString formulaModeLabel = useFlowFormula
+    // Reports which formula computed the ideal. `isFlowProfile` is the only
+    // input now that a missed-target window returns above rather than being
+    // downgraded to the pressure branch.
+    const QString formulaModeLabel = isFlowProfile
         ? QStringLiteral("flow")
-        : (reclassifiedAsPressureCapped ? QStringLiteral("pressure (reclassified, missed flow target)")
-                                         : QStringLiteral("pressure"));
+        : QStringLiteral("pressure");
 
-    // Ratio guard AND ideal-formula selection both key off useFlowFormula, in
+    // Ratio guard AND ideal-formula selection both key off isFlowProfile, in
     // one combined if/else rather than two separate ones — two independent
-    // checks on the same flag is exactly the shape that let a future edit
-    // change one branch's condition (e.g. reverting the ratio guard back to
-    // isFlowProfile) while leaving the other on useFlowFormula, silently
-    // ratio-checking a reclassified window against a target it just failed
-    // to reach. One flag, one branch, nothing to drift apart.
+    // checks on the same flag is exactly the shape that lets a future edit
+    // change one branch's condition while leaving the other, silently
+    // ratio-checking a window against a target it never reached. One flag,
+    // one branch, nothing to drift apart.
     double currentEffective = m_settings->calibration()->effectiveFlowCalibration(m_profileManager->baseProfileName());
     double ideal;
-    if (useFlowFormula) {
+    if (isFlowProfile) {
         // Window-level ratio sanity check: compare weight flow against the
         // profile's known target flow (density-adjusted) instead of the
         // machine's reported flow (which is PID-locked to target and useless
@@ -3454,8 +3456,7 @@ void MainController::computeAutoFlowCalibration() {
                    << "(meanMachineFlow:" << meanMachineFlow
                    << "meanWeightFlow:" << meanWeightFlow
                    << "profileTargetFlow:" << profileTargetFlow
-                   << "useFlowFormula:" << useFlowFormula
-                   << "reclassifiedAsPressureCapped:" << reclassifiedAsPressureCapped << ")";
+                   << "isFlowProfile:" << isFlowProfile << ")";
         return;
     }
 
@@ -4106,6 +4107,11 @@ void MainController::onShotEnded() {
     // alongside the resolved grams in shotTargetWeight (what ran).
     metadata.yieldMode = shotYieldMode;
     metadata.yieldAnchorValue = shotYieldAnchorValue;
+    // The multiplier this shot POURED under, from the shot-start latch — not a
+    // live read. computeAutoFlowCalibration() ran a few lines above and may
+    // have just written a new per-profile value; recording that would claim the
+    // shot ran at a multiplier it produced. 0 when nothing was latched.
+    metadata.flowCalibration = m_profileManager->latchedFlowCalibration();
 
     // For volume/timer-based profiles (targetWeight=0), use the actual final weight
     // so favorites can restore a meaningful yield target
@@ -4462,6 +4468,11 @@ void MainController::generateFakeShotData() {
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
+            // metadata.flowCalibration is deliberately left at 0 (= not
+            // recorded). This shot's curves are invented, so no multiplier
+            // produced them; stamping the current one would put a measurement
+            // nobody took into the record — the same reason this path already
+            // refuses to write a made-up yield into setDyeDrinkWeight() above.
             m_shotHistory->saveShot(
                 m_shotDataModel, m_profileManager->currentProfilePtr(),
                 totalDuration, simulatedFinalWeight, simulatedDoseWeight,

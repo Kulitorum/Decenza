@@ -526,6 +526,13 @@ void ProfileManager::latchForShot() {
     if (m_settings) {
         m_latchedYieldMode = m_settings->brew()->brewYieldMode();
         m_latchedYieldAnchorValue = m_settings->brew()->brewYieldOverride();
+        // The multiplier this shot is about to pour under, snapshotted for the
+        // same reason as the target above: auto flow calibration updates the
+        // per-profile value at shot END, before the save, so reading it later
+        // would record the value the shot PRODUCED rather than the one it ran
+        // at. See latchedFlowCalibration().
+        m_latchedFlowCalibration =
+            m_settings->calibration()->effectiveFlowCalibration(m_baseProfileName);
     }
     m_shotSnapshotValid = true;
     m_shotLatched = true;

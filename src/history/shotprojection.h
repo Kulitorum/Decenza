@@ -83,6 +83,9 @@ class ShotProjection {
     // yieldAnchorValue is grams when absolute, a dose multiplier when ratio.
     Q_PROPERTY(QString yieldMode MEMBER yieldMode)
     Q_PROPERTY(double yieldAnchorValue MEMBER yieldAnchorValue)
+    // The flow calibration multiplier the shot poured under; 0 = not recorded
+    // (see ShotRecord::flowCalibration). Sparse-emitted in toVariantMap().
+    Q_PROPERTY(double flowCalibration MEMBER flowCalibration)
     Q_PROPERTY(QString stoppedBy MEMBER stoppedBy)
     Q_PROPERTY(QString profileJson MEMBER profileJson)
     Q_PROPERTY(QString profileKbId MEMBER profileKbId)
@@ -191,6 +194,7 @@ public:
     double targetWeightG = 0.0;
     QString yieldMode;             // add-yield-ratio-anchor: "none"|"absolute"|"ratio"
     double yieldAnchorValue = 0.0; // grams (absolute) or dose multiplier (ratio)
+    double flowCalibration = 0.0;  // multiplier the shot poured under; 0 = not recorded
     QString stoppedBy;  // #1161: "weight"|"volume"|"manual"|"profileEnd"|""
     QString profileJson;
     QString profileKbId;

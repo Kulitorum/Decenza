@@ -122,8 +122,8 @@ struct AutoFlowCalTargetCheck {
     /// threshold. Never true for an overshoot, regardless of magnitude.
     bool missedTarget = false;
     /// Relative deviation |measured - target| / target. Always >= 0.
-    /// Exposed so a caller that reclassifies on `missedTarget` can also log
-    /// the magnitude without recomputing the same formula a second time.
+    /// Exposed so a caller that skips on `missedTarget` can also log the
+    /// magnitude without recomputing the same formula a second time.
     double deviation = 0.0;
 };
 
@@ -138,29 +138,36 @@ struct AutoFlowCalTargetCheck {
  * achieved is what `computeAutoFlowCalibration()`'s flow-branch formula does
  * (`weightFlow / (targetFlow * density)`) — dividing by an unattained target
  * manufactures an ideal that measures nothing about sensor accuracy
- * (Kulitorum/Decenza#1823). A caller should treat a window where
- * `missedTarget` is true as pressure-controlled for formula-selection
- * purposes: reuse the achieved-flow (pressure-branch) formula and its ratio
- * guard, which already correctly handle "pump was constrained below its
- * setpoint" regardless of which setpoint did the constraining.
+ * (Kulitorum/Decenza#1823). A caller should SKIP a window where
+ * `missedTarget` is true: it measured the flow sensor at a rate the profile
+ * does not pour at, and a single per-profile multiplier cannot describe two
+ * operating points. Measured on one DE1 at a fixed multiplier, the ratio of
+ * scale weight flow to reported machine flow runs 0.76 at 1.9 mL/s and 1.13
+ * at 0.72 mL/s — so a capped window and a target-met window on the same
+ * profile disagree by 30-40%.
+ *
+ * The achieved-flow (pressure-branch) formula is NOT the answer here, though
+ * it was used that way between 2.0.4 and this change: it does not remove that
+ * disagreement, it flips its sign (the #1872 reporter's capped window gave
+ * 0.902 via the flow branch and 1.351 via the achieved-flow branch), which
+ * made his multiplier oscillate with how many of the week's shots capped.
+ * See `openspec/changes/skip-off-target-flow-cal-windows/`.
  *
  * Deliberately ONE-SIDED: only undershoot (`meanMachineFlow < targetFlow`)
  * can set `missedTarget`, never overshoot. A pressure ceiling can hold flow
  * BELOW its setpoint; it has no mechanism to push flow above it, so an
- * overshoot reading has no pressure-cap explanation. Reclassifying an
- * overshooting-but-still-genuinely-flow-controlled window would route it
- * through the pressure-branch formula's reported-flow denominator on a
- * window that may still be PID-locked to target — exactly the feedback-loop
- * bug (factor drifts down and can never converge) that using TARGET flow for
- * flow-controlled windows was introduced to avoid in the first place; see
- * the "v3 Migration" section of `docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md`.
+ * overshoot reading has no pressure-cap explanation and the window is still
+ * genuinely flow-controlled — it keeps the target-flow formula, which is what
+ * protects flow windows from the v3 feedback loop; see the "v3 Migration"
+ * section of `docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md`.
  *
  * @param meanMachineFlow   Mean reported flow during the window (mL/s).
  * @param targetFlow        The touched frame's target flow (mL/s). Must be > 0;
  *                          returns `{false, 0.0}` for a non-positive target
  *                          (nothing to compare against).
  * @param thresholdFraction Relative undershoot above which the window is
- *                          considered pressure-capped (e.g. 0.10 for 10%).
+ *                          considered pressure-capped and skipped
+ *                          (e.g. 0.10 for 10%).
  */
 AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
     double meanMachineFlow,

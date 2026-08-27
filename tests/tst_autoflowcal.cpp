@@ -360,22 +360,33 @@ private slots:
     // --- Achieved-flow deviation check --------------------------------------
     //
     // autoFlowCalWindowTargetCheck() decides whether a flow-classified window
-    // gets reclassified to the pressure-branch formula because the pump didn't
-    // reach the frame's target flow (e.g. a pressure-capped flow frame like
-    // D-Flow / D-Flow-Q — see Kulitorum/Decenza#1823). It only ever triggers on
+    // is SKIPPED because the pump didn't reach the frame's target flow (e.g. a
+    // pressure-capped flow frame like D-Flow / D-Flow-Q — see
+    // Kulitorum/Decenza#1823 and #1872). Such a window measured the sensor at a
+    // flow rate the profile does not pour at, and one per-profile multiplier
+    // cannot describe two operating points. It only ever triggers on
     // UNDERSHOOT: a pressure ceiling can hold flow below its setpoint but has
-    // no mechanism to push flow above one, so overshoot is never reclassified
-    // regardless of magnitude (see flowWindowOvershootsTarget_neverReclassified
-    // below) — reclassifying it would route a window that may still be
-    // genuinely PID-locked through the pressure-branch formula's reported-flow
-    // denominator, reintroducing the v2 feedback-loop bug that using TARGET
-    // flow (the flow-branch formula) exists to avoid for flow-controlled
-    // windows.
+    // no mechanism to push flow above one, so overshoot never counts as missed
+    // regardless of magnitude (see flowWindowOvershootsTarget_neverSkipped
+    // below) — an overshooting window may still be genuinely PID-locked, and it
+    // keeps the target-flow formula that protects flow windows from the v2
+    // feedback-loop bug.
+    //
+    // These slots cover the PREDICATE. What the caller does with a positive
+    // result (skip, since this change; re-route through the achieved-flow
+    // formula, between 2.0.4 and this change) lives in
+    // MainController::computeAutoFlowCalibration(), which no test constructs —
+    // there is no MainController harness, and building one to reach this branch
+    // would be the fault-injection shape this repo treats as a stop sign. That
+    // gap is real and worth naming: it is why the re-route could be swapped for
+    // a skip with this whole suite green. The behaviour is instead evidenced by
+    // an offline replay of the real algorithm over 75 shots from three machines
+    // — openspec/changes/skip-off-target-flow-cal-windows/evidence/.
 
-    // Target essentially achieved — must NOT reclassify. This is the common
+    // Target essentially achieved — must NOT be skipped. This is the common
     // case: every window sampled on a real D-Flow/Q shot in this repo's own
     // dial-in history hit 99-101% of target.
-    void flowWindowAchievesTarget_notReclassified() {
+    void flowWindowAchievesTarget_notSkipped() {
         QVERIFY(!autoFlowCalWindowTargetCheck(1.825, 1.8, kAutoFlowCalDeviationThreshold).missedTarget);  // 1.4% deviation
         QVERIFY(!autoFlowCalWindowTargetCheck(1.69, 1.7, kAutoFlowCalDeviationThreshold).missedTarget);   // 0.6% deviation
     }
@@ -397,12 +408,12 @@ private slots:
         QVERIFY(qFuzzyCompare(over.deviation, 0.125));
     }
 
-    // Overshoot NEVER reclassifies, no matter how large — the defining
-    // asymmetry of this check. A pressure cap has no mechanism to push flow
-    // above target, so there's no pressure-cap explanation for an overshoot
-    // reading, and treating it as "missed target" would reintroduce the v2
-    // feedback loop (see section comment above).
-    void flowWindowOvershootsTarget_neverReclassified() {
+    // Overshoot is NEVER skipped, no matter how large — the defining asymmetry
+    // of this check. A pressure cap has no mechanism to push flow above target,
+    // so there's no pressure-cap explanation for an overshoot reading, and
+    // treating it as "missed target" would discard a window that is still
+    // genuinely flow-controlled (see section comment above).
+    void flowWindowOvershootsTarget_neverSkipped() {
         QVERIFY(!autoFlowCalWindowTargetCheck(2.15, 2.00, kAutoFlowCalDeviationThreshold).missedTarget);  // 7.5% high
         QVERIFY(!autoFlowCalWindowTargetCheck(2.25, 2.00, kAutoFlowCalDeviationThreshold).missedTarget);  // 12.5% high
         QVERIFY(!autoFlowCalWindowTargetCheck(4.00, 2.00, kAutoFlowCalDeviationThreshold).missedTarget);  // 100% high

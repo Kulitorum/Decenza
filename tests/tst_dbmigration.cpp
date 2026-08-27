@@ -256,7 +256,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
             QVERIFY(hasTable(db, "recipes"));  // migration 25 (add-recipes)
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
         });
     }
 
@@ -345,7 +345,7 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
@@ -474,7 +474,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
         });
     }
 
@@ -488,7 +488,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
         });
     }
 
@@ -520,7 +520,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 30
 
         withRawDb(path, "v29_verify30", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QSqlQuery q(db);
             QVERIFY(q.exec(QString("SELECT grind_pinned, rpm_pinned FROM recipes "
                                    "WHERE id = %1").arg(recipeId)));
@@ -555,7 +555,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 31
 
         withRawDb(path, "v30_verify31", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QSqlQuery q(db);
             QVERIFY(q.exec(QString("SELECT temp_offset_c, temp_override_c FROM recipes "
                                    "WHERE id = %1").arg(recipeId)));
@@ -596,7 +596,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 32
 
         withRawDb(path, "v31_verify32", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QVERIFY(hasColumn(db, "shots", "storage_hint"));
             QVERIFY(hasColumn(db, "shots", "opened_date"));
             QVERIFY(hasColumn(db, "coffee_bags", "storage_hint"));
@@ -635,7 +635,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 33
 
         withRawDb(path, "v32_verify33", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QVERIFY(hasColumn(db, "shots", "taste_balance"));
             QVERIFY(hasColumn(db, "shots", "taste_body"));
             QVERIFY(!hasColumn(db, "coffee_bags", "taste_balance"));
@@ -692,7 +692,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 36
 
         withRawDb(path, "v36_verify", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QSqlQuery q(db);
             // The stranded shot now hangs off the surviving package.
             QVERIFY(q.exec(QStringLiteral("SELECT equipment_id FROM shots WHERE id = %1")
@@ -759,7 +759,7 @@ private slots:
         // one that the second fold deleted.
         QCOMPARE(healedTo, full);
         withRawDb(path, "v36_active_verify", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QSqlQuery q(db);
             QVERIFY(q.exec(QStringLiteral("SELECT COUNT(*) FROM equipment_packages WHERE id IN (%1,%2)")
                                .arg(bare1).arg(mid)));
@@ -802,7 +802,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 34
 
         withRawDb(path, "v34_verify", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT yield_value, yield_mode, yield_g FROM recipes WHERE name = 'With'"));
             QVERIFY(q.next());
@@ -888,6 +888,45 @@ private slots:
     // Edge case: empty v1 DB migrates cleanly
     // ==========================================
 
+    // add-shot-flow-calibration: migration 39 adds shots.flow_calibration, the
+    // multiplier a shot poured under. Additive and deliberately NOT backfilled
+    // — the multiplier a past shot ran at is unrecoverable, and 1.0 is a
+    // legitimate value, so an existing row must come back NULL ("not
+    // recorded") rather than neutral. That distinction is the whole point of
+    // the column, so it is what this asserts.
+    void v38ToV39AddsFlowCalibration() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> latest
+
+        qint64 legacyShot = 0;
+        withRawDb(path, "v39_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (38)"));
+            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN flow_calibration"));
+            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                           "VALUES ('m39-a', 2000, 'P', 25.0)"));
+            legacyShot = q.lastInsertId().toLongLong();
+        });
+
+        { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 39
+
+        withRawDb(path, "v39_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), 39);
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QString("SELECT flow_calibration FROM shots WHERE id = %1").arg(legacyShot)));
+            QVERIFY(q.next());
+            QVERIFY(q.value(0).isNull());  // NOT 1.0, and not 0
+
+            // The column accepts a real multiplier, so a post-migration write
+            // round-trips rather than silently failing on a missing column.
+            QVERIFY(q.exec(QString("UPDATE shots SET flow_calibration = 1.35 WHERE id = %1").arg(legacyShot)));
+            QVERIFY(q.exec(QString("SELECT flow_calibration FROM shots WHERE id = %1").arg(legacyShot)));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toDouble(), 1.35);
+        });
+    }
+
     void emptyDbMigration() {
         QString path = freshDbPath();
         withRawDb(path, "empty_create", [](QSqlDatabase& db) { createV1Schema(db); });
@@ -899,7 +938,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
         });
     }
 
@@ -921,7 +960,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QSqlQuery q(db);
             // grinder_brand was dropped in migration 23; grinder_setting (the
             // surviving per-shot dial-in) exercises the same NULL-tolerance path.
@@ -1101,7 +1140,7 @@ private slots:
                 }
             }
         });
-        QCOMPARE(versionFound, 38);  // latest after full chain
+        QCOMPARE(versionFound, 39);  // latest after full chain
         QVERIFY2(!hasEnjoymentSource,
                  "enjoyment_source column must be absent after migration 16");
     }
@@ -1339,7 +1378,7 @@ private slots:
             }
         });
 
-        QCOMPARE(versionFound, 38);  // latest after full chain
+        QCOMPARE(versionFound, 39);  // latest after full chain
         QVERIFY2(columnGone, "enjoyment_source column must be dropped");
         // Inferred rows reset to 0 (unrated), NOT to the stale 50 seeded
         // above — an app-invented rating becomes unrated, and the back-sync
@@ -1677,7 +1716,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v21_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
             QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
             QSqlQuery q(db);
@@ -1711,7 +1750,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v28_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QVERIFY(hasColumn(db, "recipes", "drink_type"));
             QVERIFY(hasColumn(db, "coffee_bags", "kind"));
             QSqlQuery q(db);
@@ -1791,7 +1830,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v20_after_retry", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             // The retry ran the WHOLE deferred chain, not just migration 20:
             // migration 21's rename landed too (post-condition column present).
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
@@ -1837,7 +1876,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v21_after_retry", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 38);
+            QCOMPARE(getSchemaVersion(db), 39);
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
             QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
             QSqlQuery q(db);
@@ -1904,7 +1943,7 @@ private slots:
         };
 
         { ShotHistoryStorage s; initAndClose(path, s); }
-        withRawDb(path, "v22_ver", [](QSqlDatabase& db) { QCOMPARE(getSchemaVersion(db), 38); });
+        withRawDb(path, "v22_ver", [](QSqlDatabase& db) { QCOMPARE(getSchemaVersion(db), 39); });
         QCOMPARE(packageCount(), 1);             // default package created from current settings
         { ShotHistoryStorage s; initAndClose(path, s); }
         QCOMPARE(packageCount(), 1);             // gate prevented a duplicate on re-init

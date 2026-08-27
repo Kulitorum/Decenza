@@ -267,6 +267,16 @@ public:
     double latchedTargetG() const { return m_latchedTargetG; }
     QString latchedYieldMode() const { return m_latchedYieldMode; }
     double latchedYieldAnchorValue() const { return m_latchedYieldAnchorValue; }
+    // The effective flow calibration multiplier the shot was PULLED at.
+    // Latched rather than read at save time because
+    // MainController::computeAutoFlowCalibration() runs at shot end BEFORE
+    // the save (maincontroller.cpp:4078 vs :4261) and can write a new
+    // per-profile multiplier first — a save-time read would record a value
+    // the shot never ran under, and only on the shots where it changed.
+    // 0.0 means "not recorded" (no settings object at latch time, an
+    // imported shot, or a fake/dev shot); 1.0 is a real multiplier and must
+    // never stand in for unknown.
+    double latchedFlowCalibration() const { return m_latchedFlowCalibration; }
 
     // === Profile catalog ===
     QVariantList availableProfiles() const;
@@ -694,6 +704,8 @@ private:
     bool m_shotSnapshotValid = false;
     QString m_latchedYieldMode = QStringLiteral("none");
     double m_latchedYieldAnchorValue = 0.0;
+    // See latchedFlowCalibration(). 0.0 = not recorded, never "1.0".
+    double m_latchedFlowCalibration = 0.0;
 
     // Auto-retry state for failed profile uploads. A failure with a retryable
     // reason (frame sequence mismatch, ACK timeout) arms

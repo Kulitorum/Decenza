@@ -71,6 +71,12 @@ QVariantMap ShotProjection::toVariantMap() const
         m["yieldMode"] = yieldMode;
         m["yieldAnchorValue"] = yieldAnchorValue;
     }
+    // Sparse-emit, like the anchor above: shots recorded before the column
+    // existed carry no multiplier, and emitting 0 — or worse, 1.0 — would hand
+    // a consumer (an MCP client, an AI payload) a measurement nobody took.
+    // Absence means unknown.
+    if (flowCalibration > 0)
+        m["flowCalibration"] = flowCalibration;
     // #1161: sparse-emit, matching dialing_blocks / mcptools_shots and the
     // documented MCP contract ("omitted" when the profile ran to
     // completion / unknown). shots_get_detail serializes through here, so
@@ -231,6 +237,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.targetWeightG = m.value("targetWeightG").toDouble();
     p.yieldMode = m.value("yieldMode").toString();
     p.yieldAnchorValue = m.value("yieldAnchorValue").toDouble();
+    p.flowCalibration = m.value("flowCalibration").toDouble();
     p.stoppedBy = m.value("stoppedBy").toString();
     p.profileJson = m.value("profileJson").toString();
     p.profileKbId = m.value("profileKbId").toString();
