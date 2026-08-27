@@ -35,6 +35,19 @@
 - [x] 5.3 Re-ran the replay with the SHIPPED rule (window selection unchanged, skip instead of re-route). Results now in `design.md`: this repo's DE1 14/23 contributing, flow 1.26-1.90, median 0.937 → 0.886; well-dialled third user 27/30 with the median unchanged at 0.968; his lever shots identical; the reporter 1/2 at 1.048. These differ from the flatness-variant figures the proposal first carried — corrected there rather than left standing.
 - [x] 5.4 Confirmed `scripts/check_log_markers.py` (and `check_test_source_duplication.py`) pass locally — `text-invariants.yml` gates `src/**` per-PR and a red run blocks nothing on its own.
 
+## 7. One formula for both control modes
+
+- [x] 7.1 Replace the flow branch's `meanWeightFlow / (profileTargetFlow * kWaterDensity93C)` with the sensor expression; both branches now call the same helper.
+- [x] 7.2 Extract `autoFlowCalSensorIdeal()` into `autoflowcalclassifier.{h,cpp}` beside `autoFlowCalWindowTargetCheck()` — a pure expression next to the other pure predicate, and the only way this formula gets test coverage given `computeAutoFlowCalibration()` has no harness.
+- [x] 7.3 Keep both ratio guards branch-specific and unchanged; only the formula is unified. Note that the flow guard's bounds now constrain the ideal's ratio to the current multiplier rather than its absolute value — `kCalibrationMin`/`kCalibrationMax` still bound the absolute.
+- [x] 7.4 Rename `formulaModeLabel` → `windowModeLabel`. With one formula the old name is a false statement in two log lines.
+- [x] 7.5 v6 migration (`calibration/v6SensorFormulaBothModes`), pending batches only, same reasoning as v4/v5.
+- [x] 7.6 Correct v3's premise where it is stated as fact: the comment block in `settings.cpp` and the "v3 Migration" section of `AUTO_FLOW_CALIBRATION.md`. Left as annotated history rather than deleted — the premise reads as settled and would otherwise be re-derived from the comment.
+- [x] 7.7 Correct the two stale claims in `autoflowcalclassifier.h`'s doc comments that named the target-anchored formula as current.
+- [x] 7.8 Tests in `tst_autoflowcal.cpp`: fixed point, invariance under the current multiplier (with the superseded expression asserted NOT invariant in the same slot), and the sqrt fixed point demonstrated by iterating the old rule to convergence.
+- [x] 7.9 Correct the proposal's "well-dialled users see no change" line — that user has auto-cal OFF and C = 1.000, so he is a control, not a live user.
+- [ ] 7.10 **Falsification before merge**: two shots on this repo's DE1, same beans back to back, at multipliers ~1.0 and ~1.4. Compute `k = C * w / (mf * rho)` from each. Model A predicts the same `k`; model B predicts `k` tracking `C`. If model B, drop this section's commit and merge the skip alone.
+
 ## 6. Follow-ups (NOT this change)
 
 - [ ] 6.1 Flatness-based window selection (prefer the flattest window, require both lines flat). Motivated but weaker-evidenced; see `design.md` for the measured reasons it is separated.

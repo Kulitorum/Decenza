@@ -55,10 +55,10 @@ Before running calibration, the algorithm checks whether the settled weight drop
 
 ### Window-level Classification
 
-The calibration formula depends on whether the DE1 was holding flow or pressure **during the steady window** — not on the profile as a whole. The classifier lives in `src/controllers/autoflowcalclassifier.cpp` and inspects the `PhaseMarker` stream recorded during the shot to find every frame touched by `[windowStart, windowEnd]`, then:
+Since v6 both control modes compute the **same** ideal, so the classification no longer picks a formula. It still decides which ratio guard runs and whether the off-target check applies, and it is judged **during the steady window** — not on the profile as a whole. The classifier lives in `src/controllers/autoflowcalclassifier.cpp` and inspects the `PhaseMarker` stream recorded during the shot to find every frame touched by `[windowStart, windowEnd]`, then:
 
-- If every touched frame is flow-controlled (`pump == "flow"`, flow > 0.1) → use the **flow** formula. The target is the flow of the touched frame closest to the observed mean machine flow (handles multi-target profiles).
-- If every touched frame is pressure-controlled → use the **pressure** formula.
+- If every touched frame is flow-controlled (`pump == "flow"`, flow > 0.1) → apply the **off-target check** and the target-vs-weight ratio guard. The target is the flow of the touched frame closest to the observed mean machine flow (handles multi-target profiles).
+- If every touched frame is pressure-controlled → apply the machine-vs-weight ratio guard.
 - If touched frames are mixed (window straddles a flow↔pressure transition) → skip; logged as `"window spans mixed flow/pressure frames — skipping (ambiguous target)"`.
 - If phase-marker data is missing (e.g. legacy shot or very short capture) → fall back to the historical profile-level scan so calibration still runs.
 
@@ -81,21 +81,30 @@ Between 2.0.4 and v5 such a window was instead **re-routed** through the achieve
 
 A consequence worth stating: a profile that *always* caps accumulates no ideals and its multiplier never moves. That is the honest outcome — there is no on-target data to learn from — and each skip is logged, so it is diagnosable from a submitted debug log rather than silent.
 
-The check is deliberately one-sided: only undershoot skips, never overshoot. A pressure ceiling can hold flow below its setpoint but has no mechanism to push flow above one, so an overshoot reading has no pressure-cap explanation; the window is still genuinely flow-controlled and keeps the target-flow formula, which is what protects flow windows from the v2 feedback-loop bug below. Real-world numbers from #1823: target-achieved windows measured 99-101% of target flow; target-missed (pressure-capped) windows measured 57-67%, well clear of the 10% threshold on both sides.
+The check is deliberately one-sided: only undershoot skips, never overshoot. A pressure ceiling can hold flow below its setpoint but has no mechanism to push flow above one, so an overshoot reading has no pressure-cap explanation; the window is still genuinely flow-controlled and is measuring the sensor at an operating point the profile really does reach. Real-world numbers from #1823: target-achieved windows measured 99-101% of target flow; target-missed (pressure-capped) windows measured 57-67%, well clear of the 10% threshold on both sides.
 
-**Flow profiles** (e.g., D-Flow, Filter) or **flow-controlled windows**: The DE1's PID servo holds the reported flow at the target flow regardless of the calibration factor. Using the reported flow in the formula creates a feedback loop: lowering the factor → less pumping → lower weight flow → factor keeps drifting down, never converging. Instead, the formula uses the target flow directly:
-
-```
-calibration = mean(weight_flow) / (target_flow * 0.963)
-```
-
-This is independent of the current calibration factor and converges correctly.
-
-**Pressure profiles** (e.g., Classic Italian) or **pressure-controlled windows**: The machine controls pressure, not flow, so the reported flow reflects actual sensor readings (already multiplied by the calibration factor). The formula divides out the current factor to recover raw sensor flow:
+**One formula, both control modes** (v6):
 
 ```
 calibration = current_multiplier * mean(weight_flow) / (mean(machine_flow) * 0.963)
 ```
+
+`machine_flow` is the DE1's *reported* flow, which already carries the current multiplier. Dividing it back out recovers the raw sensor reading, so the expression evaluates to the sensor's true/raw ratio — the number the stored multiplier is meant to equal. It is the same criterion Decent's Graphical Flow Calibrator implements, where the operator nudges the multiplier until the reported-flow curve overlays the weight-flow curve.
+
+Two properties follow, both asserted in `tests/tst_autoflowcal.cpp`:
+
+- **Fixed point.** A machine whose reported flow already matches the scale (after density) gets its multiplier back unchanged, so a converged machine stops moving.
+- **Invariant under the current multiplier.** The DE1 servos its *calibrated* flow: raising the multiplier makes it deliver less water to hold the same reported flow, so weight flow falls in proportion and the expression is unchanged. Measured across three unrelated machines, the stored multiplier moved 15-38% while this expression moved only 4-15%.
+
+**What flow-controlled windows used before v6.** They took `weight_flow / (target_flow * 0.963)`, anchored to the frame's target rather than to the reported flow. On a window holding its target that equals `sensor_ratio / current_multiplier`, so iterating it converges on the **square root** of the sensor ratio, not the ratio. That is where flow-profile machines were observed to sit:
+
+| machine | sensor ratio k | √k | converged multiplier |
+|---|---|---|---|
+| this repo's DE1 | 0.737 | 0.858 | 0.8795 (+2.4%) |
+| [#1872](https://github.com/Kulitorum/Decenza/issues/1872) reporter | 1.44 | 1.200 | 1.17 (−2.5%) |
+
+Pressure-profile machines, already on the sensor expression, landed on k itself (1.30 against 1.30; 1.3555 against 1.35).
+
 
 ### Density Correction
 
@@ -175,7 +184,13 @@ A one-time migration resets all per-profile flow calibrations and the global mul
 
 ## v3 Migration (Flow Profile Feedback Loop Fix)
 
-A one-time migration resets all per-profile flow calibrations and the global multiplier to 1.0. The v2 algorithm had a feedback loop for flow-controlled profiles: the DE1's PID holds reported flow at the target regardless of calibration, so the formula `ideal = factor * weightFlow / (reportedFlow * density)` made the ideal proportional to the current factor — it could only decrease, never converge. Over 30 shots a user's factor drifted from 1.0 to 0.59. The v3 algorithm uses the profile's target flow directly for flow profiles, breaking the loop. The reset clears all calibrations (including pressure profiles) since the global median may have been contaminated by drifted flow-profile values.
+A one-time migration resets all per-profile flow calibrations and the global multiplier to 1.0, and switches flow-controlled windows to a target-anchored formula.
+
+**v3's stated premise was wrong, and v6 reverses the formula half of it.** v3 held that `ideal = factor * weightFlow / (reportedFlow * density)` is "proportional to the current factor" and so can only decrease. That is true only if the multiplier scales *reporting alone*. It does not — the DE1 servos its calibrated flow, so a higher multiplier delivers less water and `weightFlow` falls to match, leaving the expression unchanged. Measured on three machines the multiplier moved 15-38% while the expression moved 4-15%.
+
+The observed drift (1.0 → 0.59 over 30 shots) was real; the diagnosis was not. It was bad scale data reaching a formula with no ratio guards, and the per-sample and window ratio guards added alongside v2/v3 are what actually stopped it. Changing the formula fixed a data problem by replacing a correct expression with one whose fixed point is √k — which is why flow-profile machines have sat a few percent off ever since. Recorded here because the premise reads as settled fact in `settings.cpp` and would otherwise be re-derived from the comment rather than the data.
+
+The reset itself was still warranted: the global median may have been contaminated by drifted flow-profile values.
 
 ## v4 Migration (Pressure-Capped Flow Window Fix)
 
@@ -194,6 +209,14 @@ NULL means **not recorded** — a shot saved before the column existed, an impor
 ## v5 Migration (Off-Target Windows Skipped)
 
 Same shape as v4 and for the same reason: which windows produce an ideal changed, so a batch must not mix the two rules in one median. A one-time migration (`calibration/v5SkipOffTargetReset`) clears every profile's *pending* batch only. Stored per-profile and global multipliers are deliberately left alone — the defect is per-window, and auto-calibration walks the value back within a few batches once capped windows stop contributing. Resetting would cost every well-dialled user several batches of reconvergence for a defect their data does not show: replayed over 30 D-Flow shots from a well-dialled machine, contribution drops 30/30 → 27/30 and the median ideal does not move at all (0.968 → 0.968).
+
+## v6 Migration (One Formula for Both Control Modes)
+
+Same shape as v4 and v5: a one-time migration (`calibration/v6SensorFormulaBothModes`) clears every profile's *pending* batch only, so a median cannot mix ideals from the old target-anchored expression with ideals from the sensor expression — under the old one a flow window produced roughly `k / C` where the new one produces `k`.
+
+Stored multipliers are again left alone. Flow-profile machines sat on √k rather than k, a real but small error (+2.4% and −2.5% on the two machines measured), and every batch now produces the target value as its ideal, so the existing 0.5 EMA closes the remaining gap geometrically — inside the 3% update deadband within two or three batches from a 20% error.
+
+Both the classifier and the off-target skip stay exactly as they were. The sensor ratio itself varies with flow **rate** (the 48% table above), so a window must still be measured at an operating point the profile actually pours at — the skip and the formula are independent fixes that compose.
 
 ## Limitations
 

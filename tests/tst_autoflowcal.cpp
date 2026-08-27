@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <cmath>
 #include <QRegularExpression>
 
 #include "controllers/autoflowcalclassifier.h"
@@ -532,6 +533,125 @@ private slots:
         cal->clearProfileFlowCalibration(profile);
         cal->setAutoFlowCalibration(origAuto);
         cal->setFlowCalibrationMultiplier(origGlobal);
+    }
+
+    // ---- autoFlowCalSensorIdeal (v6: one formula for both control modes) ----
+    //
+    // These pin the two properties the v6 change rests on. Both were FALSE for
+    // the expression the flow branch used up to 2.0.4
+    // (`weightFlow / (targetFlow * density)`), which is why that expression
+    // converged on the square root of the sensor ratio instead of the ratio;
+    // see openspec/changes/skip-off-target-flow-cal-windows/design.md. Breaking
+    // either assertion means someone has reintroduced a target-anchored ideal.
+
+    // Property 1: a correctly-calibrated machine is a fixed point. Feed the
+    // formula a machine whose reported flow already matches the scale (after
+    // density) and it returns the multiplier unchanged, so a converged machine
+    // stops moving instead of walking every batch.
+    void sensorIdeal_isAFixedPointForACalibratedMachine() {
+        const double density = 0.963;
+        const double c = 1.35;
+        // The overlay condition: reported flow equals the scale's water flow
+        // once density is accounted for. That is exactly what Decent's
+        // Graphical Flow Calibrator asks the operator to dial by eye, and the
+        // formula must agree with it by returning the multiplier untouched.
+        const double machineFlow = 1.80;
+        const double weightFlow = machineFlow * density;
+        QCOMPARE(autoFlowCalSensorIdeal(c, weightFlow, machineFlow, density), c);
+    }
+
+    // Property 2: invariance under the current multiplier, on a machine that
+    // servos its CALIBRATED flow. Raising c makes the DE1 deliver less water to
+    // hold the same REPORTED flow, so machineFlow is unchanged and weightFlow
+    // falls as 1/c — and the ideal must come out the same both times. This is
+    // the property that makes the update converge in one step rather than
+    // oscillating, and the one the old flow-branch expression lacked.
+    void sensorIdeal_isInvariantUnderTheCurrentMultiplier() {
+        const double density = 0.963;
+        const double machineFlow = 1.80;
+
+        const double cLow = 1.00;
+        const double weightAtLow = 1.55;
+        const double idealAtLow =
+            autoFlowCalSensorIdeal(cLow, weightAtLow, machineFlow, density);
+
+        // Same machine, multiplier raised 40%: it now delivers 1/1.4 the water
+        // for the same reported flow.
+        const double cHigh = 1.40;
+        const double weightAtHigh = weightAtLow * (cLow / cHigh);
+        const double idealAtHigh =
+            autoFlowCalSensorIdeal(cHigh, weightAtHigh, machineFlow, density);
+
+        QVERIFY(qFuzzyCompare(idealAtLow, idealAtHigh));
+
+        // The superseded flow-branch expression, on the same two shots. It is
+        // NOT invariant — it moves by the full ratio of the two multipliers,
+        // which is what drove the observed drift.
+        const double targetFlow = machineFlow;  // window holding target
+        const double oldAtLow = weightAtLow / (targetFlow * density);
+        const double oldAtHigh = weightAtHigh / (targetFlow * density);
+        QVERIFY(!qFuzzyCompare(oldAtLow, oldAtHigh));
+        QVERIFY(qFuzzyCompare(oldAtLow / oldAtHigh, cHigh / cLow));
+    }
+
+    // The consequence. The applied multiplier is not set to the ideal directly:
+    // `computeAutoFlowCalibration()` blends it in with an EMA at alpha 0.5 over
+    // the batch median (kBatchEmaAlpha in maincontroller.cpp), so the update is
+    //
+    //     c := (1 - alpha) * c + alpha * ideal
+    //
+    // On a window holding target the OLD expression gives ideal = k / c, and at
+    // alpha 0.5 that update is exactly Babylonian square-root iteration,
+    // c := (c + k/c) / 2 — so it settles on sqrt(k), not k. That is where
+    // flow-profile machines were measured to sit. The v6 expression gives
+    // ideal = k regardless of c, so the same EMA settles on k.
+    void oldFlowBranchUpdate_settlesOnTheSquareRootOfTheSensorRatio() {
+        const double density = 0.963;
+        const double machineFlow = 1.80;
+        const double targetFlow = machineFlow;  // window holding target
+        const double sensorRatio = 1.44;
+        const double alpha = 0.5;
+
+        // At multiplier c the machine delivers water such that the sensor
+        // expression reads `sensorRatio`, i.e. w = sensorRatio * mf * rho / c.
+        auto weightFlowAt = [&](double c) {
+            return sensorRatio * machineFlow * density / c;
+        };
+
+        double c = 1.00;
+        for (int i = 0; i < 100; ++i) {
+            const double ideal = weightFlowAt(c) / (targetFlow * density);
+            c = (1.0 - alpha) * c + alpha * ideal;
+        }
+        QVERIFY(qAbs(c - std::sqrt(sensorRatio)) < 1e-6);
+        // ...and sqrt(k) is a materially different place from k.
+        QVERIFY(qAbs(c - sensorRatio) > 0.2);
+
+        // Same machine, same EMA, v6 expression: settles on the ratio itself.
+        double c2 = 1.00;
+        for (int i = 0; i < 100; ++i) {
+            const double ideal = autoFlowCalSensorIdeal(
+                c2, weightFlowAt(c2), machineFlow, density);
+            c2 = (1.0 - alpha) * c2 + alpha * ideal;
+        }
+        QVERIFY(qAbs(c2 - sensorRatio) < 1e-6);
+    }
+
+    // The damping is load-bearing, not incidental. Applied undamped the old
+    // expression does not converge at all: c := k/c is a period-2 map that
+    // oscillates between its starting value and k/start forever. Worth pinning
+    // so nobody "simplifies" the EMA away on the assumption that it only
+    // affects convergence SPEED.
+    void oldFlowBranchUpdate_undampedOscillatesRatherThanConverging() {
+        const double sensorRatio = 1.44;
+        const double start = 1.00;
+
+        double c = start;
+        for (int i = 0; i < 50; ++i) {
+            c = sensorRatio / c;  // alpha = 1.0
+        }
+        QVERIFY(qFuzzyCompare(c, start));               // even iteration count
+        QVERIFY(qAbs(c - std::sqrt(sensorRatio)) > 0.1);
     }
 };
 

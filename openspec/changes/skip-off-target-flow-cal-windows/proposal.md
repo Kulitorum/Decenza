@@ -69,13 +69,31 @@ supported by weaker evidence, needs threshold tuning, and is separable.
   unchanged. What changes is which shots feed it.
 - No MCP surface change.
 
+## One formula for both control modes
+
+Flow-controlled windows now use the same sensor-ratio expression pressure-controlled windows have
+always used. The target-anchored expression v3 introduced converges on the square root of the flow
+sensor's true ratio rather than the ratio, which is measurably where flow-profile machines sit
+(this repo's DE1 on 0.8795 against sqrt(0.737) = 0.858; the #1872 reporter on 1.17 against
+sqrt(1.44) = 1.200) while pressure-profile machines sit on the ratio itself. v3's premise — that
+the sensor expression is proportional to the current multiplier — requires the multiplier to scale
+reporting only; the DE1 servos its calibrated flow instead, and across three machines the
+multiplier moved 15-38% while the sensor expression moved 4-15%. Full derivation and the falsifying
+experiment are in `design.md`.
+
 ## Expected effect on users
 
 Replayed over 75 shots from three machines (`evidence/`, method in `design.md`):
 
-- **Well-dialled users see no change.** A third user's 30 D-Flow shots hit 1.69 against a 1.70
-  target on 24 of 30; contribution drops 30/30 → 27/30 and the median ideal does not move at all
-  (0.968 → 0.968), while the sampled flow range narrows from 1.22-1.71 ml/s to 1.59-1.71.
+- **A machine that holds its target sees no change.** A third user's 30 D-Flow shots hit 1.69
+  against a 1.70 target on 24 of 30; contribution drops 30/30 → 27/30 and the median ideal does not
+  move at all (0.968 → 0.968), while the sampled flow range narrows from 1.22-1.71 ml/s to
+  1.59-1.71. **Read this as a control, not as a live user**: he has auto flow calibration switched
+  OFF and his multiplier is exactly 1.000, so these ideals are what the algorithm *would* have
+  computed, never what it did. It is still the right comparison for "does the skip disturb a
+  well-behaved machine" — nothing about the replay depends on the value being applied — but it is
+  not evidence that a live well-dialled user is unaffected, and an earlier draft of this line
+  implied that it was.
 - **Pressure profiles are untouched**, as the branch is: his 20 lever shots are identical either
   way — 19/20 contributing, median 1.026, same flow range.
 - **This repo's DE1**: the sampled flow range narrows from 0.72-1.90 ml/s to 1.26-1.90, contribution

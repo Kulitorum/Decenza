@@ -3396,27 +3396,25 @@ void MainController::computeAutoFlowCalibration() {
             return;
         }
     }
-    // Reports which formula computed the ideal. `isFlowProfile` is the only
-    // input now that a missed-target window returns above rather than being
-    // downgraded to the pressure branch.
-    const QString formulaModeLabel = isFlowProfile
+    // Reports which control mode the window was in. Both modes now compute the
+    // SAME ideal; this label distinguishes which ratio guard ran, not which
+    // formula.
+    const QString windowModeLabel = isFlowProfile
         ? QStringLiteral("flow")
         : QStringLiteral("pressure");
 
-    // Ratio guard AND ideal-formula selection both key off isFlowProfile, in
-    // one combined if/else rather than two separate ones — two independent
-    // checks on the same flag is exactly the shape that lets a future edit
-    // change one branch's condition while leaving the other, silently
-    // ratio-checking a window against a target it never reached. One flag,
-    // one branch, nothing to drift apart.
+    // The ratio guard is the only thing left that keys off isFlowProfile. It
+    // stays one combined if/else rather than two separate checks on the same
+    // flag — two independent checks is exactly the shape that lets a future
+    // edit change one branch's condition while leaving the other, silently
+    // ratio-checking a window against a target it never reached.
     double currentEffective = m_settings->calibration()->effectiveFlowCalibration(m_profileManager->baseProfileName());
-    double ideal;
     if (isFlowProfile) {
-        // Window-level ratio sanity check: compare weight flow against the
-        // profile's known target flow (density-adjusted) instead of the
-        // machine's reported flow (which is PID-locked to target and useless
-        // for ratio checking). Reject windows outside [0.75, 1.35] —
-        // indicates channeling, scale issues, or other extraction anomalies.
+        // Compare weight flow against the profile's known target flow
+        // (density-adjusted) rather than against the machine's reported flow,
+        // which is servoed to target and therefore cannot reveal a bad scale.
+        // Reject windows outside [0.75, 1.35] — channeling, scale problems, or
+        // other extraction anomalies.
         double flowProfileRatio = (profileTargetFlow * kWaterDensity93C) / meanWeightFlow;
         if (flowProfileRatio > kMaxWindowRatio || flowProfileRatio < kMinWindowRatio) {
             qDebug() << "Auto flow cal: flow profile ratio" << flowProfileRatio
@@ -3425,30 +3423,59 @@ void MainController::computeAutoFlowCalibration() {
                      << "- skipping (extraction anomaly)";
             return;
         }
-
-        // Flow profile: use the profile's target flow (independent of calibration).
-        // ideal = weightFlow / (targetFlow * density)
-        // This has no dependency on the current calibration factor, preventing
-        // the feedback loop where lowering the factor → less pumping → lower
-        // weight flow → factor keeps drifting down.
-        ideal = meanWeightFlow / (profileTargetFlow * kWaterDensity93C);
-        qDebug() << "Auto flow cal: flow profile — using target flow"
-                 << profileTargetFlow << "ml/s (reported:" << meanMachineFlow << ")";
     } else {
-        // Window-level ratio sanity check: compare machine vs weight flow.
-        // Reject windows outside [0.75, 1.35] — scale data suspect.
+        // Compare machine vs weight flow. Reject windows outside [0.75, 1.35]
+        // — scale data suspect.
         if (windowRatio > kMaxWindowRatio || windowRatio < kMinWindowRatio) {
             qDebug() << "Auto flow cal: window ratio" << windowRatio
                      << "outside bounds [" << kMinWindowRatio << "," << kMaxWindowRatio << "]"
                      << "- skipping (scale data suspect)";
             return;
         }
+    }
 
-        // Pressure profile: the machine doesn't control flow, so reported flow
-        // reflects actual sensor readings (already multiplied by the calibration
-        // factor). Divide out the current factor to get raw sensor flow.
-        // ideal = currentFactor * weightFlow / (reportedFlow * density)
-        ideal = currentEffective * meanWeightFlow / (meanMachineFlow * kWaterDensity93C);
+    // ONE formula, both control modes:
+    //
+    //     ideal = currentFactor * weightFlow / (reportedFlow * density)
+    //
+    // Reported flow already carries the current multiplier, so dividing it back
+    // out recovers the raw sensor reading, and the expression evaluates to the
+    // sensor's true/raw ratio — the number the multiplier is meant to BE. It is
+    // the criterion Decent's own Graphical Flow Calibrator implements, where the
+    // operator nudges the multiplier until the reported-flow curve overlays the
+    // weight-flow curve.
+    //
+    // Flow-controlled windows used to take a different expression,
+    // `weightFlow / (targetFlow * density)`, justified as "independent of the
+    // current calibration factor" and so immune to a feedback loop. That
+    // justification requires the multiplier to affect only REPORTING. It does
+    // not: the DE1 servos its CALIBRATED flow, so raising the multiplier lowers
+    // the water actually delivered. Measured on three unrelated machines, the
+    // stored multiplier moved 15-38% while the expression above moved only
+    // 4-15% — it is the C-invariant one, and the old expression was not
+    // (openspec/changes/skip-off-target-flow-cal-windows/design.md).
+    //
+    // Given that, and a flow window holding its target (reportedFlow ~=
+    // targetFlow, which the off-target skip above now enforces), the old
+    // expression equals k/C where k is the sensor ratio. The multiplier is not
+    // set to the ideal directly but blended in at kBatchEmaAlpha = 0.5 below,
+    // and `C := (C + k/C) / 2` is Babylonian square-root iteration — so the old
+    // rule settled on sqrt(k), not k. That is precisely where flow-profile
+    // machines landed: this repo's DE1 on 0.8795 against sqrt(0.737) = 0.858,
+    // and #1872's reporter on 1.17 against sqrt(1.44) = 1.200. Pressure-profile
+    // machines, already using this expression, landed on k itself. The damping
+    // is what makes it a square root rather than a 2-cycle; see
+    // tst_autoflowcal.cpp.
+    //
+    // The v2 runaway that motivated the split was bad scale data reaching an
+    // unguarded formula, not this formula. The per-sample and window ratio
+    // guards above are what fixed that, and they stay.
+    double ideal = autoFlowCalSensorIdeal(
+        currentEffective, meanWeightFlow, meanMachineFlow, kWaterDensity93C);
+    if (isFlowProfile) {
+        qDebug() << "Auto flow cal: flow window on target — reported" << meanMachineFlow
+                 << "ml/s vs target" << profileTargetFlow << "ml/s, current factor"
+                 << currentEffective;
     }
 
     if (!std::isfinite(ideal)) {
@@ -3488,7 +3515,7 @@ void MainController::computeAutoFlowCalibration() {
     qDebug() << "Auto flow cal: accumulated ideal" << ideal
              << "for" << profileName << "(" << pending.size() << "/" << kBatchSize << ")"
              << "window:" << windowDuration << "s," << bestCount << "samples"
-             << "mode:" << formulaModeLabel;
+             << "mode:" << windowModeLabel;
 
     if (pending.size() < kBatchSize) {
         return;  // Keep accumulating — don't update C yet
@@ -3537,7 +3564,7 @@ void MainController::computeAutoFlowCalibration() {
              << "from" << oldValue << "to" << computed
              << "(batch median:" << median << "from" << n << "ideals"
              << "alpha:" << alpha
-             << "mode:" << formulaModeLabel << ")";
+             << "mode:" << windowModeLabel << ")";
 
     emit flowCalibrationAutoUpdated(m_profileManager->currentProfile().title(), oldValue, computed);
 

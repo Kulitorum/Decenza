@@ -15,8 +15,8 @@ deviation, so a shot that produced no ideal is explicable from a submitted debug
 #### Scenario: Flow-controlled window achieves its target flow
 - **WHEN** a window is classified flow-controlled and its measured mean machine flow is within the
   configured deviation threshold of the frame's target flow
-- **THEN** the system computes the ideal as `meanWeightFlow / (targetFlow * density)`, independent
-  of the current calibration multiplier
+- **THEN** the system computes the ideal as
+  `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`
 
 #### Scenario: Flow-controlled window undershoots its target flow (pressure-capped)
 - **WHEN** a window is classified flow-controlled but its measured mean machine flow falls short of
@@ -35,12 +35,37 @@ deviation, so a shot that produced no ideal is explicable from a submitted debug
 - **WHEN** a window is classified flow-controlled and its measured mean machine flow exceeds the
   frame's target flow by more than the configured threshold
 - **THEN** the system does NOT skip the window — it computes the ideal as
-  `meanWeightFlow / (targetFlow * density)`, the same as a window that achieved target
+  `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`, the same as a window that
+  achieved target
 
 #### Scenario: Pressure-controlled window
 - **WHEN** a window is classified pressure-controlled
 - **THEN** the system computes the ideal as
   `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`, unaffected by this requirement
+
+### Requirement: One calibration ideal formula for both control modes
+The system SHALL compute a window's calibration ideal as
+`currentMultiplier * meanWeightFlow / (meanMachineFlow * density)` regardless of whether the window
+was flow- or pressure-controlled. The system SHALL NOT anchor a flow-controlled window's ideal to
+the frame's target flow. Window classification SHALL continue to select which ratio guard applies
+and whether the off-target check applies, but SHALL NOT select a formula.
+
+#### Scenario: Machine whose reported flow already matches the scale
+- **WHEN** a window's mean weight flow equals its mean machine flow times the density constant
+- **THEN** the computed ideal equals the current multiplier, so a converged machine's multiplier
+  does not move
+
+#### Scenario: Same machine measured at two different multipliers
+- **WHEN** the same machine and profile produce two windows at different stored multipliers, and
+  the machine holds its reported flow constant by delivering water in inverse proportion to the
+  multiplier
+- **THEN** both windows produce the same ideal, so the update converges rather than tracking the
+  current multiplier
+
+#### Scenario: Flow-controlled window on target
+- **WHEN** a window is classified flow-controlled and passes the off-target check
+- **THEN** the system computes the ideal with the same formula a pressure-controlled window uses,
+  and logs the reported flow, the frame's target flow and the current multiplier
 
 ### Requirement: Formula-version migration on behavior change
 When a change alters how calibration ideals are computed, or which windows produce one at all, the
@@ -55,6 +80,13 @@ the defect are not forced back through several batches of re-convergence.
   version
 - **THEN** the system SHALL clear every profile's pending batch accumulator and SHALL leave stored
   per-profile and global multipliers unchanged
+
+#### Scenario: Upgrade to a build that unifies the ideal formula
+- **WHEN** the app starts for the first time on a build where flow-controlled windows use the
+  sensor-ratio formula rather than a target-anchored one
+- **THEN** the system SHALL clear every profile's pending batch accumulator, so no median mixes
+  ideals from the two formulas
+- **AND** stored per-profile and global multipliers SHALL be left unchanged
 
 #### Scenario: Upgrade to a build that skips off-target windows
 - **WHEN** the app starts for the first time on a build where off-target flow windows are skipped

@@ -264,12 +264,25 @@ Settings::Settings(QObject* parent)
     }
 
     // One-time reset: clear all per-profile flow calibrations and reset global to 1.0.
-    // The v2 algorithm had a feedback loop for flow-controlled profiles: the DE1's PID
-    // holds reported flow at the target regardless of calibration, so the formula
-    // ideal = factor * weightFlow / (reportedFlow * density) made ideal proportional
-    // to the current factor — it could only decrease, never converge. The v3 algorithm
-    // uses the profile's target flow directly for flow profiles, breaking the loop.
-    // Users who ran v2 may have factors drifted to ~0.6-0.8 instead of ~0.9-1.0.
+    // Users who ran v2 may have factors drifted to ~0.6-0.8 instead of ~0.9-1.0, so the
+    // reset itself was warranted.
+    //
+    // Its stated CAUSE was not, and v6 has since reversed the formula change it
+    // justified. v3 held that ideal = factor * weightFlow / (reportedFlow * density)
+    // is "proportional to the current factor" and so can only decrease. That holds only
+    // if the multiplier scales REPORTING alone. It does not: the DE1 servos its
+    // calibrated flow, so a higher multiplier delivers less water, weightFlow falls to
+    // match, and the expression is unchanged. Measured across three unrelated machines
+    // the stored multiplier moved 15-38% while that expression moved only 4-15%.
+    //
+    // The v2 drift was real but was bad scale data reaching a formula with no ratio
+    // guards — which is what the guards added alongside v2/v3 actually fixed. Swapping
+    // in a target-anchored formula on top of that traded a correct expression for one
+    // whose fixed point is sqrt(k) rather than k, which is where flow-profile machines
+    // have sat ever since. See the v6 block below and
+    // openspec/changes/skip-off-target-flow-cal-windows/design.md.
+    //
+    // Left in place as history: do not re-derive v3's premise from this comment.
     if (!m_settings.contains("calibration/v3FlowProfileReset")) {
         m_calibration->resetAllProfileFlowCalibrations();
         m_calibration->setFlowCalibrationMultiplier(1.0);
@@ -308,6 +321,28 @@ Settings::Settings(QObject* parent)
             qDebug() << "Settings: Cleared pending flow-cal batches (v5 off-target window skip)";
         }
         commitFlowCalMigrationFlag("calibration/v5SkipOffTargetReset");
+    }
+
+    // One-time clear of pending flow-cal batches, same shape as v4 and v5. v6
+    // changes the ideal FORMULA for flow-controlled windows: they now use the
+    // same sensor-ratio expression the pressure branch has always used
+    // (currentFactor * weightFlow / reportedFlow / density) instead of
+    // weightFlow / (targetFlow * density). A batch must not mix ideals from the
+    // two expressions in one median — under the old one a flow window produced
+    // roughly k/C where the new one produces k.
+    //
+    // Stored multipliers are again NOT reset. Flow-profile machines converged on
+    // sqrt(k) rather than k under the old expression, which is a real but small
+    // error (measured +2.4% and -2.5% on two machines), and the new expression
+    // is C-invariant, so every batch's ideal is the target value itself and the
+    // existing 0.5 EMA closes the remaining gap geometrically — inside the 3%
+    // update deadband after two or three batches from a 20% error.
+    if (!m_settings.contains("calibration/v6SensorFormulaBothModes")) {
+        if (!freshInstall) {
+            m_calibration->clearAllFlowCalPendingIdeals();
+            qDebug() << "Settings: Cleared pending flow-cal batches (v6 unified sensor formula)";
+        }
+        commitFlowCalMigrationFlag("calibration/v6SensorFormulaBothModes");
     }
 
     // Migrate theme/customColors → theme/customColorsDark (one-time, for light/dark mode support)

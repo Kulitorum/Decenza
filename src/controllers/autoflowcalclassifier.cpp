@@ -150,3 +150,11 @@ AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
     result.missedTarget = meanMachineFlow < targetFlow && result.deviation > thresholdFraction;
     return result;
 }
+
+double autoFlowCalSensorIdeal(
+    double currentFactor,
+    double weightFlow,
+    double machineFlow,
+    double density) {
+    return currentFactor * weightFlow / (machineFlow * density);
+}

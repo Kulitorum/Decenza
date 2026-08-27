@@ -29,12 +29,15 @@ Three datasets, 75 shots. Measured with the SHIPPED rule — window selection un
 | dataset | before (re-route) | after (skip) |
 |---|---|---|
 | this repo's DE1, 23 shots | 20 contribute, median 0.937, flow 0.72-1.90 ml/s | 14 contribute, median 0.886, flow 1.26-1.90 |
-| third user, 30 D-Flow shots (well dialled) | 30 contribute, median 0.968, flow 1.22-1.71 | 27 contribute, median 0.968, flow 1.59-1.71 |
+| third user, 30 D-Flow shots (holds target; auto-cal OFF, C = 1.000) | 30 contribute, median 0.968, flow 1.22-1.71 | 27 contribute, median 0.968, flow 1.59-1.71 |
 | third user, 20 lever/pressure shots | 19 contribute, median 1.026 | identical — the pressure branch is untouched |
 | #1872 reporter, 2 shots | 2 contribute, median 1.193 (1.048 and 1.351) | 1 contributes, 1.048 |
 
-The well-dialled user's median does not move at all, which is the result that matters for
-shipping. This repo's own machine moves ~5% (0.937 → 0.886), above the 3% update deadband, so its
+The third user's median does not move at all, which is the result that matters for shipping. He is
+a CONTROL rather than a live user — auto flow calibration is off on his machine and his multiplier
+is exactly 1.000, so these are ideals the algorithm would have produced, not ones it applied. That
+does not weaken the comparison (the replay never applies anything either), but it does mean this
+row is not a live well-dialled user reporting no disruption. This repo's own machine moves ~5% (0.937 → 0.886), above the 3% update deadband, so its
 stored multiplier will drift down over the next few batches — that is the correction working, not a
 side effect: the 0.937 was held up by ideals of 0.95-1.08 taken at 0.72-1.10 ml/s on a profile that
 pours at 1.8.
@@ -86,6 +89,59 @@ wrong. A measurement at the wrong operating point does not become right by count
 scalar). This is where the evidence actually points, and it is explicitly out of scope: it changes
 the storage format, the MMR write, and the meaning of every stored multiplier. Recorded here so the
 next person sees it was considered rather than missed.
+
+### One formula for both control modes
+
+The flow branch's `ideal = weightFlow / (targetFlow * density)` is replaced by the expression the
+pressure branch already used, `ideal = currentFactor * weightFlow / (machineFlow * density)`.
+
+Write `k` for that second expression's value — the flow sensor's true/raw ratio, and the number the
+stored multiplier is meant to equal. Two behaviours are possible and they give opposite answers:
+
+- **Model B** — the multiplier scales REPORTING only. Then `weightFlow` does not respond to it, `k`
+  is proportional to the current multiplier, and iterating on `k` runs away. This is what v3
+  asserted, and it is the reason the flow branch was given a target-anchored formula instead.
+- **Model A** — the DE1 servos its CALIBRATED flow, so a higher multiplier delivers less water.
+  Then `weightFlow` falls in proportion, `k` is invariant, and every batch's ideal is the target
+  value itself.
+
+**The logs say model A**, on every machine with enough history to test it. Across three unrelated
+machines the stored multiplier moved 15-38% while `k` moved only 4-15% (cablecj74 +36% C / +5% k;
+GCDE-VER1 +38% / +15%; the #1872 reporter +15% / +4%). `evidence/logscan.py` recovers this from
+submitted debug logs.
+
+Under model A the two formulas are not independent: on a window holding target
+(`machineFlow ~= targetFlow`, which the skip above now enforces) the old expression equals `k / C`.
+
+The multiplier is not set to the ideal directly — it is blended in at the batch EMA's
+`alpha = 0.5`. So the old rule's update is `C := (C + k/C) / 2`, which is **Babylonian
+square-root iteration**: `alpha = 0.5` is precisely the Babylonian coefficient. It settles on
+`sqrt(k)`, not `k`. (The damping is load-bearing. Applied undamped, `C := k/C` is a period-2 map
+that oscillates forever and converges to nothing — so the square root is a property of the update
+as a whole, not of the formula alone.) That is exactly where flow-branch machines sit, while
+pressure-branch machines sit on `k`:
+
+| machine | branch | k | sqrt(k) | converged C |
+|---|---|---|---|---|
+| this repo's DE1 | flow | 0.737 | 0.858 | 0.8795 (+2.4% vs sqrt(k)) |
+| #1872 reporter | flow | 1.44 | 1.200 | 1.17 (-2.5%) |
+| mcastaldelli | pressure | 1.30 | — | 1.30 |
+| cablecj74 | pressure | 1.35 | — | 1.3555 |
+
+The sign of the error against `k` flips either side of `k = 1`, which is the signature of a square
+root and not of a constant bias.
+
+**What v2's runaway actually was.** Bad scale data reaching a formula with no ratio guards — the
+per-sample and window ratio guards added alongside v2/v3 are what stopped it, and they remain. v3
+changed the formula on top of that fix, so the formula change was never the thing under test.
+
+**This is retrospective evidence and it has one clean falsification.** Two shots on one machine,
+same beans back to back, at deliberately different multipliers (e.g. 1.0 and 1.4). Under model A
+`k` comes out the same both times; under model B it moves with the multiplier. Run it before merge.
+
+**Independent of the skip.** `k` still varies with flow RATE (the 48% table above), so a window must
+still be measured where the profile actually pours. The two changes compose; neither substitutes for
+the other.
 
 ### The flatness-based selection rule is NOT in this change
 
