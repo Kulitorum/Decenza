@@ -41,39 +41,50 @@ public class DecenzaActivity extends QtActivity {
         }
     }
 
+    // onResume/onPause/onStop go through dispatchToQt for the same reason as
+    // onNewIntent below: each one calls QtNative.setApplicationState(), which
+    // calls the `updateApplicationState` native unguarded (QtNative.java:266,
+    // Qt 6.11.2). That is the crash in issues #1239 (v1.7.5), #1511 and #1512
+    // (both v1.8.0) — same UnsatisfiedLinkError, different callback, and all
+    // three predate the Qt 6.11.2 upgrade.
     @Override
     protected void onResume() {
-        super.onResume();
+        dispatchToQt("onResume", () -> super.onResume());
         Log.d(TAG, "=== LIFECYCLE: onResume (app now in foreground) ===");
     }
 
     @Override
     protected void onPause() {
         Log.d(TAG, "=== LIFECYCLE: onPause (app losing focus) ===");
-        super.onPause();
+        dispatchToQt("onPause", () -> super.onPause());
     }
 
     @Override
     protected void onStop() {
         Log.d(TAG, "=== LIFECYCLE: onStop (app no longer visible) ===");
-        super.onStop();
+        dispatchToQt("onStop", () -> super.onStop());
     }
 
+    // NOT wrapped: QtActivityBase.onDestroy() ends in System.exit() on the
+    // normal path, and swallowing a failure part-way through that teardown
+    // would leave a half-torn-down process alive rather than saving one.
     @Override
     protected void onDestroy() {
         Log.d(TAG, "=== LIFECYCLE: onDestroy (app being destroyed) ===");
         super.onDestroy();
     }
 
-    // Qt's Java lifecycle callbacks that jump straight into JNI.
+    // Guard for the Qt lifecycle callbacks that jump straight into JNI.
     //
     // QtActivityBase.onNewIntent(), onActivityResult() and
     // onRequestPermissionsResult() call a `public static native` method on
     // QtNative with no guard (qtbase/src/android/jar/src/org/qtproject/qt/
-    // android/QtActivityBase.java:369-385, Qt 6.11.2). Those natives are
-    // registered by the QPA plugin's JNI_OnLoad (qtbase/src/plugins/platforms/
-    // android/androidjnimain.cpp:751-761, :907-926), so outside the window in
-    // which Qt is loaded and running the call throws UnsatisfiedLinkError:
+    // android/QtActivityBase.java:369-385, Qt 6.11.2), and onResume/onPause/
+    // onStop reach one the same way through QtNative.setApplicationState()
+    // (QtNative.java:266). Those natives are registered by the QPA plugin's
+    // JNI_OnLoad (qtbase/src/plugins/platforms/android/androidjnimain.cpp:
+    // 751-761, :907-926), so before Qt's libraries are loaded the call throws
+    // UnsatisfiedLinkError:
     //
     //   No implementation found for void org.qtproject.qt.android.QtNative
     //   .onNewIntent(android.content.Intent)
@@ -90,17 +101,17 @@ public class DecenzaActivity extends QtActivity {
     // flag for the purpose, clearing it once main() returns
     // (androidjnimain.cpp:489). These three callbacks were simply left out.
     //
-    // WHICH window we landed in is NOT established. Android delivers new
-    // intents from performResumeActivity -> deliverNewIntents, i.e. on
-    // resume, and that sits after onCreate has already loaded the Qt
-    // libraries synchronously (QtActivityBase.java:129 -> QtLoader.java:462,
-    // whose worker dispatch blocks), so the plain "libraries not loaded yet"
-    // race does not obviously fit; nor is there a path in the teardown
-    // sequence that unregisters the natives, since the QPA plugin is loaded
-    // with System.loadLibrary and only the app's own main library is
-    // dlclose()d (androidjnimain.cpp:483). Do not repeat either story as
-    // settled. The guard covers both regardless, which is why it is worth
-    // having without pinning the window down first.
+    // Qt knows this window exists and handles it in exactly one place:
+    // QtNative.setActivity() wraps its native call in a catch for this error,
+    // commented "this happens ... before Qt native libraries have been
+    // loaded" (QtNative.java:71-79). Every other entry point was left bare.
+    //
+    // What we cannot show is what kept the libraries from being loaded in the
+    // crashing process — a load that failed outright is one candidate (we have
+    // taken "dlopen failed: library lib_arm64-v8a.so not found" in the field,
+    // issues #246/#247/#254), a race against onCreate's load is another, and
+    // the sources rule out neither. Do not write either up as settled. The
+    // guard does not depend on the answer.
     //
     // We are especially exposed because the activity is android:launchMode=
     // "singleTop" AND carries a USB_DEVICE_ATTACHED intent-filter, so a
