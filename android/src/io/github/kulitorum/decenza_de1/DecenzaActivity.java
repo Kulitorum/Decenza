@@ -1,5 +1,6 @@
 package io.github.kulitorum.decenza_de1;
 
+import android.content.ComponentName;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.DeadObjectException;
@@ -25,6 +26,8 @@ public class DecenzaActivity extends QtActivity {
         // Install Java crash handler FIRST, before any Qt initialization
         installJavaCrashHandler();
 
+        retargetAliasLaunch();
+
         super.onCreate(savedInstanceState);
         StorageHelper.init(this);
         Log.d(TAG, "=== LIFECYCLE: onCreate ===");
@@ -41,92 +44,107 @@ public class DecenzaActivity extends QtActivity {
         }
     }
 
-    // onResume/onPause/onStop go through dispatchToQt for the same reason as
-    // onNewIntent below: each one calls QtNative.setApplicationState(), which
-    // calls the `updateApplicationState` native unguarded (QtNative.java:266,
-    // Qt 6.11.2). That is the crash in issues #1239 (v1.7.5), #1511 and #1512
-    // (both v1.8.0) — same UnsatisfiedLinkError, different callback, and all
-    // three predate the Qt 6.11.2 upgrade.
+    // Launcher Mode (Settings, `app/launcherMode`) enables the LauncherAlias
+    // activity-alias so Decenza can be the tablet's home screen. Qt 6.11
+    // added a branch to QtActivityBase.onCreate that skips loading the Qt
+    // libraries outright when the activity was launched through an alias:
+    //
+    //   if (isLaunchedAsAlias()) {
+    //       Log.d(TAG, "Starting an alias-activity, skipping loading of the Qt libraries.");
+    //   } else { ...loadQtLibraries()... }
+    //
+    // and isLaunchedAsAlias() is a plain name comparison of the intent's
+    // component against this class (QtActivityBase.java:169-178). So a HOME
+    // launch through LauncherAlias produces an activity with no Qt behind it,
+    // and the first lifecycle callback into QtNative dies with
+    // UnsatisfiedLinkError. That is issues #1239, #1511, #1512 and #1869.
+    //
+    // The branch is new: absent in v6.8.0 and v6.10.0, present in v6.11.1
+    // (checked against code.qt.io). Decenza moved to 6.11.1 shortly before the
+    // first of those reports, and Launcher Mode had been working since the
+    // alias got its android.app.lib_name metadata (PR #287).
+    //
+    // Point the intent at the real activity so the comparison matches and Qt
+    // loads normally. QtLoader reads android.app.lib_name from
+    // getComponentName() rather than from the intent (QtLoader.java:95-96,
+    // :525), which setIntent() does not affect — and DecenzaActivity carries
+    // that metadata too, so library resolution is unchanged either way.
+    private void retargetAliasLaunch() {
+        Intent intent = getIntent();
+        if (intent == null || intent.getComponent() == null)
+            return;
+        if (intent.getComponent().getClassName().equals(getClass().getName()))
+            return;
+
+        Log.i(TAG, "Launched via alias " + intent.getComponent().getClassName()
+                + " - retargeting to " + getClass().getName() + " so Qt loads its libraries");
+        intent.setComponent(new ComponentName(this, getClass()));
+        setIntent(intent);
+    }
+
     @Override
     protected void onResume() {
-        dispatchToQt("onResume", () -> super.onResume());
+        super.onResume();
         Log.d(TAG, "=== LIFECYCLE: onResume (app now in foreground) ===");
     }
 
     @Override
     protected void onPause() {
         Log.d(TAG, "=== LIFECYCLE: onPause (app losing focus) ===");
-        dispatchToQt("onPause", () -> super.onPause());
+        super.onPause();
     }
 
     @Override
     protected void onStop() {
         Log.d(TAG, "=== LIFECYCLE: onStop (app no longer visible) ===");
-        dispatchToQt("onStop", () -> super.onStop());
+        super.onStop();
     }
 
-    // NOT wrapped: QtActivityBase.onDestroy() ends in System.exit() on the
-    // normal path, and swallowing a failure part-way through that teardown
-    // would leave a half-torn-down process alive rather than saving one.
     @Override
     protected void onDestroy() {
         Log.d(TAG, "=== LIFECYCLE: onDestroy (app being destroyed) ===");
         super.onDestroy();
     }
 
-    // Guard for the Qt lifecycle callbacks that jump straight into JNI.
-    //
-    // QtActivityBase.onNewIntent(), onActivityResult() and
-    // onRequestPermissionsResult() call a `public static native` method on
-    // QtNative with no guard (qtbase/src/android/jar/src/org/qtproject/qt/
-    // android/QtActivityBase.java:369-385, Qt 6.11.2), and onResume/onPause/
-    // onStop reach one the same way through QtNative.setApplicationState()
-    // (QtNative.java:266). Those natives are registered by the QPA plugin's
-    // JNI_OnLoad (qtbase/src/plugins/platforms/android/androidjnimain.cpp:
-    // 751-761, :907-926), so before Qt's libraries are loaded the call throws
-    // UnsatisfiedLinkError:
-    //
-    //   No implementation found for void org.qtproject.qt.android.QtNative
-    //   .onNewIntent(android.content.Intent)
-    //
-    // It reaches the main thread's uncaught handler and kills the process
-    // (issue #1869, crash on a Teclast P30T right after a DE1 firmware
-    // update, three seconds before the app relaunched).
-    //
-    // Qt guards roughly eight sibling callbacks in the same class against
-    // exactly this — onCreate, onResume, dispatchKeyEvent,
-    // dispatchGenericMotionEvent, onKeyDown, onKeyUp and friends all test
-    // QtNative.getStateDetails().isStarted first (QtActivityBase.java:113,
-    // :194, :268, :278, :288, :298), and the platform plugin maintains that
-    // flag for the purpose, clearing it once main() returns
-    // (androidjnimain.cpp:489). These three callbacks were simply left out.
+    // Qt's onNewIntent/onActivityResult/onRequestPermissionsResult call a
+    // native on QtNative with no guard (QtActivityBase.java:369-385, Qt
+    // 6.11.2), and those natives are registered by the Android QPA plugin's
+    // JNI_OnLoad (androidjnimain.cpp:752-762, :907-926). Reached with Qt's
+    // libraries not loaded, the call throws UnsatisfiedLinkError, which lands
+    // on the main thread's uncaught handler and kills the process.
     //
     // Qt knows this window exists and handles it in exactly one place:
     // QtNative.setActivity() wraps its native call in a catch for this error,
     // commented "this happens ... before Qt native libraries have been
-    // loaded" (QtNative.java:71-79). Every other entry point was left bare.
+    // loaded" (QtNative.java:71-79). Every other entry point is bare.
     //
-    // What we cannot show is what kept the libraries from being loaded in the
-    // crashing process — a load that failed outright is one candidate (we have
-    // taken "dlopen failed: library lib_arm64-v8a.so not found" in the field,
-    // issues #246/#247/#254), a race against onCreate's load is another, and
-    // the sources rule out neither. Do not write either up as settled. The
-    // guard does not depend on the answer.
+    // Scope note. The known way to reach that state in this app was the
+    // alias launch retargeted in onCreate() above, and that is fixed at
+    // source rather than caught here. This guard covers only the three
+    // callbacks where dropping the call costs nothing: no Qt new-intent
+    // listener is registered anywhere in Decenza, and a result delivered
+    // with no Qt to receive it had no consumer either.
     //
-    // We are especially exposed because the activity is android:launchMode=
-    // "singleTop" AND carries a USB_DEVICE_ATTACHED intent-filter, so a
-    // launcher tap or a USB re-enumeration (the DE1 power-cycle after a
-    // firmware flash re-enumerates the tablet's port) both route here instead
-    // of starting a fresh activity.
-    //
-    // Losing the callback is harmless: nothing in Decenza registers a Qt new-
-    // intent listener, and a result that arrives with no Qt to receive it had
-    // no consumer either. Losing the process is not. Swallow and log.
+    // The lifecycle callbacks are deliberately NOT wrapped, though they can
+    // throw the same error (onResume/onPause/onStop reach a bare native
+    // through QtNative.setApplicationState(), QtNative.java:274 — that is the
+    // crash in #1239, #1511 and #1512, all three in onResume). Swallowing
+    // there would keep an activity alive that has no Qt behind it: no
+    // startNativeApplication(), so no content view, so a blank window that
+    // cannot recover — and in Launcher Mode Decenza IS the home screen, so
+    // there is nowhere to escape to while the DE1 runs unattended. A process
+    // that dies and is restarted by Android is the better failure. Same
+    // reasoning for onDestroy, whose QtNative.terminateQtNativeApplication()
+    // precedes the System.exit(0) that ends it (QtActivityBase.java:210-223):
+    // catching there would skip the exit and strand the process.
     private void dispatchToQt(String callback, Runnable body) {
         try {
             body.run();
         } catch (UnsatisfiedLinkError e) {
-            Log.w(TAG, "Qt native " + callback + " unavailable (Qt not running) - ignoring: "
+            // "(Qt not loaded)" is an inference from the exception type, not a
+            // confirmed diagnosis — this catch cannot tell which native was
+            // missing or why.
+            Log.w(TAG, "Qt native " + callback + " unavailable (Qt not loaded) - ignoring: "
                     + e.getMessage());
         }
     }
