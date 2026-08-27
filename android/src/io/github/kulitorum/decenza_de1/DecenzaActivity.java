@@ -80,9 +80,27 @@ public class DecenzaActivity extends QtActivity {
     //
     // It reaches the main thread's uncaught handler and kills the process
     // (issue #1869, crash on a Teclast P30T right after a DE1 firmware
-    // update). Android delivers these from performResumeActivity ->
-    // deliverNewIntents, i.e. on resume — which is exactly the moment Qt is
-    // either not started yet or already torn down.
+    // update, three seconds before the app relaunched).
+    //
+    // Qt guards roughly eight sibling callbacks in the same class against
+    // exactly this — onCreate, onResume, dispatchKeyEvent,
+    // dispatchGenericMotionEvent, onKeyDown, onKeyUp and friends all test
+    // QtNative.getStateDetails().isStarted first (QtActivityBase.java:113,
+    // :194, :268, :278, :288, :298), and the platform plugin maintains that
+    // flag for the purpose, clearing it once main() returns
+    // (androidjnimain.cpp:489). These three callbacks were simply left out.
+    //
+    // WHICH window we landed in is NOT established. Android delivers new
+    // intents from performResumeActivity -> deliverNewIntents, i.e. on
+    // resume, and that sits after onCreate has already loaded the Qt
+    // libraries synchronously (QtActivityBase.java:129 -> QtLoader.java:462,
+    // whose worker dispatch blocks), so the plain "libraries not loaded yet"
+    // race does not obviously fit; nor is there a path in the teardown
+    // sequence that unregisters the natives, since the QPA plugin is loaded
+    // with System.loadLibrary and only the app's own main library is
+    // dlclose()d (androidjnimain.cpp:483). Do not repeat either story as
+    // settled. The guard covers both regardless, which is why it is worth
+    // having without pinning the window down first.
     //
     // We are especially exposed because the activity is android:launchMode=
     // "singleTop" AND carries a USB_DEVICE_ATTACHED intent-filter, so a
