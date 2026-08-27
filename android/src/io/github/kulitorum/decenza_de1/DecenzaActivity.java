@@ -65,6 +65,59 @@ public class DecenzaActivity extends QtActivity {
         super.onDestroy();
     }
 
+    // Qt's Java lifecycle callbacks that jump straight into JNI.
+    //
+    // QtActivityBase.onNewIntent(), onActivityResult() and
+    // onRequestPermissionsResult() call a `public static native` method on
+    // QtNative with no guard (qtbase/src/android/jar/src/org/qtproject/qt/
+    // android/QtActivityBase.java:369-385, Qt 6.11.2). Those natives are
+    // registered by the QPA plugin's JNI_OnLoad (qtbase/src/plugins/platforms/
+    // android/androidjnimain.cpp:751-761, :907-926), so outside the window in
+    // which Qt is loaded and running the call throws UnsatisfiedLinkError:
+    //
+    //   No implementation found for void org.qtproject.qt.android.QtNative
+    //   .onNewIntent(android.content.Intent)
+    //
+    // It reaches the main thread's uncaught handler and kills the process
+    // (issue #1869, crash on a Teclast P30T right after a DE1 firmware
+    // update). Android delivers these from performResumeActivity ->
+    // deliverNewIntents, i.e. on resume — which is exactly the moment Qt is
+    // either not started yet or already torn down.
+    //
+    // We are especially exposed because the activity is android:launchMode=
+    // "singleTop" AND carries a USB_DEVICE_ATTACHED intent-filter, so a
+    // launcher tap or a USB re-enumeration (the DE1 power-cycle after a
+    // firmware flash re-enumerates the tablet's port) both route here instead
+    // of starting a fresh activity.
+    //
+    // Losing the callback is harmless: nothing in Decenza registers a Qt new-
+    // intent listener, and a result that arrives with no Qt to receive it had
+    // no consumer either. Losing the process is not. Swallow and log.
+    private void dispatchToQt(String callback, Runnable body) {
+        try {
+            body.run();
+        } catch (UnsatisfiedLinkError e) {
+            Log.w(TAG, "Qt native " + callback + " unavailable (Qt not running) - ignoring: "
+                    + e.getMessage());
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        dispatchToQt("onNewIntent", () -> super.onNewIntent(intent));
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        dispatchToQt("onActivityResult", () -> super.onActivityResult(requestCode, resultCode, data));
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        dispatchToQt("onRequestPermissionsResult",
+                () -> super.onRequestPermissionsResult(requestCode, permissions, grantResults));
+    }
+
     // Catches three closely-related dead-binder cases:
     //   1. DeadObjectException — the common case: a remote Bluetooth binder
     //      we were writing to died (BT toggled off, OEM power policy, driver
