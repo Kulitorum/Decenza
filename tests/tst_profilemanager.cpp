@@ -2308,6 +2308,13 @@ private slots:
         f.settings.calibration()->setFlowCalibrationMultiplier(1.22);
         QCOMPARE(f.profileManager.latchedFlowCalibration(), 1.35);
 
+        // Consuming it is what makes the value belong to exactly one shot: a
+        // later shot that never latched (a missed espressoCycleStarted, e.g.
+        // the "machine skipped preheating" case machinestate.cpp guards) must
+        // read 0 and record NULL rather than inheriting this shot's 1.35.
+        f.profileManager.consumeFlowCalibrationLatch();
+        QCOMPARE(f.profileManager.latchedFlowCalibration(), 0.0);
+
         // The NEXT shot re-resolves — the latch freezes one shot, not forever.
         // Compared against effectiveFlowCalibration() rather than a literal so
         // the assertion holds whichever key wins for this fixture's profile

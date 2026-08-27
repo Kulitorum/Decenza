@@ -1985,6 +1985,43 @@ private slots:
     // positional index (52/53, appended to the SELECT), and convertShotRecord
     // copies them into the projection. Guard the full write→read→project round-trip
     // so a SELECT-list edit that shifts those columns fails loudly.
+    // add-shot-flow-calibration: the same guard v22 and v33 established for
+    // their positionally-read columns. flow_calibration is read as
+    // query.value(56) in loadShotRecordStatic(), so a future SELECT-list edit
+    // that shifts it would silently load the wrong field — v38ToV39 above
+    // covers the migration with raw SQL and would not notice. This walks the
+    // production path: write, load into a ShotRecord, project. It also pins the
+    // 0-means-unrecorded contract, which is the reason the column is nullable.
+    void v39_flowCalibrationReadRoundTrip() {
+        const QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+        qint64 recorded = -1, unrecorded = -1;
+        withRawDb(path, "v39_rt_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                           "flow_calibration) VALUES ('flowcal-rt', 1000, 'P', 30, 1.35)"));
+            recorded = q.lastInsertId().toLongLong();
+            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                           "VALUES ('flowcal-rt-null', 1001, 'P', 30)"));
+            unrecorded = q.lastInsertId().toLongLong();
+        });
+        QVERIFY(recorded > 0 && unrecorded > 0);
+        withRawDb(path, "v39_rt_load", [&](QSqlDatabase& db) {
+            const ShotRecord r = ShotHistoryStorage::loadShotRecordStatic(db, recorded);
+            QCOMPARE(r.flowCalibration, 1.35);
+            const ShotProjection p = ShotHistoryStorage::convertShotRecord(r);
+            QCOMPARE(p.flowCalibration, 1.35);
+            QCOMPARE(p.toVariantMap().value(QStringLiteral("flowCalibration")).toDouble(), 1.35);
+
+            // A NULL column must arrive as 0 and then vanish from the payload —
+            // never as 1.0, which is a real multiplier.
+            const ShotRecord n = ShotHistoryStorage::loadShotRecordStatic(db, unrecorded);
+            QCOMPARE(n.flowCalibration, 0.0);
+            QVERIFY(!ShotHistoryStorage::convertShotRecord(n).toVariantMap()
+                         .contains(QStringLiteral("flowCalibration")));
+        });
+    }
+
     void v33_tasteAxesReadRoundTrip() {
         const QString path = freshDbPath();
         { ShotHistoryStorage s; initAndClose(path, s); }

@@ -267,16 +267,31 @@ public:
     double latchedTargetG() const { return m_latchedTargetG; }
     QString latchedYieldMode() const { return m_latchedYieldMode; }
     double latchedYieldAnchorValue() const { return m_latchedYieldAnchorValue; }
-    // The effective flow calibration multiplier the shot was PULLED at.
+    // The effective flow calibration multiplier the shot was PULLED at, or 0.0
+    // if this shot never latched one.
+    //
     // Latched rather than read at save time because
-    // MainController::computeAutoFlowCalibration() runs at shot end BEFORE
-    // the save (maincontroller.cpp:4078 vs :4261) and can write a new
-    // per-profile multiplier first — a save-time read would record a value
-    // the shot never ran under, and only on the shots where it changed.
-    // 0.0 means "not recorded" (no settings object at latch time, an
-    // imported shot, or a fake/dev shot); 1.0 is a real multiplier and must
-    // never stand in for unknown.
+    // MainController::computeAutoFlowCalibration() runs at shot end BEFORE the
+    // save (maincontroller.cpp:4079 vs :4267) and can write a new per-profile
+    // multiplier first — a save-time read would record a value the shot never
+    // ran under, and only on the shots where it changed.
+    //
+    // CONSUMABLE, unlike the yield snapshot beside it: the save path calls
+    // consumeFlowCalibrationLatch() after reading, so a value belongs to
+    // exactly the shot that latched it. Without that, a shot whose
+    // espressoCycleStarted transition was missed (machinestate.cpp's
+    // "machine skipped preheating (missed BLE substate notification)" case)
+    // would reach the save with the PREVIOUS shot's multiplier still latched
+    // and stamp it as its own — a measurement nobody took, in the one column
+    // whose whole purpose is knowing which measurements were taken.
+    //
+    // 0.0 therefore means "not recorded" for this shot, and 1.0 is a real
+    // multiplier that must never stand in for it.
     double latchedFlowCalibration() const { return m_latchedFlowCalibration; }
+
+    // Clears the flow-calibration latch after the save path has read it. See
+    // latchedFlowCalibration() for why the value is one-shot.
+    void consumeFlowCalibrationLatch() { m_latchedFlowCalibration = 0.0; }
 
     // === Profile catalog ===
     QVariantList availableProfiles() const;

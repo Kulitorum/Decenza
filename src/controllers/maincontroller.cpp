@@ -4110,8 +4110,13 @@ void MainController::onShotEnded() {
     // The multiplier this shot POURED under, from the shot-start latch — not a
     // live read. computeAutoFlowCalibration() ran a few lines above and may
     // have just written a new per-profile value; recording that would claim the
-    // shot ran at a multiplier it produced. 0 when nothing was latched.
+    // shot ran at a multiplier it produced.
+    //
+    // Consumed here, so the value can only ever be claimed by the shot that
+    // latched it: a shot whose cycle-start transition was missed reads 0 and
+    // records NULL ("not recorded") instead of inheriting its predecessor's.
     metadata.flowCalibration = m_profileManager->latchedFlowCalibration();
+    m_profileManager->consumeFlowCalibrationLatch();
 
     // For volume/timer-based profiles (targetWeight=0), use the actual final weight
     // so favorites can restore a meaningful yield target

@@ -181,17 +181,19 @@ A one-time migration resets all per-profile flow calibrations and the global mul
 
 A one-time migration clears every profile's *pending* flow-cal batch only (`calibration/flowCalBatch` → `{}`) — unlike v2 and v3, it does **not** reset stored per-profile or global multipliers. The v3 formula assumed a flow-controlled frame always achieves its target flow; on a pressure-capped flow frame it often doesn't (see "Achieved-flow deviation check" above), producing a bad ideal for that specific window. That's a per-window defect the batch median's outlier rejection already partially absorbs, not evidence the *stored* multiplier is wrong the way v2/v3's corrupted values were — so a full reset would cost every user several shots' worth of reconvergence to fix a defect that's workload-dependent and often dormant (profiles that reliably hit target flow were never affected). Clearing only the pending accumulator is enough to stop a batch from mixing ideals computed under the old and new formula-selection logic in one median.
 
-### Recorded per shot
+## Flow Calibration Recorded Per Shot
 
 Each saved shot stores the effective multiplier it POURED under, in `shots.flow_calibration` (migration 39). Without it a shot's `flow` curve is uninterpretable on its own — reported flow is a calibrated quantity, so comparing two shots or recovering a raw sensor reading needs the multiplier that produced them, and diagnosing [#1872](https://github.com/Kulitorum/Decenza/issues/1872) needed a debug log beside the shot data for exactly that reason.
 
 The value is latched at shot START (`ProfileManager::latchForShot()`), not read at save time: `computeAutoFlowCalibration()` runs at shot end BEFORE the save and can write a new per-profile multiplier first, so a save-time read would record the value the shot PRODUCED on exactly the shots where it changed.
 
-NULL means **not recorded** — a shot saved before the column existed, an imported shot whose source lacked it, or the dev fake-shot path. It is never read as 1.0, which is a legitimate multiplier; the projection omits the field entirely rather than emitting a sentinel.
+The latch is **consumed** by the save, so a value belongs to exactly the shot that latched it: a shot whose `espressoCycleStarted` transition was missed reads 0 and records NULL rather than inheriting its predecessor's multiplier.
+
+NULL means **not recorded** — a shot saved before the column existed, an imported shot whose source lacked it, the dev fake-shot path, or a shot that never latched. It is never read as 1.0, which is a legitimate multiplier; the projection omits the field entirely rather than emitting a sentinel.
 
 ## v5 Migration (Off-Target Windows Skipped)
 
-Same shape as v4 and for the same reason: which windows produce an ideal changed, so a batch must not mix the two rules in one median. A one-time migration (`calibration/v5SkipOffTargetReset`) clears every profile's *pending* batch only. Stored per-profile and global multipliers are deliberately left alone — the defect is per-window, and auto-calibration walks the value back within a few batches once capped windows stop contributing. Resetting would cost every well-dialled user several batches of reconvergence for a defect their data does not show: replayed over 30 D-Flow shots from a well-dialled machine, contribution drops 30/30 → 29/30 and the median ideal moves under 2%.
+Same shape as v4 and for the same reason: which windows produce an ideal changed, so a batch must not mix the two rules in one median. A one-time migration (`calibration/v5SkipOffTargetReset`) clears every profile's *pending* batch only. Stored per-profile and global multipliers are deliberately left alone — the defect is per-window, and auto-calibration walks the value back within a few batches once capped windows stop contributing. Resetting would cost every well-dialled user several batches of reconvergence for a defect their data does not show: replayed over 30 D-Flow shots from a well-dialled machine, contribution drops 30/30 → 27/30 and the median ideal does not move at all (0.968 → 0.968).
 
 ## Limitations
 
