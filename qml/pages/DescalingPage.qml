@@ -76,7 +76,13 @@ T.Page {
         MainController.endDescaleHeaterHold()
     }
 
+    // focus: true alone is not enough — it marks the page as WANTING focus within its scope,
+    // and without the grab the key never reaches this handler (nor the StackView's, which is
+    // why Escape did nothing at all on macOS rather than popping the page). EspressoPage
+    // pairs the two the same way.
     focus: true
+    StackView.onActivated: descalingPage.forceActiveFocus()
+
     Keys.onReleased: function(event) {
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
             event.accepted = true
