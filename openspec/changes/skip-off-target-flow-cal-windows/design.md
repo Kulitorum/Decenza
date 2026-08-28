@@ -31,7 +31,7 @@ Three datasets, 75 shots. Measured with the SHIPPED rule — window selection un
 | this repo's DE1, 23 shots | 20 contribute, median 0.937, flow 0.72-1.90 ml/s | 14 contribute, median 0.886, flow 1.26-1.90 |
 | third user, 30 D-Flow shots (holds target; auto-cal OFF, C = 1.000) | 30 contribute, median 0.968, flow 1.22-1.71 | 27 contribute, median 0.968, flow 1.59-1.71 |
 | third user, 20 lever/pressure shots | 19 contribute, median 1.026 | identical — the pressure branch is untouched |
-| #1872 reporter, 2 shots | 2 contribute, median 1.193 (1.048 and 1.351) | 1 contributes, 1.048 |
+| #1872 reporter, 2 shots | 2 contribute, median 1.200 (1.048 and 1.351) | 1 contributes, 1.048 |
 
 The third user's median does not move at all, which is the result that matters for shipping. He is
 a CONTROL rather than a live user — auto flow calibration is off on his machine and his multiplier
@@ -58,7 +58,9 @@ multiplier — weight-flow / machine-flow ratio by operating point on this repo'
 - Stop feeding an operating point the profile never reaches into a constant that governs the one it
   does.
 - Leave every well-dialled user's numbers materially unchanged.
-- Keep the change small enough to reason about: one branch, one log line, one migration.
+- Correct the ideal FORMULA for flow-controlled windows, which converged on the square root of the
+  pump-model error rather than the error itself.
+- Record the multiplier each shot poured under, so a stored flow curve stays interpretable.
 
 **Non-Goals:**
 - Not changing window SELECTION (see below).
@@ -95,18 +97,18 @@ next person sees it was considered rather than missed.
 The flow branch's `ideal = weightFlow / (targetFlow * density)` is replaced by the expression the
 pressure branch already used, `ideal = currentFactor * weightFlow / (machineFlow * density)`.
 
-Write `k` for that second expression's value — the flow pump model's error, and the number the
+Write `e` for that second expression's value — the flow pump model's error, and the number the
 stored multiplier is meant to equal. Two behaviours are possible and they give opposite answers:
 
-- **Model B** — the multiplier scales REPORTING only. Then `weightFlow` does not respond to it, `k`
-  is proportional to the current multiplier, and iterating on `k` runs away. This is what v3
+- **Model B** — the multiplier scales REPORTING only. Then `weightFlow` does not respond to it, `e`
+  is proportional to the current multiplier, and iterating on `e` runs away. This is what v3
   asserted, and it is the reason the flow branch was given a target-anchored formula instead.
 - **Model A** — the DE1 servos its CALIBRATED flow, so a higher multiplier delivers less water.
-  Then `weightFlow` falls in proportion, `k` is invariant, and every batch's ideal is the target
+  Then `weightFlow` falls in proportion, `e` is invariant, and every batch's ideal is the target
   value itself.
 
 **The logs say model A**, on every machine with enough history to test it. Across three unrelated
-machines the stored multiplier moved 15-38% while `k` moved only 4-15% (cablecj74 +36% C / +5% k;
+machines the stored multiplier moved 15-38% while `e` moved only 4-15% (cablecj74 +36% C / +5% k;
 GCDE-VER1 +38% / +15%; the #1872 reporter +15% / +4%). `evidence/logscan.py` recovers this from
 submitted debug logs.
 
@@ -116,19 +118,19 @@ Under model A the two formulas are not independent: on a window holding target
 The multiplier is not set to the ideal directly — it is blended in at the batch EMA's
 `alpha = 0.5`. So the old rule's update is `C := (C + k/C) / 2`, which is **Babylonian
 square-root iteration**: `alpha = 0.5` is precisely the Babylonian coefficient. It settles on
-`sqrt(k)`, not `k`. (The damping is load-bearing. Applied undamped, `C := k/C` is a period-2 map
+`sqrt(e)`, not `e`. (The damping is load-bearing. Applied undamped, `C := k/C` is a period-2 map
 that oscillates forever and converges to nothing — so the square root is a property of the update
 as a whole, not of the formula alone.) That is exactly where flow-branch machines sit, while
-pressure-branch machines sit on `k`:
+pressure-branch machines sit on `e`:
 
-| machine | branch | k | sqrt(k) | converged C |
+| machine | branch | k | sqrt(e) | converged C |
 |---|---|---|---|---|
-| this repo's DE1 | flow | 0.737 | 0.858 | 0.8795 (+2.4% vs sqrt(k)) |
+| this repo's DE1 | flow | 0.737 | 0.858 | 0.8795 (+2.4% vs sqrt(e)) |
 | #1872 reporter | flow | 1.44 | 1.200 | 1.17 (-2.5%) |
 | mcastaldelli | pressure | 1.30 | — | 1.30 |
 | cablecj74 | pressure | 1.35 | — | 1.3555 |
 
-The sign of the error against `k` flips either side of `k = 1`, which is the signature of a square
+The sign of the error against `e` flips either side of `k = 1`, which is the signature of a square
 root and not of a constant bias.
 
 **What v2's runaway actually was.** Bad scale data reaching a formula with no ratio guards — the
@@ -137,9 +139,9 @@ changed the formula on top of that fix, so the formula change was never the thin
 
 **This is retrospective evidence and it has one clean falsification.** Two shots on one machine,
 same beans back to back, at deliberately different multipliers (e.g. 1.0 and 1.4). Under model A
-`k` comes out the same both times; under model B it moves with the multiplier. Run it before merge.
+`e` comes out the same both times; under model B it moves with the multiplier. Run it before merge.
 
-**Independent of the skip.** `k` still varies with flow RATE (the 48% table above), so a window must
+**Independent of the skip.** `e` still varies with flow RATE (the 48% table above), so a window must
 still be measured where the profile actually pours. The two changes compose; neither substitutes for
 the other.
 
@@ -148,9 +150,9 @@ the other.
 `e` is the DE1's pump-model error, not a sensor error: Decent removed the flowmeter and estimates
 flow open-loop from pump strokes
 ([blog](https://decentespresso.com/blog/perfectly_calibrating_decent_flow_measurements)). Recovered
-from submitted debug logs (`evidence/logscan.py`):
+from submitted debug logs (`evidence/logscan.py`). This table medians over EVERY window regardless of operating point, while the on-target table above restricts to windows that held their frame's target — same quantity, two populations, which is why a machine's two numbers differ:
 
-| user | volts | model | e median | e range | n |
+| user | volts | model | e median (ALL windows) | e range | n |
 |---|---|---|---|---|---|
 | this repo's DE1 | 120 | DE1+ | 0.83 | 0.64-1.08 | 22 |
 | GCDE-VER1 | (bad read) | — (pcb 1.0) | 1.03 | 0.96-1.19 | 15 |
@@ -224,9 +226,19 @@ cleared under a new key, `calibration/v5SkipOffTargetReset`.
 Inline in the `Settings` constructor (`src/core/settings.cpp`), following the v4 block immediately
 above it:
 
-1. Gate on the absence of `calibration/v5SkipOffTargetReset`.
-2. Call `SettingsCalibration::clearAllFlowCalPendingIdeals()` — the same API v4 uses.
-3. Log the action in the style of the adjacent v2/v3/v4 lines.
-4. Commit the flag through `commitFlowCalMigrationFlag()`.
+**Two settings migrations, one schema migration.**
+
+Settings, both through the shared `clearPendingBatchesOnce()` lambda introduced here so a future v7
+cannot quietly drop the fresh-install guard or the flag commit:
+
+1. `calibration/v5SkipOffTargetReset` — off-target windows now produce no ideal.
+2. `calibration/v6UnifiedIdealFormula` — both control modes now compute the same ideal.
+
+Each clears the pending accumulator only; stored multipliers are not reset.
+
+Schema: migration 39 adds `shots.flow_calibration`. The version bump is gated on the column being
+present — it is a schema fact, and every reader names it, so an absent column fails every shot load
+and save rather than merely losing the new field. The probe distinguishes "the PRAGMA failed" from
+"the column is absent" and changes nothing in the first case.
 
 No schema change, no shot-history migration, nothing to roll back.

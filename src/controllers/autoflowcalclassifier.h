@@ -63,6 +63,20 @@ constexpr double kAutoFlowCalMinFlowTarget = 0.1;
 /// assert against can't silently diverge.
 constexpr double kAutoFlowCalDeviationThreshold = 0.10;
 
+/// EMA weight applied to a completed batch's median when updating the stored
+/// multiplier: `C := (1 - alpha) * C + alpha * median`. Named here rather than
+/// left function-local in `computeAutoFlowCalibration()` for the same reason as
+/// the threshold above — the tests that assert what this update CONVERGES TO
+/// would otherwise re-type the number, and a changed alpha would leave them
+/// green while changing the answer.
+///
+/// It is not a speed knob. At 0.5 the pre-v6 target-anchored ideal made this
+/// update Babylonian square-root iteration, which is why flow-profile machines
+/// settled on the square root of their pump-model error; undamped, the same
+/// update does not converge at all. See docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md,
+/// "Why the pre-v6 formula converged on sqrt(e)".
+constexpr double kAutoFlowCalBatchEmaAlpha = 0.5;
+
 /// True if `frame` counts as an active flow-controlled anchor for auto flow
 /// calibration purposes: pump control is flow AND its target is above the
 /// no-op threshold.
@@ -146,7 +160,7 @@ struct AutoFlowCalTargetCheck {
  * operating points. Measured on one DE1 at a fixed multiplier, the ratio of
  * scale weight flow to reported machine flow runs 0.76 at 1.9 mL/s and 1.13
  * at 0.72 mL/s — so a capped window and a target-met window on the same
- * profile disagree by 30-40%.
+ * profile disagree by up to 48%.
  *
  * The achieved-flow (pressure-branch) formula is NOT the answer here, though
  * it was used that way between 2.0.4 and this change: it does not remove that
@@ -197,13 +211,12 @@ AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
  *    across three unrelated machines the stored multiplier moved 15-38% while
  *    this expression moved 4-15%.
  *
- * Flow-controlled windows used a different expression until v6,
- * `weightFlow / (targetFlow * density)`. On a window holding target that
- * equals `ideal / currentFactor`, and blending it in at the batch EMA's alpha
- * of 0.5 is Babylonian square-root iteration — so it settled on the SQUARE ROOT
- * of the pump-model error rather than the error itself, which is where
- * flow-profile machines were observed to sit. See
- * `openspec/changes/skip-off-target-flow-cal-windows/design.md`.
+ * Flow-controlled windows used `weightFlow / (targetFlow * density)` until v6.
+ * Why that was replaced, and why it converged on the SQUARE ROOT of the error
+ * rather than the error, is in docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md under
+ * "Why the pre-v6 formula converged on sqrt(e)". It is worth reading before
+ * changing this: the expression it replaced was chosen from a plausible
+ * argument that the measurements do not support.
  *
  * No clamping, no guards: callers apply the window ratio guards and
  * `kCalibrationMin`/`kCalibrationMax` bounds themselves. Returns a non-finite

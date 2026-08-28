@@ -3392,6 +3392,29 @@ T.ApplicationWindow {
     }
     StatusToast { id: steamHeaterOffToast }
 
+    // Auto flow calibration changed the multiplier the machine pours at. The
+    // signal existed and nothing listened to it, so the one setting that changes
+    // how much water a profile actually delivers moved silently — and since the
+    // DE1 servos its CALIBRATED flow, a shift here shifts shot times at the same
+    // grind. A courtesy toast, not a dialog: it is a correction working as
+    // designed, and the number is in Settings if anyone wants it.
+    Tr {
+        id: trFlowCalUpdated
+        key: "calibration.toast.flowCalUpdated"
+        fallback: "Flow calibration for %1 updated: %2 → %3"
+        visible: false
+    }
+    StatusToast { id: flowCalUpdatedToast }
+    Connections {
+        target: MainController
+        function onFlowCalibrationAutoUpdated(profileTitle, oldValue, newValue) {
+            flowCalUpdatedToast.show(trFlowCalUpdated.text
+                .replace("%1", profileTitle)
+                .replace("%2", oldValue.toFixed(3))
+                .replace("%3", newValue.toFixed(3)))
+        }
+    }
+
     // Recipe relink toast (recipe-bag-lifecycle): every automatic recipe
     // move — roll-on-finish or wake-on-restock — is silent (no dialog, no
     // setting) but announced with a courtesy toast naming the count and the

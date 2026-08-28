@@ -2121,24 +2121,44 @@ bool ShotHistoryStorage::runMigrations()
             qWarning() << "ShotHistoryStorage: migration 39 could not start a transaction"
                           " - will retry next launch";
         } else {
-            if (!hasColumn("shots", "flow_calibration")
-                && !query.exec("ALTER TABLE shots ADD COLUMN flow_calibration REAL"))
-                qWarning() << "ShotHistoryStorage: migration 39 add shots.flow_calibration failed -"
-                           << query.lastError().text();
-
-            // Gated on the column being present: it is a schema fact, and every
-            // reader below selects it by name. Both halves of the stamp are
-            // checked — a DELETE that commits without its INSERT leaves
-            // schema_version empty, which is not recoverable.
-            bool ok = hasColumn("shots", "flow_calibration");
-            if (ok)
-                ok = query.exec("DELETE FROM schema_version")
-                     && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (39)"));
-            if (ok && txn.commit()) {
-                currentVersion = 39;
-                qDebug() << "ShotHistoryStorage: migration 39 complete";
+            // columnPresent(), not hasColumn(): the latter collapses "the PRAGMA
+            // failed" onto "the column is absent", and here that conflation is
+            // not survivable. On a failed PRAGMA the ALTER would run (and might
+            // succeed), the verdict below would still read false, the version
+            // would never stamp — so migration 40 and every later one would
+            // never run either — and each launch would log a self-contradicting
+            // pair: "duplicate column name" beside "incomplete, will retry".
+            // Not knowing is its own outcome: change nothing and try again.
+            const std::optional<bool> before = columnPresent("shots", "flow_calibration");
+            if (!before.has_value()) {
+                qWarning() << "ShotHistoryStorage: migration 39 could not determine whether"
+                              " shots.flow_calibration exists - leaving the schema untouched"
+                              " and retrying next launch";
             } else {
-                qWarning() << "ShotHistoryStorage: migration 39 incomplete - will retry next launch";
+                if (!*before
+                    && !query.exec("ALTER TABLE shots ADD COLUMN flow_calibration REAL"))
+                    qWarning() << "ShotHistoryStorage: migration 39 add shots.flow_calibration failed -"
+                               << query.lastError().text();
+
+                // Gated on the column being present: it is a schema fact, and
+                // every reader below selects it by name — loadShotRecordStatic
+                // and saveShotStatic both name it unconditionally, so an absent
+                // column does not merely lose this field, it fails every shot
+                // load and every shot save. Both halves of the stamp are checked
+                // — a DELETE that commits without its INSERT leaves
+                // schema_version empty, which is not recoverable.
+                bool ok = columnPresent("shots", "flow_calibration").value_or(false);
+                if (ok)
+                    ok = query.exec("DELETE FROM schema_version")
+                         && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (39)"));
+                if (ok && txn.commit()) {
+                    currentVersion = 39;
+                    qDebug() << "ShotHistoryStorage: migration 39 complete";
+                } else {
+                    qWarning() << "ShotHistoryStorage: migration 39 incomplete - will retry"
+                                  " next launch (shot history cannot load or save until it"
+                                  " completes: every query names shots.flow_calibration)";
+                }
             }
         }
     }

@@ -286,6 +286,48 @@ void SettingsCalibration::clearFlowCalPendingIdeals(const QString& profileFilena
     m_settings.setValue("calibration/flowCalBatch", QJsonDocument(map).toJson(QJsonDocument::Compact));
 }
 
+namespace {
+// Same shape as flowCalBatch beside it: one settings key holding a
+// profile -> {count, reason} map, parsed on read. Kept separate from the batch
+// so clearing a batch (which every formula migration does) does not erase the
+// evidence that a profile is being rejected — those are independent facts.
+QJsonObject parseFlowCalRejections(const QSettings& s) {
+    return QJsonDocument::fromJson(
+               s.value("calibration/flowCalRejections", "{}").toString().toUtf8())
+        .object();
+}
+}  // namespace
+
+int SettingsCalibration::flowCalRejectedShots(const QString& profileFilename) const {
+    return parseFlowCalRejections(m_settings).value(profileFilename).toObject()
+        .value("count").toInt(0);
+}
+
+QString SettingsCalibration::flowCalLastRejectionReason(const QString& profileFilename) const {
+    return parseFlowCalRejections(m_settings).value(profileFilename).toObject()
+        .value("reason").toString();
+}
+
+void SettingsCalibration::noteFlowCalRejection(const QString& profileFilename,
+                                               const QString& reason) {
+    QJsonObject map = parseFlowCalRejections(m_settings);
+    QJsonObject entry = map.value(profileFilename).toObject();
+    entry["count"] = entry.value("count").toInt(0) + 1;
+    entry["reason"] = reason;
+    map[profileFilename] = entry;
+    m_settings.setValue("calibration/flowCalRejections",
+                        QJsonDocument(map).toJson(QJsonDocument::Compact));
+}
+
+void SettingsCalibration::clearFlowCalRejections(const QString& profileFilename) {
+    QJsonObject map = parseFlowCalRejections(m_settings);
+    if (!map.contains(profileFilename))
+        return;  // Don't rewrite the key on every successful shot.
+    map.remove(profileFilename);
+    m_settings.setValue("calibration/flowCalRejections",
+                        QJsonDocument(map).toJson(QJsonDocument::Compact));
+}
+
 void SettingsCalibration::clearAllFlowCalPendingIdeals() {
     // No JSON round-trip needed: unlike perProfileFlow, flowCalBatch has no
     // in-memory cache to keep in sync, and parseFlowCalBatch() already

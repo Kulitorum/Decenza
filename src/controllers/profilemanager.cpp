@@ -523,6 +523,11 @@ void ProfileManager::latchForShot() {
     m_shotLatched = false;
     m_latchedDoseG = m_settings ? m_settings->dye()->dyeBeanWeight() : 0.0;
     m_latchedTargetG = targetWeight();
+    // Assigned unconditionally, like the dose above: leaving it inside the
+    // `if (m_settings)` let the PREVIOUS shot's value survive into a new latch,
+    // which is the inheritance the consume exists to prevent, reached a second
+    // way. 0.0 is the honest answer when there are no settings to read.
+    m_latchedFlowCalibration = 0.0;
     if (m_settings) {
         m_latchedYieldMode = m_settings->brew()->brewYieldMode();
         m_latchedYieldAnchorValue = m_settings->brew()->brewYieldOverride();

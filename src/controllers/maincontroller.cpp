@@ -5,6 +5,7 @@
 #include <QUuid>
 #include "shottimingcontroller.h"
 #include "autoflowcalclassifier.h"
+#include "calibrationlogging.h"
 #include "abortedshotclassifier.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
@@ -3027,20 +3028,46 @@ void MainController::applyFlowCalibration() {
     m_profileManager->applyFlowCalibration();
 }
 
-void MainController::computeAutoFlowCalibration() {
+void MainController::noteAutoFlowCalRejection(const QString& profileName,
+                                              const QString& reason) {
+    if (!m_settings || profileName.isEmpty())
+        return;
+    auto* cal = m_settings->calibration();
+    cal->noteFlowCalRejection(profileName, reason);
+
+    // Per-shot skips are already logged at DEBUG where they happen. What has
+    // never been visible anywhere is the CUMULATIVE case: a profile that can
+    // never calibrate looks exactly like one that has simply not been pulled
+    // yet. Once a full batch's worth of shots has been rejected in a row, that
+    // is no longer a run of bad luck, and it is a user-audience fact — so INFO,
+    // which is the tier the connections views actually show.
+    const int rejected = cal->flowCalRejectedShots(profileName);
+    if (rejected == SettingsCalibration::kFlowCalBatchSize) {
+        CAL_INFO("AutoFlow") << "no usable calibration window on the last" << rejected
+                             << "shots of" << profileName << "—" << reason
+                             << "; the multiplier will not move until this changes";
+    }
+}
+
+void MainController::computeAutoFlowCalibration(double pouredMultiplier) {
     if (!m_settings || !m_shotDataModel) {
-        qWarning() << "Auto flow cal: skipped due to null pointer"
+        CAL_WARN("AutoFlow") << "skipped due to null pointer"
                    << "(settings:" << (m_settings != nullptr)
                    << "shotDataModel:" << (m_shotDataModel != nullptr) << ")";
         return;
     }
     if (!m_settings->calibration()->autoFlowCalibration()) {
-        qDebug() << "Auto flow cal: disabled in settings";
+        CAL_DETAIL("AutoFlow") << "disabled in settings";
         return;
     }
 
-    if (m_profileManager->baseProfileName().isEmpty()) {
-        qDebug() << "Auto flow cal: skipped (no profile name set)";
+    // Read once. The multiplier the ideal is computed against and the key the
+    // result is stored under must not be two independent reads 400 lines apart.
+    const QString profileName = m_profileManager->baseProfileName();
+    const double currentEffective =
+        m_settings->calibration()->effectiveFlowCalibration(profileName);
+    if (profileName.isEmpty()) {
+        CAL_DETAIL("AutoFlow") << "skipped (no profile name set)";
         return;
     }
 
@@ -3051,13 +3078,13 @@ void MainController::computeAutoFlowCalibration() {
                             && m_bleManager->scaleDevice()->isConnected()
                             && m_bleManager->scaleDevice()->type() != "flow";
     if (!hasPhysicalScale) {
-        qDebug() << "Auto flow cal: skipped (no physical BLE scale connected)";
+        CAL_DETAIL("AutoFlow") << "skipped (no physical BLE scale connected)";
         return;
     }
 
     const auto& weightFlowData = m_shotDataModel->weightFlowRateData();
     if (weightFlowData.isEmpty()) {
-        qDebug() << "Auto flow cal: skipped (no scale weight data)";
+        CAL_DETAIL("AutoFlow") << "skipped (no scale weight data)";
         return;
     }
 
@@ -3067,7 +3094,7 @@ void MainController::computeAutoFlowCalibration() {
     double weightAtStop = m_shotDataModel->weightAtStop();
     double finalWeight = m_shotDataModel->finalWeight();
     if (weightAtStop > 5.0 && finalWeight > 0 && finalWeight < weightAtStop - 3.0) {
-        qDebug() << "Auto flow cal: skipped (weight dropped after stop:"
+        CAL_DETAIL("AutoFlow") << "skipped (weight dropped after stop:"
                  << weightAtStop << "g ->" << finalWeight << "g,"
                  << "delta:" << (weightAtStop - finalWeight) << "g — likely stream force artifact)";
         return;
@@ -3076,7 +3103,7 @@ void MainController::computeAutoFlowCalibration() {
     const auto& flowData = m_shotDataModel->flowData();
     const auto& pressureData = m_shotDataModel->pressureData();
     if (flowData.size() < 10 || pressureData.size() < 10) {
-        qDebug() << "Auto flow cal: skipped (insufficient data - flow:"
+        CAL_DETAIL("AutoFlow") << "skipped (insufficient data - flow:"
                  << flowData.size() << "pressure:" << pressureData.size() << ")";
         return;
     }
@@ -3112,7 +3139,6 @@ void MainController::computeAutoFlowCalibration() {
     // and Kulitorum/Decenza#1823. Named in autoflowcalclassifier.h, not
     // re-typed as a literal here, so this constant and the values
     // tst_autoflowcal.cpp asserts against can't silently diverge.
-    constexpr double kFlowTargetDeviationThreshold = kAutoFlowCalDeviationThreshold;
     constexpr double kMaxSampleRatio = 2.5;          // per-sample machine/weight ratio — break window on extreme outliers
     constexpr double kMinSampleRatio = 0.4;          // (generous bounds: window-level check is tighter)
     constexpr double kMaxWindowRatio = 1.35;         // window-mean machine/weight ratio — reject if scale data is suspect
@@ -3260,7 +3286,9 @@ void MainController::computeAutoFlowCalibration() {
 
     double windowDuration = bestEnd - bestStart;
     if (windowDuration < kMinWindowDuration || bestCount < kMinWindowSamples) {
-        qDebug() << "Auto flow cal: no qualifying steady window found"
+        noteAutoFlowCalRejection(profileName,
+            QStringLiteral("no stretch of the shot held pressure steady long enough to measure"));
+        CAL_DETAIL("AutoFlow") << "no qualifying steady window found"
                  << "(duration:" << windowDuration << "samples:" << bestCount
                  << "flowInterpolationMisses:" << mfMissCount << ")";
         return;
@@ -3270,28 +3298,30 @@ void MainController::computeAutoFlowCalibration() {
     double meanWeightFlow = bestSumWF / bestCount;
     double windowRatio = meanMachineFlow / meanWeightFlow;
 
-    qDebug() << "Auto flow cal: steady window found"
+    CAL_DETAIL("AutoFlow") << "steady window found"
              << "t=" << bestStart << "-" << bestEnd << "(" << windowDuration << "s,"
              << bestCount << "samples)"
              << "meanMachineFlow=" << meanMachineFlow
              << "meanWeightFlow=" << meanWeightFlow
              << "ratio=" << windowRatio
-             << "currentFactor=" << m_settings->calibration()->effectiveFlowCalibration(m_profileManager->baseProfileName());
+             << "currentFactor=" << currentEffective;
 
     // Guard against division by zero. Should be impossible since every sample
     // in the window passed the kMinWeightFlow (0.5 g/s) check.
     if (meanWeightFlow < 0.001) {
-        qWarning() << "Auto flow cal: meanWeightFlow unexpectedly low ("
+        CAL_WARN("AutoFlow") << "meanWeightFlow unexpectedly low ("
                    << meanWeightFlow << ") after qualifying window";
         return;
     }
 
-    // Classify the pump-control mode active during the steady window.
-    // For flow frames, the DE1's PID locks reported flow to the target
-    // regardless of the calibration factor, which creates a feedback loop
-    // if we use reported flow in the formula (factor drifts down over time).
-    // For pressure frames, reported flow IS the pump model's estimate and is the
-    // right anchor. Hybrid profiles (e.g. ASL9-3 — pressure declines + a
+    // Classify the pump-control mode active during the steady window. Since v6
+    // this selects the off-target check (flow windows only), NOT the formula —
+    // both modes compute the same ideal.
+    //
+    // It does NOT mean what a comment here used to say: that anchoring a flow
+    // window to reported flow "creates a feedback loop, factor drifts down over
+    // time". That was v3's premise, and v6 exists because it is wrong — see
+    // docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md, "v3 Migration". Hybrid profiles (e.g. ASL9-3 — pressure declines + a
     // flow-controlled tail) need window-level classification: the steady
     // window almost always lands in the pressure declines, so anchoring to
     // the tail's flow target produces false rejections and spurious
@@ -3314,7 +3344,7 @@ void MainController::computeAutoFlowCalibration() {
         steps, transitions, bestStart, bestEnd, meanMachineFlow);
 
     if (cls.mixedMode) {
-        qDebug() << "Auto flow cal: window spans mixed flow/pressure frames"
+        CAL_DETAIL("AutoFlow") << "window spans mixed flow/pressure frames"
                  << "[" << cls.firstFrameInWindow << ".." << cls.lastFrameInWindow << "]"
                  << "— skipping (ambiguous target)";
         return;
@@ -3341,12 +3371,12 @@ void MainController::computeAutoFlowCalibration() {
         if (isFlowProfile) {
             profileTargetFlow = pickClosestFlowTarget(steps, remainingIndices, meanMachineFlow);
         }
-        qDebug() << "Auto flow cal: no phase markers — profile-level scan"
+        CAL_DETAIL("AutoFlow") << "no phase markers — profile-level scan"
                  << "mode:" << (isFlowProfile ? "flow" : "pressure");
     } else {
         isFlowProfile = cls.isFlowProfile;
         profileTargetFlow = cls.targetFlow;
-        qDebug() << "Auto flow cal: window mode="
+        CAL_DETAIL("AutoFlow") << "window mode="
                  << (isFlowProfile ? "flow" : "pressure")
                  << "frames=[" << cls.firstFrameInWindow
                  << ".." << cls.lastFrameInWindow << "]"
@@ -3367,7 +3397,7 @@ void MainController::computeAutoFlowCalibration() {
     // flow rises monotonically as flow falls — 0.76 at 1.9 ml/s, 1.03 at
     // 1.1 ml/s, 1.13 at 0.72 ml/s, a 48% swing with no calibration change.
     // A capped window and a target-met window on the same profile therefore
-    // yield ideals ~30-40% apart, and averaging them into one median is what
+    // yield ideals up to 48% apart, and averaging them into one median is what
     // makes the stored multiplier wander (Kulitorum/Decenza#1872).
     //
     // This block used to RE-ROUTE such a window through the achieved-flow
@@ -3386,104 +3416,80 @@ void MainController::computeAutoFlowCalibration() {
     // genuinely flow-controlled.
     if (isFlowProfile) {
         AutoFlowCalTargetCheck targetCheck = autoFlowCalWindowTargetCheck(
-            meanMachineFlow, profileTargetFlow, kFlowTargetDeviationThreshold);
+            meanMachineFlow, profileTargetFlow, kAutoFlowCalDeviationThreshold);
         if (targetCheck.missedTarget) {
-            qDebug() << "Auto flow cal: flow window missed target — measured"
+            CAL_DETAIL("AutoFlow") << "flow window missed target — measured"
                      << meanMachineFlow << "ml/s vs target" << profileTargetFlow << "ml/s"
                      << "(" << (targetCheck.deviation * 100.0) << "% deviation, threshold"
-                     << (kFlowTargetDeviationThreshold * 100.0) << "%)"
+                     << (kAutoFlowCalDeviationThreshold * 100.0) << "%)"
                      << "— skipping (window measured a flow rate this profile does not pour at)";
+            noteAutoFlowCalRejection(profileName,
+                QStringLiteral("every recent shot missed the frame's target flow — the pour is "
+                               "capping before it reaches %1 ml/s").arg(profileTargetFlow));
             return;
         }
     }
     // Reports which control mode the window was in. Both modes now compute the
-    // SAME ideal; this label distinguishes which ratio guard ran, not which
-    // formula.
+    // same ideal, so this is a diagnostic label, not a formula selector.
     const QString windowModeLabel = isFlowProfile
         ? QStringLiteral("flow")
         : QStringLiteral("pressure");
 
-    // The ratio guard is the only thing left that keys off isFlowProfile. It
-    // stays one combined if/else rather than two separate checks on the same
-    // flag — two independent checks is exactly the shape that lets a future
-    // edit change one branch's condition while leaving the other, silently
-    // ratio-checking a window against a target it never reached.
-    double currentEffective = m_settings->calibration()->effectiveFlowCalibration(m_profileManager->baseProfileName());
-    if (isFlowProfile) {
-        // Compare weight flow against the profile's known target flow
-        // (density-adjusted) rather than against the machine's reported flow,
-        // which is servoed to target and therefore cannot reveal a bad scale.
-        // Reject windows outside [0.75, 1.35] — channeling, scale problems, or
-        // other extraction anomalies.
-        double flowProfileRatio = (profileTargetFlow * kWaterDensity93C) / meanWeightFlow;
-        if (flowProfileRatio > kMaxWindowRatio || flowProfileRatio < kMinWindowRatio) {
-            qDebug() << "Auto flow cal: flow profile ratio" << flowProfileRatio
-                     << "(target" << profileTargetFlow << "vs weight" << meanWeightFlow << ")"
-                     << "outside bounds [" << kMinWindowRatio << "," << kMaxWindowRatio << "]"
-                     << "- skipping (extraction anomaly)";
-            return;
-        }
-    } else {
-        // Compare machine vs weight flow. Reject windows outside [0.75, 1.35]
-        // — scale data suspect.
-        if (windowRatio > kMaxWindowRatio || windowRatio < kMinWindowRatio) {
-            qDebug() << "Auto flow cal: window ratio" << windowRatio
-                     << "outside bounds [" << kMinWindowRatio << "," << kMaxWindowRatio << "]"
-                     << "- skipping (scale data suspect)";
-            return;
-        }
+    // ONE ratio guard for both modes, on the two quantities the formula below
+    // actually divides. Reject a window where reported flow and the scale's
+    // weight flow disagree beyond [0.75, 1.35] — channeling, a slipping scale,
+    // a cup knocked mid-pour.
+    //
+    // This used to be two guards, the flow arm comparing the frame's TARGET
+    // against weight flow. That pairing was closed while the flow branch
+    // computed weightFlow/(targetFlow*density): the guard bounded that ideal by
+    // construction. v6 divides by meanMachineFlow instead, which a
+    // target-vs-weight guard never constrained — and since the off-target check
+    // above is deliberately undershoot-only, an OVERSHOOTING window could pass
+    // it and still drive the ideal arbitrarily low. Guarding the formula's own
+    // inputs closes that, and drops the two arms' unstated density asymmetry
+    // (one divided by 0.963, the other did not) at the same time.
+    if (windowRatio > kMaxWindowRatio || windowRatio < kMinWindowRatio) {
+        CAL_DETAIL("AutoFlow") << windowModeLabel << "window ratio" << windowRatio
+                 << "(reported" << meanMachineFlow << "ml/s vs weight" << meanWeightFlow
+                 << "g/s) outside bounds [" << kMinWindowRatio << "," << kMaxWindowRatio
+                 << "] - skipping (scale data or extraction suspect)";
+        noteAutoFlowCalRejection(profileName,
+            QStringLiteral("machine and scale disagreed on how much water was flowing"));
+        return;
     }
 
-    // ONE formula, both control modes:
+    // One formula, both control modes:
     //
-    //     ideal = currentFactor * weightFlow / (reportedFlow * density)
+    //     ideal = pouredMultiplier * weightFlow / (reportedFlow * density)
     //
-    // Reported flow already carries the current multiplier, so dividing it back
-    // out recovers the model's own estimate, and the expression evaluates to the
-    // model's error — the ratio of water actually delivered to water the model
-    // says was delivered, which is the number the multiplier is meant to BE. The
-    // DE1 has no flow meter: Decent removed it in favour of an open-loop physics
-    // model over pump strokes, so what is being corrected here is that model, not
-    // a sensor reading. It is
-    // the criterion Decent's own Graphical Flow Calibrator implements, where the
-    // operator nudges the multiplier until the reported-flow curve overlays the
-    // weight-flow curve.
+    // It evaluates to the DE1 pump model's error — water actually delivered
+    // over water the model says was delivered — which is the number the stored
+    // multiplier is meant to equal.
     //
-    // Flow-controlled windows used to take a different expression,
-    // `weightFlow / (targetFlow * density)`, justified as "independent of the
-    // current calibration factor" and so immune to a feedback loop. That
-    // justification requires the multiplier to affect only REPORTING. It does
-    // not: the DE1 servos its CALIBRATED flow, so raising the multiplier lowers
-    // the water actually delivered. Measured on three unrelated machines, the
-    // stored multiplier moved 15-38% while the expression above moved only
-    // 4-15% — it is the C-invariant one, and the old expression was not
-    // (openspec/changes/skip-off-target-flow-cal-windows/design.md).
+    // WHY this replaced the flow branch's target-anchored expression in v6, why
+    // the old one settled on the SQUARE ROOT of that error, and the measurements
+    // behind it: docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md, "Why the pre-v6
+    // formula converged on sqrt(e)". Read it before changing this line. The
+    // expression it replaced was chosen from a plausible argument the data does
+    // not support, and that argument is still persuasive on its face.
     //
-    // Given that, and a flow window holding its target (reportedFlow ~=
-    // targetFlow, which the off-target skip above now enforces), the old
-    // expression equals k/C where k is the pump model's error. The multiplier is not
-    // set to the ideal directly but blended in at kBatchEmaAlpha = 0.5 below,
-    // and `C := (C + k/C) / 2` is Babylonian square-root iteration — so the old
-    // rule settled on sqrt(k), not k. That is precisely where flow-profile
-    // machines landed: this repo's DE1 on 0.8795 against sqrt(0.737) = 0.858,
-    // and #1872's reporter on 1.17 against sqrt(1.44) = 1.200. Pressure-profile
-    // machines, already using this expression, landed on k itself. The damping
-    // is what makes it a square root rather than a 2-cycle; see
-    // tst_autoflowcal.cpp.
-    //
-    // The v2 runaway that motivated the split was bad scale data reaching an
-    // unguarded formula, not this formula. The per-sample and window ratio
-    // guards above are what fixed that, and they stay.
-    double ideal = autoFlowCalIdeal(
-        currentEffective, meanWeightFlow, meanMachineFlow, kWaterDensity93C);
-    if (isFlowProfile) {
-        qDebug() << "Auto flow cal: flow window on target — reported" << meanMachineFlow
-                 << "ml/s vs target" << profileTargetFlow << "ml/s, current factor"
-                 << currentEffective;
+    // pouredMultiplier is the shot-start latch rather than a live read:
+    // reportedFlow carries whatever multiplier was in effect DURING the pour, so
+    // pairing it with a value written mid-shot (the MCP flow_calibration tool
+    // does exactly that) would compute an ideal from two different calibrations.
+    const double formulaMultiplier =
+        pouredMultiplier > 0.0 ? pouredMultiplier : currentEffective;
+    if (pouredMultiplier <= 0.0) {
+        CAL_DETAIL("AutoFlow") << "no shot-start latch — falling back to the live"
+                 << "multiplier" << currentEffective
+                 << "(a calibration change during this shot would not be accounted for)";
     }
+    const double rawIdeal = autoFlowCalIdeal(
+        formulaMultiplier, meanWeightFlow, meanMachineFlow, kWaterDensity93C);
 
-    if (!std::isfinite(ideal)) {
-        qWarning() << "Auto flow cal: computed non-finite value" << ideal
+    if (!std::isfinite(rawIdeal)) {
+        CAL_WARN("AutoFlow") << "computed non-finite value" << rawIdeal
                    << "(meanMachineFlow:" << meanMachineFlow
                    << "meanWeightFlow:" << meanWeightFlow
                    << "profileTargetFlow:" << profileTargetFlow
@@ -3491,15 +3497,31 @@ void MainController::computeAutoFlowCalibration() {
         return;
     }
 
-    ideal = qBound(kCalibrationMin, ideal, kCalibrationMax);
+    // The clamp used to be unreachable on the flow branch: the old
+    // target-anchored expression was bounded to roughly [0.74, 1.33] by the
+    // ratio guard alone. v6's ideal scales with the current multiplier, so a
+    // legitimate window on an already-high machine can exceed the bound — and a
+    // silently clamped value entering the batch median is exactly the kind of
+    // number nobody can explain later. Report it.
+    double ideal = qBound(kCalibrationMin, rawIdeal, kCalibrationMax);
+    if (!qFuzzyCompare(ideal, rawIdeal)) {
+        CAL_WARN("AutoFlow") << "computed multiplier" << rawIdeal << "clamped to"
+                   << ideal << "— outside sanity bounds [" << kCalibrationMin << ","
+                   << kCalibrationMax << "]";
+    }
 
     // On v1337+ firmware, legitimate multipliers can exceed the classic 1.8 ceiling
     // (better pumps → higher genuine ratios). Warn so telemetry / user-visible UI can
     // flag shots where the computed value looks unusually high — helps catch scale bias
     // before it walks the calibration to absurd values.
+    //
+    // Tested against the RAW value, not the clamped one. Testing the clamped
+    // value destroyed the magnitude this warning exists to report, and on
+    // pre-1337 firmware kCalibrationMax is itself 1.8, so the condition could
+    // never fire at all on the machines it was written for.
     constexpr double kClassicCeiling = 1.8;
-    if (ideal > kClassicCeiling) {
-        qWarning() << "Auto flow cal: computed multiplier" << ideal
+    if (rawIdeal > kClassicCeiling) {
+        CAL_WARN("AutoFlow") << "computed multiplier" << rawIdeal
                    << "exceeds classic ceiling" << kClassicCeiling
                    << "— verify scale accuracy (firmware build:" << fwBuild << ")";
     }
@@ -3510,13 +3532,12 @@ void MainController::computeAutoFlowCalibration() {
     // ideal — producing oscillation instead of convergence. The median also provides
     // natural outlier rejection (runaway shots, channeling anomalies).
     constexpr qsizetype kBatchSize = SettingsCalibration::kFlowCalBatchSize;
-    constexpr double kBatchEmaAlpha = 0.5;  // Higher alpha is safe because median of N shots is more reliable
 
-    QString profileName = m_profileManager->baseProfileName();
     m_settings->calibration()->appendFlowCalPendingIdeal(profileName, ideal);
+    m_settings->calibration()->clearFlowCalRejections(profileName);
     QVector<double> pending = m_settings->calibration()->flowCalPendingIdeals(profileName);
 
-    qDebug() << "Auto flow cal: accumulated ideal" << ideal
+    CAL_DETAIL("AutoFlow") << "accumulated ideal" << ideal
              << "for" << profileName << "(" << pending.size() << "/" << kBatchSize << ")"
              << "window:" << windowDuration << "s," << bestCount << "samples"
              << "mode:" << windowModeLabel;
@@ -3535,11 +3556,10 @@ void MainController::computeAutoFlowCalibration() {
     // Clear the batch now that we've consumed it
     m_settings->calibration()->clearFlowCalPendingIdeals(profileName);
 
-    double alpha = kBatchEmaAlpha;
 
     // On first calibration for this profile, use median directly (no history to blend with)
     double computed = m_settings->calibration()->hasProfileFlowCalibration(profileName)
-        ? alpha * median + (1.0 - alpha) * currentEffective
+        ? kAutoFlowCalBatchEmaAlpha * median + (1.0 - kAutoFlowCalBatchEmaAlpha) * currentEffective
         : median;
 
     // Re-clamp after EMA. When the user has manually set the global multiplier above
@@ -3551,23 +3571,23 @@ void MainController::computeAutoFlowCalibration() {
 
     // Only update if meaningfully different (> 3% change)
     if (currentEffective > 0.01 && qAbs(computed - currentEffective) / currentEffective < kChangeThreshold) {
-        qDebug() << "Auto flow cal: batch median" << median << "≈ current" << currentEffective
+        CAL_INFO("AutoFlow") << "batch median" << median << "≈ current" << currentEffective
                  << "(computed" << computed << "< 3% change, skipping)";
         return;
     }
 
     double oldValue = currentEffective;
     if (!m_settings->calibration()->setProfileFlowCalibration(profileName, computed)) {
-        qWarning() << "Auto flow cal: computed value" << computed
+        CAL_WARN("AutoFlow") << "computed value" << computed
                    << "was rejected by settings for" << profileName;
         return;
     }
     applyFlowCalibration();
 
-    qDebug() << "Auto flow cal: updated" << profileName
+    CAL_INFO("AutoFlow") << "updated" << profileName
              << "from" << oldValue << "to" << computed
              << "(batch median:" << median << "from" << n << "ideals"
-             << "alpha:" << alpha
+             << "alpha:" << kAutoFlowCalBatchEmaAlpha
              << "mode:" << windowModeLabel << ")";
 
     emit flowCalibrationAutoUpdated(m_profileManager->currentProfile().title(), oldValue, computed);
@@ -3622,7 +3642,7 @@ void MainController::updateGlobalFromPerProfileMedian() {
     if (current > 0.01 && qAbs(median - current) / current < 0.02) return;
 
     m_settings->calibration()->setFlowCalibrationMultiplier(median);
-    qDebug() << "Auto flow cal: updated global to espresso median" << median
+    CAL_INFO("AutoFlow") << "updated global to espresso median" << median
              << "from" << values.size() << "espresso profiles"
              << "(" << map.size() << "total in map)";
 }
@@ -4025,6 +4045,19 @@ void MainController::onShotEnded() {
         }
     }
 
+    // Take the flow-cal latch NOW, before any early return below can skip the
+    // save path. The latch is armed from espressoCycleStarted unconditionally
+    // (main.cpp), so a maintenance rinse or a cycle that never extracted arms it
+    // too; if those returned without clearing it, the NEXT shot whose cycle-start
+    // was missed would stamp this cycle's multiplier — from a different profile,
+    // with nothing in the record to say so. Reading and clearing in one place
+    // makes "the value belongs to exactly the shot that latched it" a property of
+    // the code rather than of which return happened to run.
+    const double shotFlowCalibration =
+        m_profileManager ? m_profileManager->latchedFlowCalibration() : 0.0;
+    if (m_profileManager)
+        m_profileManager->consumeFlowCalibrationLatch();
+
     // Only process espresso shots that actually extracted
     if (!m_extractionStarted || !m_settings || !m_shotDataModel) {
         // Stop debug logging even if we don't save
@@ -4107,7 +4140,7 @@ void MainController::onShotEnded() {
 
     // Auto flow calibration: compute per-profile multiplier from this shot's data.
     // Must run before stopCapture() so its debug output is included in the shot log.
-    computeAutoFlowCalibration();
+    computeAutoFlowCalibration(shotFlowCalibration);
 
     // Shot-end epoch for the visualizer upload. A local captured by value into
     // the save callback below, alongside duration/finalWeight/metadata/debugLog
@@ -4138,16 +4171,12 @@ void MainController::onShotEnded() {
     // alongside the resolved grams in shotTargetWeight (what ran).
     metadata.yieldMode = shotYieldMode;
     metadata.yieldAnchorValue = shotYieldAnchorValue;
-    // The multiplier this shot POURED under, from the shot-start latch — not a
-    // live read. computeAutoFlowCalibration() ran a few lines above and may
-    // have just written a new per-profile value; recording that would claim the
-    // shot ran at a multiplier it produced.
-    //
-    // Consumed here, so the value can only ever be claimed by the shot that
-    // latched it: a shot whose cycle-start transition was missed reads 0 and
-    // records NULL ("not recorded") instead of inheriting its predecessor's.
-    metadata.flowCalibration = m_profileManager->latchedFlowCalibration();
-    m_profileManager->consumeFlowCalibrationLatch();
+    // The multiplier this shot POURED under, taken and cleared above before any
+    // early return could skip it. Not a live read: computeAutoFlowCalibration()
+    // ran earlier in this function and may have just written a new per-profile
+    // value, and recording that would claim the shot ran at a multiplier it
+    // produced. 0 here means the shot never latched, and saves as NULL.
+    metadata.flowCalibration = shotFlowCalibration;
 
     // For volume/timer-based profiles (targetWeight=0), use the actual final weight
     // so favorites can restore a meaningful yield target

@@ -106,6 +106,24 @@ public:
     void appendFlowCalPendingIdeal(const QString& profileFilename, double ideal);
     void clearFlowCalPendingIdeals(const QString& profileFilename);
 
+    // Consecutive shots on this profile that produced NO calibration ideal, and
+    // why the most recent one didn't.
+    //
+    // The pending-ideal count alone cannot distinguish "this profile is new" from
+    // "every shot on this profile is rejected and always will be" — and those need
+    // opposite advice. A profile whose pours never reach the frame's target flow
+    // (a pressure-capped D-Flow on too fine a grind) accumulates nothing,
+    // permanently, while `pendingAutoCalShots == 0` reads as "just getting
+    // started". Counting the rejections is what lets a user, or the assistant
+    // reading their log, tell the difference.
+    //
+    // Reset by a successful accumulate, so it is a run of consecutive failures
+    // rather than a lifetime tally.
+    int flowCalRejectedShots(const QString& profileFilename) const;
+    QString flowCalLastRejectionReason(const QString& profileFilename) const;
+    void noteFlowCalRejection(const QString& profileFilename, const QString& reason);
+    void clearFlowCalRejections(const QString& profileFilename);
+
     // Reset all per-profile flow calibrations to empty (used by one-shot migrations).
     void resetAllProfileFlowCalibrations();
 

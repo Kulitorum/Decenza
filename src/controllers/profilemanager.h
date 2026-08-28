@@ -271,19 +271,22 @@ public:
     // if this shot never latched one.
     //
     // Latched rather than read at save time because
-    // MainController::computeAutoFlowCalibration() runs at shot end BEFORE the
-    // save (maincontroller.cpp:4079 vs :4267) and can write a new per-profile
-    // multiplier first — a save-time read would record a value the shot never
-    // ran under, and only on the shots where it changed.
+    // MainController::computeAutoFlowCalibration() runs at shot end BEFORE
+    // MainController::onShotEnded() reaches its saveShot() call, and can write a
+    // new per-profile multiplier first — a save-time read would record a value
+    // the shot never ran under, and only on the shots where it changed. (Cited
+    // by symbol on purpose: line numbers into that 4,000-line file have already
+    // rotted twice in this change's own history.)
     //
-    // CONSUMABLE, unlike the yield snapshot beside it: the save path calls
-    // consumeFlowCalibrationLatch() after reading, so a value belongs to
-    // exactly the shot that latched it. Without that, a shot whose
-    // espressoCycleStarted transition was missed (machinestate.cpp's
-    // "machine skipped preheating (missed BLE substate notification)" case)
-    // would reach the save with the PREVIOUS shot's multiplier still latched
-    // and stamp it as its own — a measurement nobody took, in the one column
-    // whose whole purpose is knowing which measurements were taken.
+    // CONSUMABLE, unlike the yield snapshot beside it. onShotEnded() reads and
+    // clears it in one place, before any of its early returns, so a value can
+    // only ever be claimed by the shot that latched it. That matters because
+    // latchForShot() is armed from espressoCycleStarted unconditionally, which
+    // includes cycles that never reach the save at all — a maintenance rinse, or
+    // a start-then-stop before extraction. If those left the latch armed, the
+    // next shot whose cycle-start went unseen would stamp their multiplier,
+    // possibly from a different profile: a measurement nobody took, in the one
+    // column whose whole purpose is knowing which measurements were taken.
     //
     // 0.0 therefore means "not recorded" for this shot, and 1.0 is a real
     // multiplier that must never stand in for it.

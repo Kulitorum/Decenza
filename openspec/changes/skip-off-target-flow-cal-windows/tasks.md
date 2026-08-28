@@ -41,7 +41,7 @@
 - [x] 7.2 Extract `autoFlowCalSensorIdeal()` into `autoflowcalclassifier.{h,cpp}` beside `autoFlowCalWindowTargetCheck()` — a pure expression next to the other pure predicate, and the only way this formula gets test coverage given `computeAutoFlowCalibration()` has no harness.
 - [x] 7.3 Keep both ratio guards branch-specific and unchanged; only the formula is unified. Note that the flow guard's bounds now constrain the ideal's ratio to the current multiplier rather than its absolute value — `kCalibrationMin`/`kCalibrationMax` still bound the absolute.
 - [x] 7.4 Rename `formulaModeLabel` → `windowModeLabel`. With one formula the old name is a false statement in two log lines.
-- [x] 7.5 v6 migration (`calibration/v6SensorFormulaBothModes`), pending batches only, same reasoning as v4/v5.
+- [x] 7.5 v6 migration (`calibration/v6UnifiedIdealFormula`), pending batches only, same reasoning as v4/v5.
 - [x] 7.6 Correct v3's premise where it is stated as fact: the comment block in `settings.cpp` and the "v3 Migration" section of `AUTO_FLOW_CALIBRATION.md`. Left as annotated history rather than deleted — the premise reads as settled and would otherwise be re-derived from the comment.
 - [x] 7.7 Correct the two stale claims in `autoflowcalclassifier.h`'s doc comments that named the target-anchored formula as current.
 - [x] 7.8 Tests in `tst_autoflowcal.cpp`: fixed point, invariance under the current multiplier (with the superseded expression asserted NOT invariant in the same slot), and the sqrt fixed point demonstrated by iterating the old rule to convergence.

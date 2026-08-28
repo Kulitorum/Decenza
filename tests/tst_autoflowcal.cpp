@@ -369,9 +369,11 @@ private slots:
     // UNDERSHOOT: a pressure ceiling can hold flow below its setpoint but has
     // no mechanism to push flow above one, so overshoot never counts as missed
     // regardless of magnitude (see flowWindowOvershootsTarget_neverSkipped
-    // below) — an overshooting window may still be genuinely PID-locked, and it
-    // keeps the target-flow formula that protects flow windows from the v2
-    // feedback-loop bug.
+    // below) — an overshooting window is still measuring the pump model at an
+    // operating point the profile really does reach. (It used to be said here
+    // that overshoot "keeps the target-flow formula". v6 deleted that formula;
+    // both modes now share one, and the window ratio guard is what bounds an
+    // overshooting window.)
     //
     // These slots cover the PREDICATE. What the caller does with a positive
     // result (skip, since this change; re-route through the achieved-flow
@@ -550,6 +552,10 @@ private slots:
     // stops moving instead of walking every batch.
     void ideal_isAFixedPointForACalibratedMachine() {
         const double density = 0.963;
+        // Must not be 1.0. The whole discriminating power of this slot is that
+        // the superseded expression weightFlow/(targetFlow*density) returns 1.0
+        // here while the v6 one returns c — "tidying" this to 1.0 turns the
+        // test into a tautology that passes against either formula.
         const double c = 1.35;
         // The overlay condition: reported flow equals the scale's water flow
         // once density is accounted for. That is exactly what Decent's
@@ -584,74 +590,94 @@ private slots:
 
         QVERIFY(qFuzzyCompare(idealAtLow, idealAtHigh));
 
-        // The superseded flow-branch expression, on the same two shots. It is
-        // NOT invariant — it moves by the full ratio of the two multipliers,
-        // which is what drove the observed drift.
-        const double targetFlow = machineFlow;  // window holding target
-        const double oldAtLow = weightAtLow / (targetFlow * density);
-        const double oldAtHigh = weightAtHigh / (targetFlow * density);
-        QVERIFY(!qFuzzyCompare(oldAtLow, oldAtHigh));
-        QVERIFY(qFuzzyCompare(oldAtLow / oldAtHigh, cHigh / cLow));
+        // The superseded expression's non-invariance is NOT asserted here: with
+        // weightAtHigh defined from weightAtLow above, any such check is true by
+        // construction of this fixture rather than by anything in src/. It is
+        // algebra, and it belongs in docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md,
+        // where it is derived. What this slot pins is that the SHIPPED function
+        // is invariant.
     }
 
-    // The consequence. The applied multiplier is not set to the ideal directly:
-    // `computeAutoFlowCalibration()` blends it in with an EMA at alpha 0.5 over
-    // the batch median (kBatchEmaAlpha in maincontroller.cpp), so the update is
+    // The consequence, and the one test here that pins a PRODUCTION CONSTANT
+    // rather than algebra. The applied multiplier is not set to the ideal: the
+    // batch median is blended in at kAutoFlowCalBatchEmaAlpha, so the update is
     //
     //     c := (1 - alpha) * c + alpha * ideal
     //
-    // On a window holding target the OLD expression gives ideal = k / c, and at
-    // alpha 0.5 that update is exactly Babylonian square-root iteration,
-    // c := (c + k/c) / 2 — so it settles on sqrt(k), not k. That is where
-    // flow-profile machines were measured to sit. The v6 expression gives
-    // ideal = k regardless of c, so the same EMA settles on k.
-    void oldFlowBranchUpdate_settlesOnTheSquareRootOfTheSensorRatio() {
+    // On a window holding target the pre-v6 expression gives ideal = e/c. At
+    // alpha 0.5 that is Babylonian square-root iteration, c := (c + e/c)/2, so
+    // it settles on sqrt(e) — which is where flow-profile machines were measured
+    // to sit. At alpha 1.0 the same update is a period-2 map that oscillates
+    // forever and converges to nothing.
+    //
+    // So the loop below reads the production alpha rather than a literal: change
+    // kAutoFlowCalBatchEmaAlpha and this goes red. That is deliberate. The
+    // damping is not a speed knob — it decides what the iteration solves for —
+    // and an earlier version of this test hardcoded 0.5, which left it green for
+    // every possible change to the constant it claimed to be about.
+    void oldFlowBranchUpdate_settlesOnTheSquareRootOfThePumpError() {
         const double density = 0.963;
         const double machineFlow = 1.80;
         const double targetFlow = machineFlow;  // window holding target
         const double pumpError = 1.44;
-        const double alpha = 0.5;
 
         // At multiplier c the machine delivers water such that the v6
         // expression reads `pumpError`, i.e. w = pumpError * mf * rho / c.
         auto weightFlowAt = [&](double c) {
             return pumpError * machineFlow * density / c;
         };
+        auto blend = [](double c, double ideal) {
+            return (1.0 - kAutoFlowCalBatchEmaAlpha) * c + kAutoFlowCalBatchEmaAlpha * ideal;
+        };
 
         double c = 1.00;
-        for (int i = 0; i < 100; ++i) {
-            const double ideal = weightFlowAt(c) / (targetFlow * density);
-            c = (1.0 - alpha) * c + alpha * ideal;
-        }
+        for (int i = 0; i < 100; ++i)
+            c = blend(c, weightFlowAt(c) / (targetFlow * density));
         QVERIFY(qAbs(c - std::sqrt(pumpError)) < 1e-6);
-        // ...and sqrt(k) is a materially different place from k.
+        // ...and sqrt(e) is a materially different place from e.
         QVERIFY(qAbs(c - pumpError) > 0.2);
 
-        // Same machine, same EMA, v6 expression: settles on the ratio itself.
+        // Same machine, same production alpha, v6 expression: settles on the
+        // error itself. This arm calls the production function, so it also fails
+        // if the formula is inverted or loses its density term.
         double c2 = 1.00;
-        for (int i = 0; i < 100; ++i) {
-            const double ideal = autoFlowCalIdeal(
-                c2, weightFlowAt(c2), machineFlow, density);
-            c2 = (1.0 - alpha) * c2 + alpha * ideal;
-        }
+        for (int i = 0; i < 100; ++i)
+            c2 = blend(c2, autoFlowCalIdeal(c2, weightFlowAt(c2), machineFlow, density));
         QVERIFY(qAbs(c2 - pumpError) < 1e-6);
     }
 
-    // The damping is load-bearing, not incidental. Applied undamped the old
-    // expression does not converge at all: c := k/c is a period-2 map that
-    // oscillates between its starting value and k/start forever. Worth pinning
-    // so nobody "simplifies" the EMA away on the assumption that it only
-    // affects convergence SPEED.
-    void oldFlowBranchUpdate_undampedOscillatesRatherThanConverging() {
-        const double pumpError = 1.44;
-        const double start = 1.00;
-
-        double c = start;
-        for (int i = 0; i < 50; ++i) {
-            c = pumpError / c;  // alpha = 1.0
+    // The flow-cal settings migrations are one-shot: each clears the pending
+    // accumulator once, stamps a flag, and must never fire again. Nothing
+    // asserted that until now, and the failure mode is silent and permanent —
+    // settings.cpp:227-240 records a previous near-miss where treating
+    // QSettings::status() as a per-write verdict would have made v2/v3/v4 re-run
+    // their resets on EVERY launch, wiping calibration data. For v4-v6 the
+    // symptom is quieter and worse: the pending batch is wiped at every app
+    // start, so a user who pulls fewer than five shots per session never
+    // converges again, with no error anywhere.
+    //
+    // Constructing Settings twice is what a second app launch does — no fault
+    // injection, and it covers all five blocks rather than the two this change
+    // added.
+    void flowCalMigrationsRunOnceAndLeaveLaterBatchesAlone() {
+        const QString profile = QStringLiteral("tst_flowcal_migration_profile");
+        {
+            Settings first;                       // runs (or has already run) every migration
+            first.calibration()->clearProfileFlowCalibration(profile);
         }
-        QVERIFY(qFuzzyCompare(c, start));               // even iteration count
-        QVERIFY(qAbs(c - std::sqrt(pumpError)) > 0.1);
+        {
+            Settings seed;
+            seed.calibration()->appendFlowCalPendingIdeal(profile, 0.91);
+            QCOMPARE(seed.calibration()->flowCalPendingIdeals(profile).size(), qsizetype(1));
+        }
+        // A later launch must not touch the accumulator: every migration flag is
+        // already stamped, so every clear is a no-op.
+        Settings later;
+        QCOMPARE(later.calibration()->flowCalPendingIdeals(profile).size(), qsizetype(1));
+        QCOMPARE(later.calibration()->flowCalPendingIdeals(profile).first(), 0.91);
+
+        later.calibration()->clearProfileFlowCalibration(profile);
+        later.calibration()->clearFlowCalPendingIdeals(profile);
     }
 };
 

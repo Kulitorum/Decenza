@@ -191,7 +191,19 @@ void FlowCalibrationModel::applyShotRecord(const ShotRecord& record) {
     m_originalFlow = record.flow;
     m_weightFlowRate = record.weightFlowRate;
     m_pressure = record.pressure;
-    m_shotMultiplier = 1.0;
+    // The multiplier this shot actually POURED under (shots.flow_calibration,
+    // migration 39). recalculateFlow() below divides the stored flow curve by it
+    // and multiplies by the slider's value — the same replay Decent's own
+    // Graphical Flow Calibrator does. Without it every shot was replayed as if
+    // it had been recorded at 1.0, so on any machine whose multiplier is not 1.0
+    // the two curves were being overlaid at the wrong scale — on this page,
+    // whose entire purpose is judging that overlay by eye.
+    //
+    // 0.0 means the shot predates the column (or was imported, or is a dev fake).
+    // The guard in recalculateFlow() falls back to 1.0 there, which is the old
+    // behaviour and the only defensible guess; shotRecordedMultiplier lets the
+    // UI say so rather than implying it knows.
+    m_shotMultiplier = record.flowCalibration;
 
     m_maxTime = 60.0;
     if (!m_pressure.isEmpty()) {

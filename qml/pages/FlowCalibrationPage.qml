@@ -192,6 +192,23 @@ T.Page {
                         enabled: (FlowCalibrationModel?.hasData ?? false) && (FlowCalibrationModel?.multiplier ?? 0) < 2.99
                         onClicked: FlowCalibrationModel.multiplier = Math.min(3.0, FlowCalibrationModel.multiplier + 0.01)
                     }
+                // What the displayed shot actually poured under. The flow
+                // curve above is replayed from that value to the slider's, so
+                // when it is unknown the overlay is an assumption and says so.
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    visible: FlowCalibrationModel?.hasData ?? false
+                    text: (FlowCalibrationModel?.shotRecordedMultiplier ?? 0) > 0.001
+                        ? TranslationManager.translate("flowCalibration.recordedAt",
+                              "This shot was recorded at %1")
+                              .replace("%1", Number(FlowCalibrationModel.shotRecordedMultiplier).toFixed(3))
+                        : TranslationManager.translate("flowCalibration.recordedAtUnknown",
+                              "Recorded before the multiplier was stored — the curve is shown as if it were 1.000")
+                }
+
                 }
 
                 Slider {

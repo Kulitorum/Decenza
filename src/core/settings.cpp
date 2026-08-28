@@ -241,11 +241,21 @@ Settings::Settings(QObject* parent)
     auto commitFlowCalMigrationFlag = [&](const QString& flagKey) {
         const bool cleanBefore = (m_settings.status() == QSettings::NoError);
         m_settings.sync();
-        if (cleanBefore && m_settings.status() != QSettings::NoError) {
-            qWarning() << "Settings: migration work for" << flagKey
-                       << "may not have persisted (QSettings status:" << m_settings.status()
-                       << ") — leaving flag unset so it retries next launch";
-            return;
+        if (m_settings.status() != QSettings::NoError) {
+            // Say so either way. The old condition also required cleanBefore, so
+            // the one launch where settings were ALREADY unwritable — the case a
+            // reader most needs to see — logged nothing at all. Only the retry
+            // decision depends on cleanBefore: a status that was dirty on entry
+            // reports on some earlier write, not this one, so stamp
+            // optimistically rather than block forever on stale info.
+            qWarning() << "Settings: QSettings status is" << m_settings.status()
+                       << "while committing" << flagKey
+                       << (cleanBefore ? "— this write may not have persisted, leaving the"
+                                         " flag unset so it retries next launch"
+                                       : "— status was already dirty on entry, so this is not"
+                                         " a verdict on this write; stamping anyway");
+            if (cleanBefore)
+                return;
         }
         m_settings.setValue(flagKey, true);
     };
@@ -290,21 +300,30 @@ Settings::Settings(QObject* parent)
         commitFlowCalMigrationFlag("calibration/v3FlowProfileReset");
     }
 
-    // One-time clear of pending flow-cal batches only — NOT a full reset like v2/v3
-    // above. The v3 formula assumed a flow-controlled frame always achieves its
+    // v4 onward share one policy: clear the not-yet-applied batch accumulator,
+    // leave stored multipliers alone. Behind one lambda so a future v7 cannot
+    // quietly drop the freshInstall guard (which would wipe a new install's
+    // accumulator) or the flag commit (which would re-run the clear on every
+    // launch, forever). Neither omission fails anything. The per-version
+    // rationale — the part that legitimately differs — stays at each call site.
+    auto clearPendingBatchesOnce = [&](const char* flagKey, const char* reason) {
+        if (m_settings.contains(flagKey))
+            return;
+        if (!freshInstall) {
+            m_calibration->clearAllFlowCalPendingIdeals();
+            qDebug() << "Settings: Cleared pending flow-cal batches (" << reason << ")";
+        }
+        commitFlowCalMigrationFlag(flagKey);
+    };
+
+    // NOT a full reset like v2/v3 above. The v3 formula assumed a flow-controlled frame always achieves its
     // target flow; on a pressure-capped flow frame (D-Flow, D-Flow/Q) it often
     // doesn't, producing a bad ideal for that window (Kulitorum/Decenza#1823).
     // Unlike v2/v3, this doesn't mean the STORED multipliers are wrong — the batch
     // median's outlier rejection already partially absorbed the bad windows — so
     // only the not-yet-applied accumulator is cleared, to stop it mixing ideals
     // computed under the old and new formula-selection logic in one median.
-    if (!m_settings.contains("calibration/v4AchievedFlowFormulaReset")) {
-        if (!freshInstall) {
-            m_calibration->clearAllFlowCalPendingIdeals();
-            qDebug() << "Settings: Cleared pending flow-cal batches (v4 achieved-flow formula fix)";
-        }
-        commitFlowCalMigrationFlag("calibration/v4AchievedFlowFormulaReset");
-    }
+    clearPendingBatchesOnce("calibration/v4AchievedFlowFormulaReset", "v4 achieved-flow formula fix");
 
     // One-time clear of pending flow-cal batches, same shape as v4 and for the same
     // reason: which windows produce an ideal changed, so a batch must not mix the two
@@ -315,13 +334,7 @@ Settings::Settings(QObject* parent)
     // auto calibration walks the value back within a few batches once capped windows
     // stop contributing. Resetting would cost every well-dialled user several batches
     // for a defect their data does not show.
-    if (!m_settings.contains("calibration/v5SkipOffTargetReset")) {
-        if (!freshInstall) {
-            m_calibration->clearAllFlowCalPendingIdeals();
-            qDebug() << "Settings: Cleared pending flow-cal batches (v5 off-target window skip)";
-        }
-        commitFlowCalMigrationFlag("calibration/v5SkipOffTargetReset");
-    }
+    clearPendingBatchesOnce("calibration/v5SkipOffTargetReset", "v5 off-target window skip");
 
     // One-time clear of pending flow-cal batches, same shape as v4 and v5. v6
     // changes the ideal FORMULA for flow-controlled windows: they now use the
@@ -331,19 +344,15 @@ Settings::Settings(QObject* parent)
     // two expressions in one median — under the old one a flow window produced
     // roughly k/C where the new one produces k.
     //
-    // Stored multipliers are again NOT reset. Flow-profile machines converged on
-    // sqrt(k) rather than k under the old expression, which is a real but small
-    // error (measured +2.4% and -2.5% on two machines), and the new expression
-    // is C-invariant, so every batch's ideal is the target value itself and the
-    // existing 0.5 EMA closes the remaining gap geometrically — inside the 3%
-    // update deadband after two or three batches from a 20% error.
-    if (!m_settings.contains("calibration/v6SensorFormulaBothModes")) {
-        if (!freshInstall) {
-            m_calibration->clearAllFlowCalPendingIdeals();
-            qDebug() << "Settings: Cleared pending flow-cal batches (v6 unified pump-model formula)";
-        }
-        commitFlowCalMigrationFlag("calibration/v6SensorFormulaBothModes");
-    }
+    // Stored multipliers are again NOT reset. Flow-profile machines sat on the
+    // SQUARE ROOT of their pump-model error under the old expression — roughly
+    // 16% off, not the small error an earlier draft of this comment claimed —
+    // but the new expression is C-invariant, so every batch's ideal is the
+    // target value itself and the existing EMA closes the gap in two or three
+    // batches. Derivation and measurements:
+    // docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md, "Why the pre-v6 formula
+    // converged on sqrt(e)".
+    clearPendingBatchesOnce("calibration/v6UnifiedIdealFormula", "v6 unified pump-model formula");
 
     // Migrate theme/customColors → theme/customColorsDark (one-time, for light/dark mode support)
     if (m_settings.contains("theme/customColors") && !m_settings.contains("theme/customColorsDark")) {

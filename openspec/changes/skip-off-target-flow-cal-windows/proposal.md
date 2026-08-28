@@ -59,9 +59,9 @@ supported by weaker evidence, needs threshold tuning, and is separable.
 
 - `src/controllers/maincontroller.cpp` — `computeAutoFlowCalibration()`, the reclassification block
   and its log line
-- `src/controllers/autoflowcalclassifier.{h,cpp}` — unchanged in behaviour; comments describing the
+- `src/controllers/autoflowcalclassifier.{h,cpp}` — gains `autoFlowCalIdeal()` and `kAutoFlowCalBatchEmaAlpha`; comments describing the
   consequence of a positive check need updating
-- `src/core/settings.cpp` — v5 pending-batch clear, following the v4 pattern immediately above it
+- `src/core/settings.cpp` — v5 and v6 pending-batch clears, both through one `clearPendingBatchesOnce()` helper replacing the hand-copied v4/v5/v6 blocks
 - `tests/tst_autoflowcal.cpp` — coverage for skip-instead-of-reroute
 - `docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md` — replace the v4 write-up's "re-routed to the pressure
   formula" description with the skip, and record why

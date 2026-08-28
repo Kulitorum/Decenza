@@ -79,6 +79,7 @@
 #define DECENZA_LOG_MARKER_STORAGE       "Storage"
 #define DECENZA_LOG_MARKER_EQUIPMENT     "Equipment"
 #define DECENZA_LOG_MARKER_MCP           "MCP"
+#define DECENZA_LOG_MARKER_CALIBRATION   "Calibration"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -157,7 +158,16 @@
       "can't see the machine\" and \"it claimed it started a shot and nothing "     \
       "happened\". Note a tool that RAN and failed reports that to the assistant "  \
       "in its own reply rather than here — this marker carries what the server "    \
-      "decided, not what a tool computed")
+      "decided, not what a tool computed")                                         \
+    X(DECENZA_LOG_MARKER_CALIBRATION,                                              \
+      "Auto flow calibration: the steady window each shot was measured over, the " \
+      "ideal it produced, and every reason a shot produced none (window not "      \
+      "steady, mixed pump modes, flow missed the frame's target, machine and "     \
+      "scale disagreed). Then the batch: which shots accumulated, the median, "    \
+      "and whether the multiplier moved or sat inside the deadband. Answers "      \
+      "\"why did my flow calibration change\" and, more often, \"why does it "    \
+      "never change\" — which for a profile that never reaches its target flow "   \
+      "is permanent and not visible from any single shot")
 
 // ---- The one place a log line's shape is built -------------------------
 //

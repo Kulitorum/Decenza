@@ -473,6 +473,17 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             result["pendingAutoCalShots"] = pending;
             result["autoCalBatchSize"] = static_cast<int>(SettingsCalibration::kFlowCalBatchSize);
 
+            // Consecutive shots that produced NO ideal, and why the last one
+            // didn't. Without this, "0 of 5 collected" is the answer for a
+            // brand-new profile AND for one being rejected every single shot and
+            // always will be — and it reads as "keep pulling shots", which is
+            // exactly wrong for the second. That sentence sent the #1872
+            // reporter looking in the wrong place.
+            const int rejected = calibration->flowCalRejectedShots(filename);
+            result["rejectedShotsSinceLastIdeal"] = rejected;
+            if (rejected > 0)
+                result["lastRejectionReason"] = calibration->flowCalLastRejectionReason(filename);
+
             // One plain-language reading of the four flags above. An LLM asked "what is
             // this profile's calibration doing?" otherwise has to re-derive the
             // per-profile/global/auto interaction from the parts, and the inert case
@@ -493,11 +504,22 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                                 "collected toward the first update.")
                             .arg(filename).arg(calibration->flowCalibrationMultiplier())
                             .arg(pending).arg(SettingsCalibration::kFlowCalBatchSize);
+                if (rejected > 0)
+                    state += QString(" But the last %1 shot(s) produced no usable measurement at "
+                                     "all: %2. Pulling more shots will not help until that "
+                                     "changes.")
+                                 .arg(rejected)
+                                 .arg(calibration->flowCalLastRejectionReason(filename));
             } else {
                 state = QString("%1 is calibrated at %2 (per-profile, in effect). Auto calibration "
                                 "is on: %3 of %4 shots collected toward the next update.")
                             .arg(filename).arg(perProfile)
                             .arg(pending).arg(SettingsCalibration::kFlowCalBatchSize);
+                if (rejected > 0)
+                    state += QString(" The last %1 shot(s) produced no usable measurement: %2. "
+                                     "Until that changes the value will stay where it is.")
+                                 .arg(rejected)
+                                 .arg(calibration->flowCalLastRejectionReason(filename));
             }
             result["state"] = state;
             return result;

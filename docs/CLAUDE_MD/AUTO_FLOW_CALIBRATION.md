@@ -62,7 +62,7 @@ Since v6 both control modes compute the **same** ideal, so the classification no
 - If touched frames are mixed (window straddles a flow↔pressure transition) → skip; logged as `"window spans mixed flow/pressure frames — skipping (ambiguous target)"`.
 - If phase-marker data is missing (e.g. legacy shot or very short capture) → fall back to the historical profile-level scan so calibration still runs.
 
-**Why window-level matters.** Hybrid profiles like ASL9-3 have both pressure decline frames and a flow-controlled tail. A profile-level scan classifies the whole profile as "flow" because any flow frame is present, even when every observed steady window lands in the pressure declines. Under v3's flow formula this produced false `"flow profile ratio … outside bounds"` rejections and occasional 20%+ single-shot jumps when a short window slipped through. Window-level classification routes those same windows to the pressure branch instead — see issue #739 for the full analysis.
+**Why window-level matters.** Hybrid profiles like ASL9-3 have both pressure decline frames and a flow-controlled tail. A profile-level scan classifies the whole profile as "flow" because any flow frame is present, even when every observed steady window lands in the pressure declines. Under v3's flow formula this produced false `"flow profile ratio … outside bounds"` rejections and occasional 20%+ single-shot jumps when a short window slipped through. Window-level classification identifies those same windows as pressure-controlled instead, so the off-target check does not apply — see issue #739 for the full analysis.
 
 **Off-target windows are skipped (v5).** A flow-controlled frame can still carry a pressure ceiling — D-Flow and D-Flow/Q both pour flow-controlled with a pressure limit (`limiter.value` in the frame JSON). When the puck's resistance would need more pressure than that ceiling to hold the frame's target flow, the DE1 caps pressure instead and flow falls below target for the rest of the frame. Before computing an ideal, the algorithm compares the window's measured `meanMachineFlow` against the touched frame's target flow (`autoFlowCalWindowTargetCheck()` in `autoflowcalclassifier.{h,cpp}`); an **undershoot** over 10% skips the window entirely — that shot contributes no ideal.
 
@@ -75,7 +75,7 @@ Since v6 both control modes compute the **same** ideal, so the classification no
 | 1.10 | 1.03 |
 | 0.72 | 1.13 |
 
-A 48% swing with no calibration change. So a capped window and a target-met window on the same profile produce ideals 30-40% apart, and averaging them is what makes a stored multiplier wander.
+A 48% swing with no calibration change. So a capped window and a target-met window on the same profile produce ideals up to 48% apart — the #1872 reporter's own capped/on-target pair differed by 29% — and averaging them is what makes a stored multiplier wander.
 
 Between 2.0.4 and v5 such a window was instead **re-routed** through the achieved-flow (pressure-branch) formula. That did not remove the disagreement, it reversed its sign: the [#1872](https://github.com/Kulitorum/Decenza/issues/1872) reporter's capped window produced 0.902 through the flow branch (dragging his multiplier down — the original [#1823](https://github.com/Kulitorum/Decenza/issues/1823) complaint) and 1.351 through the achieved-flow branch (pushing it up), so his value oscillated with how many of the week's shots capped. Do not reinstate the re-route without new evidence; the replay across three machines is in `openspec/changes/skip-off-target-flow-cal-windows/`.
 
@@ -96,14 +96,80 @@ Two properties follow, both asserted in `tests/tst_autoflowcal.cpp`:
 - **Fixed point.** A machine whose reported flow already matches the scale (after density) gets its multiplier back unchanged, so a converged machine stops moving.
 - **Invariant under the current multiplier.** The DE1 servos its *calibrated* flow: raising the multiplier makes it deliver less water to hold the same reported flow, so weight flow falls in proportion and the expression is unchanged. Measured across three unrelated machines, the stored multiplier moved 15-38% while this expression moved only 4-15%.
 
-**What flow-controlled windows used before v6.** They took `weight_flow / (target_flow * 0.963)`, anchored to the frame's target rather than to the reported flow. On a window holding its target that equals `e / current_multiplier` where `e` is the pump-model error, so iterating it converges on the **square root** of the pump-model error, not the error itself. That is where flow-profile machines were observed to sit:
+### Why the pre-v6 formula converged on √e
 
-| machine | pump-model error k | √k | converged multiplier |
-|---|---|---|---|
-| this repo's DE1 | 0.737 | 0.858 | 0.8795 (+2.4%) |
-| [#1872](https://github.com/Kulitorum/Decenza/issues/1872) reporter | 1.44 | 1.200 | 1.17 (−2.5%) |
+This is the whole of [#1872](https://github.com/Kulitorum/Decenza/issues/1872), and it is the
+section to read before touching the formula again.
 
-Pressure-profile machines, already on the pump-model expression, landed on k itself (1.30 against 1.30; 1.3555 against 1.35).
+Flow-controlled windows took `weight_flow / (target_flow * 0.963)` — anchored to the frame's
+**target** rather than to the reported flow. On a window holding its target, `machine_flow ≈
+target_flow`, so that expression equals `e / C` where `e` is the pump-model error and `C` the
+current multiplier.
+
+The multiplier is **not** set to the ideal. It is blended in by the batch EMA at `alpha = 0.5`
+(`kBatchEmaAlpha`, "Batched Median Updates" above), so the update was:
+
+```
+C := (1 - alpha)·C + alpha·(e/C)      which at alpha = 0.5 is      C := (C + e/C) / 2
+```
+
+That is **Babylonian square-root iteration** — Newton's method for √e, and `alpha = 0.5` is exactly
+the Babylonian coefficient. It converges quadratically on `√e`, not on `e`.
+
+**The damping is load-bearing, not incidental.** Applied undamped, `C := e/C` is an involution: a
+period-2 map that oscillates between its starting value and `e/C₀` forever and converges to nothing.
+So the square root is a property of the formula *and* the EMA together. Anyone "simplifying" the EMA
+away is changing what the algorithm solves for, not how fast it gets there.
+
+The v6 expression is invariant under `C`, so the same EMA settles on `e` itself, geometrically —
+inside the 3% deadband within two or three batches from a 20% error.
+
+Measured across four machines, each landing on what its branch's formula solves for:
+
+| machine | branch | e | √e | converged multiplier |
+|---|---|---|---|---|
+| [#1872](https://github.com/Kulitorum/Decenza/issues/1872) reporter | flow | 1.389 | **1.178** | 1.17 |
+| this repo's DE1 | flow | 0.79 | **0.889** | 0.8795 |
+| cablecj74 | pressure | **1.369** | 1.170 | 1.3555 |
+| mcastaldelli | pressure | **1.303** | 1.141 | 1.30 |
+
+The #1872 reporter's log shows the app moving him `1.35 -> 1.22027` — away from the 1.35 he had set
+by hand, toward √e. He independently measured his own machine as 24% off at C = 1.17, which puts his
+`e` at 1.45.
+
+### What `e` is, and what it is not
+
+`e` is the **pump model's** error, not a sensor's. The DE1 has no flowmeter — Decent removed it in
+favour of an open-loop physics model over pump strokes, which took flow error from ~30% to 2-3% and
+works below 2 ml/s where a flowmeter cannot
+([Decent](https://decentespresso.com/blog/perfectly_calibrating_decent_flow_measurements)). So
+`e = water actually delivered / water the model says was delivered`, and the multiplier's job is to
+equal it.
+
+Recovered from submitted debug logs across seven machines:
+
+| user | volts | model | e median | e range | n |
+|---|---|---|---|---|---|
+| this repo's DE1 | 120 | DE1+ | 0.83 | 0.64-1.08 | 22 |
+| GCDE-VER1 | (bad read) | — (pcb 1.0) | 1.03 | 0.96-1.19 | 15 |
+| ItsGoodCoffee | 120 | DE1XL | 1.29 | — | 1 |
+| mcastaldelli | 220 | DE1PRO | 1.30 | 1.25-1.35 | 8 |
+| nachtrieb | 120 | DE1XL | 1.32 | 0.90-1.40 | 11 |
+| cablecj74 | 120 | DE1PRO | 1.37 | 1.07-1.57 | 18 |
+| #1872 reporter | 120 | DE1PRO | 1.39 | 1.04-1.51 | 16 |
+
+**Machine model dominates; mains voltage does not.** Two DE1PROs at 120 V and 220 V differ by 5%,
+while two 120 V machines of different models differ by 65%. Decent's compare page gives DE1PRO and
+DE1XL identical pump specs and the data cannot tell them apart either. Note `n = 1` for DE1+, so
+"DE1+ machines read low" and "this particular machine reads low" are **not** separable from this
+sample.
+
+`e` also varies with operating point on a single machine, which is why the off-target skip exists
+and why a mixed pool of windows measures nothing in particular.
+
+Two consequences that are **not** implemented, recorded so they are not rediscovered: the multiplier
+defaults to 1.0 when a PRO/XL belongs near 1.3, and `e` varies enough with operating point to
+question whether one scalar per profile is the right shape at all.
 
 
 ### Density Correction
@@ -194,7 +260,7 @@ The reset itself was still warranted: the global median may have been contaminat
 
 ## v4 Migration (Pressure-Capped Flow Window Fix)
 
-A one-time migration clears every profile's *pending* flow-cal batch only (`calibration/flowCalBatch` → `{}`) — unlike v2 and v3, it does **not** reset stored per-profile or global multipliers. The v3 formula assumed a flow-controlled frame always achieves its target flow; on a pressure-capped flow frame it often doesn't (see "Achieved-flow deviation check" above), producing a bad ideal for that specific window. That's a per-window defect the batch median's outlier rejection already partially absorbs, not evidence the *stored* multiplier is wrong the way v2/v3's corrupted values were — so a full reset would cost every user several shots' worth of reconvergence to fix a defect that's workload-dependent and often dormant (profiles that reliably hit target flow were never affected). Clearing only the pending accumulator is enough to stop a batch from mixing ideals computed under the old and new formula-selection logic in one median.
+A one-time migration clears every profile's *pending* flow-cal batch only (`calibration/flowCalBatch` → `{}`) — unlike v2 and v3, it does **not** reset stored per-profile or global multipliers. The v3 formula assumed a flow-controlled frame always achieves its target flow; on a pressure-capped flow frame it often doesn't (see "Off-target windows are skipped (v5)" above), producing a bad ideal for that specific window. That's a per-window defect the batch median's outlier rejection already partially absorbs, not evidence the *stored* multiplier is wrong the way v2/v3's corrupted values were — so a full reset would cost every user several shots' worth of reconvergence to fix a defect that's workload-dependent and often dormant (profiles that reliably hit target flow were never affected). Clearing only the pending accumulator is enough to stop a batch from mixing ideals computed under the old and new window rules in one median.
 
 ## Flow Calibration Recorded Per Shot
 
@@ -212,9 +278,9 @@ Same shape as v4 and for the same reason: which windows produce an ideal changed
 
 ## v6 Migration (One Formula for Both Control Modes)
 
-Same shape as v4 and v5: a one-time migration (`calibration/v6SensorFormulaBothModes`) clears every profile's *pending* batch only, so a median cannot mix ideals from the old target-anchored expression with ideals from the pump-model expression — under the old one a flow window produced roughly `k / C` where the new one produces `k`.
+Same shape as v4 and v5: a one-time migration (`calibration/v6UnifiedIdealFormula`) clears every profile's *pending* batch only, so a median cannot mix ideals from the old target-anchored expression with ideals from the pump-model expression — under the old one a flow window produced roughly `k / C` where the new one produces `k`.
 
-Stored multipliers are again left alone. Flow-profile machines sat on √k rather than k, a real but small error (+2.4% and −2.5% on the two machines measured), and every batch now produces the target value as its ideal, so the existing 0.5 EMA closes the remaining gap geometrically — inside the 3% update deadband within two or three batches from a 20% error.
+Stored multipliers are again left alone. Flow-profile machines sat on √k rather than k — roughly a **16% error** (0.858 against k = 0.737; 1.200 against k = 1.44), not the small one an earlier draft of this section claimed. It is left to self-correct rather than reset because every batch now produces the target value as its ideal, so the existing 0.5 EMA closes the remaining gap geometrically — inside the 3% update deadband within two or three batches from a 20% error.
 
 Both the classifier and the off-target skip stay exactly as they were. The pump-model error itself varies with flow **rate** (the 48% table above), so a window must still be measured at an operating point the profile actually pours at — the skip and the formula are independent fixes that compose.
 

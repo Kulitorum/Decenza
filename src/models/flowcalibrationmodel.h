@@ -27,6 +27,13 @@ class FlowCalibrationModel : public QObject {
     Q_PROPERTY(bool hasData READ hasData NOTIFY dataChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+    // The multiplier the displayed shot was RECORDED at, or 0 if unknown
+    // (pre-migration-39, imported, or a dev fake). Distinct from `multiplier`,
+    // which is what the slider is proposing. 0 is not 1.0 and must not be shown
+    // as if it were: the difference is "this shot poured at neutral" versus "we
+    // do not know what this shot poured at", and only the second means the
+    // overlay below is an assumption.
+    Q_PROPERTY(double shotRecordedMultiplier READ shotRecordedMultiplier NOTIFY dataChanged)
 
 public:
     explicit FlowCalibrationModel(QObject* parent = nullptr);
@@ -51,6 +58,7 @@ public:
     bool hasData() const { return !m_originalFlow.isEmpty(); }
     QString errorMessage() const { return m_errorMessage; }
     bool loading() const { return m_loading; }
+    double shotRecordedMultiplier() const { return m_shotMultiplier; }
 
     Q_INVOKABLE void loadRecentShots();
     Q_INVOKABLE void previousShot();
@@ -79,7 +87,7 @@ private:
     QVector<qint64> m_shotIds;
     int m_currentIndex = -1;
     double m_multiplier = 1.0;
-    double m_shotMultiplier = 1.0;  // Multiplier active when shot was recorded (default 1.0)
+    double m_shotMultiplier = 0.0;  // Multiplier the shot was recorded at; 0 = unknown
     bool m_loading = false;
     std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);
 
