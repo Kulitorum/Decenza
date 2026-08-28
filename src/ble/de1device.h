@@ -10,6 +10,7 @@
 #include <QEvent>
 #include <QHash>
 #include <QList>
+#include <QElapsedTimer>
 #include <QString>
 #include <QTimer>
 
@@ -445,6 +446,20 @@ private:
 
     DE1::State m_state = DE1::State::Sleep;
     DE1::SubState m_subState = DE1::SubState::Ready;
+
+    // Descale step timing. The firmware reports no progress figure and no expected
+    // duration, so the descale page's progress bar has to be built from measured
+    // step weights — and the substates it would weight (DescaleInit .. DescaleSteam)
+    // were never logged, so no submitted log contained a single step boundary.
+    // Started when the machine enters Descale, read at each substate change.
+    QElapsedTimer m_descaleTimer;
+    qint64 m_descaleStepStartMs = 0;
+    // Firmware runs the five steps more than once per descale, so a step alone does
+    // not say how far along the machine is — the same "Descaling steam system" is
+    // both a third of the way in and nearly done. Counted from the substate walking
+    // BACKWARD (DescaleSteam back to a group step), which is the only signal the
+    // firmware gives that a cycle restarted.
+    int m_descaleCycle = 0;
     double m_pressure = 0.0;
     double m_flow = 0.0;
     double m_mixTemp = 0.0;
