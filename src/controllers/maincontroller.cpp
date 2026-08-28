@@ -3035,8 +3035,9 @@ void MainController::noteAutoFlowCalRejection(const QString& profileName,
     auto* cal = m_settings->calibration();
     cal->noteFlowCalRejection(profileName, reason);
 
-    // Per-shot skips are already logged at DEBUG where they happen. What has
-    // never been visible anywhere is the CUMULATIVE case: a profile that can
+    // Per-shot skips are logged at DEBUG where they happen, or not at all when
+    // the reason is already plain elsewhere in the log. What has never been
+    // visible anywhere is the CUMULATIVE case: a profile that can
     // never calibrate looks exactly like one that has simply not been pulled
     // yet. Once a full batch's worth of shots has been rejected in a row, that
     // is no longer a run of bad luck, and it is a user-audience fact — so INFO,
@@ -3048,7 +3049,10 @@ void MainController::noteAutoFlowCalRejection(const QString& profileName,
     const int rejected = cal->flowCalRejectedShots(profileName);
     const int batch = static_cast<int>(SettingsCalibration::kFlowCalBatchSize);
     if (rejected >= batch && rejected % batch == 0) {
-        CAL_INFO("AutoFlow") << "no usable calibration window on the last" << rejected
+        // Deliberately says "no measurement", not "no usable window": the
+        // no-scale reason returns upstream of all window code, so naming a
+        // window search would assert one that never ran.
+        CAL_INFO("AutoFlow") << "no calibration measurement from the last" << rejected
                              << "shots of" << profileName << "—" << reason
                              << "; the multiplier will not move until this changes";
     }
@@ -3087,7 +3091,16 @@ void MainController::computeAutoFlowCalibration(double pouredMultiplier) {
                             && m_bleManager->scaleDevice()->isConnected()
                             && m_bleManager->scaleDevice()->type() != "flow";
     if (!hasPhysicalScale) {
-        CAL_DETAIL("AutoFlow") << "skipped (no physical BLE scale connected)";
+        // Counted but NOT logged. For a user with no scale this is permanent, so
+        // the count matters — it is what the MCP surface reads, and what turns
+        // "0 of 5 shots collected" into a real answer. A log line would not: the
+        // [Scale] lines already state there is no scale connected, so this would
+        // restate a derivable fact once per shot forever. The rate-limited
+        // cumulative line in noteAutoFlowCalRejection() is the one that carries
+        // the reason to a reader.
+        noteAutoFlowCalRejection(profileName,
+            QStringLiteral("no physical scale is connected — auto calibration needs real "
+                           "weight data and cannot use the derived flow scale"));
         return;
     }
 
@@ -4157,7 +4170,17 @@ void MainController::onShotEnded() {
 
     // Auto flow calibration: compute per-profile multiplier from this shot's data.
     // Must run before stopCapture() so its debug output is included in the shot log.
-    computeAutoFlowCalibration(shotFlowCalibration);
+    //
+    // Gated on the aborted-shot verdict, which is otherwise not reached until
+    // the classifier further down. A false start, or a group flush pulled with
+    // an espresso profile loaded, is under 10 s and yields under 5 g — so no
+    // window is even considered (kMinWindowStartTime) and the shot records a
+    // rejection. It is then DISCARDED and never written to history, leaving the
+    // rejection counter pointing at shots the user cannot find anywhere. That is
+    // the same wrong-place-to-look the counter exists to prevent.
+    const bool shotWasAborted = decenza::isAbortedShot(duration, finalWeight);
+    if (!shotWasAborted)
+        computeAutoFlowCalibration(shotFlowCalibration);
 
     // Shot-end epoch for the visualizer upload. A local captured by value into
     // the save callback below, alongside duration/finalWeight/metadata/debugLog
@@ -4208,7 +4231,7 @@ void MainController::onShotEnded() {
     // Always on — validated against an 882-shot corpus, 5/882 (0.57%) discarded, all genuine
     // "did not start" cases. See openspec/specs/shot-save-filter/spec.md.
     {
-        const bool aborted = decenza::isAbortedShot(duration, finalWeight);
+        const bool aborted = shotWasAborted;
         // Prefix is deliberately NOT bracketed. A leading "[token]" is the
         // grammar of a registered subsystem marker, and a reader cannot tell
         // "[discard-classifier]" from "[Scale]" by looking at it — so a

@@ -94,7 +94,9 @@ calibration = current_multiplier * mean(weight_flow) / (mean(machine_flow) * 0.9
 Two properties follow, both asserted in `tests/tst_autoflowcal.cpp`:
 
 - **Fixed point.** A machine whose reported flow already matches the scale (after density) gets its multiplier back unchanged, so a converged machine stops moving.
-- **Invariant under the current multiplier.** The DE1 servos its *calibrated* flow: raising the multiplier makes it deliver less water to hold the same reported flow, so weight flow falls in proportion and the expression is unchanged. Measured across three unrelated machines, the stored multiplier moved 15-38% while this expression moved only 4-15%.
+- **Largely invariant under the current multiplier.** The DE1 servos its *calibrated* flow: raising the multiplier makes it deliver less water to hold the same reported flow, so weight flow falls and the expression largely cancels. Measured across three unrelated machines, the stored multiplier moved 15-38% while this expression moved only 4-15%.
+
+  Directly tested since, on this repo's DE1 with a puck simulator and no coffee: at matched reported flow, raising the multiplier 48% cut delivered weight flow **22%**. A multiplier that only scaled *reporting* would have changed nothing, so that reading is settled. **Exact invariance is not** — the same runs put the ratio between "fully invariant" and "not at all", and a fixed-orifice restriction cannot separate the multiplier's effect from the pressure change it causes. What the formula needs is that the error does not scale *proportionally* with the multiplier, which is established; perfect invariance is not required for the update to converge.
 
 ### Why the pre-v6 formula converged on √e
 
@@ -177,6 +179,19 @@ low" are **not** separable from it.
 
 `e` also varies with operating point on a single machine, which is why the off-target skip exists
 and why a mixed pool of windows measures nothing in particular.
+
+**Pressure is a large part of that**, measured on this repo's DE1 with no coffee, same profile, same
+commanded 1.8 ml/s:
+
+| back-pressure | e |
+|---|---|
+| ~0 bar (empty basket) | 0.90, 0.92 |
+| ~7 bar (puck simulator) | 0.67, 0.76 |
+
+A 21% swing from pressure alone, in the direction positive-displacement pump theory predicts — more
+pressure, more slip, less water than the model assumes. No espresso shot can show this, because
+`kMinPressure` is 1.5 bar: the gate that (correctly) rejects no-coffee shots also means the stored
+multiplier is only ever measured above 1.5 bar and cannot describe behaviour below it.
 
 Two consequences that are **not** implemented, recorded so they are not rediscovered: the multiplier
 defaults to 1.0 when a PRO/XL belongs near 1.3, and `e` varies enough with operating point to

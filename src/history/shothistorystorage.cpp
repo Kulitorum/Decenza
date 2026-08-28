@@ -2153,10 +2153,13 @@ bool ShotHistoryStorage::runMigrations()
                 // argued against, and re-introducing it here would make a failed
                 // verification indistinguishable from a failed ALTER in the log.
                 const std::optional<bool> after = columnPresent("shots", "flow_calibration");
-                if (!after.has_value())
+                bool ok = false;
+                if (!after.has_value()) {
                     qWarning() << "ShotHistoryStorage: migration 39 could not verify the column"
-                                  " after adding it";
-                bool ok = after.value_or(false);
+                                  " after adding it - not stamping, will retry next launch";
+                } else {
+                    ok = *after;
+                }
                 if (ok)
                     ok = query.exec("DELETE FROM schema_version")
                          && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (39)"));

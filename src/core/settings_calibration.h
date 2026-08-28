@@ -106,8 +106,24 @@ public:
     void appendFlowCalPendingIdeal(const QString& profileFilename, double ideal);
     void clearFlowCalPendingIdeals(const QString& profileFilename);
 
-    // Consecutive shots on this profile that produced NO calibration ideal, and
-    // why the most recent one didn't.
+    // Consecutive shots on this profile rejected for a reason that RECURS, and
+    // why the most recent one was.
+    //
+    // Deliberately not every no-ideal path. The transient ones — no weight data
+    // yet, weight dropped after the stop, too few samples, a non-finite result —
+    // neither increment nor reset, because a one-off does not mean the profile
+    // is stuck and counting it would make the number mean less. What is counted
+    // is the set that persists until something changes: no scale connected, no
+    // steady window, a window that missed its frame's target, a window whose
+    // machine and scale disagreed, mixed pump modes, and a shot with no
+    // start-latch.
+    //
+    // Two more paths are outside both lists on purpose. The near-zero
+    // weight-flow guard is a divide-by-zero defence its own comment calls
+    // impossible, so counting it would put a number on something that should
+    // never happen; and the preconditions above it (null pointers, auto
+    // calibration switched off, no profile name) are gates rather than shot
+    // outcomes — nothing was rejected, the feature simply did not run.
     //
     // The pending-ideal count alone cannot distinguish "this profile is new" from
     // "every shot on this profile is rejected and always will be" — and those need

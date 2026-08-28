@@ -1650,8 +1650,27 @@ int main(int argc, char *argv[])
     // shot's value for the rest of the session while every surface kept
     // showing the live one. The latch outliving the cycle is precisely the
     // failure this latch exists to prevent, so it is released on the broadest
-    // exit rather than the narrowest. Fires after the save path has read the
-    // snapshot (which survives release by design), and is idempotent.
+    // exit rather than the narrowest. Idempotent.
+    //
+    // Ordering — twice written wrong here, so it is sourced. Release runs BEFORE
+    // the save path, on every shot, and what guarantees it is the delivery mode,
+    // not settling: espressoCycleEnded is emitted SYNCHRONOUSLY on the phase
+    // transition (machinestate.cpp:724), while shotEnded — which reaches
+    // onShotEnded via ShotTimingController::endShot() -> shotProcessingReady —
+    // is emitted inside a Qt::QueuedConnection invokeMethod
+    // (machinestate.cpp:772-784). So the release is always at least one event
+    // loop turn ahead.
+    //
+    // Stop-at-weight settling widens that gap to ~1.4 s when it runs, but does
+    // NOT establish it: on a shot with no SAW trigger, endShot() takes the else
+    // branch at shottimingcontroller.cpp:150-155 and emits shotProcessingReady
+    // immediately, with no settling window at all. An earlier version of this
+    // comment claimed settling was the mechanism, which is false for every
+    // manual, volume-stopped, GHC-button and profile-end shot.
+    //
+    // Harmless for the yield snapshot, which deliberately survives release. It
+    // is why ProfileManager's flow-calibration latch, which does NOT survive, is
+    // taken in onShotEnded() rather than cleared here.
     QObject::connect(&machineState, &MachineState::espressoCycleEnded,
                      [&weightProcessor, &mainController, &machineState]() {
                          mainController.profileManager()->releaseShotLatch();

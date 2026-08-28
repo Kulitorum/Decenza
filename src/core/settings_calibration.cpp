@@ -301,7 +301,13 @@ QJsonObject parseFlowCalRejections(const QSettings& s) {
         // that empty map — discarding every other profile's run with no trace.
         // allProfileFlowCalibrations() logs and resets for the same reason.
         qWarning() << "SettingsCalibration: corrupt flowCalRejections JSON:"
-                   << err.errorString() << "- rejection counts lost";
+                   << err.errorString() << "- rejection counts reset";
+        // RESET, not just log. Returning {} and leaving the key means the next
+        // noteFlowCalRejection() rewrites it from the empty map, discarding every
+        // other profile's run silently — the exact loss described above. Both
+        // siblings (parseFlowCalBatch, allProfileFlowCalibrations) reset here.
+        const_cast<QSettings&>(s).setValue("calibration/flowCalRejections", "{}");
+        return QJsonObject();
     }
     return parsed;
 }
