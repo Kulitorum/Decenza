@@ -91,6 +91,14 @@ class DE1Device : public QObject {
     Q_PROPERTY(bool usbChargerOn READ usbChargerOn NOTIFY usbChargerOnChanged)
     Q_PROPERTY(bool isHeadless READ isHeadless NOTIFY isHeadlessChanged)
     Q_PROPERTY(int refillKitDetected READ refillKitDetected NOTIFY refillKitDetectedChanged)
+    // Descale progress. The DE1 reports no percentage and no expected duration, so
+    // these are derived from the firmware's fixed step schedule (see kDescaleSchedule
+    // in the .cpp) resynced at every substate boundary. 0/absent when not descaling.
+    Q_PROPERTY(double descaleProgress READ descaleProgress NOTIFY descaleProgressChanged)
+    Q_PROPERTY(int descaleStepIndex READ descaleStepIndex NOTIFY descaleProgressChanged)
+    Q_PROPERTY(int descaleStepCount READ descaleStepCount CONSTANT)
+    Q_PROPERTY(int descaleSecondsRemaining READ descaleSecondsRemaining NOTIFY descaleProgressChanged)
+    Q_PROPERTY(int descaleCycle READ descaleCycle NOTIFY descaleProgressChanged)
     Q_PROPERTY(QString connectionType READ connectionType NOTIFY connectedChanged)
     Q_PROPERTY(int machineModel READ machineModel NOTIFY firmwareVersionChanged)
     Q_PROPERTY(int heaterVoltage READ heaterVoltage NOTIFY heaterVoltageChanged)
@@ -138,6 +146,12 @@ public:
     QString firmwareVersion() const { return m_firmwareVersion; }
     bool usbChargerOn() const { return m_usbChargerOn; }
     bool isHeadless() const { return m_isHeadless; }
+
+    double descaleProgress() const { return m_descaleProgress; }
+    int descaleStepIndex() const { return m_descaleStepIndex; }
+    int descaleStepCount() const;
+    int descaleSecondsRemaining() const { return m_descaleSecondsRemaining; }
+    int descaleCycle() const { return m_descaleCycle; }
     Q_INVOKABLE void setIsHeadless(bool headless);  // Debug toggle
     int refillKitDetected() const { return m_refillKitDetected; }  // -1=unknown, 0=not detected, 1=detected
     int machineModel() const { return m_machineModel; }  // 0=unknown, 1=DE1, 2=DE1+, 3=PRO, 4=XL, 5=CAFE, 6=XXL, 7=XXXL
@@ -338,6 +352,10 @@ signals:
     void usbChargerOnChanged();
     void isHeadlessChanged();
     void refillKitDetectedChanged();
+    // One signal for every descale progress property — they are all recomputed
+    // together from the same tick, so separate notifies would only fan out the
+    // same instant to four bindings.
+    void descaleProgressChanged();
     void heaterVoltageChanged();
 
     // Firmware-update response from the DE1 (A009 notification). Carries
@@ -440,6 +458,16 @@ private:
     // leaves the previous profile's preheat active.
     void writeTankPreheatForProfile(const Profile& profile);
 
+    // Descale progress, recomputed from the fixed step schedule plus the elapsed
+    // time in the current step. Emits descaleProgressChanged() when a value moved.
+    void updateDescaleProgress();
+    // Maintenance states (descale/clean/air purge) that the machine refused while
+    // cold, deferred until it reports that it has left preheat. See requestMaintenanceState().
+    void requestMaintenanceState(DE1::State state);
+    bool applyColdMaintenanceWorkaround(DE1::State state);
+    bool isMachineHeating() const;
+    void flushPendingMaintenanceState();
+
     // Owned when created internally via connectToDevice(); set externally via setTransport() for USB
     DE1Transport* m_transport = nullptr;
     bool m_ownsTransport = false;  // True when DE1Device created the transport (connectToDevice)
@@ -454,12 +482,25 @@ private:
     // Started when the machine enters Descale, read at each substate change.
     QElapsedTimer m_descaleTimer;
     qint64 m_descaleStepStartMs = 0;
+    // Recomputes the progress properties once a second so the bar and the
+    // remaining-time readout advance between substate boundaries, which can be
+    // seven minutes apart. Periodic UI refresh, not a guard.
+    QTimer* m_descaleTicker = nullptr;
+    double m_descaleProgress = 0.0;
+    int m_descaleStepIndex = 0;
+    int m_descaleSecondsRemaining = 0;
     // Firmware runs the five steps more than once per descale, so a step alone does
     // not say how far along the machine is — the same "Descaling steam system" is
     // both a third of the way in and nearly done. Counted from the substate walking
     // BACKWARD (DescaleSteam back to a group step), which is the only signal the
     // firmware gives that a cycle restarted.
     int m_descaleCycle = 0;
+
+    // Set when a maintenance request was held back because the machine was cold on
+    // firmware that drops those requests (see applyColdMaintenanceWorkaround). Cleared
+    // by the state packet that shows the machine has left preheat — an event, not a
+    // timer, so a slow machine waits as long as it needs to.
+    DE1::State m_pendingMaintenanceState = DE1::State::NoRequest;
     double m_pressure = 0.0;
     double m_flow = 0.0;
     double m_mixTemp = 0.0;
