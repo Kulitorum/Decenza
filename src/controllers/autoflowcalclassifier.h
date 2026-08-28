@@ -137,11 +137,11 @@ struct AutoFlowCalTargetCheck {
  * flow falls below target for the rest of the frame. The flow branch's formula
  * up to 2.0.4 divided by the target (`weightFlow / (targetFlow * density)`),
  * so an unattained target manufactured an ideal that measured nothing about
- * sensor accuracy (Kulitorum/Decenza#1823). That formula is gone as of v6 —
- * both control modes now use the sensor ratio — but the check still matters,
- * because the sensor ratio itself varies with flow RATE. A caller should SKIP
- * a window where
- * `missedTarget` is true: it measured the flow sensor at a rate the profile
+ * pump-model accuracy (Kulitorum/Decenza#1823). That formula is gone as of v6 —
+ * both control modes now use the pump-model error — but the check still
+ * matters, because that error itself varies with flow RATE. A caller should
+ * SKIP a window where
+ * `missedTarget` is true: it measured the pump model at a rate the profile
  * does not pour at, and a single per-profile multiplier cannot describe two
  * operating points. Measured on one DE1 at a fixed multiplier, the ratio of
  * scale weight flow to reported machine flow runs 0.76 at 1.9 mL/s and 1.13
@@ -159,7 +159,7 @@ struct AutoFlowCalTargetCheck {
  * can set `missedTarget`, never overshoot. A pressure ceiling can hold flow
  * BELOW its setpoint; it has no mechanism to push flow above it, so an
  * overshoot reading has no pressure-cap explanation and the window is still
- * genuinely flow-controlled — it is measuring the sensor at an operating point
+ * genuinely flow-controlled — it is measuring the pump model at an operating point
  * the profile really does reach, which is the only thing this check is for.
  *
  * @param meanMachineFlow   Mean reported flow during the window (mL/s).
@@ -181,9 +181,12 @@ AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
  *     ideal = currentFactor * weightFlow / (machineFlow * density)
  *
  * `machineFlow` is the DE1's REPORTED flow, which already carries
- * `currentFactor`. Dividing it back out recovers the raw sensor reading, so
- * the result is the sensor's true/raw ratio — the value the stored multiplier
- * is supposed to equal. Two properties follow, and both are asserted in
+ * `currentFactor`. Dividing it back out recovers the model's own estimate, so
+ * the result is the model's ERROR: water actually delivered over water the
+ * model says was delivered. That is the value the stored multiplier is supposed
+ * to equal. Note the DE1 has no flow meter — Decent removed it in favour of an
+ * open-loop physics model over pump strokes — so this corrects a model, not a
+ * sensor. Two properties follow, and both are asserted in
  * `tests/tst_autoflowcal.cpp`:
  *
  *  - It is a FIXED POINT: feeding it a machine already calibrated correctly
@@ -198,15 +201,15 @@ AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
  * `weightFlow / (targetFlow * density)`. On a window holding target that
  * equals `ideal / currentFactor`, and blending it in at the batch EMA's alpha
  * of 0.5 is Babylonian square-root iteration — so it settled on the SQUARE ROOT
- * of the sensor ratio rather than the ratio, which is where flow-profile
- * machines were observed to sit. See
+ * of the pump-model error rather than the error itself, which is where
+ * flow-profile machines were observed to sit. See
  * `openspec/changes/skip-off-target-flow-cal-windows/design.md`.
  *
  * No clamping, no guards: callers apply the window ratio guards and
  * `kCalibrationMin`/`kCalibrationMax` bounds themselves. Returns a non-finite
  * value if `machineFlow` or `density` is zero; the caller checks.
  */
-double autoFlowCalSensorIdeal(
+double autoFlowCalIdeal(
     double currentFactor,
     double weightFlow,
     double machineFlow,

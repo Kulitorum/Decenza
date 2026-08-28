@@ -3045,7 +3045,7 @@ void MainController::computeAutoFlowCalibration() {
     }
 
     // Require a physical BLE scale (not FlowScale). FlowScale derives weight from
-    // the DE1's own flow sensor, so comparing machine flow against FlowScale weight
+    // the DE1's own pump model, so comparing machine flow against FlowScale weight
     // would be circular and produce meaningless calibration values.
     bool hasPhysicalScale = m_bleManager && m_bleManager->scaleDevice()
                             && m_bleManager->scaleDevice()->isConnected()
@@ -3290,7 +3290,7 @@ void MainController::computeAutoFlowCalibration() {
     // For flow frames, the DE1's PID locks reported flow to the target
     // regardless of the calibration factor, which creates a feedback loop
     // if we use reported flow in the formula (factor drifts down over time).
-    // For pressure frames, reported flow IS the sensor reading and is the
+    // For pressure frames, reported flow IS the pump model's estimate and is the
     // right anchor. Hybrid profiles (e.g. ASL9-3 — pressure declines + a
     // flow-controlled tail) need window-level classification: the steady
     // window almost always lands in the pressure declines, so anchoring to
@@ -3358,7 +3358,7 @@ void MainController::computeAutoFlowCalibration() {
     // pressure ceiling (D-Flow, D-Flow/Q, similar) — when the puck's
     // resistance would need more pressure than that ceiling to hold target
     // flow, the DE1 caps pressure and flow falls below target for the rest
-    // of the frame. Such a window is SKIPPED: it measured the flow sensor at
+    // of the frame. Such a window is SKIPPED: it measured the pump model at
     // an operating point the profile does not pour at, and one per-profile
     // multiplier cannot describe two operating points at once.
     //
@@ -3439,8 +3439,12 @@ void MainController::computeAutoFlowCalibration() {
     //     ideal = currentFactor * weightFlow / (reportedFlow * density)
     //
     // Reported flow already carries the current multiplier, so dividing it back
-    // out recovers the raw sensor reading, and the expression evaluates to the
-    // sensor's true/raw ratio — the number the multiplier is meant to BE. It is
+    // out recovers the model's own estimate, and the expression evaluates to the
+    // model's error — the ratio of water actually delivered to water the model
+    // says was delivered, which is the number the multiplier is meant to BE. The
+    // DE1 has no flow meter: Decent removed it in favour of an open-loop physics
+    // model over pump strokes, so what is being corrected here is that model, not
+    // a sensor reading. It is
     // the criterion Decent's own Graphical Flow Calibrator implements, where the
     // operator nudges the multiplier until the reported-flow curve overlays the
     // weight-flow curve.
@@ -3457,7 +3461,7 @@ void MainController::computeAutoFlowCalibration() {
     //
     // Given that, and a flow window holding its target (reportedFlow ~=
     // targetFlow, which the off-target skip above now enforces), the old
-    // expression equals k/C where k is the sensor ratio. The multiplier is not
+    // expression equals k/C where k is the pump model's error. The multiplier is not
     // set to the ideal directly but blended in at kBatchEmaAlpha = 0.5 below,
     // and `C := (C + k/C) / 2` is Babylonian square-root iteration — so the old
     // rule settled on sqrt(k), not k. That is precisely where flow-profile
@@ -3470,7 +3474,7 @@ void MainController::computeAutoFlowCalibration() {
     // The v2 runaway that motivated the split was bad scale data reaching an
     // unguarded formula, not this formula. The per-sample and window ratio
     // guards above are what fixed that, and they stay.
-    double ideal = autoFlowCalSensorIdeal(
+    double ideal = autoFlowCalIdeal(
         currentEffective, meanWeightFlow, meanMachineFlow, kWaterDensity93C);
     if (isFlowProfile) {
         qDebug() << "Auto flow cal: flow window on target — reported" << meanMachineFlow

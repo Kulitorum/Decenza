@@ -363,7 +363,7 @@ private slots:
     // autoFlowCalWindowTargetCheck() decides whether a flow-classified window
     // is SKIPPED because the pump didn't reach the frame's target flow (e.g. a
     // pressure-capped flow frame like D-Flow / D-Flow-Q — see
-    // Kulitorum/Decenza#1823 and #1872). Such a window measured the sensor at a
+    // Kulitorum/Decenza#1823 and #1872). Such a window measured the pump model at a
     // flow rate the profile does not pour at, and one per-profile multiplier
     // cannot describe two operating points. It only ever triggers on
     // UNDERSHOOT: a pressure ceiling can hold flow below its setpoint but has
@@ -535,12 +535,12 @@ private slots:
         cal->setFlowCalibrationMultiplier(origGlobal);
     }
 
-    // ---- autoFlowCalSensorIdeal (v6: one formula for both control modes) ----
+    // ---- autoFlowCalIdeal (v6: one formula for both control modes) ----
     //
     // These pin the two properties the v6 change rests on. Both were FALSE for
     // the expression the flow branch used up to 2.0.4
     // (`weightFlow / (targetFlow * density)`), which is why that expression
-    // converged on the square root of the sensor ratio instead of the ratio;
+    // converged on the square root of the pump-model error instead of the error;
     // see openspec/changes/skip-off-target-flow-cal-windows/design.md. Breaking
     // either assertion means someone has reintroduced a target-anchored ideal.
 
@@ -548,7 +548,7 @@ private slots:
     // formula a machine whose reported flow already matches the scale (after
     // density) and it returns the multiplier unchanged, so a converged machine
     // stops moving instead of walking every batch.
-    void sensorIdeal_isAFixedPointForACalibratedMachine() {
+    void ideal_isAFixedPointForACalibratedMachine() {
         const double density = 0.963;
         const double c = 1.35;
         // The overlay condition: reported flow equals the scale's water flow
@@ -557,7 +557,7 @@ private slots:
         // formula must agree with it by returning the multiplier untouched.
         const double machineFlow = 1.80;
         const double weightFlow = machineFlow * density;
-        QCOMPARE(autoFlowCalSensorIdeal(c, weightFlow, machineFlow, density), c);
+        QCOMPARE(autoFlowCalIdeal(c, weightFlow, machineFlow, density), c);
     }
 
     // Property 2: invariance under the current multiplier, on a machine that
@@ -566,21 +566,21 @@ private slots:
     // falls as 1/c — and the ideal must come out the same both times. This is
     // the property that makes the update converge in one step rather than
     // oscillating, and the one the old flow-branch expression lacked.
-    void sensorIdeal_isInvariantUnderTheCurrentMultiplier() {
+    void ideal_isInvariantUnderTheCurrentMultiplier() {
         const double density = 0.963;
         const double machineFlow = 1.80;
 
         const double cLow = 1.00;
         const double weightAtLow = 1.55;
         const double idealAtLow =
-            autoFlowCalSensorIdeal(cLow, weightAtLow, machineFlow, density);
+            autoFlowCalIdeal(cLow, weightAtLow, machineFlow, density);
 
         // Same machine, multiplier raised 40%: it now delivers 1/1.4 the water
         // for the same reported flow.
         const double cHigh = 1.40;
         const double weightAtHigh = weightAtLow * (cLow / cHigh);
         const double idealAtHigh =
-            autoFlowCalSensorIdeal(cHigh, weightAtHigh, machineFlow, density);
+            autoFlowCalIdeal(cHigh, weightAtHigh, machineFlow, density);
 
         QVERIFY(qFuzzyCompare(idealAtLow, idealAtHigh));
 
@@ -609,13 +609,13 @@ private slots:
         const double density = 0.963;
         const double machineFlow = 1.80;
         const double targetFlow = machineFlow;  // window holding target
-        const double sensorRatio = 1.44;
+        const double pumpError = 1.44;
         const double alpha = 0.5;
 
-        // At multiplier c the machine delivers water such that the sensor
-        // expression reads `sensorRatio`, i.e. w = sensorRatio * mf * rho / c.
+        // At multiplier c the machine delivers water such that the v6
+        // expression reads `pumpError`, i.e. w = pumpError * mf * rho / c.
         auto weightFlowAt = [&](double c) {
-            return sensorRatio * machineFlow * density / c;
+            return pumpError * machineFlow * density / c;
         };
 
         double c = 1.00;
@@ -623,18 +623,18 @@ private slots:
             const double ideal = weightFlowAt(c) / (targetFlow * density);
             c = (1.0 - alpha) * c + alpha * ideal;
         }
-        QVERIFY(qAbs(c - std::sqrt(sensorRatio)) < 1e-6);
+        QVERIFY(qAbs(c - std::sqrt(pumpError)) < 1e-6);
         // ...and sqrt(k) is a materially different place from k.
-        QVERIFY(qAbs(c - sensorRatio) > 0.2);
+        QVERIFY(qAbs(c - pumpError) > 0.2);
 
         // Same machine, same EMA, v6 expression: settles on the ratio itself.
         double c2 = 1.00;
         for (int i = 0; i < 100; ++i) {
-            const double ideal = autoFlowCalSensorIdeal(
+            const double ideal = autoFlowCalIdeal(
                 c2, weightFlowAt(c2), machineFlow, density);
             c2 = (1.0 - alpha) * c2 + alpha * ideal;
         }
-        QVERIFY(qAbs(c2 - sensorRatio) < 1e-6);
+        QVERIFY(qAbs(c2 - pumpError) < 1e-6);
     }
 
     // The damping is load-bearing, not incidental. Applied undamped the old
@@ -643,15 +643,15 @@ private slots:
     // so nobody "simplifies" the EMA away on the assumption that it only
     // affects convergence SPEED.
     void oldFlowBranchUpdate_undampedOscillatesRatherThanConverging() {
-        const double sensorRatio = 1.44;
+        const double pumpError = 1.44;
         const double start = 1.00;
 
         double c = start;
         for (int i = 0; i < 50; ++i) {
-            c = sensorRatio / c;  // alpha = 1.0
+            c = pumpError / c;  // alpha = 1.0
         }
         QVERIFY(qFuzzyCompare(c, start));               // even iteration count
-        QVERIFY(qAbs(c - std::sqrt(sensorRatio)) > 0.1);
+        QVERIFY(qAbs(c - std::sqrt(pumpError)) > 0.1);
     }
 };
 

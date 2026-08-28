@@ -3,7 +3,7 @@
 - [x] 1.1 In `MainController::computeAutoFlowCalibration()` (`src/controllers/maincontroller.cpp`, the block at ~`:3357` beginning "Achieved-flow deviation check"), change the positive-check action from setting `reclassifiedAsPressureCapped = true` to returning early — the shot contributes no ideal.
 - [x] 1.2 Delete `reclassifiedAsPressureCapped` and the `formulaModeLabel` arm that reports "pressure (reclassified, missed flow target)". `useFlowFormula` collapses back to `isFlowProfile`; keep the single combined `if/else` for the ratio guard and formula selection, and keep the comment explaining why they must stay in one branch.
 - [x] 1.3 Leave `autoFlowCalWindowTargetCheck()` and `kAutoFlowCalDeviationThreshold` (`src/controllers/autoflowcalclassifier.{h,cpp}`) untouched — same check, same 10%, same undershoot-only asymmetry. Only the caller's response changes.
-- [x] 1.4 Update the comment block above the check: it currently explains why a capped window is routed to the achieved-flow formula. Replace with why it is skipped — a capped window measures the sensor at an operating point the profile never pours at, and w/mf varies up to 48% across the flow range on one machine at fixed C (cite `design.md`).
+- [x] 1.4 Update the comment block above the check: it currently explains why a capped window is routed to the achieved-flow formula. Replace with why it is skipped — a capped window measures the pump model at an operating point the profile never pours at, and w/mf varies up to 48% across the flow range on one machine at fixed C (cite `design.md`).
 - [x] 1.5 Rewrite the decision log line to report a skip, keeping measured flow, target flow, deviation and threshold. `maincontroller.cpp` is in `MARKER_ONLY_GLOBS` in `scripts/check_log_markers.py`, so rules 2 and 5 apply (no hand-typed registered marker, no unregistered bracketed token) while rule 1's bare-`qDebug` ban does not. A plain `qDebug()` matching the surrounding "Auto flow cal: …" style is therefore correct — no bracketed prefix, no helper.
 - [x] 1.6 Verify by inspection that the pressure branch is reached only by genuinely pressure-classified windows after this change, and that no other caller depends on `reclassifiedAsPressureCapped`.
 
@@ -37,7 +37,7 @@
 
 ## 7. One formula for both control modes
 
-- [x] 7.1 Replace the flow branch's `meanWeightFlow / (profileTargetFlow * kWaterDensity93C)` with the sensor expression; both branches now call the same helper.
+- [x] 7.1 Replace the flow branch's `meanWeightFlow / (profileTargetFlow * kWaterDensity93C)` with the pump-model expression; both branches now call the same helper.
 - [x] 7.2 Extract `autoFlowCalSensorIdeal()` into `autoflowcalclassifier.{h,cpp}` beside `autoFlowCalWindowTargetCheck()` — a pure expression next to the other pure predicate, and the only way this formula gets test coverage given `computeAutoFlowCalibration()` has no harness.
 - [x] 7.3 Keep both ratio guards branch-specific and unchanged; only the formula is unified. Note that the flow guard's bounds now constrain the ideal's ratio to the current multiplier rather than its absolute value — `kCalibrationMin`/`kCalibrationMax` still bound the absolute.
 - [x] 7.4 Rename `formulaModeLabel` → `windowModeLabel`. With one formula the old name is a false statement in two log lines.
@@ -46,10 +46,12 @@
 - [x] 7.7 Correct the two stale claims in `autoflowcalclassifier.h`'s doc comments that named the target-anchored formula as current.
 - [x] 7.8 Tests in `tst_autoflowcal.cpp`: fixed point, invariance under the current multiplier (with the superseded expression asserted NOT invariant in the same slot), and the sqrt fixed point demonstrated by iterating the old rule to convergence.
 - [x] 7.9 Correct the proposal's "well-dialled users see no change" line — that user has auto-cal OFF and C = 1.000, so he is a control, not a live user.
+- [x] 7.11 Correct the terminology: the DE1 has no flowmeter — Decent removed it for an open-loop pump-stroke model — so `autoFlowCalSensorIdeal` became `autoFlowCalIdeal` and "flow sensor"/"sensor ratio" became pump-model language across code, tests, docs and this change. Two pre-existing uses survive in files this change does not touch (`machinestate.cpp:1076`, `tst_weightprocessor.cpp:805`).
+- [x] 7.12 Fold the seven-machine `e` table into `design.md` — machine model dominates, mains voltage does not, and the DE1+ row is n=1 so model and individual machine are not separable.
 - [ ] 7.10 **Falsification before merge**: two shots on this repo's DE1, same beans back to back, at multipliers ~1.0 and ~1.4. Compute `k = C * w / (mf * rho)` from each. Model A predicts the same `k`; model B predicts `k` tracking `C`. If model B, drop this section's commit and merge the skip alone.
 
 ## 6. Follow-ups (NOT this change)
 
 - [ ] 6.1 Flatness-based window selection (prefer the flattest window, require both lines flat). Motivated but weaker-evidenced; see `design.md` for the measured reasons it is separated.
-- [ ] 6.2 Reply on [#1872](https://github.com/Kulitorum/Decenza/issues/1872) explaining the two operating points, that his 1.35 is his capped tail rather than his sensor, and what this change does for him.
+- [ ] 6.2 Reply on [#1872](https://github.com/Kulitorum/Decenza/issues/1872) explaining the two operating points, that his 1.35 is his capped tail rather than his machine's pump-model error, and what this change does for him.
 - [ ] 6.3 The window ratio guard's `[0.75, 1.35]` bounds clip the low side of the ideal population this repo's own machine produces (target-met ideals of 0.74-0.80 are rejected), biasing C upward. Separate defect, separate change.

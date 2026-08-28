@@ -151,7 +151,7 @@ AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
     return result;
 }
 
-double autoFlowCalSensorIdeal(
+double autoFlowCalIdeal(
     double currentFactor,
     double weightFlow,
     double machineFlow,

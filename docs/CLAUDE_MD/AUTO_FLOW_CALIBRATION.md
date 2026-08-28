@@ -2,11 +2,11 @@
 
 ## Problem
 
-The DE1's flow sensor accuracy varies across flow rate ranges. A single global calibration multiplier works well for espresso (~1-2 ml/s) but can be significantly off for high-flow profiles like Filter 3 (~6-8 ml/s). The de1app solves this with manual per-profile calibration using a graphical tool. We can do better.
+The DE1's pump model accuracy varies across flow rate ranges. A single global calibration multiplier works well for espresso (~1-2 ml/s) but can be significantly off for high-flow profiles like Filter 3 (~6-8 ml/s). The de1app solves this with manual per-profile calibration using a graphical tool. We can do better.
 
 ## Solution
 
-Automatic per-profile flow calibration using scale data as ground truth. After each shot, the app compares the machine's flow sensor readings against the scale's weight-derived flow rate during the steady-pour phase, and computes the ideal calibration multiplier for that profile.
+Automatic per-profile flow calibration using scale data as ground truth. After each shot, the app compares the machine's pump model readings against the scale's weight-derived flow rate during the steady-pour phase, and computes the ideal calibration multiplier for that profile.
 
 ## How It Works
 
@@ -81,7 +81,7 @@ Between 2.0.4 and v5 such a window was instead **re-routed** through the achieve
 
 A consequence worth stating: a profile that *always* caps accumulates no ideals and its multiplier never moves. That is the honest outcome — there is no on-target data to learn from — and each skip is logged, so it is diagnosable from a submitted debug log rather than silent.
 
-The check is deliberately one-sided: only undershoot skips, never overshoot. A pressure ceiling can hold flow below its setpoint but has no mechanism to push flow above one, so an overshoot reading has no pressure-cap explanation; the window is still genuinely flow-controlled and is measuring the sensor at an operating point the profile really does reach. Real-world numbers from #1823: target-achieved windows measured 99-101% of target flow; target-missed (pressure-capped) windows measured 57-67%, well clear of the 10% threshold on both sides.
+The check is deliberately one-sided: only undershoot skips, never overshoot. A pressure ceiling can hold flow below its setpoint but has no mechanism to push flow above one, so an overshoot reading has no pressure-cap explanation; the window is still genuinely flow-controlled and is measuring the pump model at an operating point the profile really does reach. Real-world numbers from #1823: target-achieved windows measured 99-101% of target flow; target-missed (pressure-capped) windows measured 57-67%, well clear of the 10% threshold on both sides.
 
 **One formula, both control modes** (v6):
 
@@ -89,26 +89,26 @@ The check is deliberately one-sided: only undershoot skips, never overshoot. A p
 calibration = current_multiplier * mean(weight_flow) / (mean(machine_flow) * 0.963)
 ```
 
-`machine_flow` is the DE1's *reported* flow, which already carries the current multiplier. Dividing it back out recovers the raw sensor reading, so the expression evaluates to the sensor's true/raw ratio — the number the stored multiplier is meant to equal. It is the same criterion Decent's Graphical Flow Calibrator implements, where the operator nudges the multiplier until the reported-flow curve overlays the weight-flow curve.
+`machine_flow` is the DE1's *reported* flow, which already carries the current multiplier. Dividing it back out recovers the model's own estimate, so the expression evaluates to the pump model's error — the number the stored multiplier is meant to equal. It is the same criterion Decent's Graphical Flow Calibrator implements, where the operator nudges the multiplier until the reported-flow curve overlays the weight-flow curve.
 
 Two properties follow, both asserted in `tests/tst_autoflowcal.cpp`:
 
 - **Fixed point.** A machine whose reported flow already matches the scale (after density) gets its multiplier back unchanged, so a converged machine stops moving.
 - **Invariant under the current multiplier.** The DE1 servos its *calibrated* flow: raising the multiplier makes it deliver less water to hold the same reported flow, so weight flow falls in proportion and the expression is unchanged. Measured across three unrelated machines, the stored multiplier moved 15-38% while this expression moved only 4-15%.
 
-**What flow-controlled windows used before v6.** They took `weight_flow / (target_flow * 0.963)`, anchored to the frame's target rather than to the reported flow. On a window holding its target that equals `sensor_ratio / current_multiplier`, so iterating it converges on the **square root** of the sensor ratio, not the ratio. That is where flow-profile machines were observed to sit:
+**What flow-controlled windows used before v6.** They took `weight_flow / (target_flow * 0.963)`, anchored to the frame's target rather than to the reported flow. On a window holding its target that equals `e / current_multiplier` where `e` is the pump-model error, so iterating it converges on the **square root** of the pump-model error, not the error itself. That is where flow-profile machines were observed to sit:
 
-| machine | sensor ratio k | √k | converged multiplier |
+| machine | pump-model error k | √k | converged multiplier |
 |---|---|---|---|
 | this repo's DE1 | 0.737 | 0.858 | 0.8795 (+2.4%) |
 | [#1872](https://github.com/Kulitorum/Decenza/issues/1872) reporter | 1.44 | 1.200 | 1.17 (−2.5%) |
 
-Pressure-profile machines, already on the sensor expression, landed on k itself (1.30 against 1.30; 1.3555 against 1.35).
+Pressure-profile machines, already on the pump-model expression, landed on k itself (1.30 against 1.30; 1.3555 against 1.35).
 
 
 ### Density Correction
 
-The machine flow sensor measures volumetric flow (ml/s), while the scale measures mass (g/s). Water at ~93°C has a density of ~0.963 g/ml, so the correction factor accounts for this difference.
+The machine pump model measures volumetric flow (ml/s), while the scale measures mass (g/s). Water at ~93°C has a density of ~0.963 g/ml, so the correction factor accounts for this difference.
 
 ### Batched Median Updates
 
@@ -198,7 +198,7 @@ A one-time migration clears every profile's *pending* flow-cal batch only (`cali
 
 ## Flow Calibration Recorded Per Shot
 
-Each saved shot stores the effective multiplier it POURED under, in `shots.flow_calibration` (migration 39). Without it a shot's `flow` curve is uninterpretable on its own — reported flow is a calibrated quantity, so comparing two shots or recovering a raw sensor reading needs the multiplier that produced them, and diagnosing [#1872](https://github.com/Kulitorum/Decenza/issues/1872) needed a debug log beside the shot data for exactly that reason.
+Each saved shot stores the effective multiplier it POURED under, in `shots.flow_calibration` (migration 39). Without it a shot's `flow` curve is uninterpretable on its own — reported flow is a calibrated quantity, so comparing two shots or recovering a model's own estimate needs the multiplier that produced them, and diagnosing [#1872](https://github.com/Kulitorum/Decenza/issues/1872) needed a debug log beside the shot data for exactly that reason.
 
 The value is latched at shot START (`ProfileManager::latchForShot()`), not read at save time: `computeAutoFlowCalibration()` runs at shot end BEFORE the save and can write a new per-profile multiplier first, so a save-time read would record the value the shot PRODUCED on exactly the shots where it changed.
 
@@ -212,18 +212,18 @@ Same shape as v4 and for the same reason: which windows produce an ideal changed
 
 ## v6 Migration (One Formula for Both Control Modes)
 
-Same shape as v4 and v5: a one-time migration (`calibration/v6SensorFormulaBothModes`) clears every profile's *pending* batch only, so a median cannot mix ideals from the old target-anchored expression with ideals from the sensor expression — under the old one a flow window produced roughly `k / C` where the new one produces `k`.
+Same shape as v4 and v5: a one-time migration (`calibration/v6SensorFormulaBothModes`) clears every profile's *pending* batch only, so a median cannot mix ideals from the old target-anchored expression with ideals from the pump-model expression — under the old one a flow window produced roughly `k / C` where the new one produces `k`.
 
 Stored multipliers are again left alone. Flow-profile machines sat on √k rather than k, a real but small error (+2.4% and −2.5% on the two machines measured), and every batch now produces the target value as its ideal, so the existing 0.5 EMA closes the remaining gap geometrically — inside the 3% update deadband within two or three batches from a 20% error.
 
-Both the classifier and the off-target skip stay exactly as they were. The sensor ratio itself varies with flow **rate** (the 48% table above), so a window must still be measured at an operating point the profile actually pours at — the skip and the formula are independent fixes that compose.
+Both the classifier and the off-target skip stay exactly as they were. The pump-model error itself varies with flow **rate** (the 48% table above), so a window must still be measured at an operating point the profile actually pours at — the skip and the formula are independent fixes that compose.
 
 ## Limitations
 
 - **Requires Bluetooth scale**: No scale data = no auto-calibration (silently skipped)
 - **Needs steady-state flow**: Very short shots or highly variable profiles may not have a qualifying window
 - **Density is approximated**: Uses a fixed 0.963 factor; actual density varies slightly with temperature
-- **One multiplier per profile**: Does not calibrate different flow rate ranges within a single profile — and the sensor's error genuinely varies with flow rate (see the table under "Window-level Classification"), which is why windows that miss their frame's target flow are skipped rather than averaged in. A profile whose pours consistently cap will never calibrate.
+- **One multiplier per profile**: Does not calibrate different flow rate ranges within a single profile — and the pump model's error genuinely varies with flow rate (see the table under "Window-level Classification"), which is why windows that miss their frame's target flow are skipped rather than averaged in. A profile whose pours consistently cap will never calibrate.
 - **Not retroactive**: Only applies to shots made after enabling the feature
 - **5-shot batch delay**: First calibration update requires 5 qualifying shots on a profile. The pump runs at the global multiplier (or 1.0 on fresh install) until then.
 - **Bean/grind changes within a batch**: If beans or grinder setting change within a 5-shot batch, the median blends data from different conditions. The median's outlier rejection mitigates this for small numbers of changed shots.

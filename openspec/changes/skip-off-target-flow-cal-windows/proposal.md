@@ -4,7 +4,7 @@ The 2026-08-18 change `fix-flow-cal-pressure-capped-windows` (shipped in 2.0.4) 
 flow-controlled window that undershoots its frame's target flow by more than 10% through the
 achieved-flow (pressure-branch) formula, on the reasoning that a pressure-capped window still
 measures something usable. Replaying the algorithm against real shots from three machines shows it
-does not: a capped window measures the sensor at a completely different operating point from the
+does not: a capped window measures the pump model at a completely different operating point from the
 one the profile pours at, and folding it into the same per-profile constant is what makes that
 constant move.
 
@@ -71,14 +71,14 @@ supported by weaker evidence, needs threshold tuning, and is separable.
 
 ## One formula for both control modes
 
-Flow-controlled windows now use the same sensor-ratio expression pressure-controlled windows have
+Flow-controlled windows now use the same pump-model-error expression pressure-controlled windows have
 always used. The target-anchored expression v3 introduced converges on the square root of the flow
-sensor's true ratio rather than the ratio, which is measurably where flow-profile machines sit
+pump model's error rather than the error itself, which is measurably where flow-profile machines sit
 (this repo's DE1 on 0.8795 against sqrt(0.737) = 0.858; the #1872 reporter on 1.17 against
 sqrt(1.44) = 1.200) while pressure-profile machines sit on the ratio itself. v3's premise — that
-the sensor expression is proportional to the current multiplier — requires the multiplier to scale
+the pump-model expression is proportional to the current multiplier — requires the multiplier to scale
 reporting only; the DE1 servos its calibrated flow instead, and across three machines the
-multiplier moved 15-38% while the sensor expression moved 4-15%. Full derivation and the falsifying
+multiplier moved 15-38% while the pump-model expression moved 4-15%. Full derivation and the falsifying
 experiment are in `design.md`.
 
 ## Expected effect on users
@@ -105,5 +105,5 @@ Replayed over 75 shots from three machines (`evidence/`, method in `design.md`):
   windows sat within 10% of target, so roughly 35-40% of his shots will feed calibration and a
   5-shot batch will close in ~13 shots. His multiplier will converge toward ~1.05 (the value his
   on-target windows measure) and stay there, instead of oscillating. It will NOT converge to the
-  1.35 he set by hand — that number is his capped tail, not his flow sensor, and the honest answer
+  1.35 he set by hand — that number is his capped tail, not his pump model, and the honest answer
   to it is a dial-in conversation.

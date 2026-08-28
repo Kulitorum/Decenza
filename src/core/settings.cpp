@@ -310,7 +310,7 @@ Settings::Settings(QObject* parent)
     // reason: which windows produce an ideal changed, so a batch must not mix the two
     // rules in one median. v4 routed a flow window that missed its target through the
     // achieved-flow formula; v5 skips such a window entirely, because it measured the
-    // sensor at a flow rate the profile does not pour at (Kulitorum/Decenza#1872).
+    // pump model at a flow rate the profile does not pour at (Kulitorum/Decenza#1872).
     // Stored multipliers are deliberately NOT reset — the defect is per-window, and
     // auto calibration walks the value back within a few batches once capped windows
     // stop contributing. Resetting would cost every well-dialled user several batches
@@ -325,7 +325,7 @@ Settings::Settings(QObject* parent)
 
     // One-time clear of pending flow-cal batches, same shape as v4 and v5. v6
     // changes the ideal FORMULA for flow-controlled windows: they now use the
-    // same sensor-ratio expression the pressure branch has always used
+    // same pump-model-error expression the pressure branch has always used
     // (currentFactor * weightFlow / reportedFlow / density) instead of
     // weightFlow / (targetFlow * density). A batch must not mix ideals from the
     // two expressions in one median — under the old one a flow window produced
@@ -340,7 +340,7 @@ Settings::Settings(QObject* parent)
     if (!m_settings.contains("calibration/v6SensorFormulaBothModes")) {
         if (!freshInstall) {
             m_calibration->clearAllFlowCalPendingIdeals();
-            qDebug() << "Settings: Cleared pending flow-cal batches (v6 unified sensor formula)";
+            qDebug() << "Settings: Cleared pending flow-cal batches (v6 unified pump-model formula)";
         }
         commitFlowCalMigrationFlag("calibration/v6SensorFormulaBothModes");
     }

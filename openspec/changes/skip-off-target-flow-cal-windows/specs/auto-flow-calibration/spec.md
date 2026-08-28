@@ -5,7 +5,7 @@ For a window classified flow-controlled, the system SHALL compare the window's m
 machine flow against the frame's target flow before computing a calibration ideal. If the measured
 flow falls short of (undershoots) target flow by more than the configured threshold, the system
 SHALL skip the window entirely — the shot contributes no ideal to the profile's batch — because the
-window measured the flow sensor at an operating point the profile does not pour at, and a single
+window measured the pump model at an operating point the profile does not pour at, and a single
 per-profile multiplier cannot describe two operating points at once. The check SHALL NOT trigger on
 overshoot (measured flow above target) regardless of magnitude — a pressure ceiling can only hold
 flow below its setpoint, never push it above, so an overshoot reading has no pressure-cap
@@ -83,7 +83,7 @@ the defect are not forced back through several batches of re-convergence.
 
 #### Scenario: Upgrade to a build that unifies the ideal formula
 - **WHEN** the app starts for the first time on a build where flow-controlled windows use the
-  sensor-ratio formula rather than a target-anchored one
+  pump-model-error formula rather than a target-anchored one
 - **THEN** the system SHALL clear every profile's pending batch accumulator, so no median mixes
   ideals from the two formulas
 - **AND** stored per-profile and global multipliers SHALL be left unchanged

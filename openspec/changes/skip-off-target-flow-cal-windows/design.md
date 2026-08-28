@@ -71,9 +71,9 @@ multiplier — weight-flow / machine-flow ratio by operating point on this repo'
 
 ### Skip, don't re-route
 
-A window that missed target measures the sensor at a flow the profile does not pour at. Both
+A window that missed target measures the pump model at a flow the profile does not pour at. Both
 formulas give a defensible number for that window and both are answers to a question nobody asked:
-the constant is applied across the whole shot, and on the evidence above the sensor's error at
+the constant is applied across the whole shot, and on the evidence above the pump model's error at
 0.7-1.1 ml/s differs from its error at 1.8 ml/s by up to 48%.
 
 Re-routing also failed on its own terms. It did not remove the error, it reversed its sign: the
@@ -95,7 +95,7 @@ next person sees it was considered rather than missed.
 The flow branch's `ideal = weightFlow / (targetFlow * density)` is replaced by the expression the
 pressure branch already used, `ideal = currentFactor * weightFlow / (machineFlow * density)`.
 
-Write `k` for that second expression's value — the flow sensor's true/raw ratio, and the number the
+Write `k` for that second expression's value — the flow pump model's error, and the number the
 stored multiplier is meant to equal. Two behaviours are possible and they give opposite answers:
 
 - **Model B** — the multiplier scales REPORTING only. Then `weightFlow` does not respond to it, `k`
@@ -142,6 +142,32 @@ same beans back to back, at deliberately different multipliers (e.g. 1.0 and 1.4
 **Independent of the skip.** `k` still varies with flow RATE (the 48% table above), so a window must
 still be measured where the profile actually pours. The two changes compose; neither substitutes for
 the other.
+
+### What `e` is, measured across seven machines
+
+`e` is the DE1's pump-model error, not a sensor error: Decent removed the flowmeter and estimates
+flow open-loop from pump strokes
+([blog](https://decentespresso.com/blog/perfectly_calibrating_decent_flow_measurements)). Recovered
+from submitted debug logs (`evidence/logscan.py`):
+
+| user | volts | model | e median | e range | n |
+|---|---|---|---|---|---|
+| this repo's DE1 | 120 | DE1+ | 0.83 | 0.64-1.08 | 22 |
+| GCDE-VER1 | (bad read) | — (pcb 1.0) | 1.03 | 0.96-1.19 | 15 |
+| ItsGoodCoffee | 120 | DE1XL | 1.29 | — | 1 |
+| mcastaldelli | 220 | DE1PRO | 1.30 | 1.25-1.35 | 8 |
+| nachtrieb | 120 | DE1XL | 1.32 | 0.90-1.40 | 11 |
+| cablecj74 | 120 | DE1PRO | 1.37 | 1.07-1.57 | 18 |
+| #1872 reporter | 120 | DE1PRO | 1.39 | 1.04-1.51 | 16 |
+
+**Machine model dominates; mains voltage does not.** Two DE1PROs at 120 V and 220 V differ by 5%;
+two 120 V machines of different models differ by 65%. Decent's compare page gives DE1PRO and DE1XL
+identical pump specs and the data cannot tell them apart either. Note n=1 for DE1+, so "DE1+ machines
+read low" and "this particular machine reads low" are not separable here.
+
+Two consequences beyond this change, both worth their own issue: the multiplier defaults to 1.0 when
+a PRO/XL belongs near 1.3, and `e` varies enough with operating point to question whether one scalar
+per profile is the right shape at all.
 
 ### The flatness-based selection rule is NOT in this change
 
