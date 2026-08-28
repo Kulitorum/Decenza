@@ -276,6 +276,11 @@ void DE1Device::onTransportDisconnected() {
     // than trusting cached values from the previous session (the DE1 may have
     // power-cycled or had its firmware state reset between sessions).
     m_lastMMRValues.clear();
+    // Calibration offsets are facts about ONE machine. Keeping them across a
+    // reconnect means connecting to a second DE1 and showing the first's values
+    // — and the wizard's Apply gate is exactly "has this machine answered", so a
+    // stale true opens a write against a baseline this machine never reported.
+    clearCalibrationCache();
     // Stop chasing reads for a connection that no longer exists — a reconnect
     // re-issues them fresh via sendInitialSettings().
     m_pendingMMRReads.clear();
@@ -2149,14 +2154,14 @@ QString calibrationCommandName(DE1::Calibration::Command command) {
 
 }  // namespace
 
-void DE1Device::sendCalibration(DE1::Calibration::Target target,
+bool DE1Device::sendCalibration(DE1::Calibration::Target target,
                                 DE1::Calibration::Command command,
                                 double reported,
                                 double measured) {
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode) {
         simulateCalibrationReply(target, command, reported, measured);
-        return;
+        return true;
     }
 #endif
     if (!m_transport) {
@@ -2165,9 +2170,17 @@ void DE1Device::sendCalibration(DE1::Calibration::Target target,
         // cannot tell a request that was refused from one never made.
         CAL_WARN("Sensor") << "cannot" << calibrationCommandName(command)
                            << calibrationTargetName(target) << "— no transport";
-        return;
+        return false;
     }
-    if (dropDeviceWriteIfFirmwareFlash("sendCalibration")) return;
+    if (dropDeviceWriteIfFirmwareFlash("sendCalibration")) {
+        // dropDeviceWriteIfFirmwareFlash logs on [DE1], not [Calibration]. Say it
+        // again here so one `grep` for this subsystem returns the whole story of
+        // why a correction did not land — the rule CLAUDE.md states about a
+        // subsystem whose lines scatter across markers.
+        CAL_WARN("Sensor") << "cannot" << calibrationCommandName(command)
+                           << calibrationTargetName(target) << "— firmware flash in progress";
+        return false;
+    }
 
     DE1::Calibration::Record record;
     // A write needs the firmware's key; a read is sent with 1. Neither is a
@@ -2188,27 +2201,50 @@ void DE1Device::sendCalibration(DE1::Calibration::Target target,
                        << "reported=" << reported << "measured=" << measured;
 
     m_transport->write(DE1::Characteristic::CALIBRATION, DE1::Calibration::packRecord(record));
+    return true;
 }
 
-void DE1Device::readCalibration(int target, bool factory) {
+bool DE1Device::readCalibration(int target, bool factory) {
     if (!isCalibrationTarget(target)) {
         CAL_WARN("Sensor") << "read refused, target out of range:" << target;
-        return;
+        return false;
     }
-    sendCalibration(static_cast<DE1::Calibration::Target>(target),
-                    factory ? DE1::Calibration::Command::ReadFactory
-                            : DE1::Calibration::Command::ReadCurrent,
-                    0.0, 0.0);
+    return sendCalibration(static_cast<DE1::Calibration::Target>(target),
+                           factory ? DE1::Calibration::Command::ReadFactory
+                                   : DE1::Calibration::Command::ReadCurrent,
+                           0.0, 0.0);
+}
+
+void DE1Device::clearCalibrationCache() {
+    bool had = false;
+    for (int i = 0; i < kCalibrationTargets; ++i) {
+        had = had || m_storedCalibration[i].has_value() || m_factoryCalibration[i].has_value();
+        m_storedCalibration[i].reset();
+        m_factoryCalibration[i].reset();
+    }
+    if (!had) return;
+    // Worth a line: the wizard's Apply gate is "has the machine answered", so a
+    // reader seeing it go unavailable mid-session should find the reason here.
+    CAL_INFO("Sensor") << "calibration cache cleared — values belong to one machine";
+    ++m_calibrationVersion;
+    emit calibrationChanged();
 }
 
 #ifdef DECENZA_SIMULATOR
-// A simulated machine's answer. The READ paths are exact — they hand back
-// whatever the simulated machine holds. The WRITE path applies an accumulating
-// model, new offset = old + (measured - reported), chosen because it is the
-// behaviour that makes the documented loop converge ("retest until the two
-// agree") and NOT because the DE1 firmware is known to do that. There is no
-// firmware source in this tree; do not cite this function as evidence of what
-// the machine does.
+// A simulated machine's answer, enough to exercise the wizard off hardware.
+//
+// What it does NOT do: feed the offset back into the simulated sensor. The shot
+// samples DE1Simulator produces are unaffected by m_simStoredCalibration, so a
+// second run measures the same reading, applies the same delta, and the stored
+// offset grows rather than converging. The retest-until-they-agree loop
+// therefore does not converge in the simulator — an earlier version of this
+// comment claimed it did, which was wrong and would have had the next reader
+// diagnosing a real bug from simulated divergence.
+//
+// The stored-value read hands back what the simulated machine holds; the factory
+// read returns a constant. Neither is evidence of firmware behaviour — there is
+// no firmware source in this tree. Do not cite this function for what the
+// machine does.
 void DE1Device::simulateCalibrationReply(DE1::Calibration::Target target,
                                          DE1::Calibration::Command command,
                                          double reported,
@@ -2236,13 +2272,13 @@ void DE1Device::simulateCalibrationReply(DE1::Calibration::Target target,
 }
 #endif
 
-void DE1Device::writeCalibration(int target, double reported, double measured) {
+bool DE1Device::writeCalibration(int target, double reported, double measured) {
     if (!isCalibrationTarget(target)) {
         CAL_WARN("Sensor") << "write refused, target out of range:" << target;
-        return;
+        return false;
     }
-    sendCalibration(static_cast<DE1::Calibration::Target>(target),
-                    DE1::Calibration::Command::Write, reported, measured);
+    return sendCalibration(static_cast<DE1::Calibration::Target>(target),
+                           DE1::Calibration::Command::Write, reported, measured);
 }
 
 double DE1Device::storedCalibration(int target) const {
@@ -2294,8 +2330,17 @@ void DE1Device::parseCalibration(const QByteArray& data) {
                      : m_storedCalibration[index];
     const bool isFactory = (record->command == DE1::Calibration::Command::ReadFactory);
 
-    if (slot.has_value() && qFuzzyCompare(*slot + 1.0, record->measured + 1.0))
+    if (slot.has_value() && qFuzzyCompare(*slot + 1.0, record->measured + 1.0)) {
+        // NOT silent. The read-back after a write is this feature's only
+        // confirmation, and a firmware-REFUSED write produces exactly this
+        // branch: the machine answers with the pre-write value and the dedupe
+        // matches. Returning without a word makes that indistinguishable from no
+        // reply at all, which is the same hole one layer out.
+        CAL_DETAIL("Sensor") << (isFactory ? "factory" : "stored")
+                             << calibrationTargetName(record->target)
+                             << "confirmed unchanged at" << record->measured;
         return;
+    }
 
     slot = record->measured;
     CAL_INFO("Sensor") << (isFactory ? "factory" : "stored")
@@ -2306,14 +2351,25 @@ void DE1Device::parseCalibration(const QByteArray& data) {
 }
 
 int DE1Device::bucketHeaterVoltage(int raw) {
-    // The machine reports 0 for unknown, a measured 120/230 on hardware that can
-    // sense it, or 1120/1230 when it has been TOLD which it has. Ranges and the
-    // above-1000 subtraction follow decaid's De1HeaterVoltage.fromInt
-    // (lib/src/models/device/de1_interface.dart:126), which is the only place
-    // either app writes the rule down.
+    // Returns 0 when the readback falls in neither band. That is "we could not
+    // classify this", NOT "the machine said it does not know" — what the DE1
+    // actually emits when it has not measured is not established here, and an
+    // earlier version of this comment stated it as fact on decaid's authority.
+    // decaid's sentinel is -1 and is likewise a catch-all, not a firmware claim.
+    //
+    // The bands and the above-1000 subtraction ARE sourced: decaid's
+    // De1HeaterVoltage.fromInt (lib/src/models/device/de1_interface.dart:134),
+    // whose own comment explains >1000 as "already set" — i.e. told rather than
+    // measured.
     int volts = raw > 1000 ? raw - 1000 : raw;
     if (volts >= 90 && volts <= 150) return 120;
     if (volts >= 180 && volts <= 260) return 230;
+    if (raw != 0) {
+        // A nonzero value we cannot place renders identically to "nothing
+        // reported", so name it here or the two are indistinguishable.
+        CAL_WARN("Sensor") << "heater voltage readback" << raw
+                           << "falls in neither band — showing as unknown";
+    }
     return 0;
 }
 
@@ -2324,6 +2380,13 @@ void DE1Device::setHeaterVoltage(int volts) {
     // voltage is the failure this guard exists for.
     if (volts != 120 && volts != 230) {
         CAL_WARN("Sensor") << "heater voltage refused, expected 120 or 230, got" << volts;
+        return;
+    }
+    // The INFO goes AFTER the transport check, not before the write. writeMMR
+    // opens with a bare unlogged `if (!m_transport) return;`, so logging first
+    // asserts a completed action for a write that never left the app.
+    if (!m_transport) {
+        CAL_WARN("Sensor") << "heater voltage" << volts << "not sent — no transport";
         return;
     }
     CAL_INFO("Sensor") << "heater voltage =" << volts;

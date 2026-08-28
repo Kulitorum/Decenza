@@ -1215,7 +1215,7 @@ void BleTransport::submitReadyMarker() {
         // because this is the connect narrative a user reads.
         if (m_streamsNotEnabled.isEmpty()) {
             info(QStringLiteral("DE1 telemetry live: state, shot samples, water level, "
-                                "MMR responses, temperatures"));
+                                "MMR responses, temperatures, calibration replies"));
         } else {
             info(QString("DE1 telemetry live except %1 — that stream will not update "
                          "until the next reconnect")

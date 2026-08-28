@@ -321,18 +321,22 @@ public slots:
     // `reported` is the machine's own sensor reading and `measured` is an
     // external instrument's. Callers must not pass a profile target as
     // `reported` — see the sensor calibration wizards, which measure it.
-    void sendCalibration(DE1::Calibration::Target target,
-                         DE1::Calibration::Command command,
-                         double reported,
-                         double measured);
-    Q_INVOKABLE void readCalibration(int target, bool factory);
-    // The QML entry point for a correction. Takes ints because QML has no access
-    // to the enums, and refuses an out-of-range target rather than defaulting to
-    // one — a wizard with a bad id must fail visibly, not calibrate the wrong
-    // sensor. `reported` must be what the MACHINE read (SensorCalibration
-    // measures it); passing a profile target here is the de1app defect this
-    // whole feature exists to avoid.
-    Q_INVOKABLE void writeCalibration(int target, double reported, double measured);
+    // False when the request was refused and NOTHING went to the machine. The
+    // caller must not report success on a false — a wizard that shows "applied"
+    // for a write that never left the app sends the user off to re-run against a
+    // machine that never changed.
+    [[nodiscard]] bool sendCalibration(DE1::Calibration::Target target,
+                                       DE1::Calibration::Command command,
+                                       double reported,
+                                       double measured);
+    Q_INVOKABLE bool readCalibration(int target, bool factory);
+    // Writes a correction. NOT for QML: `reported` must be what the MACHINE read,
+    // and only SensorCalibration knows that — it is the object that watched the
+    // run. Passing anything else here is the de1app defect this whole feature
+    // exists to avoid, so the pair is assembled in exactly one place
+    // (SensorCalibrationController::applyCorrection) and QML cannot name a
+    // `reported` value at all.
+    [[nodiscard]] bool writeCalibration(int target, double reported, double measured);
     // NOTE: there is deliberately no restore-to-factory call.
     //
     // Command::ResetFactory (2) exists in the wire vocabulary and is documented
@@ -365,11 +369,9 @@ public slots:
     // voltage runs the heater at the wrong duty.
     Q_INVOKABLE void setHeaterVoltage(int volts);
 
-    // Buckets a raw HEATER_VOLTAGE readback to 120, 230, or 0 for unknown.
-    // The machine reports 0 when it does not know, a measured 120/230 on
-    // hardware that can sense it, or 1120/1230 when it has been TOLD. Mapping
-    // and ranges follow decaid's De1HeaterVoltage.fromInt
-    // (lib/src/models/device/de1_interface.dart:126).
+    // Buckets a raw HEATER_VOLTAGE readback to 120, 230, or 0 for "unclassified".
+    // Rationale and sourcing live at the definition — one copy, not two that can
+    // drift.
     static int bucketHeaterVoltage(int raw);
 
     // ---- Firmware update (BLE A009 / A006) --------------------------------
@@ -717,6 +719,10 @@ private:
     static constexpr int kCalibrationTargets = 3;
     std::optional<double> m_storedCalibration[kCalibrationTargets];
     std::optional<double> m_factoryCalibration[kCalibrationTargets];
+    // Absence has to be RE-established, not just established: these are facts
+    // about one machine, and the same app can be pointed at another. Cleared in
+    // the same reset block as m_lastMMRValues.
+    void clearCalibrationCache();
     int m_calibrationVersion = 0;
 
     // Simulation only: the values a simulated machine holds, distinct from the
@@ -733,8 +739,7 @@ private:
     void simulateCalibrationReply(DE1::Calibration::Target target,
                                   DE1::Calibration::Command command,
                                   double reported, double measured);
-    // True only for a target index inside the enum, so a bad index from QML
-    // cannot walk off the arrays above.
+    // So a bad index from QML cannot walk off the arrays above.
     static bool isCalibrationTarget(int target) {
         return target >= 0 && target < kCalibrationTargets;
     }

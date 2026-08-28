@@ -62,8 +62,14 @@ namespace Characteristic {
 //   WriteKey       u32     see the keys below
 //   CalCommand     u8      Command
 //   CalTarget      u8      Target
-//   DE1ReportedVal S32P16  what the machine's own sensor read
-//   MeasuredVal    S32P16  what an external instrument read
+//   DE1ReportedVal 32-bit P16  what the machine's own sensor read. de1app reads
+//                              this field UNSIGNED; Decenza decodes it signed,
+//                              which is harmless because it is only ever
+//                              RECEIVED in an echo, whose payload is discarded.
+//   MeasuredVal    S32P16      what an external instrument read — and, on a
+//                              reply, the machine's stored offset. de1app's spec
+//                              marks this one signed, which matters: a machine
+//                              reading above the instrument stores a negative.
 //
 // Source: de1app's `calibrate_spec` (de1plus/binary.tcl:414) and
 // de1_send_calibration / de1_read_calibration (de1plus/de1_comms.tcl:1632, :1665).
@@ -89,7 +95,7 @@ namespace Calibration {
     };
 
     // The firmware accepts a write only with this key; de1app sends 1 for reads
-    // (de1_comms.tcl:1653, :1687).
+    // (de1_comms.tcl:1651 for the write key, :1686 for the read key).
     constexpr uint32_t WRITE_KEY = 0xCAFEF00D;
     constexpr uint32_t READ_KEY  = 0x00000001;
 
@@ -121,8 +127,11 @@ namespace Calibration {
 
         QByteArray out;
         out.reserve(RECORD_BYTES);
-        // Big-endian throughout, matching de1app's ::fields::pack ... bigeendian
-        // (the typo is de1app's; the behaviour is big-endian).
+        // Big-endian throughout. de1app gets this from the capital `Int` in
+        // calibrate_spec rather than from an endian argument — make_packed_calibration
+        // (binary.tcl:245) passes none, and fields::endianness is never set. The
+        // `bigeendian` literal (the typo is de1app's) appears only on the unpack
+        // side, parse_binary_calibration (binary.tcl:1326).
         for (int shift : {24, 16, 8, 0})
             out.append(static_cast<char>((r.writeKey >> shift) & 0xFF));
         out.append(static_cast<char>(r.command));

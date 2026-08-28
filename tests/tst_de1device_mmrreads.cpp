@@ -334,8 +334,10 @@ private slots:
     void calibrationWriteSendsOneRecordWithTheFirmwareKey() {
         TestFixture f;
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("write pressure"));
-        f.device.sendCalibration(DE1::Calibration::Target::Pressure,
-                                 DE1::Calibration::Command::Write, 9.0, 8.25);
+        // Result deliberately dropped: this asserts the BYTES that go out, and
+        // the fixture's transport always accepts.
+        (void)f.device.sendCalibration(DE1::Calibration::Target::Pressure,
+                                       DE1::Calibration::Command::Write, 9.0, 8.25);
 
         QCOMPARE(countCalibrationWrites(f.transport), qsizetype(1));
         const QByteArray sent = lastCalibrationWrite(f.transport);
@@ -362,7 +364,7 @@ private slots:
 
         TestFixture f;
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("read.*temperature"));
-        f.device.readCalibration(int(DE1::Calibration::Target::Temperature), factory);
+        (void)f.device.readCalibration(int(DE1::Calibration::Target::Temperature), factory);
 
         const auto record = DE1::Calibration::parseRecord(lastCalibrationWrite(f.transport));
         QVERIFY(record.has_value());
@@ -374,7 +376,7 @@ private slots:
     }
 
     // Nothing may send ResetFactory. It has no working reference — de1app's
-    // helper names 2 while its reset buttons passed 3 for their whole ten-week
+    // helper names 2 while its reset buttons passed 3 for their whole eleven-week
     // life (added 2018-02-27 a2092efc, disabled 2018-05-15 69e4277c, both with
     // empty commit messages) — and no firmware source here settles it. This test
     // is what stops it being added back casually: writing an unverified command
@@ -382,12 +384,13 @@ private slots:
     void nothingEverSendsTheUnverifiedResetCommand() {
         TestFixture f;
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("write pressure"));
-        f.device.sendCalibration(DE1::Calibration::Target::Pressure,
-                                 DE1::Calibration::Command::Write, 9.0, 8.2);
+        // Result deliberately dropped — see above.
+        (void)f.device.sendCalibration(DE1::Calibration::Target::Pressure,
+                                       DE1::Calibration::Command::Write, 9.0, 8.2);
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("read.*pressure"));
-        f.device.readCalibration(int(DE1::Calibration::Target::Pressure), false);
+        (void)f.device.readCalibration(int(DE1::Calibration::Target::Pressure), false);
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("read factory pressure"));
-        f.device.readCalibration(int(DE1::Calibration::Target::Pressure), true);
+        (void)f.device.readCalibration(int(DE1::Calibration::Target::Pressure), true);
 
         for (const auto& w : f.transport.writes) {
             if (w.first != DE1::Characteristic::CALIBRATION) continue;
@@ -408,7 +411,7 @@ private slots:
         TestFixture f;
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("read refused, target out of range"));
-        f.device.readCalibration(target, false);
+        (void)f.device.readCalibration(target, false);
 
         QCOMPARE(countCalibrationWrites(f.transport), qsizetype(0));
         // And the accessors must not walk off the arrays.
@@ -490,6 +493,74 @@ private slots:
         QCOMPARE(f.device.hasStoredCalibration(int(DE1::Calibration::Target::Pressure)), false);
     }
 
+    void aRefusedWriteIsReportedRatherThanSwallowed() {
+        // Without a transport nothing can be sent. The caller has to be able to
+        // tell — a wizard that shows "applied" for a write that never left the
+        // app sends the user off to re-run against a machine that never changed.
+        DE1Device orphan;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("cannot write pressure — no transport"));
+        QVERIFY(!orphan.writeCalibration(int(DE1::Calibration::Target::Pressure), 9.0, 8.2));
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("cannot read pressure — no transport"));
+        QVERIFY(!orphan.readCalibration(int(DE1::Calibration::Target::Pressure), false));
+    }
+
+    void calibrationCacheIsClearedWhenTheMachineGoesAway() {
+        // These values are facts about ONE machine. Carrying them across a
+        // reconnect means a second DE1 shows the first's offsets — and the
+        // wizard's Apply gate is exactly "has this machine answered", so a stale
+        // true opens a write against a baseline this machine never reported.
+        TestFixture f;
+        const int pressure = int(DE1::Calibration::Target::Pressure);
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
+        emit f.transport.dataReceived(
+            DE1::Characteristic::CALIBRATION,
+            calibrationReply(DE1::Calibration::REPLY_VALUE_KEY,
+                             DE1::Calibration::Command::ReadCurrent,
+                             DE1::Calibration::Target::Pressure, 0.4));
+        QVERIFY(f.device.hasStoredCalibration(pressure));
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("calibration cache cleared"));
+        f.transport.setConnectedSim(false);
+
+        QCOMPARE(f.device.hasStoredCalibration(pressure), false);
+        QCOMPARE(f.device.hasFactoryCalibration(pressure), false);
+    }
+
+#ifdef DECENZA_SIMULATOR
+    void simulatedMachineAnswersItsOwnCalibrationRequests() {
+        // The only way this feature is exercised without a DE1 on the bench, and
+        // every way it can break is silent — the wizard just sits on "not read
+        // yet" and the next person concludes the FEATURE is broken.
+        TestFixture f;
+        f.device.m_simulationMode = true;
+        const int pressure = int(DE1::Calibration::Target::Pressure);
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("simulated machine stored"));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
+        QVERIFY(f.device.writeCalibration(pressure, 9.0, 8.2));
+
+        // Nothing may reach the transport on the simulated path.
+        QCOMPARE(countCalibrationWrites(f.transport), qsizetype(0));
+        QVERIFY(f.device.hasStoredCalibration(pressure));
+        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 0.8) < 1e-4);
+
+        // A second write accumulates. This is the assertion that pins the
+        // DIRECTION — one write alone cannot distinguish a sign flip.
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("simulated machine stored"));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
+        QVERIFY(f.device.writeCalibration(pressure, 9.0, 8.6));
+        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 1.2) < 1e-4);
+
+        // The factory read lands in the other slot and leaves stored alone.
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("factory pressure calibration"));
+        QVERIFY(f.device.readCalibration(pressure, true));
+        QVERIFY(f.device.hasFactoryCalibration(pressure));
+        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 1.2) < 1e-4);
+    }
+#endif
+
     // ===== Nominal heater voltage =====
 
     void heaterVoltageBuckets_data() {
@@ -517,6 +588,11 @@ private slots:
     void heaterVoltageBuckets() {
         QFETCH(int, raw);
         QFETCH(int, expected);
+        // A NONZERO value that lands in neither band is warned about, because it
+        // renders identically to "the machine reported nothing" and the two are
+        // otherwise indistinguishable on screen.
+        if (expected == 0 && raw != 0)
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("falls in neither band"));
         QCOMPARE(DE1Device::bucketHeaterVoltage(raw), expected);
     }
 

@@ -94,6 +94,12 @@ T.Page {
     // change what the next shot runs — a 60-second calibration hold. Without a
     // restore, backing out of the wizard and pulling a shot gives you that.
     property string previousProfile: ""
+    // The test profile could not be loaded. The page then does nothing at all —
+    // no arming, no reads — and says so, rather than measuring whatever profile
+    // the machine was given instead.
+    property bool profileMissing: false
+    // A write was refused and nothing reached the machine.
+    property bool writeFailed: false
 
     function _readBothCalibrations() {
         DE1Device.readCalibration(calibrationPage.calTarget, false)
@@ -101,10 +107,25 @@ T.Page {
     }
 
     Component.onCompleted: {
-        calibrationPage.previousProfile = ProfileManager.currentProfileName
-        // Make this sensor's test profile active, and arm the capture. The shot
-        // is NOT started here — the machine has a GHC and the user starts it.
-        ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))
+        // currentProfileTITLE, not currentProfileName. The latter is a DISPLAY
+        // string — it becomes "*My Espresso" the moment the profile is modified,
+        // and a dose nudge is enough — and its own declaration says it must
+        // never be used as a query term (profilemanager.h:85-90). Feeding it back
+        // to loadProfile matches nothing, and the not-found path loads and
+        // UPLOADS the default profile.
+        calibrationPage.previousProfile = ProfileManager.currentProfileTitle
+
+        // Make this sensor's test profile active. If it cannot be loaded,
+        // loadProfile substitutes the DEFAULT profile and uploads it
+        // (profilemanager.cpp:1754-1759) — so arming anyway would measure an
+        // ordinary espresso shot and compute a firmware correction from it,
+        // which is precisely the defect this feature exists to prevent.
+        if (!ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))) {
+            calibrationPage.profileMissing = true
+            return
+        }
+        // The shot is NOT started here — the machine has a GHC and the user
+        // starts it.
         SensorCalibration.arm(calibrationPage.sensor)
         // Four reads; the shared GATT queue orders them, so no pacing here.
         calibrationPage._readBothCalibrations()
@@ -112,10 +133,9 @@ T.Page {
 
     Component.onDestruction: {
         SensorCalibration.reset()
-        if (calibrationPage.previousProfile.length > 0
-                && calibrationPage.previousProfile !== SensorCalibration.profileFilename(calibrationPage.sensor)) {
+        // Nothing to restore if we never replaced anything.
+        if (!calibrationPage.profileMissing && calibrationPage.previousProfile.length > 0)
             ProfileManager.loadProfile(calibrationPage.previousProfile)
-        }
     }
 
     // The instrument field sits mid-page inside the scroll area, so a soft
@@ -216,9 +236,49 @@ T.Page {
                 }
             }
 
+            // ===== The test profile could not be loaded =====
+            Rectangle {
+                visible: calibrationPage.profileMissing
+                Layout.fillWidth: true
+                Layout.maximumWidth: Theme.scaled(600)
+                Layout.alignment: Qt.AlignHCenter
+                implicitHeight: missingColumn.implicitHeight + Theme.scaled(24)
+                color: Theme.cardBackgroundColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: missingColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(12)
+                    spacing: Theme.scaled(8)
+
+                    Tr {
+                        key: "sensorCalibration.profileMissing.title"
+                        fallback: "The test profile is missing"
+                        font: Theme.subtitleFont
+                        color: Theme.warningColor
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate(
+                                  "sensorCalibration.profileMissing.body",
+                                  "Decenza could not load the %1 test profile, so this calibration "
+                                  + "cannot run. Nothing has been changed on your machine.")
+                              .arg(calibrationPage.sensorLabel)
+                        color: Theme.textColor
+                        font: Theme.bodyFont
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
             // ===== Prepare =====
             Rectangle {
-                visible: calibrationPage.armed || calibrationPage.noHold || calibrationPage.aborted
+                visible: !calibrationPage.profileMissing
+                         && (calibrationPage.armed || calibrationPage.noHold || calibrationPage.aborted)
                 Layout.fillWidth: true
                 Layout.maximumWidth: Theme.scaled(600)
                 Layout.alignment: Qt.AlignHCenter
@@ -275,13 +335,28 @@ T.Page {
                         wrapMode: Text.WordWrap
                     }
 
+                    // Two different answers, because they need opposite advice.
+                    // "Run it again more carefully" is wrong for a run that never
+                    // got far enough to hold at all.
                     Text {
                         Layout.fillWidth: true
-                        visible: calibrationPage.noHold
+                        visible: calibrationPage.noHold && !SensorCalibration.neverPoured
                         text: TranslationManager.translate(
                                   "sensorCalibration.noHold",
                                   "That run never held steady long enough to measure. Run it again "
-                                  + "and let the pressure settle before stopping.")
+                                  + "and let it settle before stopping.")
+                        color: Theme.warningColor
+                        font: Theme.captionFont
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: calibrationPage.noHold && SensorCalibration.neverPoured
+                        text: TranslationManager.translate(
+                                  "sensorCalibration.neverPoured",
+                                  "That run ended before any water flowed, so there was nothing to "
+                                  + "measure. Let it run through to the hold.")
                         color: Theme.warningColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
@@ -464,6 +539,18 @@ T.Page {
 
                     Text {
                         Layout.fillWidth: true
+                        visible: calibrationPage.writeFailed
+                        text: TranslationManager.translate(
+                                  "sensorCalibration.apply.writeFailed",
+                                  "Your machine did not accept that — it may have disconnected. "
+                                  + "Nothing was changed.")
+                        color: Theme.errorColor
+                        font: Theme.captionFont
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
                         visible: !calibrationPage.hasStored
                         text: TranslationManager.translate(
                                   "sensorCalibration.apply.noBaseline",
@@ -479,12 +566,18 @@ T.Page {
                         text: TranslationManager.translate("sensorCalibration.apply.button", "Apply correction")
                         accessibleName: TranslationManager.translate("sensorCalibration.apply.button", "Apply correction")
                         primary: true
+                        // DE1Device.connected too: a BLE drop while the state is
+                        // Measured does not abort the session (the measurement is
+                        // still valid), so without this the Apply card stays live
+                        // with a working button after the machine has gone.
                         enabled: calibrationPage.entryValid && calibrationPage.hasStored
+                                 && DE1Device.connected
                         onClicked: {
                             // The commit can change the text, so re-check rather
                             // than trusting the gate that opened this.
                             Keyboard.commit()
-                            if (calibrationPage.entryValid && calibrationPage.hasStored)
+                            if (calibrationPage.entryValid && calibrationPage.hasStored
+                                    && DE1Device.connected)
                                 confirmDialog.open()
                         }
                     }
@@ -549,6 +642,13 @@ T.Page {
     readonly property double entryValue: parseFloat(instrumentField.text)
     readonly property string rejection: {
         void(calibrationPage._trVersion)
+        // rejectionReason() reads hasMeasurement()/measuredValue() internally,
+        // both NOTIFY stateChanged — and a C++ invokable records no dependency,
+        // the same trap as the translating ones above. Without this the verdict
+        // can be left over from a superseded measurement: start a second run
+        // without touching the page and the summary re-renders from the new
+        // value while the guard that allowed it was computed against the old.
+        void(SensorCalibration.state)
         if (instrumentField.text.length === 0) return ""
         return SensorCalibration.rejectionReason(calibrationPage.sensor, calibrationPage.entryValue)
     }
@@ -622,11 +722,22 @@ T.Page {
                             confirmDialog.close()
                             return
                         }
-                        calibrationPage.previousGap =
-                            calibrationPage.entryValue - SensorCalibration.measuredValue
-                        DE1Device.writeCalibration(calibrationPage.calTarget,
-                                                   SensorCalibration.measuredValue,
-                                                   calibrationPage.entryValue)
+                        var gap = calibrationPage.entryValue - SensorCalibration.measuredValue
+                        // ONE call, and it carries only the instrument's reading.
+                        // The controller supplies what the machine read, because
+                        // it is the object that watched the run — there is no way
+                        // from here to name that half, which is the point.
+                        if (!SensorCalibration.applyCorrection(calibrationPage.sensor,
+                                                               calibrationPage.entryValue)) {
+                            // Refused, and nothing reached the machine. Saying
+                            // "applied" here would send the user off to re-run
+                            // against a machine that never changed.
+                            calibrationPage.writeFailed = true
+                            confirmDialog.close()
+                            return
+                        }
+                        calibrationPage.writeFailed = false
+                        calibrationPage.previousGap = gap
                         // Read back rather than trusting what we sent.
                         calibrationPage._readBothCalibrations()
                         calibrationPage.wroteThisSession = true

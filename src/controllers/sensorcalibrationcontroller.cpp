@@ -75,10 +75,16 @@ namespace {
 
 // Resolves an int from QML to a row, or nullptr. Kept in one place so every
 // accessor below fails the same way on a bad id.
+//
+// Looks up by ENUM VALUE, not by table position. Those agree only while the rows
+// happen to be declared in enum order — reorder sensorSpecs() and indexing by
+// position silently arms the wrong sensor while specFor() keeps working. The
+// SensorSpec::sensor field exists precisely to make position irrelevant.
 const SensorCalibrationController::SensorSpec* rowFor(int sensor) {
-    if (sensor < 0 || sensor >= SensorCalibrationController::sensorSpecs().size())
+    using Sensor = SensorCalibrationController::Sensor;
+    if (sensor < 0 || sensor > static_cast<int>(Sensor::Temperature))
         return nullptr;
-    return &SensorCalibrationController::sensorSpecs().at(sensor);
+    return SensorCalibrationController::specFor(static_cast<Sensor>(sensor));
 }
 
 double median(QVector<double> values) {
@@ -187,7 +193,10 @@ QString SensorCalibrationController::rejectionReason(int sensor, double instrume
         return QString();
 
     const double correction = std::abs(instrumentReading - measuredValue());
-    if (correction > spec->maxCorrection) {
+    // >=, not >. The pressure test profile's two plateaus are 7 and 9 bar —
+    // exactly maxCorrection apart — so a run measured against the wrong one
+    // lands precisely on the boundary and a > check waves it through.
+    if (correction >= spec->maxCorrection) {
         return tr_("settings.sensorCalibration.reject.tooFar",
                    "That is %1 %2 from what the machine read (%3 %2). "
                    "Corrections over %4 %2 are usually a typo or the wrong unit.")
@@ -198,6 +207,53 @@ QString SensorCalibrationController::rejectionReason(int sensor, double instrume
     }
 
     return QString();
+}
+
+bool SensorCalibrationController::applyCorrection(int sensor, double instrumentReading) {
+    const auto* spec = rowFor(sensor);
+    if (!spec) {
+        CAL_WARN("Wizard") << "correction refused, sensor out of range:" << sensor;
+        return false;
+    }
+
+    // The measurement must be THIS session's, for THIS sensor, and must still
+    // exist. All three can be false by the time a user presses the button: the
+    // confirm dialog lives in the overlay, so a machine going to sleep resets the
+    // measurement while the dialog is still up.
+    if (m_state != State::Measured || !m_measured) {
+        CAL_WARN("Wizard") << "correction refused for"
+                           << QString::fromLatin1(spec->labelFallback)
+                           << "— no measurement from a run this session";
+        return false;
+    }
+    if (spec->sensor != m_sensor) {
+        CAL_WARN("Wizard") << "correction refused — measured"
+                           << QString::fromLatin1(specFor(m_sensor)->labelFallback)
+                           << "but asked to apply to"
+                           << QString::fromLatin1(spec->labelFallback);
+        return false;
+    }
+
+    const QString reason = rejectionReason(sensor, instrumentReading);
+    if (!reason.isEmpty()) {
+        CAL_WARN("Wizard") << "correction refused:" << reason;
+        return false;
+    }
+
+    if (!m_device) {
+        CAL_WARN("Wizard") << "correction refused — no machine";
+        return false;
+    }
+
+    // The pair, assembled here and nowhere else. `*m_measured` is what this
+    // object watched the machine report; the caller supplies only the
+    // instrument's reading and cannot name the other half.
+    if (!m_device->sendCalibration(spec->target, DE1::Calibration::Command::Write,
+                                   *m_measured, instrumentReading)) {
+        // sendCalibration has already said why on the [Calibration] marker.
+        return false;
+    }
+    return true;
 }
 
 void SensorCalibrationController::arm(int sensor) {
@@ -228,7 +284,7 @@ void SensorCalibrationController::reset() {
 }
 
 double SensorCalibrationController::measuredValue() const {
-    return m_measured.value_or(0.0);
+    return m_measured.value_or(std::numeric_limits<double>::quiet_NaN());
 }
 
 double SensorCalibrationController::currentReading() const {
@@ -271,10 +327,11 @@ void SensorCalibrationController::onShotSample(const ShotSample& sample) {
     // wherever it happens to be — so a run CAN straddle a wrap.
     //
     // Unwrapping matters more here than the odds suggest, because the failure is
-    // silent: without it one elapsed value jumps ~-655 s, that step is scored as
-    // rate 0 (holding) via the non-positive-dt branch, and the enclosing window's
-    // span goes negative so it is discarded. The user is told the run never held
-    // steady when it held perfectly.
+    // silent: without it one elapsed value jumps ~-655 s, findSteadyHold breaks
+    // the window at that sample (a non-positive interval is not evidence of
+    // holding), and one real hold is scored as two shorter ones — either of
+    // which can fall under kMinWindowSeconds. The user is told the run never
+    // held steady when it held perfectly.
     constexpr double kSampleTimerModSec = 65536.0 / 100.0;
     double elapsed = sample.timer - m_observeStartS;
     if (elapsed < 0.0) elapsed += kSampleTimerModSec;
@@ -293,7 +350,15 @@ void SensorCalibrationController::onPhaseChanged() {
     // Disconnected on a BLE drop, and treating that as "the run ended" would
     // hand back a value measured from a truncated run.
     if (phase == MachineState::Phase::Disconnected || phase == MachineState::Phase::Sleep) {
-        if (m_state == State::Observing || m_state == State::Armed) {
+        // Invalidate from MEASURED too, not just from Armed/Observing.
+        //
+        // A measurement outliving the machine it was taken from is the same
+        // mistake as one outliving its run. The confirm dialog is parented to the
+        // overlay, so it stays up while the machine goes: leaving the measurement
+        // live there means a correction can be applied to a machine that has
+        // slept or gone away since it was measured. Requiring a fresh run costs
+        // the user one repeat and removes the whole question.
+        if (m_state != State::Idle && m_state != State::Aborted) {
             CAL_WARN("Wizard") << "run aborted, machine went"
                                << (phase == MachineState::Phase::Sleep ? "to sleep" : "away");
             m_samples.clear();
@@ -379,14 +444,33 @@ std::optional<double> SensorCalibrationController::findSteadyHold() const {
     qsizetype bestStart = -1, bestEnd = -1;
     qsizetype winStart = -1;
 
+    // The LAST qualifying window, not the longest.
+    //
+    // This is not a tie-break detail — the shipped pressure profile has two
+    // deliberate plateaus, 20 s at 7.00 bar then 60 s at 9.00 bar
+    // (resources/profiles/test_pressure_calibration.json), and its own note says
+    // the machine "will slowly rise to 9 bar and hold it". The 9 bar hold is the
+    // hold; 7 bar is a lead-in.
+    //
+    // Picking the longest gets that wrong on an ordinary run: a user who reads
+    // their gauge during the 9 bar hold and stops before ~20 s of it have
+    // elapsed leaves the 7 bar window longer, and the wizard reports 7.00 bar.
+    // They enter their gauge's 9.0 and a 2 bar correction is written from a run
+    // where they did nothing wrong. Taking the last window matches both the
+    // profile's shape and this page's own instruction, which is to read the
+    // gauge while the machine holds — the final hold.
+    //
+    // The temperature profile has a single plateau, so last and longest agree
+    // there and nothing changes.
     const auto closeWindow = [&](qsizetype endIndex) {
         if (winStart < 0) return;
         const double span = m_samples[endIndex].elapsedS - m_samples[winStart].elapsedS;
         const qsizetype count = endIndex - winStart + 1;
-        const bool longEnough = span >= kMinWindowSeconds && count >= kMinWindowSamples;
-        const bool longest = bestStart < 0 ||
-                             span > (m_samples[bestEnd].elapsedS - m_samples[bestStart].elapsedS);
-        if (longEnough && longest) {
+        // Both terms are kept deliberately. At the DE1's real 5 Hz the sample
+        // count is the weaker of the two, but the sample rate is not a guarantee
+        // — a slower stream would satisfy the duration while measuring a median
+        // over too few points.
+        if (span >= kMinWindowSeconds && count >= kMinWindowSamples) {
             bestStart = winStart;
             bestEnd = endIndex;
         }

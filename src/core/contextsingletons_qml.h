@@ -419,6 +419,8 @@ public:
     }
 };
 
+// 14 references across 2 QML files.
+//
 // The sensor-calibration capture controller. Registered here rather than with
 // QML_ELEMENT in its own header because main() owns it: it needs DE1Device,
 // MachineState and TranslationManager, none of which the QML engine can supply.

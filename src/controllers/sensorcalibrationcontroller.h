@@ -43,10 +43,9 @@ class SensorCalibrationController : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(int state READ stateInt NOTIFY stateChanged FINAL)
-    Q_PROPERTY(int sensor READ sensorInt NOTIFY sensorChanged FINAL)
     Q_PROPERTY(bool hasMeasurement READ hasMeasurement NOTIFY stateChanged FINAL)
     Q_PROPERTY(double measuredValue READ measuredValue NOTIFY stateChanged FINAL)
-    Q_PROPERTY(int sampleCount READ sampleCount NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool neverPoured READ neverPoured NOTIFY stateChanged FINAL)
 
 public:
     // The two sensors Decenza calibrates. Flow is deliberately absent: flow
@@ -102,14 +101,17 @@ public:
         // Rate-of-change ceiling that still counts as "holding", in units per
         // second.
         //
-        // This is the auto-flow finder's measured 0.5 (maincontroller.cpp:3140),
-        // NOT a tighter number invented for calibration. An earlier draft used
-        // 0.15 on the reasoning that "a calibration hold is longer and flatter
-        // than a pour" — plausible, unmeasured, and wrong: the DE1's PID moves
-        // pressure ~0.1-0.2 bar between samples, which at a 5 Hz sample rate is
-        // already ~0.5-1.0 bar/s, so 0.15 rejected every real hold. The rule the
-        // rest of this change follows applies here too — use the referenced
-        // number, and tighten only with a measurement to point at.
+        // For the PRESSURE row this is the auto-flow finder's measured 0.5 bar/s
+        // (maincontroller.cpp:3140), NOT a tighter number invented for
+        // calibration. An earlier draft used 0.15 on the reasoning that "a
+        // calibration hold is longer and flatter than a pour" — plausible,
+        // unmeasured, and wrong: the DE1's PID moves pressure ~0.1-0.2 bar
+        // between samples, which at 5 Hz is already ~0.5-1.0 bar/s, so 0.15
+        // rejected every real hold.
+        //
+        // The TEMPERATURE row's 0.5 is °C/s, a different quantity with no
+        // reference behind it — see the table in the .cpp, which says so and
+        // says to tighten it from a real run rather than from here.
         double maxRateOfChange;
         // Readings below this are the machine ramping or idle, not holding.
         double holdFloor;
@@ -144,6 +146,22 @@ public:
     // different rule from the one documented on the table.
     Q_INVOKABLE QString rejectionReason(int sensor, double instrumentReading) const;
 
+    // The ONLY way a correction reaches the machine.
+    //
+    // The pair (what the machine read, what the instrument read) must never be
+    // separable, because the entire feature is the claim that the first half was
+    // measured rather than typed. Exposing a write that takes both halves put
+    // that claim in the hands of one QML binding, and there was a reachable path
+    // through it: with the confirm dialog open, a machine going to sleep resets
+    // the measurement while the dialog — parented to the overlay — stays up, so
+    // the write went out with reported = 0.0. A full-scale bogus correction,
+    // from the state whose entire purpose is to say nothing was measured.
+    //
+    // Now there is no expressible way to write one without a measurement.
+    // Returns false, having sent nothing, if this object did not measure the run
+    // or the reading fails its guards.
+    Q_INVOKABLE bool applyCorrection(int sensor, double instrumentReading);
+
     // ---- Session ----
     // Arms for one sensor and one run. Any previous measurement is dropped: a
     // value must never outlive the run that produced it.
@@ -153,9 +171,21 @@ public:
     int stateInt() const { return static_cast<int>(m_state); }
     int sensorInt() const { return static_cast<int>(m_sensor); }
     bool hasMeasurement() const { return m_state == State::Measured; }
-    // Meaningless unless hasMeasurement() — guarded rather than returning a
-    // plausible zero, which would read as "the machine reported nothing wrong".
+    // True when the run ended without water ever moving. Distinguishes "it never
+    // held" from "it never got going", which need opposite advice.
+    bool neverPoured() const { return m_state == State::NoHold && !m_sawPour; }
+    // NaN unless hasMeasurement(). Deliberately not 0.0: zero is a plausible
+    // reading, so a caller that forgot to check would get a number that looks
+    // like an answer. NaN propagates and shows as "NaN" rather than lying.
+    //
+    // (This used to return value_or(0.0) under a comment claiming it was
+    // guarded. It was not, and that gap is what made the sleep-mid-dialog write
+    // possible — the next reader trusts the stated guarantee and skips their own
+    // check, which is exactly what happened.)
     double measuredValue() const;
+    // Not a Q_PROPERTY: it changes on every sample while the state stays
+    // Observing, so a stateChanged NOTIFY would be stale for the whole period it
+    // is interesting. Tests use it directly.
     int sampleCount() const { return static_cast<int>(m_samples.size()); }
 
 signals:
@@ -203,13 +233,21 @@ private:
     // to.
     double m_observeStartS = 0.0;
     bool m_haveObserveStart = false;
+    // Whether the device this correction would go to is still the one that was
+    // measured. Set false by any abort.
+    DE1Device* device() const { return m_device; }
+
     // Latches that water actually moved. A run that reached preinfusion and was
     // stopped before pouring lands in a settled phase with samples that never
-    // meant anything; without this it would be reported as "no steady hold",
-    // which sends the user off to run it more carefully when the real answer is
-    // that the run did not get far enough.
+    // meant anything — a preinfusion plateau sits above the temperature hold
+    // floor and is flat, so without this the wizard would report it as a valid
+    // measurement and the user would calibrate against water that barely moved.
     //
-    // (It is NOT what stops a never-started run being judged NoHold — that is
+    // The two outcomes reach the page as DIFFERENT messages (see neverPoured):
+    // "it never held steady, run it again more carefully" is the wrong advice
+    // for a run that did not get far enough to hold at all.
+    //
+    // (It is NOT what stops a never-STARTED run being judged NoHold — that is
     // handled earlier, by onPhaseChanged returning while the state is still
     // Armed rather than Observing.)
     //

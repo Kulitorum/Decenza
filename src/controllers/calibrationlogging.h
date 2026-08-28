@@ -47,9 +47,14 @@
 // DECENZA_SUBSYS_STREAM exists for. Statement forms are deliberately absent
 // rather than defined-and-unused; add one when a site needs it.
 //
-// NOTE maincontroller.cpp is in check_log_markers.py's MARKER_ONLY_GLOBS, so
-// rules 2 and 5 are enforced there but rule 1 (no bare qDebug) is NOT. Using a
-// tier below is a convention here, not a gate.
+// NOTE the three files that use these helpers sit in three different
+// enforcement regimes, so "is this a gate or a convention" depends on where you
+// are:
+//   maincontroller.cpp               MARKER_ONLY_GLOBS — rules 2 and 5 enforced,
+//                                    rule 1 (no bare qDebug) NOT. Tier is a
+//                                    convention there.
+//   sensorcalibrationcontroller.cpp  COVERED_GLOBS — all rules, including rule 1.
+//   de1device.cpp                    covered by src/ble/**/*.cpp, so all rules.
 #define CAL_DETAIL(tag) DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_CALIBRATION, tag, qDebug)
 #define CAL_INFO(tag)   DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_CALIBRATION, tag, qInfo)
 #define CAL_WARN(tag)   DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_CALIBRATION, tag, qWarning)

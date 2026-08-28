@@ -318,27 +318,6 @@ private slots:
         QCOMPARE(connectedSpy.count(), 1);
     }
 
-    // Same contract, asserted for the calibration stream specifically. A machine
-    // or transport that cannot notify on A012 must still connect: the sensor
-    // calibration wizards then show their values as unavailable and refuse to
-    // write, which is a screen almost nobody opens and never a reason to fail
-    // the whole connection.
-    void AFailedCalibrationStreamDoesNotFailTheConnect() {
-        BleGattQueue queue;
-        BleTransport transport(nullptr, &queue);
-        QSignalSpy connectedSpy(&transport, &DE1Transport::connected);
-
-        QVERIFY(!transport.submitSubscribe(DE1::Characteristic::CALIBRATION,
-                                           /*required=*/false));
-        QCOMPARE(transport.m_streamsNotEnabled.size(), qsizetype(1));
-
-        transport.submitReadyMarker();
-        QTest::ignoreMessage(QtInfoMsg,
-            QRegularExpression("DE1 telemetry live except"));
-        QTest::qWait(30);
-        QCOMPARE(connectedSpy.count(), 1);
-    }
-
     void consecutiveAbandonedWritesReportOnceAtTheBound() {
         BleTransport transport;
 

@@ -167,7 +167,11 @@
       "and whether the multiplier moved or sat inside the deadband. Answers "      \
       "\"why did my flow calibration change\" and, more often, \"why does it "    \
       "never change\" — which for a profile that never reaches its target flow "   \
-      "is permanent and not visible from any single shot")
+      "is permanent and not visible from any single shot. ALSO sensor "            \
+      "calibration, tagged Wizard and Sensor: whether a run was measured, held "   \
+      "or never held, and every correction written to the machine's pressure or "  \
+      "temperature sensor with the pair it was computed from. Answers \"why "      \
+      "can I not apply a correction\" and \"did my correction actually land\"")
 
 // ---- The one place a log line's shape is built -------------------------
 //

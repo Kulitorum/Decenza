@@ -1,4 +1,6 @@
 #include <QtTest>
+
+#include <cmath>
 #include <QSignalSpy>
 
 #include "ble/de1device.h"
@@ -160,6 +162,9 @@ private slots:
         TestFixture f;
         QCOMPARE(f.controller.stateInt(), int(State::Idle));
         QVERIFY(!f.controller.hasMeasurement());
+        // NaN, not 0.0 — zero is a plausible reading, so a caller that forgot to
+        // check hasMeasurement() would get something that looks like an answer.
+        QVERIFY(std::isnan(f.controller.measuredValue()));
     }
 
     void armingClearsAnyPreviousMeasurement() {
@@ -288,16 +293,22 @@ private slots:
     // sample.timer is a 16-bit field wrapping every 655.36 s
     // (maincontroller.h:739-742). A run does not start at zero, so it can
     // straddle a wrap — and unwrapped, the failure is silent: the elapsed value
-    // jumps backwards, the window's span goes negative and is discarded, and a
-    // run that held perfectly is reported as never having held.
+    // jumps backwards, findSteadyHold breaks the window there, and one real hold
+    // is scored as two shorter ones, either of which can fall under the minimum.
+    // A run that held perfectly is reported as never having held.
+    //
+    // The wrap is placed in the MIDDLE of the run on purpose. Put it near the
+    // start and the post-wrap segment alone still clears kMinWindowSeconds, so
+    // the test passes with the unwrap deleted and asserts nothing.
     void aHoldStraddlingTheSampleClockWrapIsStillMeasured() {
         TestFixture f;
         constexpr double kMod = 65536.0 / 100.0;
         f.controller.arm(int(Sensor::Pressure));
         f.setPhase(MachineState::Phase::Pouring);
 
-        // Start close enough to the wrap that the run crosses it.
-        const double start = kMod - 1.0;
+        // 8 samples (1.4 s) each side of the wrap — neither segment qualifies on
+        // its own, so only the unwrap can produce a measurement.
+        const double start = kMod - 1.6;
         for (int i = 0; i < 16; ++i) {
             double t = start + kSampleIntervalS * i;
             if (t >= kMod) t -= kMod;
@@ -307,6 +318,151 @@ private slots:
 
         QCOMPARE(f.controller.stateInt(), int(State::Measured));
         QVERIFY(qAbs(f.controller.measuredValue() - 9.0) < 0.05);
+    }
+
+    // The shipped pressure profile holds TWICE — 20 s at 7.00 bar, then 60 s at
+    // 9.00 bar (resources/profiles/test_pressure_calibration.json), and its note
+    // says the machine "will slowly rise to 9 bar and hold it". The 9 bar hold is
+    // the hold; 7 bar is a lead-in.
+    //
+    // Picking the LONGEST window gets that wrong on an ordinary run: read the
+    // gauge during the 9 bar hold, stop before 20 s of it have elapsed, and the
+    // 7 bar window is longer. The wizard would report 7.00 bar and a 2 bar
+    // correction would be computed from a run where the user did nothing wrong.
+    void theLastHoldIsTheOneMeasuredNotTheLongest() {
+        TestFixture f;
+        f.controller.arm(int(Sensor::Pressure));
+        f.setPhase(MachineState::Phase::Pouring);
+
+        int i = 0;
+        // A deliberately LONGER first plateau, so "longest" and "last" disagree.
+        for (int n = 0; n < 24; ++n, ++i)
+            f.pushSample(7.0 + (n % 2 == 0 ? 0.02 : -0.02), 93.0, kSampleIntervalS * i);
+        // Ramp — steep enough to break the window.
+        for (int n = 0; n < 4; ++n, ++i)
+            f.pushSample(7.0 + n * 0.5, 93.0, kSampleIntervalS * i);
+        for (int n = 0; n < 14; ++n, ++i)
+            f.pushSample(9.0 + (n % 2 == 0 ? 0.02 : -0.02), 93.0, kSampleIntervalS * i);
+
+        f.setPhase(MachineState::Phase::Idle);
+
+        QCOMPARE(f.controller.stateInt(), int(State::Measured));
+        QVERIFY(qAbs(f.controller.measuredValue() - 9.0) < 0.05);
+    }
+
+    // A run stopped in preinfusion collects real samples — isFlowing() includes
+    // Preinfusion — and a preinfusion plateau sits above the temperature hold
+    // floor and is flat. Without the pour latch the wizard reports it as a valid
+    // measurement and the user calibrates against water that barely moved.
+    void aPreinfusionOnlyRunIsNotAMeasurement() {
+        TestFixture f;
+        f.controller.arm(int(Sensor::Temperature));
+        f.setPhase(MachineState::Phase::Preinfusion);
+        for (int i = 0; i < 20; ++i)
+            f.pushSample(2.0, /*headTempC=*/93.0, kSampleIntervalS * i);
+        f.setPhase(MachineState::Phase::Idle);
+
+        QCOMPARE(f.controller.stateInt(), int(State::NoHold));
+        QVERIFY(!f.controller.hasMeasurement());
+        // And the page says so differently from "it never held steady", because
+        // the two need opposite advice.
+        QVERIFY(f.controller.neverPoured());
+    }
+
+    void holdMustLastLongEnough_data() {
+        QTest::addColumn<int>("samples");
+        QTest::addColumn<bool>("measured");
+
+        // At 5 Hz the minimum duration (2.0 s) binds before the sample count (8),
+        // so this is the band where deleting the duration term would be invisible.
+        QTest::newRow("1.4s — too short") << 8  << false;
+        QTest::newRow("2.2s — enough")    << 12 << true;
+    }
+
+    void holdMustLastLongEnough() {
+        QFETCH(int, samples);
+        QFETCH(bool, measured);
+        TestFixture f;
+        f.controller.arm(int(Sensor::Pressure));
+        f.setPhase(MachineState::Phase::Pouring);
+        f.pushSteadyPour(samples, 9.0);
+        f.setPhase(MachineState::Phase::Idle);
+
+        QCOMPARE(f.controller.hasMeasurement(), measured);
+    }
+
+    void aResetControllerIgnoresLaterRuns() {
+        // SensorCalibrationPage calls reset() on destruction precisely so the
+        // singleton stops watching. Without it the controller would land in
+        // Measured off ordinary espresso shots for the rest of the session.
+        TestFixture f;
+        f.controller.arm(int(Sensor::Pressure));
+        f.controller.reset();
+
+        f.setPhase(MachineState::Phase::Pouring);
+        f.pushSteadyPour(16, 9.0);
+        f.setPhase(MachineState::Phase::Idle);
+
+        QCOMPARE(f.controller.stateInt(), int(State::Idle));
+        QVERIFY(!f.controller.hasMeasurement());
+    }
+
+    // ===== The write chokepoint =====
+    //
+    // The feature's central claim is that a correction cannot be built from a
+    // value the machine never reported. These pin it at the one place that can
+    // enforce it, rather than leaving it to a `visible:` binding in QML.
+
+    void aCorrectionNeedsAMeasurementFromThisSession() {
+        TestFixture f;
+        f.controller.arm(int(Sensor::Pressure));
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("no measurement from a run this session"));
+        QVERIFY(!f.controller.applyCorrection(int(Sensor::Pressure), 8.2));
+    }
+
+    // The reachable version of the above: the confirm dialog lives in the
+    // overlay, so a machine going to sleep resets the measurement while the
+    // dialog is still up. Before the chokepoint existed this wrote reported=0.0
+    // — a full-scale bogus correction from the state that means "nothing
+    // measured".
+    void aSleepingMachineCannotHaveACorrectionApplied() {
+        TestFixture f;
+        f.controller.arm(int(Sensor::Pressure));
+        f.setPhase(MachineState::Phase::Pouring);
+        f.pushSteadyPour(16, 9.0);
+        f.setPhase(MachineState::Phase::Idle);
+        QVERIFY(f.controller.hasMeasurement());
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("run aborted, machine went to sleep"));
+        f.setPhase(MachineState::Phase::Sleep);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("no measurement from a run this session"));
+        QVERIFY(!f.controller.applyCorrection(int(Sensor::Pressure), 8.2));
+    }
+
+    void aCorrectionCannotBeAppliedToADifferentSensorThanWasMeasured() {
+        TestFixture f;
+        f.controller.arm(int(Sensor::Pressure));
+        f.setPhase(MachineState::Phase::Pouring);
+        f.pushSteadyPour(16, 9.0);
+        f.setPhase(MachineState::Phase::Idle);
+        QVERIFY(f.controller.hasMeasurement());
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("correction refused — measured"));
+        QVERIFY(!f.controller.applyCorrection(int(Sensor::Temperature), 92.0));
+    }
+
+    void aCorrectionFailingItsGuardsIsRefused() {
+        TestFixture f;
+        f.controller.arm(int(Sensor::Pressure));
+        f.setPhase(MachineState::Phase::Pouring);
+        f.pushSteadyPour(16, 9.0);
+        f.setPhase(MachineState::Phase::Idle);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("correction refused:"));
+        QVERIFY(!f.controller.applyCorrection(int(Sensor::Pressure), 60.0));
     }
 
     // ===== Aborts: a dropped link is never a completion =====
