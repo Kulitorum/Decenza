@@ -691,34 +691,11 @@ T.Page {
 
                             Item { Layout.fillHeight: true }
 
-                            // Toggle button
-                            AccessibleButton {
-                                id: steamHeaterToggle
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: Theme.scaled(36)
-                                // One read of the resolved state for all four
-                                // bindings below: each read is a full policy
-                                // resolve (QSettings + a JSON parse of the pitcher
-                                // blob, and of the active recipe when Let the
-                                // recipe decide is on).
-                                readonly property bool heaterOn: MainController.steamHeaterOn
-                                // Keyed on the RESOLVED state, not on the transient
-                                // steamDisabled flag: a "Heater off" pitcher or a
-                                // permission-less setting leaves the heater cold with
-                                // that flag clear, and the button used to offer
-                                // "Disable" for a boiler that was already off.
-                                primary: !steamHeaterToggle.heaterOn
-                                destructive: steamHeaterToggle.heaterOn
-                                text: !steamHeaterToggle.heaterOn
-                                    ? TranslationManager.translate("descaling.steam.enable", "Enable")
-                                    : TranslationManager.translate("descaling.steam.disable", "Disable")
-                                accessibleName: !steamHeaterToggle.heaterOn
-                                    ? TranslationManager.translate("descaling.steam.enable", "Enable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
-                                    : TranslationManager.translate("descaling.steam.disable", "Disable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
-                                _customFontSize: Theme.scaled(14)
-                                _customFontWeight: Font.Bold
-                                onClicked: MainController.toggleSteamHeater("descaling-enable")
-                            }
+                            // No enable/disable control here on purpose. The page turns the
+                            // heater off on open and restores it on exit, so the only thing a
+                            // button could offer is switching it back ON — which is precisely
+                            // what must not happen before a descale. It read "Enable" against a
+                            // readout saying "Cool enough to descale".
                         }
                     }
                 }
