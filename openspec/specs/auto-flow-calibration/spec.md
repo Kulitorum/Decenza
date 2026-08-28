@@ -40,59 +40,46 @@ be skipped as ambiguous.
 
 ### Requirement: Achieved-flow deviation check for flow-controlled windows
 For a window classified flow-controlled, the system SHALL compare the window's measured mean
-machine flow against the frame's target flow before choosing a calibration formula. If the
-measured flow falls short of (undershoots) target flow by more than the configured threshold, the
-system SHALL treat the window as pressure-capped and compute its ideal using the achieved-flow
-(pressure-branch) formula instead of the target-flow (flow-branch) formula. The check SHALL NOT
-trigger on overshoot (measured flow above target) regardless of magnitude — a pressure ceiling can
-only hold flow below its setpoint, never push it above, so an overshoot reading has no pressure-cap
-explanation, and reclassifying it would route a window that may still be genuinely flow-controlled
-through the achieved-flow formula's reported-flow denominator, risking the same feedback-loop
-failure mode that formula exists to avoid for flow-controlled windows. The system SHALL log which
-formula was used and the measured-vs-target flow values whenever a flow-classified window is
-re-routed this way, so the decision is diagnosable from a submitted debug log.
+machine flow against the frame's target flow before computing a calibration ideal. If the measured
+flow falls short of (undershoots) target flow by more than the configured threshold, the system
+SHALL skip the window entirely — the shot contributes no ideal to the profile's batch — because the
+window measured the pump model at an operating point the profile does not pour at, and a single
+per-profile multiplier cannot describe two operating points at once. The check SHALL NOT trigger on
+overshoot (measured flow above target) regardless of magnitude — a pressure ceiling can only hold
+flow below its setpoint, never push it above, so an overshoot reading has no pressure-cap
+explanation. The system SHALL log the skip with the measured flow, the target flow and the
+deviation, so a shot that produced no ideal is explicable from a submitted debug log.
 
 #### Scenario: Flow-controlled window achieves its target flow
 - **WHEN** a window is classified flow-controlled and its measured mean machine flow is within the
   configured deviation threshold of the frame's target flow
-- **THEN** the system computes the ideal as `meanWeightFlow / (targetFlow * density)`, independent
-  of the current calibration multiplier
+- **THEN** the system computes the ideal as
+  `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`
 
 #### Scenario: Flow-controlled window undershoots its target flow (pressure-capped)
 - **WHEN** a window is classified flow-controlled but its measured mean machine flow falls short of
   the frame's target flow by more than the configured threshold — for example, because the frame's
   pressure limiter is holding the pump below its flow target
-- **THEN** the system computes the ideal using the pressure-branch formula
-  (`currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`), using the flow actually
-  achieved rather than the unattained target
+- **THEN** the system skips the window, contributes no ideal for that shot, and logs the measured
+  flow, the target flow and the deviation
+- **AND** the profile's pending batch and stored multiplier are left unchanged by that shot
+
+#### Scenario: Every window on a profile misses target
+- **WHEN** a profile's shots consistently fail to reach the frame's target flow
+- **THEN** that profile accumulates no ideals and its stored multiplier does not move, rather than
+  being driven by measurements taken at an unreached flow rate
 
 #### Scenario: Flow-controlled window overshoots its target flow
 - **WHEN** a window is classified flow-controlled and its measured mean machine flow exceeds the
   frame's target flow by more than the configured threshold
-- **THEN** the system does NOT reclassify the window — it still computes the ideal as
-  `meanWeightFlow / (targetFlow * density)`, the same as a window that achieved target
+- **THEN** the system does NOT skip the window — it computes the ideal as
+  `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`, the same as a window that
+  achieved target
 
 #### Scenario: Pressure-controlled window
 - **WHEN** a window is classified pressure-controlled
 - **THEN** the system computes the ideal as
-  `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`
-
-### Requirement: Window ratio sanity guard
-The system SHALL reject a window's ideal — before it is accumulated into any batch — when the
-window's flow ratio falls outside configured bounds, using the same flow basis (target vs.
-achieved) that was used to select the window's calibration formula.
-
-#### Scenario: Flow-classified window that achieved target — guard compares against target
-- **WHEN** a window is classified flow-controlled and used the target-flow formula
-- **THEN** the ratio guard compares weight flow against the frame's target flow (density-adjusted)
-  and rejects the window if outside bounds
-
-#### Scenario: Flow-classified window re-routed to achieved-flow formula — guard compares against achieved flow
-- **WHEN** a window is classified flow-controlled but re-routed to the achieved-flow formula per
-  the deviation check above
-- **THEN** the ratio guard compares weight flow against the window's measured machine flow
-  (density-adjusted), consistent with the pressure-branch guard, and rejects the window if outside
-  bounds
+  `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`, unaffected by this requirement
 
 ### Requirement: Batched median updates
 The system SHALL accumulate per-profile ideals across a fixed batch size, persisted across app
@@ -126,13 +113,125 @@ calibration to an extreme value.
 - **THEN** the system SHALL clamp the value to those bounds before storing or applying it
 
 ### Requirement: Formula-version migration on behavior change
-When the deviation-check logic that selects between the target-flow and achieved-flow formulas
-changes, the system SHALL clear all profiles' pending (not-yet-applied) batch accumulators as a
-one-time migration, so no batch median mixes ideals computed under different formula-selection
-logic. Already-applied per-profile multipliers SHALL NOT be reset by this migration.
+When a change alters how calibration ideals are computed, or which windows produce one at all, the
+system SHALL clear all profiles' pending (not-yet-applied) batch accumulators as a one-time
+migration under a version key, so no batch median mixes ideals computed under different rules.
+Already-applied per-profile multipliers and the global multiplier SHALL NOT be reset by this
+migration when the change is per-window rather than systemic, so users whose data does not exhibit
+the defect are not forced back through several batches of re-convergence.
 
 #### Scenario: App launches for the first time after the formula-selection logic changes
 - **WHEN** the app detects it has not yet run the formula-version migration for the current logic
   version
 - **THEN** the system SHALL clear every profile's pending batch accumulator and SHALL leave stored
   per-profile and global multipliers unchanged
+
+#### Scenario: Upgrade to a build that unifies the ideal formula
+- **WHEN** the app starts for the first time on a build where flow-controlled windows use the
+  pump-model-error formula rather than a target-anchored one
+- **THEN** the system SHALL clear every profile's pending batch accumulator, so no median mixes
+  ideals from the two formulas
+- **AND** stored per-profile and global multipliers SHALL be left unchanged
+
+#### Scenario: Upgrade to a build that skips off-target windows
+- **WHEN** the app starts for the first time on a build where off-target flow windows are skipped
+  rather than re-routed through the achieved-flow formula
+- **THEN** pending per-profile batch accumulators are cleared once and the migration is recorded
+- **AND** stored per-profile multipliers and the global multiplier are left unchanged
+
+#### Scenario: Subsequent launches
+- **WHEN** the app starts again on the same build
+- **THEN** the migration does not run a second time and pending accumulators are preserved
+
+### Requirement: The flow calibration multiplier a shot ran under is recorded on the shot
+The system SHALL record, on each saved shot, the effective flow calibration multiplier that was in
+force while that shot was pulled — the same value `effectiveFlowCalibration()` resolves for the
+shot's profile and that is written to the machine. The recorded value SHALL be the multiplier in
+force at shot START, so an auto-calibration update computed from the shot itself never overwrites
+the value the shot is recorded under.
+
+#### Scenario: Shot pulled at a per-profile multiplier
+- **WHEN** a shot completes on a profile that has a per-profile flow calibration multiplier and auto
+  flow calibration is enabled
+- **THEN** the saved shot records that per-profile multiplier
+
+#### Scenario: Shot pulled at the global multiplier
+- **WHEN** a shot completes on a profile with no per-profile multiplier, or with auto flow
+  calibration disabled
+- **THEN** the saved shot records the global flow calibration multiplier
+
+#### Scenario: Auto-calibration updates the multiplier on the same shot
+- **WHEN** a shot completes and the auto-calibration batch for its profile completes on that shot,
+  writing a new per-profile multiplier before the shot is saved
+- **THEN** the saved shot records the multiplier that was in force during the pour, not the newly
+  written one
+
+### Requirement: An unrecorded multiplier is distinguishable from a recorded one
+The system SHALL represent "no multiplier recorded" as an absent value, never as the neutral
+multiplier 1.0, and SHALL NOT infer a multiplier for a shot that has none. Shots saved before this
+capability existed, and shots imported from a source that carries no multiplier, SHALL read as
+unrecorded.
+
+#### Scenario: Shot saved before the field existed
+- **WHEN** a shot recorded before this capability is loaded
+- **THEN** its flow calibration multiplier reads as unrecorded, and no value is substituted
+
+#### Scenario: Consumer reads a shot with no recorded multiplier
+- **WHEN** a shot with no recorded multiplier is projected for a consumer (MCP tool, AI payload,
+  export)
+- **THEN** the field is omitted rather than emitted as 0 or 1.0
+
+### Requirement: The recorded multiplier survives transfer and import
+The system SHALL carry a shot's recorded flow calibration multiplier through device-to-device
+transfer and through shot import, and SHALL leave it unrecorded when the source has no such value
+rather than substituting one.
+
+#### Scenario: Device-to-device transfer
+- **WHEN** shots are transferred from a device whose database records the multiplier
+- **THEN** each transferred shot keeps its recorded multiplier
+
+#### Scenario: Transfer from a source predating the field
+- **WHEN** shots are transferred from a database that has no flow calibration column
+- **THEN** the imported shots read as unrecorded
+
+### Requirement: Single window ratio guard for both control modes
+The system SHALL reject a window's ideal — before it is accumulated into any batch — when the
+window's density-adjusted machine-flow-to-weight-flow ratio falls outside configured bounds. ONE
+guard SHALL apply to both control modes, on the two quantities the ideal divides.
+
+#### Scenario: Any window whose machine and weight flow disagree
+- **WHEN** a window's density-adjusted machine-flow-to-weight-flow ratio falls outside the
+  configured bounds, in either control mode
+- **THEN** the system rejects the window, contributes no ideal, and logs the ratio, the bounds and
+  the window's control mode
+
+#### Scenario: Flow-controlled window that overshoots its target
+- **WHEN** a window is classified flow-controlled and its measured machine flow runs well above the
+  frame's target — which the off-target check does not reject, being undershoot-only
+- **THEN** the guard still bounds it, because the guarded quantity is the machine flow the ideal
+  divides by rather than the frame's target
+
+### Requirement: One calibration ideal formula for both control modes
+The system SHALL compute a window's calibration ideal as
+`currentMultiplier * meanWeightFlow / (meanMachineFlow * density)` regardless of whether the window
+was flow- or pressure-controlled. The system SHALL NOT anchor a flow-controlled window's ideal to
+the frame's target flow. Window classification SHALL continue to select whether the off-target check applies, but SHALL NOT
+select a formula or a ratio guard — one ratio guard, on the quantities the formula divides, applies
+to both control modes.
+
+#### Scenario: Machine whose reported flow already matches the scale
+- **WHEN** a window's mean weight flow equals its mean machine flow times the density constant
+- **THEN** the computed ideal equals the current multiplier, so a converged machine's multiplier
+  does not move
+
+#### Scenario: Same machine measured at two different multipliers
+- **WHEN** the same machine and profile produce two windows at different stored multipliers, and
+  the machine holds its reported flow constant by delivering water in inverse proportion to the
+  multiplier
+- **THEN** both windows produce the same ideal, so the update converges rather than tracking the
+  current multiplier
+
+#### Scenario: Flow-controlled window on target
+- **WHEN** a window is classified flow-controlled and passes the off-target check
+- **THEN** the system computes the ideal with the same formula a pressure-controlled window uses,
+  and logs the reported flow, the frame's target flow and the current multiplier
