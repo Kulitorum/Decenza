@@ -3849,8 +3849,11 @@ void MainController::endDescaleHeaterHold() {
     // restored, "Heater off", Keep warm when idle and Let the recipe decide each decide
     // exactly what they decided before the descale, because the hold never touched them.
     m_settings->brew()->setSteamDisabled(m_descaleHeaterHoldPrevSteamDisabled);
-    qDebug() << "Descale heater hold released (steamDisabled restored to"
-             << m_descaleHeaterHoldPrevSteamDisabled << ")";
+    // One string rather than streamed fragments: qDebug() puts a space between arguments, so
+    // `<< ")"` rendered as "restored to false )".
+    qDebug() << QStringLiteral("Descale heater hold released (steamDisabled restored to %1)")
+                    .arg(m_descaleHeaterHoldPrevSteamDisabled ? QStringLiteral("true")
+                                                              : QStringLiteral("false"));
 }
 
 // An explicit steam request outranks a descale hold: the user has asked for the boiler, so
