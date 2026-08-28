@@ -3,6 +3,7 @@
 #include <QRegularExpression>
 
 #include "controllers/autoflowcalclassifier.h"
+#include "core/appsettings.h"
 #include "core/settings.h"
 #include "core/settings_calibration.h"
 #include "profile/profileframe.h"
@@ -551,7 +552,7 @@ private slots:
     // density) and it returns the multiplier unchanged, so a converged machine
     // stops moving instead of walking every batch.
     void ideal_isAFixedPointForACalibratedMachine() {
-        const double density = 0.963;
+        const double density = kAutoFlowCalWaterDensity93C;
         // Must not be 1.0. The whole discriminating power of this slot is that
         // the superseded expression weightFlow/(targetFlow*density) returns 1.0
         // here while the v6 one returns c — "tidying" this to 1.0 turns the
@@ -564,6 +565,11 @@ private slots:
         const double machineFlow = 1.80;
         const double weightFlow = machineFlow * density;
         QCOMPARE(autoFlowCalIdeal(c, weightFlow, machineFlow, density), c);
+        // Asserted, not merely commented: the superseded target-anchored
+        // expression returns 1.0 for this fixture. Pinning the gap is what stops
+        // a later "tidy c to 1.0" from turning the line above into a tautology
+        // that passes against either formula.
+        QVERIFY(qAbs(autoFlowCalIdeal(c, weightFlow, machineFlow, density) - 1.0) > 0.1);
     }
 
     // Property 2: invariance under the current multiplier, on a machine that
@@ -573,7 +579,7 @@ private slots:
     // the property that makes the update converge in one step rather than
     // oscillating, and the one the old flow-branch expression lacked.
     void ideal_isInvariantUnderTheCurrentMultiplier() {
-        const double density = 0.963;
+        const double density = kAutoFlowCalWaterDensity93C;
         const double machineFlow = 1.80;
 
         const double cLow = 1.00;
@@ -616,7 +622,7 @@ private slots:
     // and an earlier version of this test hardcoded 0.5, which left it green for
     // every possible change to the constant it claimed to be about.
     void oldFlowBranchUpdate_settlesOnTheSquareRootOfThePumpError() {
-        const double density = 0.963;
+        const double density = kAutoFlowCalWaterDensity93C;
         const double machineFlow = 1.80;
         const double targetFlow = machineFlow;  // window holding target
         const double pumpError = 1.44;
@@ -630,8 +636,16 @@ private slots:
             return (1.0 - kAutoFlowCalBatchEmaAlpha) * c + kAutoFlowCalBatchEmaAlpha * ideal;
         };
 
+        // c0 must not be sqrt(pumpError): at alpha 1.0 the map is an involution,
+        // so seeding it ON its fixed point would sit there and pass. 1.00 is
+        // chosen for that, not for tidiness.
+        //
+        // 2000 iterations, not 100: sqrt(e) is the fixed point for EVERY alpha in
+        // (0,1), but convergence slows as |1-2*alpha| approaches 1, and at 100 a
+        // production alpha below ~0.13 failed this test for the wrong reason —
+        // iteration count, not the property under test.
         double c = 1.00;
-        for (int i = 0; i < 100; ++i)
+        for (int i = 0; i < 2000; ++i)
             c = blend(c, weightFlowAt(c) / (targetFlow * density));
         QVERIFY(qAbs(c - std::sqrt(pumpError)) < 1e-6);
         // ...and sqrt(e) is a materially different place from e.
@@ -641,7 +655,7 @@ private slots:
         // error itself. This arm calls the production function, so it also fails
         // if the formula is inverted or loses its density term.
         double c2 = 1.00;
-        for (int i = 0; i < 100; ++i)
+        for (int i = 0; i < 2000; ++i)
             c2 = blend(c2, autoFlowCalIdeal(c2, weightFlowAt(c2), machineFlow, density));
         QVERIFY(qAbs(c2 - pumpError) < 1e-6);
     }
@@ -676,8 +690,55 @@ private slots:
         QCOMPARE(later.calibration()->flowCalPendingIdeals(profile).size(), qsizetype(1));
         QCOMPARE(later.calibration()->flowCalPendingIdeals(profile).first(), 0.91);
 
+        // ...and the other half of the name: with a flag cleared, it DOES fire.
+        // Without this the slot would stay green if clearPendingBatchesOnce()
+        // were dead code, which is TESTING.md's trap #7 exactly.
+        {
+            AppSettings raw;
+            raw.remove(QStringLiteral("calibration/v6UnifiedIdealFormula"));
+            raw.sync();
+        }
+        Settings rerun;
+        QCOMPARE(rerun.calibration()->flowCalPendingIdeals(profile).size(), qsizetype(0));
+
         later.calibration()->clearProfileFlowCalibration(profile);
         later.calibration()->clearFlowCalPendingIdeals(profile);
+    }
+
+    // The rejection counter the MCP surface reads. Untested, and one of its
+    // failure modes is a wrong answer delivered in confident prose: if the
+    // clear-on-success call is ever lost, a CONVERGING user is told "pulling
+    // more shots will not help".
+    void flowCalRejectionsCountConsecutivelyAndAreKeyedPerProfile() {
+        Settings settings;
+        SettingsCalibration* cal = settings.calibration();
+        const QString a = QStringLiteral("tst_reject_profile_a");
+        const QString b = QStringLiteral("tst_reject_profile_b");
+        cal->clearFlowCalRejections(a);
+        cal->clearFlowCalRejections(b);
+
+        QCOMPARE(cal->flowCalRejectedShots(a), 0);
+        QVERIFY(cal->flowCalLastRejectionReason(a).isEmpty());
+
+        cal->noteFlowCalRejection(a, QStringLiteral("first reason"));
+        cal->noteFlowCalRejection(a, QStringLiteral("second reason"));
+        QCOMPARE(cal->flowCalRejectedShots(a), 2);
+        // The count accumulates while the reason REPLACES — two behaviours in
+        // adjacent lines, easy to conflate on edit.
+        QCOMPARE(cal->flowCalLastRejectionReason(a), QStringLiteral("second reason"));
+
+        // Keyed per profile: one map, one key, so a leak between profiles would
+        // be invisible without this.
+        cal->noteFlowCalRejection(b, QStringLiteral("b's reason"));
+        QCOMPARE(cal->flowCalRejectedShots(a), 2);
+        QCOMPARE(cal->flowCalRejectedShots(b), 1);
+
+        // A success ends the run for that profile only.
+        cal->clearFlowCalRejections(a);
+        QCOMPARE(cal->flowCalRejectedShots(a), 0);
+        QCOMPARE(cal->flowCalRejectedShots(b), 1);
+
+        cal->clearFlowCalRejections(b);
     }
 };
 

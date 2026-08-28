@@ -1,5 +1,7 @@
 #pragma once
 
+#include <utility>
+
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
@@ -288,13 +290,25 @@ public:
     // possibly from a different profile: a measurement nobody took, in the one
     // column whose whole purpose is knowing which measurements were taken.
     //
+    // One path does not reach onShotEnded() at all: a cycle aborted during
+    // preheat, where shotEnded is never emitted. Its latch survives, and what
+    // makes that harmless is the SECOND mechanism — latchForShot() zeroes
+    // unconditionally, so the next cycle overwrites it before anything can read
+    // it. The invariant therefore rests on both, and NOT on releaseShotLatch():
+    // that fires on espressoCycleEnded, which per the snapshot comment above
+    // runs well before the save path, so clearing there would zero the latch for
+    // every normal shot.
+    //
     // 0.0 therefore means "not recorded" for this shot, and 1.0 is a real
     // multiplier that must never stand in for it.
     double latchedFlowCalibration() const { return m_latchedFlowCalibration; }
 
-    // Clears the flow-calibration latch after the save path has read it. See
-    // latchedFlowCalibration() for why the value is one-shot.
-    void consumeFlowCalibrationLatch() { m_latchedFlowCalibration = 0.0; }
+    // Read AND clear in one operation. Two calls left the invariant above to a
+    // comment — a later edit could keep the read and drop the clear, and nothing
+    // would fail. Returning-and-zeroing makes it a property of the type.
+    double takeFlowCalibrationLatch() {
+        return std::exchange(m_latchedFlowCalibration, 0.0);
+    }
 
     // === Profile catalog ===
     QVariantList availableProfiles() const;

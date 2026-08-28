@@ -77,6 +77,13 @@ constexpr double kAutoFlowCalDeviationThreshold = 0.10;
 /// "Why the pre-v6 formula converged on sqrt(e)".
 constexpr double kAutoFlowCalBatchEmaAlpha = 0.5;
 
+/// Density of water at ~93 C (g/mL), the constant that converts the pump model's
+/// volumetric estimate into the mass a scale reports. Named here for the same
+/// reason as the two above: `autoFlowCalIdeal()` takes it as a parameter, so
+/// production and every test site would otherwise each supply the literal
+/// independently.
+constexpr double kAutoFlowCalWaterDensity93C = 0.963;
+
 /// True if `frame` counts as an active flow-controlled anchor for auto flow
 /// calibration purposes: pump control is flow AND its target is above the
 /// no-op threshold.

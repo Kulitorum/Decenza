@@ -38,7 +38,7 @@
 ## 7. One formula for both control modes
 
 - [x] 7.1 Replace the flow branch's `meanWeightFlow / (profileTargetFlow * kWaterDensity93C)` with the pump-model expression; both branches now call the same helper.
-- [x] 7.2 Extract `autoFlowCalSensorIdeal()` into `autoflowcalclassifier.{h,cpp}` beside `autoFlowCalWindowTargetCheck()` — a pure expression next to the other pure predicate, and the only way this formula gets test coverage given `computeAutoFlowCalibration()` has no harness.
+- [x] 7.2 Extract the shared ideal helper (now `autoFlowCalIdeal()`) into `autoflowcalclassifier.{h,cpp}` beside `autoFlowCalWindowTargetCheck()` — a pure expression next to the other pure predicate, and the only way this formula gets test coverage given `computeAutoFlowCalibration()` has no harness.
 - [x] 7.3 Keep both ratio guards branch-specific and unchanged; only the formula is unified. Note that the flow guard's bounds now constrain the ideal's ratio to the current multiplier rather than its absolute value — `kCalibrationMin`/`kCalibrationMax` still bound the absolute.
 - [x] 7.4 Rename `formulaModeLabel` → `windowModeLabel`. With one formula the old name is a false statement in two log lines.
 - [x] 7.5 v6 migration (`calibration/v6UnifiedIdealFormula`), pending batches only, same reasoning as v4/v5.
@@ -46,7 +46,7 @@
 - [x] 7.7 Correct the two stale claims in `autoflowcalclassifier.h`'s doc comments that named the target-anchored formula as current.
 - [x] 7.8 Tests in `tst_autoflowcal.cpp`: fixed point, invariance under the current multiplier (with the superseded expression asserted NOT invariant in the same slot), and the sqrt fixed point demonstrated by iterating the old rule to convergence.
 - [x] 7.9 Correct the proposal's "well-dialled users see no change" line — that user has auto-cal OFF and C = 1.000, so he is a control, not a live user.
-- [x] 7.11 Correct the terminology: the DE1 has no flowmeter — Decent removed it for an open-loop pump-stroke model — so `autoFlowCalSensorIdeal` became `autoFlowCalIdeal` and "flow sensor"/"sensor ratio" became pump-model language across code, tests, docs and this change. Two pre-existing uses survive in files this change does not touch (`machinestate.cpp:1076`, `tst_weightprocessor.cpp:805`).
+- [x] 7.11 Correct the terminology: the DE1 has no flowmeter — Decent removed it for an open-loop pump-stroke model — so `autoFlowCalSensorIdeal` became `autoFlowCalIdeal` and "flow sensor"/"sensor ratio" became pump-model language across code, tests, docs and this change. Surviving uses of the wrong term live in files this change does not touch — `src/machine/machinestate.{h,cpp}` and `tests/tst_weightprocessor.cpp` — and are left for a separate sweep rather than counted here, since the count was itself wrong once.
 - [x] 7.12 Fold the seven-machine `e` table into `design.md` — machine model dominates, mains voltage does not, and the DE1+ row is n=1 so model and individual machine are not separable.
 - [ ] 7.10 **Falsification before merge**: two shots on this repo's DE1, same beans back to back, at multipliers ~1.0 and ~1.4. Compute `k = C * w / (mf * rho)` from each. Model A predicts the same `k`; model B predicts `k` tracking `C`. If model B, drop this section's commit and merge the skip alone.
 

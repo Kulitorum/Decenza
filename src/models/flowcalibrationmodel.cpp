@@ -222,7 +222,7 @@ void FlowCalibrationModel::recalculateFlow() {
     m_recalculatedFlow.clear();
     m_recalculatedFlow.reserve(m_originalFlow.size());
 
-    double shotMul = (m_shotMultiplier > 0.001) ? m_shotMultiplier : 1.0;
+    double shotMul = shotMultiplierRecorded() ? m_shotMultiplier : 1.0;
     for (const auto& pt : m_originalFlow) {
         double newY = m_multiplier * pt.y() / shotMul;
         m_recalculatedFlow.append(QPointF(pt.x(), newY));

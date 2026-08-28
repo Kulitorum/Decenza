@@ -19,13 +19,13 @@ Automatic per-profile flow calibration using scale data as ground truth. After e
    - Scale data is recent (nearest weight flow point within 1 second)
    - Per-sample machine/weight flow ratio is within [0.4, 2.5] (rejects scale data glitches)
    - Window lasts at least 1.5 seconds with at least 7 samples
-3. **Window classification**: Checks which profile frames were actually active during the steady window (using the shot's `PhaseMarker` stream) to decide whether to use the flow or pressure formula — see "Window-level Classification" below
-4. **Ratio guard**: Rejects windows where flow and weight diverge too much ([0.75, 1.35]). For flow profiles, compares `(target_flow * 0.963) / weight_flow`. For pressure profiles, compares `machine_flow / weight_flow`.
-5. **Compute calibration** (formula depends on profile type):
-   - **Flow profiles**: `mean(weight_flow) / (target_flow * 0.963)` — uses the profile's known target flow, independent of current calibration
-   - **Pressure profiles**: `current_multiplier * mean(weight_flow) / (mean(machine_flow) * 0.963)` — divides out current calibration from reported flow
-6. **Sanity check**: Clamp to `[0.5, kCalibrationMax]` — cap extreme values that likely indicate measurement errors. The upper bound tracks DE1 firmware (1.8 on pre-v1337 firmware, 2.7 on v1337+)
-7. **Batch accumulate**: Add the ideal to a per-profile batch (persisted in settings). After 5 shots, compute the batch median and update C using `0.5 * median + 0.5 * current`. Only apply if the change exceeds 3%.
+3. **Window classification**: Checks which profile frames were actually active during the steady window (using the shot's `PhaseMarker` stream). Since v6 this selects only whether the off-target check applies — it no longer picks a formula. See "Window-level Classification" below
+4. **Off-target skip** (flow-controlled windows): if the window's measured flow UNDERSHOT the frame's target by more than 10%, the shot contributes nothing — it measured the pump model at a rate the profile does not pour at
+5. **Ratio guard**: one check for both modes, rejecting windows where `mean(machine_flow) * 0.963 / mean(weight_flow)` falls outside [0.75, 1.35]
+6. **Compute calibration**, one formula for both modes:
+   - `multiplier_the_shot_poured_under * mean(weight_flow) / (mean(machine_flow) * 0.963)`
+7. **Sanity check**: Clamp to `[0.5, kCalibrationMax]` — cap extreme values that likely indicate measurement errors. The upper bound tracks DE1 firmware (1.8 on pre-v1337 firmware, 2.7 on v1337+)
+8. **Batch accumulate**: Add the ideal to a per-profile batch (persisted in settings). After 5 shots, compute the batch median and update C using `0.5 * median + 0.5 * current`. Only apply if the change exceeds 3%.
 
 ## Algorithm Details
 
@@ -126,22 +126,33 @@ inside the 3% deadband within two or three batches from a 20% error.
 
 Measured across four machines, each landing on what its branch's formula solves for:
 
-| machine | branch | e | √e | converged multiplier |
+`e` here is the median over ON-TARGET windows — the operating point each machine
+actually pours at. The per-machine table further down medians over *every* window
+regardless of operating point, so a machine's two numbers differ; that is the
+populations differing, not a disagreement.
+
+| machine | branch | e (on-target) | √e | converged multiplier |
 |---|---|---|---|---|
-| [#1872](https://github.com/Kulitorum/Decenza/issues/1872) reporter | flow | 1.389 | **1.178** | 1.17 |
-| this repo's DE1 | flow | 0.79 | **0.889** | 0.8795 |
+| [#1872](https://github.com/Kulitorum/Decenza/issues/1872) reporter | flow | 1.44 | **1.200** | 1.17 |
+| this repo's DE1 | flow | 0.737 | **0.858** | 0.8795 |
 | cablecj74 | pressure | **1.369** | 1.170 | 1.3555 |
 | mcastaldelli | pressure | **1.303** | 1.141 | 1.30 |
 
+Flow-branch machines sit within ~2.5% of √e and roughly **16-19% away from e**;
+pressure-branch machines sit within ~1% of e. That gap is the defect.
+
 The #1872 reporter's log shows the app moving him `1.35 -> 1.22027` — away from the 1.35 he had set
 by hand, toward √e. He independently measured his own machine as 24% off at C = 1.17, which puts his
-`e` at 1.45.
+`e` at 1.45 — corroborating the 1.44 above from a measurement that shares no
+method with it.
 
 ### What `e` is, and what it is not
 
 `e` is the **pump model's** error, not a sensor's. The DE1 has no flowmeter — Decent removed it in
 favour of an open-loop physics model over pump strokes, which took flow error from ~30% to 2-3% and
-works below 2 ml/s where a flowmeter cannot
+works below 2 ml/s where a flowmeter cannot — that figure is for Decent's own
+reference machine, whereas `e` below is the per-machine residual the multiplier
+exists to absorb, which is why the two differ by an order of magnitude
 ([Decent](https://decentespresso.com/blog/perfectly_calibrating_decent_flow_measurements)). So
 `e = water actually delivered / water the model says was delivered`, and the multiplier's job is to
 equal it.
@@ -160,9 +171,9 @@ Recovered from submitted debug logs across seven machines:
 
 **Machine model dominates; mains voltage does not.** Two DE1PROs at 120 V and 220 V differ by 5%,
 while two 120 V machines of different models differ by 65%. Decent's compare page gives DE1PRO and
-DE1XL identical pump specs and the data cannot tell them apart either. Note `n = 1` for DE1+, so
-"DE1+ machines read low" and "this particular machine reads low" are **not** separable from this
-sample.
+DE1XL identical pump specs and the data cannot tell them apart either. Note only **one DE1+ machine** is in this sample (the `n` column counts windows,
+not machines), so "DE1+ machines read low" and "this particular machine reads
+low" are **not** separable from it.
 
 `e` also varies with operating point on a single machine, which is why the off-target skip exists
 and why a mixed pool of windows measures nothing in particular.
@@ -254,7 +265,7 @@ A one-time migration resets all per-profile flow calibrations and the global mul
 
 **v3's stated premise was wrong, and v6 reverses the formula half of it.** v3 held that `ideal = factor * weightFlow / (reportedFlow * density)` is "proportional to the current factor" and so can only decrease. That is true only if the multiplier scales *reporting alone*. It does not — the DE1 servos its calibrated flow, so a higher multiplier delivers less water and `weightFlow` falls to match, leaving the expression unchanged. Measured on three machines the multiplier moved 15-38% while the expression moved 4-15%.
 
-The observed drift (1.0 → 0.59 over 30 shots) was real; the diagnosis was not. It was bad scale data reaching a formula with no ratio guards, and the per-sample and window ratio guards added alongside v2/v3 are what actually stopped it. Changing the formula fixed a data problem by replacing a correct expression with one whose fixed point is √k — which is why flow-profile machines have sat a few percent off ever since. Recorded here because the premise reads as settled fact in `settings.cpp` and would otherwise be re-derived from the comment rather than the data.
+The observed drift (1.0 → 0.59 over 30 shots) was real; the diagnosis was not. It was bad scale data reaching a formula with no ratio guards, and the per-sample and window ratio guards added alongside v2/v3 are what actually stopped it. Changing the formula fixed a data problem by replacing a correct expression with one whose fixed point is √e — which is why flow-profile machines have sat a few percent off ever since. Recorded here because the premise reads as settled fact in `settings.cpp` and would otherwise be re-derived from the comment rather than the data.
 
 The reset itself was still warranted: the global median may have been contaminated by drifted flow-profile values.
 
@@ -278,11 +289,32 @@ Same shape as v4 and for the same reason: which windows produce an ideal changed
 
 ## v6 Migration (One Formula for Both Control Modes)
 
-Same shape as v4 and v5: a one-time migration (`calibration/v6UnifiedIdealFormula`) clears every profile's *pending* batch only, so a median cannot mix ideals from the old target-anchored expression with ideals from the pump-model expression — under the old one a flow window produced roughly `k / C` where the new one produces `k`.
+Same shape as v4 and v5: a one-time migration (`calibration/v6UnifiedIdealFormula`) clears every profile's *pending* batch only, so a median cannot mix ideals from the old target-anchored expression with ideals from the pump-model expression — under the old one a flow window produced roughly `e / C` where the new one produces `e`.
 
-Stored multipliers are again left alone. Flow-profile machines sat on √k rather than k — roughly a **16% error** (0.858 against k = 0.737; 1.200 against k = 1.44), not the small one an earlier draft of this section claimed. It is left to self-correct rather than reset because every batch now produces the target value as its ideal, so the existing 0.5 EMA closes the remaining gap geometrically — inside the 3% update deadband within two or three batches from a 20% error.
+Stored multipliers are again left alone. Flow-profile machines sat on √e rather than e — roughly a **16-19% error** (0.858 against e = 0.737; 1.200 against e = 1.44), not the small one an earlier draft of this section claimed. It is left to self-correct rather than reset because every batch now produces the target value as its ideal, so the existing EMA closes the gap geometrically. Note the window ratio guard bounds one batch's ideal to `C × [0.741, 1.333]`, so an error near the top of that range takes an extra batch or two rather than the two or three a 20% error needs.
 
 Both the classifier and the off-target skip stay exactly as they were. The pump-model error itself varies with flow **rate** (the 48% table above), so a window must still be measured at an operating point the profile actually pours at — the skip and the formula are independent fixes that compose.
+
+## Diagnosing It From a Log
+
+Every line carries the registered `[Calibration]` marker, so `debug_get_log` with
+`filter: "[Calibration]"` returns the whole story. Tier follows audience: **INFO** for outcomes (the
+multiplier changed; a batch completed inside the 3% deadband; a profile's windows are being rejected
+run after run), **DEBUG** for mechanics (which window was chosen, one shot's ideal), **WARN** for
+faults. The connections views default to `minLevel INFO`, so the outcomes are the part a user sees.
+
+**Consecutive rejections are counted per profile** in `calibration/flowCalRejections`, alongside the
+reason for the most recent one, and reset by the first shot that produces an ideal. Without it
+`pendingAutoCalShots == 0` is the same answer for "this profile is new" and "every shot on this
+profile is rejected and always will be" — and the MCP `flow_calibration` tool rendered both as
+"0 of 5 shots collected toward the first update", which reads as *keep pulling shots* to precisely
+the user for whom that will never work. The count and reason are surfaced in that tool's
+`rejectedShotsSinceLastIdeal` / `lastRejectionReason` fields (only while auto calibration is on) and
+logged at INFO once per batch-worth of failures.
+
+The permanent cases worth recognising: a profile whose pours never reach the frame's target flow, a
+hybrid profile whose steady window always straddles a pressure-to-flow transition, and a user with
+no scale connected. None of them is fixed by pulling more shots.
 
 ## Limitations
 

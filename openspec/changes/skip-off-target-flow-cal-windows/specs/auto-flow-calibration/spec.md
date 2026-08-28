@@ -47,8 +47,9 @@ deviation, so a shot that produced no ideal is explicable from a submitted debug
 The system SHALL compute a window's calibration ideal as
 `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)` regardless of whether the window
 was flow- or pressure-controlled. The system SHALL NOT anchor a flow-controlled window's ideal to
-the frame's target flow. Window classification SHALL continue to select which ratio guard applies
-and whether the off-target check applies, but SHALL NOT select a formula.
+the frame's target flow. Window classification SHALL continue to select whether the off-target check applies, but SHALL NOT
+select a formula or a ratio guard — one ratio guard, on the quantities the formula divides, applies
+to both control modes.
 
 #### Scenario: Machine whose reported flow already matches the scale
 - **WHEN** a window's mean weight flow equals its mean machine flow times the density constant

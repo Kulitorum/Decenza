@@ -292,9 +292,18 @@ namespace {
 // so clearing a batch (which every formula migration does) does not erase the
 // evidence that a profile is being rejected — those are independent facts.
 QJsonObject parseFlowCalRejections(const QSettings& s) {
-    return QJsonDocument::fromJson(
-               s.value("calibration/flowCalRejections", "{}").toString().toUtf8())
-        .object();
+    QJsonParseError err{};
+    const QJsonObject parsed = QJsonDocument::fromJson(
+        s.value("calibration/flowCalRejections", "{}").toString().toUtf8(), &err).object();
+    if (err.error != QJsonParseError::NoError) {
+        // Say so. Silently returning {} would make every profile's count read 0,
+        // and the next noteFlowCalRejection() would then rewrite the key from
+        // that empty map — discarding every other profile's run with no trace.
+        // allProfileFlowCalibrations() logs and resets for the same reason.
+        qWarning() << "SettingsCalibration: corrupt flowCalRejections JSON:"
+                   << err.errorString() << "- rejection counts lost";
+    }
+    return parsed;
 }
 }  // namespace
 

@@ -34,6 +34,11 @@ class FlowCalibrationModel : public QObject {
     // do not know what this shot poured at", and only the second means the
     // overlay below is an assumption.
     Q_PROPERTY(double shotRecordedMultiplier READ shotRecordedMultiplier NOTIFY dataChanged)
+    // Whether the displayed shot HAS a recorded multiplier. The threshold is a
+    // property of the sentinel (0 = not recorded) and belongs in one place —
+    // re-typing `> 0.001` in the QML put the same rule on both sides of a
+    // language boundary, where nothing fails when the two drift.
+    Q_PROPERTY(bool shotMultiplierRecorded READ shotMultiplierRecorded NOTIFY dataChanged)
 
 public:
     explicit FlowCalibrationModel(QObject* parent = nullptr);
@@ -59,6 +64,7 @@ public:
     QString errorMessage() const { return m_errorMessage; }
     bool loading() const { return m_loading; }
     double shotRecordedMultiplier() const { return m_shotMultiplier; }
+    bool shotMultiplierRecorded() const { return m_shotMultiplier > kRecordedMultiplierEpsilon; }
 
     Q_INVOKABLE void loadRecentShots();
     Q_INVOKABLE void previousShot();
@@ -87,6 +93,10 @@ private:
     QVector<qint64> m_shotIds;
     int m_currentIndex = -1;
     double m_multiplier = 1.0;
+    // Below this, treat the stored value as "not recorded" rather than as a
+    // multiplier. Named once; recalculateFlow() and shotMultiplierRecorded()
+    // both use it, and the QML asks the bool rather than repeating the number.
+    static constexpr double kRecordedMultiplierEpsilon = 0.001;
     double m_shotMultiplier = 0.0;  // Multiplier the shot was recorded at; 0 = unknown
     bool m_loading = false;
     std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);

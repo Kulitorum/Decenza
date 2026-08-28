@@ -248,12 +248,21 @@ Settings::Settings(QObject* parent)
             // decision depends on cleanBefore: a status that was dirty on entry
             // reports on some earlier write, not this one, so stamp
             // optimistically rather than block forever on stale info.
+            // NOT "this belongs to an earlier write". QSettings::status() is a
+            // sticky first-error latch (qsettings.cpp: "the user always gets the
+            // first error that occurred"), and these migrations run in sequence in
+            // one constructor — so a dirty status on entry may well have been set
+            // by the SAME failure, three lines up. Saying otherwise would tell a
+            // maintainer to disregard the only evidence they have.
             qWarning() << "Settings: QSettings status is" << m_settings.status()
                        << "while committing" << flagKey
                        << (cleanBefore ? "— this write may not have persisted, leaving the"
                                          " flag unset so it retries next launch"
-                                       : "— status was already dirty on entry, so this is not"
-                                         " a verdict on this write; stamping anyway");
+                                       : "— status is a sticky first-error latch, so it cannot"
+                                         " be attributed to this write; settings may be"
+                                         " unwritable and earlier migrations may also have"
+                                         " failed. Stamping anyway rather than blocking"
+                                         " forever on stale info");
             if (cleanBefore)
                 return;
         }
@@ -288,7 +297,7 @@ Settings::Settings(QObject* parent)
     // The v2 drift was real but was bad scale data reaching a formula with no ratio
     // guards — which is what the guards added alongside v2/v3 actually fixed. Swapping
     // in a target-anchored formula on top of that traded a correct expression for one
-    // whose fixed point is sqrt(k) rather than k, which is where flow-profile machines
+    // whose fixed point is sqrt(e) rather than e, which is where flow-profile machines
     // have sat ever since. See the v6 block below and
     // openspec/changes/skip-off-target-flow-cal-windows/design.md.
     //
@@ -342,7 +351,7 @@ Settings::Settings(QObject* parent)
     // (currentFactor * weightFlow / reportedFlow / density) instead of
     // weightFlow / (targetFlow * density). A batch must not mix ideals from the
     // two expressions in one median — under the old one a flow window produced
-    // roughly k/C where the new one produces k.
+    // roughly e/C where the new one produces e.
     //
     // Stored multipliers are again NOT reset. Flow-profile machines sat on the
     // SQUARE ROOT of their pump-model error under the old expression — roughly

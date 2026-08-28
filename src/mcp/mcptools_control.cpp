@@ -479,10 +479,17 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             // always will be — and it reads as "keep pulling shots", which is
             // exactly wrong for the second. That sentence sent the #1872
             // reporter looking in the wrong place.
-            const int rejected = calibration->flowCalRejectedShots(filename);
-            result["rejectedShotsSinceLastIdeal"] = rejected;
-            if (rejected > 0)
-                result["lastRejectionReason"] = calibration->flowCalLastRejectionReason(filename);
+            // Only while auto calibration is ON. With it off nothing is
+            // accumulating, so a stale count from an earlier session would be
+            // reported as if it were live — and the prose below omits it in that
+            // branch, so the fields and the sentence would disagree.
+            const int rejected = autoOn ? calibration->flowCalRejectedShots(filename) : 0;
+            if (autoOn) {
+                result["rejectedShotsSinceLastIdeal"] = rejected;
+                if (rejected > 0)
+                    result["lastRejectionReason"] =
+                        calibration->flowCalLastRejectionReason(filename);
+            }
 
             // One plain-language reading of the four flags above. An LLM asked "what is
             // this profile's calibration doing?" otherwise has to re-derive the

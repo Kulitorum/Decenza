@@ -32,14 +32,14 @@
 //   - a profile's windows are being rejected, cumulatively    -> CAL_INFO
 //   - which window was picked, its samples, one shot's ideal  -> CAL_DETAIL
 //
-// Alias, never copy a body — see logtags.h.
-#define CAL_LOG_STDERR(tag, msg)  DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_CALIBRATION, tag, msg, qDebug)
-#define CAL_INFO_STDERR(tag, msg) DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_CALIBRATION, tag, msg, qInfo)
-#define CAL_WARN_STDERR(tag, msg) DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_CALIBRATION, tag, msg, qWarning)
-
-// Stream forms. computeAutoFlowCalibration()'s sites interleave five or six
-// values apiece and composing a QString at each one would only make them harder
-// to read, which is the case DECENZA_SUBSYS_STREAM exists for.
+// Alias, never copy a body — see logtags.h. Stream forms only: this subsystem's
+// sites interleave five or six values apiece, which is the case
+// DECENZA_SUBSYS_STREAM exists for. Statement forms are deliberately absent
+// rather than defined-and-unused; add one when a site needs it.
+//
+// NOTE maincontroller.cpp is in check_log_markers.py's MARKER_ONLY_GLOBS, so
+// rules 2 and 5 are enforced there but rule 1 (no bare qDebug) is NOT. Using a
+// tier below is a convention here, not a gate.
 #define CAL_DETAIL(tag) DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_CALIBRATION, tag, qDebug)
 #define CAL_INFO(tag)   DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_CALIBRATION, tag, qInfo)
 #define CAL_WARN(tag)   DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_CALIBRATION, tag, qWarning)

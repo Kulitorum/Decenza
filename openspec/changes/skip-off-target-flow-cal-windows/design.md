@@ -1,6 +1,6 @@
 ## Context
 
-`MainController::computeAutoFlowCalibration()` (`src/controllers/maincontroller.cpp:3030`) picks the
+`MainController::computeAutoFlowCalibration()` (`MainController::computeAutoFlowCalibration()`) picks the
 longest window where pressure is stable, classifies it flow- or pressure-controlled from the shot's
 phase markers, then computes a calibration ideal. Since 2.0.4 a flow-classified window that
 undershoots its frame's target flow by more than 10% (`autoFlowCalWindowTargetCheck()`,
@@ -64,7 +64,8 @@ multiplier — weight-flow / machine-flow ratio by operating point on this repo'
 
 **Non-Goals:**
 - Not changing window SELECTION (see below).
-- Not touching the pressure branch, the ratio guard, batching, or the sanity bounds.
+- Not touching batching or the window-selection rule. (The ratio guards ARE touched — the two arms
+  merge into one on the formula's own inputs — and the sanity clamp now reports when it fires.)
 - Not resetting anyone's stored multiplier.
 - Not attempting a flow-rate-dependent calibration curve. A per-operating-point model is a much
   larger design question; this change makes the existing scalar honest about what it measures.
@@ -108,7 +109,7 @@ stored multiplier is meant to equal. Two behaviours are possible and they give o
   value itself.
 
 **The logs say model A**, on every machine with enough history to test it. Across three unrelated
-machines the stored multiplier moved 15-38% while `e` moved only 4-15% (cablecj74 +36% C / +5% k;
+machines the stored multiplier moved 15-38% while `e` moved only 4-15% (cablecj74 +36% C / +5% e;
 GCDE-VER1 +38% / +15%; the #1872 reporter +15% / +4%). `evidence/logscan.py` recovers this from
 submitted debug logs.
 
@@ -116,21 +117,21 @@ Under model A the two formulas are not independent: on a window holding target
 (`machineFlow ~= targetFlow`, which the skip above now enforces) the old expression equals `k / C`.
 
 The multiplier is not set to the ideal directly — it is blended in at the batch EMA's
-`alpha = 0.5`. So the old rule's update is `C := (C + k/C) / 2`, which is **Babylonian
+`alpha = 0.5`. So the old rule's update is `C := (C + e/C) / 2`, which is **Babylonian
 square-root iteration**: `alpha = 0.5` is precisely the Babylonian coefficient. It settles on
-`sqrt(e)`, not `e`. (The damping is load-bearing. Applied undamped, `C := k/C` is a period-2 map
+`sqrt(e)`, not `e`. (The damping is load-bearing. Applied undamped, `C := e/C` is a period-2 map
 that oscillates forever and converges to nothing — so the square root is a property of the update
 as a whole, not of the formula alone.) That is exactly where flow-branch machines sit, while
 pressure-branch machines sit on `e`:
 
-| machine | branch | k | sqrt(e) | converged C |
+| machine | branch | e | sqrt(e) | converged C |
 |---|---|---|---|---|
 | this repo's DE1 | flow | 0.737 | 0.858 | 0.8795 (+2.4% vs sqrt(e)) |
 | #1872 reporter | flow | 1.44 | 1.200 | 1.17 (-2.5%) |
 | mcastaldelli | pressure | 1.30 | — | 1.30 |
 | cablecj74 | pressure | 1.35 | — | 1.3555 |
 
-The sign of the error against `e` flips either side of `k = 1`, which is the signature of a square
+The sign of the error against `e` flips either side of `e = 1`, which is the signature of a square
 root and not of a constant bias.
 
 **What v2's runaway actually was.** Bad scale data reaching a formula with no ratio guards — the
@@ -241,4 +242,3 @@ present — it is a schema fact, and every reader names it, so an absent column 
 and save rather than merely losing the new field. The probe distinguishes "the PRAGMA failed" from
 "the column is absent" and changes nothing in the first case.
 
-No schema change, no shot-history migration, nothing to roll back.

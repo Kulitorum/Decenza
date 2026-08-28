@@ -51,9 +51,10 @@ supported by weaker evidence, needs threshold tuning, and is separable.
 ## Capabilities
 
 ### Modified Capabilities
-- `auto-flow-calibration`: the achieved-flow deviation check now skips the window instead of
-  switching formulas. Window selection, the ratio guard, batching, sanity bounds and the pressure
-  branch are all unchanged.
+- `auto-flow-calibration`: the achieved-flow deviation check skips the window instead of switching
+  formulas; both control modes compute one ideal; the two ratio guards merge into one on the
+  quantities that ideal divides; the sanity clamp reports when it fires. Window selection and
+  batching are unchanged.
 
 ## Impact
 

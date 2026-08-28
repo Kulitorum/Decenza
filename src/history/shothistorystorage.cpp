@@ -2119,7 +2119,8 @@ bool ShotHistoryStorage::runMigrations()
         DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 39 flow calibration column", 1);
         if (!txn.ok()) {
             qWarning() << "ShotHistoryStorage: migration 39 could not start a transaction"
-                          " - will retry next launch";
+                          " - will retry next launch (shot history cannot load or save"
+                          " until it completes: every query names shots.flow_calibration)";
         } else {
             // columnPresent(), not hasColumn(): the latter collapses "the PRAGMA
             // failed" onto "the column is absent", and here that conflation is
@@ -2133,7 +2134,8 @@ bool ShotHistoryStorage::runMigrations()
             if (!before.has_value()) {
                 qWarning() << "ShotHistoryStorage: migration 39 could not determine whether"
                               " shots.flow_calibration exists - leaving the schema untouched"
-                              " and retrying next launch";
+                              " and retrying next launch (shot history cannot load or save"
+                              " until it completes: every query names shots.flow_calibration)";
             } else {
                 if (!*before
                     && !query.exec("ALTER TABLE shots ADD COLUMN flow_calibration REAL"))
@@ -2147,7 +2149,14 @@ bool ShotHistoryStorage::runMigrations()
                 // load and every shot save. Both halves of the stamp are checked
                 // — a DELETE that commits without its INSERT leaves
                 // schema_version empty, which is not recoverable.
-                bool ok = columnPresent("shots", "flow_calibration").value_or(false);
+                // Not .value_or(false) — that is the conflation this block just
+                // argued against, and re-introducing it here would make a failed
+                // verification indistinguishable from a failed ALTER in the log.
+                const std::optional<bool> after = columnPresent("shots", "flow_calibration");
+                if (!after.has_value())
+                    qWarning() << "ShotHistoryStorage: migration 39 could not verify the column"
+                                  " after adding it";
+                bool ok = after.value_or(false);
                 if (ok)
                     ok = query.exec("DELETE FROM schema_version")
                          && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (39)"));

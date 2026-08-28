@@ -2312,7 +2312,7 @@ private slots:
         // later shot that never latched (a missed espressoCycleStarted, e.g.
         // the "machine skipped preheating" case machinestate.cpp guards) must
         // read 0 and record NULL rather than inheriting this shot's 1.35.
-        f.profileManager.consumeFlowCalibrationLatch();
+        QCOMPARE(f.profileManager.takeFlowCalibrationLatch(), 1.35);
         QCOMPARE(f.profileManager.latchedFlowCalibration(), 0.0);
 
         // The NEXT shot re-resolves — the latch freezes one shot, not forever.
