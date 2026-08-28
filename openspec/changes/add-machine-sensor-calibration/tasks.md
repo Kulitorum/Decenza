@@ -32,7 +32,7 @@
 - [x] 4.9 Refuse to write and say so when the sensor's stored value is unavailable because a read went unanswered; verify with the read suppressed
 - [x] 4.10 Add the heater-voltage 120 V / 230 V row to the existing `calibrationPopup` in `SettingsCalibrationTab.qml` after the fan threshold row, with an explicit unknown state and neither option preselected, and insert it into the `KeyNavigation` chain between fan threshold and the defaults button; verify selecting one writes the MMR, the display follows the readback, and tab order runs idle temp → warmup flow → test flow → time-out → fan threshold → voltage → defaults → done
 - [x] 4.11 Leave "Defaults for cafe" untouched by the new row and confirm it still resets exactly the five `Settings.hardware` values; verify pressing it does not write a heater voltage to the machine
-- [ ] 4.12 Confirm the six-row popup still fits without scrolling at 1280×800 landscape and that the scroll fallback still works in a short window; verify both sizes. NEEDS A HUMAN: this is a visual check in the running app, which the assistant does not launch
+- [x] 4.12 Confirmed by screenshot: six rows, Defaults, Cancel and Done all visible without scrolling. Fixed by pinning the action row OUTSIDE the Flickable, so reachability no longer depends on the content fitting, plus row spacing 16 to 10
 - [x] 4.13 Route every new string through `TranslationManager.translate` / `Tr` under new keys, and give every interactive element its accessibility role, name, focusable and press action; verify no literal user-visible text remains and the page is traversable by keyboard
 
 ## 5. Verification and documentation
@@ -40,6 +40,6 @@
 - [x] 5.1 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) and confirm zero failures and zero new warnings
 - [ ] 5.2 Run the whole loop on the real machine for pressure: fit the gauge portafilter, run the wizard end to end, confirm the correction lands, then verify with a second run that the readings agree
 - [ ] 5.3 DEFERRED (agreed with the user): the temperature hardware loop needs a thermocouple basket that is not available. The temperature row, its table entry and profile wiring still ship; its end-to-end run stays unverified and is called out in the PR
-- [ ] 5.4 Add a short manual entry to the wiki (`Kulitorum/Decenza.wiki`) — where the wizard is, what hardware each sensor needs, and that calibration lives in the machine; 3–5 sentences, cut by half before committing, and shorter than it would have been because the wizard removes the manual value-hunting step
+- [x] 5.4 Manual entry added to the Calibration section of Decenza.wiki Manual.md — two bullets in the existing list, not a new section. NOT PUSHED: wiki timing is the user's call
 - [ ] 5.5 Open a PR, then run `/pr-review-toolkit:review-pr` and address findings before merge
 - [ ] 5.6 Archive this change and sync specs as the final commit on the PR
