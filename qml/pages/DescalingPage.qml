@@ -53,15 +53,42 @@ T.Page {
     // the page: waiting for the boiler to reach 60 °C can take an hour, and in that hour
     // auto-sleep replaces the page with the screensaver (the phase is Idle while waiting,
     // so the shell does not consider an operation active), while a descale started from the
-    // GHC replaces it with a fresh instance. A restore hung on Component.onDestruction
-    // fires for both of those and switches the heater back on — in the GHC case in the
-    // middle of the descale itself, because Qt destroys the outgoing page with deleteLater
-    // and the restore lands after the new instance has already read the state.
+    // GHC replaces it with a fresh instance. A restore hung on Component.onDestruction fires
+    // for both of those and switches the heater back on.
+    //
+    // The second case is also a race, not just a mistimed release: StackView creates the
+    // incoming page synchronously but destroys the outgoing one with deleteLater
+    // (qtdeclarative/src/quicktemplates/qquickstackelement.cpp:75, and the Synchronous
+    // QQmlIncubator at :30-37), so onDestruction runs an event loop pass AFTER the new
+    // instance's onCompleted has already read the state it is about to overwrite.
     Component.onCompleted: MainController.beginDescaleHeaterHold()
 
+    // Every way out of this page converges here. The hold is released on leaving, and it is
+    // released exactly once — endDescaleHeaterHold() is a no-op when no hold is active.
+    //
+    // This exists because "the back button" is not one thing. main.qml puts a global
+    // Keys.onReleased on the StackView that pops on Qt.Key_Back and Qt.Key_Escape, so the
+    // Android hardware back button — the primary platform's main navigation gesture — leaves
+    // the page without ever reaching BottomBar.onBackClicked. A page needing cleanup has to
+    // intercept that itself, as RecipeWizardPage, ProfileEditorPage and EspressoPage all do.
+    function leaveDescaling() {
+        descalingPage.showRinseInstructions = false
+        MainController.endDescaleHeaterHold()
+    }
+
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            descalingPage.leaveDescaling()
+            AppShell.backRequested()
+        }
+    }
+
     Component.onDestruction: {
-        // Deliberately does NOT release the hold — see above. Leaving the page is an
-        // explicit act, handled by the back button.
+        // Deliberately does NOT release the hold — see above. Destruction happens for
+        // auto-sleep and page churn too, neither of which means the user is done; the
+        // explicit exits go through leaveDescaling().
         //
         // The cold-maintenance workaround may have left a 1 °C profile on the machine.
         ProfileManager.uploadCurrentProfile()
@@ -455,7 +482,10 @@ T.Page {
                         _customFontSize: Theme.scaled(18)
                         _customFontWeight: Font.Bold
                         onClicked: {
-                            descalingPage.showRinseInstructions = false
+                            // Done is the natural exit after a completed descale, and has to
+                            // release the hold as surely as Back does — it used to leave the
+                            // steam heater vetoed off for the rest of the session.
+                            descalingPage.leaveDescaling()
                             AppShell.idleRequested()
                         }
                     }
@@ -893,10 +923,7 @@ T.Page {
         visible: !descalingPage.isDescaling
         title: TranslationManager.translate("descaling.title", "Descaling")
         onBackClicked: {
-            descalingPage.showRinseInstructions = false
-            // The one place the user says they are done preparing to descale, and so the
-            // one place the steam heater goes back to what it was.
-            MainController.endDescaleHeaterHold()
+            descalingPage.leaveDescaling()
             AppShell.backRequested()
         }
     }

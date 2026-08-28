@@ -484,9 +484,12 @@ public slots:
     // original pre-descale value survives. end is the only thing that restores, and is
     // called when the user actually leaves — never from destruction, which fires for
     // screensaver and page churn too.
+    void snapshotForDescaleHeaterHold();
     Q_INVOKABLE void beginDescaleHeaterHold();
     Q_INVOKABLE void endDescaleHeaterHold();
-    Q_INVOKABLE bool descaleHeaterHoldActive() const { return m_descaleHeaterHold; }
+    // Drops the hold WITHOUT restoring, for when an explicit steam request has made the
+    // captured value stale. Called from startSteamHeating().
+    void abandonDescaleHeaterHold();
 
     // Flip the heater from whatever it is now. The DIRECTION rule — which of the
     // two calls above matches which resolved state — lived at two QML sites, and
@@ -706,11 +709,11 @@ private:
     SteamHeaterPolicy* m_steamHeaterPolicy = nullptr;
 
     // See beginDescaleHeaterHold(). The captured value is the transient steamDisabled veto
-    // as it stood before the descale page turned the heater off.
+    // as it stood before the descale page turned the heater off — the only input the hold
+    // disturbs that can legitimately be put back. snapshotForDescaleHeaterHold() records why
+    // event permission and the selected pitcher are deliberately not captured.
     bool m_descaleHeaterHold = false;
     bool m_descaleHeaterHoldPrevSteamDisabled = false;
-    int m_descaleHeaterHoldPrevPitcher = 0;
-    bool m_descaleHeaterHoldPrevEventPermission = false;
 
     QNetworkAccessManager* m_networkManager = nullptr;
     Settings* m_settings = nullptr;

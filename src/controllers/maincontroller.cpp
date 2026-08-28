@@ -287,7 +287,13 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             const bool dormant = phase == MachineState::Phase::Sleep
                               || phase == MachineState::Phase::Disconnected;
             if (dormant) {
-                if (m_settings && m_settings->brew()->steamDisabled()) {
+                // A descale hold outranks this. The hold exists to keep the steam boiler
+                // cooling towards 60 °C, and that wait routinely spans an auto-sleep: the
+                // phase is Idle while waiting, so the sleep countdown runs and the machine
+                // sleeps mid-cool-down. Clearing the veto here — and then re-asserting the
+                // resolved target on wake, below — put the boiler back on heat in exactly
+                // the scenario the hold was built for.
+                if (m_settings && m_settings->brew()->steamDisabled() && !m_descaleHeaterHold) {
                     qDebug() << "Machine entering" << m_machineState->phaseString() << "- clearing temporary steamDisabled flag";
                     m_settings->brew()->setSteamDisabled(false);
                 }
@@ -3750,6 +3756,9 @@ void MainController::setSteamTemperatureImmediate(double temp) {
 void MainController::startSteamHeating(const QString& reason) {
     if (!m_settings) return;
 
+    // The user asked for steam. Whatever the descale page captured is stale now.
+    abandonDescaleHeaterHold();
+
     // An explicit steam action. Clear the transient veto and grant event
     // permission, then send what the policy resolves — which is now on, because
     // event permission outranks the remaining veto (a "Heater off" selection).
@@ -3794,58 +3803,63 @@ void MainController::turnOffSteamHeater() {
 
 void MainController::beginDescaleHeaterHold() {
     if (!m_settings) return;
-    // Idempotent. A descale started from the GHC replaces the page with a fresh instance
-    // while the old one is still queued for deletion, so begin runs twice; re-capturing
-    // here would record the value the FIRST instance had already written (heater off) and
-    // the user's real setting would be lost for the rest of the session.
-    if (m_descaleHeaterHold) return;
 
-    // Snapshot every input to SteamHeaterPolicy::resolve() that this hold disturbs, so the
-    // release is an exact round-trip rather than a reconstruction. The pitcher is captured
-    // even though turnOffSteamHeater() does not currently change it: the selected pitcher IS
-    // the steam spec (its own temperature, and whether it is the built-in "Heater off"), so a
-    // restore that puts the flag back but not the pitcher would silently drift the moment
-    // anything in the descale flow starts touching the selection.
-    m_descaleHeaterHoldPrevSteamDisabled = m_settings->brew()->steamDisabled();
-    m_descaleHeaterHoldPrevPitcher = m_settings->brew()->selectedSteamPitcher();
-    m_descaleHeaterHoldPrevEventPermission =
-        m_steamHeaterPolicy && m_steamHeaterPolicy->eventPermission();
-    m_descaleHeaterHold = true;
+    // Snapshot ONCE, assert EVERY time. Those are different concerns and collapsing them
+    // was a bug: the veto can be cleared out from under a live hold — selecting any pitcher
+    // does it deliberately (PitcherApply::Applied), as does a sleep or a disconnect — and an
+    // early return here left the page saying "the steam heater has been turned off for you"
+    // over a boiler that was heating.
+    if (!m_descaleHeaterHold) {
+        snapshotForDescaleHeaterHold();
+        m_descaleHeaterHold = true;
+    }
     turnOffSteamHeater();
-    qDebug() << "Descale heater hold begun (restoring steamDisabled ="
-             << m_descaleHeaterHoldPrevSteamDisabled
-             << "pitcher =" << m_descaleHeaterHoldPrevPitcher
-             << "eventPermission =" << m_descaleHeaterHoldPrevEventPermission << "on release)";
+    qDebug() << "Descale heater hold asserted (restoring steamDisabled ="
+             << m_descaleHeaterHoldPrevSteamDisabled << "on release)";
+}
+
+void MainController::snapshotForDescaleHeaterHold() {
+    // Snapshot the ONE input this hold disturbs and can legitimately put back: the
+    // transient steamDisabled veto.
+    //
+    // Deliberately NOT the event permission, though turnOffSteamHeater() clears that too.
+    // SteamHeaterPolicy documents it as "transient, revoked on the return to Idle and never
+    // restored by a settings re-send" (steamheaterpolicy.h) — it means a steam action is
+    // under way RIGHT NOW. This hold routinely spans the hour the boiler takes to reach
+    // 60 °C, by which time any such action is long over, so writing a captured `true` back
+    // would fabricate a grant for an event that has certainly ended. That grant then
+    // outranks every veto. Clearing it on entry is correct and final.
+    //
+    // Deliberately NOT the selected pitcher either. turnOffSteamHeater() does not touch the
+    // selection, so there is nothing to restore — and setSelectedSteamCup() is not inert: it
+    // emits selectedSteamPitcherChanged, which is wired to stampActiveRecipeSteam()
+    // (maincontroller.cpp, constructor) and rewrites the ACTIVE recipe's persisted steamJson.
+    // Restoring a stale pitcher an hour later would overwrite the steam spec of whatever
+    // recipe the user had activated meanwhile.
+    m_descaleHeaterHoldPrevSteamDisabled = m_settings->brew()->steamDisabled();
 }
 
 void MainController::endDescaleHeaterHold() {
     if (!m_settings || !m_descaleHeaterHold) return;
 
     m_descaleHeaterHold = false;
-
-    // Put the INPUTS back and let the policy resolve, rather than asserting an on/off
+    // Put the INPUT back and let the policy resolve, rather than asserting an on/off
     // outcome — and never via startSteamHeating(), which grants event permission that
-    // short-circuits every veto and persists with nothing here to release it. With the
-    // pitcher, the flag and the permission restored, "Heater off", Keep warm when idle and
-    // Let the recipe decide all decide exactly what they decided before the descale.
-    //
-    // Event permission is part of the snapshot because turnOffSteamHeater() clears it. It is
-    // the one input that cannot be re-derived: a user who arrived mid-steam-grant, with every
-    // other veto standing, would otherwise leave with the heater off when it had been on.
-    m_settings->brew()->setSelectedSteamCup(m_descaleHeaterHoldPrevPitcher);
+    // short-circuits every veto and persists with nothing here to release it. With the flag
+    // restored, "Heater off", Keep warm when idle and Let the recipe decide each decide
+    // exactly what they decided before the descale, because the hold never touched them.
     m_settings->brew()->setSteamDisabled(m_descaleHeaterHoldPrevSteamDisabled);
-    if (m_steamHeaterPolicy) {
-        m_steamHeaterPolicy->setEventPermission(m_descaleHeaterHoldPrevEventPermission);
-        // Same shape as releaseSteamEventPermission(): re-resolve and send, because an
-        // event-permission change carries no signal of its own to drive the re-send that
-        // the settings writes above get for free.
-        pushShotSettings(m_steamHeaterPolicy->commandedTemperatureC(),
-                         QStringLiteral("descale-hold-released"));
-    }
-    qDebug() << "Descale heater hold released (steamDisabled ="
-             << m_descaleHeaterHoldPrevSteamDisabled
-             << "pitcher =" << m_descaleHeaterHoldPrevPitcher
-             << "eventPermission =" << m_descaleHeaterHoldPrevEventPermission << ")";
+    qDebug() << "Descale heater hold released (steamDisabled restored to"
+             << m_descaleHeaterHoldPrevSteamDisabled << ")";
+}
+
+// An explicit steam request outranks a descale hold: the user has asked for the boiler, so
+// the snapshot taken when the descale page opened is no longer what they want restored.
+// Abandoning the hold here stops a later release from re-applying a stale veto.
+void MainController::abandonDescaleHeaterHold() {
+    if (!m_descaleHeaterHold) return;
+    m_descaleHeaterHold = false;
+    qDebug() << "Descale heater hold abandoned (explicit steam request)";
 }
 
 void MainController::toggleSteamHeater(const QString& reason) {
