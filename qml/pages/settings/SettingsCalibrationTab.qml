@@ -388,9 +388,16 @@ Item {
                                 // stops receiving model roles as context properties.
                                 required property int index
 
+                                // label()/instrumentText() are C++ invokables that
+                                // translate internally, so a binding on them records
+                                // no dependency on TranslationManager and would
+                                // freeze on a language change. See the same note in
+                                // SensorCalibrationPage.qml.
+                                readonly property int trVersion: TranslationManager.translationVersion
+
                                 emoji: "🎯"
-                                title: SensorCalibration.label(index)
-                                description: SensorCalibration.instrumentText(index)
+                                title: { void(trVersion); return SensorCalibration.label(index) }
+                                description: { void(trVersion); return SensorCalibration.instrumentText(index) }
                                 actionEnabled: DE1Device.connected
                                 disabledReason: TranslationManager.translate(
                                     "settings.sensorCalibration.needsMachine",

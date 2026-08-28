@@ -718,6 +718,21 @@ private:
     std::optional<double> m_storedCalibration[kCalibrationTargets];
     std::optional<double> m_factoryCalibration[kCalibrationTargets];
     int m_calibrationVersion = 0;
+
+    // Simulation only: the values a simulated machine holds, distinct from the
+    // read-back cache above. Without these the wizard is untestable off
+    // hardware — the reads go nowhere and both rows sit on "Not read yet"
+    // forever. de1app does the same thing for the same reason, feeding its
+    // Calibrate page synthetic replies when no machine is present
+    // (de1plus/gui.tcl:2525-2529).
+    double m_simStoredCalibration[kCalibrationTargets] = {0.0, 0.0, 0.0};
+    static constexpr double kSimFactoryCalibration = 0.0;
+    // Answers a calibration request locally by feeding parseCalibration() a
+    // packed reply, so the simulated path exercises the same parse and the same
+    // WriteKey == 0 rule the machine will drive.
+    void simulateCalibrationReply(DE1::Calibration::Target target,
+                                  DE1::Calibration::Command command,
+                                  double reported, double measured);
     // True only for a target index inside the enum, so a bad index from QML
     // cannot walk off the arrays above.
     static bool isCalibrationTarget(int target) {

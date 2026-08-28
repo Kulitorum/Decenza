@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 // The one per-sensor table. Every fact that differs between pressure and
 // temperature is a column here; nothing else in the feature branches on which
@@ -244,12 +245,41 @@ double SensorCalibrationController::currentReading() const {
 void SensorCalibrationController::onShotSample(const ShotSample& sample) {
     if (m_state != State::Observing) return;
 
+    // Samples are only meaningful while water is actually moving.
+    //
+    // Observing starts at EspressoPreheating so the page can say the run is
+    // under way, but that phase covers Heating/FinalHeating/Stabilising — the
+    // group sitting still. For pressure the hold floor excludes those anyway
+    // (~0 bar); for TEMPERATURE it does not, because a stabilising group sits at
+    // roughly the same temperature it holds at, the rate test cannot separate
+    // them, and the two merge into one window whose median is diluted with
+    // readings taken while the probe was in still air.
+    //
+    // isFlowing() is the project's single definition of "water is moving" and
+    // excludes Ending, so it also keeps the terminal drip out of the window.
+    if (!m_machineState || !m_machineState->isFlowing()) return;
+
     if (!m_haveObserveStart) {
         m_observeStartS = sample.timer;
         m_haveObserveStart = true;
     }
 
-    m_samples.append(Sample{ sample.timer - m_observeStartS, currentReading() });
+    // sample.timer is a 16-bit field that wraps every 65536/100 = 655.36 s
+    // (maincontroller.h:739-742 states this must not be subtracted across
+    // persistent state without an explicit unwrap). A calibration run is far
+    // shorter than that, but it does not start at zero — the machine's clock is
+    // wherever it happens to be — so a run CAN straddle a wrap.
+    //
+    // Unwrapping matters more here than the odds suggest, because the failure is
+    // silent: without it one elapsed value jumps ~-655 s, that step is scored as
+    // rate 0 (holding) via the non-positive-dt branch, and the enclosing window's
+    // span goes negative so it is discarded. The user is told the run never held
+    // steady when it held perfectly.
+    constexpr double kSampleTimerModSec = 65536.0 / 100.0;
+    double elapsed = sample.timer - m_observeStartS;
+    if (elapsed < 0.0) elapsed += kSampleTimerModSec;
+
+    m_samples.append(Sample{ elapsed, currentReading() });
 }
 
 void SensorCalibrationController::onPhaseChanged() {
@@ -281,6 +311,8 @@ void SensorCalibrationController::onPhaseChanged() {
             m_samples.clear();
             m_observeStartS = 0.0;
             m_haveObserveStart = false;
+            // Not inherited from a previous run in the same session.
+            m_sawPour = false;
             setState(State::Observing);
         }
         // Latched so a run that never started cannot be judged "no hold", which
@@ -363,12 +395,16 @@ std::optional<double> SensorCalibrationController::findSteadyHold() const {
 
     for (qsizetype i = 1; i < m_samples.size(); ++i) {
         const double dt = m_samples[i].elapsedS - m_samples[i - 1].elapsedS;
-        // Guard the divide rather than assuming a sample interval: a duplicate
-        // timestamp would otherwise produce an infinite rate and break the window.
-        const double rate = dt > 1e-6
+        // A non-positive interval is not evidence of holding — it is a duplicate
+        // or out-of-order timestamp, and scoring it as rate 0 would extend a
+        // window across a discontinuity. Break the window instead.
+        const bool usableInterval = dt > 1e-6;
+        const double rate = usableInterval
                                 ? std::abs(smoothed[i] - smoothed[i - 1]) / dt
-                                : 0.0;
-        const bool holding = rate <= spec->maxRateOfChange && smoothed[i] >= spec->holdFloor;
+                                : std::numeric_limits<double>::infinity();
+        const bool holding = usableInterval
+                             && rate <= spec->maxRateOfChange
+                             && smoothed[i] >= spec->holdFloor;
 
         if (holding) {
             if (winStart < 0)

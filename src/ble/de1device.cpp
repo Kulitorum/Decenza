@@ -2153,7 +2153,20 @@ void DE1Device::sendCalibration(DE1::Calibration::Target target,
                                 DE1::Calibration::Command command,
                                 double reported,
                                 double measured) {
-    if (!m_transport) return;
+#ifdef DECENZA_SIMULATOR
+    if (m_simulationMode) {
+        simulateCalibrationReply(target, command, reported, measured);
+        return;
+    }
+#endif
+    if (!m_transport) {
+        // Loud rather than silent. A calibration wizard whose reads go nowhere
+        // sits on "not read yet" with nothing to explain it, and the reader
+        // cannot tell a request that was refused from one never made.
+        CAL_WARN("Sensor") << "cannot" << calibrationCommandName(command)
+                           << calibrationTargetName(target) << "— no transport";
+        return;
+    }
     if (dropDeviceWriteIfFirmwareFlash("sendCalibration")) return;
 
     DE1::Calibration::Record record;
@@ -2187,6 +2200,41 @@ void DE1Device::readCalibration(int target, bool factory) {
                             : DE1::Calibration::Command::ReadCurrent,
                     0.0, 0.0);
 }
+
+#ifdef DECENZA_SIMULATOR
+// A simulated machine's answer. The READ paths are exact — they hand back
+// whatever the simulated machine holds. The WRITE path applies an accumulating
+// model, new offset = old + (measured - reported), chosen because it is the
+// behaviour that makes the documented loop converge ("retest until the two
+// agree") and NOT because the DE1 firmware is known to do that. There is no
+// firmware source in this tree; do not cite this function as evidence of what
+// the machine does.
+void DE1Device::simulateCalibrationReply(DE1::Calibration::Target target,
+                                         DE1::Calibration::Command command,
+                                         double reported,
+                                         double measured) {
+    const int index = static_cast<int>(target);
+    if (!isCalibrationTarget(index)) return;
+
+    if (command == DE1::Calibration::Command::Write) {
+        m_simStoredCalibration[index] += (measured - reported);
+        CAL_INFO("Sensor") << "simulated machine stored"
+                           << calibrationTargetName(target)
+                           << "calibration =" << m_simStoredCalibration[index];
+    }
+
+    DE1::Calibration::Record reply;
+    // WriteKey 0 marks a reply that carries a real value, exactly as the machine
+    // marks one — so the simulated path goes through the same demux.
+    reply.writeKey = DE1::Calibration::REPLY_VALUE_KEY;
+    reply.command  = command;
+    reply.target   = target;
+    reply.measured = (command == DE1::Calibration::Command::ReadFactory)
+                         ? kSimFactoryCalibration
+                         : m_simStoredCalibration[index];
+    parseCalibration(DE1::Calibration::packRecord(reply));
+}
+#endif
 
 void DE1Device::writeCalibration(int target, double reported, double measured) {
     if (!isCalibrationTarget(target)) {
@@ -2280,6 +2328,11 @@ void DE1Device::setHeaterVoltage(int volts) {
     }
     CAL_INFO("Sensor") << "heater voltage =" << volts;
     writeMMR(DE1::MMR::HEATER_VOLTAGE, static_cast<uint32_t>(volts));
+    // Read back rather than trusting what we sent — HEATER_VOLTAGE is otherwise
+    // only read once at connect, so without this the displayed value and the
+    // selected button stay on the OLD voltage for the rest of the session even
+    // though the write landed. Same contract the calibration path follows.
+    issueMMRReadWithRetry(DE1::MMR::HEATER_VOLTAGE, QStringLiteral("heater voltage"));
 }
 
 void DE1Device::sendInitialSettings() {

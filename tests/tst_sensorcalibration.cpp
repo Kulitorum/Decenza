@@ -259,6 +259,56 @@ private slots:
         QVERIFY(qAbs(f.controller.measuredValue() - 9.0) < 0.05);
     }
 
+    // Observing starts at EspressoPreheating so the page can say the run is under
+    // way, but that phase covers a group sitting still. For temperature the hold
+    // floor cannot exclude it — a stabilising group sits at roughly the hold
+    // temperature — so those samples would merge into the window and dilute the
+    // median with readings taken while the probe was in still air.
+    void samplesBeforeWaterMovesAreNotMeasured() {
+        TestFixture f;
+        f.controller.arm(int(Sensor::Temperature));
+
+        f.setPhase(MachineState::Phase::EspressoPreheating);
+        QCOMPARE(f.controller.stateInt(), int(State::Observing));
+        for (int i = 0; i < 20; ++i)
+            f.pushSample(0.0, /*headTempC=*/88.0, kSampleIntervalS * i);
+        QCOMPARE(f.controller.sampleCount(), 0);
+
+        // Once water moves, samples count and only those reach the median.
+        f.setPhase(MachineState::Phase::Pouring);
+        for (int i = 0; i < 16; ++i)
+            f.pushSample(9.0, /*headTempC=*/93.0, kSampleIntervalS * (20 + i));
+        f.setPhase(MachineState::Phase::Idle);
+
+        QCOMPARE(f.controller.stateInt(), int(State::Measured));
+        // 93, not something pulled toward the 88 of the stabilising group.
+        QVERIFY(qAbs(f.controller.measuredValue() - 93.0) < 0.2);
+    }
+
+    // sample.timer is a 16-bit field wrapping every 655.36 s
+    // (maincontroller.h:739-742). A run does not start at zero, so it can
+    // straddle a wrap — and unwrapped, the failure is silent: the elapsed value
+    // jumps backwards, the window's span goes negative and is discarded, and a
+    // run that held perfectly is reported as never having held.
+    void aHoldStraddlingTheSampleClockWrapIsStillMeasured() {
+        TestFixture f;
+        constexpr double kMod = 65536.0 / 100.0;
+        f.controller.arm(int(Sensor::Pressure));
+        f.setPhase(MachineState::Phase::Pouring);
+
+        // Start close enough to the wrap that the run crosses it.
+        const double start = kMod - 1.0;
+        for (int i = 0; i < 16; ++i) {
+            double t = start + kSampleIntervalS * i;
+            if (t >= kMod) t -= kMod;
+            f.pushSample(9.0 + (i % 2 == 0 ? 0.02 : -0.02), 93.0, t);
+        }
+        f.setPhase(MachineState::Phase::Idle);
+
+        QCOMPARE(f.controller.stateInt(), int(State::Measured));
+        QVERIFY(qAbs(f.controller.measuredValue() - 9.0) < 0.05);
+    }
+
     // ===== Aborts: a dropped link is never a completion =====
 
     void midRunDisconnectAbortsAndYieldsNothing() {

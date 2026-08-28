@@ -203,9 +203,18 @@ private:
     // to.
     double m_observeStartS = 0.0;
     bool m_haveObserveStart = false;
-    // Latches that the run actually reached the pouring phase. Without it a run
-    // that never started would land in a settled phase and be judged "no hold",
-    // which is a different and misleading answer from "you never ran it".
+    // Latches that water actually moved. A run that reached preinfusion and was
+    // stopped before pouring lands in a settled phase with samples that never
+    // meant anything; without this it would be reported as "no steady hold",
+    // which sends the user off to run it more carefully when the real answer is
+    // that the run did not get far enough.
+    //
+    // (It is NOT what stops a never-started run being judged NoHold — that is
+    // handled earlier, by onPhaseChanged returning while the state is still
+    // Armed rather than Observing.)
+    //
+    // Cleared whenever Observing (re)starts, not only in arm()/reset(), so a
+    // second run cannot inherit the first's latch.
     bool m_sawPour = false;
 
 #ifdef DECENZA_TESTING

@@ -22,8 +22,28 @@ T.Page {
     // Index into the SensorCalibration table. Set by main.qml when pushing.
     property int sensor: 0
 
-    readonly property string sensorLabel: SensorCalibration.label(calibrationPage.sensor)
-    readonly property string unit: SensorCalibration.unitLabel(calibrationPage.sensor)
+    // SensorCalibration's string accessors are C++ Q_INVOKABLEs that translate
+    // internally, so a binding calling one records NO dependency on
+    // TranslationManager and would freeze on the language in force when the page
+    // was built. The Q_PROPERTY(translate) fix that made plain translate() calls
+    // reactive does not reach through a C++ invokable.
+    //
+    // This is the one shape where translationVersion is still required, which is
+    // why it appears here despite CLAUDE.md telling new code not to use it —
+    // that advice is scoped to bindings over translate() itself.
+    readonly property int _trVersion: TranslationManager.translationVersion
+    readonly property string sensorLabel: {
+        void(calibrationPage._trVersion)
+        return SensorCalibration.label(calibrationPage.sensor)
+    }
+    readonly property string unit: {
+        void(calibrationPage._trVersion)
+        return SensorCalibration.unitLabel(calibrationPage.sensor)
+    }
+    readonly property string instrumentText: {
+        void(calibrationPage._trVersion)
+        return SensorCalibration.instrumentText(calibrationPage.sensor)
+    }
     readonly property int calTarget: SensorCalibration.calibrationTarget(calibrationPage.sensor)
 
     readonly property string pageTitle: calibrationPage.sensorLabel
@@ -44,19 +64,19 @@ T.Page {
     // as "no correction" and is the one wrong answer that looks plausible.
     readonly property int _calVersion: DE1Device.calibrationVersion
     readonly property bool hasStored: {
-        void(_calVersion)
+        void(calibrationPage._calVersion)
         return DE1Device.hasStoredCalibration(calibrationPage.calTarget)
     }
     readonly property bool hasFactory: {
-        void(_calVersion)
+        void(calibrationPage._calVersion)
         return DE1Device.hasFactoryCalibration(calibrationPage.calTarget)
     }
     readonly property double storedOffset: {
-        void(_calVersion)
+        void(calibrationPage._calVersion)
         return DE1Device.storedCalibration(calibrationPage.calTarget)
     }
     readonly property double factoryOffset: {
-        void(_calVersion)
+        void(calibrationPage._calVersion)
         return DE1Device.factoryCalibration(calibrationPage.calTarget)
     }
 
@@ -66,12 +86,22 @@ T.Page {
     property double previousGap: NaN
     property bool wroteThisSession: false
 
+    // The profile that was active before this page loaded its own, so leaving
+    // puts the machine back where it was.
+    //
+    // This matters more than it looks: ProfileManager.loadProfile() UPLOADS to
+    // the machine (profilemanager.cpp:1945), so opening this page really does
+    // change what the next shot runs — a 60-second calibration hold. Without a
+    // restore, backing out of the wizard and pulling a shot gives you that.
+    property string previousProfile: ""
+
     function _readBothCalibrations() {
         DE1Device.readCalibration(calibrationPage.calTarget, false)
         DE1Device.readCalibration(calibrationPage.calTarget, true)
     }
 
     Component.onCompleted: {
+        calibrationPage.previousProfile = ProfileManager.currentProfileName
         // Make this sensor's test profile active, and arm the capture. The shot
         // is NOT started here — the machine has a GHC and the user starts it.
         ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))
@@ -80,9 +110,25 @@ T.Page {
         calibrationPage._readBothCalibrations()
     }
 
-    Component.onDestruction: SensorCalibration.reset()
+    Component.onDestruction: {
+        SensorCalibration.reset()
+        if (calibrationPage.previousProfile.length > 0
+                && calibrationPage.previousProfile !== SensorCalibration.profileFilename(calibrationPage.sensor)) {
+            ProfileManager.loadProfile(calibrationPage.previousProfile)
+        }
+    }
+
+    // The instrument field sits mid-page inside the scroll area, so a soft
+    // keyboard would cover it without this (CLAUDE.md: wrap pages with text
+    // inputs). targetFlickable is set so Android can scroll it into view, which
+    // adjustPan cannot do inside a Flickable.
+    KeyboardAwareContainer {
+        anchors.fill: parent
+        textFields: [instrumentField]
+        targetFlickable: calibrationScroll.contentItem as Flickable
 
     ScrollView {
+        id: calibrationScroll
         anchors.fill: parent
         anchors.margins: Theme.standardMargin
         anchors.topMargin: Theme.pageTopMargin
@@ -197,7 +243,7 @@ T.Page {
 
                     Text {
                         Layout.fillWidth: true
-                        text: SensorCalibration.instrumentText(calibrationPage.sensor)
+                        text: calibrationPage.instrumentText
                         color: Theme.textColor
                         font: Theme.bodyFont
                         wrapMode: Text.WordWrap
@@ -214,13 +260,16 @@ T.Page {
                         wrapMode: Text.WordWrap
                     }
 
-                    // Nothing has been written at this point, so a user who finds
-                    // they lack the instrument can simply leave.
+                    // Precise about what has and has not happened. The test
+                    // profile IS already uploaded — saying "nothing has been
+                    // changed" would be false, and it is exactly the sentence a
+                    // user who finds they lack the instrument would rely on.
                     Text {
                         Layout.fillWidth: true
                         text: TranslationManager.translate(
                                   "sensorCalibration.prepare.nothingWritten",
-                                  "Nothing has been changed on your machine yet.")
+                                  "No calibration has been changed. Leaving this page puts your "
+                                  + "previous profile back.")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
@@ -358,6 +407,12 @@ T.Page {
                         StyledTextField {
                             id: instrumentField
                             Layout.fillWidth: true
+                            // Commit before anything READS the text. The Apply
+                            // button's enabled state and the summary below both
+                            // read it, so committing only inside the write
+                            // handler would leave the in-progress word out of
+                            // the gate on mobile (CLAUDE.md's IME rule).
+                            onEditingFinished: Keyboard.commit()
                             placeholderText: TranslationManager.translate(
                                                  "sensorCalibration.apply.placeholder",
                                                  "Reading from your gauge")
@@ -392,9 +447,11 @@ T.Page {
                     Text {
                         Layout.fillWidth: true
                         visible: calibrationPage.entryValid
+                        // %4 comes from _signed(), which already appends the unit —
+                        // so it is NOT followed by another %3.
                         text: TranslationManager.translate(
                                   "sensorCalibration.apply.summary",
-                                  "Machine %1 %3, gauge %2 %3 — correction %4 %3")
+                                  "Machine %1 %3, gauge %2 %3 — correction %4")
                               .arg(SensorCalibration.measuredValue.toFixed(2))
                               .arg(calibrationPage.entryValue.toFixed(2))
                               .arg(calibrationPage.unit)
@@ -423,7 +480,13 @@ T.Page {
                         accessibleName: TranslationManager.translate("sensorCalibration.apply.button", "Apply correction")
                         primary: true
                         enabled: calibrationPage.entryValid && calibrationPage.hasStored
-                        onClicked: confirmDialog.open()
+                        onClicked: {
+                            // The commit can change the text, so re-check rather
+                            // than trusting the gate that opened this.
+                            Keyboard.commit()
+                            if (calibrationPage.entryValid && calibrationPage.hasStored)
+                                confirmDialog.open()
+                        }
                     }
                 }
             }
@@ -479,11 +542,13 @@ T.Page {
             }
         }
     }
+    }
 
     // Parsed entry state. Kept as page properties so the summary, the guard
     // message and the button all read the same values.
     readonly property double entryValue: parseFloat(instrumentField.text)
     readonly property string rejection: {
+        void(calibrationPage._trVersion)
         if (instrumentField.text.length === 0) return ""
         return SensorCalibration.rejectionReason(calibrationPage.sensor, calibrationPage.entryValue)
     }
@@ -551,6 +616,12 @@ T.Page {
                     primary: true
                     onClicked: {
                         Keyboard.commit()
+                        // Refuse a value the commit turned invalid — the summary
+                        // above and this write must never disagree.
+                        if (!calibrationPage.entryValid || !calibrationPage.hasStored) {
+                            confirmDialog.close()
+                            return
+                        }
                         calibrationPage.previousGap =
                             calibrationPage.entryValue - SensorCalibration.measuredValue
                         DE1Device.writeCalibration(calibrationPage.calTarget,

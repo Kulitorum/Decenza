@@ -2,7 +2,17 @@
 
 #include "../core/logtags.h"
 
-// Logging tiers for auto flow calibration.
+// Logging tiers for the [Calibration] marker.
+//
+// TWO subsystems share it, disambiguated by tag rather than by marker: auto flow
+// calibration (tags "AutoFlow", …) and sensor calibration (tags "Sensor" for the
+// A012 protocol path, "Wizard" for the capture controller). They share because a
+// user asking "why did my calibration change" does not know which of the two
+// they mean, and one marker returns both stories; the tags separate them for a
+// reader who does know.
+//
+// The rest of this comment is about the auto-flow half, which is where the tier
+// rules below were learned.
 //
 // The subsystem answers two questions from a submitted log: "why did my flow
 // calibration change" and — the one that actually gets filed as a bug — "why
