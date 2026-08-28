@@ -30,10 +30,18 @@ T.Page {
                                        ? DE1Device.steamTemperature : 0
     readonly property bool steamTooHotToDescale: steamTempC > steamSafeTempC
 
-    // What the heater was doing before this page took it over, so exit can put it back.
-    // -1 until captured, so a destruction that somehow beats completion restores nothing
-    // rather than guessing.
-    property int steamHeaterWasOn: -1
+    // Exit restores the ONE thing entry mutates: the transient steamDisabled veto that
+    // turnOffSteamHeater() sets. -1 until captured, so a destruction that somehow beats
+    // completion restores nothing rather than guessing.
+    //
+    // Restoring the FLAG, rather than the resolved on/off state, is what makes both
+    // directions correct. The heater can be off for reasons this page never touched — a
+    // "Heater off" pitcher, Keep warm when idle off, a recipe with no steam under Let the
+    // recipe decide — and those vetoes resolve on their own once the flag is back
+    // (SteamHeaterPolicy::resolve). Writing the flag also pushes the new steam settings to
+    // the machine, through the steamDisabledChanged connection in MainController's
+    // constructor (maincontroller.cpp:181-192).
+    property int steamDisabledWas: -1
 
     // Both start sites go through here so the hot-boiler check cannot be added to one and
     // forgotten on the other — the same trap the three maintenance states fell into in C++.
@@ -46,19 +54,25 @@ T.Page {
     }
 
     Component.onCompleted: {
-        descalingPage.steamHeaterWasOn = MainController.steamHeaterOn ? 1 : 0
+        descalingPage.steamDisabledWas = Settings.brew.steamDisabled ? 1 : 0
         if (MainController.steamHeaterOn) {
             MainController.turnOffSteamHeater()
         }
     }
 
     Component.onDestruction: {
-        // Restore what the user had, rather than forcing the heater on. This line used to
-        // be an unconditional Settings.brew.setSteamDisabled(false), which turned the
-        // heater back ON for anyone who arrived with it deliberately off — a "Heater off"
-        // pitcher, or Keep warm when idle disabled.
-        if (descalingPage.steamHeaterWasOn === 1) {
-            MainController.startSteamHeating("descaling-restore")
+        // NOT startSteamHeating(). That grants event permission, which short-circuits every
+        // veto in the policy (SteamHeaterPolicy::resolve, "Event permission short-circuits
+        // every veto") and PERSISTS until something calls releaseSteamEventPermission() — so
+        // restoring a heater that was merely on via Keep warm when idle would leave the next
+        // "Heater off" pitcher silently ignored. Every other startSteamHeating() call site
+        // pairs it with a release because it follows a real steam event; a restore has no
+        // event to release.
+        //
+        // This also used to be an UNCONDITIONAL setSteamDisabled(false), which turned the
+        // heater on for anyone who arrived with it deliberately off.
+        if (descalingPage.steamDisabledWas === 0) {
+            Settings.brew.setSteamDisabled(false)
         }
         // The cold-maintenance workaround may have left a 1 °C profile on the machine.
         ProfileManager.uploadCurrentProfile()
