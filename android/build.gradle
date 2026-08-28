@@ -37,7 +37,6 @@ android {
             aidl.srcDirs = [qtAndroidDir + '/src', 'src', 'aidl']
             res.srcDirs = [qtAndroidDir + '/res', 'res']
             resources.srcDirs = ['resources']
-            renderscript.srcDirs = ['src']
             assets.srcDirs = ['assets']
             jniLibs.srcDirs = ['libs']
        }
@@ -48,16 +47,42 @@ android {
         options.compilerArgs += ['-Xlint:all']
     }
 
+    // Java 17, not 1.8, because that is what Qt's own template sets:
+    // qtbase/src/android/templates/build.gradle:66 in Qt 6.11.2 reads
+    // `sourceCompatibility JavaVersion.VERSION_17`. This file is a fork of that
+    // template which had drifted back to 1.8, so 17 restores the level Qt
+    // itself builds and tests its Android Java against.
+    //
+    // NOT "AGP 9 requires it" — AGP 9.0.0 changes the DEFAULT source/target
+    // from 8 to 11, which is a default, not a floor, and an explicit 1.8 is not
+    // documented as rejected. The obsolete-source warning a build prints is
+    // javac's, not AGP's. The 12 Java files here are written for 8 and gain
+    // nothing from the language level.
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
-    lintOptions {
+    // lint/androidResources, not lintOptions/aaptOptions: the old names are
+    // DEPRECATED ALIASES over the same objects — CommonExtension.lintOptions is
+    // annotated "Renamed to `lint`" — so this moves to the non-deprecated
+    // spelling and changes no behaviour.
+    //
+    // Both spellings still work, and do not write "removed in AGP 9" here: Qt
+    // 6.11.2's own template pins AGP 9.0.0
+    // (qtbase/src/android/templates/build.gradle:9) and still uses lintOptions
+    // at :70 and aaptOptions at :74, which it could not if AGP 9 had removed
+    // them.
+    //
+    // noCompress keeps its method form. 'rcc' must stay uncompressed for Qt to
+    // mmap the resource bundle; the non-deprecated property form is
+    // `noCompress.add('rcc')` (getter-only, so `+=` does not work), and Qt
+    // upstream uses the method. Left for whoever can test an Android build.
+    lint {
         abortOnError = false
     }
 
-    aaptOptions {
+    androidResources {
         noCompress 'rcc'
     }
 
