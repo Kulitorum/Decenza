@@ -82,6 +82,13 @@ struct ShotMetadata {
     // part of the Visualizer upload payload (DYE has no such field).
     QString yieldMode;             // "none" | "absolute" | "ratio"
     double yieldAnchorValue = 0;   // grams (absolute) or dose multiplier (ratio)
+
+    // The effective flow calibration multiplier in force while the shot was
+    // pulled, latched at shot start (ProfileManager::latchedFlowCalibration()).
+    // Local history only — never part of the Visualizer upload payload, which
+    // has no such field. 0 = not recorded; 1.0 is a real multiplier and must
+    // not stand in for unknown.
+    double flowCalibration = 0;
 };
 
 class VisualizerUploader : public QObject {

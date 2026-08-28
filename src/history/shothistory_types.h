@@ -169,6 +169,19 @@ struct ShotRecord {
     QString yieldMode;
     double yieldAnchorValue = 0.0;
 
+    // The effective flow calibration multiplier the shot was PULLED at, i.e.
+    // the value written to the DE1 while it poured (per-profile when auto
+    // calibration is on and one exists, else global). Latched at shot start —
+    // auto calibration can write a NEW per-profile value at shot end, before
+    // the save, so a save-time read would record a multiplier this shot never
+    // ran under. Persisted in shots.flow_calibration (migration 39).
+    //
+    // 0.0 means NOT RECORDED — a shot saved before the column existed, an
+    // imported shot whose source had no such value, or a fake/dev shot. 1.0 is
+    // a legitimate multiplier, so the two must never collapse: every consumer
+    // reads absence as unknown, not as neutral.
+    double flowCalibration = 0.0;
+
     // Why the shot ended (#1161). One of: "weight" (stop-at-weight / SAW),
     // "volume" (stop-at-volume / SAV), "manual" (user tapped Stop in the
     // app), "profileEnd" (profile ran its course OR the DE1's own button —
@@ -344,6 +357,10 @@ struct ShotSaveData {
     // Yield anchor provenance (add-yield-ratio-anchor): see ShotRecord.
     QString yieldMode;
     double yieldAnchorValue = 0;
+
+    // The flow calibration multiplier the shot ran under: see ShotRecord.
+    // 0 = not recorded.
+    double flowCalibration = 0;
 
     // Why the shot ended (#1161): "weight" | "volume" | "manual" |
     // "profileEnd" | "" (unknown). Classified in MainController::onShotEnded

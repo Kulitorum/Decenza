@@ -1,42 +1,4 @@
-# auto-flow-calibration Specification
-
-## Purpose
-Automatically derives a per-profile flow-sensor calibration multiplier from scale data after each
-shot, so the DE1's reported flow tracks actual poured weight across both flow-controlled and
-pressure-controlled profiles without requiring manual calibration.
-
-## Requirements
-
-### Requirement: Steady-state window selection
-The system SHALL scan a completed shot's telemetry for the longest contiguous window meeting
-minimum stability, pressure, flow-magnitude, and scale-recency criteria, and SHALL use only that
-window as the basis for a calibration ideal.
-
-#### Scenario: No qualifying window
-- **WHEN** a shot has no telemetry segment meeting the minimum duration and sample-count
-  thresholds
-- **THEN** the system SHALL skip calibration for that shot and log that no qualifying window was
-  found
-
-### Requirement: Window-level flow/pressure classification
-The system SHALL classify each selected window as flow-controlled or pressure-controlled based on
-which profile frames were active during the window (via the shot's recorded phase-marker stream),
-not on the profile as a whole. A window whose frames are mixed flow- and pressure-controlled SHALL
-be skipped as ambiguous.
-
-#### Scenario: Window entirely inside a flow-controlled frame
-- **WHEN** every frame touched by the selected window has `pump == flow` and a flow target above
-  the minimum threshold
-- **THEN** the window is classified flow-controlled and its target flow is the touched frame's
-  flow target closest to the window's measured machine flow
-
-#### Scenario: Window entirely inside a pressure-controlled frame
-- **WHEN** every frame touched by the selected window has `pump == pressure`
-- **THEN** the window is classified pressure-controlled
-
-#### Scenario: Window spans a flow/pressure transition
-- **WHEN** the selected window's frames are a mix of flow-controlled and pressure-controlled
-- **THEN** the system SHALL skip the window and log that it spans mixed frames
+## MODIFIED Requirements
 
 ### Requirement: Achieved-flow deviation check for flow-controlled windows
 For a window classified flow-controlled, the system SHALL compare the window's measured mean
@@ -81,37 +43,6 @@ deviation, so a shot that produced no ideal is explicable from a submitted debug
 - **THEN** the system computes the ideal as
   `currentMultiplier * meanWeightFlow / (meanMachineFlow * density)`, unaffected by this requirement
 
-### Requirement: Batched median updates
-The system SHALL accumulate per-profile ideals across a fixed batch size, persisted across app
-restarts, and SHALL update the profile's calibration multiplier only from the batch median, not
-from any single shot's ideal.
-
-#### Scenario: Batch incomplete
-- **WHEN** fewer than the configured batch size of ideals have accumulated for a profile
-- **THEN** the system SHALL accumulate the new ideal and SHALL NOT change the stored multiplier
-
-#### Scenario: Batch complete with meaningful change
-- **WHEN** the batch reaches its configured size and the blended median differs from the current
-  multiplier by more than the configured minimum change threshold
-- **THEN** the system SHALL update the profile's multiplier from the blend and SHALL reset the
-  batch accumulator
-
-#### Scenario: Batch complete with negligible change
-- **WHEN** the batch reaches its configured size but the blended median differs from the current
-  multiplier by less than the configured minimum change threshold
-- **THEN** the system SHALL leave the stored multiplier unchanged and SHALL reset the batch
-  accumulator
-
-### Requirement: Sanity bounds on computed multipliers
-The system SHALL clamp every computed multiplier to a firmware-dependent range before it can be
-stored or applied, so a corrupted or anomalous computation cannot push the machine's flow
-calibration to an extreme value.
-
-#### Scenario: Computed multiplier outside firmware-dependent bounds
-- **WHEN** a computed multiplier (single-window ideal or batch-median update) falls outside the
-  connected DE1's firmware-dependent bounds
-- **THEN** the system SHALL clamp the value to those bounds before storing or applying it
-
 ### Requirement: Formula-version migration on behavior change
 When a change alters how calibration ideals are computed, or which windows produce one at all, the
 system SHALL clear all profiles' pending (not-yet-applied) batch accumulators as a one-time
@@ -143,56 +74,12 @@ the defect are not forced back through several batches of re-convergence.
 - **WHEN** the app starts again on the same build
 - **THEN** the migration does not run a second time and pending accumulators are preserved
 
-### Requirement: The flow calibration multiplier a shot ran under is recorded on the shot
-The system SHALL record, on each saved shot, the effective flow calibration multiplier that was in
-force while that shot was pulled — the same value `effectiveFlowCalibration()` resolves for the
-shot's profile and that is written to the machine. The recorded value SHALL be the multiplier in
-force at shot START, so an auto-calibration update computed from the shot itself never overwrites
-the value the shot is recorded under.
+## REMOVED Requirements
 
-#### Scenario: Shot pulled at a per-profile multiplier
-- **WHEN** a shot completes on a profile that has a per-profile flow calibration multiplier and auto
-  flow calibration is enabled
-- **THEN** the saved shot records that per-profile multiplier
+### Requirement: Window ratio sanity guard
+**Reason**: The two-basis guard is gone. It selected its comparison basis from the formula the window used (target flow for the flow branch, achieved flow for the pressure branch), and both premises are now false: there is one formula, and the re-route its second scenario described was deleted. Replaced by the single guard added below.
 
-#### Scenario: Shot pulled at the global multiplier
-- **WHEN** a shot completes on a profile with no per-profile multiplier, or with auto flow
-  calibration disabled
-- **THEN** the saved shot records the global flow calibration multiplier
-
-#### Scenario: Auto-calibration updates the multiplier on the same shot
-- **WHEN** a shot completes and the auto-calibration batch for its profile completes on that shot,
-  writing a new per-profile multiplier before the shot is saved
-- **THEN** the saved shot records the multiplier that was in force during the pour, not the newly
-  written one
-
-### Requirement: An unrecorded multiplier is distinguishable from a recorded one
-The system SHALL represent "no multiplier recorded" as an absent value, never as the neutral
-multiplier 1.0, and SHALL NOT infer a multiplier for a shot that has none. Shots saved before this
-capability existed, and shots imported from a source that carries no multiplier, SHALL read as
-unrecorded.
-
-#### Scenario: Shot saved before the field existed
-- **WHEN** a shot recorded before this capability is loaded
-- **THEN** its flow calibration multiplier reads as unrecorded, and no value is substituted
-
-#### Scenario: Consumer reads a shot with no recorded multiplier
-- **WHEN** a shot with no recorded multiplier is projected for a consumer (MCP tool, AI payload,
-  export)
-- **THEN** the field is omitted rather than emitted as 0 or 1.0
-
-### Requirement: The recorded multiplier survives transfer and import
-The system SHALL carry a shot's recorded flow calibration multiplier through device-to-device
-transfer and through shot import, and SHALL leave it unrecorded when the source has no such value
-rather than substituting one.
-
-#### Scenario: Device-to-device transfer
-- **WHEN** shots are transferred from a device whose database records the multiplier
-- **THEN** each transferred shot keeps its recorded multiplier
-
-#### Scenario: Transfer from a source predating the field
-- **WHEN** shots are transferred from a database that has no flow calibration column
-- **THEN** the imported shots read as unrecorded
+## ADDED Requirements
 
 ### Requirement: Single window ratio guard for both control modes
 The system SHALL reject a window's ideal — before it is accumulated into any batch — when the

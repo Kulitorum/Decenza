@@ -106,6 +106,40 @@ public:
     void appendFlowCalPendingIdeal(const QString& profileFilename, double ideal);
     void clearFlowCalPendingIdeals(const QString& profileFilename);
 
+    // Consecutive shots on this profile rejected for a reason that RECURS, and
+    // why the most recent one was.
+    //
+    // Deliberately not every no-ideal path. The transient ones — no weight data
+    // yet, weight dropped after the stop, too few samples, a non-finite result —
+    // neither increment nor reset, because a one-off does not mean the profile
+    // is stuck and counting it would make the number mean less. What is counted
+    // is the set that persists until something changes: no scale connected, no
+    // steady window, a window that missed its frame's target, a window whose
+    // machine and scale disagreed, mixed pump modes, and a shot with no
+    // start-latch.
+    //
+    // Two more paths are outside both lists on purpose. The near-zero
+    // weight-flow guard is a divide-by-zero defence its own comment calls
+    // impossible, so counting it would put a number on something that should
+    // never happen; and the preconditions above it (null pointers, auto
+    // calibration switched off, no profile name) are gates rather than shot
+    // outcomes — nothing was rejected, the feature simply did not run.
+    //
+    // The pending-ideal count alone cannot distinguish "this profile is new" from
+    // "every shot on this profile is rejected and always will be" — and those need
+    // opposite advice. A profile whose pours never reach the frame's target flow
+    // (a pressure-capped D-Flow on too fine a grind) accumulates nothing,
+    // permanently, while `pendingAutoCalShots == 0` reads as "just getting
+    // started". Counting the rejections is what lets a user, or the assistant
+    // reading their log, tell the difference.
+    //
+    // Reset by a successful accumulate, so it is a run of consecutive failures
+    // rather than a lifetime tally.
+    int flowCalRejectedShots(const QString& profileFilename) const;
+    QString flowCalLastRejectionReason(const QString& profileFilename) const;
+    void noteFlowCalRejection(const QString& profileFilename, const QString& reason);
+    void clearFlowCalRejections(const QString& profileFilename);
+
     // Reset all per-profile flow calibrations to empty (used by one-shot migrations).
     void resetAllProfileFlowCalibrations();
 

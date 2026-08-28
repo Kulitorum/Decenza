@@ -1,5 +1,7 @@
 #pragma once
 
+#include <utility>
+
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
@@ -267,6 +269,46 @@ public:
     double latchedTargetG() const { return m_latchedTargetG; }
     QString latchedYieldMode() const { return m_latchedYieldMode; }
     double latchedYieldAnchorValue() const { return m_latchedYieldAnchorValue; }
+    // The effective flow calibration multiplier the shot was PULLED at, or 0.0
+    // if this shot never latched one.
+    //
+    // Latched rather than read at save time because
+    // MainController::computeAutoFlowCalibration() runs at shot end BEFORE
+    // MainController::onShotEnded() reaches its saveShot() call, and can write a
+    // new per-profile multiplier first — a save-time read would record a value
+    // the shot never ran under, and only on the shots where it changed. (Cited
+    // by symbol on purpose: line numbers into that 4,000-line file have already
+    // rotted twice in this change's own history.)
+    //
+    // CONSUMABLE, unlike the yield snapshot beside it. onShotEnded() reads and
+    // clears it in one place, before any of its early returns, so a value can
+    // only ever be claimed by the shot that latched it. That matters because
+    // latchForShot() is armed from espressoCycleStarted unconditionally, which
+    // includes cycles that never reach the save at all — a maintenance rinse, or
+    // a start-then-stop before extraction. If those left the latch armed, the
+    // next shot whose cycle-start went unseen would stamp their multiplier,
+    // possibly from a different profile: a measurement nobody took, in the one
+    // column whose whole purpose is knowing which measurements were taken.
+    //
+    // One path does not reach onShotEnded() at all: a cycle aborted during
+    // preheat, where shotEnded is never emitted. Its latch survives, and what
+    // makes that harmless is the SECOND mechanism — latchForShot() zeroes
+    // unconditionally, so the next cycle overwrites it before anything can read
+    // it. The invariant therefore rests on both, and NOT on releaseShotLatch():
+    // that fires on espressoCycleEnded, which per the snapshot comment above
+    // runs well before the save path, so clearing there would zero the latch for
+    // every normal shot.
+    //
+    // 0.0 therefore means "not recorded" for this shot, and 1.0 is a real
+    // multiplier that must never stand in for it.
+    double latchedFlowCalibration() const { return m_latchedFlowCalibration; }
+
+    // Read AND clear in one operation. Two calls left the invariant above to a
+    // comment — a later edit could keep the read and drop the clear, and nothing
+    // would fail. Returning-and-zeroing makes it a property of the type.
+    double takeFlowCalibrationLatch() {
+        return std::exchange(m_latchedFlowCalibration, 0.0);
+    }
 
     // === Profile catalog ===
     QVariantList availableProfiles() const;
@@ -694,6 +736,8 @@ private:
     bool m_shotSnapshotValid = false;
     QString m_latchedYieldMode = QStringLiteral("none");
     double m_latchedYieldAnchorValue = 0.0;
+    // See latchedFlowCalibration(). 0.0 = not recorded, never "1.0".
+    double m_latchedFlowCalibration = 0.0;
 
     // Auto-retry state for failed profile uploads. A failure with a retryable
     // reason (frame sequence mismatch, ACK timeout) arms

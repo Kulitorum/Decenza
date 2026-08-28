@@ -82,6 +82,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.targetWeightG = record.targetWeight;
     p.yieldMode = record.yieldMode;
     p.yieldAnchorValue = record.yieldAnchorValue;
+    p.flowCalibration = record.flowCalibration;
     p.stoppedBy = record.stoppedBy;
     p.profileJson = record.profileJson;
     p.profileKbId = record.profileKbId;

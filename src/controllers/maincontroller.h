@@ -628,7 +628,22 @@ private:
     void applyRefillKitOverride();
     void applyHeaterTweaks();
     void applyFlowCalibration();
-    void computeAutoFlowCalibration();
+    /// Record that this shot produced no calibration ideal, and why. Counts
+    /// consecutive rejections per profile so the permanent case (a profile whose
+    /// pours never reach their target flow) can be told apart from the ordinary
+    /// one (not enough shots yet) — from the outside they are identical, and
+    /// only one of them is fixed by pulling more shots.
+    void noteAutoFlowCalRejection(const QString& profileName, const QString& reason);
+
+    /// Compute and accumulate this shot's auto-flow-calibration ideal.
+    /// `pouredMultiplier` is the multiplier the shot actually POURED under,
+    /// from the shot-start latch; pass 0 when the shot never latched and a live
+    /// read is the only option. It matters because the ideal divides the
+    /// reported flow by it, and reported flow carries the multiplier that was
+    /// in effect DURING the pour — a value written mid-shot (the MCP
+    /// flow_calibration tool does exactly this) would otherwise be paired with
+    /// samples recorded under the old one.
+    void computeAutoFlowCalibration(double pouredMultiplier);
     void updateGlobalFromPerProfileMedian();
     double getGroupTemperature() const;
     // `reason` is a caller tag that flows into the [ShotSettings] BLE log.

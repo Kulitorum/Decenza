@@ -28,6 +28,7 @@ private slots:
     void coerce_nonMapScalar_yieldsInvalidProjection();
     void hasBag_followsSentinelRule();
     void toVariantMap_sparseEmitsBagIdOnlyWhenPresent();
+    void toVariantMap_sparseEmitsFlowCalibrationOnlyWhenRecorded();
     void toVariantMap_roundTripsTasteAxes();
     void toVariantMap_roundTripsRpm();
     void toVariantMap_roundTripsRecipeDisplayAndDateTime();
@@ -146,6 +147,31 @@ void TstShotProjection::toVariantMap_sparseEmitsBagIdOnlyWhenPresent()
     QCOMPARE(withBag.value(QStringLiteral("bagId")).toLongLong(), qint64(42));
 }
 
+// add-shot-flow-calibration: the multiplier a shot poured under is emitted only
+// when it was actually recorded. 0 means "not recorded" — for a shot saved
+// before the column existed, an imported shot, or the dev fake-shot path — and
+// 1.0 is a legitimate multiplier, so emitting either as a value would hand a
+// consumer (an MCP client, an AI payload) a measurement nobody took.
+void TstShotProjection::toVariantMap_sparseEmitsFlowCalibrationOnlyWhenRecorded()
+{
+    ShotProjection p = makeSampleShot();
+
+    p.flowCalibration = 0.0;
+    QVERIFY2(!p.toVariantMap().contains(QStringLiteral("flowCalibration")),
+             "unrecorded multiplier (0) must omit the key, not emit 0 or 1.0");
+
+    p.flowCalibration = 1.0;
+    const QVariantMap neutral = p.toVariantMap();
+    QVERIFY2(neutral.contains(QStringLiteral("flowCalibration")),
+             "1.0 is a real multiplier and must be emitted, not treated as unset");
+    QCOMPARE(neutral.value(QStringLiteral("flowCalibration")).toDouble(), 1.0);
+
+    p.flowCalibration = 1.35;
+    const QVariantMap recorded = p.toVariantMap();
+    QCOMPARE(recorded.value(QStringLiteral("flowCalibration")).toDouble(), 1.35);
+    QCOMPARE(ShotProjection::fromVariantMap(recorded).flowCalibration, 1.35);
+}
+
 // Structured taste axes (add-ai-taste-intake) sparse-emit when unset and round-
 // trip through toVariantMap()/fromVariantMap() when set.
 void TstShotProjection::toVariantMap_roundTripsTasteAxes()
@@ -243,7 +269,7 @@ void TstShotProjection::everyQPropertySurvivesARoundTrip()
     ShotProjection p = makeSampleShot();
     const QMetaObject& mo = ShotProjection::staticMetaObject;
 
-    // Probe OVERRIDES rather than skips: three fields sparse-emit only specific
+    // Probe OVERRIDES rather than skips: four fields sparse-emit only specific
     // values, so an arbitrary "rt-N" string would not survive and a naive probe
     // would fail spuriously. Skipping them instead would mean deleting their
     // emit leaves this test green — and nothing else in this file covers them.
@@ -253,6 +279,10 @@ void TstShotProjection::everyQPropertySurvivesARoundTrip()
         // yieldMode emits only absolute/ratio, and yieldAnchorValue rides with it.
         {QByteArrayLiteral("yieldMode"), QStringLiteral("ratio")},
         {QByteArrayLiteral("yieldAnchorValue"), 2.5},
+        // flowCalibration emits only when > 0 (0 = not recorded); the generic
+        // double probe is already positive, but pin it so the emit condition is
+        // covered by an explicit value rather than by luck of the index.
+        {QByteArrayLiteral("flowCalibration"), 1.35},
     };
 
     QVector<QByteArray> checked;

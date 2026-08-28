@@ -11,6 +11,8 @@
 #include <QQmlContext>
 #include <QQmlExpression>
 #include <QDir>
+
+#include "core/settings_calibration.h"
 #include <QDirIterator>
 #include <QRegularExpression>
 #include <QTemporaryDir>
@@ -2282,6 +2284,48 @@ private slots:
     // mid-pour (clearBrewOverrides) dropped a live 45 g target to the
     // profile's 36 g and cut the shot short — observed on a real pour, not
     // hypothetical. Every arm below is one of those paths.
+    // add-shot-flow-calibration: the shot record stores the flow calibration
+    // multiplier the shot POURED under, and it must survive a write that lands
+    // after the pour started. That is not hypothetical ordering paranoia:
+    // MainController::onShotEnded() calls computeAutoFlowCalibration() BEFORE
+    // it builds the shot metadata and saves, so on any shot that completes a
+    // 5-shot batch the stored multiplier changes between pour and save. A
+    // save-time read would record the value the shot PRODUCED, on exactly the
+    // shots where it differs — silently, and only there.
+    //
+    // The end-to-end ordering can't be driven from a test (no harness
+    // constructs MainController), so this asserts the property the fix rests
+    // on: once latched, the value is immune to later writes.
+    void shotLatchFreezesFlowCalibrationAgainstLateWrites() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 36.0);
+
+        f.settings.calibration()->setFlowCalibrationMultiplier(1.35);
+        f.profileManager.latchForShot();
+        QCOMPARE(f.profileManager.latchedFlowCalibration(), 1.35);
+
+        // What auto calibration does at shot end, before the save.
+        f.settings.calibration()->setFlowCalibrationMultiplier(1.22);
+        QCOMPARE(f.profileManager.latchedFlowCalibration(), 1.35);
+
+        // Consuming it is what makes the value belong to exactly one shot: a
+        // later shot that never latched (a missed espressoCycleStarted, e.g.
+        // the "machine skipped preheating" case machinestate.cpp guards) must
+        // read 0 and record NULL rather than inheriting this shot's 1.35.
+        QCOMPARE(f.profileManager.takeFlowCalibrationLatch(), 1.35);
+        QCOMPARE(f.profileManager.latchedFlowCalibration(), 0.0);
+
+        // The NEXT shot re-resolves — the latch freezes one shot, not forever.
+        // Compared against effectiveFlowCalibration() rather than a literal so
+        // the assertion holds whichever key wins for this fixture's profile
+        // (per-profile when one is stored and auto-cal is on, else global).
+        f.profileManager.latchForShot();
+        QCOMPARE(f.profileManager.latchedFlowCalibration(),
+                 f.settings.calibration()->effectiveFlowCalibration(
+                     f.profileManager.baseProfileName()));
+        QCOMPARE(f.profileManager.latchedFlowCalibration(), 1.22);
+    }
+
     void shotLatchFreezesTargetAgainstEveryLateWrite() {
         McpTestFixture f;
         loadDFlowProfile(f, "Test", 36.0);

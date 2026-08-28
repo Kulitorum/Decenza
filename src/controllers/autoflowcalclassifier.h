@@ -63,6 +63,27 @@ constexpr double kAutoFlowCalMinFlowTarget = 0.1;
 /// assert against can't silently diverge.
 constexpr double kAutoFlowCalDeviationThreshold = 0.10;
 
+/// EMA weight applied to a completed batch's median when updating the stored
+/// multiplier: `C := (1 - alpha) * C + alpha * median`. Named here rather than
+/// left function-local in `computeAutoFlowCalibration()` for the same reason as
+/// the threshold above — the tests that assert what this update CONVERGES TO
+/// would otherwise re-type the number, and a changed alpha would leave them
+/// green while changing the answer.
+///
+/// It is not a speed knob. At 0.5 the pre-v6 target-anchored ideal made this
+/// update Babylonian square-root iteration, which is why flow-profile machines
+/// settled on the square root of their pump-model error; undamped, the same
+/// update does not converge at all. See docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md,
+/// "Why the pre-v6 formula converged on sqrt(e)".
+constexpr double kAutoFlowCalBatchEmaAlpha = 0.5;
+
+/// Density of water at ~93 C (g/mL), the constant that converts the pump model's
+/// volumetric estimate into the mass a scale reports. Named here for the same
+/// reason as the two above: `autoFlowCalIdeal()` takes it as a parameter, so
+/// production and every test site would otherwise each supply the literal
+/// independently.
+constexpr double kAutoFlowCalWaterDensity93C = 0.963;
+
 /// True if `frame` counts as an active flow-controlled anchor for auto flow
 /// calibration purposes: pump control is flow AND its target is above the
 /// no-op threshold.
@@ -122,8 +143,8 @@ struct AutoFlowCalTargetCheck {
     /// threshold. Never true for an overshoot, regardless of magnitude.
     bool missedTarget = false;
     /// Relative deviation |measured - target| / target. Always >= 0.
-    /// Exposed so a caller that reclassifies on `missedTarget` can also log
-    /// the magnitude without recomputing the same formula a second time.
+    /// Exposed so a caller that skips on `missedTarget` can also log the
+    /// magnitude without recomputing the same formula a second time.
     double deviation = 0.0;
 };
 
@@ -134,35 +155,82 @@ struct AutoFlowCalTargetCheck {
  * Rationale: a flow-controlled frame can carry a pressure ceiling (e.g.
  * D-Flow, D-Flow/Q). When the puck's resistance would require exceeding that
  * ceiling to hold the frame's target flow, the DE1 caps pressure instead and
- * flow falls below target for the rest of the frame. Assuming the target was
- * achieved is what `computeAutoFlowCalibration()`'s flow-branch formula does
- * (`weightFlow / (targetFlow * density)`) — dividing by an unattained target
- * manufactures an ideal that measures nothing about sensor accuracy
- * (Kulitorum/Decenza#1823). A caller should treat a window where
- * `missedTarget` is true as pressure-controlled for formula-selection
- * purposes: reuse the achieved-flow (pressure-branch) formula and its ratio
- * guard, which already correctly handle "pump was constrained below its
- * setpoint" regardless of which setpoint did the constraining.
+ * flow falls below target for the rest of the frame. The flow branch's formula
+ * up to 2.0.4 divided by the target (`weightFlow / (targetFlow * density)`),
+ * so an unattained target manufactured an ideal that measured nothing about
+ * pump-model accuracy (Kulitorum/Decenza#1823). That formula is gone as of v6 —
+ * both control modes now use the pump-model error — but the check still
+ * matters, because that error itself varies with flow RATE. A caller should
+ * SKIP a window where
+ * `missedTarget` is true: it measured the pump model at a rate the profile
+ * does not pour at, and a single per-profile multiplier cannot describe two
+ * operating points. Measured on one DE1 at a fixed multiplier, the ratio of
+ * scale weight flow to reported machine flow runs 0.76 at 1.9 mL/s and 1.13
+ * at 0.72 mL/s — so a capped window and a target-met window on the same
+ * profile disagree by up to 48%.
+ *
+ * The achieved-flow (pressure-branch) formula is NOT the answer here, though
+ * it was used that way between 2.0.4 and this change: it does not remove that
+ * disagreement, it flips its sign (the #1872 reporter's capped window gave
+ * 0.902 via the flow branch and 1.351 via the achieved-flow branch), which
+ * made his multiplier oscillate with how many of the week's shots capped.
+ * See `openspec/changes/skip-off-target-flow-cal-windows/`.
  *
  * Deliberately ONE-SIDED: only undershoot (`meanMachineFlow < targetFlow`)
  * can set `missedTarget`, never overshoot. A pressure ceiling can hold flow
  * BELOW its setpoint; it has no mechanism to push flow above it, so an
- * overshoot reading has no pressure-cap explanation. Reclassifying an
- * overshooting-but-still-genuinely-flow-controlled window would route it
- * through the pressure-branch formula's reported-flow denominator on a
- * window that may still be PID-locked to target — exactly the feedback-loop
- * bug (factor drifts down and can never converge) that using TARGET flow for
- * flow-controlled windows was introduced to avoid in the first place; see
- * the "v3 Migration" section of `docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md`.
+ * overshoot reading has no pressure-cap explanation and the window is still
+ * genuinely flow-controlled — it is measuring the pump model at an operating point
+ * the profile really does reach, which is the only thing this check is for.
  *
  * @param meanMachineFlow   Mean reported flow during the window (mL/s).
  * @param targetFlow        The touched frame's target flow (mL/s). Must be > 0;
  *                          returns `{false, 0.0}` for a non-positive target
  *                          (nothing to compare against).
  * @param thresholdFraction Relative undershoot above which the window is
- *                          considered pressure-capped (e.g. 0.10 for 10%).
+ *                          considered pressure-capped and skipped
+ *                          (e.g. 0.10 for 10%).
  */
 AutoFlowCalTargetCheck autoFlowCalWindowTargetCheck(
     double meanMachineFlow,
     double targetFlow,
     double thresholdFraction);
+
+/**
+ * The auto-flow-cal ideal for one steady window, for BOTH control modes.
+ *
+ *     ideal = currentFactor * weightFlow / (machineFlow * density)
+ *
+ * `machineFlow` is the DE1's REPORTED flow, which already carries
+ * `currentFactor`. Dividing it back out recovers the model's own estimate, so
+ * the result is the model's ERROR: water actually delivered over water the
+ * model says was delivered. That is the value the stored multiplier is supposed
+ * to equal. Note the DE1 has no flow meter — Decent removed it in favour of an
+ * open-loop physics model over pump strokes — so this corrects a model, not a
+ * sensor. Two properties follow, and both are asserted in
+ * `tests/tst_autoflowcal.cpp`:
+ *
+ *  - It is a FIXED POINT: feeding it a machine already calibrated correctly
+ *    returns the same multiplier, so a converged machine stops moving.
+ *  - It is INVARIANT under `currentFactor` on a machine that servos its
+ *    calibrated flow (raising the multiplier lowers delivered water, so
+ *    `machineFlow` holds and `weightFlow` falls in proportion). Measured
+ *    across three unrelated machines the stored multiplier moved 15-38% while
+ *    this expression moved 4-15%.
+ *
+ * Flow-controlled windows used `weightFlow / (targetFlow * density)` until v6.
+ * Why that was replaced, and why it converged on the SQUARE ROOT of the error
+ * rather than the error, is in docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md under
+ * "Why the pre-v6 formula converged on sqrt(e)". It is worth reading before
+ * changing this: the expression it replaced was chosen from a plausible
+ * argument that the measurements do not support.
+ *
+ * No clamping, no guards: callers apply the window ratio guards and
+ * `kCalibrationMin`/`kCalibrationMax` bounds themselves. Returns a non-finite
+ * value if `machineFlow` or `density` is zero; the caller checks.
+ */
+double autoFlowCalIdeal(
+    double currentFactor,
+    double weightFlow,
+    double machineFlow,
+    double density);
