@@ -64,11 +64,16 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
 
-      - name: Set up JDK 17
+      # JDK 21, not 17: Qt for Android's own prerequisites page states "Qt for
+      # Android development requires JDK 21 or above". 17 built fine, but it is
+      # below the floor Qt supports, so a future Qt gradle template is free to
+      # stop working on it. AGP 8.10.1 and the Gradle 9.3.1 the Qt wrapper runs
+      # both support 21.
+      - name: Set up JDK 21
         uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Install minimal host dependencies
         run: sudo apt-get install -y --no-install-recommends libegl1 libgl1 ninja-build
