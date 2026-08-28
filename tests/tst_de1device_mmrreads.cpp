@@ -324,8 +324,264 @@ private slots:
         QCOMPARE(countEspressoStateWrites(f.transport), qsizetype(1));
     }
 
+    // ===== Sensor calibration (A012) =====
+    //
+    // The correction lives in the machine. What these assert is that Decenza
+    // sends the right record, and — the part that matters — that it treats only
+    // a reply with WriteKey == 0 as carrying a real value, so an echo of our own
+    // write can never make a refused write look like it succeeded.
+
+    void calibrationWriteSendsOneRecordWithTheFirmwareKey() {
+        TestFixture f;
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("write pressure"));
+        f.device.sendCalibration(DE1::Calibration::Target::Pressure,
+                                 DE1::Calibration::Command::Write, 9.0, 8.25);
+
+        QCOMPARE(countCalibrationWrites(f.transport), qsizetype(1));
+        const QByteArray sent = lastCalibrationWrite(f.transport);
+        const auto record = DE1::Calibration::parseRecord(sent);
+        QVERIFY(record.has_value());
+        QCOMPARE(record->writeKey, DE1::Calibration::WRITE_KEY);
+        QCOMPARE(record->command, DE1::Calibration::Command::Write);
+        QCOMPARE(record->target, DE1::Calibration::Target::Pressure);
+        QVERIFY(qAbs(record->reported - 9.0) < 1e-4);
+        QVERIFY(qAbs(record->measured - 8.25) < 1e-4);
+    }
+
+    void calibrationReadsUseTheReadKeyAndCarryNoValues_data() {
+        QTest::addColumn<bool>("factory");
+        QTest::addColumn<int>("expectedCommand");
+
+        QTest::newRow("current") << false << int(DE1::Calibration::Command::ReadCurrent);
+        QTest::newRow("factory") << true  << int(DE1::Calibration::Command::ReadFactory);
+    }
+
+    void calibrationReadsUseTheReadKeyAndCarryNoValues() {
+        QFETCH(bool, factory);
+        QFETCH(int, expectedCommand);
+
+        TestFixture f;
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("read.*temperature"));
+        f.device.readCalibration(int(DE1::Calibration::Target::Temperature), factory);
+
+        const auto record = DE1::Calibration::parseRecord(lastCalibrationWrite(f.transport));
+        QVERIFY(record.has_value());
+        QCOMPARE(record->writeKey, DE1::Calibration::READ_KEY);
+        QCOMPARE(int(record->command), expectedCommand);
+        QCOMPARE(record->target, DE1::Calibration::Target::Temperature);
+        QCOMPARE(record->reported, 0.0);
+        QCOMPARE(record->measured, 0.0);
+    }
+
+    // Nothing may send ResetFactory. It has no working reference — de1app's
+    // helper names 2 while its reset buttons passed 3 for their whole ten-week
+    // life (added 2018-02-27 a2092efc, disabled 2018-05-15 69e4277c, both with
+    // empty commit messages) — and no firmware source here settles it. This test
+    // is what stops it being added back casually: writing an unverified command
+    // to a machine needs a reference or a lot of hardware testing, not a guess.
+    void nothingEverSendsTheUnverifiedResetCommand() {
+        TestFixture f;
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("write pressure"));
+        f.device.sendCalibration(DE1::Calibration::Target::Pressure,
+                                 DE1::Calibration::Command::Write, 9.0, 8.2);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("read.*pressure"));
+        f.device.readCalibration(int(DE1::Calibration::Target::Pressure), false);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("read factory pressure"));
+        f.device.readCalibration(int(DE1::Calibration::Target::Pressure), true);
+
+        for (const auto& w : f.transport.writes) {
+            if (w.first != DE1::Characteristic::CALIBRATION) continue;
+            const auto record = DE1::Calibration::parseRecord(w.second);
+            QVERIFY(record.has_value());
+            QVERIFY(record->command != DE1::Calibration::Command::ResetFactory);
+        }
+    }
+
+    void calibrationTargetOutOfRangeIsRefusedNotSent_data() {
+        QTest::addColumn<int>("target");
+        QTest::newRow("negative") << -1;
+        QTest::newRow("past end") << 3;
+    }
+
+    void calibrationTargetOutOfRangeIsRefusedNotSent() {
+        QFETCH(int, target);
+        TestFixture f;
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("read refused, target out of range"));
+        f.device.readCalibration(target, false);
+
+        QCOMPARE(countCalibrationWrites(f.transport), qsizetype(0));
+        // And the accessors must not walk off the arrays.
+        QCOMPARE(f.device.hasStoredCalibration(target), false);
+        QCOMPARE(f.device.storedCalibration(target), 0.0);
+    }
+
+    void echoedCalibrationReplyIsDiscarded() {
+        TestFixture f;
+        QSignalSpy changed(&f.device, &DE1Device::calibrationChanged);
+
+        // An echo of our own write: same record, non-zero WriteKey. Nothing may
+        // land, or a write the machine refused would read back as accepted.
+        emit f.transport.dataReceived(
+            DE1::Characteristic::CALIBRATION,
+            calibrationReply(DE1::Calibration::WRITE_KEY,
+                             DE1::Calibration::Command::Write,
+                             DE1::Calibration::Target::Pressure, 8.25));
+
+        QCOMPARE(changed.count(), 0);
+        QCOMPARE(f.device.hasStoredCalibration(int(DE1::Calibration::Target::Pressure)), false);
+    }
+
+    void realCalibrationValueLandsAndSeparatesStoredFromFactory() {
+        TestFixture f;
+        const int pressure = int(DE1::Calibration::Target::Pressure);
+        QSignalSpy changed(&f.device, &DE1Device::calibrationChanged);
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
+        emit f.transport.dataReceived(
+            DE1::Characteristic::CALIBRATION,
+            calibrationReply(DE1::Calibration::REPLY_VALUE_KEY,
+                             DE1::Calibration::Command::ReadCurrent,
+                             DE1::Calibration::Target::Pressure, -0.8));
+
+        QVERIFY(f.device.hasStoredCalibration(pressure));
+        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 0.8) < 1e-4);
+        // The factory value is a different slot and is still absent — a caller
+        // must be able to tell "not read yet" from "zero offset".
+        QCOMPARE(f.device.hasFactoryCalibration(pressure), false);
+        QCOMPARE(changed.count(), 1);
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("factory pressure calibration"));
+        emit f.transport.dataReceived(
+            DE1::Characteristic::CALIBRATION,
+            calibrationReply(DE1::Calibration::REPLY_VALUE_KEY,
+                             DE1::Calibration::Command::ReadFactory,
+                             DE1::Calibration::Target::Pressure, 0.15));
+
+        QVERIFY(f.device.hasFactoryCalibration(pressure));
+        QVERIFY(qAbs(f.device.factoryCalibration(pressure) - 0.15) < 1e-4);
+        // The stored value must not have been overwritten by the factory reply.
+        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 0.8) < 1e-4);
+        QCOMPARE(changed.count(), 2);
+        QCOMPARE(f.device.calibrationVersion(), 2);
+    }
+
+    void oneTargetsValueDoesNotLeakIntoAnother() {
+        TestFixture f;
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored temperature calibration"));
+        emit f.transport.dataReceived(
+            DE1::Characteristic::CALIBRATION,
+            calibrationReply(DE1::Calibration::REPLY_VALUE_KEY,
+                             DE1::Calibration::Command::ReadCurrent,
+                             DE1::Calibration::Target::Temperature, 1.5));
+
+        QVERIFY(f.device.hasStoredCalibration(int(DE1::Calibration::Target::Temperature)));
+        QCOMPARE(f.device.hasStoredCalibration(int(DE1::Calibration::Target::Pressure)), false);
+    }
+
+    void malformedCalibrationReplyChangesNothing() {
+        TestFixture f;
+        QSignalSpy changed(&f.device, &DE1Device::calibrationChanged);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unparseable calibration reply"));
+        emit f.transport.dataReceived(DE1::Characteristic::CALIBRATION, QByteArray(6, 0));
+
+        QCOMPARE(changed.count(), 0);
+        QCOMPARE(f.device.hasStoredCalibration(int(DE1::Calibration::Target::Pressure)), false);
+    }
+
+    // ===== Nominal heater voltage =====
+
+    void heaterVoltageBuckets_data() {
+        QTest::addColumn<int>("raw");
+        QTest::addColumn<int>("expected");
+
+        QTest::newRow("unknown zero")     << 0    << 0;
+        QTest::newRow("measured 110")     << 110  << 120;
+        QTest::newRow("measured 120")     << 120  << 120;
+        QTest::newRow("measured 220")     << 220  << 230;
+        QTest::newRow("measured 230")     << 230  << 230;
+        // Above 1000 means the machine was TOLD rather than measured.
+        QTest::newRow("told 120")         << 1120 << 120;
+        QTest::newRow("told 230")         << 1230 << 230;
+        QTest::newRow("low edge 90")      << 90   << 120;
+        QTest::newRow("high edge 150")    << 150  << 120;
+        QTest::newRow("low edge 180")     << 180  << 230;
+        QTest::newRow("high edge 260")    << 260  << 230;
+        // Between the bands and outside them: unknown, never a guess.
+        QTest::newRow("gap 165")          << 165  << 0;
+        QTest::newRow("below band 42")    << 42   << 0;
+        QTest::newRow("above band 400")   << 400  << 0;
+    }
+
+    void heaterVoltageBuckets() {
+        QFETCH(int, raw);
+        QFETCH(int, expected);
+        QCOMPARE(DE1Device::bucketHeaterVoltage(raw), expected);
+    }
+
+    void heaterVoltageWriteAcceptsOnlyTheTwoLegalValues_data() {
+        QTest::addColumn<int>("volts");
+        QTest::addColumn<bool>("accepted");
+
+        QTest::newRow("120")        << 120  << true;
+        QTest::newRow("230")        << 230  << true;
+        // Refused rather than clamped: the two legal values are far apart, so a
+        // caller asking for something between them is confused, not approximating.
+        QTest::newRow("110")        << 110  << false;
+        QTest::newRow("240")        << 240  << false;
+        QTest::newRow("zero")       << 0    << false;
+        QTest::newRow("told form")  << 1120 << false;
+    }
+
+    void heaterVoltageWriteAcceptsOnlyTheTwoLegalValues() {
+        QFETCH(int, volts);
+        QFETCH(bool, accepted);
+
+        TestFixture f;
+        if (accepted) {
+            QTest::ignoreMessage(QtInfoMsg, QRegularExpression("heater voltage ="));
+        } else {
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression("heater voltage refused, expected 120 or 230"));
+        }
+        f.device.setHeaterVoltage(volts);
+
+        qsizetype mmrWrites = 0;
+        for (const auto& w : f.transport.writes)
+            if (w.first == DE1::Characteristic::WRITE_TO_MMR) ++mmrWrites;
+        QCOMPARE(mmrWrites, accepted ? qsizetype(1) : qsizetype(0));
+    }
+
 private:
     static constexpr int PROFILE_UPLOAD_SETTLE_WAIT_MS = 700;  // > 500ms window
+
+    static qsizetype countCalibrationWrites(const MockTransport& t) {
+        qsizetype n = 0;
+        for (const auto& w : t.writes)
+            if (w.first == DE1::Characteristic::CALIBRATION) ++n;
+        return n;
+    }
+
+    static QByteArray lastCalibrationWrite(const MockTransport& t) {
+        for (auto it = t.writes.crbegin(); it != t.writes.crend(); ++it)
+            if (it->first == DE1::Characteristic::CALIBRATION) return it->second;
+        return {};
+    }
+
+    // A reply as the machine sends one. `key` decides whether it carries a real
+    // value (0) or is an echo of a request (anything else).
+    static QByteArray calibrationReply(uint32_t key,
+                                       DE1::Calibration::Command command,
+                                       DE1::Calibration::Target target,
+                                       double measured) {
+        DE1::Calibration::Record r;
+        r.writeKey = key;
+        r.command  = command;
+        r.target   = target;
+        r.measured = measured;
+        return DE1::Calibration::packRecord(r);
+    }
 };
 
 QTEST_MAIN(tst_DE1DeviceMMRReads)

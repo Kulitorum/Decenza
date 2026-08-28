@@ -753,6 +753,7 @@ set(SOURCES
     src/controllers/profilemanager.cpp
     src/controllers/steamheaterpolicy.cpp
     src/controllers/shottimingcontroller.cpp
+    src/controllers/sensorcalibrationcontroller.cpp
     src/controllers/firmwareupdater.cpp
     src/screensaver/screensavervideomanager.cpp
     src/screensaver/strangeattractorrenderer.cpp
@@ -1307,6 +1308,7 @@ set(QML_FILES
     qml/pages/ProfileSelectorPage.qml
     qml/pages/DescalingPage.qml
     qml/pages/TransportPage.qml
+    qml/pages/SensorCalibrationPage.qml
     qml/pages/ScreensaverPage.qml
     qml/pages/FlushPage.qml
     qml/pages/VisualizerBrowserPage.qml
@@ -1471,6 +1473,7 @@ set(QML_FILES
     qml/components/RecipeSearch.js
     qml/components/SettingsSearchIndex.js
     qml/components/SettingsTabs.qml
+    qml/components/SettingsActionRow.qml
 
     qml/components/layout/LayoutItemDelegate.qml
     qml/components/layout/LayoutBarZone.qml

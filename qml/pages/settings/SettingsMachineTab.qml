@@ -698,114 +698,20 @@ KeyboardAwareContainer {
                             wrapMode: Text.WordWrap
                         }
 
-                        // Descaling Wizard row
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(58)
-                            radius: Theme.scaled(8)
-                            color: descaleRowMouse.isPressed ? Theme.backgroundColor : "transparent"
-                            border.color: Theme.borderColor
-                            border.width: 1
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: Theme.scaled(12)
-                                anchors.rightMargin: Theme.scaled(12)
-                                spacing: Theme.scaled(12)
-
-                                Image {
-                                    source: Theme.emojiToImage("🧽")
-                                    sourceSize.width: Theme.scaled(24)
-                                    sourceSize.height: Theme.scaled(24)
-                                    Accessible.ignored: true
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.scaled(2)
-
-                                    Text {
-                                        text: TranslationManager.translate("settings.maintenance.descale.title", "Descaling Wizard")
-                                        color: Theme.textColor
-                                        font.family: Theme.bodyFont.family
-                                        font.pixelSize: Theme.scaled(14)
-                                        Accessible.ignored: true
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: TranslationManager.translate("settings.maintenance.descale.desc", "Remove scale buildup from the boiler")
-                                        color: Theme.textSecondaryColor
-                                        font.family: Theme.bodyFont.family
-                                        font.pixelSize: Theme.scaled(12)
-                                        wrapMode: Text.WordWrap
-                                        Accessible.ignored: true
-                                    }
-                                }
-                            }
-
-                            AccessibleMouseArea {
-                                id: descaleRowMouse
-                                anchors.fill: parent
-                                accessibleName: TranslationManager.translate("settings.maintenance.descale.accessible", "Open descaling wizard")
-                                accessibleItem: parent
-                                onAccessibleClicked: machineTab.openDescaling()
-                            }
+                        SettingsActionRow {
+                            emoji: "🧽"
+                            title: TranslationManager.translate("settings.maintenance.descale.title", "Descaling Wizard")
+                            description: TranslationManager.translate("settings.maintenance.descale.desc", "Remove scale buildup from the boiler")
+                            accessibleName: TranslationManager.translate("settings.maintenance.descale.accessible", "Open descaling wizard")
+                            onTriggered: machineTab.openDescaling()
                         }
 
-                        // Transport Mode row
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(58)
-                            radius: Theme.scaled(8)
-                            color: transportRowMouse.isPressed ? Theme.backgroundColor : "transparent"
-                            border.color: Theme.borderColor
-                            border.width: 1
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: Theme.scaled(12)
-                                anchors.rightMargin: Theme.scaled(12)
-                                spacing: Theme.scaled(12)
-
-                                Image {
-                                    source: Theme.emojiToImage("🧳")
-                                    sourceSize.width: Theme.scaled(24)
-                                    sourceSize.height: Theme.scaled(24)
-                                    Accessible.ignored: true
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.scaled(2)
-
-                                    Text {
-                                        text: TranslationManager.translate("settings.maintenance.transport.title", "Transport Mode")
-                                        color: Theme.textColor
-                                        font.family: Theme.bodyFont.family
-                                        font.pixelSize: Theme.scaled(14)
-                                        Accessible.ignored: true
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: TranslationManager.translate("settings.maintenance.transport.desc", "Drain all water before storage or transport")
-                                        color: Theme.textSecondaryColor
-                                        font.family: Theme.bodyFont.family
-                                        font.pixelSize: Theme.scaled(12)
-                                        wrapMode: Text.WordWrap
-                                        Accessible.ignored: true
-                                    }
-                                }
-                            }
-
-                            AccessibleMouseArea {
-                                id: transportRowMouse
-                                anchors.fill: parent
-                                accessibleName: TranslationManager.translate("settings.maintenance.transport.accessible", "Open transport mode")
-                                accessibleItem: parent
-                                onAccessibleClicked: machineTab.openTransport()
-                            }
+                        SettingsActionRow {
+                            emoji: "🧳"
+                            title: TranslationManager.translate("settings.maintenance.transport.title", "Transport Mode")
+                            description: TranslationManager.translate("settings.maintenance.transport.desc", "Drain all water before storage or transport")
+                            accessibleName: TranslationManager.translate("settings.maintenance.transport.accessible", "Open transport mode")
+                            onTriggered: machineTab.openTransport()
                         }
                     }
                 }

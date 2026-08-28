@@ -102,6 +102,11 @@ class DE1Device : public QObject {
     Q_PROPERTY(QString connectionType READ connectionType NOTIFY connectedChanged)
     Q_PROPERTY(int machineModel READ machineModel NOTIFY firmwareVersionChanged)
     Q_PROPERTY(int heaterVoltage READ heaterVoltage NOTIFY heaterVoltageChanged)
+    Q_PROPERTY(int nominalHeaterVoltage READ nominalHeaterVoltage NOTIFY heaterVoltageChanged)
+    // Bumped whenever any stored/factory calibration value changes, so QML can
+    // re-read the per-target accessors above. One signal rather than eight
+    // properties: the wizard reads one target and re-reads on any change.
+    Q_PROPERTY(int calibrationVersion READ calibrationVersion NOTIFY calibrationChanged)
 
 public:
     explicit DE1Device(QObject* parent = nullptr);
@@ -157,6 +162,12 @@ public:
     int machineModel() const { return m_machineModel; }  // 0=unknown, 1=DE1, 2=DE1+, 3=PRO, 4=XL, 5=CAFE, 6=XXL, 7=XXXL
     int firmwareBuildNumber() const { return m_firmwareBuildNumber; }  // 0 = unknown, otherwise build number (e.g. 1347)
     int heaterVoltage() const { return m_heaterVoltage; }  // 0=unknown, otherwise volts (e.g. 110, 220)
+    // The raw readback bucketed to 120 / 230 / 0=unknown, which is what a UI
+    // offering a two-way choice needs. Kept beside the raw value rather than
+    // replacing it: the raw number still carries whether the machine measured
+    // the voltage or was told it.
+    int nominalHeaterVoltage() const { return bucketHeaterVoltage(m_heaterVoltage); }
+    int calibrationVersion() const { return m_calibrationVersion; }
 
     // Transport abstraction
     void setTransport(DE1Transport* transport);
@@ -297,6 +308,70 @@ public slots:
     void setRefillKitPresent(int value);
     void requestRefillKitStatus();
 
+    // ---- Sensor calibration (BLE A012) ------------------------------------
+    //
+    // The correction lives in the machine, not here: nothing on this path is
+    // persisted by Decenza, restored from a backup, or re-applied on connect.
+    // The values below are what the MACHINE reported and are absent until it
+    // answers a read.
+    //
+    // sendCalibration() is the only writer; the three convenience calls are it
+    // with different arguments, so the record is assembled in exactly one place.
+    //
+    // `reported` is the machine's own sensor reading and `measured` is an
+    // external instrument's. Callers must not pass a profile target as
+    // `reported` — see the sensor calibration wizards, which measure it.
+    void sendCalibration(DE1::Calibration::Target target,
+                         DE1::Calibration::Command command,
+                         double reported,
+                         double measured);
+    Q_INVOKABLE void readCalibration(int target, bool factory);
+    // The QML entry point for a correction. Takes ints because QML has no access
+    // to the enums, and refuses an out-of-range target rather than defaulting to
+    // one — a wizard with a bad id must fail visibly, not calibrate the wrong
+    // sensor. `reported` must be what the MACHINE read (SensorCalibration
+    // measures it); passing a profile target here is the de1app defect this
+    // whole feature exists to avoid.
+    Q_INVOKABLE void writeCalibration(int target, double reported, double measured);
+    // NOTE: there is deliberately no restore-to-factory call.
+    //
+    // Command::ResetFactory (2) exists in the wire vocabulary and is documented
+    // in de1characteristics.h, but NOTHING has ever been observed using it.
+    // de1app's helper names 2 as the reset command (de1_comms.tcl:1653) while
+    // its three reset buttons passed 3 — read-factory — from the day they were
+    // written (2018-02-27, a2092efc) until they were commented out ten weeks
+    // later (2018-05-15, 69e4277c). Both commits have empty messages, so the
+    // reason is unrecorded; that the buttons could not have worked is the
+    // obvious guess and is only a guess.
+    //
+    // With no working reference in any app and no firmware source in this tree,
+    // shipping a restore would mean writing an unverified command to a machine
+    // in the name of undoing a mistake. The factory value is still READ and
+    // shown (de1app does that and it is live there), so a user can see what the
+    // machine holds. Correcting a bad calibration is another run with the
+    // instrument, which is the designed loop anyway.
+
+    // Stored / factory offsets as last reported by the machine, per target.
+    // `has*` is false until a read is answered — a caller must not substitute 0,
+    // which reads as "no correction" and is the one wrong answer that looks
+    // plausible.
+    Q_INVOKABLE double storedCalibration(int target) const;
+    Q_INVOKABLE double factoryCalibration(int target) const;
+    Q_INVOKABLE bool hasStoredCalibration(int target) const;
+    Q_INVOKABLE bool hasFactoryCalibration(int target) const;
+
+    // Nominal heater voltage (MMR 0x803834). Accepts 120 or 230 only; any other
+    // value is refused and logged rather than written, because a wrong nominal
+    // voltage runs the heater at the wrong duty.
+    Q_INVOKABLE void setHeaterVoltage(int volts);
+
+    // Buckets a raw HEATER_VOLTAGE readback to 120, 230, or 0 for unknown.
+    // The machine reports 0 when it does not know, a measured 120/230 on
+    // hardware that can sense it, or 1120/1230 when it has been TOLD. Mapping
+    // and ranges follow decaid's De1HeaterVoltage.fromInt
+    // (lib/src/models/device/de1_interface.dart:126).
+    static int bucketHeaterVoltage(int raw);
+
     // ---- Firmware update (BLE A009 / A006) --------------------------------
     // These three writers talk directly to the transport and deliberately
     // bypass the per-register MMR dedupe cache (m_lastMMRValues): firmware
@@ -357,6 +432,7 @@ signals:
     // same instant to four bindings.
     void descaleProgressChanged();
     void heaterVoltageChanged();
+    void calibrationChanged();
 
     // Firmware-update response from the DE1 (A009 notification). Carries
     // the parsed WindowIncrement, fwToErase/fwToMap flags and the 3-byte
@@ -416,6 +492,7 @@ private:
     void parseWaterLevel(const QByteArray& data);
     void parseVersion(const QByteArray& data);
     void parseMMRResponse(const QByteArray& data);
+    void parseCalibration(const QByteArray& data);
     void rebuildVersionLine3();
 
     // Generic one-shot MMR read with timeout + bounded retry, covering the
@@ -633,6 +710,19 @@ private:
     int m_firmwareBuildNumber = 0;
     int m_machineModel = 0;
     int m_heaterVoltage = 0;  // 0=unknown, read from MMR HEATER_VOLTAGE
+
+    // Stored and factory calibration per target, absent until the machine
+    // answers a read. Indexed by DE1::Calibration::Target; the flow slot exists
+    // because the target enum has three values, not because flow is offered.
+    static constexpr int kCalibrationTargets = 3;
+    std::optional<double> m_storedCalibration[kCalibrationTargets];
+    std::optional<double> m_factoryCalibration[kCalibrationTargets];
+    int m_calibrationVersion = 0;
+    // True only for a target index inside the enum, so a bad index from QML
+    // cannot walk off the arrays above.
+    static bool isCalibrationTarget(int target) {
+        return target >= 0 && target < kCalibrationTargets;
+    }
     uint32_t m_cpuBoardModel = 0;
 
     bool m_connecting = false;
@@ -703,6 +793,7 @@ private:
     friend class tst_DE1DeviceFirmware;
     friend class tst_ShotSampleDecode;
     friend class tst_DE1DeviceMMRReads;
+    friend class tst_SensorCalibration;
     friend class tst_DE1DeviceHeadless;
 #endif
 };

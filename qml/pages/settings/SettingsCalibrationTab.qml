@@ -1,3 +1,10 @@
+// Bound so the Sensor Calibration Repeater's delegate can reach this file's root
+// id. Safe here because the file has exactly ONE delegate and it already declares
+// every model role it reads as a required property (`index`) — which is the
+// condition CLAUDE.md attaches to this pragma. Re-check that if another Repeater
+// is ever added to this file.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -5,6 +12,10 @@ import Decenza
 
 Item {
     id: calibrationTab
+
+    // Carries the sensor index into the SensorCalibration table. Relayed by
+    // SettingsPage to AppShell — a settings tab never touches pageStack.
+    signal openSensorCalibration(int sensor)
 
     Flickable {
         id: calibrationFlickable
@@ -322,6 +333,70 @@ Item {
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+                // Sensor Calibration — one row per sensor, both derived from the
+                // SensorCalibration table rather than written out here, so a sensor's
+                // label, required instrument and test profile have exactly one
+                // definition (src/controllers/sensorcalibrationcontroller.cpp).
+                //
+                // Two rows rather than one combined entry on purpose: the sensors need
+                // different equipment and a user commonly owns one and not the other,
+                // so each names its instrument on the card — visible without opening
+                // anything. Same row format as the Maintenance card's operations
+                // (SettingsActionRow), which is the shape a guided full-screen
+                // operation already has in this app.
+                Rectangle {
+                    objectName: "sensorCalibration"
+                    Layout.fillWidth: true
+                    implicitHeight: sensorCalContent.implicitHeight + Theme.scaled(24)
+                    color: Theme.cardBackgroundColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: sensorCalContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(12)
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            text: TranslationManager.translate("settings.sensorCalibration.title", "Sensor Calibration")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.sensorCalibration.description",
+                                                               "Correct what the machine reads against an external gauge or thermometer")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Repeater {
+                            model: SensorCalibration.sensorCount()
+
+                            delegate: SettingsActionRow {
+                                // Declared because a delegate with any required property
+                                // stops receiving model roles as context properties.
+                                required property int index
+
+                                emoji: "🎯"
+                                title: SensorCalibration.label(index)
+                                description: SensorCalibration.instrumentText(index)
+                                actionEnabled: DE1Device.connected
+                                disabledReason: TranslationManager.translate(
+                                    "settings.sensorCalibration.needsMachine",
+                                    "Connect your machine to calibrate")
+                                onTriggered: calibrationTab.openSensorCalibration(index)
+                            }
                         }
                     }
                 }
@@ -909,7 +984,67 @@ Item {
                     // so a unit-converted from/to would make the sentinel unreachable in Fahrenheit).
                     // Only the displayed threshold label is unit-converted (cToDisplay(value)); the
                     // stored Celsius value and the 0 sentinel are untouched.
-                    ValueInput { id: fanThresholdSlider; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : Theme.formatTemperature(value, 0); rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — " + Theme.formatTemperature(60, 0); value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestTimeoutSlider }
+                    ValueInput { id: fanThresholdSlider; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : Theme.formatTemperature(value, 0); rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — " + Theme.formatTemperature(60, 0); value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: heaterVoltage120; KeyNavigation.backtab: heaterTestTimeoutSlider }
+                }
+
+                // Nominal heater voltage. Deliberately in here rather than on the
+                // Machine tab: it is set once at commissioning, almost never changed,
+                // and getting it wrong runs the heater at the wrong duty — so it sits
+                // behind this popup's destructive-change warning, among the other
+                // expert parameters, and off any tab a user browses casually.
+                //
+                // NOT a Settings.hardware value. This is machine state read back over
+                // MMR, which is why "Defaults for cafe" below leaves it alone.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(12)
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.calibration.heaterVoltage", "Nominal heater voltage")
+                            font: Theme.bodyFont
+                            color: Theme.textColor
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            // Unknown stays unknown and preselects nothing — guessing
+                            // here and being wrong is a heater at the wrong duty.
+                            text: DE1Device.nominalHeaterVoltage === 0
+                                  ? TranslationManager.translate("settings.calibration.heaterVoltageUnknown",
+                                                                 "Your machine has not reported one")
+                                  : TranslationManager.translate("settings.calibration.heaterVoltageReported",
+                                                                 "Machine reports %1 V").arg(DE1Device.nominalHeaterVoltage)
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    AccessibleButton {
+                        id: heaterVoltage120
+                        text: "120 V"
+                        accessibleName: TranslationManager.translate("settings.calibration.heaterVoltageSet120", "Set nominal heater voltage to 120 volts")
+                        primary: DE1Device.nominalHeaterVoltage === 120
+                        enabled: DE1Device.connected
+                        onClicked: DE1Device.setHeaterVoltage(120)
+                        KeyNavigation.tab: heaterVoltage230
+                        KeyNavigation.backtab: fanThresholdSlider
+                    }
+
+                    AccessibleButton {
+                        id: heaterVoltage230
+                        text: "230 V"
+                        accessibleName: TranslationManager.translate("settings.calibration.heaterVoltageSet230", "Set nominal heater voltage to 230 volts")
+                        primary: DE1Device.nominalHeaterVoltage === 230
+                        enabled: DE1Device.connected
+                        onClicked: DE1Device.setHeaterVoltage(230)
+                        KeyNavigation.tab: defaultsButton
+                        KeyNavigation.backtab: heaterVoltage120
+                    }
                 }
 
                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
@@ -933,7 +1068,7 @@ Item {
                         Settings.hardware.steamTwoTapStop = true
                     }
                     KeyNavigation.tab: doneButton
-                    KeyNavigation.backtab: fanThresholdSlider
+                    KeyNavigation.backtab: heaterVoltage230
                 }
 
                 RowLayout {

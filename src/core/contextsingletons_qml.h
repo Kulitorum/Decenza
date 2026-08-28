@@ -91,6 +91,7 @@
 #include "../models/steamdatamodel.h"
 #include "../core/memorymonitor.h"
 #include "../core/autowakemanager.h"
+#include "../controllers/sensorcalibrationcontroller.h"
 #include "../history/shothistoryexporter.h"
 #include "../core/profilestorage.h"
 #include "../mcp/mcpserver.h"
@@ -415,6 +416,28 @@ public:
     static AutoWakeManager* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "AutoWakeManager");
+    }
+};
+
+// The sensor-calibration capture controller. Registered here rather than with
+// QML_ELEMENT in its own header because main() owns it: it needs DE1Device,
+// MachineState and TranslationManager, none of which the QML engine can supply.
+//
+// A singleton rather than a per-page instance because only one calibration
+// session can be running — there is one machine — and because the page must not
+// be able to construct one without those dependencies.
+struct SensorCalibrationControllerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(SensorCalibrationController)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(SensorCalibration)
+
+public:
+    inline static SensorCalibrationController* s_singletonInstance = nullptr;
+    static SensorCalibrationController* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "SensorCalibration");
     }
 };
 

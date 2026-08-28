@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include "ble/protocol/binarycodec.h"
+#include "ble/protocol/de1characteristics.h"
 
 // Test BLE binary codec encode/decode round-trips and edge cases.
 // Expected values derived from de1app encode_* / decode_* procs.
@@ -386,6 +387,105 @@ private slots:
 
     void signedShortBEShortBuffer() {
         QCOMPARE(BinaryCodec::decodeSignedShortBE(QByteArray(1, 0), 0), int16_t(0));
+    }
+
+    // ===== Sensor calibration record (A012) =====
+    //
+    // 14 bytes big-endian: WriteKey u32, CalCommand u8, CalTarget u8,
+    // DE1ReportedVal S32P16, MeasuredVal S32P16. Layout from de1app's
+    // calibrate_spec (de1plus/binary.tcl:414).
+
+    void calibrationRecordPacksDe1appLayout() {
+        DE1::Calibration::Record r;
+        r.writeKey = DE1::Calibration::WRITE_KEY;
+        r.command  = DE1::Calibration::Command::Write;
+        r.target   = DE1::Calibration::Target::Pressure;
+        r.reported = 9.0;
+        r.measured = 8.25;
+
+        const QByteArray packed = DE1::Calibration::packRecord(r);
+        QCOMPARE(packed.size(), DE1::Calibration::RECORD_BYTES);
+
+        // Byte-for-byte, so a change in field order or endianness fails here
+        // rather than silently on the machine. 9.0 * 65536 = 0x00090000,
+        // 8.25 * 65536 = 0x00084000.
+        QByteArray expected;
+        expected.append(QByteArray::fromHex("CAFEF00D"));  // WriteKey
+        expected.append(char(0x01));                       // CalCommand = Write
+        expected.append(char(0x01));                       // CalTarget = Pressure
+        expected.append(QByteArray::fromHex("00090000"));  // DE1ReportedVal
+        expected.append(QByteArray::fromHex("00084000"));  // MeasuredVal
+        QCOMPARE(packed, expected);
+    }
+
+    void calibrationRecordRoundTrips_data() {
+        QTest::addColumn<double>("reported");
+        QTest::addColumn<double>("measured");
+
+        QTest::newRow("pressure correction")     << 9.0  << 8.2;
+        QTest::newRow("no correction")           << 9.0  << 9.0;
+        QTest::newRow("temperature")             << 92.5 << 91.0;
+        QTest::newRow("both zero")               << 0.0  << 0.0;
+        // MeasuredVal is the signed field in de1app's spec; a machine reading
+        // above the instrument produces a negative stored offset on readback.
+        QTest::newRow("negative measured")       << 0.0  << -1.75;
+        QTest::newRow("negative both")           << -0.5 << -2.25;
+    }
+
+    void calibrationRecordRoundTrips() {
+        QFETCH(double, reported);
+        QFETCH(double, measured);
+
+        DE1::Calibration::Record in;
+        in.writeKey = DE1::Calibration::WRITE_KEY;
+        in.command  = DE1::Calibration::Command::Write;
+        in.target   = DE1::Calibration::Target::Temperature;
+        in.reported = reported;
+        in.measured = measured;
+
+        const auto out = DE1::Calibration::parseRecord(DE1::Calibration::packRecord(in));
+        QVERIFY(out.has_value());
+        QCOMPARE(out->writeKey, in.writeKey);
+        QCOMPARE(out->command, in.command);
+        QCOMPARE(out->target, in.target);
+        // S32P16 resolution is 1/65536; these values are exact within it.
+        QVERIFY(qAbs(out->reported - reported) < 1e-4);
+        QVERIFY(qAbs(out->measured - measured) < 1e-4);
+    }
+
+    void calibrationRecordRejectsMalformed_data() {
+        QTest::addColumn<QByteArray>("raw");
+
+        QTest::newRow("empty")      << QByteArray();
+        QTest::newRow("one short")  << QByteArray(DE1::Calibration::RECORD_BYTES - 1, 0);
+        // CalCommand 4 and CalTarget 3 are outside the firmware's vocabulary.
+        QByteArray badCommand(DE1::Calibration::RECORD_BYTES, 0);
+        badCommand[4] = char(0x04);
+        QTest::newRow("unknown command") << badCommand;
+        QByteArray badTarget(DE1::Calibration::RECORD_BYTES, 0);
+        badTarget[5] = char(0x03);
+        QTest::newRow("unknown target") << badTarget;
+    }
+
+    void calibrationRecordRejectsMalformed() {
+        QFETCH(QByteArray, raw);
+        QVERIFY(!DE1::Calibration::parseRecord(raw).has_value());
+    }
+
+    void calibrationReplyOnlyCarriesValueWithZeroKey() {
+        // de1app's rule (de1plus/bluetooth.tcl:3344): WriteKey == 0 means the
+        // reply carries a real stored value; anything else is an echo.
+        DE1::Calibration::Record value;
+        value.writeKey = DE1::Calibration::REPLY_VALUE_KEY;
+        QVERIFY(DE1::Calibration::replyCarriesValue(value));
+
+        DE1::Calibration::Record echoOfWrite;
+        echoOfWrite.writeKey = DE1::Calibration::WRITE_KEY;
+        QVERIFY(!DE1::Calibration::replyCarriesValue(echoOfWrite));
+
+        DE1::Calibration::Record echoOfRead;
+        echoOfRead.writeKey = DE1::Calibration::READ_KEY;
+        QVERIFY(!DE1::Calibration::replyCarriesValue(echoOfRead));
     }
 };
 

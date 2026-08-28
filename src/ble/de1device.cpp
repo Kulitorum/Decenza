@@ -2,6 +2,7 @@
 #include "bledeviceid.h"
 #include "de1logging.h"
 #include "machine/sawlogging.h"
+#include "../controllers/calibrationlogging.h"
 #include "de1transport.h"
 #include "bletransport.h"
 #include "protocol/binarycodec.h"
@@ -341,6 +342,8 @@ void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteA
         parseVersion(data);
     } else if (uuid == DE1::Characteristic::READ_FROM_MMR) {
         parseMMRResponse(data);
+    } else if (uuid == DE1::Characteristic::CALIBRATION) {
+        parseCalibration(data);
     } else if (uuid == DE1::Characteristic::FW_MAP_REQUEST) {
         FW_LOG(QStringLiteral("A009 notify: %1").arg(QString::fromLatin1(data.toHex(' '))));
         auto parsed = DE1::Firmware::parseFWMapNotification(data);
@@ -2117,6 +2120,166 @@ void DE1Device::setRefillKitPresent(int value) {
 void DE1Device::requestRefillKitStatus() {
     if (!m_transport) return;
     issueMMRReadWithRetry(DE1::MMR::REFILL_KIT, QStringLiteral("refill kit status"));
+}
+
+// ---- Sensor calibration (A012) --------------------------------------------
+
+namespace {
+
+// Names for the log line, so a submitted log reads as prose rather than as two
+// integers a reader has to decode against this file.
+QString calibrationTargetName(DE1::Calibration::Target target) {
+    switch (target) {
+        case DE1::Calibration::Target::Flow:        return QStringLiteral("flow");
+        case DE1::Calibration::Target::Pressure:    return QStringLiteral("pressure");
+        case DE1::Calibration::Target::Temperature: return QStringLiteral("temperature");
+    }
+    return QStringLiteral("unknown");
+}
+
+QString calibrationCommandName(DE1::Calibration::Command command) {
+    switch (command) {
+        case DE1::Calibration::Command::ReadCurrent:  return QStringLiteral("read");
+        case DE1::Calibration::Command::Write:        return QStringLiteral("write");
+        case DE1::Calibration::Command::ResetFactory: return QStringLiteral("restore factory");
+        case DE1::Calibration::Command::ReadFactory:  return QStringLiteral("read factory");
+    }
+    return QStringLiteral("unknown");
+}
+
+}  // namespace
+
+void DE1Device::sendCalibration(DE1::Calibration::Target target,
+                                DE1::Calibration::Command command,
+                                double reported,
+                                double measured) {
+    if (!m_transport) return;
+    if (dropDeviceWriteIfFirmwareFlash("sendCalibration")) return;
+
+    DE1::Calibration::Record record;
+    // A write needs the firmware's key; a read is sent with 1. Neither is a
+    // magic number here — both are named in de1characteristics.h with their
+    // de1app source lines.
+    record.writeKey = (command == DE1::Calibration::Command::Write)
+                          ? DE1::Calibration::WRITE_KEY
+                          : DE1::Calibration::READ_KEY;
+    record.command  = command;
+    record.target   = target;
+    record.reported = reported;
+    record.measured = measured;
+
+    // INFO, not DEBUG: "why did my pressure calibration change" is a user
+    // question, and the connections views filter to INFO. A write recorded only
+    // at DEBUG is absent from the log a user actually submits.
+    CAL_INFO("Sensor") << calibrationCommandName(command) << calibrationTargetName(target)
+                       << "reported=" << reported << "measured=" << measured;
+
+    m_transport->write(DE1::Characteristic::CALIBRATION, DE1::Calibration::packRecord(record));
+}
+
+void DE1Device::readCalibration(int target, bool factory) {
+    if (!isCalibrationTarget(target)) {
+        CAL_WARN("Sensor") << "read refused, target out of range:" << target;
+        return;
+    }
+    sendCalibration(static_cast<DE1::Calibration::Target>(target),
+                    factory ? DE1::Calibration::Command::ReadFactory
+                            : DE1::Calibration::Command::ReadCurrent,
+                    0.0, 0.0);
+}
+
+void DE1Device::writeCalibration(int target, double reported, double measured) {
+    if (!isCalibrationTarget(target)) {
+        CAL_WARN("Sensor") << "write refused, target out of range:" << target;
+        return;
+    }
+    sendCalibration(static_cast<DE1::Calibration::Target>(target),
+                    DE1::Calibration::Command::Write, reported, measured);
+}
+
+double DE1Device::storedCalibration(int target) const {
+    if (!isCalibrationTarget(target)) return 0.0;
+    return m_storedCalibration[target].value_or(0.0);
+}
+
+double DE1Device::factoryCalibration(int target) const {
+    if (!isCalibrationTarget(target)) return 0.0;
+    return m_factoryCalibration[target].value_or(0.0);
+}
+
+bool DE1Device::hasStoredCalibration(int target) const {
+    return isCalibrationTarget(target) && m_storedCalibration[target].has_value();
+}
+
+bool DE1Device::hasFactoryCalibration(int target) const {
+    return isCalibrationTarget(target) && m_factoryCalibration[target].has_value();
+}
+
+// A012 carries three kinds of traffic: echoes of our reads, echoes of our
+// writes, and the machine's real stored value. Only the last has WriteKey == 0
+// (de1app's calibration_ble_received, de1plus/bluetooth.tcl:3344), and only the
+// last may update anything — an echo of our own write treated as authoritative
+// would make a REFUSED write look like it succeeded.
+void DE1Device::parseCalibration(const QByteArray& data) {
+    const auto record = DE1::Calibration::parseRecord(data);
+    if (!record) {
+        CAL_WARN("Sensor") << "unparseable calibration reply,"
+                           << data.size() << "bytes:" << data.toHex(' ');
+        return;
+    }
+
+    if (!DE1::Calibration::replyCarriesValue(*record)) {
+        // Expected and frequent — every read and write we send comes back this
+        // way. DEBUG because it is mechanics, not an outcome a user needs.
+        CAL_DETAIL("Sensor") << "echo for" << calibrationTargetName(record->target)
+                             << calibrationCommandName(record->command);
+        return;
+    }
+
+    const int index = static_cast<int>(record->target);
+    if (!isCalibrationTarget(index)) return;
+
+    // CalCommand 3 marks the reply as the FACTORY value rather than the stored
+    // one; the machine reuses the same field for both.
+    auto& slot = (record->command == DE1::Calibration::Command::ReadFactory)
+                     ? m_factoryCalibration[index]
+                     : m_storedCalibration[index];
+    const bool isFactory = (record->command == DE1::Calibration::Command::ReadFactory);
+
+    if (slot.has_value() && qFuzzyCompare(*slot + 1.0, record->measured + 1.0))
+        return;
+
+    slot = record->measured;
+    CAL_INFO("Sensor") << (isFactory ? "factory" : "stored")
+                       << calibrationTargetName(record->target)
+                       << "calibration =" << record->measured;
+    ++m_calibrationVersion;
+    emit calibrationChanged();
+}
+
+int DE1Device::bucketHeaterVoltage(int raw) {
+    // The machine reports 0 for unknown, a measured 120/230 on hardware that can
+    // sense it, or 1120/1230 when it has been TOLD which it has. Ranges and the
+    // above-1000 subtraction follow decaid's De1HeaterVoltage.fromInt
+    // (lib/src/models/device/de1_interface.dart:126), which is the only place
+    // either app writes the rule down.
+    int volts = raw > 1000 ? raw - 1000 : raw;
+    if (volts >= 90 && volts <= 150) return 120;
+    if (volts >= 180 && volts <= 260) return 230;
+    return 0;
+}
+
+void DE1Device::setHeaterVoltage(int volts) {
+    // Refuse anything else rather than clamping to the nearest: the two legal
+    // values are far apart and a caller asking for something between them is
+    // confused, not approximating. Running the heater at the wrong nominal
+    // voltage is the failure this guard exists for.
+    if (volts != 120 && volts != 230) {
+        CAL_WARN("Sensor") << "heater voltage refused, expected 120 or 230, got" << volts;
+        return;
+    }
+    CAL_INFO("Sensor") << "heater voltage =" << volts;
+    writeMMR(DE1::MMR::HEATER_VOLTAGE, static_cast<uint32_t>(volts));
 }
 
 void DE1Device::sendInitialSettings() {

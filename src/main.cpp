@@ -2053,6 +2053,11 @@ int main(int argc, char *argv[])
     });
     autoWakeManager.start();
 
+    // Sensor calibration capture. Declared before `engine` like every other
+    // published singleton, so it outlives the bindings that read it (see the
+    // LIFETIME note in contextsingletons_qml.h).
+    SensorCalibrationController sensorCalibration(&de1Device, &machineState, &translationManager);
+
     // Database backup manager for scheduled daily backups
     DatabaseBackupManager backupManager(&settings, mainController.shotHistory(),
                                        &profileStorage, &screensaverManager);
@@ -3864,6 +3869,7 @@ int main(int argc, char *argv[])
     // ScreensaverManager: QML's name for ScreensaverVideoManager. See contextsingletons_qml.h.
     ScreensaverManagerForeign::s_singletonInstance = &screensaverManager;
     AutoWakeManagerForeign::s_singletonInstance = &autoWakeManager;
+    SensorCalibrationControllerForeign::s_singletonInstance = &sensorCalibration;
     BatteryManagerForeign::s_singletonInstance = &batteryManager;
     MemoryMonitorForeign::s_singletonInstance = &memoryMonitor;
     memoryMonitor.setEngine(&engine);

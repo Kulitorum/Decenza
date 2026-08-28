@@ -1337,6 +1337,11 @@ T.ApplicationWindow {
         }
 
         Component {
+            id: sensorCalibrationPage
+            SensorCalibrationPage {}
+        }
+
+        Component {
             id: visualizerBrowserPage
             VisualizerBrowserPage {}
         }
@@ -1415,6 +1420,7 @@ T.ApplicationWindow {
             "shotHistoryPage": TranslationManager.translate("main.pageShotHistory", "Shot history"),
             "descalingPage": TranslationManager.translate("main.pageDescalingScreen", "Descaling screen"),
             "transportPage": TranslationManager.translate("main.pageTransportScreen", "Transport mode screen"),
+            "sensorCalibrationPage": TranslationManager.translate("main.pageSensorCalibration", "Sensor calibration screen"),
             "visualizerBrowserPage": TranslationManager.translate("main.pageVisualizerBrowser", "Visualizer browser"),
             "profileImportPage": TranslationManager.translate("main.pageImportProfiles", "Import profiles"),
             "postShotReviewPage": TranslationManager.translate("main.pageShotReview", "Shot review"),
@@ -3735,6 +3741,7 @@ T.ApplicationWindow {
         function onVisualizerBrowserRequested() { root.goToVisualizerBrowser() }
         function onDescalingRequested() { root.goToDescaling() }
         function onTransportRequested() { root.goToTransport() }
+        function onSensorCalibrationRequested(sensor) { root.goToSensorCalibration(sensor) }
         function onBrewSettingsRequested() { root.openBrewSettings() }
         function onScreensaverRequested() { root.goToScreensaver() }
         function onEspressoRequested() { root.goToEspresso() }
@@ -3927,6 +3934,14 @@ T.ApplicationWindow {
     function goToTransport() {
         if (!startNavigation()) return
         pageStack.push(transportPage)
+    }
+
+    // Pushed rather than replaced: the USER asked for it (QML_NAVIGATION.md).
+    // The sensor index is handed to the page as an initial property, so one page
+    // component serves both calibration operations.
+    function goToSensorCalibration(sensor) {
+        if (!startNavigation()) return
+        pageStack.push(sensorCalibrationPage, { sensor: sensor })
     }
 
     function goToFlush() {
