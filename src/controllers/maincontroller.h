@@ -474,6 +474,23 @@ public slots:
     // Apply the transient veto and push the resolved target (sends 0 C).
     Q_INVOKABLE void turnOffSteamHeater();
 
+    // The descale page needs the steam heater off for the whole time it is preparing to
+    // descale, which can be an hour of waiting for the boiler to reach 60 °C. That is far
+    // longer than the page itself is guaranteed to live — auto-sleep replaces it with the
+    // screensaver, and a descale started from the GHC replaces it with a fresh instance —
+    // so the hold and the value to restore live here, not in the page.
+    //
+    // begin is idempotent: a second page instance taking over does not re-capture, so the
+    // original pre-descale value survives. end is the only thing that restores, and is
+    // called when the user actually leaves — never from destruction, which fires for
+    // screensaver and page churn too.
+    void snapshotForDescaleHeaterHold();
+    Q_INVOKABLE void beginDescaleHeaterHold();
+    Q_INVOKABLE void endDescaleHeaterHold();
+    // Drops the hold WITHOUT restoring, for when an explicit steam request has made the
+    // captured value stale. Called from startSteamHeating().
+    void abandonDescaleHeaterHold();
+
     // Flip the heater from whatever it is now. The DIRECTION rule — which of the
     // two calls above matches which resolved state — lived at two QML sites, and
     // a sweep that changed it already missed one of them once.
@@ -690,6 +707,13 @@ private:
     // THE steam-heater target derivation, shared with ProfileManager. Never
     // re-derive a steam temperature at a call site — see steamheaterpolicy.h.
     SteamHeaterPolicy* m_steamHeaterPolicy = nullptr;
+
+    // See beginDescaleHeaterHold(). The captured value is the transient steamDisabled veto
+    // as it stood before the descale page turned the heater off — the only input the hold
+    // disturbs that can legitimately be put back. snapshotForDescaleHeaterHold() records why
+    // event permission and the selected pitcher are deliberately not captured.
+    bool m_descaleHeaterHold = false;
+    bool m_descaleHeaterHoldPrevSteamDisabled = false;
 
     QNetworkAccessManager* m_networkManager = nullptr;
     Settings* m_settings = nullptr;
