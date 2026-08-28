@@ -60,11 +60,20 @@ T.Page {
         }
     }
 
-    // Get progress percentage based on substate (8-12 = 5 steps)
-    function getDescaleProgress(subState) {
-        if (subState < 8) return 0
-        if (subState > 12) return 1
-        return (subState - 8 + 1) / 5  // Steps 8-12 = 20%, 40%, 60%, 80%, 100%
+    // Progress comes from DE1Device, which derives it from the firmware's fixed step
+    // schedule and resyncs at every substate boundary. It used to be computed here as
+    // the substate's RANK — (subState - 8 + 1) / 5 — which read 100% from the moment
+    // the final step began and stayed there for its whole 420 s: seven minutes of a
+    // twelve-minute descale spent claiming the machine was finished.
+
+    function formatRemaining(seconds) {
+        if (seconds <= 0) return ""
+        var mins = Math.floor(seconds / 60)
+        var secs = seconds % 60
+        return mins > 0
+            ? TranslationManager.translate("descaling.remaining.minutes", "%1 min %2 s left")
+                  .arg(mins).arg(secs)
+            : TranslationManager.translate("descaling.remaining.seconds", "%1 s left").arg(secs)
     }
 
     ScrollView {
@@ -128,7 +137,7 @@ T.Page {
                                 Accessible.ignored: true
 
                                 Rectangle {
-                                    width: parent.width * descalingPage.getDescaleProgress(DE1Device.subState)
+                                    width: parent.width * DE1Device.descaleProgress
                                     height: parent.height
                                     radius: Theme.scaled(6)
                                     color: Theme.primaryColor
@@ -139,7 +148,16 @@ T.Page {
 
                             Text {
                                 Layout.alignment: Qt.AlignHCenter
-                                text: Math.round(descalingPage.getDescaleProgress(DE1Device.subState) * 100) + "%"
+                                text: {
+                                    var pct = Math.round(DE1Device.descaleProgress * 100) + "%"
+                                    if (DE1Device.descaleStepIndex <= 0) return pct
+                                    var step = TranslationManager.translate("descaling.stepOf", "Step %1 of %2")
+                                                   .arg(DE1Device.descaleStepIndex)
+                                                   .arg(DE1Device.descaleStepCount)
+                                    var remaining = descalingPage.formatRemaining(DE1Device.descaleSecondsRemaining)
+                                    return remaining !== "" ? pct + " · " + step + " · " + remaining
+                                                            : pct + " · " + step
+                                }
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                             }
@@ -356,7 +374,10 @@ T.Page {
                     }
                 }
 
-                // Cycle counter
+                // Cycle counter. This counts how many times the PAGE saw the machine enter
+                // Descale, i.e. how many times "Run Again" was used — not the firmware's
+                // own repeats within one run, which are DE1Device.descaleCycle. Two
+                // different numbers, both real; this line means the first.
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: TranslationManager.translate("descaling.cycleCount", "Cycle %1 complete").arg(descalingPage.descaleCycleCount)

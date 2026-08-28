@@ -15,6 +15,7 @@
 #include <QBluetoothAddress>
 #include <QDateTime>
 #include <cmath>
+#include <iterator>
 #include <QDebug>
 
 // Alias the shared DE1 helpers (src/ble/de1logging.h) — never copy a body.
@@ -604,6 +605,64 @@ void DE1Device::disconnect() {
     emit guiEnabledChanged();
 }
 
+namespace {
+
+// The DE1 runs each descale step for a FIXED time. Measured on firmware 1358 over
+// two full descales, which agreed to the tenth of a second (720.1 s and 720.2 s
+// total), with each step landing on a round number:
+//
+//     DescaleInit       30 s     DescaleGroup   120 s
+//     DescaleFillGroup  30 s     DescaleSteam   420 s
+//     DescaleReturn    120 s     ------------------------
+//                               total          720 s
+//
+// So descale progress is not an estimate — it is a schedule, and the substate
+// boundary resyncs it. Water hardness and tank temperature do not change these
+// numbers; the two runs were on different days from different starting levels.
+//
+// If a machine ever disagrees, the boundaries are logged ([DE1][Descale]) on every
+// run, so a submitted log says so directly rather than requiring a repro.
+struct DescaleStep {
+    DE1::SubState subState;
+    int seconds;
+};
+constexpr DescaleStep kDescaleSchedule[] = {
+    {DE1::SubState::DescaleInit,      30},
+    {DE1::SubState::DescaleFillGroup, 30},
+    {DE1::SubState::DescaleReturn,   120},
+    {DE1::SubState::DescaleGroup,    120},
+    {DE1::SubState::DescaleSteam,    420},
+};
+constexpr int kDescaleStepCount = static_cast<int>(std::size(kDescaleSchedule));
+
+// Seconds of the schedule completed before the step at `index` (0-based) begins.
+constexpr int descaleSecondsBefore(int index) {
+    int total = 0;
+    for (int i = 0; i < index && i < kDescaleStepCount; ++i) {
+        total += kDescaleSchedule[i].seconds;
+    }
+    return total;
+}
+constexpr int kDescaleTotalSeconds = descaleSecondsBefore(kDescaleStepCount);
+
+// 0-based position of a substate in the schedule, or -1 if it is not a descale step.
+int descaleStepPosition(DE1::SubState subState) {
+    for (int i = 0; i < kDescaleStepCount; ++i) {
+        if (kDescaleSchedule[i].subState == subState) return i;
+    }
+    return -1;
+}
+
+// First firmware build that honours a cold maintenance request (descale / clean /
+// air purge) on a machine with a GHC. Below it the firmware silently DROPS the
+// request while the machine is still heating, so the button appears to do nothing.
+// Matches Decaid's _kColdMaintenancePromotionMinFwBuild and de1app's onestep_cold
+// workaround (machine.tcl:702-706, "the first (cold) Descale request is sometimes
+// refused").
+constexpr int kColdMaintenanceMinFirmwareBuild = 1356;
+
+}  // namespace
+
 // -- Parse methods --
 
 void DE1Device::parseStateInfo(const QByteArray& data) {
@@ -639,6 +698,12 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
             m_descaleTimer.start();
             m_descaleStepStartMs = 0;
             m_descaleCycle = 1;
+            if (!m_descaleTicker) {
+                m_descaleTicker = new QTimer(this);
+                m_descaleTicker->setInterval(1000);
+                connect(m_descaleTicker, &QTimer::timeout, this, &DE1Device::updateDescaleProgress);
+            }
+            m_descaleTicker->start();
             DESCALE_LOG(QStringLiteral("start: cycle 1 %1 (water %2 ml)")
                             .arg(DE1::subStateToString(newSubState))
                             .arg(m_waterLevelMl));
@@ -670,6 +735,7 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
             m_descaleStepStartMs = nowMs;
         }
     } else if (stateChanged && m_state == DE1::State::Descale && m_descaleTimer.isValid()) {
+        if (m_descaleTicker) m_descaleTicker->stop();
         DESCALE_LOG(QStringLiteral("end: %1 cycles, last step %2 after %3 s, total %4 s (water %5 ml)")
                         .arg(m_descaleCycle)
                         .arg(DE1::subStateToString(m_subState))
@@ -682,11 +748,60 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     m_state = newState;
     m_subState = newSubState;
 
+    // After the new substate is committed, so the progress reflects the step the
+    // machine is in now rather than the one it just left.
+    if (stateChanged || subStateChanged) {
+        updateDescaleProgress();
+    }
+
+    // A maintenance request held back because the machine was cold goes out as soon
+    // as the machine reports it is no longer heating.
+    if (m_pendingMaintenanceState != DE1::State::NoRequest && (stateChanged || subStateChanged)) {
+        flushPendingMaintenanceState();
+    }
+
     if (stateChanged) {
         emit this->stateChanged();
     }
     if (subStateChanged) {
         emit this->subStateChanged();
+    }
+}
+
+int DE1Device::descaleStepCount() const {
+    return kDescaleStepCount;
+}
+
+void DE1Device::updateDescaleProgress() {
+    const double oldProgress = m_descaleProgress;
+    const int oldStep = m_descaleStepIndex;
+    const int oldRemaining = m_descaleSecondsRemaining;
+
+    const int position = (m_state == DE1::State::Descale) ? descaleStepPosition(m_subState) : -1;
+    if (position < 0 || !m_descaleTimer.isValid()) {
+        // Not in a descale step: Descale/Ready at the very start or the very end, or
+        // not descaling at all. Report no progress rather than a stale figure.
+        m_descaleProgress = 0.0;
+        m_descaleStepIndex = 0;
+        m_descaleSecondsRemaining = 0;
+    } else {
+        const double stepElapsed =
+            qBound(0.0,
+                   (m_descaleTimer.elapsed() - m_descaleStepStartMs) / 1000.0,
+                   static_cast<double>(kDescaleSchedule[position].seconds));
+        const double done = descaleSecondsBefore(position) + stepElapsed;
+        // Never reaches 1.0 from the schedule alone. The bar reads 100% only when
+        // the machine actually leaves Descale, which is the whole defect this
+        // replaces: the old bar showed 100% for the 420 s of the final step.
+        m_descaleProgress = qBound(0.0, done / kDescaleTotalSeconds, 0.999);
+        m_descaleStepIndex = position + 1;
+        m_descaleSecondsRemaining = qMax(0, qRound(kDescaleTotalSeconds - done));
+    }
+
+    if (!qFuzzyCompare(oldProgress + 1.0, m_descaleProgress + 1.0)
+        || oldStep != m_descaleStepIndex
+        || oldRemaining != m_descaleSecondsRemaining) {
+        emit descaleProgressChanged();
     }
 }
 
@@ -1239,15 +1354,103 @@ void DE1Device::startFlush() {
 }
 
 void DE1Device::startDescale() {
-    requestState(DE1::State::Descale);
+    requestMaintenanceState(DE1::State::Descale);
 }
 
 void DE1Device::startClean() {
-    requestState(DE1::State::Clean);
+    requestMaintenanceState(DE1::State::Clean);
+}
+
+// Descale, Clean and AirPurge share one failure: on a GHC machine running firmware
+// below 1356, the firmware DROPS the request while the machine is still heating. The
+// button does nothing, reports nothing, and the user is left tapping it. Route all
+// three through here so the workaround cannot be added to one and forgotten on the
+// others — which is how it stood: three identical one-line bodies, none of them
+// handling it.
+void DE1Device::requestMaintenanceState(DE1::State state) {
+    if (applyColdMaintenanceWorkaround(state)) {
+        return;  // Deferred; goes out when the machine reports it has left preheat.
+    }
+    requestState(state);
+}
+
+// True while the machine is still coming up to temperature — the window in which old
+// firmware discards a maintenance request. Substate carries this during Heating; the
+// Espresso-preheat substate is included because the machine reports it from Idle too.
+bool DE1Device::isMachineHeating() const {
+    return m_state == DE1::State::Busy
+           || m_subState == DE1::SubState::Heating
+           || m_subState == DE1::SubState::FinalHeating
+           || m_subState == DE1::SubState::Stabilising;
+}
+
+// Returns true when the request was DEFERRED. Mirrors de1app's onestep_cold
+// (machine.tcl:702-706) and Decaid's _prepareColdMaintenanceWorkaround: load a
+// profile whose group target is 1°C and whose tank target is 0, which makes the
+// machine stop preheating, then send the state once it has.
+//
+// de1app and Decaid both then wait a fixed second. We wait for the machine to SAY it
+// left preheat instead — same intent, no timer, and a slow machine is not raced.
+bool DE1Device::applyColdMaintenanceWorkaround(DE1::State state) {
+    // firmwareBuildNumber() is 0 until the MMR identity read returns (MMR::FIRMWARE_VERSION
+    // in parseMMRRead) — a few seconds after connect, or never on a machine whose MMR reads
+    // fail. Unknown counts as OLD, matching Decaid and de1app.
+    //
+    // Not a coin flip: a machine new enough to honour a cold maintenance request is new
+    // enough to REPORT its build, so a missing build number is itself evidence of an old
+    // or unhealthy machine. Applying the workaround is the safe direction.
+    //
+    // The costs agree. Assuming new when the machine is old drops the request silently —
+    // the button does nothing, with no error, which is the defect this function exists to
+    // remove. Assuming old when the machine is new uploads a throwaway 1C profile and waits
+    // for preheat to end; the descale still runs, and DescalingPage re-uploads the real
+    // profile on exit.
+    const int build = firmwareBuildNumber();
+    const bool firmwareDropsColdRequests = build < kColdMaintenanceMinFirmwareBuild;
+    const bool ghcPresent = !isHeadless();
+    if (!firmwareDropsColdRequests || !ghcPresent || !isMachineHeating()) {
+        return false;
+    }
+
+    DEVICE_INFO(QStringLiteral("Cold maintenance (%1) on GHC machine, firmware build %2 < %3: "
+                               "loading 1C profile and deferring the request until preheat ends")
+                    .arg(DE1::stateToString(state))
+                    .arg(build == 0 ? QStringLiteral("unknown") : QString::number(build))
+                    .arg(kColdMaintenanceMinFirmwareBuild));
+
+    Profile coldProfile;
+    coldProfile.setTitle(QStringLiteral("Decenza cold maintenance"));
+    coldProfile.setEspressoTemperature(1.0);
+    coldProfile.setTankDesiredWaterTemperature(0.0);
+    ProfileFrame frame;
+    frame.name = QStringLiteral("cold");
+    frame.temperature = 1.0;
+    frame.pump = QStringLiteral("flow");
+    frame.flow = 0.0;
+    frame.seconds = 1.0;
+    coldProfile.setSteps({frame});
+    uploadProfile(coldProfile);
+
+    m_pendingMaintenanceState = state;
+    return true;
+}
+
+// The deferred half of applyColdMaintenanceWorkaround. Called from parseStateInfo on
+// every state/substate change, so the request goes out on the first packet showing
+// the machine is no longer heating.
+void DE1Device::flushPendingMaintenanceState() {
+    if (m_pendingMaintenanceState == DE1::State::NoRequest || isMachineHeating()) {
+        return;
+    }
+    const DE1::State pending = m_pendingMaintenanceState;
+    m_pendingMaintenanceState = DE1::State::NoRequest;
+    DEVICE_INFO(QStringLiteral("Machine left preheat — sending deferred %1 request")
+                    .arg(DE1::stateToString(pending)));
+    requestState(pending);
 }
 
 void DE1Device::startAirPurge() {
-    requestState(DE1::State::AirPurge);
+    requestMaintenanceState(DE1::State::AirPurge);
 }
 
 void DE1Device::stopOperation() {
