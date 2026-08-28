@@ -30,50 +30,39 @@ T.Page {
                                        ? DE1Device.steamTemperature : 0
     readonly property bool steamTooHotToDescale: steamTempC > steamSafeTempC
 
-    // Exit restores the ONE thing entry mutates: the transient steamDisabled veto that
-    // turnOffSteamHeater() sets. -1 until captured, so a destruction that somehow beats
-    // completion restores nothing rather than guessing.
-    //
-    // Restoring the FLAG, rather than the resolved on/off state, is what makes both
-    // directions correct. The heater can be off for reasons this page never touched — a
-    // "Heater off" pitcher, Keep warm when idle off, a recipe with no steam under Let the
-    // recipe decide — and those vetoes resolve on their own once the flag is back
-    // (SteamHeaterPolicy::resolve). Writing the flag also pushes the new steam settings to
-    // the machine, through the steamDisabledChanged connection in MainController's
-    // constructor (maincontroller.cpp:181-192).
-    property int steamDisabledWas: -1
-
     // Both start sites go through here so the hot-boiler check cannot be added to one and
     // forgotten on the other — the same trap the three maintenance states fell into in C++.
+    // The view flags are cleared only on the path that actually starts: clearing them up
+    // front lost the rinse instructions and the Done button when the confirmation was
+    // declined, with no way back to them.
     function startDescaleChecked() {
         if (descalingPage.steamTooHotToDescale) {
             hotSteamConfirmDialog.open()
             return
         }
+        descalingPage.beginDescaleRun()
+    }
+
+    function beginDescaleRun() {
+        descalingPage.showRinseInstructions = false
+        descalingPage.wasDescaling = false
         DE1Device.startDescale()
     }
 
-    Component.onCompleted: {
-        descalingPage.steamDisabledWas = Settings.brew.steamDisabled ? 1 : 0
-        if (MainController.steamHeaterOn) {
-            MainController.turnOffSteamHeater()
-        }
-    }
+    // The heater-off state is owned by MainController, not by this page. It has to outlive
+    // the page: waiting for the boiler to reach 60 °C can take an hour, and in that hour
+    // auto-sleep replaces the page with the screensaver (the phase is Idle while waiting,
+    // so the shell does not consider an operation active), while a descale started from the
+    // GHC replaces it with a fresh instance. A restore hung on Component.onDestruction
+    // fires for both of those and switches the heater back on — in the GHC case in the
+    // middle of the descale itself, because Qt destroys the outgoing page with deleteLater
+    // and the restore lands after the new instance has already read the state.
+    Component.onCompleted: MainController.beginDescaleHeaterHold()
 
     Component.onDestruction: {
-        // NOT startSteamHeating(). That grants event permission, which short-circuits every
-        // veto in the policy (SteamHeaterPolicy::resolve, "Event permission short-circuits
-        // every veto") and PERSISTS until something calls releaseSteamEventPermission() — so
-        // restoring a heater that was merely on via Keep warm when idle would leave the next
-        // "Heater off" pitcher silently ignored. Every other startSteamHeating() call site
-        // pairs it with a release because it follows a real steam event; a restore has no
-        // event to release.
+        // Deliberately does NOT release the hold — see above. Leaving the page is an
+        // explicit act, handled by the back button.
         //
-        // This also used to be an UNCONDITIONAL setSteamDisabled(false), which turned the
-        // heater on for anyone who arrived with it deliberately off.
-        if (descalingPage.steamDisabledWas === 0) {
-            Settings.brew.setSteamDisabled(false)
-        }
         // The cold-maintenance workaround may have left a 1 °C profile on the machine.
         ProfileManager.uploadCurrentProfile()
     }
@@ -454,11 +443,7 @@ T.Page {
                         accessibleName: TranslationManager.translate("descaling.button.runAgain.accessible", "Run descale cycle again")
                         _customFontSize: Theme.scaled(18)
                         _customFontWeight: Font.Bold
-                        onClicked: {
-                            descalingPage.showRinseInstructions = false
-                            descalingPage.wasDescaling = false
-                            descalingPage.startDescaleChecked()
-                        }
+                        onClicked: descalingPage.startDescaleChecked()
                     }
 
                     AccessibleButton {
@@ -678,9 +663,12 @@ T.Page {
 
                             Item { Layout.fillHeight: true }
 
-                            // Temperature readout. The threshold lives once, on the page,
-                            // because the colour, this label, the Start gate and the
-                            // confirmation dialog all key on the same 60 °C.
+                            // Temperature readout. Everything that ACTS on the threshold —
+                            // this colour, the label below, the Start gate and the
+                            // confirmation dialog — reads steamSafeTempC, so the number
+                            // cannot drift between them. The instructional prose still
+                            // spells "60°C" out, as it does every other figure on this page
+                            // (80-100°C, TDS < 120ppm, 1540 ml).
                             Text {
                                 Layout.alignment: Qt.AlignHCenter
                                 text: Theme.formatTemperature(descalingPage.steamTempC, 0)
@@ -789,6 +777,10 @@ T.Page {
                         Tr {
                             Layout.fillWidth: true
                             key: "descaling.steps.duration"
+                            // 12 minutes is measured, not quoted: three instrumented runs on
+                            // firmware 1358 took 720.1, 720.2 and 720.2 s ([DE1][Descale] log
+                            // lines). The page previously said 6 minutes, which came from
+                            // Decent's 2018 descaling write-up.
                             fallback: "The descale cycle takes about 12 minutes. You can repeat up to 3 times until the solution is used up (empty drip tray between cycles)."
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
@@ -889,7 +881,7 @@ T.Page {
                     accessibleName: TranslationManager.translate("descaling.hotsteam.startAnyway", "Descale anyway")
                     onClicked: {
                         hotSteamConfirmDialog.close()
-                        DE1Device.startDescale()
+                        descalingPage.beginDescaleRun()
                     }
                 }
             }
@@ -902,6 +894,9 @@ T.Page {
         title: TranslationManager.translate("descaling.title", "Descaling")
         onBackClicked: {
             descalingPage.showRinseInstructions = false
+            // The one place the user says they are done preparing to descale, and so the
+            // one place the steam heater goes back to what it was.
+            MainController.endDescaleHeaterHold()
             AppShell.backRequested()
         }
     }

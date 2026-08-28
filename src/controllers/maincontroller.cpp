@@ -3792,6 +3792,35 @@ void MainController::turnOffSteamHeater() {
     }
 }
 
+void MainController::beginDescaleHeaterHold() {
+    if (!m_settings) return;
+    // Idempotent. A descale started from the GHC replaces the page with a fresh instance
+    // while the old one is still queued for deletion, so begin runs twice; re-capturing
+    // here would record the value the FIRST instance had already written (heater off) and
+    // the user's real setting would be lost for the rest of the session.
+    if (m_descaleHeaterHold) return;
+
+    m_descaleHeaterHoldPrevSteamDisabled = m_settings->brew()->steamDisabled();
+    m_descaleHeaterHold = true;
+    turnOffSteamHeater();
+    qDebug() << "Descale heater hold begun (restoring steamDisabled ="
+             << m_descaleHeaterHoldPrevSteamDisabled << "on release)";
+}
+
+void MainController::endDescaleHeaterHold() {
+    if (!m_settings || !m_descaleHeaterHold) return;
+
+    m_descaleHeaterHold = false;
+    // Restore the FLAG, not a resolved on/off state, and never via startSteamHeating():
+    // that grants event permission, which short-circuits every veto in
+    // SteamHeaterPolicy::resolve() and persists with nothing here to release it. Putting
+    // the flag back lets a "Heater off" pitcher, Keep warm when idle and Let the recipe
+    // decide resolve the heater on their own, exactly as they did before the descale.
+    m_settings->brew()->setSteamDisabled(m_descaleHeaterHoldPrevSteamDisabled);
+    qDebug() << "Descale heater hold released (steamDisabled restored to"
+             << m_descaleHeaterHoldPrevSteamDisabled << ")";
+}
+
 void MainController::toggleSteamHeater(const QString& reason) {
     // One place decides which direction "toggle" means. Two QML sites carried
     // this if/else, and the comment on one of them records that a sweep which
