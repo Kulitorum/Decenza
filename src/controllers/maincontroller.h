@@ -709,6 +709,8 @@ private:
     // as it stood before the descale page turned the heater off.
     bool m_descaleHeaterHold = false;
     bool m_descaleHeaterHoldPrevSteamDisabled = false;
+    int m_descaleHeaterHoldPrevPitcher = 0;
+    bool m_descaleHeaterHoldPrevEventPermission = false;
 
     QNetworkAccessManager* m_networkManager = nullptr;
     Settings* m_settings = nullptr;

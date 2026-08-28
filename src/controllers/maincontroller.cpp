@@ -3800,25 +3800,52 @@ void MainController::beginDescaleHeaterHold() {
     // the user's real setting would be lost for the rest of the session.
     if (m_descaleHeaterHold) return;
 
+    // Snapshot every input to SteamHeaterPolicy::resolve() that this hold disturbs, so the
+    // release is an exact round-trip rather than a reconstruction. The pitcher is captured
+    // even though turnOffSteamHeater() does not currently change it: the selected pitcher IS
+    // the steam spec (its own temperature, and whether it is the built-in "Heater off"), so a
+    // restore that puts the flag back but not the pitcher would silently drift the moment
+    // anything in the descale flow starts touching the selection.
     m_descaleHeaterHoldPrevSteamDisabled = m_settings->brew()->steamDisabled();
+    m_descaleHeaterHoldPrevPitcher = m_settings->brew()->selectedSteamPitcher();
+    m_descaleHeaterHoldPrevEventPermission =
+        m_steamHeaterPolicy && m_steamHeaterPolicy->eventPermission();
     m_descaleHeaterHold = true;
     turnOffSteamHeater();
     qDebug() << "Descale heater hold begun (restoring steamDisabled ="
-             << m_descaleHeaterHoldPrevSteamDisabled << "on release)";
+             << m_descaleHeaterHoldPrevSteamDisabled
+             << "pitcher =" << m_descaleHeaterHoldPrevPitcher
+             << "eventPermission =" << m_descaleHeaterHoldPrevEventPermission << "on release)";
 }
 
 void MainController::endDescaleHeaterHold() {
     if (!m_settings || !m_descaleHeaterHold) return;
 
     m_descaleHeaterHold = false;
-    // Restore the FLAG, not a resolved on/off state, and never via startSteamHeating():
-    // that grants event permission, which short-circuits every veto in
-    // SteamHeaterPolicy::resolve() and persists with nothing here to release it. Putting
-    // the flag back lets a "Heater off" pitcher, Keep warm when idle and Let the recipe
-    // decide resolve the heater on their own, exactly as they did before the descale.
+
+    // Put the INPUTS back and let the policy resolve, rather than asserting an on/off
+    // outcome — and never via startSteamHeating(), which grants event permission that
+    // short-circuits every veto and persists with nothing here to release it. With the
+    // pitcher, the flag and the permission restored, "Heater off", Keep warm when idle and
+    // Let the recipe decide all decide exactly what they decided before the descale.
+    //
+    // Event permission is part of the snapshot because turnOffSteamHeater() clears it. It is
+    // the one input that cannot be re-derived: a user who arrived mid-steam-grant, with every
+    // other veto standing, would otherwise leave with the heater off when it had been on.
+    m_settings->brew()->setSelectedSteamCup(m_descaleHeaterHoldPrevPitcher);
     m_settings->brew()->setSteamDisabled(m_descaleHeaterHoldPrevSteamDisabled);
-    qDebug() << "Descale heater hold released (steamDisabled restored to"
-             << m_descaleHeaterHoldPrevSteamDisabled << ")";
+    if (m_steamHeaterPolicy) {
+        m_steamHeaterPolicy->setEventPermission(m_descaleHeaterHoldPrevEventPermission);
+        // Same shape as releaseSteamEventPermission(): re-resolve and send, because an
+        // event-permission change carries no signal of its own to drive the re-send that
+        // the settings writes above get for free.
+        pushShotSettings(m_steamHeaterPolicy->commandedTemperatureC(),
+                         QStringLiteral("descale-hold-released"));
+    }
+    qDebug() << "Descale heater hold released (steamDisabled ="
+             << m_descaleHeaterHoldPrevSteamDisabled
+             << "pitcher =" << m_descaleHeaterHoldPrevPitcher
+             << "eventPermission =" << m_descaleHeaterHoldPrevEventPermission << ")";
 }
 
 void MainController::toggleSteamHeater(const QString& reason) {
