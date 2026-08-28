@@ -2056,7 +2056,29 @@ int main(int argc, char *argv[])
     // Sensor calibration capture. Declared before `engine` like every other
     // published singleton, so it outlives the bindings that read it (see the
     // LIFETIME note in contextsingletons_qml.h).
-    SensorCalibrationController sensorCalibration(&de1Device, &machineState, &translationManager);
+    SensorCalibrationController sensorCalibration(&de1Device, &translationManager);
+    {
+        // The two facts the wizard needs about the loaded profile: its FILENAME
+        // (baseProfileName — currentProfileName is a display string that
+        // decorates itself once edited) and its final frame's declared holds.
+        // That last frame is the one the test profiles end on and the one the
+        // user is watching when they read their gauge.
+        ProfileManager* pm = mainController.profileManager();
+        sensorCalibration.setProfileContextProvider(
+            [pm]() -> SensorCalibrationController::ProfileContext {
+                SensorCalibrationController::ProfileContext ctx;
+                if (!pm) return ctx;
+                ctx.filename = pm->baseProfileName();
+                const QList<ProfileFrame>& steps = pm->currentProfile().steps();
+                if (!steps.isEmpty()) {
+                    ctx.holdPressure = steps.last().pressure;
+                    ctx.holdTemperature = steps.last().temperature;
+                }
+                return ctx;
+            });
+        QObject::connect(pm, &ProfileManager::currentProfileChanged,
+                         &sensorCalibration, &SensorCalibrationController::noteProfileChanged);
+    }
 
     // Database backup manager for scheduled daily backups
     DatabaseBackupManager backupManager(&settings, mainController.shotHistory(),

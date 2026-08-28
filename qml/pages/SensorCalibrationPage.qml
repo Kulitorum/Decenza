@@ -51,13 +51,20 @@ T.Page {
     objectName: "sensorCalibrationPage"
     background: ThemedPageBackground {}
 
-    // Mirrors the controller's state machine. Named rather than compared inline
-    // so the views below read as prose.
-    readonly property bool armed: SensorCalibration.state === SensorCalibration.Armed
-    readonly property bool observing: SensorCalibration.state === SensorCalibration.Observing
-    readonly property bool measured: SensorCalibration.state === SensorCalibration.Measured
-    readonly property bool noHold: SensorCalibration.state === SensorCalibration.NoHold
-    readonly property bool aborted: SensorCalibration.state === SensorCalibration.Aborted
+    // Everything below re-reads when the active profile changes.
+    readonly property int _ctxVersion: SensorCalibration.contextVersion
+    readonly property bool testProfileActive: {
+        void(calibrationPage._ctxVersion)
+        return SensorCalibration.isTestProfileActive(calibrationPage.sensor)
+    }
+    // What the machine holds to and shows on screen during the test — the
+    // profile's declared hold, which is the number the user compares against
+    // their gauge. NaN when the test profile is not loaded.
+    readonly property double declaredHold: {
+        void(calibrationPage._ctxVersion)
+        return SensorCalibration.declaredHoldValue(calibrationPage.sensor)
+    }
+    readonly property bool haveDeclaredHold: !isNaN(calibrationPage.declaredHold)
 
     // The machine's stored and factory offsets, re-read after every write. Both
     // are ABSENT until the machine answers — never shown as 0, which would read
@@ -81,24 +88,16 @@ T.Page {
     }
 
     // The previous cycle's gap between machine and instrument, so a second run
-    // shows convergence rather than just another pair of numbers. NaN until a
-    // first correction has been written.
+    // shows convergence rather than just another pair of numbers.
     property double previousGap: NaN
     property bool wroteThisSession: false
 
     // The profile that was active before this page loaded its own, so leaving
-    // puts the machine back where it was.
-    //
-    // This matters more than it looks: ProfileManager.loadProfile() UPLOADS to
-    // the machine (profilemanager.cpp:1945), so opening this page really does
-    // change what the next shot runs — a 60-second calibration hold. Without a
-    // restore, backing out of the wizard and pulling a shot gives you that.
+    // puts the machine back where it was. ProfileManager.loadProfile() UPLOADS
+    // (profilemanager.cpp:1945), so opening this page really does change what
+    // the next shot runs.
     property string previousProfile: ""
-    // The test profile could not be loaded. The page then does nothing at all —
-    // no arming, no reads — and says so, rather than measuring whatever profile
-    // the machine was given instead.
     property bool profileMissing: false
-    // A write was refused and nothing reached the machine.
     property bool writeFailed: false
 
     function _readBothCalibrations() {
@@ -108,40 +107,32 @@ T.Page {
 
     Component.onCompleted: {
         // currentProfileTITLE, not currentProfileName. The latter is a DISPLAY
-        // string — it becomes "*My Espresso" the moment the profile is modified,
-        // and a dose nudge is enough — and its own declaration says it must
-        // never be used as a query term (profilemanager.h:85-90). Feeding it back
-        // to loadProfile matches nothing, and the not-found path loads and
-        // UPLOADS the default profile.
+        // string — "*My Espresso" once modified, and a dose nudge is enough —
+        // and its declaration says it must never be used as a query term
+        // (profilemanager.h:85-90).
         calibrationPage.previousProfile = ProfileManager.currentProfileTitle
 
-        // Make this sensor's test profile active. If it cannot be loaded,
-        // loadProfile substitutes the DEFAULT profile and uploads it
-        // (profilemanager.cpp:1754-1759) — so arming anyway would measure an
-        // ordinary espresso shot and compute a firmware correction from it,
-        // which is precisely the defect this feature exists to prevent.
+        // If the test profile cannot be loaded, loadProfile substitutes the
+        // DEFAULT and uploads it (profilemanager.cpp:1754-1759), so continuing
+        // would compare a gauge reading against a profile the user is not
+        // running.
         if (!ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))) {
             calibrationPage.profileMissing = true
             return
         }
-        // The shot is NOT started here — the machine has a GHC and the user
-        // starts it.
-        SensorCalibration.arm(calibrationPage.sensor)
         // Four reads; the shared GATT queue orders them, so no pacing here.
         calibrationPage._readBothCalibrations()
     }
 
     Component.onDestruction: {
-        SensorCalibration.reset()
-        // Nothing to restore if we never replaced anything.
         if (!calibrationPage.profileMissing && calibrationPage.previousProfile.length > 0)
             ProfileManager.loadProfile(calibrationPage.previousProfile)
     }
 
     // The instrument field sits mid-page inside the scroll area, so a soft
     // keyboard would cover it without this (CLAUDE.md: wrap pages with text
-    // inputs). targetFlickable is set so Android can scroll it into view, which
-    // adjustPan cannot do inside a Flickable.
+    // inputs). targetFlickable lets Android scroll it into view, which adjustPan
+    // cannot do inside a Flickable.
     KeyboardAwareContainer {
         anchors.fill: parent
         textFields: [instrumentField]
@@ -278,7 +269,6 @@ T.Page {
             // ===== Prepare =====
             Rectangle {
                 visible: !calibrationPage.profileMissing
-                         && (calibrationPage.armed || calibrationPage.noHold || calibrationPage.aborted)
                 Layout.fillWidth: true
                 Layout.maximumWidth: Theme.scaled(600)
                 Layout.alignment: Qt.AlignHCenter
@@ -296,7 +286,7 @@ T.Page {
 
                     Tr {
                         key: "sensorCalibration.prepare.title"
-                        fallback: "Before you start"
+                        fallback: "Run the test"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }
@@ -311,19 +301,30 @@ T.Page {
 
                     Text {
                         Layout.fillWidth: true
+                        visible: calibrationPage.haveDeclaredHold
                         text: TranslationManager.translate(
-                                  "sensorCalibration.prepare.profileLoaded",
-                                  "The %1 test profile is loaded. Start the shot as you normally would "
-                                  + "and let it hold, then come back here.").arg(calibrationPage.sensorLabel)
+                                  "sensorCalibration.prepare.body",
+                                  "Start the shot as you normally would. The machine will hold at "
+                                  + "%1 %2 — read your gauge while it holds, then enter that value below.")
+                              .arg(calibrationPage.declaredHold.toFixed(2))
+                              .arg(calibrationPage.unit)
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
                     }
 
-                    // Precise about what has and has not happened. The test
-                    // profile IS already uploaded — saying "nothing has been
-                    // changed" would be false, and it is exactly the sentence a
-                    // user who finds they lack the instrument would rely on.
+                    Text {
+                        Layout.fillWidth: true
+                        visible: !calibrationPage.testProfileActive
+                        text: TranslationManager.translate(
+                                  "sensorCalibration.prepare.wrongProfile",
+                                  "The test profile is not loaded, so there is nothing to compare "
+                                  + "against. Leave and open this again.")
+                        color: Theme.warningColor
+                        font: Theme.captionFont
+                        wrapMode: Text.WordWrap
+                    }
+
                     Text {
                         Layout.fillWidth: true
                         text: TranslationManager.translate(
@@ -334,107 +335,12 @@ T.Page {
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
                     }
-
-                    // Two different answers, because they need opposite advice.
-                    // "Run it again more carefully" is wrong for a run that never
-                    // got far enough to hold at all.
-                    Text {
-                        Layout.fillWidth: true
-                        visible: calibrationPage.noHold && !SensorCalibration.neverPoured
-                        text: TranslationManager.translate(
-                                  "sensorCalibration.noHold",
-                                  "That run never held steady long enough to measure. Run it again "
-                                  + "and let it settle before stopping.")
-                        color: Theme.warningColor
-                        font: Theme.captionFont
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        visible: calibrationPage.noHold && SensorCalibration.neverPoured
-                        text: TranslationManager.translate(
-                                  "sensorCalibration.neverPoured",
-                                  "That run ended before any water flowed, so there was nothing to "
-                                  + "measure. Let it run through to the hold.")
-                        color: Theme.warningColor
-                        font: Theme.captionFont
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        visible: calibrationPage.aborted
-                        text: TranslationManager.translate(
-                                  "sensorCalibration.aborted",
-                                  "That run was interrupted, so nothing was measured. Try again once "
-                                  + "the machine is back.")
-                        color: Theme.warningColor
-                        font: Theme.captionFont
-                        wrapMode: Text.WordWrap
-                    }
-
-                    AccessibleButton {
-                        Layout.alignment: Qt.AlignRight
-                        visible: calibrationPage.noHold || calibrationPage.aborted
-                        text: TranslationManager.translate("sensorCalibration.runAgain", "Run again")
-                        accessibleName: TranslationManager.translate("sensorCalibration.runAgain", "Run again")
-                        primary: true
-                        onClicked: SensorCalibration.arm(calibrationPage.sensor)
-                    }
                 }
             }
 
-            // ===== Observing =====
+            // ===== Enter what your gauge read =====
             Rectangle {
-                visible: calibrationPage.observing
-                Layout.fillWidth: true
-                Layout.maximumWidth: Theme.scaled(600)
-                Layout.alignment: Qt.AlignHCenter
-                implicitHeight: observeColumn.implicitHeight + Theme.scaled(24)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
-
-                ColumnLayout {
-                    id: observeColumn
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.scaled(12)
-                    spacing: Theme.scaled(10)
-
-                    Tr {
-                        Layout.alignment: Qt.AlignHCenter
-                        key: "sensorCalibration.observing.title"
-                        fallback: "Watching the run"
-                        font: Theme.titleFont
-                        color: Theme.textColor
-                    }
-
-                    BusyIndicator {
-                        Layout.alignment: Qt.AlignHCenter
-                        running: calibrationPage.observing
-                        Accessible.ignored: true
-                    }
-
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                        text: TranslationManager.translate(
-                                  "sensorCalibration.observing.hint",
-                                  "Read your gauge while the machine holds. "
-                                  + "You will enter that number when the run ends.")
-                        color: Theme.textSecondaryColor
-                        font: Theme.captionFont
-                        wrapMode: Text.WordWrap
-                    }
-                }
-            }
-
-            // ===== Entry and confirm. Present ONLY once a run has been measured =====
-            Rectangle {
-                visible: calibrationPage.measured
+                visible: !calibrationPage.profileMissing && calibrationPage.haveDeclaredHold
                 Layout.fillWidth: true
                 Layout.maximumWidth: Theme.scaled(600)
                 Layout.alignment: Qt.AlignHCenter
@@ -460,16 +366,14 @@ T.Page {
                     RowLayout {
                         Layout.fillWidth: true
                         Text {
-                            text: TranslationManager.translate("sensorCalibration.apply.machineRead",
-                                                               "Your machine read")
+                            text: TranslationManager.translate("sensorCalibration.apply.machineHolds",
+                                                               "Your machine holds")
                             color: Theme.textSecondaryColor
                             font: Theme.captionFont
                         }
                         Item { Layout.fillWidth: true }
                         Text {
-                            // Measured by the app, never typed — the whole reason
-                            // this page exists rather than a settings field.
-                            text: SensorCalibration.measuredValue.toFixed(2) + " " + calibrationPage.unit
+                            text: calibrationPage.declaredHold.toFixed(2) + " " + calibrationPage.unit
                             color: Theme.textColor
                             font: Theme.bodyFont
                         }
@@ -484,9 +388,9 @@ T.Page {
                             Layout.fillWidth: true
                             // Commit before anything READS the text. The Apply
                             // button's enabled state and the summary below both
-                            // read it, so committing only inside the write
-                            // handler would leave the in-progress word out of
-                            // the gate on mobile (CLAUDE.md's IME rule).
+                            // read it, so committing only in the write handler
+                            // would leave the in-progress word out of the gate
+                            // on mobile (CLAUDE.md's IME rule).
                             onEditingFinished: Keyboard.commit()
                             placeholderText: TranslationManager.translate(
                                                  "sensorCalibration.apply.placeholder",
@@ -498,9 +402,9 @@ T.Page {
                         }
 
                         // Always the sensor's own unit. For temperature that is
-                        // Celsius whatever the display preference says, because the
-                        // machine register is Celsius and converting silently is how
-                        // a Fahrenheit number gets written into it.
+                        // Celsius whatever the display preference says, because
+                        // the machine register is Celsius and converting
+                        // silently is how a Fahrenheit number gets written.
                         Text {
                             text: calibrationPage.unit
                             color: Theme.textSecondaryColor
@@ -522,16 +426,14 @@ T.Page {
                     Text {
                         Layout.fillWidth: true
                         visible: calibrationPage.entryValid
-                        // %4 comes from _signed(), which already appends the unit —
-                        // so it is NOT followed by another %3.
                         text: TranslationManager.translate(
                                   "sensorCalibration.apply.summary",
-                                  "Machine %1 %3, gauge %2 %3 — correction %4")
-                              .arg(SensorCalibration.measuredValue.toFixed(2))
+                                  "Machine %1 %3, gauge %2 %3 \u2014 correction %4")
+                              .arg(calibrationPage.declaredHold.toFixed(2))
                               .arg(calibrationPage.entryValue.toFixed(2))
                               .arg(calibrationPage.unit)
                               .arg(calibrationPage._signed(calibrationPage.entryValue
-                                                           - SensorCalibration.measuredValue))
+                                                           - calibrationPage.declaredHold))
                         color: Theme.textColor
                         font: Theme.bodyFont
                         wrapMode: Text.WordWrap
@@ -542,7 +444,7 @@ T.Page {
                         visible: calibrationPage.writeFailed
                         text: TranslationManager.translate(
                                   "sensorCalibration.apply.writeFailed",
-                                  "Your machine did not accept that — it may have disconnected. "
+                                  "Your machine did not accept that \u2014 it may have disconnected. "
                                   + "Nothing was changed.")
                         color: Theme.errorColor
                         font: Theme.captionFont
@@ -566,15 +468,11 @@ T.Page {
                         text: TranslationManager.translate("sensorCalibration.apply.button", "Apply correction")
                         accessibleName: TranslationManager.translate("sensorCalibration.apply.button", "Apply correction")
                         primary: true
-                        // DE1Device.connected too: a BLE drop while the state is
-                        // Measured does not abort the session (the measurement is
-                        // still valid), so without this the Apply card stays live
-                        // with a working button after the machine has gone.
+                        // DE1Device.connected too: without it the button stays
+                        // live after the machine has gone.
                         enabled: calibrationPage.entryValid && calibrationPage.hasStored
                                  && DE1Device.connected
                         onClicked: {
-                            // The commit can change the text, so re-check rather
-                            // than trusting the gate that opened this.
                             Keyboard.commit()
                             if (calibrationPage.entryValid && calibrationPage.hasStored
                                     && DE1Device.connected)
@@ -642,13 +540,10 @@ T.Page {
     readonly property double entryValue: parseFloat(instrumentField.text)
     readonly property string rejection: {
         void(calibrationPage._trVersion)
-        // rejectionReason() reads hasMeasurement()/measuredValue() internally,
-        // both NOTIFY stateChanged — and a C++ invokable records no dependency,
-        // the same trap as the translating ones above. Without this the verdict
-        // can be left over from a superseded measurement: start a second run
-        // without touching the page and the summary re-renders from the new
-        // value while the guard that allowed it was computed against the old.
-        void(SensorCalibration.state)
+        // rejectionReason() reads the declared hold internally, which depends on
+        // the active profile — and a C++ invokable records no dependency, the
+        // same trap as the translating ones above.
+        void(calibrationPage._ctxVersion)
         if (instrumentField.text.length === 0) return ""
         return SensorCalibration.rejectionReason(calibrationPage.sensor, calibrationPage.entryValue)
     }
@@ -691,8 +586,8 @@ T.Page {
                 Layout.fillWidth: true
                 text: TranslationManager.translate(
                           "sensorCalibration.confirm.body",
-                          "Machine %1 %3, gauge %2 %3. This changes your machine's calibration.")
-                      .arg(SensorCalibration.measuredValue.toFixed(2))
+                          "Machine holds %1 %3, gauge read %2 %3. This changes your machine's calibration.")
+                      .arg(calibrationPage.declaredHold.toFixed(2))
                       .arg(calibrationPage.entryValue.toFixed(2))
                       .arg(calibrationPage.unit)
                 color: Theme.textColor
@@ -722,7 +617,7 @@ T.Page {
                             confirmDialog.close()
                             return
                         }
-                        var gap = calibrationPage.entryValue - SensorCalibration.measuredValue
+                        var gap = calibrationPage.entryValue - calibrationPage.declaredHold
                         // ONE call, and it carries only the instrument's reading.
                         // The controller supplies what the machine read, because
                         // it is the object that watched the run — there is no way
@@ -742,7 +637,6 @@ T.Page {
                         calibrationPage._readBothCalibrations()
                         calibrationPage.wroteThisSession = true
                         instrumentField.text = ""
-                        SensorCalibration.arm(calibrationPage.sensor)
                         confirmDialog.close()
                     }
                 }

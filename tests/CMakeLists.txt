@@ -134,9 +134,9 @@ set(CONTROLLER_SOURCES
     # which decenza_testlib already carries — so this is the cheap shape (compiled
     # once here) rather than the expensive one the header warns about.
     ${CMAKE_SOURCE_DIR}/src/controllers/steamheaterpolicy.cpp
-    # The sensor-calibration capture controller. Its only dependencies are
-    # DE1Device, MachineState and TranslationManager, all already in
-    # decenza_testlib — so, like steamheaterpolicy above, this is the cheap shape.
+    # Sensor calibration. It takes its profile facts through a closure rather
+    # than a ProfileManager pointer, so it needs nothing decenza_testlib does not
+    # already carry — the cheap shape, like steamheaterpolicy above.
     ${CMAKE_SOURCE_DIR}/src/controllers/sensorcalibrationcontroller.cpp
 )
 
