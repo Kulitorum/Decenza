@@ -15,9 +15,52 @@ T.Page {
     background: ThemedPageBackground {}
 
 
-    // Restore normal operation when leaving descale page
+    // Decent requires the steam heater OFF and the steam boiler below 60 °C before a
+    // descale ("Disable the steam heater on the Steam page before using the descale
+    // function. And wait till the steam temperature cools down to 60 °C or lower (It can
+    // take an hour)" — Decent Espresso Machine Manual, 2.2 The DE1 Software, 5.
+    // Maintenance & Cleaning). It is a precondition of every descale, not a preference,
+    // so the page satisfies it on open rather than asking the user to.
+    //
+    // Opening the page is also the earliest moment the user has expressed intent, which
+    // matters: the same manual notes that disabling right after waking the machine, before
+    // preheating, is what keeps the wait short.
+    readonly property real steamSafeTempC: 60
+    readonly property real steamTempC: typeof DE1Device.steamTemperature === 'number'
+                                       ? DE1Device.steamTemperature : 0
+    readonly property bool steamTooHotToDescale: steamTempC > steamSafeTempC
+
+    // What the heater was doing before this page took it over, so exit can put it back.
+    // -1 until captured, so a destruction that somehow beats completion restores nothing
+    // rather than guessing.
+    property int steamHeaterWasOn: -1
+
+    // Both start sites go through here so the hot-boiler check cannot be added to one and
+    // forgotten on the other — the same trap the three maintenance states fell into in C++.
+    function startDescaleChecked() {
+        if (descalingPage.steamTooHotToDescale) {
+            hotSteamConfirmDialog.open()
+            return
+        }
+        DE1Device.startDescale()
+    }
+
+    Component.onCompleted: {
+        descalingPage.steamHeaterWasOn = MainController.steamHeaterOn ? 1 : 0
+        if (MainController.steamHeaterOn) {
+            MainController.turnOffSteamHeater()
+        }
+    }
+
     Component.onDestruction: {
-        Settings.brew.setSteamDisabled(false)
+        // Restore what the user had, rather than forcing the heater on. This line used to
+        // be an unconditional Settings.brew.setSteamDisabled(false), which turned the
+        // heater back ON for anyone who arrived with it deliberately off — a "Heater off"
+        // pitcher, or Keep warm when idle disabled.
+        if (descalingPage.steamHeaterWasOn === 1) {
+            MainController.startSteamHeating("descaling-restore")
+        }
+        // The cold-maintenance workaround may have left a 1 °C profile on the machine.
         ProfileManager.uploadCurrentProfile()
     }
 
@@ -400,7 +443,7 @@ T.Page {
                         onClicked: {
                             descalingPage.showRinseInstructions = false
                             descalingPage.wasDescaling = false
-                            DE1Device.startDescale()
+                            descalingPage.startDescaleChecked()
                         }
                     }
 
@@ -462,7 +505,7 @@ T.Page {
                         Tr {
                             Layout.fillWidth: true
                             key: "descaling.warning.steam"
-                            fallback: "\u2022 Disable steam heater and wait until steam temp is below 60\u00B0C (can take 1 hour). Tip: disable it right after waking the machine, before preheating, to save time"
+                            fallback: "\u2022 The steam heater is switched off while this page is open, and restored when you leave. Steam temp must be below 60\u00B0C (can take 1 hour from hot) - opening this page right after waking the machine saves the wait"
                             font: Theme.bodyFont
                             color: Theme.textColor
                             wrapMode: Text.WordWrap
@@ -621,14 +664,29 @@ T.Page {
 
                             Item { Layout.fillHeight: true }
 
-                            // Temperature readout
+                            // Temperature readout. The threshold lives once, on the page,
+                            // because the colour, this label, the Start gate and the
+                            // confirmation dialog all key on the same 60 °C.
                             Text {
                                 Layout.alignment: Qt.AlignHCenter
-                                property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
-                                text: Theme.formatTemperature(temp, 0)
+                                text: Theme.formatTemperature(descalingPage.steamTempC, 0)
                                 font.pixelSize: Theme.scaled(36)
                                 font.weight: Font.Bold
-                                color: temp >= 60 ? Theme.errorColor : Theme.primaryColor
+                                color: descalingPage.steamTooHotToDescale ? Theme.errorColor : Theme.primaryColor
+                            }
+
+                            // A bare number does not say whether it is good enough. This does.
+                            Text {
+                                Layout.alignment: Qt.AlignHCenter
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                                text: descalingPage.steamTooHotToDescale
+                                    ? TranslationManager.translate("descaling.steam.cooling", "Cooling — wait for %1")
+                                          .arg(Theme.formatTemperature(descalingPage.steamSafeTempC, 0))
+                                    : TranslationManager.translate("descaling.steam.ready", "Cool enough to descale")
+                                font: Theme.captionFont
+                                color: descalingPage.steamTooHotToDescale ? Theme.warningColor : Theme.textSecondaryColor
                             }
 
                             Item { Layout.fillHeight: true }
@@ -688,7 +746,7 @@ T.Page {
                         Tr {
                             Layout.fillWidth: true
                             key: "descaling.steps.1"
-                            fallback: "1. Disable steam heater (use the button to the right) and wait for steam temp to drop below 60\u00B0C. Disable it right after waking the machine to save time"
+                            fallback: "1. The steam heater has been turned off for you. Wait for the steam temp (shown right) to drop below 60\u00B0C - it can take an hour from hot"
                             font: Theme.bodyFont
                             color: Theme.textColor
                             wrapMode: Text.WordWrap
@@ -740,7 +798,7 @@ T.Page {
                         Tr {
                             Layout.fillWidth: true
                             key: "descaling.steps.duration"
-                            fallback: "The descale cycle takes about 6 minutes. You can repeat up to 3 times until the solution is used up (empty drip tray between cycles)."
+                            fallback: "The descale cycle takes about 12 minutes. You can repeat up to 3 times until the solution is used up (empty drip tray between cycles)."
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
@@ -759,10 +817,90 @@ T.Page {
                     accessibleName: TranslationManager.translate("descaling.button.start", "Start Descaling")
                     _customFontSize: Theme.scaled(20)
                     _customFontWeight: Font.Bold
-                    onClicked: DE1Device.startDescale()
+                    onClicked: descalingPage.startDescaleChecked()
                 }
 
                 Item { Layout.preferredHeight: Theme.scaled(20) }
+            }
+        }
+    }
+
+    // The 60 °C limit is Decent's, and descaling a hot steam boiler is what it exists to
+    // prevent — so this warns rather than blocks. A user who has just replaced the boiler
+    // water, or who knows the reading is stale, keeps the ability to proceed.
+    DecenzaDialog {
+        id: hotSteamConfirmDialog
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(460), descalingPage.width - Theme.scaled(40))
+        padding: Theme.scaled(20)
+        modal: true
+        closePolicy: T.Popup.CloseOnEscape | T.Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.warningColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(16)
+
+            Tr {
+                Layout.fillWidth: true
+                key: "descaling.hotsteam.title"
+                fallback: "Steam boiler is still hot"
+                font: Theme.subtitleFont
+                color: Theme.warningColor
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate(
+                          "descaling.hotsteam.body",
+                          "The steam boiler is at %1. Decent recommends descaling only below %2. Descaling now can damage the machine.")
+                      .arg(Theme.formatTemperature(descalingPage.steamTempC, 0))
+                      .arg(Theme.formatTemperature(descalingPage.steamSafeTempC, 0))
+                font: Theme.bodyFont
+                color: Theme.textColor
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate(
+                          "descaling.hotsteam.hint",
+                          "The heater is already off. Leave this page open and it will keep cooling.")
+                font: Theme.captionFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(12)
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(48)
+                    primary: true
+                    text: TranslationManager.translate("descaling.hotsteam.wait", "Wait")
+                    accessibleName: TranslationManager.translate("descaling.hotsteam.wait", "Wait")
+                    onClicked: hotSteamConfirmDialog.close()
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(48)
+                    destructive: true
+                    text: TranslationManager.translate("descaling.hotsteam.startAnyway", "Descale anyway")
+                    accessibleName: TranslationManager.translate("descaling.hotsteam.startAnyway", "Descale anyway")
+                    onClicked: {
+                        hotSteamConfirmDialog.close()
+                        DE1Device.startDescale()
+                    }
+                }
             }
         }
     }
