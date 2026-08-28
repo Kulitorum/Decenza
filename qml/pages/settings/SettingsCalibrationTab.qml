@@ -911,7 +911,13 @@ Item {
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(parent.width * 0.9, Theme.scaled(500))
-        height: Math.min(calibrationColumn.implicitHeight + 2 * padding, parent.height * 0.85)
+        // The scrolling parameters plus the pinned footer, capped at 85% of the
+        // window. The footer is OUTSIDE the Flickable (see contentItem), so Done
+        // stays reachable at any height rather than depending on the content
+        // fitting.
+        height: Math.min(calibrationColumn.implicitHeight + calibrationFooter.implicitHeight
+                             + Theme.scaled(10) + 2 * padding,
+                         parent.height * 0.85)
         modal: true
         dim: true
         padding: Theme.scaled(20)
@@ -925,16 +931,30 @@ Item {
             border.width: 1
         }
 
-        contentItem: Flickable {
-            contentHeight: calibrationColumn.implicitHeight
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            flickableDirection: Flickable.VerticalFlick
+        // Parameters scroll; the actions do not.
+        //
+        // Everything used to live in one Flickable, so a sixth parameter row
+        // pushed Cancel and Done below the fold — visible only if the user
+        // thought to scroll a dialog that gives no sign it scrolls. Pinning the
+        // footer makes "Done is reachable" independent of how many rows the
+        // popup grows, which is what the layout spec's first scenario asks for.
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(10)
+
+            Flickable {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentHeight: calibrationColumn.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
 
             ColumnLayout {
                 id: calibrationColumn
                 width: parent.width
-                spacing: Theme.scaled(16)
+                // Tightened from 16. Six parameter rows and a footer do not fit
+                // at the old spacing on the 1280x800 reference.
+                spacing: Theme.scaled(10)
 
                 // Title
                 Text {
@@ -1053,6 +1073,14 @@ Item {
                         KeyNavigation.backtab: heaterVoltage120
                     }
                 }
+
+            }
+            }
+
+            ColumnLayout {
+                id: calibrationFooter
+                Layout.fillWidth: true
+                spacing: Theme.scaled(10)
 
                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 

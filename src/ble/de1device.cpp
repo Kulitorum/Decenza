@@ -465,6 +465,14 @@ void DE1Device::setSimulationMode(bool enabled) {
         m_waterLevelMm = 31.25;
         m_waterLevelMl = 872;
         m_firmwareVersion = QStringLiteral("BLE v4.0.0, API v4\nFW v10.5.0, API v250\npcb=1.3, model=DE1PRO, firmware=v1342");
+        // A simulated machine reports a nominal heater voltage, like a real one.
+        // Without it the Heater Calibration popup shows "your machine has not
+        // reported one" forever off hardware, which is indistinguishable from
+        // the readback being broken — the same hole the calibration reads had.
+        // 120 rather than 1120: the simulated machine MEASURED it, it was not
+        // told (see bucketHeaterVoltage for what the >1000 forms mean).
+        m_heaterVoltage = 120;
+        emit heaterVoltageChanged();
         emit stateChanged();
         emit subStateChanged();
         emit waterLevelChanged();
@@ -2389,6 +2397,19 @@ void DE1Device::setHeaterVoltage(int volts) {
         CAL_WARN("Sensor") << "heater voltage" << volts << "not sent — no transport";
         return;
     }
+#ifdef DECENZA_SIMULATOR
+    if (m_simulationMode) {
+        // The simulated machine accepts it and reports it back, so the selected
+        // button moves — the same loop the real one runs through writeMMR and a
+        // readback.
+        CAL_INFO("Sensor") << "heater voltage =" << volts << "(simulated)";
+        if (m_heaterVoltage != volts) {
+            m_heaterVoltage = volts;
+            emit heaterVoltageChanged();
+        }
+        return;
+    }
+#endif
     CAL_INFO("Sensor") << "heater voltage =" << volts;
     writeMMR(DE1::MMR::HEATER_VOLTAGE, static_cast<uint32_t>(volts));
     // Read back rather than trusting what we sent — HEATER_VOLTAGE is otherwise
