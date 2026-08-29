@@ -304,8 +304,14 @@ private:
     // that emits at once carrying the previous value's tally, which is exactly
     // the transition a reader is looking for.
     //
-    // EPISODIC — a shot ends — so it is flushed in startExtraction() and
-    // resetForRetare(), the two places the previous throttle was cleared.
+    // EPISODIC — a shot ends — so it is flushed in endShotCycle(), the
+    // cycle-exit chokepoint that runs even when flow never started, and in
+    // resetForRetare(), where a new tare ends the window the line describes.
+    //
+    // NOT in startExtraction(). That is where the old throttle was cleared and
+    // it is the wrong place for a flush: the span flush() reports is
+    // nowMs - lastEmitMs, so closing a run at the NEXT run's start dates the
+    // window to the next shot and prints it in that shot's narrative.
     LogCollapse m_constantSampleLog{LogCollapse::kChangesOnly};
     bool m_flowBecameValidLogged = false;  // Log once when flowShort transitions 0→valid
     bool m_untaredCupSignalled = false;   // Fire untaredCupDetected only once per extraction

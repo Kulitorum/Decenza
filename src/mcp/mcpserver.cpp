@@ -281,11 +281,6 @@ void McpServer::connectSseNotifications()
 }
 
 namespace {
-// Collapse key for the stale-session recovery line — see
-// McpServer::m_staleSessionLog. A constant, not the text: the text embeds the
-// session id, so keying on it would open a run per session and close none.
-constexpr auto kStaleSessionLogKey = QLatin1String("staleSessionReuse");
-
 // `_meta` keys the modern era defines. Spelled once — they appear in the
 // discriminator, the version check and the response framing, and a typo in one
 // copy would be a silently different protocol.
@@ -888,6 +883,9 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == session->id())
                 abandonPendingConfirmation(QStringLiteral("its session was terminated"));
             m_sessions.remove(session->id());
+            // Run end. This is the path a client that closes cleanly actually
+            // takes, and it was missed while the two reaper paths were covered.
+            flushStaleSessionLog(session->id());
             // Recorded AFTER the pending-confirmation cleanup above, so nothing
             // can observe a tombstoned ID whose session is still half-alive.
             recordTerminatedSession(session->id());
@@ -1061,7 +1059,7 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
                     QStringLiteral("Stale session header, reusing sole session %1")
                         .arg(session->id());
                 LogCollapse::Collapsed collapsed;
-                if (m_staleSessionLog.shouldLog(kStaleSessionLogKey, text,
+                if (m_staleSessionLog.shouldLog(session->id(), text,
                                                 QDateTime::currentMSecsSinceEpoch(),
                                                 &collapsed)) {
                     MCP_INFO_TAGGED("Server", text + LogCollapse::suffix(collapsed));
@@ -2120,6 +2118,30 @@ QJsonObject McpServer::handleResourcesUnsubscribe(const QJsonObject& params, Mcp
     return QJsonObject(); // empty result per spec
 }
 
+// Ends one session's stale-recovery run and reports what the collapsed line
+// stood in for.
+//
+// Keyed by SESSION ID, which is what makes the wording below true. It was a
+// single global key at first, flushed from inside the orphan/expiry loops —
+// so a sweep that reaped two sessions handed the whole tally to whichever id
+// came first in iteration order and captioned it "for the session just
+// closed". A per-session key means the run being closed is the run that
+// accumulated, and it lets every removal path flush its own session without
+// disturbing a live one's tally.
+void McpServer::flushStaleSessionLog(const QString& sessionId)
+{
+    const LogCollapse::Collapsed collapsed =
+        m_staleSessionLog.flush(sessionId, QDateTime::currentMSecsSinceEpoch());
+    if (collapsed.suppressed > 0) {
+        MCP_INFO_TAGGED("Server",
+                        QStringLiteral("stale-session recovery ran %1 more time(s) over %2 s "
+                                       "for session %3, now closed")
+                            .arg(collapsed.suppressed)
+                            .arg(collapsed.spanMs / 1000)
+                            .arg(sessionId));
+    }
+}
+
 McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
 {
     // If sessionHeader is non-empty and matches an existing session, reuse it.
@@ -2177,20 +2199,7 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
     }
     for (const QString& id : orphaned) {
         MCP_INFO_TAGGED("Server", QStringLiteral("Removing orphaned session %1").arg(id));
-    // Run end for the stale-session collapse: a session reaped without another
-    // stale-header request arriving would otherwise hold its tally until some
-    // later session's first recovery printed it.
-    {
-        const LogCollapse::Collapsed collapsed =
-            m_staleSessionLog.flush(kStaleSessionLogKey, QDateTime::currentMSecsSinceEpoch());
-        if (collapsed.suppressed > 0) {
-            MCP_INFO_TAGGED("Server",
-                            QStringLiteral("stale-session recovery ran %1 more time(s) over "
-                                           "%2 s for the session just closed")
-                                .arg(collapsed.suppressed)
-                                .arg(collapsed.spanMs / 1000));
-        }
-    }
+        flushStaleSessionLog(id);
         // No m_pendingConfirmation reset here: the guard above excludes any
         // confirmation-holding session from `orphaned`, so it is unreachable.
         delete m_sessions.take(id);
@@ -2226,6 +2235,10 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
                                                  "least-recently-active ephemeral session %2")
                                       .arg(m_sessions.size()).arg(victim->id()));
         m_sessions.remove(victim->id());
+        // Run end for the evicted session's collapse. Its tally belongs to the
+        // session being dropped whatever our reason for dropping it, so this
+        // flushes even though the eviction is deliberately not a "termination".
+        flushStaleSessionLog(victim->id());
         // Deliberately NOT recorded as terminated. Eviction is resource pressure
         // on our side, not the end of the client's session, so the client is
         // expected back — and the auto-recovery path is what lets it return.
@@ -2290,20 +2303,7 @@ void McpServer::cleanupExpiredSessions()
 
     for (const QString& id : expired) {
         MCP_INFO_TAGGED("Server", QStringLiteral("Expiring session %1").arg(id));
-    // Run end for the stale-session collapse: a session reaped without another
-    // stale-header request arriving would otherwise hold its tally until some
-    // later session's first recovery printed it.
-    {
-        const LogCollapse::Collapsed collapsed =
-            m_staleSessionLog.flush(kStaleSessionLogKey, QDateTime::currentMSecsSinceEpoch());
-        if (collapsed.suppressed > 0) {
-            MCP_INFO_TAGGED("Server",
-                            QStringLiteral("stale-session recovery ran %1 more time(s) over "
-                                           "%2 s for the session just closed")
-                                .arg(collapsed.suppressed)
-                                .arg(collapsed.spanMs / 1000));
-        }
-    }
+        flushStaleSessionLog(id);
         // Clear pending confirmation if it belongs to this expired session —
         // and ANSWER it, rather than leaving that client holding an open request
         // for a dialog nobody will ever resolve.

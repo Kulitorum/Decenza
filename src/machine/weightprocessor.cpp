@@ -311,10 +311,16 @@ void WeightProcessor::processWeight(double weight)
     // static window (classically an empty cup through EspressoPreheating)
     // would, pre-fix, have been swallowed by ScaleDevice's weightChanged
     // dedup — the feed looked dead and a false scale-feed stall fired. It now
-    // reaches us via weightSampleReceived. Log it (throttled ~2s, shot context
-    // only) so the fix is provable from a field debug log without needing the
-    // recorded weight curve. Event-based throttle (no timer): gated on sample
-    // arrival + the injected wall clock.
+    // reaches us via weightSampleReceived. Log it (shot context only) so the fix
+    // is provable from a field debug log without needing the recorded weight
+    // curve.
+    //
+    // Collapsed, not throttled. This carried a 2 s throttle until the line was
+    // measured at 567 occurrences in one submitted log — a 100 s static window
+    // produced 50 identical lines, none of which said anything the first had
+    // not. m_constantSampleLog replaces it with kChangesOnly, which has no time
+    // window at all: a changed weight emits at once carrying the previous
+    // value's tally, an unchanged one is counted and never repeated.
     if (sampleValueUnchanged && (m_active || m_preheatActive) && m_tareComplete) {
         // [Scale], not [SAW], even though this file is otherwise SAW's worker:
         // the line answers "did the weight readings keep arriving", which is a
@@ -921,8 +927,8 @@ void WeightProcessor::setTareComplete(bool complete)
 // Called from both places the old 2 s throttle was cleared. Without it a static
 // window's tally would sit in the table until the NEXT shot's first constant
 // sample and be printed there, stapling one shot's count onto another's opening
-// line — the misattribution logcollapse.h documents as the mistake four of six
-// callers made.
+// line — the misattribution logcollapse.h documents existing callers having
+// shipped. (Its two counts of how many disagree; the rule does not.)
 void WeightProcessor::flushConstantSampleLog()
 {
     const LogCollapse::Collapsed collapsed =
@@ -954,7 +960,6 @@ void WeightProcessor::startExtraction()
     m_settleCount = 0;
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
-    flushConstantSampleLog();
     m_flowBecameValidLogged = false;
     m_untaredCupSignalled = false;
     m_highWeightStreakSamples = 0;
@@ -1050,6 +1055,22 @@ void WeightProcessor::endShotCycle()
     // would then log twice per shot (and which hot water/flush still reach
     // via shotEnded without ever arming).
     m_active = false;
+
+    // Run end for the constant-weight collapse, and HERE rather than in
+    // startExtraction() because the difference is not cosmetic. flush() reports
+    // a span of nowMs - lastEmitMs, so flushing at the next run's START dated
+    // every static window to the moment the NEXT shot began: a shot pulled in
+    // the morning and the next one after work reported its window as "+N
+    // identical in the preceding 32400 s", and printed it inside the following
+    // shot's narrative. That is the misattribution logcollapse.h exists to
+    // prevent, and it got written anyway by mirroring where the old 2 s
+    // throttle was cleared — clearing a throttle at a run's start is harmless,
+    // flushing a collapse there is not.
+    //
+    // This function, not stopExtraction(): it is the disarm chokepoint that
+    // runs on every cycle exit including the aborted-before-flow paths
+    // stopExtraction() misses, and on a normal shot it runs after it.
+    flushConstantSampleLog();
 }
 
 void WeightProcessor::stopExtraction()

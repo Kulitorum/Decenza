@@ -2646,9 +2646,13 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
                 .arg(deviceGroupTargetC, 0, 'f', 2));
             m_shotSettingsDriftResendCount = 0;
         }
-        // Outside the count>0 guard above: an episode that exhausted the ladder
-        // leaves a pending tally, and the counter it would be gated on is not
-        // what says whether one exists.
+        // Outside the count>0 guard above, though not because a reachable state
+        // needs it: every reset of m_shotSettingsDriftResendCount is already
+        // paired with a flush, and the give-up branch never resets the counter,
+        // so a pending tally always coexists with count >= kMaxResendAttempts.
+        // Kept unguarded because the flush's precondition is "a tally exists",
+        // which is what flush() itself tests, and coupling it to a counter it
+        // does not depend on is how the next edit to that counter breaks this.
         flushDriftGiveUpLog();
         m_shotSettingsResendInFlight = false;
         return;

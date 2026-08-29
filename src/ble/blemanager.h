@@ -1170,9 +1170,12 @@ private:
     // fact a reader wants, and it is the one thing 230 identical lines do not
     // state.
     //
-    // EPISODIC, so both MUST be flushed — see logcollapse.h, which records that
-    // four of six existing callers got this wrong and stapled one run's tally
-    // onto the next run's first line.
+    // EPISODIC, so both MUST be flushed. logcollapse.h records existing callers
+    // having shipped this wrong and stapled one run's tally onto the next run's
+    // first line. (No count repeated here on purpose: that file gives two
+    // figures for how many, and they do not reconcile — at most three of its
+    // six callers are episodic, so "four got it wrong" cannot be about run
+    // ends. The rule is what matters and the rule is not in doubt.)
     //
     // Flushed in stopScan(), which is where a scan burst actually ends: the
     // saved primary being rediscovered and auto-connected, the DE1 being found,
@@ -1183,9 +1186,11 @@ private:
     // splitting them would report a story that did not happen.
     LogCollapse m_scanCycleLog{LogCollapse::kChangesOnly};
     // Separate instance, not another key on m_scanCycleLog, because its run ends
-    // somewhere else entirely: setRefractometerHunt(false). Sharing the instance
-    // would let stopScan()'s flush cut an ongoing hunt's tally in half and
-    // report two bursts where there was one.
+    // somewhere else entirely: setRefractometerHunt(), which flushes on BOTH
+    // edges — OFF ends a hunt, and ON must not let a previous review session's
+    // pending tally leak into this one. Sharing the instance with the scan
+    // cycle would let stopScan()'s flush cut an ongoing hunt's tally in half
+    // and report two bursts where there was one.
     LogCollapse m_huntChainLog{LogCollapse::kChangesOnly};
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;

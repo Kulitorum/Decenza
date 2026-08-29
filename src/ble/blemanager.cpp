@@ -1686,8 +1686,8 @@ void BLEManager::onScanFinished() {
         // ...and collapsed, because "for as long as the review page is open"
         // is the worst case in the file: the chain has no backoff, so this is
         // one line per cycle for however long the page stays open with the
-        // refractometer absent. Its run ends at setRefractometerHunt(false),
-        // which is where m_huntChainLog is flushed.
+        // refractometer absent. Its run is bounded by setRefractometerHunt(),
+        // which flushes m_huntChainLog on both edges.
         logScanCycle(m_huntChainLog, QLatin1String(kKeyHuntChain), huntChainText(),
                      ScanLogSink::Refractometer);
         m_scanningForScales = true;
