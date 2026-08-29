@@ -39,8 +39,8 @@
 
 - [x] 5.1 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) and confirm zero failures and zero new warnings
 - [x] 5.2a DONE on hardware (2026-08-29). Two results: (1) the machine applies a TENTH of each requested correction — a +0.2 entry moved the stored offset +0.02, a +0.4 entry moved it +0.04; (2) CalCommand 3 returns the CURRENT value, not a distinct factory one — both columns read +0.89 before a write and +0.91 after. Simulator corrected to 10%, Factory row removed, reset closed out for good
-- [ ] 5.2 Run the whole loop on the real machine for pressure: fit the gauge portafilter, run the wizard end to end, confirm the correction lands, then verify with a second run that the readings agree
+- [ ] 5.2 NOT RUN at merge. The A012 write path itself IS hardware-verified — it is how the 1/10 firmware behaviour and `CalCommand 3` returning the current value were established — and the wizard was exercised end to end against the simulator. What has not been done is the full loop on the real machine with a gauge portafilter: enter a reading, confirm the correction lands, re-run and watch the two converge. Carried as a known gap rather than a blocker, by the maintainer's call
 - [ ] 5.3 DEFERRED (agreed with the user): the temperature hardware loop needs a thermocouple basket that is not available. The temperature row, its table entry and profile wiring still ship; its end-to-end run stays unverified and is called out in the PR
 - [x] 5.4 Manual entry added to the Calibration section of Decenza.wiki Manual.md — two bullets in the existing list, not a new section. NOT PUSHED: wiki timing is the user's call
-- [ ] 5.5 Open a PR, then run `/pr-review-toolkit:review-pr` and address findings before merge
-- [ ] 5.6 Archive this change and sync specs as the final commit on the PR
+- [x] 5.5 Open a PR, then run `/pr-review-toolkit:review-pr` and address findings before merge
+- [x] 5.6 Archive this change and sync specs as the final commit on the PR
