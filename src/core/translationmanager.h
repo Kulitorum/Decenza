@@ -594,3 +594,24 @@ private:
     friend class TestTranslationScan;
 #endif
 };
+
+// Translate `key`, falling back to the English literal when no TranslationManager
+// is installed — the case tests and command-line tools run in.
+//
+// One definition because there were nine. Every class holding an optional
+// TranslationManager* had hand-copied this same body into its own `tr_`, so a
+// change to the fallback rule (a null `fallback`, or what an empty
+// translateString() should mean) had to be found and reapplied nine times, with
+// nothing failing when one was missed.
+inline QString translateOrFallback(TranslationManager* manager,
+                                   const QString& key, const QString& fallback) {
+    if (manager)
+        return manager->translateString(key, fallback);
+    return fallback;
+}
+
+// Literal-key overload, which is how most callers spell it.
+inline QString translateOrFallback(TranslationManager* manager,
+                                   const char* key, const char* fallback) {
+    return translateOrFallback(manager, QString::fromUtf8(key), QString::fromUtf8(fallback));
+}

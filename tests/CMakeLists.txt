@@ -134,6 +134,10 @@ set(CONTROLLER_SOURCES
     # which decenza_testlib already carries — so this is the cheap shape (compiled
     # once here) rather than the expensive one the header warns about.
     ${CMAKE_SOURCE_DIR}/src/controllers/steamheaterpolicy.cpp
+    # Sensor calibration. It takes its profile facts through a closure rather
+    # than a ProfileManager pointer, so it needs nothing decenza_testlib does not
+    # already carry — the cheap shape, like steamheaterpolicy above.
+    ${CMAKE_SOURCE_DIR}/src/controllers/sensorcalibrationcontroller.cpp
 )
 
 # Shot analysis / projection layer. Plain Qt Core — no Quick or Graphs — so it
@@ -560,6 +564,11 @@ add_decenza_test(tst_roastdate
 # --- tst_steamheaterpolicy: THE steam-target derivation, and that it stays the only one ---
 add_decenza_test(tst_steamheaterpolicy
     tst_steamheaterpolicy.cpp
+)
+
+# --- tst_sensorcalibration: the capture controller behind the calibration wizards ---
+add_decenza_test(tst_sensorcalibration
+    tst_sensorcalibration.cpp
 )
 
 # --- tst_settings: Settings persistence and defaults ---

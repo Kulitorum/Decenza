@@ -225,6 +225,11 @@ void BleTransport::subscribeAll() {
     submitSubscribe(DE1::Characteristic::WATER_LEVELS,  /*required=*/false);
     submitSubscribe(DE1::Characteristic::READ_FROM_MMR, /*required=*/false);
     submitSubscribe(DE1::Characteristic::TEMPERATURES,  /*required=*/false);
+    // Sensor calibration replies. Not required: a machine or transport that
+    // cannot notify here must still connect normally — the calibration wizards
+    // then show their values as unavailable and refuse to write, rather than the
+    // whole connection failing over a screen almost nobody opens.
+    submitSubscribe(DE1::Characteristic::CALIBRATION,   /*required=*/false);
     // SHOT_SETTINGS is intentionally NOT subscribed: the DE1 firmware does
     // not push notifications on writes (confirmed in de1app's de1_comms.tcl).
     // Verification happens via explicit read() after each write in
@@ -1210,7 +1215,7 @@ void BleTransport::submitReadyMarker() {
         // because this is the connect narrative a user reads.
         if (m_streamsNotEnabled.isEmpty()) {
             info(QStringLiteral("DE1 telemetry live: state, shot samples, water level, "
-                                "MMR responses, temperatures"));
+                                "MMR responses, temperatures, calibration replies"));
         } else {
             info(QString("DE1 telemetry live except %1 — that stream will not update "
                          "until the next reconnect")

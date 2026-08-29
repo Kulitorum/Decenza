@@ -294,6 +294,7 @@ private:
 #ifdef DECENZA_TESTING
     friend class tst_SAV;
     friend class tst_MachineState;
+    friend class tst_SensorCalibration;
     friend class tst_ProfileManager;
     friend class tst_MachineStatusSnapshot;
     friend class tst_LiveSteamCoach;

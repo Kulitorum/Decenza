@@ -2,7 +2,17 @@
 
 #include "../core/logtags.h"
 
-// Logging tiers for auto flow calibration.
+// Logging tiers for the [Calibration] marker.
+//
+// TWO subsystems share it, disambiguated by tag rather than by marker: auto flow
+// calibration (tags "AutoFlow", …) and sensor calibration (tags "Sensor" for the
+// A012 protocol path, "Wizard" for the capture controller). They share because a
+// user asking "why did my calibration change" does not know which of the two
+// they mean, and one marker returns both stories; the tags separate them for a
+// reader who does know.
+//
+// The rest of this comment is about the auto-flow half, which is where the tier
+// rules below were learned.
 //
 // The subsystem answers two questions from a submitted log: "why did my flow
 // calibration change" and — the one that actually gets filed as a bug — "why
@@ -37,9 +47,14 @@
 // DECENZA_SUBSYS_STREAM exists for. Statement forms are deliberately absent
 // rather than defined-and-unused; add one when a site needs it.
 //
-// NOTE maincontroller.cpp is in check_log_markers.py's MARKER_ONLY_GLOBS, so
-// rules 2 and 5 are enforced there but rule 1 (no bare qDebug) is NOT. Using a
-// tier below is a convention here, not a gate.
+// NOTE the three files that use these helpers sit in three different
+// enforcement regimes, so "is this a gate or a convention" depends on where you
+// are:
+//   maincontroller.cpp               MARKER_ONLY_GLOBS — rules 2 and 5 enforced,
+//                                    rule 1 (no bare qDebug) NOT. Tier is a
+//                                    convention there.
+//   sensorcalibrationcontroller.cpp  COVERED_GLOBS — all rules, including rule 1.
+//   de1device.cpp                    covered by src/ble/**/*.cpp, so all rules.
 #define CAL_DETAIL(tag) DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_CALIBRATION, tag, qDebug)
 #define CAL_INFO(tag)   DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_CALIBRATION, tag, qInfo)
 #define CAL_WARN(tag)   DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_CALIBRATION, tag, qWarning)

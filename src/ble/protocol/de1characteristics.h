@@ -1,7 +1,13 @@
 #pragma once
 
 #include <QBluetoothUuid>
+#include <QByteArray>
 #include <QString>
+
+#include <cstdint>
+#include <optional>
+
+#include "binarycodec.h"
 
 namespace DE1 {
 
@@ -48,6 +54,124 @@ namespace Characteristic {
 
     // Calibration - Read/Write: Calibration data
     const QBluetoothUuid CALIBRATION(QString("0000A012-0000-1000-8000-00805F9B34FB"));
+}
+
+// Sensor calibration, carried on the CALIBRATION characteristic above.
+//
+// The record is 14 bytes, big-endian:
+//   WriteKey       u32     see the keys below
+//   CalCommand     u8      Command
+//   CalTarget      u8      Target
+//   DE1ReportedVal 32-bit P16  what the machine's own sensor read. de1app reads
+//                              this field UNSIGNED; Decenza decodes it signed,
+//                              which is harmless because it is only ever
+//                              RECEIVED in an echo, whose payload is discarded.
+//   MeasuredVal    S32P16      what an external instrument read — and, on a
+//                              reply, the machine's stored offset. de1app's spec
+//                              marks this one signed, which matters: a machine
+//                              reading above the instrument stores a negative.
+//
+// Source: de1app's `calibrate_spec` (de1plus/binary.tcl:414) and
+// de1_send_calibration / de1_read_calibration (de1plus/de1_comms.tcl:1632, :1665).
+// There is no DE1 firmware source in this tree, so the arithmetic the machine
+// applies to the pair is NOT confirmed here — only that both values are sent and
+// that the machine stores a signed offset it reports back. Do not write a comment
+// asserting the formula without opening the firmware.
+namespace Calibration {
+    enum class Target : uint8_t {
+        Flow        = 0,
+        Pressure    = 1,
+        Temperature = 2
+    };
+
+    enum class Command : uint8_t {
+        ReadCurrent  = 0,
+        Write        = 1,
+        // Named for completeness of the wire vocabulary; Decenza never sends it.
+        // No working implementation of it exists to copy — see the note above
+        // DE1Device::readCalibration.
+        ResetFactory = 2,
+        ReadFactory  = 3
+    };
+
+    // The firmware accepts a write only with this key; de1app sends 1 for reads
+    // (de1_comms.tcl:1651 for the write key, :1686 for the read key).
+    constexpr uint32_t WRITE_KEY = 0xCAFEF00D;
+    constexpr uint32_t READ_KEY  = 0x00000001;
+
+    // A REPLY carrying a real stored value has WriteKey == 0; any other value
+    // marks it as an echo of a read or write request and it carries no data
+    // (de1app's calibration_ble_received, de1plus/bluetooth.tcl:3344).
+    constexpr uint32_t REPLY_VALUE_KEY = 0x00000000;
+
+    // Wire size of the packed record.
+    constexpr int RECORD_BYTES = 14;
+
+    // One record, parsed. `writeKey` is kept because it is the only thing that
+    // distinguishes a reply carrying a real value from an echo — see
+    // REPLY_VALUE_KEY above.
+    struct Record {
+        uint32_t writeKey = 0;
+        Command  command  = Command::ReadCurrent;
+        Target   target   = Target::Pressure;
+        double   reported = 0.0;
+        double   measured = 0.0;
+    };
+
+    // Pack/parse live here rather than inside DE1Device so the wire format can be
+    // tested directly (tests/tst_binarycodec.cpp) without friend access. They are
+    // pure functions over the record; nothing about the transport belongs in them.
+    inline QByteArray packRecord(const Record& r) {
+        const int32_t reported = BinaryCodec::encodeS32P16(r.reported);
+        const int32_t measured = BinaryCodec::encodeS32P16(r.measured);
+
+        QByteArray out;
+        out.reserve(RECORD_BYTES);
+        // Big-endian throughout. de1app gets this from the capital `Int` in
+        // calibrate_spec rather than from an endian argument — make_packed_calibration
+        // (binary.tcl:245) passes none, and fields::endianness is never set. The
+        // `bigeendian` literal (the typo is de1app's) appears only on the unpack
+        // side, parse_binary_calibration (binary.tcl:1325).
+        out.append(BinaryCodec::encodeU32P0(r.writeKey));
+        out.append(static_cast<char>(r.command));
+        out.append(static_cast<char>(r.target));
+        out.append(BinaryCodec::encodeU32P0(static_cast<uint32_t>(reported)));
+        out.append(BinaryCodec::encodeU32P0(static_cast<uint32_t>(measured)));
+        return out;
+    }
+
+    // Returns nothing on a short or malformed record rather than a
+    // default-constructed one: a zero offset reads as "no correction", which is
+    // the one wrong answer that looks plausible.
+    inline std::optional<Record> parseRecord(const QByteArray& data) {
+        if (data.size() < RECORD_BYTES)
+            return std::nullopt;
+
+        const auto u32At = [&data](int i) {
+            return BinaryCodec::decodeU32P0(data.mid(i, 4));
+        };
+
+        const uint8_t rawCommand = static_cast<uint8_t>(data[4]);
+        const uint8_t rawTarget  = static_cast<uint8_t>(data[5]);
+        if (rawCommand > static_cast<uint8_t>(Command::ReadFactory))
+            return std::nullopt;
+        if (rawTarget > static_cast<uint8_t>(Target::Temperature))
+            return std::nullopt;
+
+        Record r;
+        r.writeKey = u32At(0);
+        r.command  = static_cast<Command>(rawCommand);
+        r.target   = static_cast<Target>(rawTarget);
+        r.reported = BinaryCodec::decodeS32P16(static_cast<int32_t>(u32At(6)));
+        r.measured = BinaryCodec::decodeS32P16(static_cast<int32_t>(u32At(10)));
+        return r;
+    }
+
+    // A reply carries a stored value only when its key says so. Everything else
+    // on this characteristic is an echo of a request.
+    inline bool replyCarriesValue(const Record& r) {
+        return r.writeKey == REPLY_VALUE_KEY;
+    }
 }
 
 // Machine States (written to REQUESTED_STATE characteristic)

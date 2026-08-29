@@ -273,6 +273,14 @@ T.Page {
                             saveThemeDialog.open()
                         })
                     }
+                    // Calibration tab's Sensor Calibration card forwards to global
+                    // navigation, carrying which sensor was chosen.
+                    var calibrationTab = item as SettingsCalibrationTab
+                    if (calibrationTab) {
+                        calibrationTab.openSensorCalibration.connect(function(sensor) {
+                            AppShell.sensorCalibrationRequested(sensor)
+                        })
+                    }
                     // Machine tab's Maintenance card forwards to global navigation
                     var machineTab = item as SettingsMachineTab
                     if (machineTab) {

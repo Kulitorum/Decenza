@@ -48,6 +48,9 @@ QtObject {
     signal visualizerBrowserRequested()
     signal descalingRequested()
     signal transportRequested()
+    // sensor indexes the SensorCalibration table; the shell pushes the guided
+    // page with it, so one page serves both sensors.
+    signal sensorCalibrationRequested(int sensor)
     signal brewSettingsRequested()
     // Three widgets reached this through `Window.window` and a
     // `typeof win.goToScreensaver === "function"` probe — a duck-typed call on QQuickWindow that

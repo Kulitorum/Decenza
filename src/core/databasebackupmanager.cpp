@@ -45,12 +45,8 @@ DatabaseBackupManager::DatabaseBackupManager(Settings* settings, ShotHistoryStor
     connect(m_checkTimer, &QTimer::timeout, this, &DatabaseBackupManager::onTimerFired);
 }
 
-QString DatabaseBackupManager::tr_(const char* key, const char* fallback) const
-{
-    if (m_translationManager)
-        return m_translationManager->translateString(QString::fromUtf8(key),
-                                               QString::fromUtf8(fallback));
-    return QString::fromUtf8(fallback);
+QString DatabaseBackupManager::tr_(const char* key, const char* fallback) const {
+    return translateOrFallback(m_translationManager, key, fallback);
 }
 
 QString DatabaseBackupManager::joinErrors(const QVector<QPair<QString, QString>>& errs) const

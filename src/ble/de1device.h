@@ -102,6 +102,10 @@ class DE1Device : public QObject {
     Q_PROPERTY(QString connectionType READ connectionType NOTIFY connectedChanged)
     Q_PROPERTY(int machineModel READ machineModel NOTIFY firmwareVersionChanged)
     Q_PROPERTY(int heaterVoltage READ heaterVoltage NOTIFY heaterVoltageChanged)
+    Q_PROPERTY(int nominalHeaterVoltage READ nominalHeaterVoltage NOTIFY heaterVoltageChanged)
+    // Bumped whenever any stored/factory calibration value changes, so QML can
+    // re-read the per-target accessors above. One signal rather than eight
+    // properties: the wizard reads one target and re-reads on any change.
 
 public:
     explicit DE1Device(QObject* parent = nullptr);
@@ -157,6 +161,11 @@ public:
     int machineModel() const { return m_machineModel; }  // 0=unknown, 1=DE1, 2=DE1+, 3=PRO, 4=XL, 5=CAFE, 6=XXL, 7=XXXL
     int firmwareBuildNumber() const { return m_firmwareBuildNumber; }  // 0 = unknown, otherwise build number (e.g. 1347)
     int heaterVoltage() const { return m_heaterVoltage; }  // 0=unknown, otherwise volts (e.g. 110, 220)
+    // The raw readback bucketed to 120 / 230 / 0=unknown, which is what a UI
+    // offering a two-way choice needs. Kept beside the raw value rather than
+    // replacing it: the raw number still carries whether the machine measured
+    // the voltage or was told it.
+    int nominalHeaterVoltage() const { return bucketHeaterVoltage(m_heaterVoltage); }
 
     // Transport abstraction
     void setTransport(DE1Transport* transport);
@@ -297,6 +306,45 @@ public slots:
     void setRefillKitPresent(int value);
     void requestRefillKitStatus();
 
+    // ---- Sensor calibration (BLE A012) ------------------------------------
+    //
+    // The correction lives in the machine: nothing here is persisted, backed up,
+    // or re-applied on connect.
+    //
+    // `reported` must be the MACHINE's reading. Passing a profile target instead
+    // is the defect this whole feature exists to avoid — the pair is assembled
+    // only in SensorCalibrationController::applyCorrection.
+    //
+    // False means the request was refused and NOTHING reached the machine; a
+    // caller that reports success anyway sends the user off to re-run against a
+    // machine that never changed.
+    [[nodiscard]] bool sendCalibration(DE1::Calibration::Target target,
+                                       DE1::Calibration::Command command,
+                                       double reported,
+                                       double measured);
+    Q_INVOKABLE bool readCalibration(int target);
+    // No restore-to-factory, and no factory value shown. Measured on hardware
+    // (2026-08-29): CalCommand 3 returns the CURRENT stored value, not a
+    // distinct factory one — both read +0.89 before a write and +0.91 after. So
+    // there is nothing to restore to. tst_de1device_mmrreads asserts that
+    // Command::ResetFactory is never sent.
+
+    // The stored offset as last reported by the machine, per target. `has` is
+    // false until a read is answered — a caller must not substitute 0, which
+    // reads as "no correction" and is the one wrong answer that looks plausible.
+    Q_INVOKABLE double storedCalibration(int target) const;
+    Q_INVOKABLE bool hasStoredCalibration(int target) const;
+
+    // Nominal heater voltage (MMR 0x803834). Accepts 120 or 230 only; any other
+    // value is refused and logged rather than written, because a wrong nominal
+    // voltage runs the heater at the wrong duty.
+    Q_INVOKABLE void setHeaterVoltage(int volts);
+
+    // Buckets a raw HEATER_VOLTAGE readback to 120, 230, or 0 for "unclassified".
+    // Rationale and sourcing live at the definition — one copy, not two that can
+    // drift.
+    static int bucketHeaterVoltage(int raw);
+
     // ---- Firmware update (BLE A009 / A006) --------------------------------
     // These three writers talk directly to the transport and deliberately
     // bypass the per-register MMR dedupe cache (m_lastMMRValues): firmware
@@ -357,6 +405,7 @@ signals:
     // same instant to four bindings.
     void descaleProgressChanged();
     void heaterVoltageChanged();
+    void calibrationChanged();
 
     // Firmware-update response from the DE1 (A009 notification). Carries
     // the parsed WindowIncrement, fwToErase/fwToMap flags and the 3-byte
@@ -416,6 +465,7 @@ private:
     void parseWaterLevel(const QByteArray& data);
     void parseVersion(const QByteArray& data);
     void parseMMRResponse(const QByteArray& data);
+    void parseCalibration(const QByteArray& data);
     void rebuildVersionLine3();
 
     // Generic one-shot MMR read with timeout + bounded retry, covering the
@@ -633,6 +683,39 @@ private:
     int m_firmwareBuildNumber = 0;
     int m_machineModel = 0;
     int m_heaterVoltage = 0;  // 0=unknown, read from MMR HEATER_VOLTAGE
+
+    // Stored and factory calibration per target, absent until the machine
+    // answers a read. Indexed by DE1::Calibration::Target; the flow slot exists
+    // because the target enum has three values, not because flow is offered.
+    static constexpr int kCalibrationTargets = 3;
+    std::optional<double> m_storedCalibration[kCalibrationTargets];
+    // Absence has to be RE-established, not just established: these are facts
+    // about one machine, and the same app can be pointed at another. Cleared in
+    // the same reset block as m_lastMMRValues.
+    void clearCalibrationCache();
+
+    // Simulation only: the values a simulated machine holds, distinct from the
+    // read-back cache above. Without these the wizard is untestable off
+    // hardware — the reads go nowhere and both rows sit on "Not read yet"
+    // forever. de1app does the same thing for the same reason, feeding its
+    // Calibrate page synthetic replies when no machine is present
+    // (de1plus/gui.tcl:2525-2529).
+    double m_simStoredCalibration[kCalibrationTargets] = {0.0, 0.0, 0.0};
+    // The machine applies a TENTH of each requested correction. Measured on
+    // hardware: a +0.2 entry moved the stored offset +0.02, a +0.4 entry moved
+    // it +0.04. That damping is why the vendor instruction is "retest until the
+    // two agree" — convergence takes several passes by design.
+    static constexpr double kFirmwareCorrectionFraction = 0.1;
+    // Answers a calibration request locally by feeding parseCalibration() a
+    // packed reply, so the simulated path exercises the same parse and the same
+    // WriteKey == 0 rule the machine will drive.
+    void simulateCalibrationReply(DE1::Calibration::Target target,
+                                  DE1::Calibration::Command command,
+                                  double reported, double measured);
+    // So a bad index from QML cannot walk off the arrays above.
+    static bool isCalibrationTarget(int target) {
+        return target >= 0 && target < kCalibrationTargets;
+    }
     uint32_t m_cpuBoardModel = 0;
 
     bool m_connecting = false;
@@ -703,6 +786,7 @@ private:
     friend class tst_DE1DeviceFirmware;
     friend class tst_ShotSampleDecode;
     friend class tst_DE1DeviceMMRReads;
+    friend class tst_SensorCalibration;
     friend class tst_DE1DeviceHeadless;
 #endif
 };
