@@ -2,12 +2,20 @@
 
 #include "githubreleaseclient.h"
 #include "ble/scaledevice.h"
+#include "ble/scales/scalelogging.h"
 
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
-#include <QDebug>
 
 namespace {
+
+// Aliases, not copies — the shared helpers already carry the registered marker
+// and the tier rules (see scalelogging.h). These four sites used to hand-type
+// "[Scale][HDS Update]" onto a bare qWarning, which is the drift the marker gate
+// exists to catch; it only passed because this file is in neither glob set.
+// The _STDERR variant because this controller has no logMessage signal — the
+// emitting form is for the scale drivers, which do.
+#define HDS_UPDATE_WARN(msg) SCALE_WARN_STDERR_TAGGED("HDS Update", msg)
 
 constexpr auto kManifestUrl = "https://github.com/decentespresso/openscale/releases/latest/download/manifest.json";
 constexpr auto kOpenScaleRepository = "decentespresso/openscale";
@@ -74,7 +82,7 @@ void HdsFirmwareUpdateController::checkForUpdates()
         if (!reply)
             return;
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning().noquote() << "[Scale][HDS Update] Manifest check failed:" << reply->errorString();
+            HDS_UPDATE_WARN(QStringLiteral("Manifest check failed: %1").arg(reply->errorString()));
             reply->deleteLater();
             return;
         }
@@ -82,7 +90,7 @@ void HdsFirmwareUpdateController::checkForUpdates()
         const auto catalog = HdsFirmwareCatalog::fromJson(reply->readAll(), &error);
         reply->deleteLater();
         if (!catalog) {
-            qWarning().noquote() << "[Scale][HDS Update] Manifest ignored:" << error;
+            HDS_UPDATE_WARN(QStringLiteral("Manifest ignored: %1").arg(error));
             return;
         }
         m_catalog = catalog;
@@ -110,7 +118,7 @@ void HdsFirmwareUpdateController::loadReleaseNotes()
         if (!reply)
             return;
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning().noquote() << "[Scale][HDS Update] Release notes check failed:" << reply->errorString();
+            HDS_UPDATE_WARN(QStringLiteral("Release notes check failed: %1").arg(reply->errorString()));
             reply->deleteLater();
             return;
         }
@@ -118,7 +126,7 @@ void HdsFirmwareUpdateController::loadReleaseNotes()
         const auto release = GitHubReleaseClient::parseRelease(reply->readAll(), &error);
         reply->deleteLater();
         if (!release) {
-            qWarning().noquote() << "[Scale][HDS Update] Release notes ignored:" << error;
+            HDS_UPDATE_WARN(QStringLiteral("Release notes ignored: %1").arg(error));
             return;
         }
         m_releaseNotes = release->body;

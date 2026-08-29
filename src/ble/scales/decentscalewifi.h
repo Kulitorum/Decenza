@@ -87,7 +87,6 @@ public:
     // Bluetooth and USB paths decode from their packed two-byte form and what
     // the release catalog is keyed on.
     QString firmwareVersion() const override { return m_firmwareVersion; }
-    bool supportsFirmwareUpdate() const override { return !m_firmwareVersion.isEmpty(); }
 
     // mDNS-resilience hooks. Production wires these to
     // SettingsNetwork::wifiScaleIp via `settings.network()->wifiScaleIp(...)`

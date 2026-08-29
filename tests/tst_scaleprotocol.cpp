@@ -394,7 +394,8 @@ private slots:
         QCOMPARE(versionSpy.count(), 1);
 
         transport->m_writes.clear();
-        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Starting firmware update to 3\\.1\\.14.*"));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QRegularExpression::escape(
+            DecentScaleProtocol::firmwareUpdateStartingMessage(QStringLiteral("3.1.14")))));
         scale.startFirmwareUpdate(QStringLiteral("3.1.14"));
         // 0x1B plus the target as three 0x80-biased bytes, in the fixed 7-byte
         // packet. The scale's length check for a targeted 0x1B is a minimum, so
@@ -414,11 +415,12 @@ private slots:
         scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentLedResponse(50, 3, 1, 13));
         transport->m_writes.clear();
 
-        for (const QString& bad : {QStringLiteral(""), QStringLiteral("3.1"),
-                                   QStringLiteral("3.1.14.1"), QStringLiteral("3.1.x")}) {
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*unparsable target version.*"));
-            scale.startFirmwareUpdate(bad);
-        }
+        // One bad value: the accepted set is asserted exhaustively by
+        // hdsTargetVersionEncoding_data. What this proves is that the driver
+        // consults that predicate and writes nothing when it refuses.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QRegularExpression::escape(
+            DecentScaleProtocol::firmwareUpdateBadTargetMessage(QStringLiteral("3.1.x")))));
+        scale.startFirmwareUpdate(QStringLiteral("3.1.x"));
         QVERIFY(transport->m_writes.isEmpty());
     }
 
@@ -431,11 +433,17 @@ private slots:
         // read the payload as a command: 3.10.2 would decode as 03 0A 02, the
         // power-off command.
         QTest::newRow("3.10.2") << "3.10.2" << QByteArray::fromHex("1B838A82");
-        // Components are capped at 127 rather than wrapping into another byte.
-        QTest::newRow("cap") << "1.2.300" << QByteArray::fromHex("1B8182FF");
+        // Rejected, not clamped. Clamping would turn a version the user was
+        // shown into a different, installable one; the firmware refuses the same
+        // input (openscale pullOtaParseTargetVersion).
+        QTest::newRow("bad-over-max") << "1.2.128" << QByteArray();
+        QTest::newRow("max") << "127.127.127" << QByteArray::fromHex("1BFFFFFF");
         QTest::newRow("bad-negative") << "3.1.-4" << QByteArray();
         QTest::newRow("bad-short") << "3.1" << QByteArray();
         QTest::newRow("bad-empty") << "" << QByteArray();
+        // Tolerated, like the firmware's own target parser, so no caller has to
+        // know which shape the manifest used.
+        QTest::newRow("v-prefix") << "v3.1.14" << QByteArray::fromHex("1B83818E");
     }
 
     void hdsTargetVersionEncoding() {

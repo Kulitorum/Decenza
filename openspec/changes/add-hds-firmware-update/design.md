@@ -49,6 +49,14 @@ The scale's own version is one compile-time string, `HDS_FIRMWARE_VERSION` in `c
 
 Normalise both to `major.minor.patch` rather than teaching the comparator about prerelease tags. The packed read's only errors round *up* — a preview reads as its stable, `3.1.16` reads as `3.2.0` — so the catalog then holds nothing newer and Decenza simply offers no update. A missing Update button on a preview build is the whole consequence, and the scale re-resolves the version exactly before installing anything.
 
+### Validate the target once, where the catalog is parsed
+
+`HdsFirmwareCatalog` normalises a leading `v` away and refuses any component above 127 — the largest a payload byte can carry, and the same bound `pullOtaParseTargetVersion` enforces — at ingest. Every stored version is therefore a valid target on every transport by construction.
+
+This is what keeps the transports from each deciding for themselves. Before it, the same question was answered three ways: the catalog admitted `v3.1.14`, the byte encoder rejected it, and the WiFi driver counted dots and accepted anything. A manifest entry could install on one transport and be refused on the others.
+
+Refusing beats clamping for the same reason. A component clamped to 127 is a *different, installable* release, so `1.2.300` would have asked the scale for `1.2.127` — a version the user was never shown. The transports keep their own check as the last line before hardware, but it now asserts an invariant rather than deciding policy.
+
 ### Send the version unconditionally, with no capability negotiation
 
 Each version byte is encoded `0x80 | value`, capped at 127. The bias is what makes one request form correct against every scale:
@@ -68,11 +76,15 @@ USB is framed rather than packetised, and `0x1B` with a biased payload is a five
 
 WiFi carries no framing question: send the `wifi_update <version>` control command over the existing `/snapshot` WebSocket.
 
-### Treat the acknowledgement as queued, and completion as reconnection
+### Claim only what a transport can support, rather than building a channel to prove more
 
-The scale acknowledges a start request as queued, not as installable. Accept-time refusals (`ota_version_invalid`, `ota_busy`) come back on the WebSocket, but catalog-level refusals reach `pullOtaFail()` after the web server has closed its clients, so they surface only on the scale's display and serial log. There is no client progress stream on any transport.
+Bluetooth and USB carry no acknowledgement of an update request at all. So "the scale accepted this" is not knowable there — not with a return value, which only says bytes reached a socket, and not with any amount of added machinery. Over WiFi the scale answers, but only at accept time: `ota_version_invalid` and `ota_busy`. Everything it checks afterwards — catalog eligibility, signature, rollback — happens once it has closed its WebSocket clients, and reaches its own display alone.
 
-Decenza therefore reports that the update has started, not that it succeeded, and infers completion only from the scale reconnecting on the target version. The dialog copy no longer instructs the user to finish anything on the scale — with a named version there is nothing for them to do there.
+The dialog therefore says the update was *requested*, and that the scale restarts if it accepts and shows any problem on its display. That is true on all three transports and needs nothing built.
+
+This is deliberately not a failure-reporting channel. The paths that could fail are unreachable from the UI: the controller already gates on `supportsFirmwareUpdate()` and `isConnected()` before offering the action, and the catalog guarantees the version parses. A `bool` return and a failure signal would exist to describe states the UI cannot enter.
+
+What carries the story instead is the log, which already exists: the start line sits at INFO so the connections view shows it, a dropped command warns, and a WiFi `error` frame is warned unconditionally rather than through the once-per-connect frame-shape sampler that would otherwise swallow a refusal behind an earlier unrelated error.
 
 ## Risks / Trade-offs
 

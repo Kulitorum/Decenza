@@ -93,27 +93,32 @@ void UsbDecentScale::sleep()
 void UsbDecentScale::startFirmwareUpdate(const QString& targetVersion)
 {
     if (!supportsFirmwareUpdate()) {
-        USB_SCALE_LOG(DecentScaleProtocol::firmwareUpdateUnknownVersionMessage());
+        USB_SCALE_WARN(DecentScaleProtocol::firmwareUpdateUnknownVersionMessage());
         return;
     }
-    // Required, for the same reason as the Bluetooth path: a bare 0x1B starts
-    // the scale's own picker rather than installing what the user confirmed.
+    // The version is required: a bare command starts the scale's own picker.
+    // See DecentScaleProtocol::buildTargetedFirmwareUpdateCommand.
     const QByteArray command = DecentScaleProtocol::buildTargetedFirmwareUpdateCommand(targetVersion);
     if (command.isEmpty()) {
         USB_SCALE_WARN(DecentScaleProtocol::firmwareUpdateBadTargetMessage(targetVersion));
         return;
     }
-    USB_SCALE_LOG(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
+    // writeRaw skips the isConnected() check sendCommand opens with, so make it
+    // here rather than logging a start and writing into a closed port.
+    if (!isConnected()) {
+        USB_SCALE_WARN(DecentScaleProtocol::firmwareUpdateNotConnectedMessage());
+        return;
+    }
+    USB_SCALE_INFO(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
 
     // Written raw rather than through sendCommand: USB is framed, not
     // packetised, and a targeted 0x1B is exactly a five-byte frame
     // (openscale include/decent_protocol_frame.h, decentCommandFrameLength).
-    // A padded seven-byte write would leave two bytes for the scale's text
-    // path to discard. Those bytes are in fact harmless — the checksum over a
-    // biased payload always lands in 0x80..0xFF, so it can never be read as a
-    // 0x03 frame start — but that is luck rather than design.
+    // sendCommand's padding would leave the pad and checksum to the scale's
+    // text path, which splits a run at the first 0x03 — harmless in practice,
+    // but writing the frame the framer expects needs no such argument.
     QByteArray frame;
-    frame.append(static_cast<char>(0x03));
+    frame.append(DecentScaleProtocol::PacketHeader);
     frame.append(command);
     writeRaw(frame);
 }

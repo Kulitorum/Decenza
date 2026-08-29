@@ -22,11 +22,12 @@ The dialog SHALL describe the update as starting on the scale and SHALL NOT inst
 - **THEN** an accessible modal dialog SHALL present the installed version, available version, and GitHub release notes
 - **AND** the dialog SHALL offer Cancel and Start update actions
 
-#### Scenario: Update has been started
+#### Scenario: Update has been requested
 
-- **WHEN** the user confirms Start update and the scale accepts the request
-- **THEN** the dialog SHALL state that the update has started on the scale
-- **AND** it SHALL NOT claim the new version is installed, and SHALL NOT direct the user to the scale's display
+- **WHEN** the user confirms Start update
+- **THEN** the dialog SHALL state that the update was requested and that the scale restarts if it accepts
+- **AND** it SHALL NOT claim the scale accepted or installed the update, since two of the three transports carry no acknowledgement
+- **AND** it SHALL NOT direct the user to complete anything on the scale's display
 
 #### Scenario: Selected scale changes while dialog is open
 

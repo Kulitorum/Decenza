@@ -3,36 +3,32 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QRegularExpression>
 
 namespace {
 
-std::optional<QList<int>> versionParts(const QString& version)
+// A release the app may OFFER, which is stricter than a version it can compare.
+// parseVersion ignores a prerelease suffix so an installed "3.1.14-preview.1"
+// orders correctly; a catalog entry carrying one is a different matter — it is
+// not a published stable release, and openscale's own manifest generator refuses
+// to emit one (tools/generate_release_manifest.py, clean_version). Offering it
+// would put a build in front of a user that the publisher did not ship.
+//
+// Returned canonically, so a stored version is the exact string a transport puts
+// on the wire and the exact string the dialog shows.
+QString stableCanonicalVersion(const QString& raw)
 {
-    static const QRegularExpression expression(
-        QStringLiteral("^v?(\\d+)\\.(\\d+)\\.(\\d+)$"));
-    const QRegularExpressionMatch match = expression.match(version.trimmed());
-    if (!match.hasMatch())
-        return std::nullopt;
-
-    bool ok = false;
-    const quint16 major = match.captured(1).toUShort(&ok);
-    if (!ok)
-        return std::nullopt;
-    const quint16 minor = match.captured(2).toUShort(&ok);
-    if (!ok)
-        return std::nullopt;
-    const quint16 patch = match.captured(3).toUShort(&ok);
-    if (!ok)
-        return std::nullopt;
-    return QList<int>{major, minor, patch};
+    const QString trimmed = raw.trimmed();
+    if (trimmed.contains(QLatin1Char('-')))
+        return {};
+    const auto parsed = HdsFirmwareCatalog::parseVersion(trimmed);
+    return parsed ? HdsFirmwareCatalog::canonicalVersion(*parsed) : QString();
 }
 
 HdsFirmwareRelease releaseFromObject(const QJsonObject& object)
 {
     HdsFirmwareRelease release;
-    release.version = object.value(QStringLiteral("version")).toString();
-    release.minFromVersion = object.value(QStringLiteral("min_from")).toString();
+    release.version = stableCanonicalVersion(object.value(QStringLiteral("version")).toString());
+    release.minFromVersion = stableCanonicalVersion(object.value(QStringLiteral("min_from")).toString());
     release.model = object.value(QStringLiteral("model")).toString();
     release.releaseNotesUrl = object.value(QStringLiteral("release_notes_url")).toString();
     return release;
@@ -67,12 +63,12 @@ std::optional<HdsFirmwareCatalog> HdsFirmwareCatalog::fromJson(const QByteArray&
             if (!value.isObject())
                 continue;
             const HdsFirmwareRelease release = releaseFromObject(value.toObject());
-            if (versionParts(release.version) && !release.model.isEmpty())
+            if (!release.version.isEmpty() && !release.model.isEmpty())
                 catalog.m_releases.append(release);
         }
     } else {
         const HdsFirmwareRelease release = releaseFromObject(root);
-        if (versionParts(release.version) && !release.model.isEmpty())
+        if (!release.version.isEmpty() && !release.model.isEmpty())
             catalog.m_releases.append(release);
     }
 
@@ -88,7 +84,7 @@ std::optional<HdsFirmwareCatalog> HdsFirmwareCatalog::fromJson(const QByteArray&
 std::optional<HdsFirmwareRelease> HdsFirmwareCatalog::newestEligibleRelease(
     const QString& installedVersion, const QString& model) const
 {
-    if (!versionParts(installedVersion))
+    if (!HdsFirmwareCatalog::parseVersion(installedVersion))
         return std::nullopt;
 
     std::optional<HdsFirmwareRelease> newest;
@@ -98,7 +94,7 @@ std::optional<HdsFirmwareRelease> HdsFirmwareCatalog::newestEligibleRelease(
             continue;
         }
         if (!release.minFromVersion.isEmpty()
-            && (!versionParts(release.minFromVersion)
+            && (!HdsFirmwareCatalog::parseVersion(release.minFromVersion)
                 || compareVersions(installedVersion, release.minFromVersion) < 0)) {
             continue;
         }
@@ -110,16 +106,15 @@ std::optional<HdsFirmwareRelease> HdsFirmwareCatalog::newestEligibleRelease(
 
 int HdsFirmwareCatalog::compareVersions(const QString& left, const QString& right)
 {
-    const auto leftParts = versionParts(left);
-    const auto rightParts = versionParts(right);
+    const auto leftParts = HdsFirmwareCatalog::parseVersion(left);
+    const auto rightParts = HdsFirmwareCatalog::parseVersion(right);
     if (!leftParts || !rightParts)
         return 0;
 
-    for (int i = 0; i < leftParts->size(); ++i) {
-        if (leftParts->at(i) < rightParts->at(i))
-            return -1;
-        if (leftParts->at(i) > rightParts->at(i))
-            return 1;
-    }
+    // Fixed-width components, so a plain lexicographic compare is the whole rule.
+    if (*leftParts < *rightParts)
+        return -1;
+    if (*leftParts > *rightParts)
+        return 1;
     return 0;
 }

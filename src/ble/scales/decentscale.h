@@ -15,7 +15,6 @@ public:
     QString name() const override { return m_name; }
     QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::DecentScale); }
     QString firmwareVersion() const override { return m_firmwareVersion; }
-    bool supportsFirmwareUpdate() const override { return !m_firmwareVersion.isEmpty(); }
 
 public slots:
     void tare() override;

@@ -501,23 +501,23 @@ void DecentScale::resetTimer() {
 
 void DecentScale::startFirmwareUpdate(const QString& targetVersion) {
     if (!supportsFirmwareUpdate()) {
-        DECENT_LOG(DecentScaleProtocol::firmwareUpdateUnknownVersionMessage());
+        DECENT_WARN(DecentScaleProtocol::firmwareUpdateUnknownVersionMessage());
         return;
     }
-    // The version is required. A bare 0x1B is a valid command that starts the
-    // scale's own on-display picker, so sending one because the target failed
-    // to resolve would silently downgrade the user's confirmed choice into a
-    // second choice they have to make on the hardware.
+    // The version is required: a bare command starts the scale's own picker.
+    // See DecentScaleProtocol::buildTargetedFirmwareUpdateCommand.
     const QByteArray command = DecentScaleProtocol::buildTargetedFirmwareUpdateCommand(targetVersion);
     if (command.isEmpty()) {
         DECENT_WARN(DecentScaleProtocol::firmwareUpdateBadTargetMessage(targetVersion));
         return;
     }
-    DECENT_LOG(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
-    // sendCommand pads to the fixed 7-byte packet. That stays correct here:
-    // the firmware's length check for a targeted 0x1B is a minimum (>= 5), so
-    // the trailing pad and checksum are ignored
-    // (openscale include/decent_protocol.h, decentRequireLength).
+    DECENT_INFO(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
+    // sendCommand pads to the fixed 7-byte packet, which stays correct here for
+    // two independent reasons: the Bluetooth path has no framer at all — one
+    // characteristic write goes to one handler, which reads data[2..4] for a
+    // targeted 0x1B and stops (openscale include/ble.h) — and that handler's
+    // length check is a minimum, not an equality
+    // (openscale include/decent_protocol.h, decentRequireLength is `>=`).
     sendCommand(command);
 }
 

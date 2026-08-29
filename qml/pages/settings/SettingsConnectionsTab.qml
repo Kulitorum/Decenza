@@ -48,7 +48,7 @@ Item {
             Text {
                 Layout.fillWidth: true
                 visible: !MainController.hdsFirmwareUpdate.updateStarted
-                text: TranslationManager.translate("connections.hdsUpdateHandoff",
+                text: TranslationManager.translate("connections.hdsUpdateExplain",
                                                    "The scale will install this version on its own. Keep it powered and within WiFi range until it restarts.")
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
@@ -58,8 +58,12 @@ Item {
             Text {
                 Layout.fillWidth: true
                 visible: MainController.hdsFirmwareUpdate.updateStarted
-                text: TranslationManager.translate("connections.hdsUpdateStarted",
-                                                   "The update has started on the scale. It will restart when it finishes, and the scale reports any problem on its own display.")
+                // Says only what a transport can support. Bluetooth and USB carry no
+                // acknowledgement at all, so "the scale accepted this" is not knowable
+                // there however much machinery is added — and a restart is the only
+                // positive evidence any transport offers.
+                text: TranslationManager.translate("connections.hdsUpdateRequested",
+                                                   "Update requested. The scale restarts if it accepts, and shows any problem on its own display.")
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
                 Accessible.ignored: true
