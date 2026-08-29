@@ -32,17 +32,27 @@ class TranslationManager;
 // WHAT THIS CLASS DELIBERATELY DOES NOT DO
 // ----------------------------------------
 // An earlier version measured the hold from live shot samples — a steady-window
-// search with a rate ceiling, a hold floor, smoothing and a median. It was built
-// on the argument that de1app's scalar goes stale on advanced profiles, which is
-// TRUE in general (A-Flow____default-medium.tcl declares espresso_pressure 6.0
-// beside frames holding 10.0 bar) and IRRELEVANT here: the only profiles this
-// wizard runs are Decent's own, and Decent authored their scalars correctly.
+// search with a rate ceiling, a hold floor, smoothing and a median. That was the
+// wrong answer to a real problem, and both halves are worth stating.
 //
-// So the measurement bought nothing this workflow needed and cost a heuristic
-// with its own failure modes — one of which shipped, picking the 20 s lead-in
-// plateau over the 60 s hold it was meant to read. Deleting it removed the bug
-// rather than fixing it. Do not reintroduce it without a case this profile
-// actually produces.
+// The real problem: de1app's Goal is NOT read from the loaded profile. It is
+// ::settings(espresso_pressure), a global, and it goes stale. Observed on a
+// user's machine with the calibration profile loaded — the profile file declares
+// espresso_pressure 9.0 and its frames hold at 9.0, and the Calibrate page
+// showed a Goal of 6.0 bar. The D-Flow editor sets that global to 6.0
+// (profile_editors/D_Flow/code.tcl:154) and loading an advanced profile
+// afterwards does not reliably restore it. A user entering a gauge reading
+// against that Goal writes a ~3 bar error into the sensor.
+//
+// So reading a per-profile SCALAR is unsafe. Reading the profile's FRAMES is
+// not, and it is what this class does — which is why the measurement machinery
+// was unnecessary: the declared final frame is already the right number, with no
+// heuristic and nothing to go stale.
+//
+// The measurement cost a heuristic with its own failure modes — one of which
+// shipped, picking the 20 s lead-in plateau over the 60 s hold it was meant to
+// read. Deleting it removed that bug rather than fixing it. Do not reintroduce
+// it without a case the frames cannot already answer.
 //
 // WHAT IS KEPT
 // ------------
