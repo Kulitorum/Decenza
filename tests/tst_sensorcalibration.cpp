@@ -68,8 +68,6 @@ private slots:
             QVERIFY(!f.controller.instrumentText(i).isEmpty());
             QVERIFY(!f.controller.label(i).isEmpty());
             QVERIFY(!f.controller.unitLabel(i).isEmpty());
-            QVERIFY(f.controller.maxValue(i) > f.controller.minValue(i));
-            QVERIFY(f.controller.maxCorrection(i) > 0.0);
         }
     }
 
@@ -94,9 +92,6 @@ private slots:
             QCOMPARE(f.controller.calibrationTarget(bad), -1);
             QVERIFY(f.controller.profileFilename(bad).isEmpty());
             QVERIFY(!f.controller.rejectionReason(bad, 9.0).isEmpty());
-            // A degenerate 0.0 range would read as a real bound.
-            QVERIFY(std::isnan(f.controller.minValue(bad)));
-            QVERIFY(std::isnan(f.controller.maxValue(bad)));
         }
     }
 

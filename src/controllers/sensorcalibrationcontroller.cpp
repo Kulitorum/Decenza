@@ -143,20 +143,8 @@ QString SensorCalibrationController::unitLabel(int sensor) const {
     return spec ? QString::fromUtf8(spec->unitLabel) : QString();
 }
 
-double SensorCalibrationController::minValue(int sensor) const {
-    const auto* spec = rowFor(sensor);
-    return spec ? spec->minValue : kNoValue;
-}
 
-double SensorCalibrationController::maxValue(int sensor) const {
-    const auto* spec = rowFor(sensor);
-    return spec ? spec->maxValue : kNoValue;
-}
 
-double SensorCalibrationController::maxCorrection(int sensor) const {
-    const auto* spec = rowFor(sensor);
-    return spec ? spec->maxCorrection : kNoValue;
-}
 
 bool SensorCalibrationController::isTestProfileActive(int sensor) const {
     const auto* spec = rowFor(sensor);

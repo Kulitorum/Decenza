@@ -150,9 +150,10 @@ public:
     Q_INVOKABLE QString label(int sensor) const;
     Q_INVOKABLE QString instrumentText(int sensor) const;
     Q_INVOKABLE QString unitLabel(int sensor) const;
-    Q_INVOKABLE double minValue(int sensor) const;
-    Q_INVOKABLE double maxValue(int sensor) const;
-    Q_INVOKABLE double maxCorrection(int sensor) const;
+    // The bounds are NOT exposed. rejectionReason() is the only thing that needs
+    // them and it applies them itself, so publishing them would be three API
+    // surfaces for nobody — and a second place a caller could re-implement the
+    // guard slightly differently.
 
     // True while this sensor's test profile is the active one. Everything below
     // depends on it: a declared hold only means something when the machine is
