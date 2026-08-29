@@ -470,16 +470,69 @@ private slots:
         connectAndHandshake(driver, server);
 
         QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+            QRegularExpression(".*Firmware version: 3\\.0\\.9 \\(reported 'FW: 3\\.0\\.9'\\).*"));
         server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.0.9" }});
         QTest::qWait(50);
 
         // Same value — no further log expected. Then a different value warn-logs.
         server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.0.9" }});
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(".*Firmware version changed mid-connect: FW: 3\\.0\\.9 -> FW: 3\\.1\\.0.*"));
+            QRegularExpression(".*Firmware version changed mid-connect: 3\\.0\\.9 -> 3\\.1\\.0.*"));
         server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.1.0" }});
         QTest::qWait(50);
+    }
+
+    // The scale sends its compile-time version behind a fixed "FW: " label, and
+    // a preview build carries a prerelease suffix. Both are stripped so every
+    // transport hands the catalog the same major.minor.patch shape — the packed
+    // Bluetooth/USB encoding cannot carry a suffix at all.
+    void firmwareVersionIsNormalizedToMajorMinorPatch_data() {
+        QTest::addColumn<QString>("reported");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("labelled") << "FW: 3.1.13" << "3.1.13";
+        QTest::newRow("prerelease") << "FW: 3.1.14-preview.1" << "3.1.14";
+        QTest::newRow("unlabelled") << "3.1.13" << "3.1.13";
+        QTest::newRow("padded") << "FW:   3.1.13  " << "3.1.13";
+    }
+
+    void firmwareVersionIsNormalizedToMajorMinorPatch() {
+        QFETCH(QString, reported);
+        QFETCH(QString, expected);
+
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        server.sendJson({{ "type", "status" }, { "firmware_version", reported }});
+        QTRY_COMPARE(driver.firmwareVersion(), expected);
+        QVERIFY(driver.supportsFirmwareUpdate());
+    }
+
+    // WiFi is the third transport the update reaches, and the only one where a
+    // connected HDS previously had no update path at all.
+    void firmwareUpdateSendsNamedWifiUpdateCommand() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.1.13" }});
+        QTRY_VERIFY(driver.supportsFirmwareUpdate());
+        server.clearReceived();
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Starting firmware update to 3\\.1\\.14.*"));
+        driver.startFirmwareUpdate(QStringLiteral("3.1.14"));
+        QTRY_VERIFY(server.received().contains(QStringLiteral("wifi_update 3.1.14")));
+
+        // A bare "wifi_update" is accepted by the firmware and starts its own
+        // interactive picker, so an unresolvable target must send nothing.
+        server.clearReceived();
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*unparsable target version.*"));
+        driver.startFirmwareUpdate(QStringLiteral("3.1"));
+        QTest::qWait(50);
+        QVERIFY(server.received().isEmpty());
     }
 
     // Regression: the real firmware's status frame ALSO carries a `grams` field
@@ -496,7 +549,7 @@ private slots:
         connectAndHandshake(driver, server);
 
         QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+            QRegularExpression(".*Firmware version: 3\\.0\\.9 \\(reported 'FW: 3\\.0\\.9'\\).*"));
         server.sendJson({
             { "type", "status" },
             { "grams", 25.66 },
@@ -970,7 +1023,7 @@ private slots:
         connectAndHandshake(driver, server);
 
         QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+            QRegularExpression(".*Firmware version: 3\\.0\\.9 \\(reported 'FW: 3\\.0\\.9'\\).*"));
         server.sendJson({
             { "type", "status" },
             { "battery_percent", 80 },

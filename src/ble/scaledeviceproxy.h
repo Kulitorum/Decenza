@@ -105,7 +105,7 @@ public slots:
     void wake();
     void disableLcd();
     void sendKeepAlive();
-    void startFirmwareUpdate();
+    void startFirmwareUpdate(const QString& targetVersion);
     void disconnectFromScale();
     void resetFlowCalculation();
     void addFlowSample(double flowRate, double deltaTime);

@@ -90,13 +90,32 @@ void UsbDecentScale::sleep()
     emit sleepCompleted();
 }
 
-void UsbDecentScale::startFirmwareUpdate()
+void UsbDecentScale::startFirmwareUpdate(const QString& targetVersion)
 {
     if (!supportsFirmwareUpdate()) {
-        USB_SCALE_LOG("Firmware update command dropped - HDS firmware version is unknown");
+        USB_SCALE_LOG(DecentScaleProtocol::firmwareUpdateUnknownVersionMessage());
         return;
     }
-    sendCommand(QByteArray::fromHex("1B"));
+    // Required, for the same reason as the Bluetooth path: a bare 0x1B starts
+    // the scale's own picker rather than installing what the user confirmed.
+    const QByteArray command = DecentScaleProtocol::buildTargetedFirmwareUpdateCommand(targetVersion);
+    if (command.isEmpty()) {
+        USB_SCALE_WARN(DecentScaleProtocol::firmwareUpdateBadTargetMessage(targetVersion));
+        return;
+    }
+    USB_SCALE_LOG(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
+
+    // Written raw rather than through sendCommand: USB is framed, not
+    // packetised, and a targeted 0x1B is exactly a five-byte frame
+    // (openscale include/decent_protocol_frame.h, decentCommandFrameLength).
+    // A padded seven-byte write would leave two bytes for the scale's text
+    // path to discard. Those bytes are in fact harmless — the checksum over a
+    // biased payload always lands in 0x80..0xFF, so it can never be read as a
+    // 0x03 frame start — but that is luck rather than design.
+    QByteArray frame;
+    frame.append(static_cast<char>(0x03));
+    frame.append(command);
+    writeRaw(frame);
 }
 
 // ===========================================================================

@@ -1,5 +1,6 @@
 #include "decentscalewifi.h"
 #include "scalelogging.h"
+#include "../protocol/decentscaleprotocol.h"
 
 #include <QWebSocket>
 #include <QJsonDocument>
@@ -49,6 +50,31 @@ template struct AccessBypass<WsPrivateSocketTag, &QWebSocketPrivate::m_pSocket>;
 // responder, shared with the discovery path, so both read it from one place.
 #include "../../network/wifiscalediscovery.h"
 #include "../../network/wifiscaleresult.h"  // wifiScaleDisplayName
+
+namespace {
+
+// The scale reports FIRMWARE_VER, which is HDS_FIRMWARE_VERSION behind a fixed
+// "FW: " label — e.g. "FW: 3.1.14-preview.1". Strip the label the way the
+// firmware itself does (at the colon) and reduce to a bare major.minor.patch.
+//
+// Dropping a prerelease suffix loses nothing that matters here: the catalog is
+// keyed on release versions, and the Bluetooth and USB paths cannot carry a
+// suffix at all, so keeping one would make this the only transport whose
+// version the shared comparator had to be taught to order.
+QString normalizeReportedFirmwareVersion(const QString& reported) {
+    QString version = reported;
+    const qsizetype colon = version.indexOf(QLatin1Char(':'));
+    if (colon >= 0)
+        version = version.mid(colon + 1);
+    version = version.trimmed();
+
+    const qsizetype suffix = version.indexOf(QLatin1Char('-'));
+    if (suffix >= 0)
+        version = version.left(suffix);
+    return version;
+}
+
+} // namespace
 
 #define WIFI_LOG(msg)  SCALE_LOG("DecentScaleWifi", msg)
 #define WIFI_INFO(msg) SCALE_INFO("DecentScaleWifi", msg)
@@ -625,7 +651,10 @@ void DecentScaleWifi::onDisconnected() {
     setConnected(false);
 
     // Clear per-connect state so the next connect re-captures it fresh.
+    const bool hadFirmwareVersion = !m_firmwareVersion.isEmpty();
     m_firmwareVersion.clear();
+    if (hadFirmwareVersion)
+        emit firmwareVersionChanged();
     m_loggedProtoVersion = -1;
     m_loggedFrameShapes.clear();
     m_lastPowerEventReason.clear();
@@ -712,15 +741,20 @@ void DecentScaleWifi::handleStatusFrame(const QJsonObject& obj) {
     // Firmware version — log once per connect, warn-log on mid-connect change.
     const QJsonValue fwv = obj.value(QStringLiteral("firmware_version"));
     if (fwv.isString()) {
-        const QString version = fwv.toString();
+        const QString reported = fwv.toString();
+        const QString version = normalizeReportedFirmwareVersion(reported);
         if (!version.isEmpty() && m_firmwareVersion != version) {
             if (m_firmwareVersion.isEmpty()) {
-                WIFI_LOG(QString("Firmware version: %1").arg(version));
+                WIFI_LOG(QString("Firmware version: %1 (reported '%2')").arg(version, reported));
             } else {
                 WIFI_WARN(QString("Firmware version changed mid-connect: %1 -> %2")
                           .arg(m_firmwareVersion, version));
             }
             m_firmwareVersion = version;
+            // Drives supportsFirmwareUpdate too, and the update controller
+            // re-evaluates availability on it. Without this the Update action
+            // could never appear for a WiFi scale.
+            emit firmwareVersionChanged();
         }
     }
 
@@ -1050,6 +1084,21 @@ void DecentScaleWifi::startTimer() { send(QStringLiteral("timer start")); }
 void DecentScaleWifi::stopTimer()  { send(QStringLiteral("timer stop")); }
 void DecentScaleWifi::resetTimer() { send(QStringLiteral("timer reset")); }
 void DecentScaleWifi::disableLcd() { send(QStringLiteral("display off")); }
+
+void DecentScaleWifi::startFirmwareUpdate(const QString& targetVersion) {
+    if (!supportsFirmwareUpdate()) {
+        WIFI_LOG(DecentScaleProtocol::firmwareUpdateUnknownVersionMessage());
+        return;
+    }
+    // Named, for the same reason as the Bluetooth and USB paths: a bare
+    // "wifi_update" is accepted and starts the scale's own interactive picker.
+    if (targetVersion.split(QLatin1Char('.')).size() != 3) {
+        WIFI_WARN(DecentScaleProtocol::firmwareUpdateBadTargetMessage(targetVersion));
+        return;
+    }
+    WIFI_LOG(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
+    send(QStringLiteral("wifi_update %1").arg(targetVersion));
+}
 
 void DecentScaleWifi::wake() {
     // Order: restore sensors/loop first, then OLED.

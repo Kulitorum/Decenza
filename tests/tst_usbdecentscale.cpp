@@ -35,8 +35,17 @@ private slots:
 
         scale.setTestConnected(true);
         scale.writes.clear();
-        scale.startFirmwareUpdate();
-        QCOMPARE(scale.writes, QList<QByteArray>{QByteArray::fromHex("031B0000000018")});
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Starting firmware update to 3\\.1\\.14.*"));
+        scale.startFirmwareUpdate(QStringLiteral("3.1.14"));
+        // USB is framed rather than packetised: a targeted 0x1B is exactly five
+        // bytes, so nothing is padded and nothing spills to the scale's text
+        // path (openscale decentCommandFrameLength).
+        QCOMPARE(scale.writes, QList<QByteArray>{QByteArray::fromHex("031B83818E")});
+
+        scale.writes.clear();
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*unparsable target version.*"));
+        scale.startFirmwareUpdate(QStringLiteral("3.1"));
+        QVERIFY(scale.writes.isEmpty());
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Half Decent Scale \\(USB\\) DISCONNECTED"));
         scale.setTestConnected(false);

@@ -82,6 +82,13 @@ public:
     QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi); }
     QString transportType() const { return QStringLiteral("wifi"); }
 
+    // The scale sends its version as the compile-time string behind a fixed
+    // "FW: " label. Reported as a bare major.minor.patch, which is what the
+    // Bluetooth and USB paths decode from their packed two-byte form and what
+    // the release catalog is keyed on.
+    QString firmwareVersion() const override { return m_firmwareVersion; }
+    bool supportsFirmwareUpdate() const override { return !m_firmwareVersion.isEmpty(); }
+
     // mDNS-resilience hooks. Production wires these to
     // SettingsNetwork::wifiScaleIp via `settings.network()->wifiScaleIp(...)`
     // (see main.cpp). Tests inject mock callbacks. Both default to no-ops
@@ -136,6 +143,7 @@ public slots:
     void sleep() override;
     void wake() override;
     void disableLcd() override;
+    void startFirmwareUpdate(const QString& targetVersion) override;
     void sendKeepAlive() override;
     void disconnectFromScale() override;
     void setLed(int r, int g, int b);

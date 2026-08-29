@@ -394,8 +394,54 @@ private slots:
         QCOMPARE(versionSpy.count(), 1);
 
         transport->m_writes.clear();
-        scale.startFirmwareUpdate();
-        QCOMPARE(transport->m_writes, QList<QByteArray>{QByteArray::fromHex("031B0000000018")});
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Starting firmware update to 3\\.1\\.14.*"));
+        scale.startFirmwareUpdate(QStringLiteral("3.1.14"));
+        // 0x1B plus the target as three 0x80-biased bytes, in the fixed 7-byte
+        // packet. The scale's length check for a targeted 0x1B is a minimum, so
+        // the pad and checksum are ignored.
+        QCOMPARE(transport->m_writes, QList<QByteArray>{QByteArray::fromHex("031B83818E0094")});
+    }
+
+    // A bare 0x1B is a valid command that starts the scale's own picker, so an
+    // unresolvable target must send nothing rather than fall back to it.
+    void hdsBluetoothUpdateCommandRequiresAParsableTarget() {
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+        scale.m_characteristicsReady = true;
+
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte d\\[4\\]=.*"));
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentLedResponse(50, 3, 1, 13));
+        transport->m_writes.clear();
+
+        for (const QString& bad : {QStringLiteral(""), QStringLiteral("3.1"),
+                                   QStringLiteral("3.1.14.1"), QStringLiteral("3.1.x")}) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*unparsable target version.*"));
+            scale.startFirmwareUpdate(bad);
+        }
+        QVERIFY(transport->m_writes.isEmpty());
+    }
+
+    void hdsTargetVersionEncoding_data() {
+        QTest::addColumn<QString>("version");
+        QTest::addColumn<QByteArray>("expected");
+        QTest::newRow("3.1.14") << "3.1.14" << QByteArray::fromHex("1B83818E");
+        QTest::newRow("zeroes") << "0.0.0" << QByteArray::fromHex("1B808080");
+        // Every component byte must keep its high bit, or older firmware would
+        // read the payload as a command: 3.10.2 would decode as 03 0A 02, the
+        // power-off command.
+        QTest::newRow("3.10.2") << "3.10.2" << QByteArray::fromHex("1B838A82");
+        // Components are capped at 127 rather than wrapping into another byte.
+        QTest::newRow("cap") << "1.2.300" << QByteArray::fromHex("1B8182FF");
+        QTest::newRow("bad-negative") << "3.1.-4" << QByteArray();
+        QTest::newRow("bad-short") << "3.1" << QByteArray();
+        QTest::newRow("bad-empty") << "" << QByteArray();
+    }
+
+    void hdsTargetVersionEncoding() {
+        QFETCH(QString, version);
+        QFETCH(QByteArray, expected);
+        QCOMPARE(DecentScaleProtocol::buildTargetedFirmwareUpdateCommand(version), expected);
     }
 
 

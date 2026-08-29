@@ -27,7 +27,7 @@ public slots:
     void sleep() override;
     void wake() override;
     void disableLcd() override;
-    void startFirmwareUpdate() override;
+    void startFirmwareUpdate(const QString& targetVersion) override;
     void setLed(int r, int g, int b);
 private slots:
     void onTransportConnected();

@@ -122,10 +122,14 @@ public:
     QString name() const override { return QStringLiteral("Half Decent Scale"); }
     QString firmwareVersion() const override { return m_version; }
     bool supportsFirmwareUpdate() const override { return true; }
-    void startFirmwareUpdate() override { ++updateRequests; }
+    void startFirmwareUpdate(const QString& targetVersion) override {
+        ++updateRequests;
+        requestedVersions.append(targetVersion);
+    }
     void setTestConnected(bool connected) { setConnected(connected); }
 
     int updateRequests = 0;
+    QStringList requestedVersions;
 
 private:
     QString m_version;
@@ -144,6 +148,7 @@ private slots:
     void resumeRefreshesTheCatalog();
     void cancellationIgnoresTheSupersededReply();
     void failedRefreshRetainsTheLastKnownCatalog();
+    void startUpdateNamesTheResolvedRelease();
 };
 
 void tst_HdsFirmwareUpdateController::launchCheckCachesManifestAndFollowsActiveScale()
@@ -170,6 +175,34 @@ void tst_HdsFirmwareUpdateController::launchCheckCachesManifestAndFollowsActiveS
     QVERIFY(!controller.updateAvailable());
     controller.startUpdate();
     QCOMPARE(otherScale.updateRequests, 0);
+}
+
+// The whole point of the targeted flow: the release the user was shown is the
+// release the scale is told to install. Sending no version is not a milder
+// version of this — it starts the scale's own picker, which is the behaviour
+// this replaced.
+void tst_HdsFirmwareUpdateController::startUpdateNamesTheResolvedRelease()
+{
+    ScriptedNam nam;
+    nam.responses = {{manifest("3.1.14")}};
+    HdsFirmwareUpdateController controller(&nam);
+    FakeHdsScale scale(QStringLiteral("3.1.13"));
+    scale.setTestConnected(true);
+    controller.setScaleDevice(&scale);
+
+    QTRY_VERIFY(controller.updateAvailable());
+    QVERIFY(!controller.updateStarted());
+
+    controller.startUpdate();
+    QCOMPARE(scale.updateRequests, 1);
+    QCOMPARE(scale.requestedVersions, QStringList{controller.availableVersion()});
+    QCOMPARE(scale.requestedVersions.first(), QStringLiteral("3.1.14"));
+    QVERIFY(controller.updateStarted());
+
+    // A second confirmation must not queue a second install; the scale refuses
+    // one anyway, but it should never be asked.
+    controller.startUpdate();
+    QCOMPARE(scale.updateRequests, 1);
 }
 
 void tst_HdsFirmwareUpdateController::manifestRequestUsesSharedGithubPolicy()

@@ -47,7 +47,7 @@ public slots:
     void resetTimer() override;
     void wake() override;
     void sleep() override;
-    void startFirmwareUpdate() override;
+    void startFirmwareUpdate(const QString& targetVersion) override;
 
     // -- USB-specific API --
 

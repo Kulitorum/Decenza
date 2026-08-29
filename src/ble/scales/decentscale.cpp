@@ -499,12 +499,26 @@ void DecentScale::resetTimer() {
     sendCommand(QByteArray::fromHex("0B0200"));
 }
 
-void DecentScale::startFirmwareUpdate() {
+void DecentScale::startFirmwareUpdate(const QString& targetVersion) {
     if (!supportsFirmwareUpdate()) {
-        DECENT_LOG("Firmware update command dropped - HDS firmware version is unknown");
+        DECENT_LOG(DecentScaleProtocol::firmwareUpdateUnknownVersionMessage());
         return;
     }
-    sendCommand(QByteArray::fromHex("1B"));
+    // The version is required. A bare 0x1B is a valid command that starts the
+    // scale's own on-display picker, so sending one because the target failed
+    // to resolve would silently downgrade the user's confirmed choice into a
+    // second choice they have to make on the hardware.
+    const QByteArray command = DecentScaleProtocol::buildTargetedFirmwareUpdateCommand(targetVersion);
+    if (command.isEmpty()) {
+        DECENT_WARN(DecentScaleProtocol::firmwareUpdateBadTargetMessage(targetVersion));
+        return;
+    }
+    DECENT_LOG(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
+    // sendCommand pads to the fixed 7-byte packet. That stays correct here:
+    // the firmware's length check for a targeted 0x1B is a minimum (>= 5), so
+    // the trailing pad and checksum are ignored
+    // (openscale include/decent_protocol.h, decentRequireLength).
+    sendCommand(command);
 }
 
 void DecentScale::sleep() {
