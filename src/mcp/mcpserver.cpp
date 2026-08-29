@@ -15,6 +15,7 @@
 
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QDateTime>
 #include <QDebug>
 #include <QStandardPaths>
 #include <QDir>
@@ -280,6 +281,11 @@ void McpServer::connectSseNotifications()
 }
 
 namespace {
+// Collapse key for the stale-session recovery line — see
+// McpServer::m_staleSessionLog. A constant, not the text: the text embeds the
+// session id, so keying on it would open a run per session and close none.
+constexpr auto kStaleSessionLogKey = QLatin1String("staleSessionReuse");
+
 // `_meta` keys the modern era defines. Spelled once — they appear in the
 // discriminator, the version check and the response framing, and a typo in one
 // copy would be a silently different protocol.
@@ -1050,8 +1056,17 @@ McpServer::SessionResolution McpServer::resolveSessionForMessage(const QJsonObje
             // Only one session exists — the client almost certainly belongs
             // to it. Reuse it to avoid leaking a new session on every request.
             session = m_sessions.begin().value();
-            MCP_INFO_TAGGED("Server", QStringLiteral("Stale session header, reusing sole session %1")
-                          .arg(session->id()));
+            {
+                const QString text =
+                    QStringLiteral("Stale session header, reusing sole session %1")
+                        .arg(session->id());
+                LogCollapse::Collapsed collapsed;
+                if (m_staleSessionLog.shouldLog(kStaleSessionLogKey, text,
+                                                QDateTime::currentMSecsSinceEpoch(),
+                                                &collapsed)) {
+                    MCP_INFO_TAGGED("Server", text + LogCollapse::suffix(collapsed));
+                }
+            }
             // Adopt the client's MCP-Protocol-Version (when present and
             // supported) so the mismatch check below doesn't 400 a
             // recovered client whose prior negotiation differed from the
@@ -1254,9 +1269,30 @@ void McpServer::handleModernRequest(QTcpSocket* socket, const QJsonObject& reque
     }
 
     const QJsonObject clientInfo = meta.value(QLatin1String(kMetaClientInfo)).toObject();
-    MCP_LOG_TAGGED("Server", QStringLiteral("modern %1 — client=%2 v%3 version=%4")
-                                 .arg(sanitizeForLog(request.value(QLatin1String("method"))
-                                                         .toString()),
+    const QString method = request.value(QLatin1String("method")).toString();
+    // Name the TOOL, not just the method. Without this every call logged the
+    // identical line "modern tools/call — client=… version=…": 179 of them in one
+    // submitted log, recording that a call happened and not which one, so the
+    // busiest line in the [MCP] story could not answer the first question anyone
+    // asks of it. The method alone is the one field that is never in doubt.
+    //
+    // Only for tools/call — every other method IS fully described by its name,
+    // and appending an empty parenthetical to those would be noise.
+    QString detail;
+    if (method == QLatin1String("tools/call")) {
+        const QString toolName = request.value(QLatin1String("params")).toObject()
+                                     .value(QLatin1String("name")).toString();
+        // Client-supplied, so it goes through the same sanitizer as every other
+        // echoed field. An unnamed tool is a malformed request, not an
+        // impossibility, and "(unnamed)" says so rather than reading as a
+        // formatting bug.
+        detail = QStringLiteral(" tool=%1")
+                     .arg(toolName.isEmpty() ? QStringLiteral("(unnamed)")
+                                             : sanitizeForLog(toolName));
+    }
+    MCP_LOG_TAGGED("Server", QStringLiteral("modern %1%2 — client=%3 v%4 version=%5")
+                                 .arg(sanitizeForLog(method),
+                                      detail,
                                       sanitizeForLog(clientInfo.value(QLatin1String("name"))
                                                          .toString()),
                                       sanitizeForLog(clientInfo.value(QLatin1String("version"))
@@ -2141,6 +2177,20 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
     }
     for (const QString& id : orphaned) {
         MCP_INFO_TAGGED("Server", QStringLiteral("Removing orphaned session %1").arg(id));
+    // Run end for the stale-session collapse: a session reaped without another
+    // stale-header request arriving would otherwise hold its tally until some
+    // later session's first recovery printed it.
+    {
+        const LogCollapse::Collapsed collapsed =
+            m_staleSessionLog.flush(kStaleSessionLogKey, QDateTime::currentMSecsSinceEpoch());
+        if (collapsed.suppressed > 0) {
+            MCP_INFO_TAGGED("Server",
+                            QStringLiteral("stale-session recovery ran %1 more time(s) over "
+                                           "%2 s for the session just closed")
+                                .arg(collapsed.suppressed)
+                                .arg(collapsed.spanMs / 1000));
+        }
+    }
         // No m_pendingConfirmation reset here: the guard above excludes any
         // confirmation-holding session from `orphaned`, so it is unreachable.
         delete m_sessions.take(id);
@@ -2240,6 +2290,20 @@ void McpServer::cleanupExpiredSessions()
 
     for (const QString& id : expired) {
         MCP_INFO_TAGGED("Server", QStringLiteral("Expiring session %1").arg(id));
+    // Run end for the stale-session collapse: a session reaped without another
+    // stale-header request arriving would otherwise hold its tally until some
+    // later session's first recovery printed it.
+    {
+        const LogCollapse::Collapsed collapsed =
+            m_staleSessionLog.flush(kStaleSessionLogKey, QDateTime::currentMSecsSinceEpoch());
+        if (collapsed.suppressed > 0) {
+            MCP_INFO_TAGGED("Server",
+                            QStringLiteral("stale-session recovery ran %1 more time(s) over "
+                                           "%2 s for the session just closed")
+                                .arg(collapsed.suppressed)
+                                .arg(collapsed.spanMs / 1000));
+        }
+    }
         // Clear pending confirmation if it belongs to this expired session —
         // and ANSWER it, rather than leaving that client holding an open request
         // for a dialog nobody will ever resolve.

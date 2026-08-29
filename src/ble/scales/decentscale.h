@@ -2,6 +2,7 @@
 
 #include "../scaledevice.h"
 #include "../transport/scalebletransport.h"
+#include "core/logcollapse.h"
 #include <QTimer>
 
 class DecentScale : public ScaleDevice {
@@ -99,4 +100,16 @@ private:
     QTimer* m_watchdogTimer = nullptr;
     // Gates the periodic battery poll — see kBatteryPollHeartbeatTicks above.
     bool m_lcdOn = true;
+
+    // The battery poll's log line, collapsed. It is byte-identical every ~4 min
+    // for the whole life of a connection and says only "the timer still runs":
+    // 342 of them in one submitted log, none of which answers a question. The
+    // battery VALUE has its own line (m_lastBatteryByte, warn-on-change) and
+    // that is the one a reader wants.
+    //
+    // EPISODIC — a connection ends — so it is flushed in
+    // onTransportDisconnected(), where every other per-connection field is
+    // cleared. Without that flush the tally would surface on the next connect's
+    // first poll, dating this connection's polls to the next one.
+    LogCollapse m_pollLog{LogCollapse::kChangesOnly};
 };

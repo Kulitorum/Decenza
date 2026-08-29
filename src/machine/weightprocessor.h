@@ -8,6 +8,7 @@
 #include <QDateTime>
 #include <functional>
 
+#include "core/logcollapse.h"
 #include "stepexitarbiter.h"
 
 // Runs on a dedicated worker thread. Receives weight samples from the scale,
@@ -132,6 +133,9 @@ signals:
 
 private:
     double computeLSLR(int windowMs) const;
+    // Closes the constant-weight liveness run and reports its tally — see
+    // m_constantSampleLog.
+    void flushConstantSampleLog();
     double getExpectedDrip(double currentFlowRate) const;
     // Scale-agnostic stall evaluation, run on the DE1 shot-sample cadence
     // (setCurrentFrame) during extraction / preheat.
@@ -284,9 +288,25 @@ private:
     // Log throttle timestamps — reset each shot so warnings are never suppressed at shot start
     qint64 m_lastTareWarnMs = 0;
     qint64 m_lastLowFlowLogMs = 0;
-    // Throttle for the #1176 constant-weight liveness diagnostic, logged off
-    // the unconditional weightSampleReceived path. 0 = not logged this shot.
-    qint64 m_lastConstantSampleLogMs = 0;
+    // The #1176 constant-weight liveness diagnostic, logged off the
+    // unconditional weightSampleReceived path.
+    //
+    // This replaced a hand-rolled 2 s throttle, which is the same "remember the
+    // last text, count repeats" LogCollapse exists to stop being copied per
+    // caller (CLAUDE.md's centralize rule; logcollapse.h's own history). The
+    // throttle also set the emission rate rather than the information rate: a
+    // 100 s static window produced 50 identical lines, and one submitted log
+    // carried 567 of them.
+    //
+    // Keyed on a CONSTANT, not on the text — the text carries the weight, so
+    // keying on it would file every value under its own run and none of them
+    // would ever close. With one key, a weight that moves is a changed line
+    // that emits at once carrying the previous value's tally, which is exactly
+    // the transition a reader is looking for.
+    //
+    // EPISODIC — a shot ends — so it is flushed in startExtraction() and
+    // resetForRetare(), the two places the previous throttle was cleared.
+    LogCollapse m_constantSampleLog{LogCollapse::kChangesOnly};
     bool m_flowBecameValidLogged = false;  // Log once when flowShort transitions 0→valid
     bool m_untaredCupSignalled = false;   // Fire untaredCupDetected only once per extraction
     // Count of consecutive samples currently satisfying the sanity check's

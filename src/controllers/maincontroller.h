@@ -7,6 +7,7 @@
 #include "profilemanager.h"
 #include "steamheaterpolicy.h"
 #include "recipeselectionmodel.h"
+#include "core/logcollapse.h"
 #include "core/yieldspec.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
@@ -772,6 +773,32 @@ private:
     // a wall-clock rate limiter — see CLAUDE.md's "never timers as guards"
     // rule.
     bool m_shotSettingsResendInFlight = false;
+    // Closes a "giving up" episode and reports its tally — see m_driftGiveUpLog.
+    void flushDriftGiveUpLog();
+    // The "giving up after N resend attempts" WARN, collapsed.
+    //
+    // That branch RETURNS without latching anything, so it is re-entered on
+    // every subsequent drifting indication and re-warns each time. Measured on a
+    // submitted log: 60 byte-identical WARN lines in 6.7 seconds, about nine per
+    // second, and they were the single loudest thing in the whole buffer. The
+    // word "giving up" is what makes it wrong rather than merely noisy — the
+    // ladder gives up RESENDING and never gives up warning, so the terminal line
+    // of the narrative repeats forever and trains a reader to skim the one tier
+    // that is supposed to mean "look here". Same cry-wolf pattern
+    // BLEManager::scaleRepeatFailure() exists to prevent, in a file that had no
+    // equivalent.
+    //
+    // kChangesOnly rather than a window: every repeat is the same fact, and the
+    // fact that drift CONTINUED is carried by the tally, which states it better
+    // than sixty lines do. logcollapse.h's "a source gated on a problem wants a
+    // real window" carve-out is about sources whose repeats are evidence — here
+    // the repeats are one exhausted ladder being asked the same question.
+    //
+    // EPISODIC, flushed at all three places the ladder resets: the
+    // device-gone path, the drift-resolved path, and applyAllSettings()'s
+    // reconnect reset. Each already ends with an INFO line, so the tally lands
+    // beside the resolution a reader is looking for.
+    LogCollapse m_driftGiveUpLog{LogCollapse::kChangesOnly};
     double m_lastPressure = 0;       // Last sample pressure (for transition reason inference)
     double m_lastFlow = 0;           // Last sample flow (for transition reason inference)
     // The sample BEFORE m_lastPressure/m_lastFlow. The machine can cross a

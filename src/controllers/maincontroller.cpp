@@ -84,6 +84,14 @@
 #define DRIFT_INFO(msg) DE1_INFO_STDERR_TAGGED("SettingsDrift", msg)
 #define DRIFT_WARN(msg) DE1_WARN_STDERR_TAGGED("SettingsDrift", msg)
 
+// Collapse key for the drift ladder's terminal WARN — see
+// MainController::m_driftGiveUpLog. A constant rather than the line's text: the
+// text embeds the resend count, so keying on it would open a run per count
+// value and close none of them.
+namespace {
+constexpr auto kDriftGiveUpLogKey = QLatin1String("shotSettingsDriftGiveUp");
+}  // namespace
+
 MainController *MainController::s_qmlInstance = nullptr;
 
 void MainController::setQmlInstance(MainController *instance)
@@ -2557,6 +2565,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
                 "device gone with a resend outstanding — ladder abandoned, drift unresolved"));
             m_shotSettingsResendInFlight = false;
             m_shotSettingsDriftResendCount = 0;
+            flushDriftGiveUpLog();
         }
         return;
     }
@@ -2637,6 +2646,10 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
                 .arg(deviceGroupTargetC, 0, 'f', 2));
             m_shotSettingsDriftResendCount = 0;
         }
+        // Outside the count>0 guard above: an episode that exhausted the ladder
+        // leaves a pending tally, and the counter it would be gated on is not
+        // what says whether one exists.
+        flushDriftGiveUpLog();
         m_shotSettingsResendInFlight = false;
         return;
     }
@@ -2728,9 +2741,19 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
 
     constexpr int kMaxResendAttempts = 3;
     if (m_shotSettingsDriftResendCount >= kMaxResendAttempts) {
-        DRIFT_WARN(QString(
+        // Collapsed, because this branch returns without latching and is
+        // therefore re-entered on every later drifting indication — see
+        // m_driftGiveUpLog for the measured 60-in-6.7-seconds this produced.
+        // The first one warns; the rest are counted and reported by whichever
+        // reset ends the episode.
+        const QString text = QString(
             "giving up after %1 resend attempts — DE1 not honoring ShotSettings")
-            .arg(m_shotSettingsDriftResendCount));
+            .arg(m_shotSettingsDriftResendCount);
+        LogCollapse::Collapsed collapsed;
+        if (m_driftGiveUpLog.shouldLog(kDriftGiveUpLogKey, text,
+                                       QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+            DRIFT_WARN(text + LogCollapse::suffix(collapsed));
+        }
         return;
     }
 
@@ -2756,6 +2779,26 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // softStopSteam, setSteamTimeoutImmediate) deliberately write values that
     // diverge from Settings, and re-deriving would clobber them.
     m_device->resendLastShotSettings();
+}
+
+// Ends a "giving up" episode: reports how many further drifting indications hit
+// the exhausted ladder, then forgets the key so the next episode starts clean.
+//
+// Called from all three places the ladder resets. Each of those already logs an
+// INFO resolution line, and this rides immediately after it so the count lands
+// beside the outcome rather than adrift from it. Without the flush the tally
+// would surface on the NEXT episode's first WARN, dating this drift to a later
+// one — logcollapse.h's documented misattribution.
+void MainController::flushDriftGiveUpLog()
+{
+    const LogCollapse::Collapsed collapsed =
+        m_driftGiveUpLog.flush(kDriftGiveUpLogKey, QDateTime::currentMSecsSinceEpoch());
+    if (collapsed.suppressed > 0) {
+        DRIFT_INFO(QStringLiteral("ladder had already given up; %1 further drifting "
+                                  "report(s) arrived over %2 s before this")
+                       .arg(collapsed.suppressed)
+                       .arg(collapsed.spanMs / 1000));
+    }
 }
 
 void MainController::sendMachineSettings(const QString& reason) {
@@ -2975,6 +3018,7 @@ void MainController::applyAllSettings() {
                            "the previous session's drift was never resolved")
                        .arg(m_shotSettingsDriftResendCount));
     }
+    flushDriftGiveUpLog();
     m_shotSettingsDriftResendCount = 0;
     m_shotSettingsResendInFlight = false;
 

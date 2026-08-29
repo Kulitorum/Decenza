@@ -18,6 +18,7 @@
 
 #include "blecapability.h"
 #include "bledeviceid.h"
+#include "core/logcollapse.h"
 #include "network/wifiscaleresult.h"
 
 class ScaleDevice;
@@ -1136,6 +1137,56 @@ private:
     bool m_userInitiatedScaleScan = false;  // True only for user-initiated scan (show all scales)
     bool m_refractometerHunt = false;  // Review page open: keep scans back-to-back until R2 connects
     bool m_scaleConnectionFailed = false;
+
+    // Which subsystem a collapsed scan-lifecycle line belongs to. One BLE scan
+    // serves the DE1, the scales and the refractometer, and each cycle logs
+    // under whoever asked — so the collapse helpers have to route, and routing
+    // by marker is what this names.
+    enum class ScanLogSink { De1, Scale, Refractometer };
+    void scanCycleDebug(ScanLogSink sink, const QString& message);
+
+    // Emit `text` unless it is a repeat of the line this key last emitted, in
+    // which case count it. One definition of the shouldLog/suffix dance for all
+    // four scan-lifecycle sites, per the centralize rule in CLAUDE.md — four
+    // hand-written copies is exactly how the [USB Scale] prefix reached 73 sites
+    // and drifted at 21 of them.
+    void logScanCycle(LogCollapse& collapse, const QString& key,
+                      const QString& text, ScanLogSink sink);
+    // End a run: emit what the collapsed line stood in for, or nothing if it
+    // stood in for nothing. `text` is the SAME text the run emitted, so the
+    // closing line reads as the opening line plus its count rather than as a
+    // second wording of the same event.
+    void flushScanCycle(LogCollapse& collapse, const QString& key,
+                        const QString& text, ScanLogSink sink);
+
+    // The scan lifecycle is BURSTY, not periodic, and that is the whole reason
+    // these exist. A cycle is ~7.5 s and logs byte-identical text, so a
+    // reconnect ladder or an open review page emits ~8 lines/min for as long as
+    // the device stays missing: measured on a submitted log, 1,791 scan-cycle
+    // lines, 99% of them inside bursts of 20+, the largest 230 lines over 29
+    // minutes. All 230 said the same thing. kChangesOnly emits the first and
+    // counts the rest, and the count is strictly more informative than the
+    // repetition — "looked 230 times over 29 minutes and never found it" is the
+    // fact a reader wants, and it is the one thing 230 identical lines do not
+    // state.
+    //
+    // EPISODIC, so both MUST be flushed — see logcollapse.h, which records that
+    // four of six existing callers got this wrong and stapled one run's tally
+    // onto the next run's first line.
+    //
+    // Flushed in stopScan(), which is where a scan burst actually ends: the
+    // saved primary being rediscovered and auto-connected, the DE1 being found,
+    // a USB transport arriving. A chain that ends without stopScan() (the agent
+    // finishing with nothing to restart it) holds its tally until the next
+    // burst — accepted rather than papered over with gap-detection machinery,
+    // because the ladder's 30 s pauses are the SAME burst to a reader and
+    // splitting them would report a story that did not happen.
+    LogCollapse m_scanCycleLog{LogCollapse::kChangesOnly};
+    // Separate instance, not another key on m_scanCycleLog, because its run ends
+    // somewhere else entirely: setRefractometerHunt(false). Sharing the instance
+    // would let stopScan()'s flush cut an ongoing hunt's tally in half and
+    // report two bursts where there was one.
+    LogCollapse m_huntChainLog{LogCollapse::kChangesOnly};
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;
     // Bounds a foreground direct-connect to ~4s (see kScaleDirectConnectAbortMs).

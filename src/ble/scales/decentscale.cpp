@@ -3,11 +3,23 @@
 #include "../protocol/de1characteristics.h"
 #include "../protocol/decentscaleprotocol.h"
 #include <algorithm>
+#include <QDateTime>
 #include <QTimer>
 
 #define DECENT_LOG(msg)  SCALE_LOG("DecentScale", msg)
 #define DECENT_INFO(msg) SCALE_INFO("DecentScale", msg)
 #define DECENT_WARN(msg) SCALE_WARN("DecentScale", msg)
+
+namespace {
+// Written at two sites — the poll that emits it and the disconnect that closes
+// its run — and LogCollapse decides "repeat" by comparing text, so the two must
+// stay byte-identical or the collapse silently stops collapsing. It doubles as
+// the collapse KEY, which is safe here only because this file has exactly one
+// collapsed line; a second one gets its own key rather than sharing this.
+inline QString batteryPollText() {
+    return QStringLiteral("Polling battery (display-on refresh)");
+}
+}  // namespace
 
 DecentScale::DecentScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -98,6 +110,15 @@ void DecentScale::onTransportDisconnected() {
     m_lastBatteryByte = -1;
     m_ticksSinceBatteryPoll = 0;
     m_lcdOn = true;
+    // Run end for the battery-poll collapse. Reported rather than dropped: the
+    // count IS the connection's polling history, and discarding it is the same
+    // misattribution as never flushing, only quieter (logcollapse.h).
+    {
+        const LogCollapse::Collapsed collapsed =
+            m_pollLog.flush(batteryPollText(), QDateTime::currentMSecsSinceEpoch());
+        if (collapsed.suppressed > 0)
+            DECENT_LOG(batteryPollText() + LogCollapse::suffix(collapsed));
+    }
     setConnected(false);
 }
 
@@ -595,7 +616,15 @@ void DecentScale::startHeartbeat() {
             if (++m_ticksSinceBatteryPoll >= kBatteryPollHeartbeatTicks) {
                 m_ticksSinceBatteryPoll = 0;
                 if (m_lcdOn) {
-                    DECENT_LOG("Polling battery (display-on refresh)");
+                    // Collapsed: identical every ~4 min for the connection's
+                    // life — see m_pollLog. The COMMAND is unconditional; only
+                    // the line about it is suppressed.
+                    const QString pollText = batteryPollText();
+                    LogCollapse::Collapsed collapsed;
+                    if (m_pollLog.shouldLog(pollText, pollText,
+                                            QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+                        DECENT_LOG(pollText + LogCollapse::suffix(collapsed));
+                    }
                     sendCommand(QByteArray::fromHex("0A01010001"));
                 }
                 // else: skip poll while LCD is off — see m_lcdOn.
