@@ -83,8 +83,7 @@
 #define DECENZA_LOG_MARKER_AUTOSLEEP     "AutoSleep"
 #define DECENZA_LOG_MARKER_AUTOLOAD      "AutoLoad"
 #define DECENZA_LOG_MARKER_KEYBOARD      "Keyboard"
-#define DECENZA_LOG_MARKER_WEATHER       "Weather"
-#define DECENZA_LOG_MARKER_UPDATE        "Update"
+#define DECENZA_LOG_MARKER_APP           "App"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -195,16 +194,17 @@
       "start, and the reason a press did nothing (machine not ready, GHC "         \
       "active, wrong phase). Answers \"the E key stopped starting shots\", "      \
       "where the press itself is invisible and the refusal is the whole story")   \
-    X(DECENZA_LOG_MARKER_WEATHER,                                                  \
-      "The weather and sun-time fetches behind the idle screen and the "           \
-      "screensaver: which provider was asked, for which coordinates, and what "    \
-      "came back. Answers \"the weather is wrong or stale\" and separates a "     \
-      "provider outage from a location the app resolved incorrectly")              \
-    X(DECENZA_LOG_MARKER_UPDATE,                                                   \
-      "The app's own update check: when it ran, the installed and available "      \
-      "versions it compared, and whether a newer build was offered. Answers "      \
-      "\"why am I not being offered the update\", where the usual cause is a "    \
-      "platform having no asset in that release rather than the check failing")
+    X(DECENZA_LOG_MARKER_APP,                                                      \
+      "The app's own housekeeping, as distinct from anything the machine does: "   \
+      "the update check (when it ran, the versions it compared, whether a newer "  \
+      "build was offered) and the weather and sun-time fetches behind the idle "   \
+      "screen. Tagged Update and Weather. Answers \"why am I not being offered "   \
+      "the update\" — usually a release with no asset for this platform rather "   \
+      "than a check that failed — and \"why is the weather wrong or stale\", "     \
+      "which separates a provider outage from a location resolved incorrectly. "   \
+      "One marker rather than two because neither is a machine subsystem and a "   \
+      "reader reaching for either is asking the same kind of question: is the "    \
+      "APP misbehaving, or the espresso machine")
 
 // ---- The one place a log line's shape is built -------------------------
 //
