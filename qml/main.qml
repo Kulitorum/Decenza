@@ -3798,6 +3798,18 @@ T.ApplicationWindow {
         if (!startNavigation()) return
         var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
 
+        // A calibration shot stopped by hand lands here rather than in
+        // finishCompletion(), which only runs for a shot that ended on its own. Both
+        // ways out of that shot have to return to the wizard, or stopping early
+        // strands the user on idle with the test profile still loaded.
+        if (currentPage === "espressoPage" && root.returnToPageName === "sensorCalibrationPage") {
+            pageStack.replace(null, idlePage)
+            pageStack.push(sensorCalibrationPage, { sensor: root.returnToSensor })
+            root.returnToPageName = ""
+            root.returnToShotId = 0
+            return
+        }
+
         // When leaving operation pages, check if we should return to a saved page
         if ((currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage") &&
             root.returnToPageName === "postShotReviewPage") {
