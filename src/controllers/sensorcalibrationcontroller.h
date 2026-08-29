@@ -11,55 +11,26 @@
 class DE1Device;
 class TranslationManager;
 
-// Sensor calibration, done the way Decent's own test profiles do it.
+// Sensor calibration, done the way Decent's own test profiles describe it: run
+// the profile, compare the screen against your external gauge, enter the gauge
+// reading, repeat until they agree.
 //
-// THE METHOD
-// ----------
-// Decent ships test_pressure_calibration and test_temperature_calibration, and
-// their notes describe the whole procedure: run the profile, it rises to its
-// hold and stays there, compare what the screen shows against your external
-// gauge, enter the held value, retest until the two agree. The machine-reported
-// half of the correction is therefore the profile's DECLARED hold — the value
-// the machine is holding to and displaying — not something the app derives from
-// telemetry.
+// The machine's half of the correction is the loaded profile's DECLARED FINAL
+// FRAME — not a live measurement, and not a per-profile scalar. Both wrong
+// answers have been tried:
 //
-// de1app does exactly this: it sends ::settings(espresso_pressure) as
-// DE1ReportedVal (de1_skin_settings.tcl:2391), and for the calibration profile
-// that scalar is 9.0, matching the profile's final hold frame
-// (de1plus/profiles/test_pressure_calibration.tcl:5). This is the vendor-tested
-// path and Decenza follows it.
+//   - A scalar goes stale. de1app sends ::settings(espresso_pressure)
+//     (de1_skin_settings.tcl:2391); observed showing a Goal of 6.0 bar with the
+//     calibration profile loaded and holding at 9.0, because the D-Flow editor
+//     sets that global to 6.0 (profile_editors/D_Flow/code.tcl:154). Entering a
+//     gauge reading against it writes a ~3 bar error.
+//   - Measuring the hold from live samples needs a window search, and it picked
+//     the profile's 20 s 7 bar lead-in over its 60 s 9 bar hold. Deleted; see
+//     git history before rebuilding it.
 //
-// WHAT THIS CLASS DELIBERATELY DOES NOT DO
-// ----------------------------------------
-// An earlier version measured the hold from live shot samples — a steady-window
-// search with a rate ceiling, a hold floor, smoothing and a median. That was the
-// wrong answer to a real problem, and both halves are worth stating.
-//
-// The real problem: de1app's Goal is NOT read from the loaded profile. It is
-// ::settings(espresso_pressure), a global, and it goes stale. Observed on a
-// user's machine with the calibration profile loaded — the profile file declares
-// espresso_pressure 9.0 and its frames hold at 9.0, and the Calibrate page
-// showed a Goal of 6.0 bar. The D-Flow editor sets that global to 6.0
-// (profile_editors/D_Flow/code.tcl:154) and loading an advanced profile
-// afterwards does not reliably restore it. A user entering a gauge reading
-// against that Goal writes a ~3 bar error into the sensor.
-//
-// So reading a per-profile SCALAR is unsafe. Reading the profile's FRAMES is
-// not, and it is what this class does — which is why the measurement machinery
-// was unnecessary: the declared final frame is already the right number, with no
-// heuristic and nothing to go stale.
-//
-// The measurement cost a heuristic with its own failure modes — one of which
-// shipped, picking the 20 s lead-in plateau over the 60 s hold it was meant to
-// read. Deleting it removed that bug rather than fixing it. Do not reintroduce
-// it without a case the frames cannot already answer.
-//
-// WHAT IS KEPT
-// ------------
-// One definition of every per-sensor fact, one chokepoint for the write, and a
-// guard that a correction can only be computed while the sensor's own test
-// profile is loaded — so the declared hold being read is the one the user is
-// actually watching on screen.
+// A correction is only computed while that sensor's own test profile is loaded,
+// so the declared hold is the number the user is actually watching.
+
 class SensorCalibrationController : public QObject {
     Q_OBJECT
 

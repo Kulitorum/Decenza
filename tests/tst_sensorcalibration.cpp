@@ -143,55 +143,56 @@ private slots:
     }
 
     // ===== Entry guards =====
+    //
+    // One table rather than seven near-identical slots: every row is the same
+    // question — given this profile and this reading, does rejectionReason
+    // refuse? Keeping them separate hid the shape of the rules.
 
-    void readingOutsidePhysicalRangeIsRefused_data() {
+    void theGuardsOnAnInstrumentReading_data() {
+        QTest::addColumn<QString>("profile");
+        QTest::addColumn<int>("sensor");
         QTest::addColumn<double>("reading");
-        QTest::newRow("negative") << -1.0;
-        QTest::newRow("absurd")   << 60.0;
+        QTest::addColumn<bool>("accepted");
+
+        const QString pressure = QStringLiteral("test_pressure_calibration");
+        const QString other    = QStringLiteral("my_everyday_espresso");
+        const int P = int(Sensor::Pressure);
+
+        // Plausible corrections against a 9.0 bar hold.
+        QTest::newRow("a real correction")     << pressure << P << 8.2  << true;
+        QTest::newRow("a small one")           << pressure << P << 8.9  << true;
+
+        // Outside what the sensor could ever read.
+        QTest::newRow("negative")              << pressure << P << -1.0 << false;
+        QTest::newRow("absurd")                << pressure << P << 60.0 << false;
+        QTest::newRow("not a number")          << pressure << P
+                                               << std::numeric_limits<double>::quiet_NaN() << false;
+
+        // In range, but nowhere near what the machine holds. 13.5 is a PSI
+        // reading; 7.0 is the profile's own lead-in plateau, exactly
+        // maxCorrection away — which is why the guard rejects AT the limit.
+        QTest::newRow("psi-shaped")            << pressure << P << 13.5 << false;
+        QTest::newRow("read the lead-in")      << pressure << P << 7.0  << false;
+
+        // Agreement is the check succeeding, not a correction: sending a
+        // reported == measured pair is a write whose firmware effect is
+        // unverified and could zero an offset the user already had.
+        QTest::newRow("they already agree")    << pressure << P << 9.0  << false;
+
+        // No test profile loaded, so there is nothing to compare against —
+        // however plausible the reading looks.
+        QTest::newRow("wrong profile")         << other    << P << 8.2  << false;
     }
 
-    void readingOutsidePhysicalRangeIsRefused() {
+    void theGuardsOnAnInstrumentReading() {
+        QFETCH(QString, profile);
+        QFETCH(int, sensor);
         QFETCH(double, reading);
-        TestFixture f;
-        f.loadProfile(QStringLiteral("test_pressure_calibration"), 9.0, 93.0);
-        QVERIFY(!f.controller.rejectionReason(int(Sensor::Pressure), reading).isEmpty());
-    }
+        QFETCH(bool, accepted);
 
-    void plausibleReadingPasses() {
         TestFixture f;
-        f.loadProfile(QStringLiteral("test_pressure_calibration"), 9.0, 93.0);
-        QVERIFY(f.controller.rejectionReason(int(Sensor::Pressure), 8.2).isEmpty());
-    }
-
-    void nonFiniteReadingIsRefused() {
-        TestFixture f;
-        f.loadProfile(QStringLiteral("test_pressure_calibration"), 9.0, 93.0);
-        QVERIFY(!f.controller.rejectionReason(int(Sensor::Pressure),
-                                              std::numeric_limits<double>::quiet_NaN()).isEmpty());
-    }
-
-    // A PSI reading typed into a bar field is in range (0-14) but nowhere near
-    // what the machine holds. So is a gauge read against the 7 bar lead-in
-    // instead of the 9 bar hold — exactly maxCorrection away, which is why the
-    // guard rejects AT the limit rather than beyond it.
-    void aCorrectionTooFarFromTheHoldIsRefused_data() {
-        QTest::addColumn<double>("reading");
-        QTest::newRow("psi-shaped")        << 13.5;
-        QTest::newRow("read the lead-in")  << 7.0;
-    }
-
-    void aCorrectionTooFarFromTheHoldIsRefused() {
-        QFETCH(double, reading);
-        TestFixture f;
-        f.loadProfile(QStringLiteral("test_pressure_calibration"), 9.0, 93.0);
-        QVERIFY(!f.controller.rejectionReason(int(Sensor::Pressure), reading).isEmpty());
-    }
-
-    void withoutTheTestProfileNothingIsAccepted() {
-        TestFixture f;
-        f.loadProfile(QStringLiteral("my_everyday_espresso"), 9.0, 93.0);
-        // Even a perfectly plausible reading: there is nothing to compare it to.
-        QVERIFY(!f.controller.rejectionReason(int(Sensor::Pressure), 8.2).isEmpty());
+        f.loadProfile(profile, 9.0, 93.0);
+        QCOMPARE(f.controller.rejectionReason(sensor, reading).isEmpty(), accepted);
     }
 
     // ===== The write chokepoint =====

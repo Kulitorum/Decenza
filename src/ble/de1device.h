@@ -310,43 +310,26 @@ public slots:
 
     // ---- Sensor calibration (BLE A012) ------------------------------------
     //
-    // The correction lives in the machine, not here: nothing on this path is
-    // persisted by Decenza, restored from a backup, or re-applied on connect.
-    // The values below are what the MACHINE reported and are absent until it
-    // answers a read.
+    // The correction lives in the machine: nothing here is persisted, backed up,
+    // or re-applied on connect.
     //
-    // sendCalibration() is the only writer, and readCalibration() is it with
-    // different arguments, so the record is assembled in exactly one place. The
-    // correction pair itself is assembled only in
-    // SensorCalibrationController::applyCorrection, which calls this directly.
+    // `reported` must be the MACHINE's reading. Passing a profile target instead
+    // is the defect this whole feature exists to avoid — the pair is assembled
+    // only in SensorCalibrationController::applyCorrection.
     //
-    // `reported` is the machine's own sensor reading and `measured` is an
-    // external instrument's. Callers must not pass a profile target as
-    // `reported` — see the sensor calibration wizards, which measure it.
-    // False when the request was refused and NOTHING went to the machine. The
-    // caller must not report success on a false — a wizard that shows "applied"
-    // for a write that never left the app sends the user off to re-run against a
+    // False means the request was refused and NOTHING reached the machine; a
+    // caller that reports success anyway sends the user off to re-run against a
     // machine that never changed.
     [[nodiscard]] bool sendCalibration(DE1::Calibration::Target target,
                                        DE1::Calibration::Command command,
                                        double reported,
                                        double measured);
     Q_INVOKABLE bool readCalibration(int target);
-    // NOTE: there is deliberately no restore-to-factory call, and no factory
-    // value is read or displayed.
-    //
-    // Measured on a real machine (2026-08-29): CalCommand 3, the "read factory"
-    // command, returns the CURRENT stored value, not a distinct factory one.
-    // Before any write the machine reported +0.89 for both; after a write it
-    // reported +0.91 for both. So what de1app labels "Factory" is a second read
-    // of the same number, and there is nothing to restore to.
-    //
-    // That is also the missing explanation for de1app's three reset buttons,
-    // which passed CalCommand 3 and were commented out ten weeks later with no
-    // recorded reason (a2092efc -> 69e4277c): they could never have worked.
-    //
-    // Command::ResetFactory (2) remains in the wire vocabulary, unused and
-    // annotated. tst_de1device_mmrreads asserts nothing ever sends it.
+    // No restore-to-factory, and no factory value shown. Measured on hardware
+    // (2026-08-29): CalCommand 3 returns the CURRENT stored value, not a
+    // distinct factory one — both read +0.89 before a write and +0.91 after. So
+    // there is nothing to restore to. tst_de1device_mmrreads asserts that
+    // Command::ResetFactory is never sent.
 
     // The stored offset as last reported by the machine, per target. `has` is
     // false until a read is answered — a caller must not substitute 0, which

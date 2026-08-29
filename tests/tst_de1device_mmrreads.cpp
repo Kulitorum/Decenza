@@ -302,11 +302,18 @@ private slots:
         QVERIFY(!f.device.m_espressoStartDeferred);
         QVERIFY(!f.device.m_espressoSettleTimer.isActive());
 
-        // Reconnect, then wait past the original window. No Espresso state
-        // change should have been issued by the cancelled deferral.
+        // Reconnect. The cancelled deferral must not come back with the link.
+        //
+        // Asserted on the timer rather than by waiting out the window: the
+        // window is 500 ms of real time in a suite where a slot is otherwise
+        // sub-millisecond, and an inactive timer is the mechanism the outcome
+        // depends on — a re-armed one is the only way a write could appear.
+        // Same reasoning as expireAndSweep() above, which forces MMR deadlines
+        // into the past instead of sleeping through them.
         f.transport.clearWrites();
         f.transport.setConnectedSim(true);
-        QTest::qWait(PROFILE_UPLOAD_SETTLE_WAIT_MS);
+        QVERIFY(!f.device.m_espressoStartDeferred);
+        QVERIFY(!f.device.m_espressoSettleTimer.isActive());
         QCOMPARE(countEspressoStateWrites(f.transport), qsizetype(0));
     }
 
@@ -619,7 +626,6 @@ private slots:
     }
 
 private:
-    static constexpr int PROFILE_UPLOAD_SETTLE_WAIT_MS = 700;  // > 500ms window
 
     static qsizetype countCalibrationWrites(const MockTransport& t) {
         qsizetype n = 0;
