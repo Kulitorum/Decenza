@@ -1,12 +1,12 @@
 ## Purpose
 
-Lets Decenza identify and present signed, compatible Half Decent Scale firmware releases and hand the existing WiFi update flow to the selected scale without adding noise to normal Connections use.
+Lets Decenza identify and present signed, compatible Half Decent Scale firmware releases and install a chosen release on the selected scale over Bluetooth, USB, or WiFi, without the owner touching the scale and without adding noise to normal Connections use.
 
 ## ADDED Requirements
 
 ### Requirement: HDS release availability is lifecycle-driven
 
-Decenza SHALL retrieve the OpenScale release manifest used by HDS at application launch and after each genuine return from suspension. It SHALL retain the latest successfully parsed manifest for the app session and SHALL NOT run a periodic HDS-update polling timer. When a connected Bluetooth or USB HDS is the selected scale, Decenza SHALL compare its known installed firmware version with releases eligible for that scale.
+Decenza SHALL retrieve the OpenScale release manifest used by HDS at application launch and after each genuine return from suspension. It SHALL retain the latest successfully parsed manifest for the app session and SHALL NOT run a periodic HDS-update polling timer. When a connected HDS is the selected scale on any supported transport, Decenza SHALL compare its known installed firmware version with releases eligible for that scale.
 
 #### Scenario: Selected HDS has a newer eligible release
 
@@ -29,28 +29,47 @@ Decenza SHALL retrieve the OpenScale release manifest used by HDS at application
 - **WHEN** the application becomes active without first entering the suspended state
 - **THEN** Decenza SHALL NOT issue another HDS manifest request
 
-### Requirement: Existing HDS OTA is handed off safely
+### Requirement: An HDS update installs without interaction at the scale
 
-When the user confirms an available HDS update, Decenza SHALL send the existing HDS WiFi-update command over the selected Bluetooth or USB scale transport. The scale SHALL remain responsible for retrieving and verifying its signed manifest and update assets. Decenza SHALL describe this as an update handoff and SHALL NOT report successful installation merely because the command was sent.
+When the user confirms an available HDS update, Decenza SHALL start the update by naming the target release version in the start command, so the scale installs that release without presenting its on-device release picker and without requiring a hold-to-confirm gesture. Decenza SHALL support this on every transport an HDS can be selected over: Bluetooth, USB, and WiFi.
 
-#### Scenario: User starts an update on current firmware
+Decenza SHALL contribute only a version number. The scale SHALL remain responsible for retrieving and verifying its signed manifest and update assets, and for resolving the requested version against its own eligibility rules.
 
-- **WHEN** the user confirms the available update for a connected HDS that supports the existing WiFi-update command
-- **THEN** Decenza sends that command over the active scale transport
-- **AND** instructs the user to continue version selection and confirmation on the HDS display
+#### Scenario: User confirms an available update
 
-#### Scenario: HDS rejects or cannot complete its update
+- **WHEN** the user confirms the available update for a connected HDS
+- **THEN** Decenza sends the start command carrying the available release version over the active scale transport
+- **AND** the user is not asked to select or confirm anything on the scale
 
-- **WHEN** the HDS cannot connect to WiFi, cannot verify its manifest, or rejects the selected release
+#### Scenario: HDS is connected over WiFi
+
+- **WHEN** the selected connected HDS is reached over WiFi rather than Bluetooth or USB
+- **THEN** Decenza SHALL offer and start the update over that transport
+- **AND** it SHALL NOT require the user to reconnect the scale over another transport to update it
+
+#### Scenario: Scale firmware predates targeted-update support
+
+- **WHEN** the connected HDS runs firmware that does not understand a named version
+- **THEN** the scale SHALL fall back to its own on-device release picker
+- **AND** Decenza SHALL NOT gate, alter, or suppress the command based on the reported firmware version
+
+### Requirement: A started update is never reported as an installed update
+
+Decenza SHALL treat a scale's acceptance of a start request as *queued*, not as installed or installable. It SHALL NOT represent a dispatched command as a completed update, and SHALL infer a completed update only from the scale reconnecting on the target version.
+
+#### Scenario: Start request is accepted
+
+- **WHEN** the scale accepts the start request
+- **THEN** Decenza SHALL report that the update has started
+- **AND** it SHALL NOT report that the new version is installed
+
+#### Scenario: HDS refuses or cannot complete its update
+
+- **WHEN** the HDS cannot connect to WiFi, cannot verify its manifest, or refuses the requested release because its own rules would not offer it
 - **THEN** the HDS retains responsibility for reporting the failure and preserving its installed firmware
 - **AND** Decenza SHALL NOT represent the earlier command dispatch as a completed update
 
-### Requirement: GUI-driven HDS OTA remains non-blocking future work
+#### Scenario: A second start request arrives while one is running
 
-Decenza SHALL ship this availability and handoff feature without waiting for a future HDS remote-OTA protocol. A future protocol MAY allow Decenza to select a release, confirm installation, and display scale-reported progress, but it MUST preserve the HDS as the authority that independently selects compatible releases and verifies signed update assets.
-
-#### Scenario: Current HDS supports only device-side selection
-
-- **WHEN** a connected HDS exposes only the existing WiFi-update command
-- **THEN** Decenza SHALL still offer the available-update handoff
-- **AND** it SHALL require the user to complete selection and confirmation on the HDS display
+- **WHEN** the scale reports that an update is already queued or running
+- **THEN** Decenza SHALL surface that refusal rather than treating the request as accepted
