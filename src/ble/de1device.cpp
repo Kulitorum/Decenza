@@ -2277,14 +2277,6 @@ void DE1Device::simulateCalibrationReply(DE1::Calibration::Target target,
 }
 #endif
 
-bool DE1Device::writeCalibration(int target, double reported, double measured) {
-    if (!isCalibrationTarget(target)) {
-        CAL_WARN("Sensor") << "write refused, target out of range:" << target;
-        return false;
-    }
-    return sendCalibration(static_cast<DE1::Calibration::Target>(target),
-                           DE1::Calibration::Command::Write, reported, measured);
-}
 
 double DE1Device::storedCalibration(int target) const {
     if (!isCalibrationTarget(target)) return 0.0;

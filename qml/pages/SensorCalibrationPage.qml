@@ -84,12 +84,7 @@ T.Page {
     property double previousGap: NaN
     property bool wroteThisSession: false
 
-    // The profile that was active before this page loaded its own, so leaving
-    // puts the machine back where it was. ProfileManager.loadProfile() UPLOADS
-    // (profilemanager.cpp:1945), so opening this page really does change what
-    // the next shot runs.
-    property string previousProfile: ""
-    property bool profileMissing: false
+    // A write was refused and nothing reached the machine.
     property bool writeFailed: false
 
     function _readCalibration() {
@@ -97,27 +92,24 @@ T.Page {
     }
 
     Component.onCompleted: {
-        // currentProfileTITLE, not currentProfileName. The latter is a DISPLAY
-        // string — "*My Espresso" once modified, and a dose nudge is enough —
-        // and its declaration says it must never be used as a query term
-        // (profilemanager.h:85-90).
-        calibrationPage.previousProfile = ProfileManager.currentProfileTitle
-
-        // If the test profile cannot be loaded, loadProfile substitutes the
-        // DEFAULT and uploads it (profilemanager.cpp:1754-1759), so continuing
-        // would compare a gauge reading against a profile the user is not
-        // running.
-        if (!ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))) {
-            calibrationPage.profileMissing = true
-            return
-        }
-        // Four reads; the shared GATT queue orders them, so no pacing here.
+        // Load this sensor's test profile, the way tapping it in the profile list
+        // would. NOT restored on exit: leaving it loaded is what keeps
+        // isTestProfileActive true when the user comes back to type their gauge
+        // reading, and a restore would only have to load it again. The profile
+        // name is on screen throughout, as with any other profile load.
+        ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))
         calibrationPage._readCalibration()
     }
 
-    Component.onDestruction: {
-        if (!calibrationPage.profileMissing && calibrationPage.previousProfile.length > 0)
-            ProfileManager.loadProfile(calibrationPage.previousProfile)
+    // The stored offset belongs to one machine, so DE1Device clears it on
+    // disconnect. Without this the page would sit on "not read yet" for the rest
+    // of its life after a reconnect, Apply disabled, nothing saying why.
+    Connections {
+        target: DE1Device
+        function onConnectedChanged() {
+            if (DE1Device.connected)
+                calibrationPage._readCalibration()
+        }
     }
 
     // The instrument field sits mid-page inside the scroll area, so a soft
@@ -200,48 +192,9 @@ T.Page {
                 }
             }
 
-            // ===== The test profile could not be loaded =====
-            Rectangle {
-                visible: calibrationPage.profileMissing
-                Layout.fillWidth: true
-                Layout.maximumWidth: Theme.scaled(600)
-                Layout.alignment: Qt.AlignHCenter
-                implicitHeight: missingColumn.implicitHeight + Theme.scaled(24)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
-
-                ColumnLayout {
-                    id: missingColumn
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.scaled(12)
-                    spacing: Theme.scaled(8)
-
-                    Tr {
-                        key: "sensorCalibration.profileMissing.title"
-                        fallback: "The test profile is missing"
-                        font: Theme.subtitleFont
-                        color: Theme.warningColor
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate(
-                                  "sensorCalibration.profileMissing.body",
-                                  "Decenza could not load the %1 test profile, so this calibration "
-                                  + "cannot run. Nothing has been changed on your machine.")
-                              .arg(calibrationPage.sensorLabel)
-                        color: Theme.textColor
-                        font: Theme.bodyFont
-                        wrapMode: Text.WordWrap
-                    }
-                }
-            }
-
             // ===== Prepare =====
             Rectangle {
-                visible: !calibrationPage.profileMissing
+                visible: true
                 Layout.fillWidth: true
                 Layout.maximumWidth: Theme.scaled(600)
                 Layout.alignment: Qt.AlignHCenter
@@ -313,7 +266,7 @@ T.Page {
 
             // ===== Enter what your gauge read =====
             Rectangle {
-                visible: !calibrationPage.profileMissing && calibrationPage.haveDeclaredHold
+                visible: calibrationPage.haveDeclaredHold
                 Layout.fillWidth: true
                 Layout.maximumWidth: Theme.scaled(600)
                 Layout.alignment: Qt.AlignHCenter
@@ -527,7 +480,17 @@ T.Page {
 
     // Parsed entry state. Kept as page properties so the summary, the guard
     // message and the button all read the same values.
-    readonly property double entryValue: parseFloat(instrumentField.text)
+    // Locale-aware. parseFloat is C-locale only, so on a comma-decimal locale
+    // "88,5" silently became 88 — and 88 is a plausible reading, so nothing
+    // downstream could tell it was wrong. The keyboard offers whatever separator
+    // the system uses, which is why this cannot be left to the user.
+    readonly property double entryValue: {
+        var t = instrumentField.text.trim()
+        if (t.length === 0) return NaN
+        var viaLocale = Number.fromLocaleString(Qt.locale(), t)
+        if (!isNaN(viaLocale)) return viaLocale
+        return parseFloat(t.replace(",", "."))
+    }
     readonly property string rejection: {
         void(calibrationPage._trVersion)
         // rejectionReason() reads the declared hold internally, which depends on

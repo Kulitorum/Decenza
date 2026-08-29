@@ -315,8 +315,10 @@ public slots:
     // The values below are what the MACHINE reported and are absent until it
     // answers a read.
     //
-    // sendCalibration() is the only writer; the three convenience calls are it
-    // with different arguments, so the record is assembled in exactly one place.
+    // sendCalibration() is the only writer, and readCalibration() is it with
+    // different arguments, so the record is assembled in exactly one place. The
+    // correction pair itself is assembled only in
+    // SensorCalibrationController::applyCorrection, which calls this directly.
     //
     // `reported` is the machine's own sensor reading and `measured` is an
     // external instrument's. Callers must not pass a profile target as
@@ -346,13 +348,6 @@ public slots:
     // Command::ResetFactory (2) remains in the wire vocabulary, unused and
     // annotated. tst_de1device_mmrreads asserts nothing ever sends it.
 
-    // Writes a correction. NOT for QML: `reported` must be what the MACHINE read,
-    // and only SensorCalibration knows that — it is the object that watched the
-    // run. Passing anything else here is the de1app defect this whole feature
-    // exists to avoid, so the pair is assembled in exactly one place
-    // (SensorCalibrationController::applyCorrection) and QML cannot name a
-    // `reported` value at all.
-    [[nodiscard]] bool writeCalibration(int target, double reported, double measured);
     // The stored offset as last reported by the machine, per target. `has` is
     // false until a read is answered — a caller must not substitute 0, which
     // reads as "no correction" and is the one wrong answer that looks plausible.

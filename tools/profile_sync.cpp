@@ -31,6 +31,61 @@
 #include "profile/profile.h"
 #include "profile/profileframe.h"
 
+// Notes that Decenza owns rather than inherits.
+//
+// de1app's own notes navigate the user through de1app's UI ("Go to
+// Settings->Machine->Calibrate"), which does not exist here, and describe
+// behaviour Decenza does differently (flow calibration is automatic). Shipping
+// them verbatim tells the user to look for screens they do not have.
+//
+// This table is the source of truth, NOT the JSON on disk. syncOverBuiltin()
+// re-applies it after every replacement, so a `--sync` against a fresh de1app
+// checkout cannot silently revert the text — which it otherwise would, and the
+// keysLostByRewrite() audit would not catch it, because `notes` is not DROPPED,
+// only overwritten with different prose.
+//
+// Edit the prose here. Editing it in the JSON works until the next sync.
+static const QHash<QString, QString>& decenzaNoteOverrides()
+{
+    static const QHash<QString, QString> overrides = {
+        { QStringLiteral("test_pressure_calibration"),
+          QStringLiteral(
+              "You will need a portafilter fitted with a pressure gauge that leaks or has a "
+              "slow flow rate. This profile rises to 9 bar and holds it. Compare what is on "
+              "screen with your analog gauge, then go to Settings \u2192 Calibration \u2192 "
+              "Pressure Calibration and enter the gauge reading. Your machine applies about a "
+              "tenth of a correction at a time, so repeat until the two agree.") },
+        { QStringLiteral("test_temperature_calibration"),
+          QStringLiteral(
+              "Make a device to read \u00baC inside a basket: drill a 3mm hole in a no-hole "
+              "basket, thread a K type temperature bead through, and bend the wire. Run this "
+              "profile twice to warm up the basket and portafilter. When the DE1 stabilizes at "
+              "90\u00baC, if your meter disagrees go to Settings \u2192 Calibration \u2192 "
+              "Temperature Calibration and enter the meter reading. Your machine applies about "
+              "a tenth of a correction at a time, so repeat until the two agree within "
+              "0.3\u00baC.") },
+        { QStringLiteral("test_flow_calibration"),
+          QStringLiteral(
+              "Put a 0.3mm puck simulator basket into a portafilter and connect a Bluetooth "
+              "scale. Run this profile. Decenza calibrates flow automatically from your scale "
+              "after every 5 qualifying shots \u2014 there is no value to enter by hand. See "
+              "Settings \u2192 Calibration \u2192 Flow Calibration to view the current factor, "
+              "clear it, or turn auto calibration off.") },
+    };
+    return overrides;
+}
+
+// Applies the override for `stem` to `obj`, if there is one. Returns true when it
+// changed something, so the caller can say so rather than doing it silently.
+static bool applyNoteOverride(const QString& stem, QJsonObject& obj)
+{
+    const auto it = decenzaNoteOverrides().constFind(stem);
+    if (it == decenzaNoteOverrides().constEnd()) return false;
+    if (obj.value(QStringLiteral("notes")).toString() == it.value()) return false;
+    obj.insert(QStringLiteral("notes"), it.value());
+    return true;
+}
+
 // Replace a built-in with its de1app source. The rewrite is deliberately a
 // REPLACEMENT, not a merge: a shipped built-in is supposed to be its de1app
 // profile, so keeping anything extra is how the two drift apart again. Any key
@@ -71,7 +126,19 @@ static bool syncOverBuiltin(const Profile& tcl, const QString& outPath, QTextStr
         return false;
     }
 
-    return tcl.saveToFile(outPath);
+    QJsonObject out = tcl.toJsonObject();
+    if (applyNoteOverride(QFileInfo(outPath).completeBaseName(), out)) {
+        // Said out loud. A sync that silently re-wrote the user-facing prose is
+        // exactly the drift this table exists to prevent.
+        cerr << "  → notes: kept Decenza's wording (de1app's navigates its own UI)\n";
+    }
+
+    QFile outFile(outPath);
+    if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        cerr << "  → REFUSED: cannot write " << outPath << " (" << outFile.errorString() << ")\n";
+        return false;
+    }
+    return outFile.write(QJsonDocument(out).toJson(QJsonDocument::Indented)) != -1;
 }
 
 // Read a whole file as text, empty on failure.

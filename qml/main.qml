@@ -3658,7 +3658,13 @@ T.ApplicationWindow {
                 phase === MachineState.Phase.Preinfusion ||
                 phase === MachineState.Phase.Pouring ||
                 phase === MachineState.Phase.Ending) {
-                if (currentPage !== "espressoPage" && !pageStack.busy) {
+                // The sensor calibration wizard is the one page a user is TOLD to
+                // start a shot from — its instructions, its entry field and its
+                // session all live there. Replacing the stack would destroy it
+                // mid-run, so it keeps the screen. Every other page yields to the
+                // espresso view as before.
+                if (currentPage !== "espressoPage" && currentPage !== "sensorCalibrationPage"
+                        && !pageStack.busy) {
                     pageStack.replace(null, espressoPage)
                 }
             } else if (phase === MachineState.Phase.Steaming) {

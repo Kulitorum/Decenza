@@ -485,7 +485,8 @@ private slots:
         // app sends the user off to re-run against a machine that never changed.
         DE1Device orphan;
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("cannot write pressure — no transport"));
-        QVERIFY(!orphan.writeCalibration(int(DE1::Calibration::Target::Pressure), 9.0, 8.2));
+        QVERIFY(!orphan.sendCalibration(DE1::Calibration::Target::Pressure,
+                                        DE1::Calibration::Command::Write, 9.0, 8.2));
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("cannot read pressure — no transport"));
         QVERIFY(!orphan.readCalibration(int(DE1::Calibration::Target::Pressure)));
@@ -524,7 +525,8 @@ private slots:
 
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("simulated machine stored"));
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
-        QVERIFY(f.device.writeCalibration(pressure, 9.0, 8.2));
+        QVERIFY(f.device.sendCalibration(DE1::Calibration::Target::Pressure,
+                                         DE1::Calibration::Command::Write, 9.0, 8.2));
 
         // Nothing may reach the transport on the simulated path.
         QCOMPARE(countCalibrationWrites(f.transport), qsizetype(0));
@@ -536,7 +538,8 @@ private slots:
         // fraction — one write alone cannot distinguish a sign flip.
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("simulated machine stored"));
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
-        QVERIFY(f.device.writeCalibration(pressure, 9.0, 8.6));
+        QVERIFY(f.device.sendCalibration(DE1::Calibration::Target::Pressure,
+                                         DE1::Calibration::Command::Write, 9.0, 8.6));
         QVERIFY(qAbs(f.device.storedCalibration(pressure) + 0.12) < 1e-4);
 
         // A read answers with that same stored value and moves nothing.

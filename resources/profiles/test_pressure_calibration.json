@@ -25,7 +25,7 @@
     "maximum_pressure_range_default": "0.90",
     "minimum_pressure": "6.00",
     "mode": "frame_based",
-    "notes": "You will need a portafilter fitted with a pressure gauge that leaks or has a slow flow rate.  This profile will slowly rise to 9 bar and hold it.  Compare what is on the screen with what your analog pressure gauge tells you.  Go to Settings->Machine->Calibrate and enter the held pressure value, and then retest until the pressure until the two agree.",
+    "notes": "You will need a portafilter fitted with a pressure gauge that leaks or has a slow flow rate. This profile rises to 9 bar and holds it. Compare what is on screen with your analog gauge, then go to Settings → Calibration → Pressure Calibration and enter the gauge reading. Your machine applies about a tenth of a correction at a time, so repeat until the two agree.",
     "number_of_preinfuse_frames": "2",
     "preinfusion_flow_rate": "4.50",
     "preinfusion_stop_pressure": "4.00",
