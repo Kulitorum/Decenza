@@ -329,7 +329,23 @@ public slots:
                                        DE1::Calibration::Command command,
                                        double reported,
                                        double measured);
-    Q_INVOKABLE bool readCalibration(int target, bool factory);
+    Q_INVOKABLE bool readCalibration(int target);
+    // NOTE: there is deliberately no restore-to-factory call, and no factory
+    // value is read or displayed.
+    //
+    // Measured on a real machine (2026-08-29): CalCommand 3, the "read factory"
+    // command, returns the CURRENT stored value, not a distinct factory one.
+    // Before any write the machine reported +0.89 for both; after a write it
+    // reported +0.91 for both. So what de1app labels "Factory" is a second read
+    // of the same number, and there is nothing to restore to.
+    //
+    // That is also the missing explanation for de1app's three reset buttons,
+    // which passed CalCommand 3 and were commented out ten weeks later with no
+    // recorded reason (a2092efc -> 69e4277c): they could never have worked.
+    //
+    // Command::ResetFactory (2) remains in the wire vocabulary, unused and
+    // annotated. tst_de1device_mmrreads asserts nothing ever sends it.
+
     // Writes a correction. NOT for QML: `reported` must be what the MACHINE read,
     // and only SensorCalibration knows that — it is the object that watched the
     // run. Passing anything else here is the de1app defect this whole feature
@@ -337,32 +353,11 @@ public slots:
     // (SensorCalibrationController::applyCorrection) and QML cannot name a
     // `reported` value at all.
     [[nodiscard]] bool writeCalibration(int target, double reported, double measured);
-    // NOTE: there is deliberately no restore-to-factory call.
-    //
-    // Command::ResetFactory (2) exists in the wire vocabulary and is documented
-    // in de1characteristics.h, but NOTHING has ever been observed using it.
-    // de1app's helper names 2 as the reset command (de1_comms.tcl:1653) while
-    // its three reset buttons passed 3 — read-factory — from the day they were
-    // written (2018-02-27, a2092efc) until they were commented out ten weeks
-    // later (2018-05-15, 69e4277c). Both commits have empty messages, so the
-    // reason is unrecorded; that the buttons could not have worked is the
-    // obvious guess and is only a guess.
-    //
-    // With no working reference in any app and no firmware source in this tree,
-    // shipping a restore would mean writing an unverified command to a machine
-    // in the name of undoing a mistake. The factory value is still READ and
-    // shown (de1app does that and it is live there), so a user can see what the
-    // machine holds. Correcting a bad calibration is another run with the
-    // instrument, which is the designed loop anyway.
-
-    // Stored / factory offsets as last reported by the machine, per target.
-    // `has*` is false until a read is answered — a caller must not substitute 0,
-    // which reads as "no correction" and is the one wrong answer that looks
-    // plausible.
+    // The stored offset as last reported by the machine, per target. `has` is
+    // false until a read is answered — a caller must not substitute 0, which
+    // reads as "no correction" and is the one wrong answer that looks plausible.
     Q_INVOKABLE double storedCalibration(int target) const;
-    Q_INVOKABLE double factoryCalibration(int target) const;
     Q_INVOKABLE bool hasStoredCalibration(int target) const;
-    Q_INVOKABLE bool hasFactoryCalibration(int target) const;
 
     // Nominal heater voltage (MMR 0x803834). Accepts 120 or 230 only; any other
     // value is refused and logged rather than written, because a wrong nominal
@@ -718,7 +713,6 @@ private:
     // because the target enum has three values, not because flow is offered.
     static constexpr int kCalibrationTargets = 3;
     std::optional<double> m_storedCalibration[kCalibrationTargets];
-    std::optional<double> m_factoryCalibration[kCalibrationTargets];
     // Absence has to be RE-established, not just established: these are facts
     // about one machine, and the same app can be pointed at another. Cleared in
     // the same reset block as m_lastMMRValues.
@@ -732,7 +726,11 @@ private:
     // Calibrate page synthetic replies when no machine is present
     // (de1plus/gui.tcl:2525-2529).
     double m_simStoredCalibration[kCalibrationTargets] = {0.0, 0.0, 0.0};
-    static constexpr double kSimFactoryCalibration = 0.0;
+    // The machine applies a TENTH of each requested correction. Measured on
+    // hardware: a +0.2 entry moved the stored offset +0.02, a +0.4 entry moved
+    // it +0.04. That damping is why the vendor instruction is "retest until the
+    // two agree" — convergence takes several passes by design.
+    static constexpr double kFirmwareCorrectionFraction = 0.1;
     // Answers a calibration request locally by feeding parseCalibration() a
     // packed reply, so the simulated path exercises the same parse and the same
     // WriteKey == 0 rule the machine will drive.

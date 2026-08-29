@@ -74,17 +74,9 @@ T.Page {
         void(calibrationPage._calVersion)
         return DE1Device.hasStoredCalibration(calibrationPage.calTarget)
     }
-    readonly property bool hasFactory: {
-        void(calibrationPage._calVersion)
-        return DE1Device.hasFactoryCalibration(calibrationPage.calTarget)
-    }
     readonly property double storedOffset: {
         void(calibrationPage._calVersion)
         return DE1Device.storedCalibration(calibrationPage.calTarget)
-    }
-    readonly property double factoryOffset: {
-        void(calibrationPage._calVersion)
-        return DE1Device.factoryCalibration(calibrationPage.calTarget)
     }
 
     // The previous cycle's gap between machine and instrument, so a second run
@@ -100,9 +92,8 @@ T.Page {
     property bool profileMissing: false
     property bool writeFailed: false
 
-    function _readBothCalibrations() {
-        DE1Device.readCalibration(calibrationPage.calTarget, false)
-        DE1Device.readCalibration(calibrationPage.calTarget, true)
+    function _readCalibration() {
+        DE1Device.readCalibration(calibrationPage.calTarget)
     }
 
     Component.onCompleted: {
@@ -121,7 +112,7 @@ T.Page {
             return
         }
         // Four reads; the shared GATT queue orders them, so no pacing here.
-        calibrationPage._readBothCalibrations()
+        calibrationPage._readCalibration()
     }
 
     Component.onDestruction: {
@@ -170,7 +161,7 @@ T.Page {
 
                     Tr {
                         key: "sensorCalibration.current.title"
-                        fallback: "What your machine holds now"
+                        fallback: "Your machine's calibration"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }
@@ -191,24 +182,6 @@ T.Page {
                                   ? calibrationPage._signed(calibrationPage.storedOffset)
                                   : TranslationManager.translate("sensorCalibration.unavailable", "Not read yet")
                             color: calibrationPage.hasStored ? Theme.textColor : Theme.textSecondaryColor
-                            font: Theme.bodyFont
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Tr {
-                            key: "sensorCalibration.current.factory"
-                            fallback: "Factory"
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
-                        }
-                        Item { Layout.fillWidth: true }
-                        Text {
-                            text: calibrationPage.hasFactory
-                                  ? calibrationPage._signed(calibrationPage.factoryOffset)
-                                  : TranslationManager.translate("sensorCalibration.unavailable", "Not read yet")
-                            color: calibrationPage.hasFactory ? Theme.textColor : Theme.textSecondaryColor
                             font: Theme.bodyFont
                         }
                     }
@@ -439,6 +412,22 @@ T.Page {
                         wrapMode: Text.WordWrap
                     }
 
+                    // The machine applies a TENTH of each correction (measured on
+                    // hardware). Without saying so, a user who enters the right
+                    // number sees the gap barely move and concludes it is broken
+                    // — when it is working exactly as the vendor intends.
+                    Text {
+                        Layout.fillWidth: true
+                        visible: calibrationPage.entryValid
+                        text: TranslationManager.translate(
+                                  "sensorCalibration.apply.gradual",
+                                  "Your machine applies about a tenth of a correction at a time, "
+                                  + "so expect several runs before the two agree.")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        wrapMode: Text.WordWrap
+                    }
+
                     Text {
                         Layout.fillWidth: true
                         visible: calibrationPage.writeFailed
@@ -502,7 +491,7 @@ T.Page {
 
                     Tr {
                         key: "sensorCalibration.verify.title"
-                        fallback: "Now run it again"
+                        fallback: "Run it again"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }
@@ -511,7 +500,8 @@ T.Page {
                         Layout.fillWidth: true
                         text: TranslationManager.translate(
                                   "sensorCalibration.verify.body",
-                                  "Run the test profile again and compare. Repeat until the two agree.")
+                                  "Run the test profile again and compare. Each run closes about a "
+                                  + "tenth of the gap, so repeat until the two agree.")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
@@ -634,7 +624,7 @@ T.Page {
                         calibrationPage.writeFailed = false
                         calibrationPage.previousGap = gap
                         // Read back rather than trusting what we sent.
-                        calibrationPage._readBothCalibrations()
+                        calibrationPage._readCalibration()
                         calibrationPage.wroteThisSession = true
                         instrumentField.text = ""
                         confirmDialog.close()

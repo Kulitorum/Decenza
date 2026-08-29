@@ -350,26 +350,15 @@ private slots:
         QVERIFY(qAbs(record->measured - 8.25) < 1e-4);
     }
 
-    void calibrationReadsUseTheReadKeyAndCarryNoValues_data() {
-        QTest::addColumn<bool>("factory");
-        QTest::addColumn<int>("expectedCommand");
-
-        QTest::newRow("current") << false << int(DE1::Calibration::Command::ReadCurrent);
-        QTest::newRow("factory") << true  << int(DE1::Calibration::Command::ReadFactory);
-    }
-
     void calibrationReadsUseTheReadKeyAndCarryNoValues() {
-        QFETCH(bool, factory);
-        QFETCH(int, expectedCommand);
-
         TestFixture f;
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("read.*temperature"));
-        (void)f.device.readCalibration(int(DE1::Calibration::Target::Temperature), factory);
+        (void)f.device.readCalibration(int(DE1::Calibration::Target::Temperature));
 
         const auto record = DE1::Calibration::parseRecord(lastCalibrationWrite(f.transport));
         QVERIFY(record.has_value());
         QCOMPARE(record->writeKey, DE1::Calibration::READ_KEY);
-        QCOMPARE(int(record->command), expectedCommand);
+        QCOMPARE(record->command, DE1::Calibration::Command::ReadCurrent);
         QCOMPARE(record->target, DE1::Calibration::Target::Temperature);
         QCOMPARE(record->reported, 0.0);
         QCOMPARE(record->measured, 0.0);
@@ -388,9 +377,7 @@ private slots:
         (void)f.device.sendCalibration(DE1::Calibration::Target::Pressure,
                                        DE1::Calibration::Command::Write, 9.0, 8.2);
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("read.*pressure"));
-        (void)f.device.readCalibration(int(DE1::Calibration::Target::Pressure), false);
-        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("read factory pressure"));
-        (void)f.device.readCalibration(int(DE1::Calibration::Target::Pressure), true);
+        (void)f.device.readCalibration(int(DE1::Calibration::Target::Pressure));
 
         for (const auto& w : f.transport.writes) {
             if (w.first != DE1::Characteristic::CALIBRATION) continue;
@@ -411,7 +398,7 @@ private slots:
         TestFixture f;
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("read refused, target out of range"));
-        (void)f.device.readCalibration(target, false);
+        (void)f.device.readCalibration(target);
 
         QCOMPARE(countCalibrationWrites(f.transport), qsizetype(0));
         // And the accessors must not walk off the arrays.
@@ -435,7 +422,11 @@ private slots:
         QCOMPARE(f.device.hasStoredCalibration(int(DE1::Calibration::Target::Pressure)), false);
     }
 
-    void realCalibrationValueLandsAndSeparatesStoredFromFactory() {
+    // Measured on hardware: CalCommand 3 ("read factory") returns the CURRENT
+    // value, not a distinct factory one — before any write the machine reported
+    // +0.89 for both, after a write +0.91 for both. So there is ONE slot, and a
+    // reply to either read command lands in it.
+    void everyValueCarryingReplyIsTheCurrentOffset() {
         TestFixture f;
         const int pressure = int(DE1::Calibration::Target::Pressure);
         QSignalSpy changed(&f.device, &DE1Device::calibrationChanged);
@@ -449,22 +440,17 @@ private slots:
 
         QVERIFY(f.device.hasStoredCalibration(pressure));
         QVERIFY(qAbs(f.device.storedCalibration(pressure) + 0.8) < 1e-4);
-        // The factory value is a different slot and is still absent — a caller
-        // must be able to tell "not read yet" from "zero offset".
-        QCOMPARE(f.device.hasFactoryCalibration(pressure), false);
         QCOMPARE(changed.count(), 1);
 
-        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("factory pressure calibration"));
+        // A CalCommand 3 reply updates the SAME slot rather than a second one.
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
         emit f.transport.dataReceived(
             DE1::Characteristic::CALIBRATION,
             calibrationReply(DE1::Calibration::REPLY_VALUE_KEY,
                              DE1::Calibration::Command::ReadFactory,
                              DE1::Calibration::Target::Pressure, 0.15));
 
-        QVERIFY(f.device.hasFactoryCalibration(pressure));
-        QVERIFY(qAbs(f.device.factoryCalibration(pressure) - 0.15) < 1e-4);
-        // The stored value must not have been overwritten by the factory reply.
-        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 0.8) < 1e-4);
+        QVERIFY(qAbs(f.device.storedCalibration(pressure) - 0.15) < 1e-4);
         QCOMPARE(changed.count(), 2);
         QCOMPARE(f.device.calibrationVersion(), 2);
     }
@@ -502,7 +488,7 @@ private slots:
         QVERIFY(!orphan.writeCalibration(int(DE1::Calibration::Target::Pressure), 9.0, 8.2));
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("cannot read pressure — no transport"));
-        QVERIFY(!orphan.readCalibration(int(DE1::Calibration::Target::Pressure), false));
+        QVERIFY(!orphan.readCalibration(int(DE1::Calibration::Target::Pressure)));
     }
 
     void calibrationCacheIsClearedWhenTheMachineGoesAway() {
@@ -525,7 +511,6 @@ private slots:
         f.transport.setConnectedSim(false);
 
         QCOMPARE(f.device.hasStoredCalibration(pressure), false);
-        QCOMPARE(f.device.hasFactoryCalibration(pressure), false);
     }
 
 #ifdef DECENZA_SIMULATOR
@@ -544,20 +529,21 @@ private slots:
         // Nothing may reach the transport on the simulated path.
         QCOMPARE(countCalibrationWrites(f.transport), qsizetype(0));
         QVERIFY(f.device.hasStoredCalibration(pressure));
-        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 0.8) < 1e-4);
+        // A TENTH of the -0.8 delta, matching the machine.
+        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 0.08) < 1e-4);
 
-        // A second write accumulates. This is the assertion that pins the
-        // DIRECTION — one write alone cannot distinguish a sign flip.
+        // A second write accumulates on top. This pins the DIRECTION and the
+        // fraction — one write alone cannot distinguish a sign flip.
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("simulated machine stored"));
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
         QVERIFY(f.device.writeCalibration(pressure, 9.0, 8.6));
-        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 1.2) < 1e-4);
+        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 0.12) < 1e-4);
 
-        // The factory read lands in the other slot and leaves stored alone.
-        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("factory pressure calibration"));
-        QVERIFY(f.device.readCalibration(pressure, true));
-        QVERIFY(f.device.hasFactoryCalibration(pressure));
-        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 1.2) < 1e-4);
+        // A read answers with that same stored value and moves nothing.
+        // CAL_DETAIL is qDebug — mechanics, not an outcome.
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression("confirmed unchanged"));
+        QVERIFY(f.device.readCalibration(pressure));
+        QVERIFY(qAbs(f.device.storedCalibration(pressure) + 0.12) < 1e-4);
     }
 #endif
 

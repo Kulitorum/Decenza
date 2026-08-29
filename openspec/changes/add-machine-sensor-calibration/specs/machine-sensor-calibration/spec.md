@@ -134,23 +134,31 @@ After a correction is written, the wizard SHALL re-read the sensor's stored cali
 - **WHEN** a correction has been written
 - **THEN** the calibration the wizard displays is the value read back from the machine, not the value it sent
 
-### Requirement: Current and factory calibration are shown, and neither is restorable from the app
+### Requirement: The stored correction is shown; no factory value is claimed
 
-Each wizard SHALL show its own sensor's currently stored calibration and its factory calibration, both read from the machine.
+Each wizard SHALL show the correction its sensor currently holds, read from the machine.
 
-The wizard SHALL NOT offer to restore the factory calibration. The command that would do so has no working reference: de1app documents it as `CalCommand 2` while its own reset buttons sent `3` for their entire ten-week life before being disabled with no recorded reason, and no firmware source is available to settle which is correct. Correcting a calibration is another run with the instrument, which is the designed loop; writing an unverified command to a machine in the name of undoing a mistake is not.
+It SHALL NOT show a factory value and SHALL NOT offer to restore one. Measured on hardware: the machine answers the read-factory command with the CURRENT stored value, not a distinct factory one — before any write it reported the same number for both, and after a write both moved together. A "Factory" row would therefore mirror the stored row while reading as a safety net that does not exist.
 
-#### Scenario: Values are shown
-- **WHEN** the wizard opens for a sensor with the machine connected
-- **THEN** it shows that sensor's stored and factory calibration, both read from the machine
+#### Scenario: The stored correction is shown
+- **WHEN** the wizard opens with the machine connected
+- **THEN** it shows the correction that sensor currently holds, read from the machine
 
-#### Scenario: No restore is offered
-- **WHEN** the user looks for a way to return the sensor to its factory calibration
-- **THEN** the wizard offers none, and no command that would attempt it is ever sent
+#### Scenario: No factory value is offered
+- **WHEN** the user looks for a factory value or a way to return to one
+- **THEN** the wizard offers neither
 
-#### Scenario: Unavailable values block writing
-- **WHEN** the machine does not answer the calibration read for that wizard's sensor
+#### Scenario: An unanswered read blocks writing
+- **WHEN** the machine does not answer the calibration read
 - **THEN** the wizard says the value is unavailable and does not offer to write a correction
+
+### Requirement: The user is told corrections apply gradually
+
+The machine applies a fraction of each requested correction rather than all of it, so agreement takes several runs. The wizard SHALL say so where the user is about to submit and where it invites the next run, so a correct entry that moves the reading only slightly does not read as a failure.
+
+#### Scenario: The entry step says corrections are gradual
+- **WHEN** the user has entered a valid instrument reading
+- **THEN** the wizard states that the machine applies part of a correction at a time and that several runs are expected
 
 ### Requirement: A lost connection or an abandoned run is never treated as success
 

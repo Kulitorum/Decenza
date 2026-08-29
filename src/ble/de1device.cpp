@@ -2212,23 +2212,20 @@ bool DE1Device::sendCalibration(DE1::Calibration::Target target,
     return true;
 }
 
-bool DE1Device::readCalibration(int target, bool factory) {
+bool DE1Device::readCalibration(int target) {
     if (!isCalibrationTarget(target)) {
         CAL_WARN("Sensor") << "read refused, target out of range:" << target;
         return false;
     }
     return sendCalibration(static_cast<DE1::Calibration::Target>(target),
-                           factory ? DE1::Calibration::Command::ReadFactory
-                                   : DE1::Calibration::Command::ReadCurrent,
-                           0.0, 0.0);
+                           DE1::Calibration::Command::ReadCurrent, 0.0, 0.0);
 }
 
 void DE1Device::clearCalibrationCache() {
     bool had = false;
     for (int i = 0; i < kCalibrationTargets; ++i) {
-        had = had || m_storedCalibration[i].has_value() || m_factoryCalibration[i].has_value();
+        had = had || m_storedCalibration[i].has_value();
         m_storedCalibration[i].reset();
-        m_factoryCalibration[i].reset();
     }
     if (!had) return;
     // Worth a line: the wizard's Apply gate is "has the machine answered", so a
@@ -2241,18 +2238,14 @@ void DE1Device::clearCalibrationCache() {
 #ifdef DECENZA_SIMULATOR
 // A simulated machine's answer, enough to exercise the wizard off hardware.
 //
-// What it does NOT do: feed the offset back into the simulated sensor. The shot
-// samples DE1Simulator produces are unaffected by m_simStoredCalibration, so a
-// second run measures the same reading, applies the same delta, and the stored
-// offset grows rather than converging. The retest-until-they-agree loop
-// therefore does not converge in the simulator — an earlier version of this
-// comment claimed it did, which was wrong and would have had the next reader
-// diagnosing a real bug from simulated divergence.
+// The arithmetic is no longer a guess: measured on a real DE1 (2026-08-29), a
+// write moves the stored offset by a TENTH of (measured - reported). Two points,
+// +0.2 -> +0.02 and +0.4 -> +0.04. Reads all return the current stored value,
+// CalCommand 3 included.
 //
-// The stored-value read hands back what the simulated machine holds; the factory
-// read returns a constant. Neither is evidence of firmware behaviour — there is
-// no firmware source in this tree. Do not cite this function for what the
-// machine does.
+// Still not firmware source, so this remains a MODEL of observed behaviour
+// rather than a statement about the implementation — but it is now a model with
+// data behind it.
 void DE1Device::simulateCalibrationReply(DE1::Calibration::Target target,
                                          DE1::Calibration::Command command,
                                          double reported,
@@ -2261,7 +2254,11 @@ void DE1Device::simulateCalibrationReply(DE1::Calibration::Target target,
     if (!isCalibrationTarget(index)) return;
 
     if (command == DE1::Calibration::Command::Write) {
-        m_simStoredCalibration[index] += (measured - reported);
+        // A TENTH of the requested correction, matching the machine. Applying
+        // the whole delta here would make the simulator converge in one pass
+        // while hardware takes several, and anyone testing off-hardware would
+        // conclude the real thing was broken.
+        m_simStoredCalibration[index] += (measured - reported) * kFirmwareCorrectionFraction;
         CAL_INFO("Sensor") << "simulated machine stored"
                            << calibrationTargetName(target)
                            << "calibration =" << m_simStoredCalibration[index];
@@ -2273,9 +2270,9 @@ void DE1Device::simulateCalibrationReply(DE1::Calibration::Target target,
     reply.writeKey = DE1::Calibration::REPLY_VALUE_KEY;
     reply.command  = command;
     reply.target   = target;
-    reply.measured = (command == DE1::Calibration::Command::ReadFactory)
-                         ? kSimFactoryCalibration
-                         : m_simStoredCalibration[index];
+    // Every read answers with the current stored offset, including CalCommand 3
+    // — which is what the machine does.
+    reply.measured = m_simStoredCalibration[index];
     parseCalibration(DE1::Calibration::packRecord(reply));
 }
 #endif
@@ -2294,17 +2291,8 @@ double DE1Device::storedCalibration(int target) const {
     return m_storedCalibration[target].value_or(0.0);
 }
 
-double DE1Device::factoryCalibration(int target) const {
-    if (!isCalibrationTarget(target)) return 0.0;
-    return m_factoryCalibration[target].value_or(0.0);
-}
-
 bool DE1Device::hasStoredCalibration(int target) const {
     return isCalibrationTarget(target) && m_storedCalibration[target].has_value();
-}
-
-bool DE1Device::hasFactoryCalibration(int target) const {
-    return isCalibrationTarget(target) && m_factoryCalibration[target].has_value();
 }
 
 // A012 carries three kinds of traffic: echoes of our reads, echoes of our
@@ -2331,12 +2319,11 @@ void DE1Device::parseCalibration(const QByteArray& data) {
     const int index = static_cast<int>(record->target);
     if (!isCalibrationTarget(index)) return;
 
-    // CalCommand 3 marks the reply as the FACTORY value rather than the stored
-    // one; the machine reuses the same field for both.
-    auto& slot = (record->command == DE1::Calibration::Command::ReadFactory)
-                     ? m_factoryCalibration[index]
-                     : m_storedCalibration[index];
-    const bool isFactory = (record->command == DE1::Calibration::Command::ReadFactory);
+    // Every value-carrying reply is the CURRENT stored offset, whatever command
+    // it answers. Measured on hardware: CalCommand 3 ("read factory") returns
+    // the same number as CalCommand 0, and both move together after a write. So
+    // there is one slot per target, not two.
+    auto& slot = m_storedCalibration[index];
 
     if (slot.has_value() && qFuzzyCompare(*slot + 1.0, record->measured + 1.0)) {
         // NOT silent. The read-back after a write is this feature's only
@@ -2344,15 +2331,13 @@ void DE1Device::parseCalibration(const QByteArray& data) {
         // branch: the machine answers with the pre-write value and the dedupe
         // matches. Returning without a word makes that indistinguishable from no
         // reply at all, which is the same hole one layer out.
-        CAL_DETAIL("Sensor") << (isFactory ? "factory" : "stored")
-                             << calibrationTargetName(record->target)
+        CAL_DETAIL("Sensor") << "stored" << calibrationTargetName(record->target)
                              << "confirmed unchanged at" << record->measured;
         return;
     }
 
     slot = record->measured;
-    CAL_INFO("Sensor") << (isFactory ? "factory" : "stored")
-                       << calibrationTargetName(record->target)
+    CAL_INFO("Sensor") << "stored" << calibrationTargetName(record->target)
                        << "calibration =" << record->measured;
     ++m_calibrationVersion;
     emit calibrationChanged();

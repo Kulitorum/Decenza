@@ -231,9 +231,10 @@ private slots:
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
         QVERIFY(f.controller.applyCorrection(int(Sensor::Pressure), 8.2));
 
-        // The simulated machine accumulates (measured - reported), so a correct
-        // pair shows up as -0.8 rather than, say, 8.2 (reported left at zero).
-        QVERIFY(qAbs(f.device.storedCalibration(int(DE1::Calibration::Target::Pressure)) + 0.8) < 1e-4);
+        // The machine applies a tenth of (measured - reported), so a correct pair
+        // shows up as -0.08. A wrong pair — reported left at zero — would land on
+        // +0.82 and fail here.
+        QVERIFY(qAbs(f.device.storedCalibration(int(DE1::Calibration::Target::Pressure)) + 0.08) < 1e-4);
     }
 
     void aCorrectionWithoutTheTestProfileSendsNothing() {
