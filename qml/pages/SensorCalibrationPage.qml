@@ -13,9 +13,8 @@ import Decenza
 // The page does NOT start the shot. On a machine with a GHC — most of them — the
 // firmware refuses an app-initiated start outright (DE1Device::isHeadless is
 // exactly "the app may start operations"), so the user starts it at the machine.
-// It does keep the screen while that shot runs, which main.qml's phase
-// handler has an explicit exemption for — its instructions and entry field are
-// no use on the espresso page.
+// The shot then shows on the espresso page like any other, and main.qml brings
+// the wizard back when it ends (saveReturnToPage/finishCompletion).
 T.Page {
     id: calibrationPage
 
@@ -102,24 +101,29 @@ T.Page {
     // grind and steam block, none of which loadProfile knows about. Restoring the
     // profile alone would leave the user's next shot on their profile with
     // somebody else's grind.
+    // Read from Settings.app.currentProfile rather than ProfileManager.baseProfileName,
+    // and captured rather than bound. The page is destroyed when the calibration shot
+    // takes the screen and rebuilt when it ends, so baseProfileName would by then be
+    // the test profile — but the persisted key still names the user's profile, because
+    // the load below is the one profile change this page never lets persist. A binding
+    // would not survive either: loadProfile writes that key before we read it back.
     property string _restoreProfile: ""
     // var, not int: a recipe id is a database rowid and QML's int is 32-bit.
     property var _restoreRecipeId: 0
 
     Component.onCompleted: {
+        calibrationPage._restoreProfile = Settings.app.currentProfile
         calibrationPage._restoreRecipeId = MainController.selectedRecipeId
-        calibrationPage._restoreProfile = ProfileManager.baseProfileName
         // Load this sensor's test profile, the way tapping it in the profile list
         // would. It stays loaded for as long as the page lives — that is what
         // keeps isTestProfileActive true across the run-read-apply loop, which the
         // user repeats without leaving.
         ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))
-        // loadProfile also persists its choice as the startup profile
-        // (profilemanager.cpp:1923), and no restore runs on app teardown — so a
-        // quit here would come back on a hidden profile that declares
-        // espresso_temperature 1.00, startable from the machine's own button.
-        // Writing the user's name back leaves the test profile loaded for this
-        // session only, which is all the wizard needs.
+        // loadProfile persists its choice as the startup profile
+        // (profilemanager.cpp:1923). Writing the user's name straight back keeps the
+        // test profile to this session — so a quit here does not come back on a
+        // hidden profile that declares espresso_temperature 1.00, and _restoreProfile
+        // above stays true across the shot that destroys this page.
         if (calibrationPage._restoreProfile.length > 0)
             Settings.app.currentProfile = calibrationPage._restoreProfile
         // Deferred, because the reply can be SYNCHRONOUS. The simulated machine

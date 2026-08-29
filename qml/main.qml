@@ -68,6 +68,7 @@ T.ApplicationWindow {
     // This allows returning to postShotReviewPage instead of always going to idlePage
     property string returnToPageName: ""
     property int returnToShotId: 0
+    property int returnToSensor: 0
 
 
     // True while the first-run restore dialog is active (prevents SettingsHistoryDataTab from also handling restore signals)
@@ -2255,7 +2256,10 @@ T.ApplicationWindow {
         completionOverlay.opacity = 0
 
         // Return to saved page if set, otherwise go to idlePage
-        if (root.returnToPageName === "postShotReviewPage") {
+        if (root.returnToPageName === "sensorCalibrationPage") {
+            pageStack.replace(null, idlePage)
+            pageStack.push(sensorCalibrationPage, { sensor: root.returnToSensor })
+        } else if (root.returnToPageName === "postShotReviewPage") {
             var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
             pageStack.replace(null, idlePage)
             pageStack.push(postShotReviewPage, { editShotId: shotId })
@@ -2285,6 +2289,12 @@ T.ApplicationWindow {
             } else {
                 root.returnToShotId = MainController.lastSavedShotId
             }
+        } else if (pageName === "sensorCalibrationPage") {
+            // The calibration shot is read on the espresso page like any other, and
+            // the wizard is where the reading gets entered — so come back to it.
+            root.returnToPageName = pageName
+            var currentWizard = pageStack.currentItem as SensorCalibrationPage
+            root.returnToSensor = currentWizard ? currentWizard.sensor : 0
         } else if (pageName === "steamPage" || pageName === "hotWaterPage" || pageName === "flushPage") {
             // On an operation page - preserve existing return tracking (if any)
         } else {
@@ -3658,13 +3668,8 @@ T.ApplicationWindow {
                 phase === MachineState.Phase.Preinfusion ||
                 phase === MachineState.Phase.Pouring ||
                 phase === MachineState.Phase.Ending) {
-                // The sensor calibration wizard is the one page a user is TOLD to
-                // start a shot from — its instructions, its entry field and its
-                // session all live there. Replacing the stack would destroy it
-                // mid-run, so it keeps the screen. Every other page yields to the
-                // espresso view as before.
-                if (currentPage !== "espressoPage" && currentPage !== "sensorCalibrationPage"
-                        && !pageStack.busy) {
+                if (currentPage !== "espressoPage" && !pageStack.busy) {
+                    root.saveReturnToPage(currentPage)
                     pageStack.replace(null, espressoPage)
                 }
             } else if (phase === MachineState.Phase.Steaming) {
