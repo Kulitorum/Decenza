@@ -18,6 +18,11 @@
 #define SAWW_INFO(msg) SAW_INFO_STDERR("Worker", msg)
 #define SAWW_WARN(msg) SAW_WARN_STDERR("Worker", msg)
 
+// The collapse key for the constant-weight liveness line. A CONSTANT, not the
+// line's text, and m_constantSampleLog's declaration says why: the text carries
+// the weight, so keying on it would open a run per value and close none of them.
+constexpr auto kConstantSampleLogKey = QLatin1String("constantWeightAlive");
+
 // Largest pre-shot zero we will treat as drift and subtract. Measured drift is
 // 0.1-0.5 g; 2 g leaves room for a worse scale while staying far below any cup, so a
 // forgotten untared cup can never be mistaken for a zero offset and silently erased.
@@ -306,14 +311,17 @@ void WeightProcessor::processWeight(double weight)
     // static window (classically an empty cup through EspressoPreheating)
     // would, pre-fix, have been swallowed by ScaleDevice's weightChanged
     // dedup — the feed looked dead and a false scale-feed stall fired. It now
-    // reaches us via weightSampleReceived. Log it (throttled ~2s, shot context
-    // only) so the fix is provable from a field debug log without needing the
-    // recorded weight curve. Event-based throttle (no timer): gated on sample
-    // arrival + the injected wall clock.
-    if (sampleValueUnchanged && (m_active || m_preheatActive) && m_tareComplete
-        && (m_lastConstantSampleLogMs == 0
-            || wallClock - m_lastConstantSampleLogMs >= 2000)) {
-        m_lastConstantSampleLogMs = wallClock;
+    // reaches us via weightSampleReceived. Log it (shot context only) so the fix
+    // is provable from a field debug log without needing the recorded weight
+    // curve.
+    //
+    // Collapsed, not throttled. This carried a 2 s throttle until the line was
+    // measured at 567 occurrences in one submitted log — a 100 s static window
+    // produced 50 identical lines, none of which said anything the first had
+    // not. m_constantSampleLog replaces it with kChangesOnly, which has no time
+    // window at all: a changed weight emits at once carrying the previous
+    // value's tally, an unchanged one is counted and never repeated.
+    if (sampleValueUnchanged && (m_active || m_preheatActive) && m_tareComplete) {
         // [Scale], not [SAW], even though this file is otherwise SAW's worker:
         // the line answers "did the weight readings keep arriving", which is a
         // scale question. Filing it under SAW would leave a reader chasing a
@@ -321,12 +329,19 @@ void WeightProcessor::processWeight(double weight)
         // marker-shaped prefix ("[ScaleFeed]") that no registered marker matched.
         //
         // DEBUG, not INFO: it exists to prove a NON-bug (a static reading is a
-        // live feed, not a stalled one). 59 of them in a 48 h capture, on a 2 s
-        // dedupe window, none of which a user needs.
-        SCALEFEED_LOG(
+        // live feed, not a stalled one). None of them is a line a user needs,
+        // which is why the 2 s dedupe window that used to gate this is now a
+        // collapse instead — see m_constantSampleLog. One line per constant
+        // value, and the count says how long that value held.
+        const QString aliveText =
             QStringLiteral("alive: constant weight %1 g still streaming via "
                            "weightSampleReceived (pre-#1176 this static window read "
-                           "as a stalled feed)").arg(weight, 0, 'f', 1));
+                           "as a stalled feed)").arg(weight, 0, 'f', 1);
+        LogCollapse::Collapsed collapsed;
+        if (m_constantSampleLog.shouldLog(kConstantSampleLogKey, aliveText,
+                                          wallClock, &collapsed)) {
+            SCALEFEED_LOG(aliveText + LogCollapse::suffix(collapsed));
+        }
     }
 
     // Scale-feed liveness: a genuine (non-spike) sample arrived, so the feed
@@ -905,6 +920,25 @@ void WeightProcessor::setTareComplete(bool complete)
     }
 }
 
+// Run end for the constant-weight liveness collapse: report what the last
+// emitted line stood in for, then forget the key so the next shot starts as a
+// first sighting.
+//
+// Called from both places the old 2 s throttle was cleared. Without it a static
+// window's tally would sit in the table until the NEXT shot's first constant
+// sample and be printed there, stapling one shot's count onto another's opening
+// line — the misattribution logcollapse.h documents existing callers having
+// shipped. (Its two counts of how many disagree; the rule does not.)
+void WeightProcessor::flushConstantSampleLog()
+{
+    const LogCollapse::Collapsed collapsed =
+        m_constantSampleLog.flush(kConstantSampleLogKey, m_wallClock());
+    if (collapsed.suppressed > 0) {
+        SCALEFEED_LOG(QStringLiteral("alive: constant-weight window ended")
+                      + LogCollapse::suffix(collapsed));
+    }
+}
+
 void WeightProcessor::startExtraction()
 {
     m_active = true;
@@ -926,7 +960,6 @@ void WeightProcessor::startExtraction()
     m_settleCount = 0;
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
-    m_lastConstantSampleLogMs = 0;
     m_flowBecameValidLogged = false;
     m_untaredCupSignalled = false;
     m_highWeightStreakSamples = 0;
@@ -1022,6 +1055,22 @@ void WeightProcessor::endShotCycle()
     // would then log twice per shot (and which hot water/flush still reach
     // via shotEnded without ever arming).
     m_active = false;
+
+    // Run end for the constant-weight collapse, and HERE rather than in
+    // startExtraction() because the difference is not cosmetic. flush() reports
+    // a span of nowMs - lastEmitMs, so flushing at the next run's START dated
+    // every static window to the moment the NEXT shot began: a shot pulled in
+    // the morning and the next one after work reported its window as "+N
+    // identical in the preceding 32400 s", and printed it inside the following
+    // shot's narrative. That is the misattribution logcollapse.h exists to
+    // prevent, and it got written anyway by mirroring where the old 2 s
+    // throttle was cleared — clearing a throttle at a run's start is harmless,
+    // flushing a collapse there is not.
+    //
+    // This function, not stopExtraction(): it is the disarm chokepoint that
+    // runs on every cycle exit including the aborted-before-flow paths
+    // stopExtraction() misses, and on a normal shot it runs after it.
+    flushConstantSampleLog();
 }
 
 void WeightProcessor::stopExtraction()
@@ -1095,7 +1144,7 @@ void WeightProcessor::resetForRetare()
     m_uncalibratedBatchWarned = false;  // Timestamps cleared — de-jitter needs recalibration
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
-    m_lastConstantSampleLogMs = 0;
+    flushConstantSampleLog();
     m_flowBecameValidLogged = false;
     m_highWeightStreakSamples = 0;
     // A retare mid-preheat (cup placed during preheat, #299) can follow a popup

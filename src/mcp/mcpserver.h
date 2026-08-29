@@ -12,6 +12,7 @@
 #include <QSet>
 #include <optional>
 
+#include "core/logcollapse.h"
 #include "mcpratewindow.h"
 
 class McpSession;
@@ -391,6 +392,29 @@ private:
 
     // Sessions
     QHash<QString, McpSession*> m_sessions;
+
+    // Closes one session's stale-recovery run — see m_staleSessionLog.
+    void flushStaleSessionLog(const QString& sessionId);
+
+    // "Stale session header, reusing sole session <id>", collapsed.
+    //
+    // A client that cannot re-initialize (mcp-remote, and anything behind the
+    // tunnel) sends a stale header on EVERY request, so this INFO fires once per
+    // request for the life of that session: 30 of them in one submitted log,
+    // byte-identical within a session, describing a recovery that already
+    // succeeded. It is the auto-recovery working, which is worth stating once
+    // per session and not once per request.
+    //
+    // Keyed by SESSION ID, so each session's recoveries are their own run and
+    // can be closed without touching another session's pending tally.
+    //
+    // EPISODIC, so every path that destroys a session flushes it, via
+    // flushStaleSessionLog(): the DELETE termination in handleHttpRequest(),
+    // the MaxTotalSessions eviction and the orphan reaper in
+    // findOrCreateSession(), and cleanupExpiredSessions(). All four, because a
+    // path that removes a session without flushing leaves a tally that nothing
+    // will ever print.
+    LogCollapse m_staleSessionLog{LogCollapse::kChangesOnly};
     QTimer* m_cleanupTimer;
 
     // Session IDs this server ended on an explicit DELETE. A later request

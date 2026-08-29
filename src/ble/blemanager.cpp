@@ -35,6 +35,26 @@ namespace {
 // An order of magnitude above the 362 ms in which a browse resolved this scale
 // in the field — the case this exists to recover.
 constexpr int kReconnectBrowseTimeoutMs = WifiScaleDiscovery::kHdsResolveTimeoutMs;
+
+// The scan-lifecycle texts, defined once because each is now written at TWO
+// sites: the cycle that emits it and the flush that closes its run. LogCollapse
+// decides "repeat" by comparing the text, so two copies that must stay
+// byte-identical is a silent-drift hazard of the worst kind — reword one and
+// every cycle reads as a changed line, the collapse quietly stops collapsing,
+// and nothing fails.
+inline QString de1ScanningText()   { return QStringLiteral("Scanning for devices..."); }
+inline QString de1ScanDoneText()   { return QStringLiteral("Scan complete"); }
+inline QString scaleScanDoneText() { return QStringLiteral("Scan complete (background)"); }
+inline QString huntChainText()     { return QStringLiteral("Hunt active — chaining another scan"); }
+
+// Keys identify the RUN; the texts above say what the run reports. They
+// correspond one-to-one today, and they are still separate because keying on the
+// text would merge two runs the moment two sites happened to share wording —
+// which the two "Scan complete" variants above are one edit away from doing.
+constexpr auto kKeyDe1Scanning   = "de1.scanning";
+constexpr auto kKeyDe1ScanDone   = "de1.scanDone";
+constexpr auto kKeyScaleScanDone = "scale.scanDone";
+constexpr auto kKeyHuntChain     = "hunt.chain";
 }  // namespace
 #include "../network/mdnsresolver.h"
 #include "bleepochgate.h"
@@ -1307,11 +1327,40 @@ void BLEManager::doStartScan() {
     // scale fallback that found its scale and stopped. The machine's story is
     // "Found DE1:" below, which is unambiguous; the scan's story belongs to
     // whoever asked for it.
-    de1Debug(QStringLiteral("Scanning for devices..."));
+    //
+    // Collapsed: a reconnect ladder or an open review page repeats this line
+    // every ~7.5 s for as long as the device stays missing. See m_scanCycleLog.
+    logScanCycle(m_scanCycleLog, QLatin1String(kKeyDe1Scanning), de1ScanningText(),
+                 ScanLogSink::De1);
 
     // Scan for BLE devices only
     ensureDiscoveryAgent();
     m_discoveryAgent->start(QBluetoothDeviceDiscoveryAgent::LowEnergyMethod);
+}
+
+void BLEManager::scanCycleDebug(ScanLogSink sink, const QString& message) {
+    switch (sink) {
+    case ScanLogSink::De1:           de1Debug(message); break;
+    case ScanLogSink::Scale:         scaleDebug(message); break;
+    case ScanLogSink::Refractometer: refractometerDebug(message); break;
+    }
+}
+
+void BLEManager::logScanCycle(LogCollapse& collapse, const QString& key,
+                              const QString& text, ScanLogSink sink) {
+    LogCollapse::Collapsed collapsed;
+    if (collapse.shouldLog(key, text, QDateTime::currentMSecsSinceEpoch(), &collapsed))
+        scanCycleDebug(sink, text + LogCollapse::suffix(collapsed));
+}
+
+void BLEManager::flushScanCycle(LogCollapse& collapse, const QString& key,
+                                const QString& text, ScanLogSink sink) {
+    const LogCollapse::Collapsed collapsed =
+        collapse.flush(key, QDateTime::currentMSecsSinceEpoch());
+    // Nothing was suppressed → the run was a single line that already spoke, and
+    // a bare repeat of it would be a second line saying less than the first.
+    if (collapsed.suppressed > 0)
+        scanCycleDebug(sink, text + LogCollapse::suffix(collapsed));
 }
 
 void BLEManager::stopScan() {
@@ -1334,6 +1383,31 @@ void BLEManager::stopScan() {
     if (!m_scanning) return;
 
     de1Debug(QStringLiteral("Scan stopped (superseded, or torn down)"));
+
+    // Run end for the scan-cycle collapse, and the reason it is HERE: this
+    // function is called when the burst's reason for existing goes away — the
+    // saved primary rediscovered and auto-connected, the DE1 found, a USB
+    // transport arriving. Flushing after the "Scan stopped" line above puts the
+    // tally where a reader is already looking to find out how long the app
+    // spent trying.
+    //
+    // Each key flushes to its OWN subsystem rather than through flushAll(),
+    // which would hand back a list this function then has to route by key
+    // string. Three named flushes cost three lines and cannot mis-route; the
+    // alternative stamps a [Scale] tally onto a [DE1] line the first time
+    // someone adds a key, which is the overclaim this file's tier comments
+    // exist to prevent.
+    //
+    // The hunt chain is deliberately NOT flushed here — its run is bounded by
+    // the review page, not by any one scan stopping, and stopScan() fires
+    // repeatedly inside a live hunt.
+    flushScanCycle(m_scanCycleLog, QLatin1String(kKeyDe1Scanning), de1ScanningText(),
+                   ScanLogSink::De1);
+    flushScanCycle(m_scanCycleLog, QLatin1String(kKeyDe1ScanDone), de1ScanDoneText(),
+                   ScanLogSink::De1);
+    flushScanCycle(m_scanCycleLog, QLatin1String(kKeyScaleScanDone), scaleScanDoneText(),
+                   ScanLogSink::Scale);
+
     if (m_discoveryAgent)
         m_discoveryAgent->stop();
     m_scanning = false;
@@ -1536,7 +1610,10 @@ void BLEManager::onScanFinished() {
 
     // DEBUG on the DE1 side, as with "Scanning for devices..." above — the scan
     // is rarely the machine's story.
-    de1Debug(QStringLiteral("Scan complete"));
+    // Collapsed for the same reason as its "Scanning for devices..." partner —
+    // see m_scanCycleLog. The pair is what makes a burst 16 lines/min.
+    logScanCycle(m_scanCycleLog, QLatin1String(kKeyDe1ScanDone), de1ScanDoneText(),
+                 ScanLogSink::De1);
 
     // On the scale side, INFO only when the USER started this scan. Flat INFO was
     // wrong in both directions and the view showed it: `Scan complete` arrived
@@ -1557,9 +1634,14 @@ void BLEManager::onScanFinished() {
     // human asked". Gating on it would have kept the worst case — an endless
     // chain of INFO pairs while the review page sits open.
     if (wasUserInitiated) {
+        // NOT collapsed. A user-initiated scan is a single cycle the user asked
+        // for and is watching for, so it has no run to collapse and its line
+        // must appear every time — the tier gate above is what already keeps
+        // this rare.
         scaleInfo(QStringLiteral("Scan complete"));
     } else {
-        scaleDebug(QStringLiteral("Scan complete (background)"));
+        logScanCycle(m_scanCycleLog, QLatin1String(kKeyScaleScanDone), scaleScanDoneText(),
+                     ScanLogSink::Scale);
     }
 
     // State the DE1's OUTCOME, because nothing else did. With the scan-lifecycle
@@ -1601,7 +1683,13 @@ void BLEManager::onScanFinished() {
         // review page is open with the refractometer absent, so at INFO it would
         // be the dominant line in the view. The hunt turning on and off is the
         // user-facing fact, and setRefractometerHunt() states that at INFO.
-        refractometerDebug(QStringLiteral("Hunt active — chaining another scan"));
+        // ...and collapsed, because "for as long as the review page is open"
+        // is the worst case in the file: the chain has no backoff, so this is
+        // one line per cycle for however long the page stays open with the
+        // refractometer absent. Its run is bounded by setRefractometerHunt(),
+        // which flushes m_huntChainLog on both edges.
+        logScanCycle(m_huntChainLog, QLatin1String(kKeyHuntChain), huntChainText(),
+                     ScanLogSink::Refractometer);
         m_scanningForScales = true;
         startScan();
     }
@@ -2391,6 +2479,14 @@ void BLEManager::setRefractometerHunt(bool active) {
         return;
     }
     m_refractometerHunt = active;
+    // Run end for the chaining collapse, before the transition line below so the
+    // tally reads as the hunt's closing fact rather than as the start of
+    // whatever comes next. Flushed on BOTH edges, not just OFF: hunt going ON
+    // while a tally is pending would otherwise carry the previous review
+    // session's count into this one — the misattribution logcollapse.h warns
+    // about, and the ON edge is a run boundary just as much as the OFF edge is.
+    flushScanCycle(m_huntChainLog, QLatin1String(kKeyHuntChain), huntChainText(),
+                   ScanLogSink::Refractometer);
     // INFO, and the only INFO in this mechanism: it is the transition that
     // explains everything downstream. Hunt ON means the radio scans back-to-back
     // — visible to a user as battery drain and as scale/DE1 BLE contention — and

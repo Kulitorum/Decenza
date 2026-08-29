@@ -221,6 +221,65 @@ private slots:
         QVERIFY(c.shouldLog("a", "once", 0, &ignored));
         QVERIFY(c.flushAll(1'000).isEmpty());
     }
+
+    // Single-key flush() had no test at all while flushAll() had two, and the
+    // callers that need THIS one are the episodic ones that can name their keys:
+    // the BLE scan lifecycle flushing three keys in stopScan(), the Decent
+    // battery poll flushing at disconnect, the constant-weight liveness line
+    // flushing at shot start.
+    //
+    // The property under test is the one that makes those callers correct —
+    // flush() must FORGET the key, not merely report it. A flush that reported
+    // and kept would leave the run's count in the table to be printed again on
+    // the next run's first line, which is the "last week's repeat count on
+    // today's first line" failure logcollapse.h records four of six callers
+    // having shipped. It is invisible in any single-run test, which is exactly
+    // why it kept happening.
+    void flushForgetsTheKeySoTheNextRunStartsClean()
+    {
+        LogCollapse c(LogCollapse::kChangesOnly);
+        LogCollapse::Collapsed out;
+
+        QVERIFY(c.shouldLog("k", "same", 0, &out));
+        QVERIFY(!c.shouldLog("k", "same", 1'000, &out));
+        QVERIFY(!c.shouldLog("k", "same", 2'000, &out));
+
+        const auto flushed = c.flush("k", 3'000);
+        QCOMPARE(flushed.suppressed, 2);
+        QCOMPARE(flushed.spanMs, 3'000);
+
+        // Flushing again reports nothing: the tally was consumed, not copied.
+        QCOMPARE(c.flush("k", 4'000).suppressed, 0);
+
+        // And the next run is a first sighting, carrying none of the previous
+        // run's count or span.
+        QVERIFY(c.shouldLog("k", "same", 5'000, &out));
+        QCOMPARE(out.suppressed, 0);
+        QCOMPARE(out.spanMs, 0);
+    }
+
+    // flush() on a key that never emitted returns an empty tally rather than
+    // fabricating one.
+    //
+    // Relied on directly: BLEManager::stopScan() flushes all three scan-cycle
+    // keys unconditionally, and most calls happen when no burst ran, so an
+    // unknown key is the COMMON case there rather than an edge. If it returned
+    // a default-constructed-but-nonzero tally, or inserted the key on lookup,
+    // every ordinary scan stop would print "(+0 identical...)" noise — or worse,
+    // a span measured from the epoch.
+    void flushOnAnUnknownKeyReportsNothing()
+    {
+        LogCollapse c(LogCollapse::kChangesOnly);
+        const auto flushed = c.flush("never-seen", 9'000);
+        QCOMPARE(flushed.suppressed, 0);
+        QCOMPARE(flushed.spanMs, 0);
+
+        // The lookup must not have created the key either: a first real sighting
+        // still reports itself as one.
+        LogCollapse::Collapsed out;
+        QVERIFY(c.shouldLog("never-seen", "text", 10'000, &out));
+        QCOMPARE(out.suppressed, 0);
+    }
 };
 
 QTEST_MAIN(tst_LogCollapse)
