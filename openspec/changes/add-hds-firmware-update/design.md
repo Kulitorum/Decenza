@@ -97,5 +97,6 @@ What carries the story instead is the log, which already exists: the start line 
 ## Migration Plan
 
 1. Ship the availability control and the versioned start command on all three transports. Older HDS firmware degrades to its own picker with no client change.
-2. Verify on hardware against `v3.1.14-preview.1`, where stable `3.1.13` is an eligible signed downgrade, so an install can actually be driven to completion. Confirm on Bluetooth, USB, and WiFi that no picker appears, that a failed update leaves the installed firmware running, and that pre-#165 firmware still reaches its picker.
-3. Track the upstream `buildLedResponsePacket()` nibble fix and re-check the eligibility comparison once a release past `3.1.15` exists.
+2. Verify the quiet path on hardware, which is reachable today: a scale already at or above the newest catalog release must leave Settings → Connections unchanged.
+3. Verify the install once upstream publishes a stable release newer than the scale under test. This cannot be arranged locally — the app offers only a NEWER release, so the signed downgrade openscale#165 used for its own testing is not a route available here, and a pre-release does not appear in the catalog at all (`releases/latest` skips it). Then confirm on Bluetooth, USB, and WiFi that no picker appears, that a failed update leaves the installed firmware running, and that pre-#165 firmware still reaches its picker.
+4. Track the upstream `buildLedResponsePacket()` nibble fix and re-check the eligibility comparison once a release past `3.1.15` exists.
