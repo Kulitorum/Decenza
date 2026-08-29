@@ -89,12 +89,28 @@ T.Page {
         DE1Device.readCalibration(calibrationPage.calTarget)
     }
 
+    // What the user had before the wizard replaced it. Captured BEFORE the load,
+    // because the load itself destroys both: MainController watches
+    // currentProfileChanged and deactivates a recipe whose profile has diverged
+    // (maincontroller.cpp:1559), so by the time the profile is loaded the recipe
+    // selection is already gone.
+    //
+    // A recipe is restored as a recipe, never as its profile filename: activating
+    // one also reapplies the linked bag, equipment, dose, yield, temperature,
+    // grind and steam block, none of which loadProfile knows about. Restoring the
+    // profile alone would leave the user's next shot on their profile with
+    // somebody else's grind.
+    property string _restoreProfile: ""
+    // var, not int: a recipe id is a database rowid and QML's int is 32-bit.
+    property var _restoreRecipeId: 0
+
     Component.onCompleted: {
+        calibrationPage._restoreRecipeId = MainController.selectedRecipeId
+        calibrationPage._restoreProfile = ProfileManager.baseProfileName
         // Load this sensor's test profile, the way tapping it in the profile list
-        // would. NOT restored on exit: leaving it loaded is what keeps
-        // isTestProfileActive true when the user comes back to type their gauge
-        // reading, and a restore would only have to load it again. The profile
-        // name is on screen throughout, as with any other profile load.
+        // would. It stays loaded for as long as the page lives — that is what
+        // keeps isTestProfileActive true across the run-read-apply loop, which the
+        // user repeats without leaving.
         ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))
         // Deferred, because the reply can be SYNCHRONOUS. The simulated machine
         // answers inside this call, so calibrationChanged would fire while the
@@ -106,6 +122,28 @@ T.Page {
         // And pick up anything already cached: a value carried over from an
         // earlier visit fires no signal.
         calibrationPage._refreshStored()
+    }
+
+    // Every way out converges here, whichever back path was used — the top-bar
+    // arrow, the Android hardware back button and Escape all pop the page, and
+    // main.qml's global handler does it without consulting the page (which is why
+    // DescalingPage had to intercept the key itself). StackView.onRemoved fires
+    // for all of them; ScreensaverPage restores brightness the same way.
+    //
+    // Auto-sleep also removes the page, and restoring then is correct rather than
+    // premature: the wizard reloads the test profile when the user opens it again,
+    // and the alternative is a sleeping machine holding a calibration profile
+    // ready for the next shot.
+    StackView.onRemoved: {
+        if (calibrationPage._restoreRecipeId > 0) {
+            MainController.activateRecipe(calibrationPage._restoreRecipeId)
+        } else if (calibrationPage._restoreProfile.length > 0
+                   && calibrationPage._restoreProfile
+                      !== SensorCalibration.profileFilename(calibrationPage.sensor)) {
+            // Skipped when they arrived with the test profile already loaded:
+            // that IS what they had, and reloading it is a pointless BLE upload.
+            ProfileManager.loadProfile(calibrationPage._restoreProfile)
+        }
     }
 
     Connections {
@@ -174,6 +212,16 @@ T.Page {
                         text: TranslationManager.translate(
                                   "sensorCalibration.prepare.body",
                                   "Start the shot as usual and read your gauge while the machine holds.")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate(
+                                  "sensorCalibration.prepare.restores",
+                                  "Your usual profile or recipe comes back when you leave.")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
@@ -278,12 +326,16 @@ T.Page {
                         accessibleName: TranslationManager.translate(
                                             "sensorCalibration.apply.placeholder",
                                             "Reading from your gauge")
-                        onValueModified: function(newValue) { calibrationPage.entryValue = newValue }
+                        onValueModified: function(newValue) {
+                            calibrationPage.entryValue = newValue
+                            calibrationPage.entryTouched = true
+                        }
                     }
 
                     Text {
                         Layout.fillWidth: true
-                        visible: calibrationPage.rejection.length > 0
+                        visible: calibrationPage.entryTouched
+                                 && calibrationPage.rejection.length > 0
                         text: calibrationPage.rejection
                         color: Theme.errorColor
                         font: Theme.captionFont
@@ -419,14 +471,21 @@ T.Page {
     // means an untouched control is "they agree", which rejectionReason refuses —
     // so Apply is inert until the user actually moves it.
     property double entryValue: 0
+    // The stepper opens sitting on the declared hold, so its very first state is
+    // "the two agree" — which rejectionReason correctly refuses. Showing that
+    // refusal on arrival paints an error before the user has done anything, so
+    // the guard message waits until they have moved the control.
+    property bool entryTouched: false
     // How far either side of the declared hold the stepper may go. One step
     // inside maxCorrection, because the guard refuses AT the limit.
     readonly property double _entrySwing: SensorCalibration.maxCorrection(calibrationPage.sensor)
                                           - SensorCalibration.entryStep(calibrationPage.sensor)
 
     onDeclaredHoldChanged: {
-        if (!isNaN(calibrationPage.declaredHold))
+        if (!isNaN(calibrationPage.declaredHold)) {
             calibrationPage.entryValue = calibrationPage.declaredHold
+            calibrationPage.entryTouched = false
+        }
     }
 
     readonly property string rejection: {
