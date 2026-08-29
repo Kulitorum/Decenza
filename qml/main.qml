@@ -67,9 +67,12 @@ T.ApplicationWindow {
     // Track page to return to after steam/flush/water operations complete
     // This allows returning to postShotReviewPage instead of always going to idlePage
     property string returnToPageName: ""
+    // The props to push that page back with. One value, not a field per
+    // destination: clearing is spread across several sites, and a per-destination
+    // field has to be remembered at every one of them.
+    property var returnToProps: ({})
+    // Separate because the capture below reads it back while building props.
     property int returnToShotId: 0
-    property int returnToSensor: 0
-    property var returnToRecipeId: 0
 
 
     // True while the first-run restore dialog is active (prevents SettingsHistoryDataTab from also handling restore signals)
@@ -1149,8 +1152,7 @@ T.ApplicationWindow {
                     root.pendingDisconnectNavigation = false
                     console.log("Retrying deferred disconnect navigation to idle")
                     pageStack.replace(null, idlePage)
-                    root.returnToPageName = ""
-                    root.returnToShotId = 0
+                    root.clearReturnTo()
                 }
             }
         }
@@ -2251,29 +2253,36 @@ T.ApplicationWindow {
         completionOverlay.opacity = 0
     }
 
+    // Push the saved page back and forget it. False when nothing was saved.
+    function restoreSavedPage() {
+        const component = root.returnToPageName === "postShotReviewPage" ? postShotReviewPage
+                        : null
+        if (!component) {
+            root.clearReturnTo()
+            return false
+        }
+        pageStack.replace(null, idlePage)
+        pageStack.push(component, root.returnToProps)
+        root.clearReturnTo()
+        return true
+    }
+
+    function clearReturnTo() {
+        root.returnToPageName = ""
+        root.returnToProps = ({})
+        root.returnToShotId = 0
+    }
+
     function finishCompletion() {
         _completionSuspendedForDialog = false
         completionPending = false
         completionOverlay.opacity = 0
 
         // Return to saved page if set, otherwise go to idlePage
-        if (root.returnToPageName === "sensorCalibrationPage") {
+        if (!root.restoreSavedPage()
+                && pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
             pageStack.replace(null, idlePage)
-            pageStack.push(sensorCalibrationPage, { sensor: root.returnToSensor,
-                                                    _restoreRecipeId: root.returnToRecipeId })
-        } else if (root.returnToPageName === "postShotReviewPage") {
-            var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
-            pageStack.replace(null, idlePage)
-            pageStack.push(postShotReviewPage, { editShotId: shotId })
-        } else {
-            if (pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
-                pageStack.replace(null, idlePage)
-            }
         }
-
-        // Clear return-to tracking
-        root.returnToPageName = ""
-        root.returnToShotId = 0
     }
 
     // Save current page info before navigating to operation pages (steam/flush/water)
@@ -2291,19 +2300,12 @@ T.ApplicationWindow {
             } else {
                 root.returnToShotId = MainController.lastSavedShotId
             }
-        } else if (pageName === "sensorCalibrationPage") {
-            // The calibration shot is read on the espresso page like any other, and
-            // the wizard is where the reading gets entered — so come back to it.
-            root.returnToPageName = pageName
-            var currentWizard = pageStack.currentItem as SensorCalibrationPage
-            root.returnToSensor = currentWizard ? currentWizard.sensor : 0
-            root.returnToRecipeId = currentWizard ? currentWizard._restoreRecipeId : 0
+            root.returnToProps = { editShotId: root.returnToShotId }
         } else if (pageName === "steamPage" || pageName === "hotWaterPage" || pageName === "flushPage") {
             // On an operation page - preserve existing return tracking (if any)
         } else {
             // For other pages (like idlePage), clear the return tracking
-            root.returnToPageName = ""
-            root.returnToShotId = 0
+            root.clearReturnTo()
         }
     }
 
@@ -2463,6 +2465,17 @@ T.ApplicationWindow {
         interval: 3000
         onTriggered: {
             root.stopOverlayVisible = false
+            // A calibration run is maintenance against a blind portafilter, not a
+            // shot to dial in — it goes back to the wizard to have its gauge reading
+            // entered, rather than to the post-shot review a finished shot would
+            // otherwise pick. Checked before pendingMetadataNavigation, which is set
+            // for any shot that saved and would win here.
+            if (pageStack.depth > 1 && pageStack.currentItem
+                    && pageStack.currentItem.objectName === "espressoPage") {
+                root.pendingMetadataNavigation = false
+                root.goBack()
+                return
+            }
             if (root.pendingMetadataNavigation) {
                 root.pendingMetadataNavigation = false
                 // Settings.value() may return string on Windows (REG_SZ), coerce to Number
@@ -2478,11 +2491,16 @@ T.ApplicationWindow {
                     console.warn("Post-shot navigation: no valid pendingShotId, going to idle")
                     root.goToIdle()
                 }
-            } else {
+            } else if (pageStack.currentItem
+                       && pageStack.currentItem.objectName === "espressoPage") {
                 // pendingMetadataNavigation is set by onShotEndedShowMetadata only when
                 // the overlay was still visible at signal time. False here means either
                 // Edit After Shot is OFF, or the shot save arrived after the overlay
                 // expired (SAW settling outlasted 3s) and was handled directly.
+                //
+                // Only while still on the operation page: a stop already navigates on
+                // its own, and this firing 3 s later would drag the user back off
+                // wherever that put them.
                 root.goToIdle()
             }
         }
@@ -3672,8 +3690,15 @@ T.ApplicationWindow {
                 phase === MachineState.Phase.Pouring ||
                 phase === MachineState.Phase.Ending) {
                 if (currentPage !== "espressoPage" && !pageStack.busy) {
-                    root.saveReturnToPage(currentPage)
-                    pageStack.replace(null, espressoPage)
+                    if (currentPage === "sensorCalibrationPage") {
+                        // PUSH, not replace: the calibration wizard is where the run
+                        // came from and where its reading gets typed, so it stays on
+                        // the stack underneath and the shot ending is a pop. Every
+                        // other page still yields the stack entirely.
+                        pageStack.push(espressoPage)
+                    } else {
+                        pageStack.replace(null, espressoPage)
+                    }
                 }
             } else if (phase === MachineState.Phase.Steaming) {
                 if (currentPage !== "steamPage" && !pageStack.busy) {
@@ -3805,32 +3830,27 @@ T.ApplicationWindow {
         // finishCompletion(), which only runs for a shot that ended on its own. Both
         // ways out of that shot have to return to the wizard, or stopping early
         // strands the user on idle with the test profile still loaded.
-        if (currentPage === "espressoPage" && root.returnToPageName === "sensorCalibrationPage") {
-            pageStack.replace(null, idlePage)
-            pageStack.push(sensorCalibrationPage, { sensor: root.returnToSensor,
-                                                    _restoreRecipeId: root.returnToRecipeId })
-            root.returnToPageName = ""
-            root.returnToShotId = 0
+        // Depth > 1 here means the shot was PUSHED over the page it was started from
+        // — only the calibration wizard does that; every other route replaces the
+        // stack. Clearing the metadata flag stops stopOverlayTimer sending us to the
+        // post-shot review on top of it 3 s from now.
+        if (currentPage === "espressoPage" && pageStack.depth > 1) {
+            root.pendingMetadataNavigation = false
+            root.goBack()
             return
         }
 
-        // When leaving operation pages, check if we should return to a saved page
-        if ((currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage") &&
-            root.returnToPageName === "postShotReviewPage") {
-            var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
-            pageStack.replace(null, idlePage)
-            pageStack.push(postShotReviewPage, { editShotId: shotId })
-            root.returnToPageName = ""
-            root.returnToShotId = 0
+        if ((currentPage === "steamPage" || currentPage === "hotWaterPage"
+             || currentPage === "flushPage")
+                && root.returnToPageName === "postShotReviewPage"
+                && root.restoreSavedPage()) {
             return
         }
 
         if (currentPage !== "idlePage") {
             pageStack.replace(null, idlePage)
         }
-        // Clear return tracking when going to idle from non-operation pages
-        root.returnToPageName = ""
-        root.returnToShotId = 0
+        root.clearReturnTo()
     }
 
     // Push `component` unless that page is already on top of the stack.

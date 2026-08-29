@@ -3351,8 +3351,5 @@ void BLEManager::shareSystemLog() {
 }
 
 QString BLEManager::translateUiString(const QString& key, const QString& fallback) const {
-    if (m_translationManager) {
-        return m_translationManager->translateString(key, fallback);
-    }
-    return fallback;
+    return translateOrFallback(m_translationManager, key, fallback);
 }

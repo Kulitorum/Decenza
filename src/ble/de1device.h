@@ -106,7 +106,6 @@ class DE1Device : public QObject {
     // Bumped whenever any stored/factory calibration value changes, so QML can
     // re-read the per-target accessors above. One signal rather than eight
     // properties: the wizard reads one target and re-reads on any change.
-    Q_PROPERTY(int calibrationVersion READ calibrationVersion NOTIFY calibrationChanged)
 
 public:
     explicit DE1Device(QObject* parent = nullptr);
@@ -167,7 +166,6 @@ public:
     // replacing it: the raw number still carries whether the machine measured
     // the voltage or was told it.
     int nominalHeaterVoltage() const { return bucketHeaterVoltage(m_heaterVoltage); }
-    int calibrationVersion() const { return m_calibrationVersion; }
 
     // Transport abstraction
     void setTransport(DE1Transport* transport);
@@ -695,7 +693,6 @@ private:
     // about one machine, and the same app can be pointed at another. Cleared in
     // the same reset block as m_lastMMRValues.
     void clearCalibrationCache();
-    int m_calibrationVersion = 0;
 
     // Simulation only: the values a simulated machine holds, distinct from the
     // read-back cache above. Without these the wizard is untestable off

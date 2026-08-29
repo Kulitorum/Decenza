@@ -459,7 +459,6 @@ private slots:
 
         QVERIFY(qAbs(f.device.storedCalibration(pressure) - 0.15) < 1e-4);
         QCOMPARE(changed.count(), 2);
-        QCOMPARE(f.device.calibrationVersion(), 2);
     }
 
     void oneTargetsValueDoesNotLeakIntoAnother() {

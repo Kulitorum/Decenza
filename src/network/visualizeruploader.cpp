@@ -81,10 +81,7 @@ VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Se
 }
 
 QString VisualizerUploader::tr_(const char* key, const char* fallback) const {
-    if (m_translationManager)
-        return m_translationManager->translateString(QString::fromUtf8(key),
-                                               QString::fromUtf8(fallback));
-    return QString::fromUtf8(fallback);
+    return translateOrFallback(m_translationManager, key, fallback);
 }
 
 // Helper: Interpolate goal data to match elapsed timestamps

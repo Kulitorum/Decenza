@@ -96,9 +96,8 @@ void SensorCalibrationController::setProfileContextProvider(
 }
 
 void SensorCalibrationController::noteProfileChanged() {
-    // Every accessor below depends on which profile is loaded, so QML has to
+    // Every accessor here depends on which profile is loaded, so QML has to
     // re-read them when it changes.
-    ++m_contextVersion;
     emit contextChanged();
 }
 
@@ -108,10 +107,7 @@ SensorCalibrationController::profileContext() const {
 }
 
 QString SensorCalibrationController::tr_(const char* key, const char* fallback) const {
-    if (m_translationManager)
-        return m_translationManager->translateString(QString::fromUtf8(key),
-                                                     QString::fromUtf8(fallback));
-    return QString::fromUtf8(fallback);
+    return translateOrFallback(m_translationManager, key, fallback);
 }
 
 int SensorCalibrationController::sensorCount() const {
@@ -145,9 +141,6 @@ QString SensorCalibrationController::unitLabel(int sensor) const {
     return spec ? QString::fromUtf8(spec->unitLabel) : QString();
 }
 
-
-
-
 double SensorCalibrationController::minValue(int sensor) const {
     const auto* spec = rowFor(sensor);
     return spec ? spec->minValue : kNoValue;
@@ -174,21 +167,26 @@ bool SensorCalibrationController::isTestProfileActive(int sensor) const {
     return profileContext().filename == QString::fromLatin1(spec->profileFilename);
 }
 
-double SensorCalibrationController::declaredHoldValue(int sensor) const {
-    const auto* spec = rowFor(sensor);
-    if (!spec) return kNoValue;
+double SensorCalibrationController::declaredHoldFor(const SensorSpec& spec,
+                                                    const ProfileContext& ctx) {
     // Only meaningful for the profile that declares it.
-    if (!isTestProfileActive(sensor)) return kNoValue;
+    if (ctx.filename != QString::fromLatin1(spec.profileFilename))
+        return kNoValue;
 
-    const ProfileContext ctx = profileContext();
-    const double value = (spec->sensor == Sensor::Pressure) ? ctx.holdPressure
-                                                            : ctx.holdTemperature;
+    const double value = (spec.sensor == Sensor::Pressure) ? ctx.holdPressure
+                                                           : ctx.holdTemperature;
 
     // Reject a value the sensor could never read rather than passing it on as a
     // correction baseline.
-    if (!std::isfinite(value) || value < spec->minValue || value > spec->maxValue)
+    if (!std::isfinite(value) || value < spec.minValue || value > spec.maxValue)
         return kNoValue;
     return value;
+}
+
+double SensorCalibrationController::declaredHoldValue(int sensor) const {
+    const auto* spec = rowFor(sensor);
+    if (!spec) return kNoValue;
+    return declaredHoldFor(*spec, profileContext());
 }
 
 QString SensorCalibrationController::rejectionReason(int sensor, double instrumentReading) const {
@@ -196,12 +194,13 @@ QString SensorCalibrationController::rejectionReason(int sensor, double instrume
     if (!spec)
         return tr_("settings.sensorCalibration.reject.unknownSensor", "Unknown sensor.");
 
-    if (!isTestProfileActive(sensor)) {
+    const ProfileContext ctx = profileContext();
+    if (ctx.filename != QString::fromLatin1(spec->profileFilename)) {
         return tr_("settings.sensorCalibration.reject.wrongProfile",
                    "Load the %1 test profile first.").arg(label(sensor));
     }
 
-    const double declared = declaredHoldValue(sensor);
+    const double declared = declaredHoldFor(*spec, ctx);
     if (!std::isfinite(declared)) {
         return tr_("settings.sensorCalibration.reject.noDeclaredHold",
                    "That profile does not declare a value to hold.");

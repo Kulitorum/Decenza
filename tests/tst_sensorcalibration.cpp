@@ -258,13 +258,16 @@ private slots:
         QVERIFY(!f.controller.applyCorrection(7, 8.2));
     }
 
-    void switchingProfileBumpsTheContextVersion() {
+    // The signal is the whole contract now: QML refreshes from a handler on it,
+    // so a profile switch that does not emit leaves the wizard showing the
+    // previous profile's hold.
+    void switchingProfileAnnouncesTheNewContext() {
         TestFixture f;
-        const int before = f.controller.contextVersion();
         QSignalSpy spy(&f.controller, &SensorCalibrationController::contextChanged);
         f.loadProfile(QStringLiteral("test_pressure_calibration"), 9.0, 93.0);
         QCOMPARE(spy.count(), 1);
-        QVERIFY(f.controller.contextVersion() > before);
+        QVERIFY(f.controller.isTestProfileActive(0));
+        QCOMPARE(f.controller.declaredHoldValue(0), 9.0);
     }
 };
 

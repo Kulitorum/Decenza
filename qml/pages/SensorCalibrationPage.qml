@@ -13,8 +13,9 @@ import Decenza
 // The page does NOT start the shot. On a machine with a GHC — most of them — the
 // firmware refuses an app-initiated start outright (DE1Device::isHeadless is
 // exactly "the app may start operations"), so the user starts it at the machine.
-// The shot then shows on the espresso page like any other, and main.qml brings
-// the wizard back when it ends (saveReturnToPage/finishCompletion).
+// The shot then shows on the espresso page, PUSHED over this page rather than
+// replacing it, so the run ending is a plain pop back here with the page and its
+// entered state intact.
 T.Page {
     id: calibrationPage
 
@@ -31,18 +32,19 @@ T.Page {
     // why it appears here despite CLAUDE.md telling new code not to use it —
     // that advice is scoped to bindings over translate() itself.
     readonly property int _trVersion: TranslationManager.translationVersion
-    readonly property string sensorLabel: {
+    // Reading _trVersion is what makes these re-evaluate on a language change; the
+    // value is thrown away. Wrapped so the trick is stated once rather than at
+    // every accessor.
+    function _retranslated(value) {
         void(calibrationPage._trVersion)
-        return SensorCalibration.label(calibrationPage.sensor)
+        return value
     }
-    readonly property string unit: {
-        void(calibrationPage._trVersion)
-        return SensorCalibration.unitLabel(calibrationPage.sensor)
-    }
-    readonly property string instrumentText: {
-        void(calibrationPage._trVersion)
-        return SensorCalibration.instrumentText(calibrationPage.sensor)
-    }
+    readonly property string sensorLabel: calibrationPage._retranslated(
+                                              SensorCalibration.label(calibrationPage.sensor))
+    readonly property string unit: calibrationPage._retranslated(
+                                       SensorCalibration.unitLabel(calibrationPage.sensor))
+    readonly property string instrumentText: calibrationPage._retranslated(
+                                                 SensorCalibration.instrumentText(calibrationPage.sensor))
     readonly property int calTarget: SensorCalibration.calibrationTarget(calibrationPage.sensor)
 
     readonly property string pageTitle: calibrationPage.sensorLabel
@@ -50,32 +52,34 @@ T.Page {
     objectName: "sensorCalibrationPage"
     background: ThemedPageBackground {}
 
-    // Everything below re-reads when the active profile changes.
-    readonly property int _ctxVersion: SensorCalibration.contextVersion
-    readonly property bool testProfileActive: {
-        void(calibrationPage._ctxVersion)
-        return SensorCalibration.isTestProfileActive(calibrationPage.sensor)
-    }
-    // What the machine holds to and shows on screen during the test — the
-    // profile's declared hold, which is the number the user compares against
-    // their gauge. NaN when the test profile is not loaded.
-    readonly property double declaredHold: {
-        void(calibrationPage._ctxVersion)
-        return SensorCalibration.declaredHoldValue(calibrationPage.sensor)
-    }
+    // Plain state refreshed by explicit handlers, NOT bindings over a version
+    // counter. That idiom is used elsewhere in this codebase and does not work
+    // here: twice now the log and the MCP showed the value in hand — a stored
+    // offset, then an active test profile — while the card still said it was
+    // missing. A handler on the signal has no dependency capture to get wrong.
+    property bool testProfileActive: false
+    // What the machine holds to and shows during the test: the profile's declared
+    // hold, the number the user compares against their gauge. NaN when this
+    // sensor's test profile is not loaded.
+    property double declaredHold: NaN
     readonly property bool haveDeclaredHold: !isNaN(calibrationPage.declaredHold)
 
-    // Plain state driven by an explicit handler, NOT a binding over a version
-    // counter. That idiom is used elsewhere here, but in this page it did not
-    // re-evaluate — the log showed the value arriving while the card still read
-    // "not read yet". A Connections handler fires on the signal with no
-    // dependency-capture subtlety to get wrong.
     property bool hasStored: false
     property double storedOffset: 0
+
+    function _refreshContext() {
+        calibrationPage.testProfileActive = SensorCalibration.isTestProfileActive(calibrationPage.sensor)
+        calibrationPage.declaredHold = SensorCalibration.declaredHoldValue(calibrationPage.sensor)
+    }
 
     function _refreshStored() {
         calibrationPage.hasStored = DE1Device.hasStoredCalibration(calibrationPage.calTarget)
         calibrationPage.storedOffset = DE1Device.storedCalibration(calibrationPage.calTarget)
+    }
+
+    Connections {
+        target: SensorCalibration
+        function onContextChanged() { calibrationPage._refreshContext() }
     }
 
     // The previous cycle's gap between machine and instrument, so a second run
@@ -105,11 +109,7 @@ T.Page {
     property var _restoreRecipeId: 0
 
     Component.onCompleted: {
-        // Unless main.qml already supplied it: the calibration shot destroys and
-        // rebuilds this page, and by then the recipe has been deactivated, so a
-        // fresh read would capture 0 and lose it.
-        if (!calibrationPage._restoreRecipeId)
-            calibrationPage._restoreRecipeId = MainController.selectedRecipeId
+        calibrationPage._restoreRecipeId = MainController.selectedRecipeId
         // Load this sensor's test profile, the way tapping it in the profile list
         // would. It stays loaded for as long as the page lives — that is what
         // keeps isTestProfileActive true across the run-read-apply loop, which the
@@ -122,6 +122,9 @@ T.Page {
         // hardware replies over BLE and does not hit this, which is exactly why
         // it only showed in the simulator.
         Qt.callLater(calibrationPage._readCalibration)
+        // The load above already emitted contextChanged, before this page had a
+        // handler attached to hear it.
+        calibrationPage._refreshContext()
         // And pick up anything already cached: a value carried over from an
         // earlier visit fires no signal.
         calibrationPage._refreshStored()
@@ -189,7 +192,6 @@ T.Page {
 
             // ===== Prepare =====
             Rectangle {
-                visible: true
                 Layout.fillWidth: true
                 Layout.maximumWidth: Theme.scaled(600)
                 Layout.alignment: Qt.AlignHCenter
@@ -504,7 +506,7 @@ T.Page {
     }
 
     readonly property string rejection: {
-        void(calibrationPage._ctxVersion)
+        void(calibrationPage.declaredHold)
         return SensorCalibration.rejectionReason(calibrationPage.sensor, calibrationPage.entryValue)
     }
     readonly property bool entryValid: calibrationPage.rejection.length === 0

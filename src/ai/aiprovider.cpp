@@ -28,12 +28,8 @@ void AIProvider::setStatus(Status status)
     }
 }
 
-QString AIProvider::tr_(const char* key, const char* fallback) const
-{
-    if (m_translationManager)
-        return m_translationManager->translateString(QString::fromUtf8(key),
-                                               QString::fromUtf8(fallback));
-    return QString::fromUtf8(fallback);
+QString AIProvider::tr_(const char* key, const char* fallback) const {
+    return translateOrFallback(m_translationManager, key, fallback);
 }
 
 QString AIProvider::truncatedResponseError() const

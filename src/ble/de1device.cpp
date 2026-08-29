@@ -2238,7 +2238,6 @@ void DE1Device::clearCalibrationCache() {
     // Worth a line: the wizard's Apply gate is "has the machine answered", so a
     // reader seeing it go unavailable mid-session should find the reason here.
     CAL_INFO("Sensor") << "calibration cache cleared — values belong to one machine";
-    ++m_calibrationVersion;
     emit calibrationChanged();
 }
 
@@ -2338,7 +2337,6 @@ void DE1Device::parseCalibration(const QByteArray& data) {
     slot = record->measured;
     CAL_INFO("Sensor") << "stored" << calibrationTargetName(record->target)
                        << "calibration =" << record->measured;
-    ++m_calibrationVersion;
     emit calibrationChanged();
 }
 

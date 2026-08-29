@@ -34,10 +34,6 @@ class TranslationManager;
 class SensorCalibrationController : public QObject {
     Q_OBJECT
 
-    // Bumped when the active profile changes, so QML re-reads the accessors
-    // below — they all depend on which profile is loaded.
-    Q_PROPERTY(int contextVersion READ contextVersion NOTIFY contextChanged FINAL)
-
 public:
     // The two sensors Decenza calibrates. Flow is deliberately absent: flow
     // correction is the Flow Calibration card's multiplier (MMR 0x80383C) plus
@@ -159,8 +155,6 @@ public:
     // it declares a usable hold, and the reading passes its guards.
     Q_INVOKABLE bool applyCorrection(int sensor, double instrumentReading);
 
-    int contextVersion() const { return m_contextVersion; }
-
 signals:
     void contextChanged();
 
@@ -169,6 +163,11 @@ private:
     // (tests, tools), matching DatabaseBackupManager::tr_.
     QString tr_(const char* key, const char* fallback) const;
 
+    // Takes an already-resolved context so a caller asking both "is the test
+    // profile loaded" and "what does it declare" pays one provider call, not one
+    // per question. NaN unless ctx is this sensor's test profile and usable.
+    static double declaredHoldFor(const SensorSpec& spec, const ProfileContext& ctx);
+
     // Resolves the active profile's identity and declared holds. Empty filename
     // when nothing is installed, which reads as "no test profile active".
     ProfileContext profileContext() const;
@@ -176,7 +175,6 @@ private:
     DE1Device* m_device = nullptr;
     TranslationManager* m_translationManager = nullptr;
     std::function<ProfileContext()> m_profileContext;
-    int m_contextVersion = 0;
 
 #ifdef DECENZA_TESTING
     friend class tst_SensorCalibration;

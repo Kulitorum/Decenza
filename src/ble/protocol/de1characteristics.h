@@ -132,14 +132,11 @@ namespace Calibration {
         // (binary.tcl:245) passes none, and fields::endianness is never set. The
         // `bigeendian` literal (the typo is de1app's) appears only on the unpack
         // side, parse_binary_calibration (binary.tcl:1325).
-        for (int shift : {24, 16, 8, 0})
-            out.append(static_cast<char>((r.writeKey >> shift) & 0xFF));
+        out.append(BinaryCodec::encodeU32P0(r.writeKey));
         out.append(static_cast<char>(r.command));
         out.append(static_cast<char>(r.target));
-        for (int shift : {24, 16, 8, 0})
-            out.append(static_cast<char>((static_cast<uint32_t>(reported) >> shift) & 0xFF));
-        for (int shift : {24, 16, 8, 0})
-            out.append(static_cast<char>((static_cast<uint32_t>(measured) >> shift) & 0xFF));
+        out.append(BinaryCodec::encodeU32P0(static_cast<uint32_t>(reported)));
+        out.append(BinaryCodec::encodeU32P0(static_cast<uint32_t>(measured)));
         return out;
     }
 
@@ -150,11 +147,8 @@ namespace Calibration {
         if (data.size() < RECORD_BYTES)
             return std::nullopt;
 
-        const auto byteAt = [&data](int i) {
-            return static_cast<uint32_t>(static_cast<uint8_t>(data[i]));
-        };
-        const auto u32At = [&byteAt](int i) {
-            return (byteAt(i) << 24) | (byteAt(i + 1) << 16) | (byteAt(i + 2) << 8) | byteAt(i + 3);
+        const auto u32At = [&data](int i) {
+            return BinaryCodec::decodeU32P0(data.mid(i, 4));
         };
 
         const uint8_t rawCommand = static_cast<uint8_t>(data[4]);
