@@ -128,7 +128,7 @@ So the only reference implementation of restore is disabled code contradicting i
 
 Reading has a working reference and is kept: de1app issues `de1_read_calibration <sensor> "factory"` for temperature and pressure when its Calibrate page opens (`gui.tcl:2537-2538`, flow's equivalent commented out beside them) and displays the result (`de1_skin_settings.tcl:2338-2339`). That is a live, shipped path for exactly the two sensors in scope, so the wizard shows what the machine holds.
 
-Restoring is NOT implemented, and the reason is a rule rather than a preference: **no reference, not shipped.** `Command::ResetFactory` (2) exists in the wire vocabulary, and de1app's own helper names 2 as the reset command (`de1_comms.tcl:1653`) — but its three reset buttons passed **3**, read-factory, from the day they were added (2018-02-27, `a2092efc`) until they were commented out ten weeks later (2018-05-15, `69e4277c`). Both commits carry empty messages, so nothing states why. That they could not have worked is the obvious guess and is only a guess.
+Restoring is NOT implemented, and the reason is a rule rather than a preference: **no reference, not shipped.** `Command::ResetFactory` (2) exists in the wire vocabulary, and de1app's own helper names 2 as the reset command (`de1_comms.tcl:1653`) — but its three reset buttons passed **3**, read-factory, from the day they were added (2018-02-27, `a2092efc`) until they were commented out eleven weeks later (2018-05-15, `69e4277c`). Both commits carry empty messages, so nothing states why. That they could not have worked is the obvious guess and is only a guess.
 
 With no working implementation in any app and no firmware source in this tree, shipping a restore would mean writing an unverified command to a machine in the name of undoing a mistake — the worst place to be wrong. And it buys little: the loop is self-correcting, so the actual fix for a bad calibration is another run with the instrument.
 
@@ -150,14 +150,14 @@ Reading it back needs decaid's bucket rule (`de1_interface.dart:126`): subtract 
 
 - **A correction written with no instrument to check it against.** The real exposure, and narrower than de1app's warning implies: a user *with* a gauge cannot get stuck. → The wizard's structure makes the instrument reading the only thing typed, and the final step is a verification run rather than a completion claim.
 - **The wizard cannot start the shot (GHC).** → It observes, exactly as Transport Mode does; the prepare step ends by waiting for the user.
-- **A run that never holds steady produces nothing, which could read as the wizard being broken.** → Say plainly that no hold was measured and offer another run; the threshold is tunable from a real run (see Open Questions).
+- **The user reads their gauge at the wrong moment.** → The wizard states the value the profile holds at, and the entry stepper opens on it, so a reading taken against the lead-in rather than the hold lands outside the accepted correction and is refused.
 - **The firmware might not notify `A012` on some transport.** → Non-required subscription; values render unavailable and writing is refused, rather than a failed connect.
 - **Wizard pages are large.** `DescalingPage.qml` is 936 lines and this will be comparable. Accepted: the alternative shape was a settings popup, and the reason for rejecting it is a correctness argument, not a size one.
 - **Wiki drift.** A user-visible feature with no manual entry is incomplete per `CLAUDE.md`. → Manual entry is a task, not a follow-up, and per project rule it gets *shorter* because the wizard removes user steps.
 
 ## Migration Plan
 
-None. Nothing persisted, no schema change, no settings key. Rollback is removing the Maintenance row and the page; a calibration already written to a machine stays there and is corrected by another run, or by restoring factory.
+None. Nothing persisted, no schema change, no settings key. Rollback is removing the Maintenance row and the page; a calibration already written to a machine stays there and is corrected by another run with the instrument — which is the same loop the feature ships.
 
 ## Open Questions
 

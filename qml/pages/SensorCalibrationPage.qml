@@ -10,8 +10,10 @@ import Decenza
 // is the loaded profile's declared hold, supplied by SensorCalibration — so
 // there is no "what did the app show?" field to get wrong.
 //
-// The page does NOT start the shot: the machine has a GHC and the user starts it
-// there. It does keep the screen while that shot runs, which main.qml's phase
+// The page does NOT start the shot. On a machine with a GHC — most of them — the
+// firmware refuses an app-initiated start outright (DE1Device::isHeadless is
+// exactly "the app may start operations"), so the user starts it at the machine.
+// It does keep the screen while that shot runs, which main.qml's phase
 // handler has an explicit exemption for — its instructions and entry field are
 // no use on the espresso page.
 T.Page {
@@ -112,6 +114,14 @@ T.Page {
         // keeps isTestProfileActive true across the run-read-apply loop, which the
         // user repeats without leaving.
         ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))
+        // loadProfile also persists its choice as the startup profile
+        // (profilemanager.cpp:1923), and no restore runs on app teardown — so a
+        // quit here would come back on a hidden profile that declares
+        // espresso_temperature 1.00, startable from the machine's own button.
+        // Writing the user's name back leaves the test profile loaded for this
+        // session only, which is all the wizard needs.
+        if (calibrationPage._restoreProfile.length > 0)
+            Settings.app.currentProfile = calibrationPage._restoreProfile
         // Deferred, because the reply can be SYNCHRONOUS. The simulated machine
         // answers inside this call, so calibrationChanged would fire while the
         // page is still completing and the hasStored binding would never see it —
@@ -135,13 +145,23 @@ T.Page {
     // and the alternative is a sleeping machine holding a calibration profile
     // ready for the next shot.
     StackView.onRemoved: {
+        // Only if the test profile is still the active one. The profile can change
+        // under the wizard — a Sleep->Idle wake runs loadAutoLoadRecipeIfNeeded()
+        // with no page check (main.qml:511) — and replaying a capture from minutes
+        // ago would throw that away.
+        if (!SensorCalibration.isTestProfileActive(calibrationPage.sensor))
+            return
         if (calibrationPage._restoreRecipeId > 0) {
             MainController.activateRecipe(calibrationPage._restoreRecipeId)
-        } else if (calibrationPage._restoreProfile.length > 0
-                   && calibrationPage._restoreProfile
-                      !== SensorCalibration.profileFilename(calibrationPage.sensor)) {
-            // Skipped when they arrived with the test profile already loaded:
-            // that IS what they had, and reloading it is a pointless BLE upload.
+        // Not the test profile itself — arriving with it already loaded means it IS
+        // what they had. And only a name loadProfile can resolve: baseProfileName is
+        // a filename only when the profile came from a file, since loadProfileFromJson
+        // sets it to the TITLE (profilemanager.cpp:1984), on which loadProfile falls
+        // through to the default profile. Leaving the test profile loaded beats
+        // silently dropping the user on "default".
+        } else if (calibrationPage._restoreProfile
+                       !== SensorCalibration.profileFilename(calibrationPage.sensor)
+                   && ProfileManager.profileExists(calibrationPage._restoreProfile)) {
             ProfileManager.loadProfile(calibrationPage._restoreProfile)
         }
     }
@@ -329,6 +349,7 @@ T.Page {
                         onValueModified: function(newValue) {
                             calibrationPage.entryValue = newValue
                             calibrationPage.entryTouched = true
+                            calibrationPage.writeFailed = false
                         }
                     }
 
@@ -573,6 +594,10 @@ T.Page {
                         calibrationPage._readCalibration()
                         calibrationPage.wroteThisSession = true
                         calibrationPage.entryValue = calibrationPage.declaredHold
+                        // onDeclaredHoldChanged does not fire — the hold did not
+                        // change — so clear the touched flag here or the guard
+                        // message reappears in error red on a write that worked.
+                        calibrationPage.entryTouched = false
                         confirmDialog.close()
                     }
                 }

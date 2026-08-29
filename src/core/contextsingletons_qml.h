@@ -419,8 +419,6 @@ public:
     }
 };
 
-// 27 references across 5 QML files.
-//
 // Sensor calibration. Registered here rather than with QML_ELEMENT in its own
 // header because main() owns it: it needs DE1Device, TranslationManager and a
 // closure over ProfileManager, none of which the QML engine can supply.

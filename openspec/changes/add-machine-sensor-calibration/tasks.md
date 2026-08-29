@@ -6,7 +6,7 @@
 
 ## 2. DE1Device calibration API
 
-- [x] 2.1 Add `sendCalibration(target, command, reported, measured)` as the single writer, with `readCalibration(target, factory)` and `restoreFactoryCalibration(target)` expressed in terms of it; verify each emits the expected 14-byte payload in slots added to `tests/tst_de1device_mmrreads.cpp` (no new test file)
+- [x] 2.1 Add `sendCalibration(target, command, reported, measured)` as the single writer, with `readCalibration(target)` expressed in terms of it; verify each emits the expected 14-byte payload in slots added to `tests/tst_de1device_mmrreads.cpp` (no new test file)
 - [x] 2.2 Handle `A012` notifications: parse, discard any reply whose `WriteKey != 0`, and store stored/factory per target as `std::optional<double>`; verify a test feeds one echo then one real value and asserts only the real value lands
 - [x] 2.3 Expose stored/factory values and their presence as read-only `Q_PROPERTY`s with change signals so QML can render unavailable states; verify by reading them back in the same test
 - [x] 2.4 Log every calibration write at INFO with target, command, reported and measured under the `Calibration` marker (`src/controllers/calibrationlogging.h`; read `docs/CLAUDE_MD/LOGGING.md` first); verify `scripts/check_log_markers.py` passes on the touched files

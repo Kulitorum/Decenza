@@ -599,6 +599,13 @@ void DE1Device::disconnect() {
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
+    // Also cleared in onTransportDisconnected(), which this function deliberately
+    // prevents from running (it drops the transport's signals just below to avoid
+    // double-emitting). Both teardown paths have to clear it: this one is the
+    // BLE<->USB transport switch (main.cpp:2254) and the Android BLE-recovery
+    // reconnect (main.cpp:1844), after which a stale "this machine has answered"
+    // opens a write against a baseline the new machine never reported.
+    clearCalibrationCache();
 
     if (m_transport) {
         // Disconnect signals FIRST to prevent re-entrant emissions
