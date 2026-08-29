@@ -69,6 +69,7 @@ T.ApplicationWindow {
     property string returnToPageName: ""
     property int returnToShotId: 0
     property int returnToSensor: 0
+    property var returnToRecipeId: 0
 
 
     // True while the first-run restore dialog is active (prevents SettingsHistoryDataTab from also handling restore signals)
@@ -2258,7 +2259,8 @@ T.ApplicationWindow {
         // Return to saved page if set, otherwise go to idlePage
         if (root.returnToPageName === "sensorCalibrationPage") {
             pageStack.replace(null, idlePage)
-            pageStack.push(sensorCalibrationPage, { sensor: root.returnToSensor })
+            pageStack.push(sensorCalibrationPage, { sensor: root.returnToSensor,
+                                                    _restoreRecipeId: root.returnToRecipeId })
         } else if (root.returnToPageName === "postShotReviewPage") {
             var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
             pageStack.replace(null, idlePage)
@@ -2295,6 +2297,7 @@ T.ApplicationWindow {
             root.returnToPageName = pageName
             var currentWizard = pageStack.currentItem as SensorCalibrationPage
             root.returnToSensor = currentWizard ? currentWizard.sensor : 0
+            root.returnToRecipeId = currentWizard ? currentWizard._restoreRecipeId : 0
         } else if (pageName === "steamPage" || pageName === "hotWaterPage" || pageName === "flushPage") {
             // On an operation page - preserve existing return tracking (if any)
         } else {
@@ -3804,7 +3807,8 @@ T.ApplicationWindow {
         // strands the user on idle with the test profile still loaded.
         if (currentPage === "espressoPage" && root.returnToPageName === "sensorCalibrationPage") {
             pageStack.replace(null, idlePage)
-            pageStack.push(sensorCalibrationPage, { sensor: root.returnToSensor })
+            pageStack.push(sensorCalibrationPage, { sensor: root.returnToSensor,
+                                                    _restoreRecipeId: root.returnToRecipeId })
             root.returnToPageName = ""
             root.returnToShotId = 0
             return

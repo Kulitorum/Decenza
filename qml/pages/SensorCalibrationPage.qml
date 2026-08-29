@@ -101,31 +101,20 @@ T.Page {
     // grind and steam block, none of which loadProfile knows about. Restoring the
     // profile alone would leave the user's next shot on their profile with
     // somebody else's grind.
-    // Read from Settings.app.currentProfile rather than ProfileManager.baseProfileName,
-    // and captured rather than bound. The page is destroyed when the calibration shot
-    // takes the screen and rebuilt when it ends, so baseProfileName would by then be
-    // the test profile — but the persisted key still names the user's profile, because
-    // the load below is the one profile change this page never lets persist. A binding
-    // would not survive either: loadProfile writes that key before we read it back.
-    property string _restoreProfile: ""
     // var, not int: a recipe id is a database rowid and QML's int is 32-bit.
     property var _restoreRecipeId: 0
 
     Component.onCompleted: {
-        calibrationPage._restoreProfile = Settings.app.currentProfile
-        calibrationPage._restoreRecipeId = MainController.selectedRecipeId
+        // Unless main.qml already supplied it: the calibration shot destroys and
+        // rebuilds this page, and by then the recipe has been deactivated, so a
+        // fresh read would capture 0 and lose it.
+        if (!calibrationPage._restoreRecipeId)
+            calibrationPage._restoreRecipeId = MainController.selectedRecipeId
         // Load this sensor's test profile, the way tapping it in the profile list
         // would. It stays loaded for as long as the page lives — that is what
         // keeps isTestProfileActive true across the run-read-apply loop, which the
         // user repeats without leaving.
         ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))
-        // loadProfile persists its choice as the startup profile
-        // (profilemanager.cpp:1923). Writing the user's name straight back keeps the
-        // test profile to this session — so a quit here does not come back on a
-        // hidden profile that declares espresso_temperature 1.00, and _restoreProfile
-        // above stays true across the shot that destroys this page.
-        if (calibrationPage._restoreProfile.length > 0)
-            Settings.app.currentProfile = calibrationPage._restoreProfile
         // Deferred, because the reply can be SYNCHRONOUS. The simulated machine
         // answers inside this call, so calibrationChanged would fire while the
         // page is still completing and the hasStored binding would never see it —
@@ -157,16 +146,17 @@ T.Page {
             return
         if (calibrationPage._restoreRecipeId > 0) {
             MainController.activateRecipe(calibrationPage._restoreRecipeId)
-        // Not the test profile itself — arriving with it already loaded means it IS
-        // what they had. And only a name loadProfile can resolve: baseProfileName is
-        // a filename only when the profile came from a file, since loadProfileFromJson
-        // sets it to the TITLE (profilemanager.cpp:1984), on which loadProfile falls
-        // through to the default profile. Leaving the test profile loaded beats
-        // silently dropping the user on "default".
-        } else if (calibrationPage._restoreProfile
-                       !== SensorCalibration.profileFilename(calibrationPage.sensor)
-                   && ProfileManager.profileExists(calibrationPage._restoreProfile)) {
-            ProfileManager.loadProfile(calibrationPage._restoreProfile)
+        // ProfileManager already tracks what was loaded before, and it only updates
+        // that on an actual change — so the reload when this page is rebuilt after
+        // the calibration shot leaves it pointing at the user's profile, and the
+        // page needs to carry nothing across its own destruction.
+        //
+        // profileExists because the name is a filename only when the profile came
+        // from a file: loadProfileFromJson stores the TITLE (profilemanager.cpp:1984),
+        // on which loadProfile falls through to the default profile. Leaving the test
+        // profile loaded beats silently dropping the user on "default".
+        } else if (ProfileManager.profileExists(ProfileManager.previousProfileName())) {
+            ProfileManager.loadProfile(ProfileManager.previousProfileName())
         }
     }
 
