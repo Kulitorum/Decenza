@@ -608,4 +608,13 @@ T.Page {
             }
         }
     }
+
+    // Back is otherwise only the top-bar arrow, the Android hardware button and
+    // Escape — all of which pop through main.qml's global handler. This gives the
+    // page its own affordance; it goes through AppShell like every other page, so
+    // StackView.onRemoved still runs the profile restore.
+    BottomBar {
+        title: calibrationPage.pageTitle
+        onBackClicked: AppShell.backRequested()
+    }
 }
