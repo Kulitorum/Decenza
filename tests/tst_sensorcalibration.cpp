@@ -201,6 +201,27 @@ private slots:
 
     // ===== The write chokepoint =====
 
+    // The check succeeding is not a correction. Sending a reported == measured
+    // pair is a WRITE whose firmware effect is unverified — it may zero an
+    // offset the user already had — so "they agree" must not reach the machine.
+    void agreementIsReportedNotWritten() {
+        TestFixture f;
+        f.loadProfile(QStringLiteral("test_pressure_calibration"), 9.0, 93.0);
+
+        QVERIFY(!f.controller.rejectionReason(int(Sensor::Pressure), 9.0).isEmpty());
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("correction refused:"));
+        QVERIFY(!f.controller.applyCorrection(int(Sensor::Pressure), 9.0));
+        QVERIFY(!f.device.hasStoredCalibration(int(DE1::Calibration::Target::Pressure)));
+    }
+
+    // But a real difference still applies, however small.
+    void aSmallRealDifferenceStillApplies() {
+        TestFixture f;
+        f.loadProfile(QStringLiteral("test_pressure_calibration"), 9.0, 93.0);
+        QVERIFY(f.controller.rejectionReason(int(Sensor::Pressure), 8.9).isEmpty());
+    }
+
     void aCorrectionCarriesTheDeclaredHoldAsTheMachinesHalf() {
         TestFixture f;
         f.loadProfile(QStringLiteral("test_pressure_calibration"), 9.0, 93.0);

@@ -222,6 +222,25 @@ QString SensorCalibrationController::rejectionReason(int sensor, double instrume
             .arg(spec->maxCorrection, 0, 'f', 1);
     }
 
+    // The two agree — the check succeeded and there is nothing to correct.
+    //
+    // Blocked rather than sent, because a pair that agrees is a WRITE whose
+    // effect on the machine is unverified: with no firmware source here, a
+    // reported == measured pair either accumulates a zero delta (harmless) or
+    // sets the offset to zero, which would discard a calibration the user
+    // already had. Neither is what "I checked and they match" should do.
+    //
+    // Exact equality rather than an invented tolerance: a user who reads 9.0 on
+    // the gauge and types 9.0 is saying they agree. Someone who types 8.9 means
+    // a 0.1 correction, and that is their call to make.
+    if (qFuzzyIsNull(correction)) {
+        return tr_("settings.sensorCalibration.reject.alreadyAgree",
+                   "Your gauge and your machine already agree at %1 %2 \xe2\x80\x94 "
+                   "nothing to correct.")
+            .arg(declared, 0, 'f', 1)
+            .arg(QString::fromUtf8(spec->unitLabel));
+    }
+
     return QString();
 }
 
