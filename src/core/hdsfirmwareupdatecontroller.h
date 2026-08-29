@@ -22,7 +22,7 @@ class HdsFirmwareUpdateController : public QObject {
     Q_PROPERTY(QString availableVersion READ availableVersion NOTIFY availabilityChanged)
     Q_PROPERTY(QString releaseNotes READ releaseNotes NOTIFY releaseNotesChanged)
     Q_PROPERTY(bool releaseNotesLoading READ releaseNotesLoading NOTIFY releaseNotesLoadingChanged)
-    Q_PROPERTY(bool handoffStarted READ handoffStarted NOTIFY handoffStartedChanged)
+    Q_PROPERTY(bool updateStarted READ updateStarted NOTIFY updateStartedChanged)
 
 public:
     explicit HdsFirmwareUpdateController(QNetworkAccessManager* networkManager, QObject* parent = nullptr);
@@ -33,7 +33,10 @@ public:
     QString availableVersion() const;
     QString releaseNotes() const { return m_releaseNotes; }
     bool releaseNotesLoading() const { return m_releaseNotesLoading; }
-    bool handoffStarted() const { return m_handoffStarted; }
+    // True once the scale has accepted a start request. The scale reports a
+    // request as QUEUED, never as installed, and no transport carries a
+    // progress stream, so this must never be read as a completed update.
+    bool updateStarted() const { return m_updateStarted; }
 
     void setScaleDevice(ScaleDevice* scale);
 
@@ -48,7 +51,7 @@ signals:
     void availabilityChanged();
     void releaseNotesChanged();
     void releaseNotesLoadingChanged();
-    void handoffStartedChanged();
+    void updateStartedChanged();
     void activeScaleChanged();
 
 private:
@@ -65,6 +68,6 @@ private:
     bool m_checking = false;
     bool m_updateAvailable = false;
     bool m_releaseNotesLoading = false;
-    bool m_handoffStarted = false;
+    bool m_updateStarted = false;
     QString m_releaseNotes;
 };

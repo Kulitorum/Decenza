@@ -37,7 +37,10 @@ public:
     int batteryLevel() const { return m_batteryLevel; }
     bool charging() const { return m_charging; }
     virtual QString firmwareVersion() const { return {}; }
-    virtual bool supportsFirmwareUpdate() const { return false; }
+    // A scale is a firmware-update candidate once it has told us what it runs.
+    // Every HDS transport answers this the same way, so it is defaulted here
+    // rather than overridden identically three times.
+    virtual bool supportsFirmwareUpdate() const { return !firmwareVersion().isEmpty(); }
     virtual QString name() const { return QString(); }
     virtual QString type() const { return QString(); }
     virtual bool isFlowScale() const { return false; }
@@ -82,7 +85,7 @@ public slots:
     virtual void wake() {}   // Wake scale from sleep (enable LCD)
     virtual void disableLcd() {}  // Turn off LCD but keep scale powered (for screensaver)
     virtual void sendKeepAlive() {}  // Override to send BLE keepalive (e.g., re-enable notifications)
-    virtual void startFirmwareUpdate() {}
+    virtual void startFirmwareUpdate(const QString& targetVersion) { Q_UNUSED(targetVersion); }
     virtual void disconnectFromScale();  // Disconnect BLE from scale
     void resetFlowCalculation();  // Call after tare to avoid flow rate spikes
 

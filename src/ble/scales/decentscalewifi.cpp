@@ -1,5 +1,6 @@
 #include "decentscalewifi.h"
 #include "scalelogging.h"
+#include "../protocol/decentscaleprotocol.h"
 
 #include <QWebSocket>
 #include <QJsonDocument>
@@ -625,7 +626,10 @@ void DecentScaleWifi::onDisconnected() {
     setConnected(false);
 
     // Clear per-connect state so the next connect re-captures it fresh.
-    m_firmwareVersion.clear();
+    if (!m_firmwareVersion.isEmpty()) {
+        m_firmwareVersion.clear();
+        emit firmwareVersionChanged();
+    }
     m_loggedProtoVersion = -1;
     m_loggedFrameShapes.clear();
     m_lastPowerEventReason.clear();
@@ -684,8 +688,23 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
     } else if (type == QStringLiteral("rate")) {
         handleRateFrame(obj);
     }
-    // "error" frames and any unknown type are captured by the diagnostic log
-    // above; no further action.
+    // An "error" frame is the only machine-readable refusal this app ever sees:
+    // everything the scale checks after accepting an update (catalog eligibility,
+    // signature, rollback) happens once it has already closed its WebSocket
+    // clients, and reaches its own display alone.
+    //
+    // Warn unconditionally rather than leaning on the frame-shape sampler above,
+    // which logs one frame per TYPE per connect — any earlier error frame
+    // (invalid_action, unknown_command, frame_too_large are all "error") would
+    // otherwise consume the slot and leave a refused firmware update recorded
+    // nowhere at all.
+    else if (type == QStringLiteral("error")) {
+        WIFI_WARN(QString("Scale reported error '%1': %2")
+                  .arg(obj.value(QStringLiteral("code")).toString(),
+                       obj.value(QStringLiteral("message")).toString()));
+    }
+    // Any other unknown type is captured by the diagnostic log above; no
+    // further action.
 }
 
 void DecentScaleWifi::handleSnapshotFrame(const QJsonObject& obj) {
@@ -712,15 +731,25 @@ void DecentScaleWifi::handleStatusFrame(const QJsonObject& obj) {
     // Firmware version — log once per connect, warn-log on mid-connect change.
     const QJsonValue fwv = obj.value(QStringLiteral("firmware_version"));
     if (fwv.isString()) {
-        const QString version = fwv.toString();
+        const QString reported = fwv.toString();
+        // The SAME normaliser the discovery list uses — the scale publishes this
+        // string on its mDNS TXT `fw` key and its status frame alike, so a second
+        // copy here would let one view show "3.1.13-dev" and the other "3.1.13".
+        // Any prerelease suffix stays: HdsFirmwareCatalog::parseVersion ignores
+        // it when comparing, exactly as the firmware's own comparator does.
+        const QString version = WifiScaleResultUtil::normalizeFirmwareVersion(reported);
         if (!version.isEmpty() && m_firmwareVersion != version) {
             if (m_firmwareVersion.isEmpty()) {
-                WIFI_LOG(QString("Firmware version: %1").arg(version));
+                WIFI_LOG(QString("Firmware version: %1 (reported '%2')").arg(version, reported));
             } else {
                 WIFI_WARN(QString("Firmware version changed mid-connect: %1 -> %2")
                           .arg(m_firmwareVersion, version));
             }
             m_firmwareVersion = version;
+            // Drives supportsFirmwareUpdate too, and the update controller
+            // re-evaluates availability on it. Without this the Update action
+            // could never appear for a WiFi scale.
+            emit firmwareVersionChanged();
         }
     }
 
@@ -1050,6 +1079,26 @@ void DecentScaleWifi::startTimer() { send(QStringLiteral("timer start")); }
 void DecentScaleWifi::stopTimer()  { send(QStringLiteral("timer stop")); }
 void DecentScaleWifi::resetTimer() { send(QStringLiteral("timer reset")); }
 void DecentScaleWifi::disableLcd() { send(QStringLiteral("display off")); }
+
+void DecentScaleWifi::startFirmwareUpdate(const QString& targetVersion) {
+    if (!supportsFirmwareUpdate()) {
+        WIFI_WARN(DecentScaleProtocol::firmwareUpdateUnknownVersionMessage());
+        return;
+    }
+    // Required for the same reason as the byte transports, and true of the text
+    // command too: a bare "wifi_update" starts the scale's own picker
+    // (openscale include/websocket.h, an empty action yields no target).
+    //
+    // Canonical form rather than the caller's string: the scale's target parser
+    // requires three numeric components and nothing after them.
+    const auto components = HdsFirmwareCatalog::parseVersion(targetVersion);
+    if (!components) {
+        WIFI_WARN(DecentScaleProtocol::firmwareUpdateBadTargetMessage(targetVersion));
+        return;
+    }
+    WIFI_INFO(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
+    send(QStringLiteral("wifi_update %1").arg(HdsFirmwareCatalog::canonicalVersion(*components)));
+}
 
 void DecentScaleWifi::wake() {
     // Order: restore sensors/loop first, then OLED.

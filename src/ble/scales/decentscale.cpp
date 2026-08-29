@@ -499,12 +499,26 @@ void DecentScale::resetTimer() {
     sendCommand(QByteArray::fromHex("0B0200"));
 }
 
-void DecentScale::startFirmwareUpdate() {
+void DecentScale::startFirmwareUpdate(const QString& targetVersion) {
     if (!supportsFirmwareUpdate()) {
-        DECENT_LOG("Firmware update command dropped - HDS firmware version is unknown");
+        DECENT_WARN(DecentScaleProtocol::firmwareUpdateUnknownVersionMessage());
         return;
     }
-    sendCommand(QByteArray::fromHex("1B"));
+    // The version is required: a bare command starts the scale's own picker.
+    // See DecentScaleProtocol::buildTargetedFirmwareUpdateCommand.
+    const QByteArray command = DecentScaleProtocol::buildTargetedFirmwareUpdateCommand(targetVersion);
+    if (command.isEmpty()) {
+        DECENT_WARN(DecentScaleProtocol::firmwareUpdateBadTargetMessage(targetVersion));
+        return;
+    }
+    DECENT_INFO(DecentScaleProtocol::firmwareUpdateStartingMessage(targetVersion));
+    // sendCommand pads to the fixed 7-byte packet, which stays correct here for
+    // two independent reasons: the Bluetooth path has no framer at all — one
+    // characteristic write goes to one handler, which reads data[2..4] for a
+    // targeted 0x1B and stops (openscale include/ble.h) — and that handler's
+    // length check is a minimum, not an equality
+    // (openscale include/decent_protocol.h, decentRequireLength is `>=`).
+    sendCommand(command);
 }
 
 void DecentScale::sleep() {

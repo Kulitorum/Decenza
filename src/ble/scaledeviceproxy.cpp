@@ -64,7 +64,7 @@ void ScaleDeviceProxy::resetTimer()          { if (m_target) m_target->resetTime
 void ScaleDeviceProxy::wake()                { if (m_target) m_target->wake(); }
 void ScaleDeviceProxy::disableLcd()          { if (m_target) m_target->disableLcd(); }
 void ScaleDeviceProxy::sendKeepAlive()       { if (m_target) m_target->sendKeepAlive(); }
-void ScaleDeviceProxy::startFirmwareUpdate() { if (m_target) m_target->startFirmwareUpdate(); }
+void ScaleDeviceProxy::startFirmwareUpdate(const QString& targetVersion) { if (m_target) m_target->startFirmwareUpdate(targetVersion); }
 void ScaleDeviceProxy::disconnectFromScale() { if (m_target) m_target->disconnectFromScale(); }
 void ScaleDeviceProxy::resetFlowCalculation() { if (m_target) m_target->resetFlowCalculation(); }
 

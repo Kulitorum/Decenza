@@ -15,7 +15,6 @@ public:
     QString name() const override { return m_name; }
     QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::DecentScale); }
     QString firmwareVersion() const override { return m_firmwareVersion; }
-    bool supportsFirmwareUpdate() const override { return !m_firmwareVersion.isEmpty(); }
 
 public slots:
     void tare() override;
@@ -27,7 +26,7 @@ public slots:
     void sleep() override;
     void wake() override;
     void disableLcd() override;
-    void startFirmwareUpdate() override;
+    void startFirmwareUpdate(const QString& targetVersion) override;
     void setLed(int r, int g, int b);
 private slots:
     void onTransportConnected();

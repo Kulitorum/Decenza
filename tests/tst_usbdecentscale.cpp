@@ -3,6 +3,7 @@
 #include <QRegularExpression>
 
 #include "usb/usbdecentscale.h"
+#include "ble/protocol/decentscaleprotocol.h"
 
 class RecordingUsbDecentScale : public UsbDecentScale {
 public:
@@ -35,8 +36,22 @@ private slots:
 
         scale.setTestConnected(true);
         scale.writes.clear();
-        scale.startFirmwareUpdate();
-        QCOMPARE(scale.writes, QList<QByteArray>{QByteArray::fromHex("031B0000000018")});
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QRegularExpression::escape(
+            DecentScaleProtocol::firmwareUpdateStartingMessage(QStringLiteral("3.1.14")))));
+        scale.startFirmwareUpdate(QStringLiteral("3.1.14"));
+        // USB is framed rather than packetised: a targeted 0x1B is exactly five
+        // bytes, so nothing is padded and nothing spills to the scale's text
+        // path (openscale decentCommandFrameLength).
+        QCOMPARE(scale.writes, QList<QByteArray>{QByteArray::fromHex("031B83818E")});
+
+        scale.writes.clear();
+        // One bad value; the accepted set is asserted by
+        // tst_scaleprotocol's hdsTargetVersionEncoding table. This proves only
+        // that the driver consults that predicate and sends nothing.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QRegularExpression::escape(
+            DecentScaleProtocol::firmwareUpdateBadTargetMessage(QStringLiteral("3.1.x")))));
+        scale.startFirmwareUpdate(QStringLiteral("3.1.x"));
+        QVERIFY(scale.writes.isEmpty());
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Half Decent Scale \\(USB\\) DISCONNECTED"));
         scale.setTestConnected(false);

@@ -47,9 +47,9 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                visible: !MainController.hdsFirmwareUpdate.handoffStarted
-                text: TranslationManager.translate("connections.hdsUpdateHandoff",
-                                                   "Decenza will start the update handoff. Choose the version and hold to confirm on the scale display.")
+                visible: !MainController.hdsFirmwareUpdate.updateStarted
+                text: TranslationManager.translate("connections.hdsUpdateExplain",
+                                                   "The scale will install this version on its own. Keep it powered and within WiFi range until it restarts.")
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
                 Accessible.ignored: true
@@ -57,9 +57,13 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                visible: MainController.hdsFirmwareUpdate.handoffStarted
-                text: TranslationManager.translate("connections.hdsUpdateStarted",
-                                                   "The update was handed to the scale. Continue version selection and confirmation on its display. Decenza will not report installation complete until the scale reconnects on the new version.")
+                visible: MainController.hdsFirmwareUpdate.updateStarted
+                // Says only what a transport can support. Bluetooth and USB carry no
+                // acknowledgement at all, so "the scale accepted this" is not knowable
+                // there however much machinery is added — and a restart is the only
+                // positive evidence any transport offers.
+                text: TranslationManager.translate("connections.hdsUpdateRequested",
+                                                   "Update requested. The scale restarts if it accepts, and shows any problem on its own display.")
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
                 Accessible.ignored: true
@@ -97,7 +101,7 @@ Item {
                 spacing: Theme.scaled(8)
 
                 AccessibleButton {
-                    text: MainController.hdsFirmwareUpdate.handoffStarted
+                    text: MainController.hdsFirmwareUpdate.updateStarted
                         ? TranslationManager.translate("common.button.close", "Close")
                         : TranslationManager.translate("common.cancel", "Cancel")
                     accessibleName: text
@@ -106,7 +110,7 @@ Item {
                 }
 
                 AccessibleButton {
-                    visible: !MainController.hdsFirmwareUpdate.handoffStarted
+                    visible: !MainController.hdsFirmwareUpdate.updateStarted
                     text: TranslationManager.translate("connections.hdsStartUpdate", "Start update")
                     accessibleName: TranslationManager.translate("connections.hdsStartUpdate", "Start update")
                     primary: true

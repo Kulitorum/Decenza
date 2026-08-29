@@ -37,7 +37,6 @@ public:
     QString name() const override { return QStringLiteral("Half Decent Scale (USB)"); }
     QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleUsb); }
     QString firmwareVersion() const override { return m_firmwareVersion; }
-    bool supportsFirmwareUpdate() const override { return !m_firmwareVersion.isEmpty(); }
 
 public slots:
     void tare() override;
@@ -47,7 +46,7 @@ public slots:
     void resetTimer() override;
     void wake() override;
     void sleep() override;
-    void startFirmwareUpdate() override;
+    void startFirmwareUpdate(const QString& targetVersion) override;
 
     // -- USB-specific API --
 

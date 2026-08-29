@@ -11,6 +11,7 @@
 #include <optional>
 
 #include "ble/scales/decentscalewifi.h"
+#include "ble/protocol/decentscaleprotocol.h"
 #include "messagecapture.h"
 
 // Fake WebSocket server used to drive the DecentScaleWifi driver under test.
@@ -470,16 +471,94 @@ private slots:
         connectAndHandshake(driver, server);
 
         QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+            QRegularExpression(".*Firmware version: 3\\.0\\.9 \\(reported 'FW: 3\\.0\\.9'\\).*"));
         server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.0.9" }});
         QTest::qWait(50);
 
         // Same value — no further log expected. Then a different value warn-logs.
         server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.0.9" }});
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(".*Firmware version changed mid-connect: FW: 3\\.0\\.9 -> FW: 3\\.1\\.0.*"));
+            QRegularExpression(".*Firmware version changed mid-connect: 3\\.0\\.9 -> 3\\.1\\.0.*"));
         server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.1.0" }});
         QTest::qWait(50);
+    }
+
+    // The scale sends its compile-time version behind a fixed "FW: " label. The
+    // label is stripped by the SAME helper the discovery list uses, so the two
+    // views cannot show one scale two different versions. A prerelease suffix is
+    // deliberately kept: HdsFirmwareCatalog::parseVersion ignores it when
+    // comparing, exactly as the firmware's own comparator does, so nothing
+    // downstream needs it gone.
+    void firmwareVersionIsNormalizedToMajorMinorPatch_data() {
+        QTest::addColumn<QString>("reported");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("labelled") << "FW: 3.1.13" << "3.1.13";
+        QTest::newRow("prerelease") << "FW: 3.1.14-preview.1" << "3.1.14-preview.1";
+        QTest::newRow("unlabelled") << "3.1.13" << "3.1.13";
+        QTest::newRow("padded") << "FW:   3.1.13  " << "3.1.13";
+        QTest::newRow("no space") << "FW:3.1.13" << "3.1.13";
+    }
+
+    void firmwareVersionIsNormalizedToMajorMinorPatch() {
+        QFETCH(QString, reported);
+        QFETCH(QString, expected);
+
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        // Nothing has reported a version yet, so the scale is not a candidate.
+        QVERIFY(!driver.supportsFirmwareUpdate());
+
+        // The emit, not the getter. supportsFirmwareUpdate's NOTIFY is this
+        // signal, and the update controller re-evaluates availability on it —
+        // polling the getter would pass with the emit deleted, leaving a WiFi
+        // scale that can never surface an update.
+        QSignalSpy versionSpy(&driver, &ScaleDevice::firmwareVersionChanged);
+
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        server.sendJson({{ "type", "status" }, { "firmware_version", reported }});
+        QTRY_COMPARE(driver.firmwareVersion(), expected);
+        QCOMPARE(versionSpy.count(), 1);
+        QVERIFY(driver.supportsFirmwareUpdate());
+
+        // And cleared on the way out, or a stale offer outlives the scale.
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(".*WebSocket disconnected.*"));
+        server.closeFromServer();
+        QTRY_VERIFY(!driver.supportsFirmwareUpdate());
+        QCOMPARE(versionSpy.count(), 2);
+    }
+
+    // WiFi is the third transport the update reaches, and the only one where a
+    // connected HDS previously had no update path at all.
+    void firmwareUpdateSendsNamedWifiUpdateCommand() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.1.13" }});
+        QTRY_VERIFY(driver.supportsFirmwareUpdate());
+        server.clearReceived();
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QRegularExpression::escape(
+            DecentScaleProtocol::firmwareUpdateStartingMessage(QStringLiteral("3.1.14")))));
+        driver.startFirmwareUpdate(QStringLiteral("3.1.14"));
+        QTRY_VERIFY(server.received().contains(QStringLiteral("wifi_update 3.1.14")));
+
+        // A bare "wifi_update" is accepted by the firmware and starts its own
+        // interactive picker, so an unresolvable target must send nothing. The
+        // SAME set the byte transports reject: this path used to count dots, so
+        // "3.1.x" and "v3.1.14" went out here and were refused on the other two.
+        server.clearReceived();
+        // One bad value; the accepted set is asserted by
+        // tst_scaleprotocol's hdsTargetVersionEncoding table. This proves only
+        // that the driver consults that predicate and sends nothing.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QRegularExpression::escape(
+            DecentScaleProtocol::firmwareUpdateBadTargetMessage(QStringLiteral("3.1.x")))));
+        driver.startFirmwareUpdate(QStringLiteral("3.1.x"));
+        QTest::qWait(50);
+        QVERIFY(server.received().isEmpty());
     }
 
     // Regression: the real firmware's status frame ALSO carries a `grams` field
@@ -496,7 +575,7 @@ private slots:
         connectAndHandshake(driver, server);
 
         QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+            QRegularExpression(".*Firmware version: 3\\.0\\.9 \\(reported 'FW: 3\\.0\\.9'\\).*"));
         server.sendJson({
             { "type", "status" },
             { "grams", 25.66 },
@@ -970,7 +1049,7 @@ private slots:
         connectAndHandshake(driver, server);
 
         QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+            QRegularExpression(".*Firmware version: 3\\.0\\.9 \\(reported 'FW: 3\\.0\\.9'\\).*"));
         server.sendJson({
             { "type", "status" },
             { "battery_percent", 80 },
