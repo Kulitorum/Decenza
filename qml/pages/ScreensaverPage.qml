@@ -60,7 +60,7 @@ T.Page {
     property bool videoDecoderBroken: !ScreensaverManager.hasHardwareVideoDecoder
 
     Component.onCompleted: {
-        console.log("[ScreensaverPage] Loaded, type:", screensaverType,
+        console.log("[Screensaver] Loaded, type:", screensaverType,
                     "videos:", isVideosMode, "pipes:", isPipesMode, "flipclock:", isFlipClockMode,
                     "disabled:", isDisabledMode)
         // #582 diagnostic: log geometry chain to find where the gap originates.

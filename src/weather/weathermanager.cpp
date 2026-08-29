@@ -1,4 +1,6 @@
 #include "weathermanager.h"
+#include "weather/weatherlogging.h"
+#include "core/logcollapse.h"
 #include "../network/locationprovider.h"
 
 #include <QJsonDocument>
@@ -178,7 +180,7 @@ void WeatherManager::setQmlReady()
     m_qmlReady = true;
     if (m_pendingFetch) {
         m_pendingFetch = false;
-        qDebug() << "WeatherManager: QML ready, running deferred fetch";
+        WEATHER_DBG_STREAM("Manager") << "QML ready, running deferred fetch";
         // Use QueuedConnection so the fetch runs after the current event (engine.load()
         // aftermath) completes — async sub-component incubation may still be in-flight.
         QMetaObject::invokeMethod(this, &WeatherManager::fetchWeather, Qt::QueuedConnection);
@@ -188,18 +190,18 @@ void WeatherManager::setQmlReady()
 void WeatherManager::fetchWeather()
 {
     if (!m_qmlReady) {
-        qDebug() << "WeatherManager: QML not ready, deferring fetch";
+        WEATHER_DBG_STREAM("Manager") << "QML not ready, deferring fetch";
         m_pendingFetch = true;
         return;
     }
 
     if (!m_locationProvider || !m_locationProvider->hasLocation()) {
-        qDebug() << "WeatherManager: No location available, skipping fetch";
+        WEATHER_DBG_STREAM("Manager") << "No location available, skipping fetch";
         return;
     }
 
     if (m_fetchInProgress) {
-        qDebug() << "WeatherManager: Fetch already in progress, skipping";
+        WEATHER_DBG_STREAM("Manager") << "Fetch already in progress, skipping";
         return;
     }
 
@@ -207,7 +209,7 @@ void WeatherManager::fetchWeather()
     double lon = effectiveLongitude();
 
     if (lat == 0.0 && lon == 0.0) {
-        qDebug() << "WeatherManager: Coordinates are 0,0, skipping fetch";
+        WEATHER_DBG_STREAM("Manager") << "Coordinates are 0,0, skipping fetch";
         return;
     }
 
@@ -220,9 +222,24 @@ void WeatherManager::fetchWeather()
     m_locationName = m_locationProvider->city();
 
     WeatherProvider provider = selectProvider();
-    qDebug() << "WeatherManager: Fetching weather for" << lat << lon
-             << "using" << (provider == WeatherProvider::NWS ? "NWS" :
-                           provider == WeatherProvider::MetNorway ? "MET Norway" : "Open-Meteo");
+    // Collapsed: the coordinates and the provider do not change between fetches,
+    // so this was 125 byte-identical lines in one submitted log. Keyed on the
+    // whole text, so a MOVED location or a switched provider — the two things
+    // that make this line worth reading — emits at once carrying the count of
+    // the fetches that came before. PERIODIC, no run end, so no flush.
+    {
+        const QString text = QStringLiteral("Fetching weather for %1 %2 using %3")
+                                 .arg(lat).arg(lon)
+                                 .arg(provider == WeatherProvider::NWS ? QStringLiteral("NWS")
+                                      : provider == WeatherProvider::MetNorway
+                                            ? QStringLiteral("MET Norway")
+                                            : QStringLiteral("Open-Meteo"));
+        LogCollapse::Collapsed collapsed;
+        if (m_fetchLog.shouldLog(QLatin1String("fetch"), text,
+                                 QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+            WEATHER_LOG_STDERR("Manager", text + LogCollapse::suffix(collapsed));
+        }
+    }
 
     switch (provider) {
     case WeatherProvider::NWS:
@@ -272,7 +289,7 @@ void WeatherManager::fetchFromOpenMeteo(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "WeatherManager: Open-Meteo request failed:" << reply->errorString();
+            WEATHER_WARN_STREAM("Manager") << "Open-Meteo request failed:" << reply->errorString();
             m_fetchInProgress = false;
             setLoading(false);
             return;
@@ -282,7 +299,7 @@ void WeatherManager::fetchFromOpenMeteo(double lat, double lon)
         QList<HourlyForecast> forecasts = parseOpenMeteoResponse(doc);
 
         if (forecasts.isEmpty()) {
-            qWarning() << "WeatherManager: Open-Meteo returned no forecast data";
+            WEATHER_WARN_STREAM("Manager") << "Open-Meteo returned no forecast data";
             m_fetchInProgress = false;
             setLoading(false);
             return;
@@ -365,7 +382,7 @@ void WeatherManager::fetchFromNWS(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "WeatherManager: NWS points request failed:" << reply->errorString();
+            WEATHER_WARN_STREAM("Manager") << "NWS points request failed:" << reply->errorString();
             fallbackToOpenMeteo(lat, lon, "NWS points lookup failed");
             return;
         }
@@ -375,7 +392,7 @@ void WeatherManager::fetchFromNWS(double lat, double lon)
         QString forecastHourlyUrl = props["forecastHourly"].toString();
 
         if (forecastHourlyUrl.isEmpty()) {
-            qWarning() << "WeatherManager: NWS returned no forecastHourly URL";
+            WEATHER_WARN_STREAM("Manager") << "NWS returned no forecastHourly URL";
             fallbackToOpenMeteo(lat, lon, "NWS missing forecastHourly URL");
             return;
         }
@@ -404,7 +421,7 @@ void WeatherManager::fetchNWSHourlyFromGridUrl(const QString& forecastHourlyUrl)
         double lon = m_lastFetchLon;
 
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "WeatherManager: NWS hourly request failed:" << reply->errorString();
+            WEATHER_WARN_STREAM("Manager") << "NWS hourly request failed:" << reply->errorString();
             fallbackToOpenMeteo(lat, lon, "NWS hourly forecast failed");
             return;
         }
@@ -413,7 +430,7 @@ void WeatherManager::fetchNWSHourlyFromGridUrl(const QString& forecastHourlyUrl)
         QList<HourlyForecast> forecasts = parseNWSResponse(doc);
 
         if (forecasts.isEmpty()) {
-            qWarning() << "WeatherManager: NWS returned no hourly periods";
+            WEATHER_WARN_STREAM("Manager") << "NWS returned no hourly periods";
             fallbackToOpenMeteo(lat, lon, "NWS parsing failed");
             return;
         }
@@ -492,7 +509,7 @@ void WeatherManager::fetchFromMetNorway(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "WeatherManager: MET Norway request failed:" << reply->errorString();
+            WEATHER_WARN_STREAM("Manager") << "MET Norway request failed:" << reply->errorString();
             fallbackToOpenMeteo(lat, lon, "MET Norway request failed");
             return;
         }
@@ -501,7 +518,7 @@ void WeatherManager::fetchFromMetNorway(double lat, double lon)
         QList<HourlyForecast> forecasts = parseMetNorwayResponse(doc);
 
         if (forecasts.isEmpty()) {
-            qWarning() << "WeatherManager: MET Norway returned no timeseries data";
+            WEATHER_WARN_STREAM("Manager") << "MET Norway returned no timeseries data";
             fallbackToOpenMeteo(lat, lon, "MET Norway parsing failed");
             return;
         }
@@ -562,7 +579,7 @@ QList<HourlyForecast> WeatherManager::parseMetNorwayResponse(const QJsonDocument
 
 void WeatherManager::fallbackToOpenMeteo(double lat, double lon, const QString& reason)
 {
-    qDebug() << "WeatherManager: Falling back to Open-Meteo -" << reason;
+    WEATHER_DBG_STREAM("Manager") << "Falling back to Open-Meteo -" << reason;
     fetchFromOpenMeteo(lat, lon);
 }
 
@@ -580,7 +597,7 @@ void WeatherManager::storeForecasts(const QList<HourlyForecast>& forecasts, Weat
     // Fetch accurate sunrise/sunset times to fix isDaytime
     fetchSunTimes(m_lastFetchLat, m_lastFetchLon);
 
-    qDebug() << "WeatherManager: Stored" << forecasts.size() << "hourly forecasts from"
+    WEATHER_DBG_STREAM("Manager") << "Stored" << forecasts.size() << "hourly forecasts from"
              << providerName() << "- current temp:"
              << (forecasts.isEmpty() ? 0.0 : forecasts.first().temperature) << "°C";
 }
@@ -606,7 +623,7 @@ void WeatherManager::fetchSunTimes(double lat, double lon)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "WeatherManager: Sun times request failed:" << reply->errorString();
+            WEATHER_WARN_STREAM("Manager") << "Sun times request failed:" << reply->errorString();
             return;
         }
 
@@ -623,7 +640,16 @@ void WeatherManager::fetchSunTimes(double lat, double lon)
             m_sunTimes.append({rise, set});
         }
 
-        qDebug() << "WeatherManager: Got sun times for" << count << "days";
+        // Collapsed for the same reason and on the same terms: the day count is
+        // constant, so 125 of these said nothing after the first.
+        {
+            const QString text = QStringLiteral("Got sun times for %1 days").arg(count);
+            LogCollapse::Collapsed collapsed;
+            if (m_sunTimesLog.shouldLog(QLatin1String("sun"), text,
+                                        QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+                WEATHER_LOG_STDERR("Manager", text + LogCollapse::suffix(collapsed));
+            }
+        }
 
         // Re-apply isDaytime to stored forecasts
         applySunTimes();

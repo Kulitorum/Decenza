@@ -128,6 +128,14 @@ COVERED_GLOBS = [
     # tool files are included deliberately — a query failure inside shots_list is
     # still something an assistant's user reports as "my AI can't see my shots".
     "src/mcp/**/*.cpp",
+    # Wholly about the weather/sun-time fetches, and wholly about the update
+    # check. Both carried a hand-typed "WeatherManager: " / "UpdateChecker: "
+    # prefix that no registered marker matched, which is exactly why they were
+    # invisible to a per-marker analysis of a submitted log while being two of
+    # its largest repeaters. Covered so a future bare qDebug in either cannot
+    # re-open that hole.
+    "src/weather/weathermanager.cpp",
+    "src/core/updatechecker.cpp",
 ]
 
 # Files that HOST a registered subsystem's lines alongside unrelated code.
@@ -215,7 +223,23 @@ def helper_headers():
 # logtags.h calls a marker "API, not an implementation detail"; rule 4 is what makes
 # the QML side of that true.
 QML_GLOBS = ["qml/**/*.qml"]
-QML_MARKER_RE = re.compile(r'"\[([A-Z][A-Za-z0-9]*)\]"')
+# A bracketed marker in a QML log call. Anchored to the START of a string
+# literal, NOT to a string that is ENTIRELY the marker.
+#
+# This was `r'"\[([A-Z][A-Za-z0-9]*)\]"'` — a closing quote immediately after the
+# `]` — which matches `"[Scale]"` and nothing else. Every real log line is
+# `console.log("[Scale] something happened")`, where a SPACE follows the bracket,
+# so rule 4 saw 7 tokens in qml/ where there were 59, and 46 call sites under 12
+# unregistered names were invisible: [AutoSleep], [Keyboard], [Background],
+# [CustomEditorPopup] and friends. A rule that passes because its pattern cannot
+# match the shape it is written for is worse than no rule, because the passing
+# run is read as coverage.
+#
+# The trailing [ :] keeps it anchored to a whole token rather than a prefix of a
+# longer word, and admits both "[Scale] msg" and "[Scale]: msg". Hyphens are
+# allowed inside the token so a hand-rolled "[R2-diag]" is CAUGHT rather than
+# skipped for not looking like an identifier.
+QML_MARKER_RE = re.compile(r'"\[([A-Z][A-Za-z0-9-]*)\][ :]')
 
 BARE_LOG_RE = re.compile(r"\bq(Debug|Info|Warning|Critical)\s*\(\s*\)")
 EXEMPT_RE = re.compile(r"log-marker-exempt")

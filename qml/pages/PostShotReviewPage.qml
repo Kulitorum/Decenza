@@ -525,14 +525,14 @@ T.Page {
         function onTdsChanged(tds) {
             if (!postShotReviewPage.isEditMode) return
             if (tds < postShotReviewPage.kMinimumPlausibleTds) {
-                console.debug("[PostShotReview] R2 tds", tds.toFixed(2),
+                console.debug("[Refractometer] R2 tds", tds.toFixed(2),
                     "dropped: below threshold", postShotReviewPage.kMinimumPlausibleTds,
                     "shotId=", postShotReviewPage.editShotId,
                     "wasMeasuring=", Refractometer.measuring)
                 return
             }
             if (tds > postShotReviewPage.kMaximumPlausibleTds) {
-                console.debug("[PostShotReview] R2 tds", tds.toFixed(2),
+                console.debug("[Refractometer] R2 tds", tds.toFixed(2),
                     "dropped: above threshold", postShotReviewPage.kMaximumPlausibleTds,
                     "shotId=", postShotReviewPage.editShotId,
                     "wasMeasuring=", Refractometer.measuring)

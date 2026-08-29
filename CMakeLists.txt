@@ -934,6 +934,7 @@ set(HEADERS
     src/core/profilestorage.h
     src/core/translationmanager.h
     src/core/updatechecker.h
+    src/core/updatelogging.h
     src/core/githubreleaseclient.h
     src/core/hdsfirmwarecatalog.h
     src/core/hdsfirmwareupdatecontroller.h
@@ -1045,6 +1046,7 @@ set(HEADERS
     src/core/databasebackupmanager.h
     src/core/documentformatter.h
     src/weather/weathermanager.h
+    src/weather/weatherlogging.h
 )
 
 # USB serial headers — not available on iOS

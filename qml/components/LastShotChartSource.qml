@@ -111,7 +111,7 @@ QtObject {
     function _refresh() {
         _loadState = "loading"
         if (!_storage) {
-            console.warn("[Background] No shot storage — the last-shot background cannot load")
+            console.warn("[Theme] No shot storage — the last-shot background cannot load")
             _loadState = "empty"
             return
         }
@@ -135,7 +135,7 @@ QtObject {
                 root._storage.requestShot(shotId)
                 return
             }
-            console.info("[Background] No shot to draw — the last-shot background falls back "
+            console.info("[Theme] No shot to draw — the last-shot background falls back "
                          + "to the theme colour")
             root._shotId = 0
             root.shotData = ({})
@@ -149,7 +149,7 @@ QtObject {
             // default projection. Accepting it drew an empty 60-second grid — axes, no
             // curves — which reads as a design choice rather than a failure.
             if (!shot || (shot.pressure || []).length === 0) {
-                console.warn("[Background] Shot", id, "loaded with no samples; it was probably "
+                console.warn("[Theme] Shot", id, "loaded with no samples; it was probably "
                              + "removed between the lookup and the load. Falling back to the "
                              + "theme colour.")
                 root.shotData = ({})

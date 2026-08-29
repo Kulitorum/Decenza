@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/logcollapse.h"
 #include <QObject>
 #include <QTimer>
 #include <QNetworkAccessManager>
@@ -82,6 +83,15 @@ private slots:
     void onRefreshTimer();
 
 private:
+    // The two periodic fetch lines, collapsed — 125 occurrences each in one
+    // submitted log, byte-identical because neither the coordinates, the
+    // provider nor the day count moves between fetches.
+    //
+    // PERIODIC, so no flush: this manager lives as long as the process and has
+    // no run end to attribute a tally to. A moved location or a switched
+    // provider changes the text and speaks immediately.
+    LogCollapse m_fetchLog{LogCollapse::kChangesOnly};
+    LogCollapse m_sunTimesLog{LogCollapse::kChangesOnly};
     // Provider selection
     WeatherProvider selectProvider() const;
 

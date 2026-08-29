@@ -80,6 +80,11 @@
 #define DECENZA_LOG_MARKER_EQUIPMENT     "Equipment"
 #define DECENZA_LOG_MARKER_MCP           "MCP"
 #define DECENZA_LOG_MARKER_CALIBRATION   "Calibration"
+#define DECENZA_LOG_MARKER_AUTOSLEEP     "AutoSleep"
+#define DECENZA_LOG_MARKER_AUTOLOAD      "AutoLoad"
+#define DECENZA_LOG_MARKER_KEYBOARD      "Keyboard"
+#define DECENZA_LOG_MARKER_WEATHER       "Weather"
+#define DECENZA_LOG_MARKER_UPDATE        "Update"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -171,7 +176,35 @@
       "calibration, tagged Wizard and Sensor: whether a run was measured, held "   \
       "or never held, and every correction written to the machine's pressure or "  \
       "temperature sensor with the pair it was computed from. Answers \"why "      \
-      "can I not apply a correction\" and \"did my correction actually land\"")
+      "can I not apply a correction\" and \"did my correction actually land\"")                                         \
+    X(DECENZA_LOG_MARKER_AUTOSLEEP,                                                \
+      "Why the app did or did not put the machine to sleep on its own: the "       \
+      "inactivity countdown starting and being reset, a scheduled stay-awake "     \
+      "window holding sleep off, the auto-wake firing, and a sleep asked for "     \
+      "remotely over MQTT or the REST API. Answers \"my machine went to sleep "    \
+      "mid-session\" and \"it never sleeps any more\". The countdown reaching "   \
+      "zero inside a stay-awake window is reported ONCE per window, not once a "   \
+      "minute — a repeat there says nothing the first line did not")               \
+    X(DECENZA_LOG_MARKER_AUTOLOAD,                                                 \
+      "Why the loaded profile changed without anyone choosing it: the idle "       \
+      "countdown that reverts to the pinned profile, and the revert that runs "    \
+      "when the machine wakes from sleep. Answers \"my profile changed by "        \
+      "itself\", which is otherwise indistinguishable from a mis-tap")            \
+    X(DECENZA_LOG_MARKER_KEYBOARD,                                                 \
+      "Physical-keyboard shortcuts: which key was pressed, what it tried to "      \
+      "start, and the reason a press did nothing (machine not ready, GHC "         \
+      "active, wrong phase). Answers \"the E key stopped starting shots\", "      \
+      "where the press itself is invisible and the refusal is the whole story")   \
+    X(DECENZA_LOG_MARKER_WEATHER,                                                  \
+      "The weather and sun-time fetches behind the idle screen and the "           \
+      "screensaver: which provider was asked, for which coordinates, and what "    \
+      "came back. Answers \"the weather is wrong or stale\" and separates a "     \
+      "provider outage from a location the app resolved incorrectly")              \
+    X(DECENZA_LOG_MARKER_UPDATE,                                                   \
+      "The app's own update check: when it ran, the installed and available "      \
+      "versions it compared, and whether a newer build was offered. Answers "      \
+      "\"why am I not being offered the update\", where the usual cause is a "    \
+      "platform having no asset in that release rather than the check failing")
 
 // ---- The one place a log line's shape is built -------------------------
 //
