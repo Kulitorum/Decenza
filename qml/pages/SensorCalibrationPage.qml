@@ -6,16 +6,14 @@ import Decenza
 
 // Guided sensor calibration for ONE sensor, chosen by the caller.
 //
-// The whole point of this page is that the user never types the machine's half
-// of the correction. SensorCalibration watches the run and reports what the
-// machine's own sensor read; the only number entered here is the external
-// instrument's. That is why there is no "what did the app show?" field anywhere
-// on this page, and why the Apply step does not exist until a run has been
-// measured.
+// The only number entered here is the external instrument's. The machine's half
+// is the loaded profile's declared hold, supplied by SensorCalibration — so
+// there is no "what did the app show?" field to get wrong.
 //
-// Page grammar follows TransportPage: a guided full-screen operation driven by
-// MachineState.phase, which never starts the shot itself (the machine has a GHC;
-// the user starts it) and never treats a dropped link as a completion.
+// The page does NOT start the shot: the machine has a GHC and the user starts it
+// there. It does keep the screen while that shot runs, which main.qml's phase
+// handler has an explicit exemption for — its instructions and entry field are
+// no use on the espresso page.
 T.Page {
     id: calibrationPage
 

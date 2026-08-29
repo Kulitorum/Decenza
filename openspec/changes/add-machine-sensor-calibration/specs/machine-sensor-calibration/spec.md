@@ -54,49 +54,54 @@ Each operation SHALL be disabled, with a stated reason, when no DE1 is connected
 
 ### Requirement: The wizard prepares the machine and states the hardware needed
 
-Before any run, the wizard SHALL state in full the physical preparation its sensor requires — repeating and expanding what the Maintenance row summarised — and SHALL make that sensor's test profile the active profile. It SHALL NOT start the shot itself; the user starts it as they normally would. A user who finds at this step that they lack the instrument SHALL be able to leave without anything having been written.
+Before any run, the wizard SHALL state in full the physical preparation its sensor requires — repeating and expanding what the Calibration-card row summarised — and SHALL make that sensor's test profile the active profile. It SHALL NOT start the shot itself; the user starts it as they normally would. A user who finds at this step that they lack the instrument SHALL be able to leave without anything having been written.
 
 #### Scenario: Preparation is stated before the run
 - **WHEN** the user reaches the prepare step for pressure
 - **THEN** the wizard states that a portafilter with a pressure gauge that leaks or flows slowly is required
 - **AND** the pressure calibration test profile has been made active
 
-#### Scenario: Leaving before a run changes nothing
+#### Scenario: Leaving before a run changes no calibration
 - **WHEN** the user reads the prepare step, finds they lack the instrument, and leaves
 - **THEN** no calibration value has been written
+- **AND** the test profile stays loaded, as any profile the user selects would
 
 #### Scenario: The user starts the shot
 - **WHEN** the prepare step is complete
 - **THEN** the wizard waits for the user to start the shot and does not start it
 
-### Requirement: The machine-reported value is measured by the wizard, never entered
+### Requirement: The machine-reported value comes from the profile, never from the user
 
-The value sent as the machine's reported reading SHALL be derived by the wizard from live telemetry observed during a run it was watching, and SHALL NOT be typed, defaulted, or taken from a past shot, a profile target, or any stored value. The wizard SHALL derive it only from a run that reached a steady hold; a run that never held steadily SHALL yield no value.
+The machine's half of a correction SHALL be the loaded profile's declared final-frame value — the pressure or temperature it holds to and displays. The user SHALL enter only their external instrument's reading; the wizard SHALL offer no field for what the app showed.
 
-#### Scenario: Value comes from the observed run
-- **WHEN** a run completes with a steady hold while the wizard is watching
-- **THEN** the wizard reports the machine's own reading over that hold as the reported value
+A correction SHALL be computed only while that sensor's own test profile is the active profile, so the declared hold is the value the user is watching. With any other profile loaded the wizard SHALL refuse and say which profile to load.
 
-#### Scenario: No steady hold yields no value
-- **WHEN** a run never holds steadily
-- **THEN** the wizard reports that it could not measure a hold and offers another run
-- **AND** no correction can be submitted from that run
+The value SHALL NOT be taken from a per-profile scalar. de1app's is a global that goes stale — observed showing 6.0 bar with the calibration profile loaded and holding at 9.0 — and a correction computed against it is wrong by the difference.
 
-#### Scenario: A past shot is not usable
-- **WHEN** the user opens the wizard after running the test profile earlier without it
-- **THEN** the wizard does not offer that earlier run's values and requires a run of its own
+#### Scenario: The declared hold is offered, not a typed value
+- **WHEN** the sensor's test profile is loaded
+- **THEN** the wizard shows the profile's declared hold as the machine's reading
+- **AND** the only editable field is for the external instrument
 
-### Requirement: Applying a correction is unavailable until a run has been measured
+#### Scenario: Another profile refuses
+- **WHEN** any other profile is active
+- **THEN** no correction can be computed and the wizard says to load the test profile
 
-The step that submits a correction SHALL be unreachable until the wizard holds a measured value from the current session. Before submitting, the wizard SHALL show the machine's reported value, the user's instrument reading, and the resulting correction together, and SHALL require an explicit confirmation.
+#### Scenario: One sensor's profile does not satisfy the other
+- **WHEN** the pressure test profile is loaded
+- **THEN** the temperature wizard still refuses
 
-#### Scenario: Cannot apply before measuring
-- **WHEN** the user has not completed a measured run
-- **THEN** no control to apply a correction is present
+### Requirement: The pair reaching the machine is assembled in one place
 
-#### Scenario: The pair is shown before writing
-- **WHEN** the user has entered their instrument reading
-- **THEN** the wizard shows the machine's reading, the entered reading, and the resulting correction, and requires confirmation before writing
+The two halves of a correction SHALL be combined in a single place that owns both, so no caller can supply the machine's half. A correction SHALL be refused, sending nothing, when the test profile is not active, when it declares no usable hold, or when the reading fails its guards.
+
+#### Scenario: A refusal sends nothing
+- **WHEN** any of those conditions holds
+- **THEN** nothing is written to the machine and the caller is told it was refused
+
+#### Scenario: A refused write is never reported as applied
+- **WHEN** a write is refused because the machine is not reachable
+- **THEN** the wizard says so rather than showing the correction as applied
 
 ### Requirement: Instrument readings are range- and sanity-checked
 
@@ -160,18 +165,19 @@ The machine applies a fraction of each requested correction rather than all of i
 - **WHEN** the user has entered a valid instrument reading
 - **THEN** the wizard states that the machine applies part of a correction at a time and that several runs are expected
 
-### Requirement: A lost connection or an abandoned run is never treated as success
+### Requirement: The wizard stays available across its own run and a dropped link
 
-The wizard SHALL treat a run as measurable only when the machine reached and left the pouring phase for a settled state. A disconnection, a sleep, or a user-stopped run SHALL NOT produce a measured value or a completion.
+The wizard SHALL remain on screen while its own calibration shot runs, so its instructions and entry field are where the user was told they would be.
 
-#### Scenario: Disconnection mid-run
-- **WHEN** the DE1 disconnects during a run
-- **THEN** the wizard reports the run as incomplete and offers to try again once the machine is back
-- **AND** no value from that run can be submitted
+The stored correction it displays belongs to one machine, so it SHALL be re-read when a machine connects, and a correction SHALL NOT be offered against a value the current machine has not reported.
 
-#### Scenario: User stops the shot early
-- **WHEN** the user stops the run before a steady hold is reached
-- **THEN** the wizard reports that no hold was measured and offers another run
+#### Scenario: The wizard survives its own shot
+- **WHEN** the user starts the calibration shot from the machine
+- **THEN** the wizard stays on screen rather than being replaced by the espresso view
+
+#### Scenario: A reconnect restores the reading
+- **WHEN** the machine disconnects and reconnects while the wizard is open
+- **THEN** the stored correction is read again and the wizard becomes usable without reopening it
 
 ### Requirement: Calibration is machine state, not app state
 

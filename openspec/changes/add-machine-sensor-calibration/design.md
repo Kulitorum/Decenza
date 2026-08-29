@@ -5,7 +5,7 @@ See `proposal.md` — Why. What shapes the approach:
 - `DE1::Characteristic::CALIBRATION` (`0000A012`) is declared at `de1characteristics.h:50` with no reader, writer or subscriber. The USB serial transport already accepts it (`serialtransport.cpp:465` covers through `0xA012`).
 - `BinaryCodec` already has `encodeS32P16` / `decodeS32P16` — the only unusual number format in the record.
 - One shared GATT queue orders every operation in the process (`blegattqueue.h`), so a burst of reads needs no pacing of its own. de1app staged the equivalent with `after 1000 / 2000 / 4000 / 5000` (`gui.tcl:2532`); Decenza must not, and does not need to.
-- `DescalingPage.qml` (936 lines) and `TransportPage.qml` (414) already establish the guided-maintenance grammar: a full-screen `T.Page` launched from the Maintenance card, driven by `MachineState.phase`, latching that the operation actually started, and **whitelisting** settled landing phases so a BLE drop is never read as completion (`TransportPage.qml:47-70`). That last part is the safety pattern this feature needs most.
+- `DescalingPage.qml` (936 lines) and `TransportPage.qml` (414) establish the guided full-screen operation grammar this page follows. They differ in one way that matters: their phase IS their page, so the shell never replaces them. An espresso-driven operation has no such protection — see the phase-handler exemption below.
 - The machine has a GHC. Shots start from the physical button, so a wizard observes; it does not drive the machine into Espresso.
 - `test_pressure_calibration.json` (3 steps) and `test_temperature_calibration.json` (2 steps) already ship in `resources/profiles/`. They pull real shots and stay.
 
@@ -60,21 +60,36 @@ That separation is in the *presentation*, not the code. Pressure and temperature
 
 *Consequence worth having:* because the operations are independent all the way to the Maintenance row, dropping or deferring temperature later is removing one row and one table entry, not unpicking a shared flow.
 
-### A capture controller owns the measurement
+### The machine's half is the profile's declared hold, not a measurement
 
-Add a small `SensorCalibrationController` (C++) that the page arms for one sensor and one run:
+`SensorCalibrationController` reads the loaded profile's final frame — its
+declared pressure or temperature — and offers that as the machine's half. The
+user enters only their instrument's reading, and `applyCorrection` combines the
+two so no caller can name the machine's half.
 
-- **states:** `Idle → Armed → Observing → Measured(value) | NoHold | Aborted`
-- armed for one sensor, from whichever operation launched it
-- fed by `DE1Device::shotSampleReceived` (the same stream the chart uses — `pressure` / `temperature` at `de1device.h:74,76`) and by `MachineState::phase`
-- while `Pouring`, accumulates `(t, reading)`; on leaving for a **whitelisted settled phase** (`Idle`, `Ready`, `Heating`), finds the longest window whose smoothed rate of change stays under threshold and reports the median reading over it
-- yields `NoHold` when no window qualifies, and `Aborted` on `Disconnected` or `Sleep` — never a value
+It is guarded on the active profile: a correction is computed only while that
+sensor's own test profile is loaded, which is what makes the declared hold the
+number the user is watching.
 
-Live capture, not post-hoc analysis of a saved shot, so the controller cannot be handed the wrong run. The whitelist and the abort set are lifted directly from `TransportPage.qml:47-70`, which already documents why a dropped link must not be read as completion.
+*Two alternatives were tried and rejected, both with evidence:*
 
-No timers anywhere in it: transitions come from phase changes and from the sample stream, per the project rule.
+- **A per-profile scalar**, which is what de1app sends
+  (`de1_skin_settings.tcl:2391`). It is a global and it goes stale — observed
+  showing a Goal of 6.0 bar with the calibration profile loaded and holding at
+  9.0, because the D-Flow editor sets it to 6.0
+  (`profile_editors/D_Flow/code.tcl:154`). A correction against that is wrong by
+  ~3 bar.
+- **Measuring the hold from live shot samples.** Needs a steady-window search,
+  and the shipped one picked the profile's 20 s 7 bar lead-in over its 60 s 9 bar
+  hold. The frames already carry the right number with no heuristic, so the
+  machinery bought nothing this workflow needed.
 
-### One packer, one parser, four callers
+The controller takes its profile facts through a closure rather than a
+`ProfileManager*`: taking the manager dragged its resource loading into the test
+binary and put `ProfileManager` symbols in front of all 113 test targets. Same
+pull-provider shape as `SettingsCalibration::setServingScaleTypeProvider`.
+
+### One packer, one parser
 
 The 14-byte big-endian record is `WriteKey` (u32), `CalCommand` (u8), `CalTarget` (u8), `DE1ReportedVal` (S32P16), `MeasuredVal` (S32P16) — `calibrate_spec`, `binary.tcl:414`. Enums and keys go in `de1characteristics.h` beside the UUID:
 
@@ -87,7 +102,7 @@ namespace DE1::Calibration {
 }
 ```
 
-`DE1Device::sendCalibration(target, command, reported, measured)` is the only writer; read, read-factory and restore are that call with different arguments. Pack and parse as private helpers in `de1device.cpp`, matching how `SHOT_SETTINGS` is assembled at `:2287` rather than adding a file for one record (a new `.cpp` costs ~1.4 s of build forever — `TESTING.md`).
+`DE1Device::sendCalibration(target, command, reported, measured)` is the only writer, and `readCalibration()` is that call with different arguments. Pack and parse as private helpers in `de1device.cpp`, matching how `SHOT_SETTINGS` is assembled at `:2287` rather than adding a file for one record (a new `.cpp` costs ~1.4 s of build forever — `TESTING.md`).
 
 ### Replies: `WriteKey == 0` means it is a value
 
@@ -146,4 +161,4 @@ None. Nothing persisted, no schema change, no settings key. Rollback is removing
 
 ## Open Questions
 
-- The steady-hold detector's rate threshold and floor. The auto-flow finder uses `kMaxPressureChangeRate = 0.5` bar/s over a pour; a calibration hold is longer and flatter, so both can likely be tighter. Decidable from one real run without changing the spec, the approach or the tasks.
+None. The two that stood here — how to tune the steady-hold detector, and whether `CalCommand 2` restores — were both settled on hardware (2026-08-29): the detector was deleted with the measuring design, and the machine answers `CalCommand 3` with the current value, so there is no factory value to restore to.

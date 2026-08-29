@@ -131,7 +131,7 @@ namespace Calibration {
         // calibrate_spec rather than from an endian argument — make_packed_calibration
         // (binary.tcl:245) passes none, and fields::endianness is never set. The
         // `bigeendian` literal (the typo is de1app's) appears only on the unpack
-        // side, parse_binary_calibration (binary.tcl:1326).
+        // side, parse_binary_calibration (binary.tcl:1325).
         for (int shift : {24, 16, 8, 0})
             out.append(static_cast<char>((r.writeKey >> shift) & 0xFF));
         out.append(static_cast<char>(r.command));

@@ -105,10 +105,10 @@ COVERED_GLOBS = [
     # usually explains the other.
     "src/network/mdnsresolver.cpp",
     "src/core/settings_hardware.cpp",
-    # Wholly about sensor calibration: every line in it is the capture
-    # controller's story — armed, observing, held or did not hold, aborted. That
-    # story is the whole answer to "why can I not apply a correction", so it has
-    # somewhere to log to and "use the helper" is always right here.
+    # Wholly about sensor calibration: every line in it is either a refused
+    # correction and why, or a correction being applied with the pair it was
+    # computed from. That is the whole answer to "why can I not apply a
+    # correction", so "use the helper" is always right here.
     "src/controllers/sensorcalibrationcontroller.cpp",
     # Wholly about the screensaver: every log line in it is a screensaver line.
     "src/screensaver/screensavervideomanager.cpp",

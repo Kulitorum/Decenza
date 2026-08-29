@@ -419,11 +419,11 @@ public:
     }
 };
 
-// 14 references across 2 QML files.
+// 27 references across 5 QML files.
 //
-// The sensor-calibration capture controller. Registered here rather than with
-// QML_ELEMENT in its own header because main() owns it: it needs DE1Device,
-// MachineState and TranslationManager, none of which the QML engine can supply.
+// Sensor calibration. Registered here rather than with QML_ELEMENT in its own
+// header because main() owns it: it needs DE1Device, TranslationManager and a
+// closure over ProfileManager, none of which the QML engine can supply.
 //
 // A singleton rather than a per-page instance because only one calibration
 // session can be running — there is one machine — and because the page must not

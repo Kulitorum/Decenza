@@ -15,9 +15,9 @@
 ## 3. Capture controller
 
 - [x] 3.1 Add the per-sensor fact table (target, test-profile filename, unit, physical range, maximum correction, instrument-instruction key, Maintenance-row label) as one C++ definition exposed to QML, and derive both Maintenance rows from it; verify no per-sensor branch or second list exists anywhere else in the feature
-- [x] 3.2 Add `SensorCalibrationController` with states `Idle → Armed → Observing → Measured | NoHold | Aborted`, fed by `DE1Device::shotSampleReceived` and `MachineState::phase`, with no timers; verify state transitions in a new test slot set driven by synthetic samples and phase changes
-- [x] 3.3 Implement the steady-hold measurement — longest window of smoothed rate-of-change under threshold, returning the median reading over it, no scale or weight-flow involvement; verify with slots covering a clean hold, a run that never holds, and a scale-less run (which the auto-flow finder at `maincontroller.cpp:3140` rejects)
-- [x] 3.4 Whitelist settled landing phases (`Idle`/`Ready`/`Heating`) as the only completion, and treat `Disconnected` and `Sleep` as `Aborted`, mirroring `TransportPage.qml:47-70`; verify a mid-run disconnect yields `Aborted` and never a value
+- [x] 3.2 Replace the capture state machine with the declared-hold read: `SensorCalibrationController` takes its profile facts through a closure and reads the loaded profile's final frame; verify with slots covering the hold coming from the final frame, another profile yielding nothing, and one sensor's profile not satisfying the other
+- [x] 3.3 SUPERSEDED by 3.2. The steady-hold window search was built, shipped a bug (it picked the 20 s 7 bar lead-in over the 60 s 9 bar hold), and was deleted — the profile's declared frame is already the right number
+- [x] 3.4 SUPERSEDED by 3.2. The Armed/Observing/Measured/NoHold/Aborted state machine went with the measurement; the wizard now keeps the screen during its own run instead (main.qml phase-handler exemption)
 
 ## 4. Wizard page
 
@@ -26,7 +26,7 @@
 - [x] 4.3 Implement the prepare step — no sensor-choice step exists — stating the sensor's required hardware in full and making its test profile active without starting the shot; verify the active profile changes, the wizard waits for the user, and leaving at this step writes nothing
 - [x] 4.4 Implement the observe step driven by the controller, reporting hold-measured or no-hold-measured and offering another run in both cases; verify a run that never holds offers a retry and yields nothing
 - [x] 4.5 Implement the entry step: instrument reading only, Celsius with an explicit unit label for temperature regardless of display preference and without writing any setting, both guards enforced with a message naming the failed check; verify a PSI-shaped and a °F-shaped entry are each refused with the right message
-- [x] 4.6 Implement the confirm-and-write step showing machine reading, entered reading and resulting correction together behind an explicit confirmation, unreachable until the controller reports `Measured`; verify no apply control exists before a measured run
+- [x] 4.6 Implement the confirm-and-write step showing the machine's declared hold, the entered reading and the resulting correction together behind an explicit confirmation; verify the write is refused when the test profile is not active, when the two already agree, and when a guard fails
 - [x] 4.7 Re-read the sensor after writing and offer a verification run, showing the previous cycle's difference beside the current one; verify the displayed calibration is the machine's readback and that convergence is visible across two cycles
 - [x] 4.8 Show stored and factory calibration for that wizard's sensor, both read from the machine, and offer NO restore-to-factory affordance; verify both values display and that no control attempts a restore
 - [x] 4.9 Refuse to write and say so when the sensor's stored value is unavailable because a read went unanswered; verify with the read suppressed
