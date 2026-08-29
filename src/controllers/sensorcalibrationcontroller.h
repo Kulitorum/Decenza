@@ -81,6 +81,10 @@ public:
         // there isn't one: re-running walks the calibration back, which is what
         // the profile note means by "retest until the two agree".
         double maxCorrection;
+        // Stepper increment for the instrument entry. The user nudges from the
+        // declared hold rather than typing, so this is the resolution a gauge or
+        // thermometer is actually read to.
+        double entryStep;
     };
 
     static const QVector<SensorSpec>& sensorSpecs();
@@ -121,10 +125,14 @@ public:
     Q_INVOKABLE QString label(int sensor) const;
     Q_INVOKABLE QString instrumentText(int sensor) const;
     Q_INVOKABLE QString unitLabel(int sensor) const;
-    // The bounds are NOT exposed. rejectionReason() is the only thing that needs
-    // them and it applies them itself, so publishing them would be three API
-    // surfaces for nobody — and a second place a caller could re-implement the
-    // guard slightly differently.
+    // Bounds for the entry stepper. It starts at the declared hold and is capped
+    // at the largest accepted correction either side, so the guard is enforced
+    // by the control's range rather than only by rejectionReason() rejecting
+    // afterwards — the user cannot dial in a value that would be refused.
+    Q_INVOKABLE double minValue(int sensor) const;
+    Q_INVOKABLE double maxValue(int sensor) const;
+    Q_INVOKABLE double maxCorrection(int sensor) const;
+    Q_INVOKABLE double entryStep(int sensor) const;
 
     // True while this sensor's test profile is the active one. Everything below
     // depends on it: a declared hold only means something when the machine is

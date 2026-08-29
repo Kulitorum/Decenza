@@ -32,7 +32,8 @@ SensorCalibrationController::sensorSpecs() {
             "bar",
             /*minValue=*/0.0,
             /*maxValue=*/14.0,
-            /*maxCorrection=*/2.0
+            /*maxCorrection=*/2.0,
+            /*entryStep=*/0.1
         },
         SensorSpec{
             Sensor::Temperature,
@@ -45,7 +46,8 @@ SensorCalibrationController::sensorSpecs() {
             "\xc2\xb0""C",
             /*minValue=*/0.0,
             /*maxValue=*/110.0,
-            /*maxCorrection=*/5.0
+            /*maxCorrection=*/5.0,
+            /*entryStep=*/0.1
         }
     };
     return specs;
@@ -145,6 +147,26 @@ QString SensorCalibrationController::unitLabel(int sensor) const {
 
 
 
+
+double SensorCalibrationController::minValue(int sensor) const {
+    const auto* spec = rowFor(sensor);
+    return spec ? spec->minValue : kNoValue;
+}
+
+double SensorCalibrationController::maxValue(int sensor) const {
+    const auto* spec = rowFor(sensor);
+    return spec ? spec->maxValue : kNoValue;
+}
+
+double SensorCalibrationController::maxCorrection(int sensor) const {
+    const auto* spec = rowFor(sensor);
+    return spec ? spec->maxCorrection : kNoValue;
+}
+
+double SensorCalibrationController::entryStep(int sensor) const {
+    const auto* spec = rowFor(sensor);
+    return spec ? spec->entryStep : kNoValue;
+}
 
 bool SensorCalibrationController::isTestProfileActive(int sensor) const {
     const auto* spec = rowFor(sensor);

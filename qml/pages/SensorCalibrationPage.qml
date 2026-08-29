@@ -96,7 +96,13 @@ T.Page {
         // reading, and a restore would only have to load it again. The profile
         // name is on screen throughout, as with any other profile load.
         ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))
-        calibrationPage._readCalibration()
+        // Deferred, because the reply can be SYNCHRONOUS. The simulated machine
+        // answers inside this call, so calibrationChanged would fire while the
+        // page is still completing and the hasStored binding would never see it —
+        // the card sat on "not read yet" with the value already in hand. Real
+        // hardware replies over BLE and does not hit this, which is exactly why
+        // it only showed in the simulator.
+        Qt.callLater(calibrationPage._readCalibration)
     }
 
     // The stored offset belongs to one machine, so DE1Device clears it on
@@ -109,15 +115,6 @@ T.Page {
                 calibrationPage._readCalibration()
         }
     }
-
-    // The instrument field sits mid-page inside the scroll area, so a soft
-    // keyboard would cover it without this (CLAUDE.md: wrap pages with text
-    // inputs). targetFlickable lets Android scroll it into view, which adjustPan
-    // cannot do inside a Flickable.
-    KeyboardAwareContainer {
-        anchors.fill: parent
-        textFields: [instrumentField]
-        targetFlickable: calibrationScroll.contentItem as Flickable
 
     ScrollView {
         id: calibrationScroll
@@ -160,7 +157,7 @@ T.Page {
                         Layout.fillWidth: true
                         Tr {
                             key: "sensorCalibration.current.stored"
-                            fallback: "Saved"
+                            fallback: "Correction now stored"
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                         }
@@ -253,8 +250,8 @@ T.Page {
                         Layout.fillWidth: true
                         text: TranslationManager.translate(
                                   "sensorCalibration.prepare.nothingWritten",
-                                  "No calibration has been changed. Leaving this page puts your "
-                                  + "previous profile back.")
+                                  "No calibration has been changed yet. The test profile stays "
+                                  + "loaded when you leave, like any profile you pick.")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
@@ -303,37 +300,31 @@ T.Page {
                         }
                     }
 
-                    RowLayout {
+                    // A stepper, not a keyboard field. Typing a decimal on a
+                    // tablet is awkward, and it was also the only way a locale
+                    // comma could reach parseFloat and silently truncate "88,5"
+                    // to 88. Nudging from the declared hold removes both.
+                    //
+                    // The range is the largest accepted correction either side of
+                    // that hold, clamped to what the sensor could read — so the
+                    // guard is enforced by the control rather than only by
+                    // rejecting afterwards, and the user cannot dial in a value
+                    // that would be refused.
+                    ValueInput {
+                        id: instrumentInput
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(8)
-
-                        StyledTextField {
-                            id: instrumentField
-                            Layout.fillWidth: true
-                            // Commit before anything READS the text. The Apply
-                            // button's enabled state and the summary below both
-                            // read it, so committing only in the write handler
-                            // would leave the in-progress word out of the gate
-                            // on mobile (CLAUDE.md's IME rule).
-                            onEditingFinished: Keyboard.commit()
-                            placeholderText: TranslationManager.translate(
-                                                 "sensorCalibration.apply.placeholder",
-                                                 "Reading from your gauge")
-                            inputMethodHints: Qt.ImhFormattedNumbersOnly
-                            Accessible.name: TranslationManager.translate(
-                                                 "sensorCalibration.apply.placeholder",
-                                                 "Reading from your gauge")
-                        }
-
-                        // Always the sensor's own unit. For temperature that is
-                        // Celsius whatever the display preference says, because
-                        // the machine register is Celsius and converting
-                        // silently is how a Fahrenheit number gets written.
-                        Text {
-                            text: calibrationPage.unit
-                            color: Theme.textSecondaryColor
-                            font: Theme.bodyFont
-                        }
+                        from: Math.max(SensorCalibration.minValue(calibrationPage.sensor),
+                                       calibrationPage.declaredHold - calibrationPage._entrySwing)
+                        to: Math.min(SensorCalibration.maxValue(calibrationPage.sensor),
+                                     calibrationPage.declaredHold + calibrationPage._entrySwing)
+                        stepSize: SensorCalibration.entryStep(calibrationPage.sensor)
+                        value: calibrationPage.entryValue
+                        displayText: calibrationPage.entryValue.toFixed(2) + " " + calibrationPage.unit
+                        rangeText: from.toFixed(1) + " \u2014 " + to.toFixed(1) + " " + calibrationPage.unit
+                        accessibleName: TranslationManager.translate(
+                                            "sensorCalibration.apply.placeholder",
+                                            "Reading from your gauge")
+                        onValueModified: function(newValue) { calibrationPage.entryValue = newValue }
                     }
 
                     Text {
@@ -412,12 +403,7 @@ T.Page {
                         // live after the machine has gone.
                         enabled: calibrationPage.entryValid && calibrationPage.hasStored
                                  && DE1Device.connected
-                        onClicked: {
-                            Keyboard.commit()
-                            if (calibrationPage.entryValid && calibrationPage.hasStored
-                                    && DE1Device.connected)
-                                confirmDialog.open()
-                        }
+                        onClicked: confirmDialog.open()
                     }
                 }
             }
@@ -474,33 +460,28 @@ T.Page {
             }
         }
     }
-    }
 
     // Parsed entry state. Kept as page properties so the summary, the guard
     // message and the button all read the same values.
-    // Locale-aware. parseFloat is C-locale only, so on a comma-decimal locale
-    // "88,5" silently became 88 — and 88 is a plausible reading, so nothing
-    // downstream could tell it was wrong. The keyboard offers whatever separator
-    // the system uses, which is why this cannot be left to the user.
-    readonly property double entryValue: {
-        var t = instrumentField.text.trim()
-        if (t.length === 0) return NaN
-        var viaLocale = Number.fromLocaleString(Qt.locale(), t)
-        if (!isNaN(viaLocale)) return viaLocale
-        return parseFloat(t.replace(",", "."))
+    // The instrument reading, nudged from the declared hold. Starting equal to it
+    // means an untouched control is "they agree", which rejectionReason refuses —
+    // so Apply is inert until the user actually moves it.
+    property double entryValue: 0
+    // How far either side of the declared hold the stepper may go. One step
+    // inside maxCorrection, because the guard refuses AT the limit.
+    readonly property double _entrySwing: SensorCalibration.maxCorrection(calibrationPage.sensor)
+                                          - SensorCalibration.entryStep(calibrationPage.sensor)
+
+    onDeclaredHoldChanged: {
+        if (!isNaN(calibrationPage.declaredHold))
+            calibrationPage.entryValue = calibrationPage.declaredHold
     }
+
     readonly property string rejection: {
-        void(calibrationPage._trVersion)
-        // rejectionReason() reads the declared hold internally, which depends on
-        // the active profile — and a C++ invokable records no dependency, the
-        // same trap as the translating ones above.
         void(calibrationPage._ctxVersion)
-        if (instrumentField.text.length === 0) return ""
         return SensorCalibration.rejectionReason(calibrationPage.sensor, calibrationPage.entryValue)
     }
-    readonly property bool entryValid: instrumentField.text.length > 0
-                                       && !isNaN(calibrationPage.entryValue)
-                                       && calibrationPage.rejection.length === 0
+    readonly property bool entryValid: calibrationPage.rejection.length === 0
 
     function _signed(v) {
         return (v >= 0 ? "+" : "") + v.toFixed(2) + " " + calibrationPage.unit
@@ -561,13 +542,6 @@ T.Page {
                     accessibleName: TranslationManager.translate("sensorCalibration.confirm.write", "Write")
                     primary: true
                     onClicked: {
-                        Keyboard.commit()
-                        // Refuse a value the commit turned invalid — the summary
-                        // above and this write must never disagree.
-                        if (!calibrationPage.entryValid || !calibrationPage.hasStored) {
-                            confirmDialog.close()
-                            return
-                        }
                         var gap = calibrationPage.entryValue - calibrationPage.declaredHold
                         // ONE call, and it carries only the instrument's reading.
                         // The controller supplies what the machine read, because
@@ -587,7 +561,7 @@ T.Page {
                         // Read back rather than trusting what we sent.
                         calibrationPage._readCalibration()
                         calibrationPage.wroteThisSession = true
-                        instrumentField.text = ""
+                        calibrationPage.entryValue = calibrationPage.declaredHold
                         confirmDialog.close()
                     }
                 }
