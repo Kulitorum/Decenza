@@ -38,6 +38,7 @@
 ## 5. Verification and documentation
 
 - [x] 5.1 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) and confirm zero failures and zero new warnings
+- [ ] 5.2a FIRST, and non-destructive: determine the firmware's arithmetic, which is the last unverified thing in this change. Read Saved (S1, expect +0.89 on this machine), write a known pair (reported 9.0, measured 9.1 — delta +0.1), read Saved again (S2). S2 = S1 + 0.1 means the firmware ACCUMULATES; S2 = 0.1 means it SETS. This also confirms whether the simulator's accumulate model is right (it is labelled a model, not a claim), and it unblocks reset-to-factory via the referenced WRITE path rather than the unverified CalCommand 2: once the rule is known, "reset" is the pair that lands on the factory number
 - [ ] 5.2 Run the whole loop on the real machine for pressure: fit the gauge portafilter, run the wizard end to end, confirm the correction lands, then verify with a second run that the readings agree
 - [ ] 5.3 DEFERRED (agreed with the user): the temperature hardware loop needs a thermocouple basket that is not available. The temperature row, its table entry and profile wiring still ship; its end-to-end run stays unverified and is called out in the PR
 - [x] 5.4 Manual entry added to the Calibration section of Decenza.wiki Manual.md — two bullets in the existing list, not a new section. NOT PUSHED: wiki timing is the user's call
