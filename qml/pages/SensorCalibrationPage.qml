@@ -64,17 +64,17 @@ T.Page {
     }
     readonly property bool haveDeclaredHold: !isNaN(calibrationPage.declaredHold)
 
-    // The machine's stored and factory offsets, re-read after every write. Both
-    // are ABSENT until the machine answers — never shown as 0, which would read
-    // as "no correction" and is the one wrong answer that looks plausible.
-    readonly property int _calVersion: DE1Device.calibrationVersion
-    readonly property bool hasStored: {
-        void(calibrationPage._calVersion)
-        return DE1Device.hasStoredCalibration(calibrationPage.calTarget)
-    }
-    readonly property double storedOffset: {
-        void(calibrationPage._calVersion)
-        return DE1Device.storedCalibration(calibrationPage.calTarget)
+    // Plain state driven by an explicit handler, NOT a binding over a version
+    // counter. That idiom is used elsewhere here, but in this page it did not
+    // re-evaluate — the log showed the value arriving while the card still read
+    // "not read yet". A Connections handler fires on the signal with no
+    // dependency-capture subtlety to get wrong.
+    property bool hasStored: false
+    property double storedOffset: 0
+
+    function _refreshStored() {
+        calibrationPage.hasStored = DE1Device.hasStoredCalibration(calibrationPage.calTarget)
+        calibrationPage.storedOffset = DE1Device.storedCalibration(calibrationPage.calTarget)
     }
 
     // The previous cycle's gap between machine and instrument, so a second run
@@ -103,16 +103,22 @@ T.Page {
         // hardware replies over BLE and does not hit this, which is exactly why
         // it only showed in the simulator.
         Qt.callLater(calibrationPage._readCalibration)
+        // And pick up anything already cached: a value carried over from an
+        // earlier visit fires no signal.
+        calibrationPage._refreshStored()
     }
 
-    // The stored offset belongs to one machine, so DE1Device clears it on
-    // disconnect. Without this the page would sit on "not read yet" for the rest
-    // of its life after a reconnect, Apply disabled, nothing saying why.
     Connections {
         target: DE1Device
+        function onCalibrationChanged() { calibrationPage._refreshStored() }
+        // The stored offset belongs to one machine, so DE1Device clears it on
+        // disconnect; without the re-read the page would sit on "not read yet"
+        // for the rest of its life after a reconnect.
         function onConnectedChanged() {
             if (DE1Device.connected)
                 calibrationPage._readCalibration()
+            else
+                calibrationPage._refreshStored()
         }
     }
 
@@ -127,65 +133,7 @@ T.Page {
 
         ColumnLayout {
             width: parent.width
-            spacing: Theme.scaled(16)
-
-            // ===== What the machine currently holds =====
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.maximumWidth: Theme.scaled(600)
-                Layout.alignment: Qt.AlignHCenter
-                implicitHeight: currentColumn.implicitHeight + Theme.scaled(24)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
-
-                ColumnLayout {
-                    id: currentColumn
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.scaled(12)
-                    spacing: Theme.scaled(6)
-
-                    Tr {
-                        key: "sensorCalibration.current.title"
-                        fallback: "Your machine's calibration"
-                        font: Theme.subtitleFont
-                        color: Theme.textColor
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Tr {
-                            key: "sensorCalibration.current.stored"
-                            fallback: "Correction now stored"
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
-                        }
-                        Item { Layout.fillWidth: true }
-                        Text {
-                            // Unavailable, not zero: an unanswered read must not
-                            // read as "no correction".
-                            text: calibrationPage.hasStored
-                                  ? calibrationPage._signed(calibrationPage.storedOffset)
-                                  : TranslationManager.translate("sensorCalibration.unavailable", "Not read yet")
-                            color: calibrationPage.hasStored ? Theme.textColor : Theme.textSecondaryColor
-                            font: Theme.bodyFont
-                        }
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        visible: !calibrationPage.hasStored
-                        text: TranslationManager.translate(
-                                  "sensorCalibration.current.unanswered",
-                                  "Your machine has not answered yet. You can still run the test, "
-                                  + "but a correction cannot be applied until it does.")
-                        color: Theme.textSecondaryColor
-                        font: Theme.captionFont
-                        wrapMode: Text.WordWrap
-                    }
-                }
-            }
+            spacing: Theme.scaled(10)
 
             // ===== Prepare =====
             Rectangle {
@@ -216,7 +164,7 @@ T.Page {
                         Layout.fillWidth: true
                         text: calibrationPage.instrumentText
                         color: Theme.textColor
-                        font: Theme.bodyFont
+                        font: Theme.captionFont
                         wrapMode: Text.WordWrap
                     }
 
@@ -225,10 +173,7 @@ T.Page {
                         visible: calibrationPage.haveDeclaredHold
                         text: TranslationManager.translate(
                                   "sensorCalibration.prepare.body",
-                                  "Start the shot as you normally would. The machine will hold at "
-                                  + "%1 %2 — read your gauge while it holds, then enter that value below.")
-                              .arg(calibrationPage.declaredHold.toFixed(2))
-                              .arg(calibrationPage.unit)
+                                  "Start the shot as usual and read your gauge while the machine holds.")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
@@ -242,17 +187,6 @@ T.Page {
                                   "The test profile is not loaded, so there is nothing to compare "
                                   + "against. Leave and open this again.")
                         color: Theme.warningColor
-                        font: Theme.captionFont
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate(
-                                  "sensorCalibration.prepare.nothingWritten",
-                                  "No calibration has been changed yet. The test profile stays "
-                                  + "loaded when you leave, like any profile you pick.")
-                        color: Theme.textSecondaryColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
                     }
@@ -296,6 +230,26 @@ T.Page {
                         Text {
                             text: calibrationPage.declaredHold.toFixed(2) + " " + calibrationPage.unit
                             color: Theme.textColor
+                            font: Theme.bodyFont
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Tr {
+                            key: "sensorCalibration.current.stored"
+                            fallback: "Correction now stored"
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                        }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            // Unavailable, not zero: an unanswered read must not
+                            // read as "no correction".
+                            text: calibrationPage.hasStored
+                                  ? calibrationPage._signed(calibrationPage.storedOffset)
+                                  : TranslationManager.translate("sensorCalibration.unavailable", "Not read yet")
+                            color: calibrationPage.hasStored ? Theme.textColor : Theme.textSecondaryColor
                             font: Theme.bodyFont
                         }
                     }
@@ -363,8 +317,7 @@ T.Page {
                         visible: calibrationPage.entryValid
                         text: TranslationManager.translate(
                                   "sensorCalibration.apply.gradual",
-                                  "Your machine applies about a tenth of a correction at a time, "
-                                  + "so expect several runs before the two agree.")
+                                  "Applied about a tenth at a time — expect several runs.")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
@@ -437,8 +390,7 @@ T.Page {
                         Layout.fillWidth: true
                         text: TranslationManager.translate(
                                   "sensorCalibration.verify.body",
-                                  "Run the test profile again and compare. Each run closes about a "
-                                  + "tenth of the gap, so repeat until the two agree.")
+                                  "Run the test profile again and compare, until the two agree.")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
