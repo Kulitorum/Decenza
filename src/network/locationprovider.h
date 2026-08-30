@@ -87,6 +87,10 @@ private:
 
     bool m_hasFreshFix = false;  // true once a live GPS fix (not cached) has been received
     bool m_permissionRequested = false;  // true while a permission request is in-flight
+    // True from the moment requestUpdate() hands a request to the source until
+    // that request ends (a fix, or an error that is not the macOS transient
+    // swallow). Not a timer: cleared by the events that end the request.
+    bool m_updateInFlight = false;
 
     // Throttle reverse geocoding (don't query if position hasn't changed much)
     double m_lastGeocodedLat = 0.0;

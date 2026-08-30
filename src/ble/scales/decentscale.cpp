@@ -176,13 +176,27 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     // Start periodic heartbeat to keep connection alive
     startHeartbeat();
 
-    // Follow de1app sequence EXACTLY (temporal order):
+    // Follow de1app sequence (temporal order):
     // 1. Heartbeat immediately
     // 2. LCD at 200ms
     // 3. Enable notifications at 300ms
-    // 4. Enable notifications at 400ms (again for reliability)
-    // 5. LCD at 500ms (in case first was dropped)
-    // 6. Heartbeat at 2000ms
+    // 4. LCD at 500ms (in case first was dropped)
+    // 5. Heartbeat at 2000ms
+    //
+    // de1app also enables notifications a second time at 400ms "for
+    // reliability". We do not, because under the shared GATT queue that second
+    // enable is not a cheap duplicate — it is a second queued CCCD write behind
+    // a first that has usually not been dispatched yet. Measured on this tablet
+    // with the DE1 connecting concurrently: the two enables dispatched 1161 ms
+    // and 1097 ms after being queued, and they are what produced the session's
+    // only Bluetooth warning ("4 operations delayed, worst 1161 ms").
+    //
+    // Nothing is lost. The failure the blanket retry guards against — an enable
+    // that reached the scale and was ignored — is exactly what the watchdog
+    // detects (no weight data within kWatchdogFirstTimeoutMs of the enable
+    // ISSUING, see onNotificationsIssued) and it re-enables on each retry. That
+    // is the evidence-driven version of the same recovery: it fires when weight
+    // data actually failed to arrive, rather than every connect regardless.
 
     DECENT_LOG("Starting de1app-style wake sequence");
 
@@ -200,12 +214,6 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     QTimer::singleShot(300, this, [this]() {
         if (!m_transport || !m_characteristicsReady) return;
         enableWeightNotifications("300ms");
-    });
-
-    // Enable BLE notifications again at 400ms (de1app does this twice for reliability)
-    QTimer::singleShot(400, this, [this]() {
-        if (!m_transport || !m_characteristicsReady) return;
-        enableWeightNotifications("400ms retry");
     });
 
     // LCD enable again at 500ms (in case first was dropped)
@@ -380,10 +388,11 @@ void DecentScale::onNotificationsIssued(const QBluetoothUuid& characteristicUuid
         return;
     }
 
-    // A later enable — the wake sequence's own 400 ms repeat, or one the
-    // watchdog itself issued on retry. Restart the countdown so it measures from
-    // this attempt, but do NOT go through startWatchdog(): resetting the retry
-    // counter here would let the watchdog retry forever.
+    // A later enable — today only one the watchdog itself issued on retry (the
+    // wake sequence's own 400 ms repeat is gone; see the sequence comment).
+    // Restart the countdown so it measures from this attempt, but do NOT go
+    // through startWatchdog(): resetting the retry counter here would let the
+    // watchdog retry forever.
     if (m_watchdogTimer && m_watchdogTimer->isActive()) {
         m_watchdogTimer->start(m_watchdogUpdatesSeen ? kWatchdogTickleTimeoutMs
                                                      : kWatchdogFirstTimeoutMs);
@@ -597,6 +606,14 @@ void DecentScale::sendHeartbeat() {
 }
 
 void DecentScale::startHeartbeat() {
+    // Already ticking: leave it alone. The connect wake sequence calls this
+    // once directly and then again from each wake() at 200 ms and 500 ms, which
+    // restarted a running timer three times in half a second and logged
+    // "Starting heartbeat timer" for each — a line that was not true twice, and
+    // that reset the battery-poll tick count along with it. The sleep() → wake()
+    // path, where the timer really is stopped, still starts it here.
+    if (m_heartbeatTimer && m_heartbeatTimer->isActive()) return;
+
     if (!m_heartbeatTimer) {
         m_heartbeatTimer = new QTimer(this);
         m_heartbeatTimer->setInterval(1000);  // Every 1 second like de1app

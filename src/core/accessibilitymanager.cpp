@@ -239,6 +239,24 @@ void AccessibilityManager::saveSettings()
 
 void AccessibilityManager::initTts()
 {
+    // Idempotent, like initTickSound() and initDingSound() above. A second run
+    // would leak the first QTextToSpeech (parented, so it lives to shutdown)
+    // AND leave its stateChanged handler connected, so every Ready would run
+    // onLanguageChanged() twice.
+    //
+    // This is not hypothetical: session 2026-08-30T14:05:45 on the SM-X210 shows
+    // the whole block twice, at 0.908 s and again at 2.034 s, from a build whose
+    // only construction site is main.cpp's stack AccessibilityManager. WHO calls
+    // it twice is not established — the singleton's create() never constructs,
+    // and the type is not QML-creatable — so the warning below is here to name
+    // the second caller in the next log rather than to assert a cause.
+    if (m_tts) {
+        qWarning() << "initTts() called again — TTS is already initialised; "
+                      "ignoring. The first call built the engine and connected "
+                      "its stateChanged handler.";
+        return;
+    }
+
     auto engines = QTextToSpeech::availableEngines();
     qDebug() << "Available TTS engines:" << engines;
 

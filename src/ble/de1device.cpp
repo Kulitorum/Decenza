@@ -1963,11 +1963,29 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
 
     if (!force && valueUnchanged) {
         // Once per distinct (register, value, caller) per session — see m_writeSkippedLog.
-        const QString text = QStringLiteral("write skipped: %1 unchanged%2")
-                                 .arg(DE1::MMR::describeRegister(address, value),
-                                      reasonSuffix);
+        // Keyed by CALLER, not by register, when the caller named itself.
+        //
+        // A convergent caller re-applies a whole group of registers at once, so
+        // a per-register key spelled one fact — "this caller found nothing to
+        // change" — once per register. wake-steam-reassert produced three
+        // consecutive lines on every wake for exactly that. Collapsing on the
+        // reason says it once and counts the rest, and the text is constant per
+        // key so LogCollapse's "+N identical" is literally true.
+        //
+        // Which registers those were is recoverable: an unchanged value IS the
+        // last value logged for that register by this same caller's write.
+        //
+        // A skip with no reason keeps its per-register key and full detail —
+        // there is no group to speak for it, and one anonymous skip is the case
+        // where the register name is the whole content of the line.
+        const bool haveReason = !reason.isEmpty();
+        const QString key = haveReason ? reason : QString::number(address, 16);
+        const QString text = haveReason
+            ? QStringLiteral("write skipped: values already current%1").arg(reasonSuffix)
+            : QStringLiteral("write skipped: %1 unchanged")
+                  .arg(DE1::MMR::describeRegister(address, value));
         LogCollapse::Collapsed collapsed;
-        if (m_mmrSkipLog.shouldLog(text, text, QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+        if (m_mmrSkipLog.shouldLog(key, text, QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
             MMR_LOG(text + LogCollapse::suffix(collapsed));
         }
         return;

@@ -165,6 +165,41 @@ private slots:
         QCOMPARE(skips.count(), 2);  // one per caller, not one per call and not one overall
     }
 
+    // One caller re-applying a GROUP of registers spells one fact, not one per
+    // register. wake-steam-reassert re-applies steam flow, flush flow and flush
+    // timeout together; when all three are already current it used to print
+    // three consecutive skip lines on every single wake.
+    void oneCallersGroupOfSkippedRegistersIsOneLine() {
+        TestFixture f;
+        MessageCounter skips(QStringLiteral("[MMR] write skipped"));
+
+        const QString reassert = QStringLiteral("wake-steam-reassert");
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, reassert);
+        f.device.writeMMR(DE1::MMR::FLUSH_FLOW_RATE, 80, reassert);
+        f.device.writeMMR(DE1::MMR::FLUSH_TIMEOUT, 350, reassert);
+        QCOMPARE(f.transport.writes.size(), 3);   // first time: all three are real writes
+        QCOMPARE(skips.count(), 0);
+
+        // Second pass: nothing changed, so nothing goes on the wire and the
+        // caller reports once rather than three times.
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, reassert);
+        f.device.writeMMR(DE1::MMR::FLUSH_FLOW_RATE, 80, reassert);
+        f.device.writeMMR(DE1::MMR::FLUSH_TIMEOUT, 350, reassert);
+        QCOMPARE(f.transport.writes.size(), 3);
+        QCOMPARE(skips.count(), 1);
+    }
+
+    // An anonymous skip has no group to speak for it, so it keeps the register
+    // name — which is then the entire content of the line.
+    void anUntaggedSkipStillNamesItsRegister() {
+        TestFixture f;
+        MessageCounter skips(QStringLiteral("[MMR] write skipped: SteamFlow 0x803828"));
+
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80);
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80);
+        QCOMPARE(skips.count(), 1);
+    }
+
     // ===== Force path (USB charger keepalive semantics) =====
 
     void forceBypassesDedup() {
