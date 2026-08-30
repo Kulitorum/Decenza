@@ -168,10 +168,12 @@ private slots:
     // A caller eliding several DIFFERENT registers gets a line for each: those
     // are distinct events, not repeats, and only a repeat may be collapsed.
     //
-    // Collapsing them onto the caller was tried and reverted — it suppressed the
-    // second register that caller ever elided for the whole session, and it
-    // broke the disconnect flush, which prints the collapse KEY and so requires
-    // the key to be the whole line. Both are asserted here.
+    // The THIRD pass is the load-bearing one and is not redundant — do not
+    // delete it. Passes one and two hold under several wrong implementations;
+    // pass three is what distinguishes them, because a caller-keyed collapse
+    // reads STEAM_FLOW-after-FLUSH_TIMEOUT as a changed text and emits, giving 5
+    // where this asserts 3. The flush half of that regression is asserted in
+    // theFlushedSkipTallyIsAWholeLine() below, not here.
     void aCallersDistinctRegistersEachGetTheirOwnSkipLine() {
         TestFixture f;
         MessageCounter skips(QStringLiteral("[MMR] write skipped"));
@@ -211,8 +213,11 @@ private slots:
         f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, QStringLiteral("applySteamSettings"));
         QCOMPARE(flushed.count(), 1);
 
-        // The flush must emit a line that still names the register.
-        emit f.transport.disconnected();
+        // The flush must emit a line that still names the register. Via
+        // setConnectedSim() rather than a raw emit: the mock nominates it for
+        // exactly this, and a bare emit leaves it reporting isConnected() == true,
+        // which is not a state the real transport can be in.
+        f.transport.setConnectedSim(false);
         QCOMPARE(flushed.count(), 2);
     }
 

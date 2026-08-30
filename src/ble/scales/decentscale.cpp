@@ -216,6 +216,7 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     QTimer::singleShot(300, this, [this]() {
         if (!m_transport || !m_characteristicsReady) return;
         enableWeightNotifications("300ms");
+        armWatchdogIfEnableNeverIssues();
     });
 
     // LCD enable again at 500ms (in case first was dropped)
@@ -251,33 +252,46 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
         if (!m_transport || !m_characteristicsReady) return;
         DECENT_LOG("Sending heartbeat (2000ms)");
         sendHeartbeat();
+    });
+}
 
-        // The enable never reached the radio. onNotificationsIssued() is what
-        // arms the watchdog, so an enable that FAILS before dispatch leaves
-        // m_watchdogArmPending set forever — and wake()'s own arm is gated on
-        // that same flag being clear, so nothing ever arms. The watchdog then
-        // never fires: no re-enable, no retry ladder, no disconnect, and the app
-        // goes on believing a scale is connected that will never send a weight.
-        // That is the #1519 symptom exactly.
-        //
-        // Four paths in QtScaleBleTransport::enableNotifications reach
-        // failGattOperation() without emitting notificationsIssued (link not
-        // ready, service missing, characteristic invalid, no CCCD — see
-        // qtscalebletransport.cpp; CoreBluetooth has the same shape), and the
-        // first of those is live during the DE1's concurrent connect burst.
-        //
-        // This mattered less when the sequence submitted a second enable at
-        // 400 ms: that was an independent second chance to arm. Removing the
-        // duplicate removed the redundancy with it, so the arm needs a path that
-        // does not depend on the enable succeeding. Arming here lets the
-        // watchdog's own ladder (which re-enables on every retry) recover, which
-        // is the recovery the 400 ms duplicate was standing in for.
-        if (m_watchdogArmPending) {
-            DECENT_WARN("Notify-enable never reached the radio within 2000 ms — "
-                        "arming the watchdog anyway so its retry can re-enable");
-            m_watchdogArmPending = false;
-            startWatchdog();
-        }
+// The watchdog is armed BY the enable reaching the radio (onNotificationsIssued),
+// so an enable that fails BEFORE dispatch arms nothing: m_watchdogArmPending stays
+// set, wake()'s own arm is gated on that same flag being clear, and the watchdog
+// never fires — no re-enable, no retry ladder, no disconnect, with the app still
+// believing a scale is connected that will never report a weight. That is the
+// #1519 symptom.
+//
+// Four paths in QtScaleBleTransport::enableNotifications reach failGattOperation()
+// without emitting notificationsIssued (link not ready, service missing,
+// characteristic invalid, no CCCD; CoreBluetooth has the same shape), and the
+// first is live during the DE1's concurrent connect burst. A fifth case is an
+// operation the queue never dispatches at all.
+//
+// The 400 ms duplicate enable used to cover this by accident — a second,
+// independent chance to arm. Removing it removed that, so the arm needs a path
+// that does not depend on the enable succeeding.
+//
+// TIMED FROM THE SUBMISSION, and deliberately generous. An earlier version hung
+// this off the wake sequence's existing 2000 ms step, which left only ~540 ms of
+// margin: the enable is submitted at 300 ms, and this file's own measurement 100
+// lines up records 1161 ms of queue wait with the DE1 connecting concurrently, so
+// dispatch at ~1461 ms. Tripping early is not harmless — it WARNs that an enable
+// still sitting in the queue "never reached the radio", and its retry submits a
+// second CCCD write behind the first, which is the exact thing removing the
+// duplicate was meant to stop. So the budget is the transport's own operation
+// clock (ScaleBleTransport::OPERATION_TIMEOUT_MS, 5 s) plus a margin: past this
+// point the queue has either abandoned the operation or is wedged, and both want
+// the watchdog running.
+void DecentScale::armWatchdogIfEnableNeverIssues() {
+    QTimer::singleShot(kEnableIssueBudgetMs, this, [this]() {
+        if (!m_transport || !m_characteristicsReady) return;
+        if (!m_watchdogArmPending) return;  // the enable issued; nothing to do
+        DECENT_WARN(QString("Notify-enable was never issued to the radio within %1 ms — "
+                            "arming the watchdog anyway so its retry can re-enable")
+                        .arg(kEnableIssueBudgetMs));
+        m_watchdogArmPending = false;
+        startWatchdog();
     });
 }
 

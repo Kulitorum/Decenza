@@ -880,8 +880,9 @@ void BleTransport::setupService() {
     // every connect. Every uuid/props pair is still here.
     //
     // The count is 18 on a DE1+ running firmware v1358 — the 2026-08-30 SM-X210
-    // session logged 18 "Char 0000a0NN" lines followed by this function's own
-    // "Characteristics ready: 18 registered". Stated as an observation of one
+    // session logged 18 "Char 0000a0NN" lines followed by the caller's
+    // "Characteristics ready: 18 registered" (onServiceStateChanged, :722).
+    // Stated as an observation of one
     // machine rather than a property of the protocol: de1characteristics.h names
     // only the 13 Decenza uses, so the device exposing more than we name is the
     // expected case, not a discrepancy.

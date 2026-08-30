@@ -337,12 +337,13 @@ inline QString describeAddress(uint32_t address) {
 
 // "SteamFlow 0x803828 = 80 (0.80 mL/s)" — the raw value always shown, because
 // that is what went on the wire; the human quantity in parentheses when we know
-// the scale. The single formatter for every MMR log line that carries a value:
-// write, write skipped, retry-write, keepalive, write urgent, and the
-// firmware-flash DROP warning all call this, so a register that gains a unit
-// gains it in all six at once. The value-less paths (read timeout, read failed,
-// write abandoned, the disconnect keepalive flush) call describeAddress()
-// instead, for ten sites in total.
+// the scale. The single formatter for every MMR log line that carries a value —
+// write, write skipped, retry-write, keepalive, write urgent and the
+// firmware-flash DROP warning — so a register that gains a unit gains it in all
+// of them at once. That is ten line kinds across eight call sites, not ten
+// sites: write/retry-write/keepalive are three tags emitted by one site. The
+// value-less paths (read timeout, read failed, write abandoned, the disconnect
+// keepalive flush) call describeAddress() instead.
 inline QString describeRegister(uint32_t address, uint32_t value) {
     const RegisterInfo* info = registerInfo(address);
     const QString hex = QStringLiteral("0x%1").arg(address, 6, 16, QLatin1Char('0'));

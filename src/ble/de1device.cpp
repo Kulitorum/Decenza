@@ -1968,16 +1968,24 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
         // KEY (logcollapse.h). Any key that is not the whole line turns a
         // flushed tally into a fragment with no verb.
         //
-        // Keying on the caller instead was tried and reverted. It looked like it
-        // would collapse wake-steam-reassert's three consecutive skip lines, but
-        // those do not repeat: kChangesOnly never re-emits an unchanged text, so
-        // the 2026-08-29 session — 17.5 hours, many wakes — carried those three
-        // lines exactly once, at 6.562-6.565 s. Its other three-line groups are
-        // different CALLERS (applySteamSettings, steam-setting-changed,
-        // applyFlushSettings), each a distinct fact. There was no repeat to
-        // collapse, and collapsing on the caller would have suppressed the
-        // second REGISTER that caller ever elided — a distinct event, not a
-        // repeat — for the whole session.
+        // Keying on the caller instead was tried and reverted. Be precise about
+        // what that variant was, because the obvious half-reconstruction of it
+        // behaves the opposite way and a reviewer did reconstruct it that way:
+        // it moved BOTH halves to the caller — key = reason AND text = a
+        // register-less "values already current [reason]". Only the text matters
+        // for suppression (shouldLog emits whenever the text changed, whatever
+        // the key — logcollapse.h:105), so keeping the full text under a caller
+        // key would have made this NOISIER, re-emitting on every alternation.
+        //
+        // With both halves collapsed it did suppress, and that was the problem:
+        // the second REGISTER a caller ever elided is a distinct event, not a
+        // repeat, and it would have gone unlogged for the whole session.
+        //
+        // It was also solving nothing. kChangesOnly never re-emits an unchanged
+        // text, so the 2026-08-29 session — 17.5 hours, many wakes — carries
+        // wake-steam-reassert's three lines exactly once, at 6.562-6.565 s. Its
+        // other three-line groups are different CALLERS (applySteamSettings,
+        // steam-setting-changed, applyFlushSettings), each a distinct fact.
         const QString text = QStringLiteral("write skipped: %1 unchanged%2")
                                  .arg(DE1::MMR::describeRegister(address, value),
                                       reasonSuffix);

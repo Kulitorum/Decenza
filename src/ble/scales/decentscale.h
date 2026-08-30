@@ -49,6 +49,10 @@ private:
     void startHeartbeat();
     void stopHeartbeat();
     void startWatchdog();
+    // Fallback arm for the case onNotificationsIssued() can never cover: an
+    // enable that fails or is dropped before it reaches the radio. See the
+    // definition for the budget and why it is measured from submission.
+    void armWatchdogIfEnableNeverIssues();
     // Restarts the watchdog's countdown when the weight-notify enable reaches
     // the radio, so it times from there rather than from submission.
     void onNotificationsIssued(const QBluetoothUuid& characteristicUuid);
@@ -60,6 +64,9 @@ private:
     static constexpr int kWatchdogFirstTimeoutMs = 1000;   // Initial: 1s to verify data flowing
     static constexpr int kWatchdogTickleTimeoutMs = 2000;   // Subsequent: 2s after each update
     static constexpr int kWatchdogMaxRetries = 10;          // Re-enable notifications up to 10 times
+    // ScaleBleTransport::OPERATION_TIMEOUT_MS (5 s) plus margin: past this, an
+    // un-issued enable is abandoned or wedged, never merely queued.
+    static constexpr int kEnableIssueBudgetMs = 8000;
     static constexpr int kChecksumFailureThreshold = 5;     // Disable checksum on the Nth consecutive failure (Nth packet is accepted)
     // Battery polling: the BT scale only reports battery in the LED-response
     // packet, which it sends in reply to the display-on command. Without
