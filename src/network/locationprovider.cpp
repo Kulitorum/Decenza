@@ -126,6 +126,18 @@ void LocationProvider::requestUpdate()
         return;
     }
 
+    // One outstanding request at a time. The source's own timeout is 60 s, and
+    // every applicationStateChanged → Active inside that window used to issue a
+    // second request against the same source: the 2026-08-30 SM-X210 session
+    // requested at 3.535 s, then again at 3.961 s from onAppStateChanged, for a
+    // fix that did not arrive until 11.110 s. The duplicate also re-drove the
+    // geocode and the weather fetch behind it (the weather client's own
+    // "Fetch already in progress, skipping" line is that second cascade).
+    if (m_updateInFlight) {
+        qDebug() << "LocationProvider: Position request already in flight, skipping";
+        return;
+    }
+
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     // Qt 6 requires explicit permission request before using CoreLocation
     QLocationPermission locationPermission;
@@ -143,6 +155,7 @@ void LocationProvider::requestUpdate()
             m_permissionRequested = false;
             if (permission.status() == Qt::PermissionStatus::Granted) {
                 qDebug() << "LocationProvider: Location permission granted";
+                m_updateInFlight = true;
                 m_source->requestUpdate(60000);
             } else {
                 qDebug() << "LocationProvider: Location permission denied by user";
@@ -158,11 +171,16 @@ void LocationProvider::requestUpdate()
 #endif
 
     qDebug() << "LocationProvider: Requesting position update (60s timeout)...";
+    m_updateInFlight = true;
     m_source->requestUpdate(60000);  // 60 second timeout (GPS cold start can take a while)
 }
 
 void LocationProvider::onPositionUpdated(const QGeoPositionInfo& info)
 {
+    // The request is over either way — an invalid fix ends it just as a valid
+    // one does, and leaving the flag set would block every later request.
+    m_updateInFlight = false;
+
     if (!info.isValid()) {
         qDebug() << "LocationProvider: Received invalid position";
         return;
@@ -233,6 +251,11 @@ void LocationProvider::onPositionError(QGeoPositionInfoSource::Error error)
         errorStr = QString("Unknown location error (code: %1)").arg(static_cast<int>(error));
         break;
     }
+
+    // Cleared here rather than at the top of this function: the macOS
+    // AccessError swallow above returns early precisely because the request is
+    // still outstanding and awaiting its timeout.
+    m_updateInFlight = false;
 
     qDebug() << "LocationProvider: Error -" << errorStr;
     emit locationError(errorStr);

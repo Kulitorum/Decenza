@@ -52,8 +52,16 @@ public:
         // a driver waiting on the signal look broken (or, worse, lets one that
         // should wait look fine). Emitted inline here — the ORDER is what the
         // drivers care about, not the delay.
+        //
+        // Suppressible, because "the enable never reaches the radio" is a real
+        // transport state with four routes into it (link not ready, service
+        // missing, characteristic invalid, no CCCD — every one of them calls
+        // failGattOperation() and emits nothing), and a driver that only ever
+        // sees the happy path cannot be tested against it.
+        if (m_suppressNotificationsIssued) return;
         emit notificationsIssued(characteristic);
     }
+    bool m_suppressNotificationsIssued = false;
     void writeCharacteristic(const QBluetoothUuid& service, const QBluetoothUuid&,
                              const QByteArray& value, WriteType = WriteType::WithResponse) override {
         m_writes.append(value);
@@ -828,6 +836,37 @@ private slots:
     // removed the sequence's own inline arm, the sibling below passed, and on
     // hardware wake() armed it anyway 278 ms before the enable went out. Asserts
     // the PROPERTY (nothing is armed yet) rather than one call site.
+    // ...but an enable that NEVER issues must still end up armed, or nothing
+    // recovers. onNotificationsIssued() is the only other arm, so without this
+    // fallback m_watchdogArmPending stays set, wake()'s arm stays gated on it,
+    // and the watchdog never fires: no re-enable, no retry, no disconnect, and
+    // the app holds a scale that will never report a weight (#1519).
+    //
+    // Deleting armWatchdogIfEnableNeverIssues() leaves the rest of the suite
+    // green — noPathArmsTheWatchdogBeforeTheEnableIsIssued() below asserts the
+    // opposite half — so this slot is the only thing standing between that
+    // deletion and the field symptom.
+    void anEnableThatNeverIssuesStillArmsTheWatchdog() {
+        auto* transport = new MockScaleBleTransport;
+        transport->m_suppressNotificationsIssued = true;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        scale.enableWeightNotifications(QStringLiteral("test"));
+        scale.m_watchdogArmPending = true;
+        scale.armWatchdogIfEnableNeverIssues();
+
+        // Nothing arms it up front — that is the other test's subject.
+        QVERIFY(!(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive()));
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Notify-enable was never issued to the radio"));
+        QTRY_VERIFY_WITH_TIMEOUT(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive(),
+                                 DecentScale::kEnableIssueBudgetMs + 2000);
+        QVERIFY(!scale.m_watchdogArmPending);
+    }
+
     void noPathArmsTheWatchdogBeforeTheEnableIsIssued() {
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);

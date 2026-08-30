@@ -176,13 +176,29 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     // Start periodic heartbeat to keep connection alive
     startHeartbeat();
 
-    // Follow de1app sequence EXACTLY (temporal order):
+    // Follow de1app sequence (temporal order):
     // 1. Heartbeat immediately
     // 2. LCD at 200ms
     // 3. Enable notifications at 300ms
-    // 4. Enable notifications at 400ms (again for reliability)
-    // 5. LCD at 500ms (in case first was dropped)
-    // 6. Heartbeat at 2000ms
+    // 4. LCD at 500ms (in case first was dropped)
+    // 5. Heartbeat at 2000ms
+    //
+    // de1app also enables notifications a second time at 400ms "for
+    // reliability". We do not, because under the shared GATT queue that second
+    // enable is not a cheap duplicate — it is a second queued CCCD write behind
+    // a first that has usually not been dispatched yet. Measured on this tablet
+    // with the DE1 connecting concurrently: the two enables dispatched 1161 ms
+    // and 1097 ms after being queued, and they are what produced the session's
+    // only Bluetooth warning — BleGattQueue's "N Bluetooth operation(s) were
+    // delayed because another device was using the radio; the worst (scale
+    // enable notifications) waited 1161 ms".
+    //
+    // Nothing is lost. The failure the blanket retry guards against — an enable
+    // that reached the scale and was ignored — is exactly what the watchdog
+    // detects (no weight data within kWatchdogFirstTimeoutMs of the enable
+    // ISSUING, see onNotificationsIssued) and it re-enables on each retry. That
+    // is the evidence-driven version of the same recovery: it fires when weight
+    // data actually failed to arrive, rather than every connect regardless.
 
     DECENT_LOG("Starting de1app-style wake sequence");
 
@@ -200,12 +216,7 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     QTimer::singleShot(300, this, [this]() {
         if (!m_transport || !m_characteristicsReady) return;
         enableWeightNotifications("300ms");
-    });
-
-    // Enable BLE notifications again at 400ms (de1app does this twice for reliability)
-    QTimer::singleShot(400, this, [this]() {
-        if (!m_transport || !m_characteristicsReady) return;
-        enableWeightNotifications("400ms retry");
+        armWatchdogIfEnableNeverIssues();
     });
 
     // LCD enable again at 500ms (in case first was dropped)
@@ -241,6 +252,46 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
         if (!m_transport || !m_characteristicsReady) return;
         DECENT_LOG("Sending heartbeat (2000ms)");
         sendHeartbeat();
+    });
+}
+
+// The watchdog is armed BY the enable reaching the radio (onNotificationsIssued),
+// so an enable that fails BEFORE dispatch arms nothing: m_watchdogArmPending stays
+// set, wake()'s own arm is gated on that same flag being clear, and the watchdog
+// never fires — no re-enable, no retry ladder, no disconnect, with the app still
+// believing a scale is connected that will never report a weight. That is the
+// #1519 symptom.
+//
+// Four paths in QtScaleBleTransport::enableNotifications reach failGattOperation()
+// without emitting notificationsIssued (link not ready, service missing,
+// characteristic invalid, no CCCD; CoreBluetooth has the same shape), and the
+// first is live during the DE1's concurrent connect burst. A fifth case is an
+// operation the queue never dispatches at all.
+//
+// The 400 ms duplicate enable used to cover this by accident — a second,
+// independent chance to arm. Removing it removed that, so the arm needs a path
+// that does not depend on the enable succeeding.
+//
+// TIMED FROM THE SUBMISSION, and deliberately generous. An earlier version hung
+// this off the wake sequence's existing 2000 ms step, which left only ~540 ms of
+// margin: the enable is submitted at 300 ms, and this file's own measurement 100
+// lines up records 1161 ms of queue wait with the DE1 connecting concurrently, so
+// dispatch at ~1461 ms. Tripping early is not harmless — it WARNs that an enable
+// still sitting in the queue "never reached the radio", and its retry submits a
+// second CCCD write behind the first, which is the exact thing removing the
+// duplicate was meant to stop. So the budget is the transport's own operation
+// clock (ScaleBleTransport::OPERATION_TIMEOUT_MS, 5 s) plus a margin: past this
+// point the queue has either abandoned the operation or is wedged, and both want
+// the watchdog running.
+void DecentScale::armWatchdogIfEnableNeverIssues() {
+    QTimer::singleShot(kEnableIssueBudgetMs, this, [this]() {
+        if (!m_transport || !m_characteristicsReady) return;
+        if (!m_watchdogArmPending) return;  // the enable issued; nothing to do
+        DECENT_WARN(QString("Notify-enable was never issued to the radio within %1 ms — "
+                            "arming the watchdog anyway so its retry can re-enable")
+                        .arg(kEnableIssueBudgetMs));
+        m_watchdogArmPending = false;
+        startWatchdog();
     });
 }
 
@@ -380,10 +431,11 @@ void DecentScale::onNotificationsIssued(const QBluetoothUuid& characteristicUuid
         return;
     }
 
-    // A later enable — the wake sequence's own 400 ms repeat, or one the
-    // watchdog itself issued on retry. Restart the countdown so it measures from
-    // this attempt, but do NOT go through startWatchdog(): resetting the retry
-    // counter here would let the watchdog retry forever.
+    // A later enable — today only one the watchdog itself issued on retry (the
+    // wake sequence's own 400 ms repeat is gone; see the sequence comment).
+    // Restart the countdown so it measures from this attempt, but do NOT go
+    // through startWatchdog(): resetting the retry counter here would let the
+    // watchdog retry forever.
     if (m_watchdogTimer && m_watchdogTimer->isActive()) {
         m_watchdogTimer->start(m_watchdogUpdatesSeen ? kWatchdogTickleTimeoutMs
                                                      : kWatchdogFirstTimeoutMs);
@@ -597,6 +649,14 @@ void DecentScale::sendHeartbeat() {
 }
 
 void DecentScale::startHeartbeat() {
+    // Already ticking: leave it alone. The connect wake sequence calls this
+    // once directly and then again from each wake() at 200 ms and 500 ms, which
+    // restarted a running timer three times in half a second and logged
+    // "Starting heartbeat timer" for each — a line that was not true twice, and
+    // that reset the battery-poll tick count along with it. The sleep() → wake()
+    // path, where the timer really is stopped, still starts it here.
+    if (m_heartbeatTimer && m_heartbeatTimer->isActive()) return;
+
     if (!m_heartbeatTimer) {
         m_heartbeatTimer = new QTimer(this);
         m_heartbeatTimer->setInterval(1000);  // Every 1 second like de1app

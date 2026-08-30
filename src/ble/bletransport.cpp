@@ -875,12 +875,26 @@ void BleTransport::setupService() {
     if (!m_service) return;
 
     const QList<QLowEnergyCharacteristic> chars = m_service->characteristics();
+    // One line, not one per characteristic: the set is constant per firmware, so
+    // the per-char form was one line per characteristic of the same answer on
+    // every connect. Every uuid/props pair is still here.
+    //
+    // The count is 18 on a DE1+ running firmware v1358 — the 2026-08-30 SM-X210
+    // session logged 18 "Char 0000a0NN" lines followed by the caller's
+    // "Characteristics ready: 18 registered" (onServiceStateChanged, :722).
+    // Stated as an observation of one
+    // machine rather than a property of the protocol: de1characteristics.h names
+    // only the 13 Decenza uses, so the device exposing more than we name is the
+    // expected case, not a discrepancy.
+    QStringList summary;
+    summary.reserve(chars.size());
     for (const auto& c : chars) {
         m_characteristics[c.uuid()] = c;
-        log(QString("  Char %1 props=0x%2")
-            .arg(c.uuid().toString().mid(1, 8))
-            .arg(static_cast<int>(c.properties()), 2, 16, QChar('0')));
+        summary << QString("%1:%2")
+                       .arg(c.uuid().toString().mid(1, 8))
+                       .arg(static_cast<int>(c.properties()), 2, 16, QChar('0'));
     }
+    log(QString("Chars (uuid:props) %1").arg(summary.join(u' ')));
 }
 
 void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data) {

@@ -165,6 +165,73 @@ private slots:
         QCOMPARE(skips.count(), 2);  // one per caller, not one per call and not one overall
     }
 
+    // A caller eliding several DIFFERENT registers gets a line for each: those
+    // are distinct events, not repeats, and only a repeat may be collapsed.
+    //
+    // The THIRD pass is the load-bearing one and is not redundant — do not
+    // delete it. Passes one and two hold under several wrong implementations;
+    // pass three is what distinguishes them, because a caller-keyed collapse
+    // reads STEAM_FLOW-after-FLUSH_TIMEOUT as a changed text and emits, giving 5
+    // where this asserts 3. The flush half of that regression is asserted in
+    // theFlushedSkipTallyIsAWholeLine() below, not here.
+    void aCallersDistinctRegistersEachGetTheirOwnSkipLine() {
+        TestFixture f;
+        MessageCounter skips(QStringLiteral("[MMR] write skipped"));
+
+        const QString reassert = QStringLiteral("wake-steam-reassert");
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, reassert);
+        f.device.writeMMR(DE1::MMR::FLUSH_FLOW_RATE, 80, reassert);
+        f.device.writeMMR(DE1::MMR::FLUSH_TIMEOUT, 350, reassert);
+        QCOMPARE(f.transport.writes.size(), 3);   // first time: all three are real writes
+        QCOMPARE(skips.count(), 0);
+
+        // Second pass: three registers already current, three distinct answers.
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, reassert);
+        f.device.writeMMR(DE1::MMR::FLUSH_FLOW_RATE, 80, reassert);
+        f.device.writeMMR(DE1::MMR::FLUSH_TIMEOUT, 350, reassert);
+        QCOMPARE(f.transport.writes.size(), 3);
+        QCOMPARE(skips.count(), 3);
+
+        // Third pass: now they ARE repeats, and none of them prints.
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, reassert);
+        f.device.writeMMR(DE1::MMR::FLUSH_FLOW_RATE, 80, reassert);
+        QCOMPARE(skips.count(), 3);
+    }
+
+    // The disconnect flush prints what flushAll() returns, which is the KEY. So
+    // the key has to be the whole line — a key that is only the caller, or only
+    // the address, flushes a fragment with no verb. This is the assertion that
+    // catches a future "collapse it on the caller" from breaking the flush.
+    void theFlushedSkipTallyIsAWholeLine() {
+        TestFixture f;
+        MessageCounter flushed(QStringLiteral("[MMR] write skipped: SteamFlow 0x803828"));
+
+        // One real write, then two skips: the first prints, the second is
+        // suppressed and left pending as a tally.
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, QStringLiteral("applySteamSettings"));
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, QStringLiteral("applySteamSettings"));
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, QStringLiteral("applySteamSettings"));
+        QCOMPARE(flushed.count(), 1);
+
+        // The flush must emit a line that still names the register. Via
+        // setConnectedSim() rather than a raw emit: the mock nominates it for
+        // exactly this, and a bare emit leaves it reporting isConnected() == true,
+        // which is not a state the real transport can be in.
+        f.transport.setConnectedSim(false);
+        QCOMPARE(flushed.count(), 2);
+    }
+
+    // An anonymous skip has no group to speak for it, so it keeps the register
+    // name — which is then the entire content of the line.
+    void anUntaggedSkipStillNamesItsRegister() {
+        TestFixture f;
+        MessageCounter skips(QStringLiteral("[MMR] write skipped: SteamFlow 0x803828"));
+
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80);
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80);
+        QCOMPARE(skips.count(), 1);
+    }
+
     // ===== Force path (USB charger keepalive semantics) =====
 
     void forceBypassesDedup() {
@@ -367,14 +434,60 @@ private slots:
         QCOMPARE(transport.writes.size(), afterFirst);
 
         // The transport gives up on it.
+        // Name AND address: the line is the only record that a specific setting
+        // did not reach the machine, and a bare address is not a record a reader
+        // (or the AI reading their log) can act on.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("write ABANDONED for 0x803828"));
+            QRegularExpression("write ABANDONED for SteamFlow 0x803828"));
         emit transport.writeAbandoned(DE1::Characteristic::WRITE_TO_MMR,
                                       transport.writes.last().second);
 
         // Now the same value is actually re-sent rather than skipped.
         device.writeMMR(DE1::MMR::STEAM_FLOW, 8, QStringLiteral("after-abandon"));
         QCOMPARE(transport.writes.size(), afterFirst + 1);
+    }
+
+    // The register table's scale, asserted where it is easiest to get wrong.
+    //
+    // STEAM_FLOW is the case this table exists for: it reads like tenths (every
+    // neighbouring flow register IS tenths) and it is hundredths — SteamPage.qml's
+    // flowToDisplay divides by 100. A wrong divisor here does not fail anything,
+    // it just prints a confident wrong number into a log a user's AI assistant
+    // then reasons from, so pin the two scales against each other.
+    void describeRegisterAppliesEachRegistersOwnScale() {
+        QCOMPARE(DE1::MMR::describeRegister(DE1::MMR::STEAM_FLOW, 80),
+                 QStringLiteral("SteamFlow 0x803828 = 80 (0.80 mL/s)"));
+        QCOMPARE(DE1::MMR::describeRegister(DE1::MMR::FLUSH_FLOW_RATE, 80),
+                 QStringLiteral("FlushFlowRate 0x803840 = 80 (8.0 mL/s)"));
+        QCOMPARE(DE1::MMR::describeRegister(DE1::MMR::HOT_WATER_IDLE_TEMP, 990),
+                 QStringLiteral("HeaterIdleTemp 0x803818 = 990 (99.0 \u00B0C)"));
+        QCOMPARE(DE1::MMR::describeRegister(DE1::MMR::FLUSH_TIMEOUT, 350),
+                 QStringLiteral("FlushTimeout 0x803848 = 350 (35.0 s)"));
+        QCOMPARE(DE1::MMR::describeRegister(DE1::MMR::FLOW_CALIBRATION, 879),
+                 QStringLiteral("FlowCalibration 0x80383c = 879 (\u00D70.879)"));
+    }
+
+    // A zero that means "disabled" must not render as a commanded quantity:
+    // "0 °C" reads as an instruction to hold the tank at freezing.
+    void describeRegisterRendersModeZerosAsModes() {
+        QCOMPARE(DE1::MMR::describeRegister(DE1::MMR::FAN_THRESHOLD, 0),
+                 QStringLiteral("FanThreshold 0x803808 = 0 (always on)"));
+        QCOMPARE(DE1::MMR::describeRegister(DE1::MMR::FAN_THRESHOLD, 60),
+                 QStringLiteral("FanThreshold 0x803808 = 60 (60 \u00B0C)"));
+        QCOMPARE(DE1::MMR::describeRegister(DE1::MMR::TANK_TEMP_THRESHOLD, 0),
+                 QStringLiteral("TankTempThreshold 0x80380c = 0 (preheat off)"));
+        QCOMPARE(DE1::MMR::describeRegister(DE1::MMR::USB_CHARGER, 1),
+                 QStringLiteral("UsbCharger 0x803854 = 1 (on)"));
+    }
+
+    // An unknown address, and a known one with no evidenced scale, both fall back
+    // to the raw value rather than inventing a unit. STEAM_HIGHFLOW_START has no
+    // documented scale anywhere in the repo — it must stay bare until it does.
+    void describeRegisterNeverInventsAScale() {
+        QCOMPARE(DE1::MMR::describeRegister(DE1::MMR::STEAM_HIGHFLOW_START, 70),
+                 QStringLiteral("SteamHighFlowStart 0x80382c = 70"));
+        QCOMPARE(DE1::MMR::describeRegister(0x809999, 5),
+                 QStringLiteral("0x809999 = 5"));
     }
 
     // A non-MMR abandonment must not disturb the cache.

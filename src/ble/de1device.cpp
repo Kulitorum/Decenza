@@ -190,10 +190,15 @@ void DE1Device::onTransportDisconnected() {
     // count, annotated with a span measured to the moment a reader is looking at
     // it. Keyed by MMR address, which this function does not enumerate, so it
     // flushes all of them.
-    for (const auto& [address, collapsed] :
+    for (const auto& [addressKey, collapsed] :
          m_keepaliveLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
-        MMR_LOG(QString("MMR keepalive 0x%1%2")
-                    .arg(address, LogCollapse::suffix(collapsed)));
+        // The collapse key is the address in hex (see writeMMR), so it round-trips
+        // back to a number and through the same describer every other MMR line uses.
+        bool keyIsAddress = false;
+        const uint32_t address = addressKey.toUInt(&keyIsAddress, 16);
+        MMR_LOG(QStringLiteral("keepalive %1%2")
+                    .arg(keyIsAddress ? DE1::MMR::describeAddress(address) : addressKey,
+                         LogCollapse::suffix(collapsed)));
     }
 
     // The water-level filter's run ends here too. Re-seeding on the next connect is what stops the
@@ -1087,20 +1092,19 @@ void DE1Device::checkMMRReadTimeouts() {
     for (uint32_t address : toRetry) {
         auto it = m_pendingMMRReads.find(address);
         it.value().attemptsRemaining--;
-        MMR_WARN(QStringLiteral("read timeout, retrying (%1 left): 0x%2 [%3]")
-                     .arg(it.value().attemptsRemaining)
-                     .arg(address, 6, 16, QLatin1Char('0'))
-                     .arg(it.value().reason));
+        MMR_WARN(QStringLiteral("read timeout, retrying (%1 left): %2 [%3]")
+                     .arg(QString::number(it.value().attemptsRemaining),
+                          DE1::MMR::describeAddress(address),
+                          it.value().reason));
         sendMMRReadRequest(address);
         it.value().deadlineMs = now + MMR_READ_TIMEOUT_MS;
     }
 
     for (uint32_t address : toExpire) {
         const QString reason = m_pendingMMRReads.value(address).reason;
-        MMR_WARN(QStringLiteral("read FAILED after retries: 0x%1 [%2] — leaving "
+        MMR_WARN(QStringLiteral("read FAILED after retries: %1 [%2] — leaving "
                                 "existing/default value")
-                     .arg(address, 6, 16, QLatin1Char('0'))
-                     .arg(reason));
+                     .arg(DE1::MMR::describeAddress(address), reason));
 
         // GHC_INFO is the one exhausted read with a behavioral (not just
         // display) consequence: isHeadless stays at its permissive default, so
@@ -1341,7 +1345,7 @@ void DE1Device::startEspresso() {
     // racing it (would defeat the settle window above).
     if (m_espressoStartDeferred) return;
 
-    writeMMR(DE1::MMR::GHC_MODE, 1);
+    writeMMR(DE1::MMR::GHC_MODE, 1, QStringLiteral("startEspresso"));
 
     if (m_state != DE1::State::Idle) {
         requestState(DE1::State::Idle);
@@ -1350,7 +1354,7 @@ void DE1Device::startEspresso() {
 }
 
 void DE1Device::startSteam() {
-    writeMMR(DE1::MMR::GHC_MODE, 1);
+    writeMMR(DE1::MMR::GHC_MODE, 1, QStringLiteral("startSteam"));
 
     if (m_state != DE1::State::Idle) {
         requestState(DE1::State::Idle);
@@ -1359,7 +1363,7 @@ void DE1Device::startSteam() {
 }
 
 void DE1Device::startHotWater() {
-    writeMMR(DE1::MMR::GHC_MODE, 1);
+    writeMMR(DE1::MMR::GHC_MODE, 1, QStringLiteral("startHotWater"));
 
     if (m_state != DE1::State::Idle) {
         requestState(DE1::State::Idle);
@@ -1368,7 +1372,7 @@ void DE1Device::startHotWater() {
 }
 
 void DE1Device::startFlush() {
-    writeMMR(DE1::MMR::GHC_MODE, 1);
+    writeMMR(DE1::MMR::GHC_MODE, 1, QStringLiteral("startFlush"));
 
     if (m_state != DE1::State::Idle) {
         requestState(DE1::State::Idle);
@@ -1668,10 +1672,10 @@ void DE1Device::onWriteAbandoned(const QBluetoothUuid& uuid, const QByteArray& d
     // register, because this is now the only record that a specific machine
     // setting did not land, and these logs are read by users and their AI
     // assistants who cannot decode an MMR payload from a byte count.
-    MMR_WARN(QStringLiteral("write ABANDONED for 0x%1 — the setting did not reach "
+    MMR_WARN(QStringLiteral("write ABANDONED for %1 — the setting did not reach "
                             "the machine. Cached value dropped so a later write of "
                             "the same value is not skipped as unchanged.")
-                 .arg(address, 6, 16, QLatin1Char('0')));
+                 .arg(DE1::MMR::describeAddress(address)));
 }
 
 qsizetype DE1Device::discardQueuedProfileWrites() {
@@ -1916,11 +1920,10 @@ bool DE1Device::dropIfFirmwareFlashInProgress(uint32_t address, uint32_t value,
                                               const QString& reason,
                                               const char* label) const {
     if (!m_firmwareFlashInProgress) return false;
-    MMR_WARN_STDERR(QStringLiteral("%1 DROPPED (firmware flash in progress): 0x%2 = %3%4")
-                        .arg(QString::fromLatin1(label))
-                        .arg(address, 6, 16, QLatin1Char('0'))
-                        .arg(value)
-                        .arg(reason.isEmpty() ? QString()
+    MMR_WARN_STDERR(QStringLiteral("%1 DROPPED (firmware flash in progress): %2%3")
+                        .arg(QString::fromLatin1(label),
+                             DE1::MMR::describeRegister(address, value),
+                             reason.isEmpty() ? QString()
                                               : QStringLiteral(" [%1]").arg(reason)));
     return true;
 }
@@ -1959,11 +1962,33 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     const bool valueUnchanged = (it != m_lastMMRValues.constEnd() && it.value() == value);
 
     if (!force && valueUnchanged) {
-        // Once per distinct (register, value, caller) per session — see m_writeSkippedLog.
-        const QString text = QStringLiteral("write skipped: 0x%1 unchanged (%2)%3")
-                                 .arg(address, 6, 16, QLatin1Char('0'))
-                                 .arg(value)
-                                 .arg(reasonSuffix);
+        // Once per distinct (register, value, caller) per session — see m_mmrSkipLog.
+        // KEY IS THE TEXT, and must stay that way: onTransportDisconnected()
+        // flushes this table and prints what flushAll() returns, which is the
+        // KEY (logcollapse.h). Any key that is not the whole line turns a
+        // flushed tally into a fragment with no verb.
+        //
+        // Keying on the caller instead was tried and reverted. Be precise about
+        // what that variant was, because the obvious half-reconstruction of it
+        // behaves the opposite way and a reviewer did reconstruct it that way:
+        // it moved BOTH halves to the caller — key = reason AND text = a
+        // register-less "values already current [reason]". Only the text matters
+        // for suppression (shouldLog emits whenever the text changed, whatever
+        // the key — logcollapse.h:105), so keeping the full text under a caller
+        // key would have made this NOISIER, re-emitting on every alternation.
+        //
+        // With both halves collapsed it did suppress, and that was the problem:
+        // the second REGISTER a caller ever elided is a distinct event, not a
+        // repeat, and it would have gone unlogged for the whole session.
+        //
+        // It was also solving nothing. kChangesOnly never re-emits an unchanged
+        // text, so the 2026-08-29 session — 17.5 hours, many wakes — carries
+        // wake-steam-reassert's three lines exactly once, at 6.562-6.565 s. Its
+        // other three-line groups are different CALLERS (applySteamSettings,
+        // steam-setting-changed, applyFlushSettings), each a distinct fact.
+        const QString text = QStringLiteral("write skipped: %1 unchanged%2")
+                                 .arg(DE1::MMR::describeRegister(address, value),
+                                      reasonSuffix);
         LogCollapse::Collapsed collapsed;
         if (m_mmrSkipLog.shouldLog(text, text, QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
             MMR_LOG(text + LogCollapse::suffix(collapsed));
@@ -1997,11 +2022,8 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     } else {
         tag = QStringLiteral("keepalive");
     }
-    const QString msg = QStringLiteral("%1: 0x%2 = %3%4")
-        .arg(tag)
-        .arg(address, 6, 16, QLatin1Char('0'))
-        .arg(value)
-        .arg(reasonSuffix);
+    const QString msg = QStringLiteral("%1: %2%3")
+        .arg(tag, DE1::MMR::describeRegister(address, value), reasonSuffix);
 
     // Only the keepalive tag is collapsed. "write" is by definition a value that changed and
     // "retry-write" means something already went wrong — both are rare and both are the lines a
@@ -2029,10 +2051,8 @@ void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& 
 
     const QString reasonSuffix = reason.isEmpty()
         ? QString() : QStringLiteral(" [%1]").arg(reason);
-    MMR_LOG(QStringLiteral("write urgent: 0x%1 = %2%3")
-                .arg(address, 6, 16, QLatin1Char('0'))
-                .arg(value)
-                .arg(reasonSuffix));
+    MMR_LOG(QStringLiteral("write urgent: %1%2")
+                .arg(DE1::MMR::describeRegister(address, value), reasonSuffix));
 
     // Urgent writes always go through (no dedup check), but we still update
     // the cache so a subsequent non-urgent writeMMR with the same value
@@ -2130,11 +2150,13 @@ void DE1Device::setWaterRefillLevel(int refillPointMm) {
 
 void DE1Device::setFlowCalibrationMultiplier(double multiplier) {
     uint32_t value = static_cast<uint32_t>(1000.0 * multiplier);
-    writeMMR(DE1::MMR::FLOW_CALIBRATION, value);
+    writeMMR(DE1::MMR::FLOW_CALIBRATION, value,
+             QStringLiteral("setFlowCalibrationMultiplier"));
 }
 
 void DE1Device::setRefillKitPresent(int value) {
-    writeMMR(DE1::MMR::REFILL_KIT, static_cast<uint32_t>(value));
+    writeMMR(DE1::MMR::REFILL_KIT, static_cast<uint32_t>(value),
+             QStringLiteral("setRefillKitPresent"));
 }
 
 void DE1Device::requestRefillKitStatus() {
@@ -2393,7 +2415,8 @@ void DE1Device::setHeaterVoltage(int volts) {
     }
 #endif
     CAL_INFO("Sensor") << "heater voltage =" << volts;
-    writeMMR(DE1::MMR::HEATER_VOLTAGE, static_cast<uint32_t>(volts));
+    writeMMR(DE1::MMR::HEATER_VOLTAGE, static_cast<uint32_t>(volts),
+             QStringLiteral("setHeaterVoltage"));
     // Read back rather than trusting what we sent — HEATER_VOLTAGE is otherwise
     // only read once at connect, so without this the displayed value and the
     // selected button stay on the OLD voltage for the rest of the session even
@@ -2407,34 +2430,40 @@ void DE1Device::sendInitialSettings() {
     // Ensure USB charger is ON at startup (safe default like de1app)
     if (!m_usbChargerOn) {
         m_usbChargerOn = true;
-        writeMMR(DE1::MMR::USB_CHARGER, 1);
+        writeMMR(DE1::MMR::USB_CHARGER, 1, QStringLiteral("connect-setup"));
         emit usbChargerOnChanged();
     }
 
     // CRITICAL: Set fan temperature threshold via MMR.
     // Default DE1 fan runs continuously; threshold > 0 means fan only runs when
     // internal temp exceeds this value. 0 = always on (DE1 firmware default).
-    writeMMR(DE1::MMR::FAN_THRESHOLD, m_settings ? m_settings->fanThreshold() : 60);
+    writeMMR(DE1::MMR::FAN_THRESHOLD, m_settings ? m_settings->fanThreshold() : 60,
+             QStringLiteral("connect-setup"));
 
     // Heater tweaks — matches de1app's set_heater_tweaks()
+    const QString kTweaks = QStringLiteral("heater-tweaks");
     if (m_settings) {
-        writeMMR(DE1::MMR::PHASE1_FLOW_RATE, m_settings->heaterWarmupFlow());
-        writeMMR(DE1::MMR::PHASE2_FLOW_RATE, m_settings->heaterTestFlow());
-        writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, m_settings->heaterIdleTemp());
-        writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, m_settings->heaterWarmupTimeout());
-        writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate());
-        writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->steamTwoTapStop() ? 1 : 0);
-        writeMMR(DE1::MMR::STEAM_HIGHFLOW_START, 70);
-        writeMMR(DE1::MMR::TANK_TEMP_THRESHOLD, 0);
+        writeMMR(DE1::MMR::PHASE1_FLOW_RATE, m_settings->heaterWarmupFlow(), kTweaks);
+        writeMMR(DE1::MMR::PHASE2_FLOW_RATE, m_settings->heaterTestFlow(), kTweaks);
+        writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, m_settings->heaterIdleTemp(), kTweaks);
+        writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, m_settings->heaterWarmupTimeout(), kTweaks);
+        writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate(), kTweaks);
+        writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->steamTwoTapStop() ? 1 : 0, kTweaks);
+        writeMMR(DE1::MMR::STEAM_HIGHFLOW_START, 70, kTweaks);
+        writeMMR(DE1::MMR::TANK_TEMP_THRESHOLD, 0, kTweaks);
     } else {
-        writeMMR(DE1::MMR::PHASE1_FLOW_RATE, 20);
-        writeMMR(DE1::MMR::PHASE2_FLOW_RATE, 40);
-        writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, 990);
-        writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, 10);
-        writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, 10);
-        writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, 1);
-        writeMMR(DE1::MMR::STEAM_HIGHFLOW_START, 70);
-        writeMMR(DE1::MMR::TANK_TEMP_THRESHOLD, 0);
+        // No Settings object: de1app's documented defaults. Tagged distinctly —
+        // a log showing these values is a log where the app had no settings to
+        // apply, which is a different fault from a user having chosen them.
+        const QString kDefaults = QStringLiteral("heater-tweaks-defaults");
+        writeMMR(DE1::MMR::PHASE1_FLOW_RATE, 20, kDefaults);
+        writeMMR(DE1::MMR::PHASE2_FLOW_RATE, 40, kDefaults);
+        writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, 990, kDefaults);
+        writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, 10, kDefaults);
+        writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, 10, kDefaults);
+        writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, 1, kDefaults);
+        writeMMR(DE1::MMR::STEAM_HIGHFLOW_START, 70, kDefaults);
+        writeMMR(DE1::MMR::TANK_TEMP_THRESHOLD, 0, kDefaults);
     }
 
     // NOTE: de1app's equivalent (later_new_de1_connection_setup →
@@ -2524,7 +2553,7 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     // attributes the elided call to its origin so we can see which convergent
     // signal fired.
     if (data == m_lastShotSettingsPayload) {
-        // Once per distinct (payload, caller) per session — see m_writeSkippedLog.
+        // Once per distinct (payload, caller) per session — see m_shotSettingsSkipLog.
         const QString text = QStringLiteral(
             "write skipped: payload unchanged "
             "(steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C)%6")

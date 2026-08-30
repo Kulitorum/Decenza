@@ -273,6 +273,114 @@ namespace MMR {
     constexpr uint32_t STEAM_TWO_TAP_STOP   = 0x803850;  // SteamPurgeMode: 0=off, 1=two taps to stop steam (first tap → puffs, second → purge)
     constexpr uint32_t USB_CHARGER          = 0x803854;  // USB charger on/off (1=on, 0=off)
     constexpr uint32_t REFILL_KIT           = 0x80385C;
+
+// A register's NAME, SCALE and UNIT, in one table.
+//
+// The log used to print the raw pair — "write: 0x803818 = 990" — which is two
+// decodings away from meaning anything: the address has to be looked up in this
+// header, and then the number divided by whatever scale that register happens to
+// use. Both facts live here, so both belong in the line. These logs are read by
+// users' AI assistants, which act on them, and by us months later against a
+// firmware we no longer remember the units of.
+//
+// `divisor` 1 means the raw value already IS the quantity; 0 means we do not
+// know the scale and must not invent one. Every non-zero divisor below is
+// evidenced by the code that WRITES the register (the UI slider's displayText,
+// or the caller's own ×10), not by inference from the value's magnitude —
+// STEAM_FLOW reads like tenths and is hundredths (SteamPage.qml flowToDisplay
+// divides by 100), which is exactly the guess this table exists to prevent.
+struct RegisterInfo {
+    uint32_t address;
+    const char* name;
+    int divisor;        // 0 = scale unknown, print raw only
+    const char* unit;
+};
+
+inline const RegisterInfo* registerInfo(uint32_t address) {
+    static constexpr RegisterInfo kRegisters[] = {
+        { CPU_BOARD_MODEL,          "CpuBoardModel",         0, "" },
+        { MACHINE_MODEL,            "MachineModel",          0, "" },
+        { FIRMWARE_VERSION,         "FirmwareVersion",       0, "" },
+        { FAN_THRESHOLD,            "FanThreshold",          1, "\u00B0C" },
+        { TANK_TEMP_THRESHOLD,      "TankTempThreshold",     1, "\u00B0C" },
+        { PHASE1_FLOW_RATE,         "HeaterWarmupFlow",     10, "mL/s" },
+        { PHASE2_FLOW_RATE,         "HeaterTestFlow",       10, "mL/s" },
+        { HOT_WATER_IDLE_TEMP,      "HeaterIdleTemp",       10, "\u00B0C" },
+        { GHC_INFO,                 "GhcInfo",               0, "" },
+        { GHC_MODE,                 "GhcMode",               0, "" },
+        { STEAM_FLOW,               "SteamFlow",           100, "mL/s" },
+        { STEAM_HIGHFLOW_START,     "SteamHighFlowStart",    0, "" },
+        { SERIAL_NUMBER,            "SerialNumber",          0, "" },
+        { HEATER_VOLTAGE,           "HeaterVoltage",         1, "V" },
+        { ESPRESSO_WARMUP_TIMEOUT,  "EspressoWarmupTimeout",10, "s" },
+        { FLOW_CALIBRATION,         "FlowCalibration",    1000, "\u00D7" },
+        { FLUSH_FLOW_RATE,          "FlushFlowRate",        10, "mL/s" },
+        { FLUSH_TIMEOUT,            "FlushTimeout",         10, "s" },
+        { HOT_WATER_FLOW_RATE,      "HotWaterFlowRate",     10, "mL/s" },
+        { STEAM_TWO_TAP_STOP,       "SteamTwoTapStop",       0, "" },
+        { USB_CHARGER,              "UsbCharger",            0, "" },
+        { REFILL_KIT,               "RefillKit",             0, "" },
+    };
+    for (const auto& r : kRegisters) {
+        if (r.address == address) return &r;
+    }
+    return nullptr;
+}
+
+// "SteamFlow 0x803828" — name plus address, for the paths that have no value to
+// report (a read that timed out, a write that was abandoned, a keepalive flush).
+inline QString describeAddress(uint32_t address) {
+    const QString hex = QStringLiteral("0x%1").arg(address, 6, 16, QLatin1Char('0'));
+    const RegisterInfo* info = registerInfo(address);
+    return info ? QStringLiteral("%1 %2").arg(QString::fromUtf8(info->name), hex) : hex;
+}
+
+// "SteamFlow 0x803828 = 80 (0.80 mL/s)" — the raw value always shown, because
+// that is what went on the wire; the human quantity in parentheses when we know
+// the scale. The single formatter for every MMR log line that carries a value —
+// write, write skipped, retry-write, keepalive, write urgent and the
+// firmware-flash DROP warning — so a register that gains a unit gains it in all
+// of them at once. That is ten line kinds across eight call sites, not ten
+// sites: write/retry-write/keepalive are three tags emitted by one site. The
+// value-less paths (read timeout, read failed, write abandoned, the disconnect
+// keepalive flush) call describeAddress() instead.
+inline QString describeRegister(uint32_t address, uint32_t value) {
+    const RegisterInfo* info = registerInfo(address);
+    const QString hex = QStringLiteral("0x%1").arg(address, 6, 16, QLatin1Char('0'));
+    if (!info)
+        return QStringLiteral("%1 = %2").arg(hex).arg(value);
+
+    QString derived;
+    // The three registers whose zero is a MODE, not a quantity. Printing
+    // "0 degrees" for a disabled preheat reads as a commanded temperature.
+    if (address == FAN_THRESHOLD && value == 0) {
+        derived = QStringLiteral("always on");
+    } else if (address == TANK_TEMP_THRESHOLD && value == 0) {
+        derived = QStringLiteral("preheat off");
+    } else if (address == USB_CHARGER) {
+        derived = value ? QStringLiteral("on") : QStringLiteral("off");
+    } else if (address == STEAM_TWO_TAP_STOP) {
+        derived = value ? QStringLiteral("two taps to stop") : QStringLiteral("off");
+    } else if (address == REFILL_KIT) {
+        derived = value ? QStringLiteral("present") : QStringLiteral("absent");
+    } else if (info->divisor == 1) {
+        derived = QStringLiteral("%1 %2").arg(value).arg(QString::fromUtf8(info->unit));
+    } else if (info->divisor > 1) {
+        const int decimals = (info->divisor == 1000) ? 3 : (info->divisor == 100 ? 2 : 1);
+        const QString number = QString::number(
+            static_cast<double>(value) / info->divisor, 'f', decimals);
+        const QString unit = QString::fromUtf8(info->unit);
+        // The calibration multiplier's "unit" is a leading multiplication sign,
+    // not a trailing name.
+        derived = (address == FLOW_CALIBRATION) ? unit + number
+                                                : QStringLiteral("%1 %2").arg(number, unit);
+    }
+
+    const QString head = QStringLiteral("%1 %2 = %3")
+                             .arg(QString::fromUtf8(info->name), hex)
+                             .arg(value);
+    return derived.isEmpty() ? head : QStringLiteral("%1 (%2)").arg(head, derived);
+}
 }
 
 // Utility functions
