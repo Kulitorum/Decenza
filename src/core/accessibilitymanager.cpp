@@ -15,8 +15,10 @@
 #include <QAccessible>
 #endif
 
+#include "core/accessibilitylogging.h"
+
 AccessibilityManager *AccessibilityManager::s_qmlInstance = nullptr;
-int AccessibilityManager::s_instanceCount = 0;
+std::atomic<int> AccessibilityManager::s_instanceCount{0};
 
 void AccessibilityManager::setQmlInstance(AccessibilityManager *instance)
 {
@@ -31,9 +33,9 @@ AccessibilityManager *AccessibilityManager::create(QQmlEngine *qmlEngine, QJSEng
         // Reached only if QML resolves the singleton before main.cpp published the instance.
         // Name the missing call: the symptom otherwise is every accessibility binding in the UI
         // reading as undefined, which looks like an accessibility bug and is not.
-        qCritical("AccessibilityManager: QML asked for the singleton before "
-                  "AccessibilityManager::setQmlInstance() was called. Publish the instance "
-                  "before QQmlEngine::load().");
+        A11Y_WARN_STDERR("Singleton",
+            QStringLiteral("QML asked for the singleton before setQmlInstance() was called. "
+                           "Publish the instance before QQmlEngine::load()."));
         return nullptr;
     }
     // No second-engine guard here, unlike TranslationManager::create() — deliberately, not by
@@ -71,15 +73,27 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
     // can end up with the locale on one engine and the announcements on the
     // other, or with both speaking.
     //
+    // Atomic because the construction site this exists to name is precisely the
+    // one we cannot see, so it cannot be assumed to be on the GUI thread — a
+    // counter that races is a second unreliable witness on top of the bug.
+    //
+    // Never decremented, deliberately: the production object is main.cpp's stack
+    // object and lives for the process, so there is no construct-destroy-construct
+    // path to confuse this with a second live instance. The test-only
+    // TestSkipAudioInit constructor does not increment at all — tests legitimately
+    // build many, and counting them would bury the real signal in permanent noise.
+    //
     // Kept permanently rather than as a probe: it asserts an invariant that
     // holds today, costs an int, and says nothing at all when the app is well.
     // That is the difference between this and the #582 diagnostics, which
     // narrated a healthy startup 14 lines at a time.
-    if (++s_instanceCount > 1) {
-        qWarning() << "AccessibilityManager: instance" << s_instanceCount
-                   << "constructed — the app owns exactly one (main.cpp, published "
-                      "via setQmlInstance). This one builds a second TTS engine that "
-                      "QML will never reach. Backtrace the caller.";
+    const int instanceOrdinal = ++s_instanceCount;
+    if (instanceOrdinal > 1) {
+        A11Y_WARN_STDERR("Lifetime",
+            QStringLiteral("instance %1 constructed — the app owns exactly one (main.cpp, "
+                           "published via setQmlInstance). This one builds a second TTS "
+                           "engine that QML will never reach. Backtrace the caller.")
+                .arg(instanceOrdinal));
     }
 
     migrateLegacyStore();
@@ -117,7 +131,7 @@ void AccessibilityManager::shutdown()
     if (m_shuttingDown) return;
     m_shuttingDown = true;
 
-    qDebug() << "AccessibilityManager shutting down";
+    A11Y_LOG_STDERR("Lifetime", QStringLiteral("shutting down"));
 
     // Disconnect all signals from TTS to prevent callbacks during shutdown
     if (m_tts) {
@@ -222,16 +236,17 @@ void AccessibilityManager::migrateLegacyStore()
     if (r.alreadyDone)
         return;
     if (r.deferredOnError) {
-        qWarning() << "AccessibilityManager: legacy store unreadable —"
-                      " deferring migration, guard NOT set";
+        A11Y_WARN_STDERR("Migration",
+            QStringLiteral("legacy store unreadable — deferring migration, guard NOT set"));
         return;
     }
     // qInfo (not qDebug) + legacy key count so a support log can tell
     // "nothing to migrate" (legacyKeyCount==0) apart from "all already
     // present" (copied==0 && legacyKeyCount>0) — an irreversible
     // one-time migration deserves a durable, unambiguous breadcrumb.
-    qInfo() << "AccessibilityManager: migrated" << r.copied << "of"
-            << r.legacyKeyCount << "legacy accessibility key(s) into the primary store";
+    A11Y_INFO_STDERR("Migration",
+        QStringLiteral("migrated %1 of %2 legacy accessibility key(s) into the primary store")
+            .arg(r.copied).arg(r.legacyKeyCount));
 }
 
 void AccessibilityManager::loadSettings()
@@ -278,21 +293,22 @@ void AccessibilityManager::initTts()
     // and the type is not QML-creatable — so the warning below is here to name
     // the second caller in the next log rather than to assert a cause.
     if (m_tts) {
-        qWarning() << "initTts() called again — TTS is already initialised; "
-                      "ignoring. The first call built the engine and connected "
-                      "its stateChanged handler.";
+        A11Y_WARN_STDERR("Tts",
+            QStringLiteral("initTts() called again — TTS is already initialised; ignoring. "
+                           "The first call built the engine and connected its stateChanged "
+                           "handler."));
         return;
     }
 
     auto engines = QTextToSpeech::availableEngines();
-    qDebug() << "Available TTS engines:" << engines;
+    A11Y_LOG_STDERR("Tts", QStringLiteral("available engines: %1").arg(engines.join(u", ")));
 
     // On Android, use "android" engine which delegates to system TTS settings
     // This respects the user's preferred engine and voice from Android preferences
 #ifdef Q_OS_ANDROID
     if (engines.contains("android")) {
         m_tts = new QTextToSpeech("android", this);
-        qDebug() << "Using Android system TTS";
+        A11Y_LOG_STDERR("Tts", QStringLiteral("using Android system TTS"));
     } else {
         m_tts = new QTextToSpeech(this);
     }
@@ -301,11 +317,11 @@ void AccessibilityManager::initTts()
 #endif
 
     connect(m_tts, &QTextToSpeech::stateChanged, this, [this](QTextToSpeech::State state) {
-        qDebug() << "TTS state changed:" << state;
+        A11Y_LOG_STDERR("Tts", QStringLiteral("state changed: %1").arg(int(state)));
         if (state == QTextToSpeech::Error) {
-            qWarning() << "TTS error:" << m_tts->errorString();
+            A11Y_WARN_STDERR("Tts", QStringLiteral("error: %1").arg(m_tts->errorString()));
         } else if (state == QTextToSpeech::Ready) {
-            qDebug() << "TTS ready";
+            A11Y_LOG_STDERR("Tts", QStringLiteral("ready"));
             // Sync locale with app language
             if (m_translationManager) {
                 onLanguageChanged();
@@ -362,7 +378,8 @@ void AccessibilityManager::setEnabledImpl(bool enabled, bool announce)
     saveSettings();
     emit enabledChanged();
 
-    qDebug() << "Accessibility" << (m_enabled ? "enabled" : "disabled");
+    A11Y_LOG_STDERR("Settings",
+        QStringLiteral("accessibility %1").arg(m_enabled ? u"enabled" : u"disabled"));
 
     if (!announce) return;
 
@@ -490,8 +507,8 @@ void AccessibilityManager::routeAnnouncement(const QString& text, bool interrupt
         // VoiceOver). dispatchPlatformAnnouncement() handles the empty-window
         // null guard internally and logs path=dropped if it can't deliver.
         dispatchPlatformAnnouncement(text, interrupt);
-        qInfo().noquote() << "[a11y] route path=platform isActive=true len=" << text.size()
-                          << " preview=" << preview;
+        A11Y_INFO_STDERR("Route", QStringLiteral("path=platform isActive=true len=%1 preview=%2")
+                                      .arg(text.size()).arg(preview));
         return;
     }
 
@@ -501,13 +518,13 @@ void AccessibilityManager::routeAnnouncement(const QString& text, bool interrupt
         // need it called even when m_tts is intentionally absent (the
         // TestSkipAudioInit ctor leaves it null on purpose).
         dispatchTtsAnnouncement(text, interrupt);
-        qInfo().noquote() << "[a11y] route path=tts isActive=false len=" << text.size()
-                          << " preview=" << preview;
+        A11Y_INFO_STDERR("Route", QStringLiteral("path=tts isActive=false len=%1 preview=%2")
+                                      .arg(text.size()).arg(preview));
         return;
     }
 
-    qInfo().noquote() << "[a11y] route path=silent isActive=false ttsEnabled=" << m_ttsEnabled
-                      << " len=" << text.size();
+    A11Y_INFO_STDERR("Route", QStringLiteral("path=silent isActive=false ttsEnabled=%1 len=%2")
+                                  .arg(m_ttsEnabled).arg(text.size()));
 }
 
 void AccessibilityManager::announce(const QString& text, bool interrupt)
@@ -531,15 +548,15 @@ void AccessibilityManager::announceCoaching(const QString& text, bool interrupt)
     const QString preview = a11yLogPreview(text);
     if (isScreenReaderActive()) {
         dispatchPlatformAnnouncement(text, interrupt);
-        qInfo().noquote() << "[a11y] route path=platform coaching=true len=" << text.size()
-                          << " preview=" << preview;
+        A11Y_INFO_STDERR("Route", QStringLiteral("path=platform coaching=true len=%1 preview=%2")
+                                      .arg(text.size()).arg(preview));
         return;
     }
     // dispatchTtsAnnouncement() handles the m_tts null check internally (and
     // tests override the virtual with m_tts intentionally absent).
     dispatchTtsAnnouncement(text, interrupt);
-    qInfo().noquote() << "[a11y] route path=tts coaching=true len=" << text.size()
-                      << " preview=" << preview;
+    A11Y_INFO_STDERR("Route", QStringLiteral("path=tts coaching=true len=%1 preview=%2")
+                                  .arg(text.size()).arg(preview));
 }
 
 bool AccessibilityManager::isScreenReaderActive() const
@@ -573,7 +590,8 @@ void AccessibilityManager::dispatchPlatformAnnouncement(const QString& text, boo
     if (!target) {
         // qInfo (not qDebug) so dropped announcements show up in transcripts —
         // this is the case most likely to be reported as a "missed announcement".
-        qInfo().noquote() << "[a11y] announce path=dropped reason=no-window len=" << text.size();
+        A11Y_INFO_STDERR("Route", QStringLiteral("announce path=dropped reason=no-window len=%1")
+                                      .arg(text.size()));
         return;
     }
 
@@ -609,8 +627,8 @@ void AccessibilityManager::announceLabel(const QString& text)
     // must not double-speak. Same fix as announce().
     if (isScreenReaderActive()) {
         dispatchPlatformAnnouncement(text, /*assertive=*/false);
-        qInfo().noquote() << "[a11y] announceLabel path=platform isActive=true len=" << text.size()
-                          << " preview=" << a11yLogPreview(text);
+        A11Y_INFO_STDERR("Route", QStringLiteral("announceLabel path=platform isActive=true len=%1 preview=%2")
+                                      .arg(text.size()).arg(a11yLogPreview(text)));
         return;
     }
 
@@ -635,8 +653,8 @@ void AccessibilityManager::announceLabel(const QString& text)
         // "TTS path was chosen" assertion for unit tests.
         dispatchTtsAnnouncement(text, /*interrupt=*/false);
     }
-    qInfo().noquote() << "[a11y] announceLabel path=tts isActive=false len=" << text.size()
-                      << " preview=" << a11yLogPreview(text);
+    A11Y_INFO_STDERR("Route", QStringLiteral("announceLabel path=tts isActive=false len=%1 preview=%2")
+                                  .arg(text.size()).arg(a11yLogPreview(text)));
 }
 
 void AccessibilityManager::playTick()
@@ -730,7 +748,7 @@ void AccessibilityManager::onLanguageChanged()
     if (!m_tts || !m_translationManager) return;
 
     if (m_tts->state() != QTextToSpeech::Ready) {
-        qDebug() << "TTS not ready yet, skipping locale update";
+        A11Y_LOG_STDERR("Tts", QStringLiteral("not ready yet, skipping locale update"));
         return;
     }
 
@@ -744,12 +762,13 @@ void AccessibilityManager::onLanguageChanged()
     // C++ try/catch cannot intercept. setLocale() is safe — if the locale isn't
     // supported, Android TTS silently falls back to the system default.
     m_tts->setLocale(locale);
-    qDebug() << "TTS locale set to:" << locale.name() << "for language:" << langCode;
+    A11Y_LOG_STDERR("Tts", QStringLiteral("locale set to %1 for language %2")
+                               .arg(locale.name(), langCode));
 #else
     // On desktop, check available locales before setting
     QList<QLocale> availableLocales = m_tts->availableLocales();
     if (availableLocales.isEmpty()) {
-        qDebug() << "No TTS locales available — using system default";
+        A11Y_LOG_STDERR("Tts", QStringLiteral("no locales available — using system default"));
         return;
     }
 
@@ -757,14 +776,16 @@ void AccessibilityManager::onLanguageChanged()
     for (const QLocale& available : availableLocales) {
         if (available.language() == locale.language()) {
             m_tts->setLocale(available);
-            qDebug() << "TTS locale set to:" << available.name() << "for language:" << langCode;
+            A11Y_LOG_STDERR("Tts", QStringLiteral("locale set to %1 for language %2")
+                                       .arg(available.name(), langCode));
             found = true;
             break;
         }
     }
 
     if (!found) {
-        qDebug() << "TTS locale not available for:" << langCode << "- using system default";
+        A11Y_LOG_STDERR("Tts", QStringLiteral("locale not available for %1 — using system default")
+                                   .arg(langCode));
     }
 #endif
 }

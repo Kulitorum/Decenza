@@ -136,6 +136,14 @@ COVERED_GLOBS = [
     # re-open that hole.
     "src/weather/weathermanager.cpp",
     "src/core/updatechecker.cpp",
+    # Wholly about screen-reader announcements and the TTS engine behind them:
+    # every line is either the route an announcement took or the setup that
+    # decides which routes exist. Covered because "TalkBack says nothing on this
+    # screen" is answered ONLY by these lines, and the file shipped with two
+    # hand-rolled conventions that had already drifted apart — eight "[a11y] "
+    # bare-qInfo lines and six "AccessibilityManager: " ones — so neither a
+    # marker filter nor a single grep returned the whole story.
+    "src/core/accessibilitymanager.cpp",
 ]
 
 # Files that HOST a registered subsystem's lines alongside unrelated code.

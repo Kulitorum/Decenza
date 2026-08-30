@@ -1,6 +1,7 @@
 #ifndef ACCESSIBILITYMANAGER_H
 #define ACCESSIBILITYMANAGER_H
 
+#include <atomic>
 #include <QObject>
 #include <QPointer>
 #include <QTextToSpeech>
@@ -189,7 +190,7 @@ private:
     // object, published via setQmlInstance); create() never constructs and the
     // type is not QML-creatable, so a second is a defect. See the constructor
     // for what the second one costs and why this counter exists at all.
-    static int s_instanceCount;
+    static std::atomic<int> s_instanceCount;
 
     void loadSettings();
     void saveSettings();

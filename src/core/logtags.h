@@ -84,6 +84,7 @@
 #define DECENZA_LOG_MARKER_AUTOLOAD      "AutoLoad"
 #define DECENZA_LOG_MARKER_KEYBOARD      "Keyboard"
 #define DECENZA_LOG_MARKER_APP           "App"
+#define DECENZA_LOG_MARKER_ACCESSIBILITY "Accessibility"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -176,6 +177,16 @@
       "or never held, and every correction written to the machine's pressure or "  \
       "temperature sensor with the pair it was computed from. Answers \"why "      \
       "can I not apply a correction\" and \"did my correction actually land\"")                                         \
+    X(DECENZA_LOG_MARKER_ACCESSIBILITY,                                            \
+      "Where a screen-reader announcement went, and why: the platform path when "  \
+      "a reader is active, the app's own TTS when it is not, and the silent and "  \
+      "dropped paths with the reason. Also TTS engine setup and the legacy "       \
+      "settings-store migration. Answers \"TalkBack says nothing on this "         \
+      "screen\" and \"it speaks twice\" — questions no other marker can, because " \
+      "the announcement either reached the platform or it did not, and only "      \
+      "these lines say which. Third-party readers matter here: #1300's reporter "  \
+      "used TalkMan under TalkBack's class name, so the route a line reports is "  \
+      "worth more than any assumption about which reader is installed")            \
     X(DECENZA_LOG_MARKER_AUTOSLEEP,                                                \
       "Why the app did or did not put the machine to sleep on its own: the "       \
       "inactivity countdown starting and being reset, a scheduled stay-awake "     \

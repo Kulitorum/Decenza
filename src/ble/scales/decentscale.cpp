@@ -171,6 +171,26 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
 
     DECENT_LOG("Characteristics discovered");
     m_characteristicsReady = true;
+
+    // BEFORE setConnected(), which emits connectedChanged() SYNCHRONOUSLY
+    // (scaledevice.cpp) and so hands control to observers while this function is
+    // still mid-way through the connect sequence. One of them re-enters us:
+    // main.cpp's connectedChanged handler calls wake() when scaleLcdRestorePending
+    // is set (the DE1 slept, the link dropped, the scale came back). With the flag
+    // still false at that instant, wake()'s guards both pass and it arms the
+    // watchdog HERE — about 300 ms before the notify-enable is even submitted, and
+    // on a contended radio well over a second before it reaches the dispatcher.
+    // kWatchdogFirstTimeoutMs is 1000 ms, so it expires against a question that
+    // was never asked, logs "no initial weight data", and re-enables — the very
+    // duplicate CCCD write #1885 deleted the 400 ms repeat to avoid. Ten of those
+    // force-disconnect a healthy scale.
+    //
+    // This is the same defect the guard in wake() was written for (arming a
+    // "did weight arrive" clock against something that is not an enable); it just
+    // reaches it by a path the flag was not yet set to cover. Nothing between here
+    // and the wake sequence below reads the flag, so setting it early is free.
+    m_watchdogArmPending = true;
+
     setConnected(true);
 
     // Start periodic heartbeat to keep connection alive
@@ -245,7 +265,9 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     // smaller edit and would have left the same bug reachable: an enable that is
     // still queued when the watchdog was never armed at all (a wake sequence cut
     // short) has nothing to restart.
-    m_watchdogArmPending = true;
+    //
+    // Set at the top of this function rather than here — see the comment beside
+    // it for the re-entrant observer that reaches wake() before this point.
 
     // Heartbeat at 2000ms
     QTimer::singleShot(2000, this, [this]() {
@@ -257,8 +279,8 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
 
 // The watchdog is armed BY the enable reaching the radio (onNotificationsIssued),
 // so an enable that fails BEFORE dispatch arms nothing: m_watchdogArmPending stays
-// set, wake()'s own arm is gated on that same flag being clear, and the watchdog
-// never fires — no re-enable, no retry ladder, no disconnect, with the app still
+// set, wake()'s own arm is gated on that same flag being clear (and startWatchdog()
+// declines a second arm besides), and the watchdog never fires — no re-enable, no retry ladder, no disconnect, with the app still
 // believing a scale is connected that will never report a weight. That is the
 // #1519 symptom.
 //
@@ -449,6 +471,27 @@ void DecentScale::enableWeightNotifications(const QString& reason) {
 }
 
 void DecentScale::startWatchdog() {
+    // Already running: leave it entirely alone. This resets m_watchdogRetries and
+    // m_watchdogUpdatesSeen, so a second arm silently restores the whole retry
+    // budget and forgets that weight data had been seen — the next lapse is then
+    // timed as a first sight (kWatchdogFirstTimeoutMs) rather than as a stall.
+    // Build 3574's log shows two arms 198 ms apart: the enable issued at 5.040 s
+    // and cleared the pending flag, then the 500 ms wake() armed again at
+    // 5.238 s. Before #1885 quietened the connect burst the enable landed after
+    // both wakes, so this was unreachable.
+    //
+    // The guard lives HERE rather than at the caller because startWatchdog() has
+    // three callers — wake(), onNotificationsIssued() and
+    // armWatchdogIfEnableNeverIssues() — and only one of them was guarded. That
+    // left the others correct by an invariant nothing asserts. startHeartbeat()
+    // below took the same decision for the same reason.
+    //
+    // Note this is NOT onNotificationsIssued()'s "later enable" rule, which
+    // restarts the countdown while preserving the counters. This restarts
+    // nothing: a wake()'s LCD write carries no information about when weight data
+    // should arrive, so the window already in flight is the correct one to keep.
+    if (m_watchdogTimer && m_watchdogTimer->isActive()) return;
+
     if (!m_watchdogTimer) {
         m_watchdogTimer = new QTimer(this);
         m_watchdogTimer->setSingleShot(true);
@@ -631,21 +674,9 @@ void DecentScale::wake() {
         // 7.412, and the enable did not reach the radio until 7.690. The
         // warning fired 278 ms before the question was asked.
         //
-        // Nor while it is ALREADY RUNNING, which is the opposite ordering and
-        // was reachable the moment the enable started dispatching promptly.
-        // startWatchdog() resets m_watchdogRetries and m_watchdogUpdatesSeen, so
-        // a second arm silently restores the whole retry budget and forgets that
-        // weight data had been seen — the next lapse is then timed as a first
-        // sight (kWatchdogFirstTimeoutMs) rather than a stall. Build 3574's log
-        // shows both arms 198 ms apart: the enable issued at 5.040 s and cleared
-        // the pending flag, then the 500 ms wake() re-armed at 5.238 s. Before
-        // the connect burst got quieter the enable landed after both wakes, so
-        // this path never ran.
-        //
-        // This is the rule onNotificationsIssued() already follows for a later
-        // enable — restart the countdown, never reset the counters.
-        const bool watchdogRunning = m_watchdogTimer && m_watchdogTimer->isActive();
-        if (!m_watchdogArmPending && !watchdogRunning) startWatchdog();
+        // A watchdog already running is declined by startWatchdog() itself, not
+        // by a second condition here — see the guard at the top of it.
+        if (!m_watchdogArmPending) startWatchdog();
     }
 }
 
