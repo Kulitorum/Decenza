@@ -183,7 +183,10 @@
       "remotely over MQTT or the REST API. Answers \"my machine went to sleep "    \
       "mid-session\" and \"it never sleeps any more\". The countdown reaching "   \
       "zero inside a stay-awake window is reported ONCE per window, not once a "   \
-      "minute — a repeat there says nothing the first line did not")               \
+      "minute — a repeat there says nothing the first line did not. OUTCOMES are "\
+      "INFO (slept, stayed awake, woke, remote request); the countdown's own "    \
+      "bookkeeping stays DEBUG, because a line per phase change and per touch is "\
+      "the firehose this tier exists to keep off the screen)")                    \
     X(DECENZA_LOG_MARKER_AUTOLOAD,                                                 \
       "Why the loaded profile changed without anyone choosing it: the idle "       \
       "countdown that reverts to the pinned profile, and the revert that runs "    \

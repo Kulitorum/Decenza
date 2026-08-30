@@ -1,6 +1,8 @@
 #include "updatechecker.h"
 #include "core/applogging.h"
 #include "core/logcollapse.h"
+
+#include <QDateTime>
 #include "githubreleaseclient.h"
 #include "crashhandler.h"
 #include "settings.h"
@@ -273,7 +275,7 @@ void UpdateChecker::onReleaseInfoReceived()
     if (m_currentReply->error() != QNetworkReply::NoError) {
         m_errorMessage = tr_("update.error.checkFailed", "Failed to check for updates: %1").arg(m_currentReply->errorString());
         emit errorMessageChanged();
-        APP_WARN_STREAM("Update") << "" << m_errorMessage;
+        APP_WARN_STREAM("Update") << m_errorMessage;
         m_currentReply->deleteLater();
         m_currentReply = nullptr;
         return;
@@ -291,7 +293,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isArray()) {
         m_errorMessage = tr_("update.error.invalidResponse", "Invalid response from GitHub");
-        APP_WARN_STREAM("Update") << "" << m_errorMessage << "- response:" << data.left(200);
+        APP_WARN_STREAM("Update") << m_errorMessage << "- response:" << data.left(200);
         emit errorMessageChanged();
         return;
     }
@@ -547,7 +549,7 @@ void UpdateChecker::downloadAndInstall()
 #endif
     if (m_downloadUrl.isEmpty()) {
         m_errorMessage = tr_("update.error.noDownload", "No download available for this platform");
-        APP_WARN_STREAM("Update") << "" << m_errorMessage;
+        APP_WARN_STREAM("Update") << m_errorMessage;
         emit errorMessageChanged();
         return;
     }
@@ -602,7 +604,7 @@ void UpdateChecker::startDownload()
 #endif
     if (!QDir().mkpath(savePath)) {
         m_errorMessage = tr_("update.error.createDir", "Failed to create download directory: %1").arg(savePath);
-        APP_WARN_STREAM("Update") << "" << m_errorMessage;
+        APP_WARN_STREAM("Update") << m_errorMessage;
         m_downloading = false;
         emit downloadingChanged();
         emit errorMessageChanged();
@@ -837,7 +839,7 @@ void UpdateChecker::onDownloadFinished()
     if (expectedSize > 0 && actualSize < expectedSize) {
         m_errorMessage = tr_("update.error.downloadIncomplete", "Download incomplete: got %1 of %2 bytes")
                              .arg(actualSize).arg(expectedSize);
-        APP_WARN_STREAM("Update") << "" << m_errorMessage;
+        APP_WARN_STREAM("Update") << m_errorMessage;
         emit errorMessageChanged();
         {
             const int capturedGen = s_downloadGeneration.loadAcquire();
@@ -863,7 +865,7 @@ void UpdateChecker::onDownloadFinished()
     if (actualSize < MIN_APK_SIZE) {
         m_errorMessage = tr_("update.error.fileTooSmall", "Downloaded file too small (%1 bytes) — download may have failed")
                              .arg(actualSize);
-        APP_WARN_STREAM("Update") << "" << m_errorMessage;
+        APP_WARN_STREAM("Update") << m_errorMessage;
         emit errorMessageChanged();
         {
             const int capturedGen = s_downloadGeneration.loadAcquire();
@@ -1341,7 +1343,7 @@ void UpdateChecker::refreshAutoRelaunchPermission()
     bool was = m_autoRelaunchPermissionGranted;
     m_autoRelaunchPermissionGranted = jniCanDrawOverlays();
     if (was != m_autoRelaunchPermissionGranted) {
-        APP_DBG_STREAM("Update") << "SAW permission state changed:"
+        APP_INFO_STREAM("Update") << "SAW permission state changed:"
                 << was << "->" << m_autoRelaunchPermissionGranted;
         emit autoRelaunchPermissionGrantedChanged();
         emit shouldShowAutoRelaunchPromptChanged();
@@ -1352,7 +1354,7 @@ void UpdateChecker::refreshAutoRelaunchPermission()
 void UpdateChecker::requestAutoRelaunchPermission()
 {
 #ifdef Q_OS_ANDROID
-    APP_DBG_STREAM("Update") << "launching ACTION_MANAGE_OVERLAY_PERMISSION for SAW grant";
+    APP_INFO_STREAM("Update") << "launching ACTION_MANAGE_OVERLAY_PERMISSION for SAW grant";
     jniLaunchManageOverlayPermission();
 #else
     APP_DBG_STREAM("Update") << "requestAutoRelaunchPermission() is a no-op on this platform";
@@ -1396,7 +1398,7 @@ void UpdateChecker::readAutoRelaunchDiagnostic()
         // Delete so we don't re-report on next launch.
         flag.remove();
     } else {
-        APP_DBG_STREAM("Update") << "UpdateRelaunchReceiver did NOT fire (no flag file)"
+        APP_INFO_STREAM("Update") << "UpdateRelaunchReceiver did NOT fire (no flag file)"
                 << "— this is normal on cold start without a recent update";
     }
 
@@ -1404,10 +1406,10 @@ void UpdateChecker::readAutoRelaunchDiagnostic()
     QString extra = jniReadAutoRelaunchExtraFromActivityIntent();
     m_currentLaunchWasAutoRelaunch = !extra.isEmpty();
     if (m_currentLaunchWasAutoRelaunch) {
-        APP_DBG_STREAM("Update") << "THIS launch was auto-relaunched after a self-update"
+        APP_INFO_STREAM("Update") << "THIS launch was auto-relaunched after a self-update"
                 << "— SAW BAL bypass worked";
     } else {
-        APP_DBG_STREAM("Update") << "THIS launch is a normal (manual) launch";
+        APP_INFO_STREAM("Update") << "THIS launch is a normal (manual) launch";
     }
 }
 #endif

@@ -48,7 +48,19 @@
 
 // Stream variants, for the sites that interleave several values. Same marker and
 // shape, so an [App] search returns them alongside the statement forms.
+// All THREE tiers, deliberately. The first version of this header defined only
+// the DBG and WARN stream forms, and the missing INFO one did exactly the damage
+// logtags.h's "Severity carries audience" section warns about: five qInfo() call
+// sites in updatechecker.cpp were mechanically converted to APP_DBG_STREAM
+// because there was nothing else to reach for, silently demoting them out of the
+// connections view (which defaults to minLevel INFO). One of them was half of a
+// binary — "UpdateRelaunchReceiver fired" stayed INFO while "did NOT fire"
+// dropped to DEBUG, so absence stopped being distinguishable from "it did not
+// happen". A macro family missing a tier is not a gap in convenience, it is a
+// tier decision made for the call site by whoever wrote the header.
 #define APP_DBG_STREAM(tag) \
     DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_APP, tag, qDebug)
+#define APP_INFO_STREAM(tag) \
+    DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_APP, tag, qInfo)
 #define APP_WARN_STREAM(tag) \
     DECENZA_SUBSYS_STREAM(DECENZA_LOG_MARKER_APP, tag, qWarning)

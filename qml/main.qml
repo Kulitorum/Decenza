@@ -448,11 +448,11 @@ T.ApplicationWindow {
                     // window reports itself again.
                     if (!root.stayAwakeSuppressionLogged) {
                         root.stayAwakeSuppressionLogged = true
-                        console.log("[AutoSleep] Inactivity elapsed but inside scheduled stay-awake window — staying awake until it ends")
+                        console.info("[AutoSleep] Inactivity elapsed but inside scheduled stay-awake window — staying awake until it ends")
                     }
                 } else {
                     root.stayAwakeSuppressionLogged = false
-                    console.log("[AutoSleep] Inactivity elapsed, no stay-awake window — triggering sleep")
+                    console.info("[AutoSleep] Inactivity elapsed, no stay-awake window — triggering sleep")
                     root.triggerAutoSleep()
                 }
             }
@@ -481,7 +481,7 @@ T.ApplicationWindow {
             if (root.autoLoadIdleCountdown <= 0) {
                 var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (pageName === "idlePage") {
-                    console.log("[AutoLoad] Idle countdown expired — invoking auto-load")
+                    console.info("[AutoLoad] Idle countdown expired — invoking auto-load")
                     ProfileManager.loadAutoLoadProfileIfNeeded()
                     MainController.loadAutoLoadRecipeIfNeeded()
                 }
@@ -542,7 +542,7 @@ T.ApplicationWindow {
             var curr = DE1Device.state
             root.autoLoadPreviousDe1State = curr
             if (prev === root.de1StateSleep && curr === root.de1StateIdle) {
-                console.log("[AutoLoad] DE1 Sleep -> Idle — invoking auto-load")
+                console.info("[AutoLoad] DE1 Sleep -> Idle — invoking auto-load")
                 ProfileManager.loadAutoLoadProfileIfNeeded()
                 MainController.loadAutoLoadRecipeIfNeeded()
             }
@@ -4372,10 +4372,10 @@ T.ApplicationWindow {
         sequence: "E"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.log("[Keyboard] Starting espresso via 'E' key")
+                console.info("[Keyboard] Starting espresso via 'E' key")
                 DE1Device.startEspresso()
             } else {
-                console.log("[Keyboard] Cannot start espresso - machine not ready or GHC active, phase:", MachineState.phase)
+                console.info("[Keyboard] Cannot start espresso - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -4385,10 +4385,10 @@ T.ApplicationWindow {
         sequence: "S"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.log("[Keyboard] Starting steam via 'S' key")
+                console.info("[Keyboard] Starting steam via 'S' key")
                 DE1Device.startSteam()
             } else {
-                console.log("[Keyboard] Cannot start steam - machine not ready or GHC active, phase:", MachineState.phase)
+                console.info("[Keyboard] Cannot start steam - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -4398,10 +4398,10 @@ T.ApplicationWindow {
         sequence: "W"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.log("[Keyboard] Starting hot water via 'W' key")
+                console.info("[Keyboard] Starting hot water via 'W' key")
                 DE1Device.startHotWater()
             } else {
-                console.log("[Keyboard] Cannot start hot water - machine not ready or GHC active, phase:", MachineState.phase)
+                console.info("[Keyboard] Cannot start hot water - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -4411,10 +4411,10 @@ T.ApplicationWindow {
         sequence: "F"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.log("[Keyboard] Starting flush via 'F' key")
+                console.info("[Keyboard] Starting flush via 'F' key")
                 DE1Device.startFlush()
             } else {
-                console.log("[Keyboard] Cannot start flush - machine not ready or GHC active, phase:", MachineState.phase)
+                console.info("[Keyboard] Cannot start flush - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -4423,7 +4423,7 @@ T.ApplicationWindow {
     Shortcut {
         sequence: "Space"
         onActivated: {
-            console.log("[Keyboard] Stop/Idle via Space key, phase:", MachineState.phase)
+            console.info("[Keyboard] Stop/Idle via Space key, phase:", MachineState.phase)
             DE1Device.stopOperation()
             root.goToIdle()
         }
@@ -4433,7 +4433,7 @@ T.ApplicationWindow {
     Shortcut {
         sequence: "P"
         onActivated: {
-            console.log("[Keyboard] Going to sleep via 'P' key")
+            console.info("[Keyboard] Going to sleep via 'P' key")
             // Put scale to LCD-off mode (keep connected for wake)
             if (ScaleDevice && ScaleDevice.connected) {
                 ScaleDevice.disableLcd()
@@ -4555,7 +4555,7 @@ T.ApplicationWindow {
         target: MainController
 
         function onAutoWakeTriggered() {
-            console.log("[AutoSleep] Auto-wake triggered")
+            console.info("[AutoSleep] Auto-wake triggered")
             if (root.screensaverActive) {
                 root.goToIdleFromScreensaver()
             }
@@ -4566,7 +4566,7 @@ T.ApplicationWindow {
         }
 
         function onRemoteSleepRequested() {
-            console.log("[AutoSleep] Remote sleep requested via MQTT/REST API")
+            console.info("[AutoSleep] Remote sleep requested via MQTT/REST API")
             if (!root.screensaverActive) {
                 root.goToScreensaver()
             }
