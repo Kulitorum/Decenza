@@ -875,12 +875,18 @@ void BleTransport::setupService() {
     if (!m_service) return;
 
     const QList<QLowEnergyCharacteristic> chars = m_service->characteristics();
+    // One line, not one per characteristic: the DE1 exposes 18 of them and the
+    // set is constant per firmware, so the per-char form was 18 lines of the
+    // same answer on every connect. Every uuid/props pair is still here.
+    QStringList summary;
+    summary.reserve(chars.size());
     for (const auto& c : chars) {
         m_characteristics[c.uuid()] = c;
-        log(QString("  Char %1 props=0x%2")
-            .arg(c.uuid().toString().mid(1, 8))
-            .arg(static_cast<int>(c.properties()), 2, 16, QChar('0')));
+        summary << QString("%1:%2")
+                       .arg(c.uuid().toString().mid(1, 8))
+                       .arg(static_cast<int>(c.properties()), 2, 16, QChar('0'));
     }
+    log(QString("Chars (uuid:props) %1").arg(summary.join(u' ')));
 }
 
 void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data) {

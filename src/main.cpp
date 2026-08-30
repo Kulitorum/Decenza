@@ -668,6 +668,8 @@ int main(int argc, char *argv[])
         // mistake #1537 was: treating one observation as proof about four files.
         QString bundledFamily;
         int registeredCount = 0;
+        QStringList registeredFiles;
+        QStringList registeredFamilies;
         for (const QString& path : fontFiles) {
             const int id = QFontDatabase::addApplicationFont(path);
             if (id < 0) {
@@ -683,11 +685,29 @@ int main(int argc, char *argv[])
                                    "not be reachable").arg(path));
                 continue;
             }
-            FONT_LOG_STDERR("Bundled", QStringLiteral("Registered %1 -> %2")
-                     .arg(path, families.join(QStringLiteral(", "))));
+            registeredFiles << path;
+            registeredFamilies << families.join(QStringLiteral(", "));
             ++registeredCount;
             if (bundledFamily.isEmpty())
                 bundledFamily = families.first();
+        }
+        // Still EVERY file's outcome — one line when they agree, one line each when
+        // they do not. The rule this block was written for is that a weight can
+        // quietly register under a foreign family, and that case is exactly the one
+        // that still gets a line of its own; four identical answers did not need four.
+        const bool oneFamily = !registeredFamilies.isEmpty()
+                               && registeredFamilies.count(registeredFamilies.first())
+                                      == registeredFamilies.size();
+        if (oneFamily) {
+            FONT_LOG_STDERR("Bundled", QStringLiteral("Registered %1 file(s) -> %2: %3")
+                     .arg(QString::number(registeredFiles.size()),
+                          registeredFamilies.first(),
+                          registeredFiles.join(QStringLiteral(", "))));
+        } else {
+            for (qsizetype i = 0; i < registeredFiles.size(); ++i) {
+                FONT_LOG_STDERR("Bundled", QStringLiteral("Registered %1 -> %2")
+                         .arg(registeredFiles.at(i), registeredFamilies.at(i)));
+            }
         }
         if (registeredCount != fontFiles.size()) {
             FONT_WARN_STDERR("Bundled",
@@ -719,6 +739,7 @@ int main(int argc, char *argv[])
                 {"Bold",    QFont::Bold},
             };
             bool allWeightsResolved = true;
+            QStringList resolved;
             for (const auto& p : kProbes) {
                 QFont f(bundledFamily);
                 f.setWeight(p.weight);
@@ -730,11 +751,10 @@ int main(int argc, char *argv[])
                 // These logs are read by users' AI assistants, which act on them.
                 const bool familyOk = (fi.family() == bundledFamily);
                 if (familyOk) {
-                    FONT_LOG_STDERR("Resolve",
-                        QStringLiteral("Resolved %1 -> family=%2 exactMatch=%3")
-                            .arg(p.label, fi.family(),
-                                 fi.exactMatch() ? QStringLiteral("true")
-                                                 : QStringLiteral("false")));
+                    resolved << QStringLiteral("%1 exactMatch=%2")
+                                    .arg(QString::fromLatin1(p.label),
+                                         fi.exactMatch() ? QStringLiteral("true")
+                                                         : QStringLiteral("false"));
                 } else {
                     allWeightsResolved = false;
                     FONT_WARN_STDERR("Resolve",
@@ -743,6 +763,11 @@ int main(int argc, char *argv[])
                             .arg(p.label, bundledFamily, fi.family()));
                 }
             }
+            if (!resolved.isEmpty()) {
+                FONT_LOG_STDERR("Resolve",
+                    QStringLiteral("Resolved to family=%1: %2")
+                        .arg(bundledFamily, resolved.join(QStringLiteral(", "))));
+            }
             FONT_LOG_STDERR("Bundled",
                 QStringLiteral("Styles available for %1 = %2")
                     .arg(bundledFamily,
@@ -750,13 +775,15 @@ int main(int argc, char *argv[])
             // Light/Medium are their own families by design; report presence without
             // letting their absence contaminate allWeightsResolved. Nothing in Theme.qml
             // requests them today, so absence is informational, not a fault.
+            QStringList subFamilies;
             for (const char* suffix : {" Light", " Medium"}) {
                 const QString sub = bundledFamily + QString::fromLatin1(suffix);
-                FONT_LOG_STDERR("Bundled",
-                    QStringLiteral("Sub-family %1 %2").arg(sub,
-                        QFontDatabase::families().contains(sub) ? QStringLiteral("present")
-                                                                : QStringLiteral("ABSENT")));
+                subFamilies << QStringLiteral("%1 %2").arg(sub,
+                    QFontDatabase::families().contains(sub) ? QStringLiteral("present")
+                                                            : QStringLiteral("ABSENT"));
             }
+            FONT_LOG_STDERR("Bundled",
+                QStringLiteral("Sub-families: %1").arg(subFamilies.join(QStringLiteral(", "))));
 
             // Probe metric, deliberately at a FIXED 14px and a fixed string rather
             // than the user's effective label size: the value is only useful if it
@@ -4263,110 +4290,6 @@ int main(int argc, char *argv[])
                         decorView.callMethod<void>("setSystemUiVisibility", "(I)V", 0x1706);
                     }
                 }
-
-                // --- Diagnostic logging for #582 (gap at top on some tablets) ---
-                // Deferred until after the first layout pass via a 500ms single-shot
-                // on the Qt thread. View dimensions, insets, and window metrics are
-                // only valid after Android's Choreographer has run a layout frame.
-                // This is temporary diagnostic code for issue #582.
-                if (decorView.isValid()) {
-                    QTimer::singleShot(500, qApp, [activity, window, sdkVersion]() {
-                        QNativeInterface::QAndroidApplication::runOnAndroidMainThread(
-                            [activity, window, sdkVersion]() {
-                            QJniObject dv = window.callObjectMethod(
-                                "getDecorView", "()Landroid/view/View;");
-                            if (!dv.isValid()) return;
-
-                            qDebug() << "[#582 diag] DecorView size:"
-                                     << dv.callMethod<jint>("getWidth", "()I") << "x"
-                                     << dv.callMethod<jint>("getHeight", "()I");
-
-                            // Content view position and size within DecorView
-                            // android.R.id.content = 0x01020002
-                            QJniObject cv = dv.callObjectMethod(
-                                "findViewById", "(I)Landroid/view/View;", 0x01020002);
-                            if (cv.isValid()) {
-                                qDebug() << "[#582 diag] ContentView pos:"
-                                         << cv.callMethod<jint>("getLeft", "()I")
-                                         << cv.callMethod<jint>("getTop", "()I")
-                                         << "size:" << cv.callMethod<jint>("getWidth", "()I")
-                                         << "x" << cv.callMethod<jint>("getHeight", "()I");
-                            }
-
-                            // Root window insets
-                            QJniObject insets = dv.callObjectMethod(
-                                "getRootWindowInsets", "()Landroid/view/WindowInsets;");
-                            if (insets.isValid()) {
-                                if (sdkVersion >= 30) {
-                                    jint barType = QJniObject::callStaticMethod<jint>(
-                                        "android/view/WindowInsets$Type", "systemBars", "()I");
-                                    QJniObject bi = insets.callObjectMethod(
-                                        "getInsets", "(I)Landroid/graphics/Insets;", barType);
-                                    if (bi.isValid()) {
-                                        qDebug() << "[#582 diag] systemBars insets:"
-                                                 << "top=" << bi.getField<jint>("top")
-                                                 << "bottom=" << bi.getField<jint>("bottom")
-                                                 << "left=" << bi.getField<jint>("left")
-                                                 << "right=" << bi.getField<jint>("right");
-                                    }
-                                    jint cutType = QJniObject::callStaticMethod<jint>(
-                                        "android/view/WindowInsets$Type", "displayCutout", "()I");
-                                    QJniObject ci = insets.callObjectMethod(
-                                        "getInsets", "(I)Landroid/graphics/Insets;", cutType);
-                                    if (ci.isValid()) {
-                                        qDebug() << "[#582 diag] displayCutout insets:"
-                                                 << "top=" << ci.getField<jint>("top")
-                                                 << "bottom=" << ci.getField<jint>("bottom")
-                                                 << "left=" << ci.getField<jint>("left")
-                                                 << "right=" << ci.getField<jint>("right");
-                                    }
-                                }
-                                QJniObject cutout = insets.callObjectMethod(
-                                    "getDisplayCutout", "()Landroid/view/DisplayCutout;");
-                                if (cutout.isValid()) {
-                                    qDebug() << "[#582 diag] DisplayCutout present:"
-                                             << "safeTop=" << cutout.callMethod<jint>("getSafeInsetTop", "()I")
-                                             << "safeBottom=" << cutout.callMethod<jint>("getSafeInsetBottom", "()I")
-                                             << "safeLeft=" << cutout.callMethod<jint>("getSafeInsetLeft", "()I")
-                                             << "safeRight=" << cutout.callMethod<jint>("getSafeInsetRight", "()I");
-                                } else {
-                                    qDebug() << "[#582 diag] DisplayCutout: none";
-                                }
-                            }
-
-                            // Window metrics (API 30+)
-                            if (sdkVersion >= 30) {
-                                QJniObject wm = activity.callObjectMethod(
-                                    "getWindowManager", "()Landroid/view/WindowManager;");
-                                if (wm.isValid()) {
-                                    QJniObject metrics = wm.callObjectMethod(
-                                        "getCurrentWindowMetrics",
-                                        "()Landroid/view/WindowMetrics;");
-                                    if (metrics.isValid()) {
-                                        QJniObject bounds = metrics.callObjectMethod(
-                                            "getBounds", "()Landroid/graphics/Rect;");
-                                        if (bounds.isValid()) {
-                                            qDebug() << "[#582 diag] WindowMetrics bounds:"
-                                                     << bounds.callMethod<jint>("width", "()I")
-                                                     << "x" << bounds.callMethod<jint>("height", "()I");
-                                        }
-                                    }
-                                }
-                            }
-
-                            // LayoutParams cutout mode
-                            QJniObject attrs = window.callObjectMethod(
-                                "getAttributes", "()Landroid/view/WindowManager$LayoutParams;");
-                            if (attrs.isValid()) {
-                                jint cutoutMode = attrs.getField<jint>("layoutInDisplayCutoutMode");
-                                // 0=default, 1=shortEdges, 2=never, 3=always
-                                qDebug() << "[#582 diag] layoutInDisplayCutoutMode:" << cutoutMode;
-                            }
-                            qDebug() << "[#582 diag] SDK version:" << sdkVersion;
-                        });
-                    });
-                }
-                // --- End diagnostic logging ---
             }
         });
     }
