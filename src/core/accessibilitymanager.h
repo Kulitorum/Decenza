@@ -185,6 +185,12 @@ private:
     // the engine, which is why create() pins CppOwnership.
     static AccessibilityManager *s_qmlInstance;
 
+    // How many have been built. The app owns exactly one (main.cpp's stack
+    // object, published via setQmlInstance); create() never constructs and the
+    // type is not QML-creatable, so a second is a defect. See the constructor
+    // for what the second one costs and why this counter exists at all.
+    static int s_instanceCount;
+
     void loadSettings();
     void saveSettings();
     // Constructs the real legacy QSettings("Decenza","DE1") and

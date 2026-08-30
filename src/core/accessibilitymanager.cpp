@@ -16,6 +16,7 @@
 #endif
 
 AccessibilityManager *AccessibilityManager::s_qmlInstance = nullptr;
+int AccessibilityManager::s_instanceCount = 0;
 
 void AccessibilityManager::setQmlInstance(AccessibilityManager *instance)
 {
@@ -55,6 +56,32 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
     // third store that broke accessibility backup/restore and survived factory
     // reset. Existing values are carried over by migrateLegacyStore().
 {
+    // Exactly one of these should ever exist, and on build 3574 more than one
+    // did: the 2026-08-30T15:41:41 session logs initTts()'s "Available TTS
+    // engines" at 0.798 s and again at 1.802 s, with no "initTts() called again"
+    // warning between them — so both calls found m_tts null, which one object
+    // cannot do outside shutdown() (not called; its line is absent). "App
+    // started" appears once, so it is not a second process either. The second
+    // construction site is not identified, and this counter is here to name it
+    // rather than to guess at it.
+    //
+    // It is not merely noise. The second instance builds its own QTextToSpeech
+    // — a live Android TTS binding with its own stateChanged handler — while
+    // setQmlInstance() publishes only main.cpp's object, so a screen-reader user
+    // can end up with the locale on one engine and the announcements on the
+    // other, or with both speaking.
+    //
+    // Kept permanently rather than as a probe: it asserts an invariant that
+    // holds today, costs an int, and says nothing at all when the app is well.
+    // That is the difference between this and the #582 diagnostics, which
+    // narrated a healthy startup 14 lines at a time.
+    if (++s_instanceCount > 1) {
+        qWarning() << "AccessibilityManager: instance" << s_instanceCount
+                   << "constructed — the app owns exactly one (main.cpp, published "
+                      "via setQmlInstance). This one builds a second TTS engine that "
+                      "QML will never reach. Backtrace the caller.";
+    }
+
     migrateLegacyStore();
     loadSettings();
     initTts();

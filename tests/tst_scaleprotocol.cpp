@@ -867,6 +867,38 @@ private slots:
         QVERIFY(!scale.m_watchdogArmPending);
     }
 
+    // A wake() while the watchdog is already running must not re-arm it.
+    // startWatchdog() resets m_watchdogRetries and m_watchdogUpdatesSeen, so a
+    // second arm hands back the whole retry budget and forgets that weight data
+    // had been seen — the next lapse is then timed as a first sight rather than
+    // a stall. Build 3574 logged both arms 198 ms apart once the enable started
+    // dispatching promptly enough to clear the pending flag before the 500 ms
+    // wake().
+    void aWakeDoesNotReArmARunningWatchdog() {
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+
+        // The enable issues (the mock emits notificationsIssued inline), which
+        // arms the watchdog and clears the pending flag — the state the 500 ms
+        // wake() then runs in.
+        scale.m_watchdogArmPending = true;
+        scale.enableWeightNotifications(QStringLiteral("test"));
+        QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
+        QVERIFY(!scale.m_watchdogArmPending);
+
+        // Spend part of the budget and see data, then wake.
+        scale.m_watchdogRetries = 4;
+        scale.m_watchdogUpdatesSeen = true;
+        scale.wake();
+
+        QCOMPARE(scale.m_watchdogRetries, 4);
+        QVERIFY(scale.m_watchdogUpdatesSeen);
+        QVERIFY(scale.m_watchdogTimer->isActive());
+    }
+
     void noPathArmsTheWatchdogBeforeTheEnableIsIssued() {
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);

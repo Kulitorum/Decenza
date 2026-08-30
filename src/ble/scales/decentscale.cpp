@@ -630,7 +630,22 @@ void DecentScale::wake() {
         // Measured on a tablet: armed at 6.412 by the 500 ms wake, expired at
         // 7.412, and the enable did not reach the radio until 7.690. The
         // warning fired 278 ms before the question was asked.
-        if (!m_watchdogArmPending) startWatchdog();
+        //
+        // Nor while it is ALREADY RUNNING, which is the opposite ordering and
+        // was reachable the moment the enable started dispatching promptly.
+        // startWatchdog() resets m_watchdogRetries and m_watchdogUpdatesSeen, so
+        // a second arm silently restores the whole retry budget and forgets that
+        // weight data had been seen — the next lapse is then timed as a first
+        // sight (kWatchdogFirstTimeoutMs) rather than a stall. Build 3574's log
+        // shows both arms 198 ms apart: the enable issued at 5.040 s and cleared
+        // the pending flag, then the 500 ms wake() re-armed at 5.238 s. Before
+        // the connect burst got quieter the enable landed after both wakes, so
+        // this path never ran.
+        //
+        // This is the rule onNotificationsIssued() already follows for a later
+        // enable — restart the countdown, never reset the counters.
+        const bool watchdogRunning = m_watchdogTimer && m_watchdogTimer->isActive();
+        if (!m_watchdogArmPending && !watchdogRunning) startWatchdog();
     }
 }
 
