@@ -388,10 +388,17 @@ T.ApplicationWindow {
     onAutoSleepMinutesChanged: {
         if (autoSleepMinutes > 0 && sleepCountdownNormal < 0) {
             sleepCountdownNormal = autoSleepMinutes
+            stayAwakeSuppressionLogged = false
             console.log("[AutoSleep] Setting changed: normal=" + sleepCountdownNormal)
         }
     }
     property int sleepCountdownNormal: -1      // Minutes remaining (-1 = not started)
+    // True once this stay-awake window's "staying awake" line has been said. The
+    // line reports a state that persists, so it is emitted on the edge into that
+    // state and not on every tick of the one-minute timer — see the call site.
+    // Cleared wherever the countdown restarts, which is what makes a LATER window
+    // report itself rather than inheriting this one's silence.
+    property bool stayAwakeSuppressionLogged: false
 
     // Active operation phases that should pause the sleep countdown
     property bool operationActive: {
@@ -426,9 +433,26 @@ T.ApplicationWindow {
             // inactivity countdown.
             if (root.sleepCountdownNormal <= 0) {
                 if (AutoWakeManager.isWithinStayAwakeWindow()) {
-                    console.log("[AutoSleep] Inactivity elapsed but inside scheduled stay-awake window — staying awake")
+                    // ONCE per window, on the edge — not once a minute.
+                    //
+                    // sleepCountdownNormal stays <= 0 once it reaches zero, so this
+                    // branch is re-entered on every tick for as long as the window
+                    // lasts. It logged each time: 489 lines in one submitted log,
+                    // about eight hours of a timer saying the same thing, and the
+                    // single largest repeater in the whole buffer. The state is what
+                    // matters, so the transition into it is what gets reported.
+                    //
+                    // A flag rather than a collapse: this is not a periodic source
+                    // whose repeats need counting, it is one fact that stays true.
+                    // Cleared below and whenever the countdown is reset, so a later
+                    // window reports itself again.
+                    if (!root.stayAwakeSuppressionLogged) {
+                        root.stayAwakeSuppressionLogged = true
+                        console.info("[AutoSleep] Inactivity elapsed but inside scheduled stay-awake window — staying awake until it ends")
+                    }
                 } else {
-                    console.log("[AutoSleep] Inactivity elapsed, no stay-awake window — triggering sleep")
+                    root.stayAwakeSuppressionLogged = false
+                    console.info("[AutoSleep] Inactivity elapsed, no stay-awake window — triggering sleep")
                     root.triggerAutoSleep()
                 }
             }
@@ -457,7 +481,7 @@ T.ApplicationWindow {
             if (root.autoLoadIdleCountdown <= 0) {
                 var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (pageName === "idlePage") {
-                    console.log("[AutoLoad] Idle countdown expired — invoking auto-load")
+                    console.info("[AutoLoad] Idle countdown expired — invoking auto-load")
                     ProfileManager.loadAutoLoadProfileIfNeeded()
                     MainController.loadAutoLoadRecipeIfNeeded()
                 }
@@ -518,7 +542,7 @@ T.ApplicationWindow {
             var curr = DE1Device.state
             root.autoLoadPreviousDe1State = curr
             if (prev === root.de1StateSleep && curr === root.de1StateIdle) {
-                console.log("[AutoLoad] DE1 Sleep -> Idle — invoking auto-load")
+                console.info("[AutoLoad] DE1 Sleep -> Idle — invoking auto-load")
                 ProfileManager.loadAutoLoadProfileIfNeeded()
                 MainController.loadAutoLoadRecipeIfNeeded()
             }
@@ -558,6 +582,7 @@ T.ApplicationWindow {
         function onPhaseChanged() {
             if (!root.screensaverActive && root.autoSleepMinutes > 0) {
                 root.sleepCountdownNormal = root.autoSleepMinutes
+                root.stayAwakeSuppressionLogged = false
                 console.log("[AutoSleep] Reset by phase change: normal=" + root.sleepCountdownNormal)
             }
             // Phase change is also user activity for the auto-load countdown
@@ -661,6 +686,7 @@ T.ApplicationWindow {
                 // Update normal countdown to new value
                 if (!root.screensaverActive && root.autoSleepMinutes > 0) {
                     root.sleepCountdownNormal = root.autoSleepMinutes
+                    root.stayAwakeSuppressionLogged = false
                 }
             } else if (key === "ui/configurePageScale") {
                 var val = Settings.value("ui/configurePageScale", false)
@@ -988,6 +1014,7 @@ T.ApplicationWindow {
         // is nothing to arm here even if the app started mid-window.
         if (root.autoSleepMinutes > 0) {
             root.sleepCountdownNormal = root.autoSleepMinutes
+            root.stayAwakeSuppressionLogged = false
         }
 
         // (Bean preset auto-matching removed: bags replaced presets, and the
@@ -4149,7 +4176,7 @@ T.ApplicationWindow {
     property bool screensaverActive: false
 
     function goToScreensaver() {
-        console.log("[Main] goToScreensaver called, type:", ScreensaverManager.screensaverType)
+        console.log("[Screensaver] goToScreensaver called, type:", ScreensaverManager.screensaverType)
         screensaverActive = true
         // Mirror to C++ so subsystems (BLE scan-reconnect loops) can pause work
         // for the duration the user is away. See ScreensaverVideoManager::screensaverActive.
@@ -4209,6 +4236,7 @@ T.ApplicationWindow {
         // The scheduled stay-awake window is evaluated live, so waking here
         // (manually or via auto-wake) needs no separate arming.
         root.sleepCountdownNormal = root.autoSleepMinutes
+        root.stayAwakeSuppressionLogged = false
         console.log("Waking from screensaver: normal countdown=" + root.sleepCountdownNormal +
                     " pendingPopups=" + pendingPopups.length)
         pageStack.replace(null, idlePage)
@@ -4310,6 +4338,7 @@ T.ApplicationWindow {
             if (root.autoSleepMinutes > 0 && !root.screensaverActive) {
                 var prev = root.sleepCountdownNormal
                 root.sleepCountdownNormal = root.autoSleepMinutes
+                root.stayAwakeSuppressionLogged = false
                 if (prev <= 5) console.log("[AutoSleep] Reset by touch: " + prev + " -> " + root.sleepCountdownNormal)
             }
             // Touch also resets the auto-load countdown so reading on the
@@ -4343,10 +4372,10 @@ T.ApplicationWindow {
         sequence: "E"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.log("[Keyboard] Starting espresso via 'E' key")
+                console.info("[Keyboard] Starting espresso via 'E' key")
                 DE1Device.startEspresso()
             } else {
-                console.log("[Keyboard] Cannot start espresso - machine not ready or GHC active, phase:", MachineState.phase)
+                console.info("[Keyboard] Cannot start espresso - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -4356,10 +4385,10 @@ T.ApplicationWindow {
         sequence: "S"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.log("[Keyboard] Starting steam via 'S' key")
+                console.info("[Keyboard] Starting steam via 'S' key")
                 DE1Device.startSteam()
             } else {
-                console.log("[Keyboard] Cannot start steam - machine not ready or GHC active, phase:", MachineState.phase)
+                console.info("[Keyboard] Cannot start steam - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -4369,10 +4398,10 @@ T.ApplicationWindow {
         sequence: "W"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.log("[Keyboard] Starting hot water via 'W' key")
+                console.info("[Keyboard] Starting hot water via 'W' key")
                 DE1Device.startHotWater()
             } else {
-                console.log("[Keyboard] Cannot start hot water - machine not ready or GHC active, phase:", MachineState.phase)
+                console.info("[Keyboard] Cannot start hot water - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -4382,10 +4411,10 @@ T.ApplicationWindow {
         sequence: "F"
         onActivated: {
             if (MachineState.isReady && root.canStartOperations) {
-                console.log("[Keyboard] Starting flush via 'F' key")
+                console.info("[Keyboard] Starting flush via 'F' key")
                 DE1Device.startFlush()
             } else {
-                console.log("[Keyboard] Cannot start flush - machine not ready or GHC active, phase:", MachineState.phase)
+                console.info("[Keyboard] Cannot start flush - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -4394,7 +4423,7 @@ T.ApplicationWindow {
     Shortcut {
         sequence: "Space"
         onActivated: {
-            console.log("[Keyboard] Stop/Idle via Space key, phase:", MachineState.phase)
+            console.info("[Keyboard] Stop/Idle via Space key, phase:", MachineState.phase)
             DE1Device.stopOperation()
             root.goToIdle()
         }
@@ -4404,7 +4433,7 @@ T.ApplicationWindow {
     Shortcut {
         sequence: "P"
         onActivated: {
-            console.log("[Keyboard] Going to sleep via 'P' key")
+            console.info("[Keyboard] Going to sleep via 'P' key")
             // Put scale to LCD-off mode (keep connected for wake)
             if (ScaleDevice && ScaleDevice.connected) {
                 ScaleDevice.disableLcd()
@@ -4526,7 +4555,7 @@ T.ApplicationWindow {
         target: MainController
 
         function onAutoWakeTriggered() {
-            console.log("[Main] Auto-wake triggered")
+            console.info("[AutoSleep] Auto-wake triggered")
             if (root.screensaverActive) {
                 root.goToIdleFromScreensaver()
             }
@@ -4537,7 +4566,7 @@ T.ApplicationWindow {
         }
 
         function onRemoteSleepRequested() {
-            console.log("[Main] Remote sleep requested via MQTT/REST API")
+            console.info("[AutoSleep] Remote sleep requested via MQTT/REST API")
             if (!root.screensaverActive) {
                 root.goToScreensaver()
             }

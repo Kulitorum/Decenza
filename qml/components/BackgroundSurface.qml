@@ -155,7 +155,7 @@ Item {
         // Without this a missing or unreadable file degrades to the flat colour with nothing
         // anywhere to say why — the page looks deliberately plain rather than broken.
         onStatusChanged: if (status === Image.Error)
-            console.warn("[Background] Background image failed to load:", source,
+            console.warn("[Theme] Background image failed to load:", source,
                          "- falling back to the theme colour")
     }
 
@@ -177,7 +177,7 @@ Item {
         // holds. If that is ever released while a surface is still bound to it, this is the
         // only place it would show — and silently, as a plain background.
         onStatusChanged: if (status === Image.Error)
-            console.warn("[Background] Shot-chart image failed to load:", source,
+            console.warn("[Theme] Shot-chart image failed to load:", source,
                          "- falling back to the theme colour")
     }
 }

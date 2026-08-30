@@ -1811,7 +1811,7 @@ Item {
                                 items.push({ deviceName: refractometers[j].name, address: refractometers[j].address,
                                              deviceType: refractometers[j].type, deviceClass: "refractometer" })
                             }
-                            console.log("[QML] discoveredDevicesList combinedModel rebuilt:",
+                            console.log("discoveredDevicesList combinedModel rebuilt:",
                                         "scales=" + scales.length + "(-" + skippedScales + " known)",
                                         "refractometers=" + refractometers.length + "(-" + skippedRefs + " known)",
                                         "→ items=" + items.length)

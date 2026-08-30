@@ -43,7 +43,7 @@ Item {
     readonly property real globeRadius: 150
 
     Component.onCompleted: {
-        console.log("[ShotMapScreensaver] Started, shape:", mapShape, "texture:", mapTexture)
+        console.log("[Screensaver] Started, shape:", mapShape, "texture:", mapTexture)
         fetchShots()
     }
 
@@ -66,12 +66,12 @@ Item {
                         shots = data.shots || []
                         topProfiles = data.top_profiles || []
                         shotCount = shots.length
-                        console.log("[ShotMapScreensaver] Loaded", shots.length, "shots,", topProfiles.length, "profiles")
+                        console.log("[Screensaver] Loaded", shots.length, "shots,", topProfiles.length, "profiles")
                     } catch (e) {
-                        console.log("[ShotMapScreensaver] JSON parse error:", e)
+                        console.log("[Screensaver] JSON parse error:", e)
                     }
                 } else {
-                    console.log("[ShotMapScreensaver] Fetch failed:", xhr.status)
+                    console.log("[Screensaver] Fetch failed:", xhr.status)
                 }
             }
         }

@@ -107,7 +107,7 @@ QtObject {
             // warning ever fires, the thing to check is qml_register_types_Decenza().
             if (!_warnedNoEmojiAssets) {
                 _warnedNoEmojiAssets = true
-                console.warn("[Emoji] EmojiAssets unresolvable — every emoji in this QML engine "
+                console.warn("[Font] EmojiAssets unresolvable — every emoji in this QML engine "
                            + "will be stripped. The type is registered by "
                            + "qml_register_types_Decenza() in main.cpp, NOT by the qmldir, so "
                            + "check that call rather than the import.")

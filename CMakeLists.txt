@@ -934,6 +934,7 @@ set(HEADERS
     src/core/profilestorage.h
     src/core/translationmanager.h
     src/core/updatechecker.h
+    src/core/applogging.h
     src/core/githubreleaseclient.h
     src/core/hdsfirmwarecatalog.h
     src/core/hdsfirmwareupdatecontroller.h

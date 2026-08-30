@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/logcollapse.h"
 #include <QObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -150,6 +151,15 @@ private slots:
     void onPeriodicCheck();
 
 private:
+    // The two periodic lines, collapsed. Both are byte-identical between checks
+    // and were 132 occurrences each in one submitted log.
+    //
+    // PERIODIC, not episodic: this checker runs for the process lifetime, so
+    // there is no run end and nothing to flush — the case logcollapse.h names as
+    // unable to leak. A CHANGED comparison emits at once, which is the whole
+    // point: the transition is what a reader came for.
+    LogCollapse m_periodicCheckLog{LogCollapse::kChangesOnly};
+    LogCollapse m_versionCompareLog{LogCollapse::kChangesOnly};
     // The GitHub releases request, shared by the manual check and the hourly
     // poll so both carry the same headers and connection policy.
     QNetworkRequest releaseInfoRequest() const;

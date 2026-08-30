@@ -62,11 +62,11 @@ Item {
         if (_grabAttempts < 3) {
             _grabAttempts += 1
             _framesUntilGrab = 2
-            console.warn("[Background] Shot-chart grab failed (" + why + ") — attempt "
+            console.warn("[Theme] Shot-chart grab failed (" + why + ") — attempt "
                          + _grabAttempts + " of 3, retrying on the next frame")
             return
         }
-        console.warn("[Background] Shot-chart grab failed three times (" + why + "). The "
+        console.warn("[Theme] Shot-chart grab failed three times (" + why + "). The "
                      + "background stays on the theme colour for this session; re-pick the "
                      + "background in Settings > Machine > Theme Mode, or restart, to retry.")
     }
@@ -141,7 +141,7 @@ Item {
             // logged the source, which meant it agreed with itself no matter what was drawn:
             // "a grab happened for shot N" was read as "the picture is of shot N" twice
             // during development, and only dumping the actual image settled it.
-            console.info("[Background] Shot-chart grab ->", result.url,
+            console.info("[Theme] Shot-chart grab ->", result.url,
                          "chart samples", backgroundChart.pressureData.length,
                          "maxTime", backgroundChart.maxTime,
                          "| source shot", LastShotChartSource._shotId,

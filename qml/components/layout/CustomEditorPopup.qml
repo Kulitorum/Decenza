@@ -64,7 +64,7 @@ DecenzaDialog {
             if (inQuote) {
                 if (ch === '"') inQuote = false
                 else if (ch === '<') {
-                    console.warn("[CustomEditorPopup] Malformed HTML detected, stripping tags")
+                    console.warn("Malformed HTML detected, stripping tags")
                     return html.replace(/<[^>]*>/g, "")
                 }
             } else if (inTag) {
@@ -91,22 +91,22 @@ DecenzaDialog {
 
         // Load segments if available, otherwise fall back to HTML content
         var segments = props.segments
-        console.log("[CustomEditorPopup] openForItem id:", id, "has segments:", segments ? segments.length : 0, "content:", (props.content || "").substring(0, 80))
+        console.log("openForItem id:", id, "has segments:", segments ? segments.length : 0, "content:", (props.content || "").substring(0, 80))
         if (segments && segments.length > 0) {
             // Break the text binding before loading segments into the document
             contentInput.text = ""
             formatter.fromSegments(segments)
-            console.log("[CustomEditorPopup] Loaded from segments")
+            console.log("Loaded from segments")
         } else {
             // Legacy item — load HTML into TextArea directly
             var rawContent = props.content || "Text"
             textContent = sanitizeHtml(rawContent)
             if (textContent !== rawContent) {
-                console.warn("[CustomEditorPopup] Auto-saved sanitized content for item:", id)
+                console.warn("Auto-saved sanitized content for item:", id)
                 Settings.network.setItemProperty(id, "content", textContent)
             }
             contentInput.text = textContent
-            console.log("[CustomEditorPopup] Loaded from HTML content:", textContent.substring(0, 80))
+            console.log("Loaded from HTML content:", textContent.substring(0, 80))
         }
         open()
     }
@@ -116,8 +116,8 @@ DecenzaDialog {
         // Extract segments from document and compile to HTML
         var segments = formatter.toSegments()
         var html = formatter.segmentsToHtml(segments)
-        console.log("[CustomEditorPopup] doSave segments:", JSON.stringify(segments))
-        console.log("[CustomEditorPopup] doSave html:", html)
+        console.log("doSave segments:", JSON.stringify(segments))
+        console.log("doSave html:", html)
         textContent = html || "Text"
 
         Settings.network.setItemProperty(itemId, "content", textContent)
