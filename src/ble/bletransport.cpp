@@ -875,9 +875,16 @@ void BleTransport::setupService() {
     if (!m_service) return;
 
     const QList<QLowEnergyCharacteristic> chars = m_service->characteristics();
-    // One line, not one per characteristic: the DE1 exposes 18 of them and the
-    // set is constant per firmware, so the per-char form was 18 lines of the
-    // same answer on every connect. Every uuid/props pair is still here.
+    // One line, not one per characteristic: the set is constant per firmware, so
+    // the per-char form was one line per characteristic of the same answer on
+    // every connect. Every uuid/props pair is still here.
+    //
+    // The count is 18 on a DE1+ running firmware v1358 — the 2026-08-30 SM-X210
+    // session logged 18 "Char 0000a0NN" lines followed by this function's own
+    // "Characteristics ready: 18 registered". Stated as an observation of one
+    // machine rather than a property of the protocol: de1characteristics.h names
+    // only the 13 Decenza uses, so the device exposing more than we name is the
+    // expected case, not a discrepancy.
     QStringList summary;
     summary.reserve(chars.size());
     for (const auto& c : chars) {

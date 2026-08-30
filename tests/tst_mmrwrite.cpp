@@ -165,11 +165,14 @@ private slots:
         QCOMPARE(skips.count(), 2);  // one per caller, not one per call and not one overall
     }
 
-    // One caller re-applying a GROUP of registers spells one fact, not one per
-    // register. wake-steam-reassert re-applies steam flow, flush flow and flush
-    // timeout together; when all three are already current it used to print
-    // three consecutive skip lines on every single wake.
-    void oneCallersGroupOfSkippedRegistersIsOneLine() {
+    // A caller eliding several DIFFERENT registers gets a line for each: those
+    // are distinct events, not repeats, and only a repeat may be collapsed.
+    //
+    // Collapsing them onto the caller was tried and reverted — it suppressed the
+    // second register that caller ever elided for the whole session, and it
+    // broke the disconnect flush, which prints the collapse KEY and so requires
+    // the key to be the whole line. Both are asserted here.
+    void aCallersDistinctRegistersEachGetTheirOwnSkipLine() {
         TestFixture f;
         MessageCounter skips(QStringLiteral("[MMR] write skipped"));
 
@@ -180,13 +183,37 @@ private slots:
         QCOMPARE(f.transport.writes.size(), 3);   // first time: all three are real writes
         QCOMPARE(skips.count(), 0);
 
-        // Second pass: nothing changed, so nothing goes on the wire and the
-        // caller reports once rather than three times.
+        // Second pass: three registers already current, three distinct answers.
         f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, reassert);
         f.device.writeMMR(DE1::MMR::FLUSH_FLOW_RATE, 80, reassert);
         f.device.writeMMR(DE1::MMR::FLUSH_TIMEOUT, 350, reassert);
         QCOMPARE(f.transport.writes.size(), 3);
-        QCOMPARE(skips.count(), 1);
+        QCOMPARE(skips.count(), 3);
+
+        // Third pass: now they ARE repeats, and none of them prints.
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, reassert);
+        f.device.writeMMR(DE1::MMR::FLUSH_FLOW_RATE, 80, reassert);
+        QCOMPARE(skips.count(), 3);
+    }
+
+    // The disconnect flush prints what flushAll() returns, which is the KEY. So
+    // the key has to be the whole line — a key that is only the caller, or only
+    // the address, flushes a fragment with no verb. This is the assertion that
+    // catches a future "collapse it on the caller" from breaking the flush.
+    void theFlushedSkipTallyIsAWholeLine() {
+        TestFixture f;
+        MessageCounter flushed(QStringLiteral("[MMR] write skipped: SteamFlow 0x803828"));
+
+        // One real write, then two skips: the first prints, the second is
+        // suppressed and left pending as a tally.
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, QStringLiteral("applySteamSettings"));
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, QStringLiteral("applySteamSettings"));
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 80, QStringLiteral("applySteamSettings"));
+        QCOMPARE(flushed.count(), 1);
+
+        // The flush must emit a line that still names the register.
+        emit f.transport.disconnected();
+        QCOMPARE(flushed.count(), 2);
     }
 
     // An anonymous skip has no group to speak for it, so it keeps the register

@@ -1962,30 +1962,27 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     const bool valueUnchanged = (it != m_lastMMRValues.constEnd() && it.value() == value);
 
     if (!force && valueUnchanged) {
-        // Once per distinct (register, value, caller) per session — see m_writeSkippedLog.
-        // Keyed by CALLER, not by register, when the caller named itself.
+        // Once per distinct (register, value, caller) per session — see m_mmrSkipLog.
+        // KEY IS THE TEXT, and must stay that way: onTransportDisconnected()
+        // flushes this table and prints what flushAll() returns, which is the
+        // KEY (logcollapse.h). Any key that is not the whole line turns a
+        // flushed tally into a fragment with no verb.
         //
-        // A convergent caller re-applies a whole group of registers at once, so
-        // a per-register key spelled one fact — "this caller found nothing to
-        // change" — once per register. wake-steam-reassert produced three
-        // consecutive lines on every wake for exactly that. Collapsing on the
-        // reason says it once and counts the rest, and the text is constant per
-        // key so LogCollapse's "+N identical" is literally true.
-        //
-        // Which registers those were is recoverable: an unchanged value IS the
-        // last value logged for that register by this same caller's write.
-        //
-        // A skip with no reason keeps its per-register key and full detail —
-        // there is no group to speak for it, and one anonymous skip is the case
-        // where the register name is the whole content of the line.
-        const bool haveReason = !reason.isEmpty();
-        const QString key = haveReason ? reason : QString::number(address, 16);
-        const QString text = haveReason
-            ? QStringLiteral("write skipped: values already current%1").arg(reasonSuffix)
-            : QStringLiteral("write skipped: %1 unchanged")
-                  .arg(DE1::MMR::describeRegister(address, value));
+        // Keying on the caller instead was tried and reverted. It looked like it
+        // would collapse wake-steam-reassert's three consecutive skip lines, but
+        // those do not repeat: kChangesOnly never re-emits an unchanged text, so
+        // the 2026-08-29 session — 17.5 hours, many wakes — carried those three
+        // lines exactly once, at 6.562-6.565 s. Its other three-line groups are
+        // different CALLERS (applySteamSettings, steam-setting-changed,
+        // applyFlushSettings), each a distinct fact. There was no repeat to
+        // collapse, and collapsing on the caller would have suppressed the
+        // second REGISTER that caller ever elided — a distinct event, not a
+        // repeat — for the whole session.
+        const QString text = QStringLiteral("write skipped: %1 unchanged%2")
+                                 .arg(DE1::MMR::describeRegister(address, value),
+                                      reasonSuffix);
         LogCollapse::Collapsed collapsed;
-        if (m_mmrSkipLog.shouldLog(key, text, QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+        if (m_mmrSkipLog.shouldLog(text, text, QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
             MMR_LOG(text + LogCollapse::suffix(collapsed));
         }
         return;
@@ -2548,7 +2545,7 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     // attributes the elided call to its origin so we can see which convergent
     // signal fired.
     if (data == m_lastShotSettingsPayload) {
-        // Once per distinct (payload, caller) per session — see m_writeSkippedLog.
+        // Once per distinct (payload, caller) per session — see m_shotSettingsSkipLog.
         const QString text = QStringLiteral(
             "write skipped: payload unchanged "
             "(steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C)%6")

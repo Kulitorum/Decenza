@@ -189,7 +189,9 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     // a first that has usually not been dispatched yet. Measured on this tablet
     // with the DE1 connecting concurrently: the two enables dispatched 1161 ms
     // and 1097 ms after being queued, and they are what produced the session's
-    // only Bluetooth warning ("4 operations delayed, worst 1161 ms").
+    // only Bluetooth warning — BleGattQueue's "N Bluetooth operation(s) were
+    // delayed because another device was using the radio; the worst (scale
+    // enable notifications) waited 1161 ms".
     //
     // Nothing is lost. The failure the blanket retry guards against — an enable
     // that reached the scale and was ignored — is exactly what the watchdog
@@ -249,6 +251,33 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
         if (!m_transport || !m_characteristicsReady) return;
         DECENT_LOG("Sending heartbeat (2000ms)");
         sendHeartbeat();
+
+        // The enable never reached the radio. onNotificationsIssued() is what
+        // arms the watchdog, so an enable that FAILS before dispatch leaves
+        // m_watchdogArmPending set forever — and wake()'s own arm is gated on
+        // that same flag being clear, so nothing ever arms. The watchdog then
+        // never fires: no re-enable, no retry ladder, no disconnect, and the app
+        // goes on believing a scale is connected that will never send a weight.
+        // That is the #1519 symptom exactly.
+        //
+        // Four paths in QtScaleBleTransport::enableNotifications reach
+        // failGattOperation() without emitting notificationsIssued (link not
+        // ready, service missing, characteristic invalid, no CCCD — see
+        // qtscalebletransport.cpp; CoreBluetooth has the same shape), and the
+        // first of those is live during the DE1's concurrent connect burst.
+        //
+        // This mattered less when the sequence submitted a second enable at
+        // 400 ms: that was an independent second chance to arm. Removing the
+        // duplicate removed the redundancy with it, so the arm needs a path that
+        // does not depend on the enable succeeding. Arming here lets the
+        // watchdog's own ladder (which re-enables on every retry) recover, which
+        // is the recovery the 400 ms duplicate was standing in for.
+        if (m_watchdogArmPending) {
+            DECENT_WARN("Notify-enable never reached the radio within 2000 ms — "
+                        "arming the watchdog anyway so its retry can re-enable");
+            m_watchdogArmPending = false;
+            startWatchdog();
+        }
     });
 }
 
