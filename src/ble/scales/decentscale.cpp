@@ -324,8 +324,15 @@ void DecentScale::armWatchdogIfEnableNeverIssues() {
 void DecentScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUuid,
                                           const QByteArray& value) {
     if (characteristicUuid == Scale::Decent::READ) {
-        tickleWatchdog();
-        parseWeightData(value);
+        // Only a frame the parser DECODED counts as the feed being alive. The
+        // tickle used to run first and unconditionally, so a scale sending
+        // nothing this driver can read -- one left in ADS debug mode, or framing
+        // in a way we do not decode -- kept the watchdog satisfied forever: the
+        // app reported connected and healthy while the weight sat frozen and
+        // stop-at-weight never fired. The watchdog exists to catch exactly that
+        // and was being fed by the frames that caused it.
+        if (parseWeightData(value))
+            tickleWatchdog();
     }
 }
 
@@ -336,10 +343,12 @@ void DecentScale::logFrameShapeOnce(const QString& shape, const QByteArray& data
         DECENT_LOG(line);
 }
 
-void DecentScale::parseWeightData(const QByteArray& data) {
+// Returns true when the frame was decoded, which is what the caller treats as
+// the weight feed being alive.
+bool DecentScale::parseWeightData(const QByteArray& data) {
     if (data.size() < 2) {
         logFrameShapeOnce(QString("Undersized frame, %1 bytes").arg(data.size()), data);
-        return;
+        return false;
     }
 
     const uint8_t* d = reinterpret_cast<const uint8_t*>(data.constData());
@@ -360,7 +369,7 @@ void DecentScale::parseWeightData(const QByteArray& data) {
                               .arg(command, 2, 16, QChar('0'))
                               .arg(data.size()),
                           data);
-        return;
+        return false;
     }
     if (command == DecentScaleProtocol::TypeAdsDebug) {
         // Not decoded — nothing in the app consumes ADS internals. Recorded so a
@@ -368,7 +377,7 @@ void DecentScale::parseWeightData(const QByteArray& data) {
         // settable over either transport and persists until cleared or reboot,
         // so Decenza can meet a scale already in it.
         logFrameShapeOnce(QStringLiteral("ADS debug frame (type 0x25)"), data);
-        return;
+        return false;
     }
 
     // Validate XOR checksum on all packet types except LED response (0x0A),
@@ -387,7 +396,7 @@ void DecentScale::parseWeightData(const QByteArray& data) {
                             .arg(command, 2, 16, QChar('0'))
                             .arg(m_consecutiveChecksumFailures)
                             .arg(kChecksumFailureThreshold));
-                return;
+                return false;
             }
         } else {
             m_consecutiveChecksumFailures = 0;
@@ -470,7 +479,17 @@ void DecentScale::parseWeightData(const QByteArray& data) {
         // Button pressed
         int button = d[2];
         emit buttonPressed(button);
+    } else {
+        // A 7-byte frame of a type this driver has no branch for. Its checksum
+        // was valid, so the scale is framing correctly and we simply do not read
+        // this one -- distinct from the undecodable shapes above, and not
+        // evidence that the weight feed is alive.
+        logFrameShapeOnce(QString("Unhandled frame type 0x%1")
+                              .arg(command, 2, 16, QChar('0')),
+                          data);
+        return false;
     }
+    return true;
 }
 
 void DecentScale::sendKeepAlive() {

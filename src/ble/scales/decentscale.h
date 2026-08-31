@@ -42,7 +42,7 @@ private:
 #ifdef DECENZA_TESTING
     friend class tst_ScaleProtocol;
 #endif
-    void parseWeightData(const QByteArray& data);
+    bool parseWeightData(const QByteArray& data);
     // See scaleFrameShapeLine() for the once-per-shape, capped policy.
     void logFrameShapeOnce(const QString& shape, const QByteArray& data);
     void sendCommand(const QByteArray& command);

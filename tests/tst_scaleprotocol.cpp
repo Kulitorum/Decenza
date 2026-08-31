@@ -859,6 +859,37 @@ private slots:
         QCOMPARE(transport->m_notifyEnableCount, countAfterTickle);
     }
 
+    void undecodableFramesDoNotFeedTheWatchdog() {
+        // The defect this pins: a scale streaming frames the driver cannot
+        // decode used to keep the watchdog satisfied, because the tickle ran
+        // before the parse and unconditionally. The app then reported connected
+        // and healthy with a frozen weight, and stop-at-weight never fired.
+        // A decoded frame still counts (asserted by watchdogTickleResetsTimer).
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+        // SwallowAll: the watchdog warning is what this asserts ON, so it must
+        // not also reach failOnWarning.
+        MessageCapture capture(MessageCapture::SwallowAll);
+
+        scale.m_characteristicsReady = true;
+        scale.startWatchdog();
+        const int enablesBefore = transport->m_notifyEnableCount;
+
+        // Feed undecodable frames faster than the 1 s initial timeout, for
+        // longer than it: under the old behaviour every one of these was a
+        // tickle and the watchdog could never fire.
+        for (int i = 0; i < 15; i++) {
+            scale.onCharacteristicChanged(Scale::Decent::READ,
+                                          buildDecentAdsDebugFrame(uint8_t(i)));
+            QTest::qWait(100);
+        }
+
+        QVERIFY(transport->m_notifyEnableCount > enablesBefore);
+        // "no initial weight data", not "stale": nothing decodable ever arrived,
+        // so m_watchdogUpdatesSeen was never set.
+        QVERIFY(capture.count(QStringLiteral("Watchdog: no initial weight data")) >= 1);
+    }
+
     void watchdogDisconnectsAfterMaxRetries() {
         // After 10 failed retries, watchdog should disconnect for reconnection
         auto* transport = new MockScaleBleTransport;
