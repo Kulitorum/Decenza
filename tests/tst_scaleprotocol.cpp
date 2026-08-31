@@ -867,6 +867,71 @@ private slots:
         QVERIFY(!scale.m_watchdogArmPending);
     }
 
+    // A wake() while the watchdog is already running must not re-arm it.
+    // startWatchdog() resets m_watchdogRetries and m_watchdogUpdatesSeen, so a
+    // second arm hands back the whole retry budget and forgets that weight data
+    // had been seen — the next lapse is then timed as a first sight rather than
+    // a stall. Build 3574 logged both arms 198 ms apart once the enable started
+    // dispatching promptly enough to clear the pending flag before the 500 ms
+    // wake().
+    void aWakeDoesNotReArmARunningWatchdog() {
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+
+        // onCharacteristicsDiscoveryFinished() set m_watchdogArmPending; the
+        // enable then issues (the mock emits notificationsIssued inline), which
+        // arms the watchdog and clears the flag — the state the 500 ms wake()
+        // runs in.
+        scale.enableWeightNotifications(QStringLiteral("test"));
+        QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
+        QVERIFY(!scale.m_watchdogArmPending);
+
+        // Spend part of the budget and see data, then wake.
+        scale.m_watchdogRetries = 4;
+        scale.m_watchdogUpdatesSeen = true;
+        const int remainingBeforeWake = scale.m_watchdogTimer->remainingTime();
+        scale.wake();
+
+        QCOMPARE(scale.m_watchdogRetries, 4);
+        QVERIFY(scale.m_watchdogUpdatesSeen);
+        QVERIFY(scale.m_watchdogTimer->isActive());
+        // The countdown is left ALONE, not restarted. Without this a wrong fix
+        // that called m_watchdogTimer->start() — "parity with
+        // onNotificationsIssued()" — would still pass every assertion above.
+        QVERIFY(scale.m_watchdogTimer->remainingTime() <= remainingBeforeWake);
+    }
+
+    // main.cpp wakes the scale from its connectedChanged handler when an LCD
+    // restore is pending, and connectedChanged is emitted SYNCHRONOUSLY from
+    // inside onCharacteristicsDiscoveryFinished(). That re-enters wake() before
+    // the connect sequence has submitted its notify-enable, so the arm-pending
+    // flag has to be set before setConnected() rather than after it — otherwise
+    // the watchdog arms against an LCD command and expires before the enable is
+    // ever asked for.
+    //
+    // noPathArmsTheWatchdogBeforeTheEnableIsIssued() below cannot see this: it
+    // wires no connectedChanged observer, so it passes either way.
+    void aWakeReEnteredFromConnectedChangedDoesNotArmTheWatchdog() {
+        auto* transport = new MockScaleBleTransport;
+        transport->m_suppressNotificationsIssued = true;
+        DecentScale scale(transport);
+
+        connect(&scale, &ScaleDevice::connectedChanged, &scale, [&scale]() {
+            if (scale.isConnected()) scale.wake();
+        });
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+
+        // The re-entrant wake() must not have armed anything: no enable has been
+        // submitted yet, so there is nothing for a watchdog to time.
+        QVERIFY(!(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive()));
+        QVERIFY(scale.m_watchdogArmPending);
+    }
+
     void noPathArmsTheWatchdogBeforeTheEnableIsIssued() {
         auto* transport = new MockScaleBleTransport;
         DecentScale scale(transport);
