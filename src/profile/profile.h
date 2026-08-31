@@ -449,14 +449,39 @@ public:
     // Count consecutive leading frames with exit conditions (preinfusion frames)
     static int countPreinfuseFrames(const QList<ProfileFrame>& steps);
 
-    // countPreinfuseFrames() plus every "forced rise without limit" frame anywhere in
-    // steps. A Pressure-type profile's forced-rise frame(s) drive pressure up before any
-    // coffee pours — filling headspace, not pouring — so the DE1 must treat them as
-    // preinfusion too, or Stop-at-Volume starts counting before the pour begins (matching
-    // de1app commit 13a30463). The frame(s) keep exitIf==false: that flag also sets the
-    // DE1's real DoCompare exit condition, and setting it would defeat "without limit".
+    // countPreinfuseFrames() plus every forced-rise frame anywhere in steps (either
+    // spelling — see ProfileFrame::isForcedRiseName). A Pressure-type profile's
+    // forced-rise frame(s) drive pressure up before any coffee pours — filling headspace,
+    // not pouring — so the DE1 must treat them as preinfusion too, or Stop-at-Volume
+    // starts counting before the pour begins (matching de1app commit 13a30463). The
+    // frame(s) keep exitIf==false: that flag also sets the DE1's real DoCompare exit
+    // condition, and setting it would end the ramp early.
     // A no-op add for Flow-type steps, which never generate a frame with this name.
     static int countPreinfuseFramesWithForcedRise(const QList<ProfileFrame>& steps);
+
+    // === Flow limits ===
+    // The flow limit (mL/s) every pressure step gets when it carries none. Decent's
+    // second machine reaches ~20 mL/s where the DE1 manages 7-8, so an unlimited
+    // pressure step pours differently on the two; capping at 8 makes a shared profile
+    // behave the same on both. de1app applies the identical cap in select_profile and
+    // at startup (skialpine/de1app@fdd091f3), so this number is a compatibility
+    // constant, not a tuning knob — changing it here alone reopens the divergence.
+    static constexpr double kDefaultPressureFlowLimit = 8.0;
+
+    // Ceiling for an editable flow goal or flow limit. Above the DE1's own maximum on
+    // purpose: it is what lets a profile authored on a higher-flow machine open and save
+    // here without being clamped to a value its author never chose. The DE1 runs at its
+    // own maximum when asked for more. Note the BLE frame encoding (U8P4) saturates at
+    // 15.9375 mL/s — a wire property shared with de1app, not a Decenza limit.
+    static constexpr double kMaxSettableFlow = 20.0;
+
+    // Give every unlimited pressure step the default flow limit, in memory. Returns
+    // true if anything changed.
+    //
+    // Call it where a profile becomes the CURRENT profile, never inside a parse: a
+    // stored profile — a shot's record of what it was pulled with, an import being
+    // compared for de-duplication — must keep reading back exactly what it says.
+    bool applyDefaultPressureFlowLimit();
 
     // Compare two profiles for functional equality (frame sequence only).
     // Profile-level limits (maximumPressure, maximumFlow, etc.) are excluded.

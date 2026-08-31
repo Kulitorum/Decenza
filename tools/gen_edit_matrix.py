@@ -146,7 +146,7 @@ def main():
         runs.append((ckey, [x for pair in cpairs for x in pair]))
 
         for key, argv in runs:
-            res = subprocess.run(["tclsh", ORACLE, src, profile, suffix] + argv,
+            res = subprocess.run(["tclsh", ORACLE, de1plus, src, profile, suffix] + argv,
                                  capture_output=True, text=True)
             if res.returncode != 0 or not res.stdout.strip():
                 print("  FAIL %-28s %-18s %s" % (base, key,

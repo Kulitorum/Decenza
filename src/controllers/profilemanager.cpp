@@ -1876,6 +1876,15 @@ bool ProfileManager::loadProfile(const QString& profileName) {
         }
     }
 
+    // Cap every unlimited pressure step at the default flow limit, so a profile pours
+    // the same here as it does in de1app and on a higher-flow machine.
+    //
+    // Deliberately BELOW the notes backfill above, which is itself documented as running
+    // after every on-disk write in this function: the cap must reach the editor and the
+    // machine but must never be persisted by loading. It lands in the user's file only
+    // when the user saves the profile, exactly as in de1app.
+    m_currentProfile.applyDefaultPressureFlowLimit();
+
     // Save current profile as previous before switching (only if new profile was found)
     if (found && !m_baseProfileName.isEmpty() && m_baseProfileName != resolvedName)
         m_previousProfileName = m_baseProfileName;
@@ -1950,6 +1959,9 @@ bool ProfileManager::loadProfileFromJson(const QString& jsonContent) {
         qWarning() << "loadProfileFromJson: Failed to parse profile JSON";
         return false;
     }
+
+    // Same cap as loadProfile() — this is the other way a profile becomes current.
+    m_currentProfile.applyDefaultPressureFlowLimit();
 
     // Use title as base name since this profile isn't from a file
     m_baseProfileName = m_currentProfile.title();

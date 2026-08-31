@@ -1,4 +1,5 @@
 #include "recipeparams.h"
+#include "profile.h"
 #include <QtMath>
 
 bool RecipeParams::frameAffectingFieldsEqual(const RecipeParams& other) const {
@@ -175,16 +176,21 @@ void RecipeParams::clamp() {
     for (double* p : {&infusePressure, &pourPressure, &espressoPressure, &pressureEnd})
         clampVal(*p, 0.0, 12.0);
 
-    // Flows (0-10)
+    // Flows (0 - Profile::kMaxSettableFlow). The ceiling is above the DE1's own maximum
+    // so a profile authored on a higher-flow machine survives a round trip through the
+    // editor unclamped; the machine runs at its own maximum regardless.
     for (double* f : {&pourFlow, &holdFlow, &flowEnd, &preinfusionFlowRate})
-        clampVal(*f, 0.0, 10.0);
+        clampVal(*f, 0.0, Profile::kMaxSettableFlow);
 
     // Times (non-negative)
     for (double* t : {&infuseTime, &rampTime, &preinfusionTime, &holdTime, &simpleDeclineTime})
         if (*t < 0) *t = 0;
 
     if (infuseWeight < 0) infuseWeight = 0;
-    clampVal(limiterValue, 0.0, 12.0);
+    // One field, two units: a flow limit in mL/s on a pressure step, a pressure limit in
+    // bar on a flow step. The clamp has to admit the larger of the two ranges; each
+    // editor imposes its own ceiling for the unit it is showing.
+    clampVal(limiterValue, 0.0, Profile::kMaxSettableFlow);
     clampVal(limiterRange, 0.0, 10.0);
 }
 

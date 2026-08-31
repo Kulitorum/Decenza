@@ -551,10 +551,37 @@ Matches de1app's `pressure_to_advanced_list()`:
 |-------|------|-----------|-------|
 | Preinfusion Boost | flow | tempStart, 2s | Only when tempStart != tempPreinfuse |
 | Preinfusion | flow | tempPreinfuse, exit pressure_over | |
-| Forced Rise | pressure | espressoPressure, 3s, no limiter | When holdTime > 3 |
+| Forced Rise | pressure | espressoPressure, 3s, with limiter | When holdTime > 3 |
 | Hold | pressure | espressoPressure, with limiter | |
-| Forced Rise | pressure | espressoPressure, 3s | When holdTime was short and declineTime > 3 |
+| Forced Rise | pressure | espressoPressure, 3s, with limiter | When holdTime was short and declineTime > 3 |
 | Decline | pressure | pressureEnd, smooth, with limiter | When simpleDeclineTime > 0 |
+
+### Every pressure step carries a flow limit
+
+`Profile::applyDefaultPressureFlowLimit()` gives any pressure step with no limiter
+`Profile::kDefaultPressureFlowLimit` (8 mL/s), and defaults a `settings_2a` profile's scalar
+`maximum_flow` the same way. Decent's second machine reaches ~20 mL/s where the DE1 manages 7-8,
+so an unlimited pressure step pours differently on the two; the cap makes a shared profile behave
+the same on both. de1app does the identical thing in `select_profile` and at startup
+(`skialpine/de1app@fdd091f3`), which is why 8 is a compatibility constant rather than a tuning
+knob.
+
+Called from `ProfileManager::loadProfile()` and `loadProfileFromJson()` — where a profile becomes
+CURRENT — and deliberately nowhere else:
+
+- **Not in a parse.** A stored profile (a shot's record of what it was pulled with, an import
+  being compared for de-duplication) has to read back exactly what it says.
+- **Not after an editor save.** de1app caps at load only, so its plugins write uncapped frames on
+  save and the cap reappears on the next load. `tst_recipeeditorapppath` compares against those
+  plugins and fails if we cap earlier. A save-path cap was written, and that test rejected it.
+
+In `loadProfile()` the call sits below the notes backfill, i.e. after every on-disk write in that
+function: the cap must reach the editor and the machine and must never be persisted by loading.
+It lands in the user's file only when the user saves.
+
+The frame this renamed: de1app dropped "without limit" from the forced-rise name once it started
+limiting it. Both spellings are live — every profile written before that carries the old one — so
+identify the frame with `ProfileFrame::isForcedRiseName()`, never against one constant.
 
 ### Flow Profile Frames (settings_2b)
 

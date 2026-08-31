@@ -527,7 +527,7 @@ T.Page {
 
                                     // Flow
                                     Text { text: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow"); font: Theme.captionFont; color: Theme.flowColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow"); from: 0.1; to: 8; stepSize: 0.01; suffix: " mL/s"; value: recipeEditorPage.val(recipeEditorPage.recipe.pourFlow, 2.0); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("pourFlow", Math.round(newValue * 100) / 100) } }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow"); from: 0.1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: recipeEditorPage.val(recipeEditorPage.recipe.pourFlow, 2.0); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("pourFlow", Math.round(newValue * 100) / 100) } }
 
                                     // Pressure limit
                                     Text { text: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }

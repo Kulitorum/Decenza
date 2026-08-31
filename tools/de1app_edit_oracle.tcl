@@ -81,13 +81,26 @@ proc update_2nd_fill {args} {}
 proc update_flow_up {args} {}
 proc update_ramp_down {args} {}
 
-set plugin_src [lindex $argv 0]
-set profile    [lindex $argv 1]
-set suffix     [lindex $argv 2]
-set edits      [lrange $argv 3 end]
+set de1plus    [lindex $argv 0]
+set plugin_src [lindex $argv 1]
+set profile    [lindex $argv 2]
+set suffix     [lindex $argv 3]
+set edits      [lrange $argv 4 end]
 if {[llength $edits] == 0 || [llength $edits] % 2 != 0} {
     error "expected one or more <global> <value> pairs"
 }
+
+# de1app caps every unlimited pressure step at load, in select_profile, BEFORE the
+# editor sees the frames — so the plugin's prep reads capped frames and writes them
+# back. Model that here by sourcing profile.tcl and calling the real proc rather
+# than transcribing the rule: a transcription goes stale on a de1app bump and
+# quietly changes the oracle. The package provides satisfy profile.tcl's requires
+# without loading the app, matching de1app_pack_oracle.tcl.
+package provide lambda 1.0
+package provide de1_event 1.0
+package provide de1_logging 1.0
+package provide de1_profile 2.0
+source $de1plus/profile.tcl
 
 set fh [open $plugin_src r]; fconfigure $fh -encoding utf-8
 set src [read $fh]; close $fh
@@ -117,6 +130,12 @@ set ::settings(advanced_shot) [string range $content [expr {$start + 1}] [expr {
 set title "Edited"
 regexp -line {^profile_title\s+\{(.*)\}$} $content -> title
 set ::settings(profile_title) $title
+
+# The cap keys off the profile type, so it has to be in ::settings before the call.
+set ptype ""
+regexp -line {^settings_profile_type\s+(\S+)$} $content -> ptype
+set ::settings(settings_profile_type) $ptype
+::profile::apply_default_flow_limit_to_pressure_steps
 
 # One prep -> edit -> update cycle per pair. prep populates the plugin's globals
 # from the frames, exactly as a profile load does in the app, so a second cycle

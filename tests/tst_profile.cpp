@@ -1165,12 +1165,16 @@ private slots:
         QCOMPARE(p.steps()[0].seconds, 5.0);
         QCOMPARE(p.steps()[0].exitFlowOver, 6.0);  // de1app: exit_flow_over 6
 
-        // Frame 1: forced rise without limit (pressure pump, 3s)
+        // Frame 1: forced rise (pressure pump, 3s)
+        QCOMPARE(p.steps()[1].name, ProfileFrame::kForcedRiseName);
         QCOMPARE(p.steps()[1].pump, QString("pressure"));
         QCOMPARE(p.steps()[1].pressure, 9.2);
         QCOMPARE(p.steps()[1].seconds, 3.0);
         QVERIFY(!p.steps()[1].exitIf);
-        QCOMPARE(p.steps()[1].maxFlowOrPressure, 0.0);  // No limiter on forced rise
+        // The rise is limited like the hold and decline: de1app stopped leaving it
+        // unlimited so a high-flow machine cannot push unbounded flow while pressure
+        // ramps (skialpine/de1app@fdd091f3).
+        QCOMPARE(p.steps()[1].maxFlowOrPressure, 6.0);
 
         // Frame 2: hold (pressure pump, remaining time)
         QCOMPARE(p.steps()[2].pump, QString("pressure"));
@@ -1225,6 +1229,101 @@ private slots:
         // The forced-rise-before-decline frame also fills headspace, not the cup:
         // preinfusion(1) + forced_rise(1). Matches de1app commit 13a30463.
         QCOMPARE(p.preinfuseFrameCount(), 2);
+    }
+
+    // ==========================================
+    // Default pressure flow limit
+    // (de1app apply_default_flow_limit_to_pressure_steps)
+    // ==========================================
+
+    // Builds an advanced profile whose steps are exactly `steps`.
+    static Profile advancedProfileWith(const QList<ProfileFrame>& steps) {
+        Profile p;
+        p.setTitle("Limit Test");
+        p.setProfileType("settings_2c2");
+        p.setSteps(steps);
+        return p;
+    }
+
+    static ProfileFrame pressureStep(double limiter) {
+        ProfileFrame f;
+        f.name = "hold";
+        f.pump = "pressure";
+        f.pressure = 9.0;
+        f.seconds = 20.0;
+        f.maxFlowOrPressure = limiter;
+        f.maxFlowOrPressureRange = 0.0;
+        return f;
+    }
+
+    void unlimitedPressureStepGetsTheDefaultFlowLimit() {
+        Profile p = advancedProfileWith({pressureStep(0.0)});
+        QVERIFY(p.applyDefaultPressureFlowLimit());
+        QCOMPARE(p.steps()[0].maxFlowOrPressure, Profile::kDefaultPressureFlowLimit);
+        // A limiter with no range engages instantly; the profile's default range is what
+        // de1app hands the DE1 alongside the value.
+        QVERIFY(p.steps()[0].maxFlowOrPressureRange > 0.0);
+    }
+
+    void explicitPressureLimitSurvivesNormalization() {
+        Profile p = advancedProfileWith({pressureStep(2.5)});
+        QVERIFY(!p.applyDefaultPressureFlowLimit());
+        QCOMPARE(p.steps()[0].maxFlowOrPressure, 2.5);
+    }
+
+    void flowStepKeepsItsOffPressureLimit() {
+        // On a flow step the limiter is a PRESSURE limit, where off is still legal —
+        // capping it would silently add a 8 bar ceiling to every unlimited flow step.
+        ProfileFrame f;
+        f.name = "pour";
+        f.pump = "flow";
+        f.flow = 2.0;
+        f.maxFlowOrPressure = 0.0;
+        Profile p = advancedProfileWith({f});
+        QVERIFY(!p.applyDefaultPressureFlowLimit());
+        QCOMPARE(p.steps()[0].maxFlowOrPressure, 0.0);
+    }
+
+    void simplePressureProfileDefaultsItsScalarAndItsFrames() {
+        // settings_2a's flow limit is the scalar maximum_flow, and the frames are
+        // generated from it — so defaulting the scalar has to happen before generation
+        // or a regeneration puts the unlimited frames straight back.
+        QJsonObject obj;
+        obj["title"] = "Unlimited Pressure";
+        obj["legacy_profile_type"] = "settings_2a";
+        obj["espresso_temperature"] = 93.0;
+        obj["preinfusion_time"] = 5.0;
+        obj["espresso_hold_time"] = 10.0;
+        obj["espresso_pressure"] = 9.0;
+        obj["espresso_decline_time"] = 20.0;
+        obj["maximum_flow"] = 0.0;  // "off"
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.maximumFlow(), 0.0);
+
+        QVERIFY(p.applyDefaultPressureFlowLimit());
+        QCOMPARE(p.maximumFlow(), Profile::kDefaultPressureFlowLimit);
+
+        p.regenerateSimpleFrames();
+        for (const ProfileFrame& f : p.steps()) {
+            if (f.pump != QLatin1String("pressure")) continue;
+            QCOMPARE(f.maxFlowOrPressure, Profile::kDefaultPressureFlowLimit);
+        }
+    }
+
+    void forcedRiseIsCountedUnderEitherName() {
+        // Profiles written before de1app renamed the frame carry the legacy name; both
+        // must be excluded from Stop-at-Volume's pour count.
+        ProfileFrame legacy;
+        legacy.name = ProfileFrame::kForcedRiseWithoutLimitName;
+        legacy.pump = "pressure";
+        ProfileFrame current;
+        current.name = ProfileFrame::kForcedRiseName;
+        current.pump = "pressure";
+
+        QCOMPARE(Profile::countPreinfuseFramesWithForcedRise({legacy}), 1);
+        QCOMPARE(Profile::countPreinfuseFramesWithForcedRise({current}), 1);
+        QCOMPARE(Profile::countPreinfuseFramesWithForcedRise({legacy, current}), 2);
     }
 
     void flowProfileDeclineGating() {

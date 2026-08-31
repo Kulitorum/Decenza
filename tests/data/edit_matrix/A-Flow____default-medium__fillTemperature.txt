@@ -5,7 +5,7 @@
 2	Infuse	87.5	3.0	0.0	60.0	100	3.6	1.0	0.6	0	pressure_over	3.0	0	6	0	pressure	fast	coffee
 3	2nd Fill	95	0	8.0	0	100	0	3.0	0.6	1	pressure_over	2.50	0	6	0	flow	fast	coffee
 4	Pause	95	1.0	6.0	0	100	0	1.0	0.6	1	flow_under	0.0	0	6	1.00	pressure	fast	coffee
-5	Pressure Up	93	10.0	8	10	100	0.0	0	0.6	1	flow_over	8.5	0	2.0	0	pressure	smooth	coffee
-6	Pressure Decline	93	1.0	8	0	100	0.0	0	0.6	1	flow_under	11	1	3.00	2.1	pressure	smooth	coffee
+5	Pressure Up	93	10.0	8	10	100	0.0	8	0.6	1	flow_over	8.5	0	2.0	0	pressure	smooth	coffee
+6	Pressure Decline	93	1.0	8	0	100	0.0	8	0.6	1	flow_under	11	1	3.00	2.1	pressure	smooth	coffee
 7	Flow Start	93	3.0	2.0	0	100	0.0	0	0.6	0	pressure_under	11	0	6	0	flow	fast	coffee
 8	Flow Extraction	93	3.0	4.0	60	100	0.0	10.0	0.6	0	pressure_under	11	0	6	0	flow	smooth	coffee

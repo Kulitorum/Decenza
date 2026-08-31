@@ -553,19 +553,26 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
     // Rise and hold frame (pressure pump)
     double holdTime = recipe.holdTime;
     if (holdTime > 0) {
-        // If hold time > 3s, add a forced rise frame without limiter first
+        // If hold time > 3s, split off a 3s forced rise first
         if (holdTime > 3) {
-            ProfileFrame riseNoLimit;
-            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
-            riseNoLimit.temperature = tempHold;
-            riseNoLimit.sensor = "coffee";
-            riseNoLimit.pump = "pressure";
-            riseNoLimit.transition = "fast";
-            riseNoLimit.pressure = recipe.espressoPressure;
-            riseNoLimit.seconds = 3.0;
-            riseNoLimit.volume = 0;
-            riseNoLimit.exitIf = false;
-            frames.append(riseNoLimit);
+            ProfileFrame rise;
+            rise.name = ProfileFrame::kForcedRiseName;
+            rise.temperature = tempHold;
+            rise.sensor = "coffee";
+            rise.pump = "pressure";
+            rise.transition = "fast";
+            rise.pressure = recipe.espressoPressure;
+            rise.seconds = 3.0;
+            rise.volume = 0;
+            rise.exitIf = false;
+            // The rise used to be deliberately unlimited. de1app now limits it like the
+            // hold and decline below, so a high-flow machine cannot push unbounded flow
+            // while pressure ramps (skialpine/de1app@fdd091f3).
+            if (recipe.limiterValue > 0) {
+                rise.maxFlowOrPressure = recipe.limiterValue;
+                rise.maxFlowOrPressureRange = recipe.limiterRange;
+            }
+            frames.append(rise);
             holdTime -= 3;
         }
 
@@ -594,17 +601,22 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
         // NOTE: holdTime is the post-decrement value (decremented above when > 3s),
         // matching de1app's pressure_to_advanced_list() which also uses the mutated value.
         if (holdTime < 3 && declineTime > 3) {
-            ProfileFrame riseNoLimit;
-            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
-            riseNoLimit.temperature = tempDecline;
-            riseNoLimit.sensor = "coffee";
-            riseNoLimit.pump = "pressure";
-            riseNoLimit.transition = "fast";
-            riseNoLimit.pressure = recipe.espressoPressure;
-            riseNoLimit.seconds = 3.0;
-            riseNoLimit.volume = 0;
-            riseNoLimit.exitIf = false;
-            frames.append(riseNoLimit);
+            ProfileFrame rise;
+            rise.name = ProfileFrame::kForcedRiseName;
+            rise.temperature = tempDecline;
+            rise.sensor = "coffee";
+            rise.pump = "pressure";
+            rise.transition = "fast";
+            rise.pressure = recipe.espressoPressure;
+            rise.seconds = 3.0;
+            rise.volume = 0;
+            rise.exitIf = false;
+            // Limited, same as the rise in the hold branch above.
+            if (recipe.limiterValue > 0) {
+                rise.maxFlowOrPressure = recipe.limiterValue;
+                rise.maxFlowOrPressureRange = recipe.limiterRange;
+            }
+            frames.append(rise);
             declineTime -= 3;
         }
 

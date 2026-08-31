@@ -90,6 +90,13 @@ class ProfileManager : public QObject {
     Q_PROPERTY(bool brewByRatioActive READ brewByRatioActive NOTIFY targetWeightChanged)
     Q_PROPERTY(double brewByRatioDose READ brewByRatioDose NOTIFY targetWeightChanged)
     Q_PROPERTY(double brewByRatio READ brewByRatio NOTIFY targetWeightChanged)
+
+    // The two flow numbers the editors need. Read-only and CONSTANT: they are
+    // compatibility constants shared with de1app (Profile::kDefaultPressureFlowLimit,
+    // Profile::kMaxSettableFlow), and a QML file that spelled either one itself would be
+    // free to drift from the C++ that enforces it.
+    Q_PROPERTY(double defaultPressureFlowLimit READ defaultPressureFlowLimit CONSTANT)
+    Q_PROPERTY(double maxSettableFlow READ maxSettableFlow CONSTANT)
     Q_PROPERTY(QVariantList availableProfiles READ availableProfiles NOTIFY profilesChanged)
     Q_PROPERTY(QVariantList selectedProfiles READ selectedProfiles NOTIFY profilesChanged)
     Q_PROPERTY(QVariantList allBuiltInProfiles READ allBuiltInProfiles NOTIFY allBuiltInProfileListChanged)
@@ -160,6 +167,8 @@ public:
 
     // === Profile state ===
     QString currentProfileName() const;
+    double defaultPressureFlowLimit() const { return Profile::kDefaultPressureFlowLimit; }
+    double maxSettableFlow() const { return Profile::kMaxSettableFlow; }
     QString currentProfileTitle() const { return m_currentProfile.title(); }
     QString baseProfileName() const { return m_baseProfileName; }
     Q_INVOKABLE QString previousProfileName() const { return m_previousProfileName; }

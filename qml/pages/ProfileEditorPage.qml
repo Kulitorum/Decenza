@@ -1287,7 +1287,7 @@ T.Page {
                         Accessible.role: Accessible.Button; Accessible.name: "Goal: Pressure"; Accessible.focusable: true
                         Accessible.onPressAction: goalPressureArea.clicked(null)
                         Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.pressure", "Pressure"); font: Theme.captionFont; color: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? Theme.primaryContrastColor : Theme.textSecondaryColor; Accessible.ignored: true }
-                        MouseArea { id: goalPressureArea; anchors.fill: parent; onClicked: { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].pump = "pressure"; profileEditorPage.uploadProfile() } } }
+                        MouseArea { id: goalPressureArea; anchors.fill: parent; onClicked: { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].pump = "pressure"; if (!(profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].max_flow_or_pressure > 0)) profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].max_flow_or_pressure = ProfileManager.defaultPressureFlowLimit; profileEditorPage.uploadProfile() } } }
                     }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
@@ -1306,7 +1306,7 @@ T.Page {
                     Layout.fillWidth: true
                     valueColor: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? Theme.flowColor : Theme.pressureColor
                     accessibleName: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? "Flow goal" : "Pressure goal"
-                    from: 0; to: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? 8 : 12; stepSize: 0.01
+                    from: 0; to: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? ProfileManager.maxSettableFlow : 12; stepSize: 0.01
                     suffix: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? " mL/s" : " bar"
                     value: { var v = profileEditorPage.stepVersion; return stepEditorScroll.step ? (stepEditorScroll.step.pump === "flow" ? stepEditorScroll.step.flow : stepEditorScroll.step.pressure) : 0 }
                     onValueModified: function(newValue) {
@@ -1377,9 +1377,14 @@ T.Page {
                     Layout.fillWidth: true
                     valueColor: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? Theme.flowColor : Theme.pressureColor
                     accessibleName: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? TranslationManager.translate("profileEditor.maxFlow", "Flow limit") : TranslationManager.translate("profileEditor.maxPressure", "Pressure limit")
-                    from: 0; to: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? 8 : 12; stepSize: 0.01
+                    // A pressure step's flow limit can no longer be off: it floors at
+                    // 0.1 and a typed 0 snaps to the default. A flow step's limiter is a
+                    // PRESSURE limit, where off is still legal, so it keeps 0 and "off".
+                    from: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? 0.1 : 0
+                    to: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? ProfileManager.maxSettableFlow : 12; stepSize: 0.01
+                    snapZeroTo: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? ProfileManager.defaultPressureFlowLimit : 0
                     suffix: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? " mL/s" : " bar"
-                    displayText: { var v = profileEditorPage.stepVersion; var val = stepEditorScroll.step ? (stepEditorScroll.step.max_flow_or_pressure || 0) : 0; return val === 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
+                    displayText: { var v = profileEditorPage.stepVersion; var val = stepEditorScroll.step ? (stepEditorScroll.step.max_flow_or_pressure || 0) : 0; return (val === 0 && !(stepEditorScroll.step && stepEditorScroll.step.pump === "pressure")) ? TranslationManager.translate("profileEditor.off", "off") : "" }
                     value: { var v = profileEditorPage.stepVersion; return stepEditorScroll.step ? (stepEditorScroll.step.max_flow_or_pressure || 0) : 0 }
                     onValueModified: function(newValue) { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex].max_flow_or_pressure = Math.round(newValue * 100) / 100 } }
                     onValueCommitted: profileEditorPage.uploadProfile()

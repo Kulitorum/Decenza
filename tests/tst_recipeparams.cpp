@@ -3,6 +3,7 @@
 #include <QVariantMap>
 
 #include "profile/recipeparams.h"
+#include "profile/profile.h"
 
 // Test RecipeParams serialization, validation, clamping, and frameAffectingFieldsEqual.
 // Expected defaults from de1app D-Flow/A-Flow stock profiles.
@@ -170,11 +171,17 @@ private slots:
 
     void clampFlowRange() {
         RecipeParams params;
-        params.pourFlow = 15.0;  // Over 10 mL/s max
+        // The ceiling admits a higher-flow machine's profiles so they survive a round
+        // trip through the editor unclamped — see Profile::kMaxSettableFlow.
+        params.pourFlow = 15.0;
         params.holdFlow = -1.0;
         params.clamp();
-        QCOMPARE(params.pourFlow, 10.0);
+        QCOMPARE(params.pourFlow, 15.0);
         QCOMPARE(params.holdFlow, 0.0);
+
+        params.pourFlow = 25.0;  // Over the ceiling
+        params.clamp();
+        QCOMPARE(params.pourFlow, Profile::kMaxSettableFlow);
     }
 
     void clampTemperatureRange() {
