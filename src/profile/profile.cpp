@@ -200,7 +200,11 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
     if (holdTime > 0) {
         if (holdTime > 3) {
             ProfileFrame rise;
-            rise.name = ProfileFrame::kForcedRiseName;
+            // Named for what it IS: the limiter below is conditional, so a profile
+            // with no flow limit still produces a genuinely unlimited rise, and the
+            // legacy name is the accurate one there. isForcedRiseName() matches both.
+            rise.name = maximumFlow > 0 ? ProfileFrame::kForcedRiseName
+                                         : ProfileFrame::kForcedRiseWithoutLimitName;
             rise.temperature = temp2;
             rise.sensor = "coffee";
             rise.pump = "pressure";
@@ -244,7 +248,11 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
         // possible decrement) and decline is long enough to split off 3s
         if (holdTime < 3 && declineTime > 3) {
             ProfileFrame rise;
-            rise.name = ProfileFrame::kForcedRiseName;
+            // Named for what it IS: the limiter below is conditional, so a profile
+            // with no flow limit still produces a genuinely unlimited rise, and the
+            // legacy name is the accurate one there. isForcedRiseName() matches both.
+            rise.name = maximumFlow > 0 ? ProfileFrame::kForcedRiseName
+                                         : ProfileFrame::kForcedRiseWithoutLimitName;
             rise.temperature = temp3;
             rise.sensor = "coffee";
             rise.pump = "pressure";
@@ -1624,12 +1632,19 @@ Profile Profile::loadFromTclString(const QString& content) {
         profile.m_preinfuseFrameCount = 0;
         readIntLike(QStringLiteral("final_desired_shot_volume_advanced_count_start"),
                     [&](int v) { profile.m_preinfuseFrameCount = v; });
-    } else {
-        // Derived from the frames, whether they were generated here or read
-        // from a stored advanced_shot — de1app's count always describes the
-        // frame list it is sent with. countPreinfuseFramesWithForcedRise() also
-        // folds in a Pressure profile's forced-rise frame(s) — see its declaration.
+    } else if (profile.m_profileType == QLatin1String("settings_2a")
+               || profile.m_profileType == QLatin1String("settings_2b")) {
+        // Derived from the frames THIS function just generated — de1app's count always
+        // describes the frame list it is sent with. countPreinfuseFramesWithForcedRise()
+        // also folds in a Pressure profile's forced-rise frame(s) — see its declaration.
         profile.m_preinfuseFrameCount = countPreinfuseFramesWithForcedRise(profile.m_steps);
+    } else {
+        // Neither simple nor settings_2c*: an unrecognised type keeps its STORED frames,
+        // so their names are the author's, not ours. "forced rise" is a short enough
+        // string to collide by accident, and folding it in would inflate
+        // NumberOfPreinfuseFrames — which moves where the DE1 starts counting for
+        // Stop-at-Volume. Only trust the name where the generator wrote it.
+        profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
     }
 
     qDebug() << "Loaded Tcl profile:" << profile.m_title

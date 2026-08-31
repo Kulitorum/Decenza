@@ -129,9 +129,10 @@ QStringList RecipeParams::validate() const {
     checkPressure(espressoPressure, "espressoPressure");
     checkPressure(pressureEnd, "pressureEnd");
 
-    // Flow bounds. Same ceiling as clamp() — stating it twice is how they drifted:
-    // clamp() and the editors were widened to 20 and this was left at 10, so every save
-    // of a legally-authored high-flow recipe logged a false "out of range".
+    // Flow bounds. Same ceiling as clamp(), because stating it twice is how they drift:
+    // widening one and not the other makes every save of a legally-authored high-flow
+    // recipe log a false "out of range". clampProducesValuesValidateAccepts is the test
+    // that ties them together.
     auto checkFlow = [&](double f, const char* name) {
         if (f < 0 || f > Profile::kMaxSettableFlow)
             issues << QString("%1 out of range [0, %2]: %3")

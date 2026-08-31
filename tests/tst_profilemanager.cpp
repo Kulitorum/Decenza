@@ -3621,6 +3621,65 @@ private slots:
         QCOMPARE(profileJsonToDouble(diskPressure["limiter"].toObject()["value"], -1.0), 0.0);
     }
 
+    void loadDoesNotPersistTheCapThroughTheRepairWriteBacks() {
+        // The sibling test above only exercises the encoding upgrade, which runs BEFORE
+        // the profile is handed to setCurrentProfile(). The two repair write-backs run
+        // AFTER it, and were passed the capped profile — so the cap reached the user's
+        // file. This fixture triggers a repair instead: espresso_temperature is omitted
+        // so fromJson heals it and the espresso_temperature write-back fires.
+        //
+        // The limiter is spelled the NESTED way the writer itself emits, so the only
+        // thing that can differ between the before and after bytes is its VALUE. With the
+        // capped profile being written, that difference makes the parity gate refuse the
+        // repair (a qWarning, which failOnWarning turns into a failure here) — so this
+        // fails loudly both ways: on a silent rewrite, and on a repair that never lands.
+        McpTestFixture f;
+        const QString path = f.profileManager.userProfilesPath() + "/repair_cap_xyz.json";
+        QDir().mkpath(f.profileManager.userProfilesPath());
+        auto cleanup = qScopeGuard([&] { QFile::remove(path); });
+
+        QJsonObject pressureStep{
+            {"name", "rise and hold"}, {"pump", "pressure"}, {"transition", "fast"},
+            {"sensor", "coffee"},      {"temperature", "92.00"}, {"seconds", "25.00"},
+            {"volume", "0.0"},         {"flow", "0.00"},     {"pressure", "9.00"},
+            {"limiter", QJsonObject{{"value", "0.00"}, {"range", "0.60"}}},
+        };
+        QJsonObject obj{
+            {"title", "Repair Cap Test"},  {"author", "Decent"},
+            {"type", "advanced"},          {"legacy_profile_type", "settings_2c"},
+            {"beverage_type", "espresso"}, {"version", "2"},
+            {"target_weight", "36.0"},     {"target_volume", "0.0"},
+            {"tank_temperature", "0.0"},   {"target_volume_count_start", "0"},
+            {"steps", QJsonArray{pressureStep}},
+        };
+        {
+            QFile out(path);
+            QVERIFY(out.open(QIODevice::WriteOnly));
+            out.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+        }
+
+        f.profileManager.loadProfile("repair_cap_xyz");
+
+        // In memory the step is capped.
+        const QList<ProfileFrame>& steps = f.profileManager.currentProfile().steps();
+        QCOMPARE(steps.size(), 1);
+        QCOMPARE(steps[0].maxFlowOrPressure, Profile::kDefaultPressureFlowLimit);
+
+        QFile after(path);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        const QJsonObject onDisk = QJsonDocument::fromJson(after.readAll()).object();
+        after.close();
+
+        // Non-vacuous: the repair must actually have been written, or "the limiter is
+        // still 0" would just be saying nothing happened.
+        QVERIFY2(profileJsonToDouble(onDisk["espresso_temperature"], 0.0) > 0.0,
+                 "the espresso_temperature repair did not persist — this test proves "
+                 "nothing about what the repair wrote");
+
+        const QJsonObject diskStep = onDisk["steps"].toArray()[0].toObject();
+        QCOMPARE(profileJsonToDouble(diskStep["limiter"].toObject()["value"], -1.0), 0.0);
+    }
+
     void loadProfileCapsUnlimitedPressureStepsEndToEnd() {
         // The end-to-end contract on the shipped fallback: default.json is settings_2a
         // with maximum_flow "0.00" and every pressure frame at limiter 0. Delete the call

@@ -449,7 +449,7 @@ T.Page {
 
                                 // Flow rate (hidden when preinfusion is off)
                                 Text { text: TranslationManager.translate("simpleProfile.flowRate", "Flow rate"); font: Theme.captionFont; color: Theme.flowColor; visible: editorPage.val(editorPage.recipe.preinfusionTime, 20) > 0 }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionFlowRate", "Preinfusion flow rate"); from: 1; to: 10; stepSize: 0.01; suffix: " mL/s"; value: editorPage.val(editorPage.recipe.preinfusionFlowRate, 8.0); onValueModified: function(newValue) { editorPage.updateRecipe("preinfusionFlowRate", Math.round(newValue * 100) / 100) }; visible: editorPage.val(editorPage.recipe.preinfusionTime, 20) > 0 }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionFlowRate", "Preinfusion flow rate"); from: 1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: editorPage.val(editorPage.recipe.preinfusionFlowRate, 8.0); onValueModified: function(newValue) { editorPage.updateRecipe("preinfusionFlowRate", Math.round(newValue * 100) / 100) }; visible: editorPage.val(editorPage.recipe.preinfusionTime, 20) > 0 }
 
                                 // Exit pressure (hidden when preinfusion is off)
                                 Text { text: TranslationManager.translate("simpleProfile.exitPressure", "Exit pressure"); font: Theme.captionFont; color: Theme.pressureColor; visible: editorPage.val(editorPage.recipe.preinfusionTime, 20) > 0 }
@@ -571,7 +571,7 @@ T.Page {
                                     Layout.fillWidth: true; valueColor: editorPage.isFlow ? Theme.flowColor : Theme.pressureColor
                                     visible: editorPage.val(editorPage.recipe.simpleDeclineTime, 30) > 0
                                     accessibleName: editorPage.isFlow ? TranslationManager.translate("simpleProfileEditor.declineEndFlow", "Decline end flow") : TranslationManager.translate("simpleProfileEditor.declinePressure", "Decline pressure")
-                                    from: 0; to: editorPage.isFlow ? 8 : 12; stepSize: 0.01; suffix: editorPage.isFlow ? " mL/s" : " bar"
+                                    from: 0; to: editorPage.isFlow ? ProfileManager.maxSettableFlow : 12; stepSize: 0.01; suffix: editorPage.isFlow ? " mL/s" : " bar"
                                     value: editorPage.isFlow ? editorPage.val(editorPage.recipe.flowEnd, 1.8) : editorPage.val(editorPage.recipe.pressureEnd, 6.0)
                                     onValueModified: function(newValue) { editorPage.isFlow
                                         ? editorPage.updateRecipe("flowEnd", Math.round(newValue * 100) / 100)

@@ -1775,9 +1775,14 @@ bool ProfileManager::loadProfile(const QString& profileName) {
                               candidate);
     }
 
-    // Below every on-disk write above, so the cap inside setCurrentProfile() reaches the
-    // editor and the machine and is never persisted by loading. The writes operate on
-    // `candidate`; this hands it over.
+    // `candidate` stays live below this line, and the two write-backs that follow
+    // deliberately serialize IT rather than m_currentProfile: setCurrentProfile() caps
+    // unlimited pressure steps, and that cap must never reach the user's file by loading.
+    //
+    // Writing the capped copy is not merely untidy, it is silent corruption. The parity
+    // gate cannot catch it: collectParityErrors() only walks keys present in the BEFORE
+    // object (profile.cpp), so a limiter ADDED to a step that had none is invisible to it,
+    // parity passes, and the file is rewritten with a limit the author never chose.
     if (found)
         setCurrentProfile(candidate, QStringLiteral("loadProfile ") + resolvedName);
 
@@ -1794,8 +1799,9 @@ bool ProfileManager::loadProfile(const QString& profileName) {
     // refuse the very write that removes it.
     if (found && m_currentProfile.recipeBlockStripped() && !m_currentProfile.isReadOnly()) {
         QStringList parity;
+        // `candidate`, not m_currentProfile — see the hand-over above.
         switch (writeProfileBackIfLossless(resolvedName, path, origin == Origin::Storage,
-                                           m_currentProfile, QString(), &parity)) {
+                                           candidate, QString(), &parity)) {
         case WriteBack::Written:
             qInfo() << "ProfileManager::loadProfile: removed stored recipe block from"
                     << resolvedName;
@@ -1843,8 +1849,11 @@ bool ProfileManager::loadProfile(const QString& profileName) {
         // through the shared helper is what makes the read and the write agree on
         // where the profile actually lives.
         QStringList parity;
+        // `candidate`, not m_currentProfile — see the hand-over above. Writing the capped
+        // copy would also make this repair fail forever: the added limiter is a parity
+        // mismatch, so the write is Refused and re-attempted on every single load.
         switch (writeProfileBackIfLossless(resolvedName, path, origin == Origin::Storage,
-                                           m_currentProfile,
+                                           candidate,
                                            QStringLiteral("espresso_temperature"), &parity)) {
         case WriteBack::Written:
             qInfo() << "ProfileManager::loadProfile: repaired stale espresso_temperature"
@@ -3309,6 +3318,14 @@ void ProfileManager::addFrame(int afterIndex) {
     newFrame.seconds = 30.0;
     newFrame.volume = 0;
     newFrame.exitIf = false;
+    // A pressure step's flow limit is never off. This frame is added straight into the
+    // live profile rather than through setCurrentProfile(), so it is not capped for it,
+    // and an uncapped step both reaches the DE1 with no limiter and renders as "0.00 mL/s"
+    // in an editor that no longer offers "off".
+    newFrame.maxFlowOrPressure = Profile::kDefaultPressureFlowLimit;
+    newFrame.maxFlowOrPressureRange = m_currentProfile.maximumFlowRangeAdvanced() > 0.0
+                                          ? m_currentProfile.maximumFlowRangeAdvanced()
+                                          : 0.6;
 
     bool added = false;
     if (afterIndex < 0 || static_cast<qsizetype>(afterIndex) >= m_currentProfile.steps().size()) {

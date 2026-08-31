@@ -555,7 +555,11 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
     if (holdTime > 0) {
         if (holdTime > 3) {
             ProfileFrame rise;
-            rise.name = ProfileFrame::kForcedRiseName;
+            // Named for what it IS: the limiter below is conditional, so a profile
+            // with no flow limit still produces a genuinely unlimited rise, and the
+            // legacy name is the accurate one there. isForcedRiseName() matches both.
+            rise.name = recipe.limiterValue > 0 ? ProfileFrame::kForcedRiseName
+                                         : ProfileFrame::kForcedRiseWithoutLimitName;
             rise.temperature = tempHold;
             rise.sensor = "coffee";
             rise.pump = "pressure";
@@ -600,7 +604,11 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
         // matching de1app's pressure_to_advanced_list() which also uses the mutated value.
         if (holdTime < 3 && declineTime > 3) {
             ProfileFrame rise;
-            rise.name = ProfileFrame::kForcedRiseName;
+            // Named for what it IS: the limiter below is conditional, so a profile
+            // with no flow limit still produces a genuinely unlimited rise, and the
+            // legacy name is the accurate one there. isForcedRiseName() matches both.
+            rise.name = recipe.limiterValue > 0 ? ProfileFrame::kForcedRiseName
+                                         : ProfileFrame::kForcedRiseWithoutLimitName;
             rise.temperature = tempDecline;
             rise.sensor = "coffee";
             rise.pump = "pressure";
