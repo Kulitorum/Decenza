@@ -2142,7 +2142,11 @@ int main(int argc, char *argv[])
     usbScaleManager.startPolling();
 #endif
 
-    AccessibilityManager accessibilityManager;
+    // nullptr explicitly: the constructor's parent is deliberately not defaulted,
+    // so that this type is NOT default-constructible and Qt's QML_SINGLETON
+    // registration reaches its create() factory instead of newing its own second
+    // instance. See accessibilitymanager.h.
+    AccessibilityManager accessibilityManager(nullptr);
     accessibilityManager.setTranslationManager(&translationManager);
 
     // Steam-coach voice: the coach emits speakRequested only when its own audio

@@ -2,6 +2,7 @@
 #define ACCESSIBILITYMANAGER_H
 
 #include <atomic>
+#include <type_traits>
 #include <QObject>
 #include <QPointer>
 #include <QTextToSpeech>
@@ -44,7 +45,16 @@ class AccessibilityManager : public QObject
     Q_PROPERTY(QString extractionAnnouncementMode READ extractionAnnouncementMode WRITE setExtractionAnnouncementMode NOTIFY extractionAnnouncementModeChanged)
 
 public:
-    explicit AccessibilityManager(QObject *parent = nullptr);
+    // `parent` is deliberately NOT defaulted, and the static_assert below holds
+    // it that way. Qt picks a QML_SINGLETON's construction mode by testing
+    // is_default_constructible BEFORE it looks for a create() factory
+    // (qtdeclarative/src/qml/qml/qqmlprivate.h:161-164), so a default-
+    // constructible singleton silently gets `new T` and its create() is never
+    // called at all. That shipped: build 3575 logged a second instance built by
+    // the QML engine during engine.load(), which meant QML's AccessibilityManager
+    // was Qt's orphan while main.cpp's wiring — the MCP server, announceCoaching —
+    // pointed at a different object, each with its own live TTS engine.
+    explicit AccessibilityManager(QObject *parent);
     ~AccessibilityManager();
 
     // QML_SINGLETON hooks. The engine does not create this object: main.cpp owns it on the stack
@@ -226,5 +236,15 @@ private:
 
     TranslationManager* m_translationManager = nullptr;
 };
+
+// Qt tests is_default_constructible BEFORE HasSingletonFactory when choosing a
+// QML_SINGLETON's construction mode (qqmlprivate.h:161-164). If this type ever
+// becomes default-constructible again, Qt stops calling create() and silently
+// builds its own second instance instead — with no compiler, qmllint or test
+// complaint. See scripts/check_qml_singletons.py for the tree-wide check.
+static_assert(!std::is_default_constructible_v<AccessibilityManager>,
+              "AccessibilityManager is a QML_SINGLETON with a create() factory: it must NOT be "
+              "default-constructible, or Qt will 'new' its own instance and never call create(). "
+              "Do not give the constructor a defaulted parent.");
 
 #endif // ACCESSIBILITYMANAGER_H

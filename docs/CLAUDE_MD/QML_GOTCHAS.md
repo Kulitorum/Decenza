@@ -468,6 +468,46 @@ Three rules when writing one:
 shipped with 9 of `ScaleDevice`'s 12 forwarded, and nothing caught it because the three omitted
 are called only from C++. Diff the two `public slots:` blocks when you write one.
 
+## A `QML_SINGLETON` with a defaulted `parent` never calls its own `create()`
+
+Qt chooses a singleton's construction mode in `singletonConstructionMode()`
+(`qtdeclarative/src/qml/qml/qqmlprivate.h:155-167`), and the ORDER of its tests is the trap:
+
+```cpp
+if constexpr (!std::is_same_v<T, WrapperT> && HasSingletonFactory<T, WrapperT>)
+    return SingletonConstructionMode::FactoryWrapper;   // QML_FOREIGN — safe
+if constexpr (std::is_default_constructible<T>::value)
+    return SingletonConstructionMode::Constructor;      // new T   <-- WINS
+if constexpr (HasSingletonFactory<T>::value)
+    return SingletonConstructionMode::Factory;          // T::create(q, j)
+```
+
+Default-constructibility is tested **before** the factory. So this is enough to disable
+`create()` entirely:
+
+```cpp
+explicit MyThing(QObject *parent = nullptr);   // default-constructible -> Qt does `new T`
+explicit MyThing(QObject *parent);             // correct: Qt reaches create()
+```
+
+Nothing diagnoses it. The factory still compiles, still looks wired, and simply never runs —
+no compiler warning, no moc error, no qmllint diagnostic, no failing test. **It shipped here.**
+`AccessibilityManager::create()` published main.cpp's instance to QML; Qt ignored it and built
+its own during `engine.load()`. QML's `AccessibilityManager` was therefore Qt's orphan, while
+`mcpServer.setAccessibilityManager()` and the `announceCoaching` connection pointed at
+main.cpp's object — two live objects, each with its own `QTextToSpeech`. It surfaced only
+because an instance counter was added to chase a duplicated TTS log line (build 3575).
+
+Note what this does NOT mean: a singleton with **no** `create()` is *meant* to be built by Qt,
+and several here rely on that. The defect is specifically "declares a factory AND is
+default-constructible", where the factory silently loses. `QML_FOREIGN` wrappers are safe too —
+`T != WrapperT` takes the `FactoryWrapper` branch first, whatever the foreign type looks like.
+
+Two things hold the line, and you want both: a `static_assert(!std::is_default_constructible_v<T>)`
+after the class (compile-time, but only where someone knew to write it), and
+`scripts/check_qml_singletons.py` in the per-PR `text-invariants` job, which covers a NEW
+singleton whose author never knew the rule existed.
+
 ## A registered singleton with no instance is TRUTHY, not `undefined`
 
 This is the trap behind `decenzaOptionalSingleton()`, and the guard everyone writes is wrong:

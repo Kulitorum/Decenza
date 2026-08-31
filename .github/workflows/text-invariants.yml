@@ -57,6 +57,17 @@ name: Text invariants
 #     icons were 216 KB of a ~248 KB payload — 87% — and 41 of 97 tools shipped the SAME 2292-byte
 #     fallback icon, all of it produced by one call to a helper and therefore invisible in review.
 #
+#   check_qml_singletons.py — a QML_SINGLETON declaring a create() factory is not
+#     default-constructible. Qt's singletonConstructionMode() tests is_default_constructible
+#     BEFORE HasSingletonFactory (qqmlprivate.h:161-164), so the factory of a default-
+#     constructible singleton is never called and Qt news its own instance instead. Blocking,
+#     because the failure is completely silent — the factory still compiles, still looks wired,
+#     and simply never runs. Found in the field, not in review: build 3575's log showed a second
+#     AccessibilityManager constructed during engine.load(), which meant every QML announcement
+#     reached an object the MCP server and the coaching signal knew nothing about. Six types
+#     carry a factory today; QML_FOREIGN wrappers are exempt because T != WrapperT takes Qt's
+#     FactoryWrapper branch first.
+#
 #   check_test_source_duplication.py — no production source is compiled into more than one test
 #     target. Each test is its own executable, so a .cpp in two source lists is compiled twice
 #     and nothing notices. Measured on a clean rebuild in July 2026: 17 sources, 46 redundant
@@ -156,6 +167,16 @@ jobs:
       # build-free rule this job is built on.
       - name: No production source compiled into two test targets
         run: python3 scripts/check_test_source_duplication.py
+
+      # Blocking: Qt tests is_default_constructible BEFORE it looks for a create() factory when
+      # choosing a QML_SINGLETON's construction mode (qqmlprivate.h:161-164), so a singleton with
+      # a defaulted `parent` silently gets `new T` and its create() becomes dead code. Nothing
+      # diagnoses it — not the compiler, not moc, not qmllint, not the suite. Decenza shipped it:
+      # QML's AccessibilityManager was an orphan Qt built during engine.load() while main.cpp's
+      # wiring pointed at a different object, each with its own live TTS engine. Pure source scan,
+      # so it fits the build-free rule this job is built on.
+      - name: QML singletons with a factory are not default-constructible
+        run: python3 scripts/check_qml_singletons.py
 
       # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph
       # outside AddLanguagePage, which it already exempts. Non-blocking because bundling another
