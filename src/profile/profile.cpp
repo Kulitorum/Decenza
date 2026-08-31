@@ -198,20 +198,25 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
 
     // Rise and hold frame (pressure pump)
     if (holdTime > 0) {
-        // If hold time > 3s, add a forced rise frame without limiter first
         if (holdTime > 3) {
-            ProfileFrame riseNoLimit;
-            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
-            riseNoLimit.temperature = temp2;
-            riseNoLimit.sensor = "coffee";
-            riseNoLimit.pump = "pressure";
-            riseNoLimit.flow = 0.0;  // de1app writes no flow on a pressure frame
-            riseNoLimit.transition = "fast";
-            riseNoLimit.pressure = espressoPressure;
-            riseNoLimit.seconds = 3.0;
-            riseNoLimit.volume = 0;
-            riseNoLimit.exitIf = false;
-            frames.append(riseNoLimit);
+            ProfileFrame rise;
+            rise.name = ProfileFrame::kForcedRiseName;
+            rise.temperature = temp2;
+            rise.sensor = "coffee";
+            rise.pump = "pressure";
+            rise.flow = 0.0;  // de1app writes no flow on a pressure frame
+            rise.transition = "fast";
+            rise.pressure = espressoPressure;
+            rise.seconds = 3.0;
+            rise.volume = 0;
+            rise.exitIf = false;
+            // Limited like the hold and decline: an unlimited rise lets a high-flow
+            // machine push unbounded flow while pressure ramps (de1app@fdd091f3).
+            if (maximumFlow > 0) {
+                rise.maxFlowOrPressure = maximumFlow;
+                rise.maxFlowOrPressureRange = maximumFlowRange;
+            }
+            frames.append(rise);
             holdTime -= 3;
         }
 
@@ -238,18 +243,23 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
         // Match de1app: add forced rise before decline when hold was short (< 3s after
         // possible decrement) and decline is long enough to split off 3s
         if (holdTime < 3 && declineTime > 3) {
-            ProfileFrame riseNoLimit;
-            riseNoLimit.name = ProfileFrame::kForcedRiseWithoutLimitName;
-            riseNoLimit.temperature = temp3;
-            riseNoLimit.sensor = "coffee";
-            riseNoLimit.pump = "pressure";
-            riseNoLimit.flow = 0.0;  // de1app writes no flow on a pressure frame
-            riseNoLimit.transition = "fast";
-            riseNoLimit.pressure = espressoPressure;
-            riseNoLimit.seconds = 3.0;
-            riseNoLimit.volume = 0;
-            riseNoLimit.exitIf = false;
-            frames.append(riseNoLimit);
+            ProfileFrame rise;
+            rise.name = ProfileFrame::kForcedRiseName;
+            rise.temperature = temp3;
+            rise.sensor = "coffee";
+            rise.pump = "pressure";
+            rise.flow = 0.0;  // de1app writes no flow on a pressure frame
+            rise.transition = "fast";
+            rise.pressure = espressoPressure;
+            rise.seconds = 3.0;
+            rise.volume = 0;
+            rise.exitIf = false;
+            // Limited, same as the rise in the hold branch above.
+            if (maximumFlow > 0) {
+                rise.maxFlowOrPressure = maximumFlow;
+                rise.maxFlowOrPressureRange = maximumFlowRange;
+            }
+            frames.append(rise);
             declineTime -= 3;
         }
 
@@ -1614,12 +1624,19 @@ Profile Profile::loadFromTclString(const QString& content) {
         profile.m_preinfuseFrameCount = 0;
         readIntLike(QStringLiteral("final_desired_shot_volume_advanced_count_start"),
                     [&](int v) { profile.m_preinfuseFrameCount = v; });
-    } else {
-        // Derived from the frames, whether they were generated here or read
-        // from a stored advanced_shot — de1app's count always describes the
-        // frame list it is sent with. countPreinfuseFramesWithForcedRise() also
-        // folds in a Pressure profile's forced-rise frame(s) — see its declaration.
+    } else if (profile.m_profileType == QLatin1String("settings_2a")
+               || profile.m_profileType == QLatin1String("settings_2b")) {
+        // Derived from the frames THIS function just generated — de1app's count always
+        // describes the frame list it is sent with. countPreinfuseFramesWithForcedRise()
+        // also folds in a Pressure profile's forced-rise frame(s) — see its declaration.
         profile.m_preinfuseFrameCount = countPreinfuseFramesWithForcedRise(profile.m_steps);
+    } else {
+        // Neither simple nor settings_2c*: an unrecognised type keeps its STORED frames,
+        // so their names are the author's, not ours. "forced rise" is a short enough
+        // string to collide by accident, and folding it in would inflate
+        // NumberOfPreinfuseFrames — which moves where the DE1 starts counting for
+        // Stop-at-Volume. Only trust the name where the generator wrote it.
+        profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
     }
 
     qDebug() << "Loaded Tcl profile:" << profile.m_title
@@ -2198,9 +2215,35 @@ int Profile::countPreinfuseFrames(const QList<ProfileFrame>& steps) {
 int Profile::countPreinfuseFramesWithForcedRise(const QList<ProfileFrame>& steps) {
     int count = countPreinfuseFrames(steps);
     for (const auto& step : steps) {
-        if (step.name == ProfileFrame::kForcedRiseWithoutLimitName) count++;
+        if (ProfileFrame::isForcedRiseName(step.name)) count++;
     }
     return count;
+}
+
+int Profile::applyDefaultPressureFlowLimit() {
+    const double range = m_maximumFlowRangeDefault > 0.0 ? m_maximumFlowRangeDefault : 1.0;
+    int changed = 0;
+
+    // settings_2a has no per-frame limiter — its one knob is the scalar, and
+    // regenerateSimpleFrames() rebuilds the frames from it. Default it too, or the next
+    // regeneration restores the unlimited frames the loop below just fixed.
+    if (m_profileType == QLatin1String("settings_2a") && m_maximumFlow <= 0.0) {
+        m_maximumFlow = kDefaultPressureFlowLimit;
+        if (m_maximumFlowRangeDefault <= 0.0) m_maximumFlowRangeDefault = range;
+        if (m_maximumFlowRangeAdvanced <= 0.0) m_maximumFlowRangeAdvanced = range;
+        changed++;
+    }
+
+    for (ProfileFrame& step : m_steps) {
+        // On a flow step the limiter is a PRESSURE limit, where off is still legal.
+        if (step.pump != QLatin1String("pressure")) continue;
+        if (step.maxFlowOrPressure > 0.0) continue;
+        step.maxFlowOrPressure = kDefaultPressureFlowLimit;
+        if (step.maxFlowOrPressureRange <= 0.0) step.maxFlowOrPressureRange = range;
+        changed++;
+    }
+
+    return changed;
 }
 
 QByteArray Profile::toDirectControlFrame(int frameIndex, const ProfileFrame& frame) const {

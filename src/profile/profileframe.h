@@ -36,12 +36,23 @@ struct ProfileFrame {
     // restoredFieldPartitionIsPinned (tst_recipeeditorparity) are the tests that
     // will fail if you forget.
 
-    // The name a generated Pressure profile's forced-rise-without-limit frame(s) carry
+    // The name a generated Pressure profile's forced-rise frame(s) carry
     // (RecipeGenerator::generatePressureFrames, Profile's own settings_2a generator) and
     // what Profile::countPreinfuseFramesWithForcedRise() matches against to exclude them
-    // from Stop-at-Volume's pour count. One name, five sites — a mismatch here silently
-    // reopens the bug this exists to fix, with every existing count-based test still green.
+    // from Stop-at-Volume's pour count.
+    //
+    // de1app renamed this frame when it started attaching the flow limiter to it
+    // (skialpine/de1app@fdd091f3): "without limit" stopped being true. Both names are
+    // live — every profile written before that carries the legacy one — so identify a
+    // forced-rise frame with isForcedRiseName(), never by comparing to one constant — a
+    // mismatch silently reopens the bug this exists to fix, with every existing
+    // count-based test still green.
+    static inline const QString kForcedRiseName = QStringLiteral("forced rise");
     static inline const QString kForcedRiseWithoutLimitName = QStringLiteral("forced rise without limit");
+
+    static bool isForcedRiseName(const QString& name) {
+        return name == kForcedRiseName || name == kForcedRiseWithoutLimitName;
+    }
 
     // === Basic Frame Properties ===
     QString name;                   // Human-readable step name (e.g., "Preinfusion")

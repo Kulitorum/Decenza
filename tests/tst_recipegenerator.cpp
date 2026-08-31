@@ -219,10 +219,10 @@ private slots:
         QCOMPARE(frames[0].pump, QString("flow"));
         QCOMPARE(frames[0].exitFlowOver, 6.0);
 
-        // de1app: forced rise = 3s, no limiter
-        QCOMPARE(frames[1].name, QString("forced rise without limit"));
+        // de1app: forced rise = 3s, limited like the hold and decline below
+        QCOMPARE(frames[1].name, QString("forced rise"));
         QCOMPARE(frames[1].seconds, 3.0);
-        QCOMPARE(frames[1].maxFlowOrPressure, 0.0);
+        QCOMPARE(frames[1].maxFlowOrPressure, 6.0);
 
         // de1app: hold = remaining time with limiter
         QCOMPARE(frames[2].seconds, 7.0);  // 10-3

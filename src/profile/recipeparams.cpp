@@ -1,4 +1,5 @@
 #include "recipeparams.h"
+#include "profile.h"
 #include <QtMath>
 
 bool RecipeParams::frameAffectingFieldsEqual(const RecipeParams& other) const {
@@ -128,10 +129,14 @@ QStringList RecipeParams::validate() const {
     checkPressure(espressoPressure, "espressoPressure");
     checkPressure(pressureEnd, "pressureEnd");
 
-    // Flow bounds (0-10 mL/s)
+    // Flow bounds. Same ceiling as clamp(), because stating it twice is how they drift:
+    // widening one and not the other makes every save of a legally-authored high-flow
+    // recipe log a false "out of range". clampProducesValuesValidateAccepts is the test
+    // that ties them together.
     auto checkFlow = [&](double f, const char* name) {
-        if (f < 0 || f > 10)
-            issues << QString("%1 out of range [0, 10]: %2").arg(name).arg(f);
+        if (f < 0 || f > Profile::kMaxSettableFlow)
+            issues << QString("%1 out of range [0, %2]: %3")
+                          .arg(name).arg(Profile::kMaxSettableFlow).arg(f);
     };
     checkFlow(pourFlow, "pourFlow");
     checkFlow(holdFlow, "holdFlow");
@@ -149,8 +154,8 @@ QStringList RecipeParams::validate() const {
     if (infuseWeight < 0) issues << "infuseWeight is negative";
 
     // Limiter bounds
-    if (limiterValue < 0 || limiterValue > 12)
-        issues << "limiterValue out of range [0, 12]";
+    if (limiterValue < 0 || limiterValue > Profile::kMaxSettableFlow)
+        issues << QString("limiterValue out of range [0, %1]").arg(Profile::kMaxSettableFlow);
     if (limiterRange < 0 || limiterRange > 10)
         issues << "limiterRange out of range [0, 10]";
 
@@ -175,16 +180,18 @@ void RecipeParams::clamp() {
     for (double* p : {&infusePressure, &pourPressure, &espressoPressure, &pressureEnd})
         clampVal(*p, 0.0, 12.0);
 
-    // Flows (0-10)
     for (double* f : {&pourFlow, &holdFlow, &flowEnd, &preinfusionFlowRate})
-        clampVal(*f, 0.0, 10.0);
+        clampVal(*f, 0.0, Profile::kMaxSettableFlow);
 
     // Times (non-negative)
     for (double* t : {&infuseTime, &rampTime, &preinfusionTime, &holdTime, &simpleDeclineTime})
         if (*t < 0) *t = 0;
 
     if (infuseWeight < 0) infuseWeight = 0;
-    clampVal(limiterValue, 0.0, 12.0);
+    // One field, two units: a flow limit in mL/s on a pressure step, a pressure limit in
+    // bar on a flow step. The clamp has to admit the larger of the two ranges; each
+    // editor imposes its own ceiling for the unit it is showing.
+    clampVal(limiterValue, 0.0, Profile::kMaxSettableFlow);
     clampVal(limiterRange, 0.0, 10.0);
 }
 

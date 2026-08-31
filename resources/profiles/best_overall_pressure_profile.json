@@ -78,10 +78,10 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.60",
-                "value": "0.00"
+                "range": "1.00",
+                "value": "3.50"
             },
-            "name": "forced rise without limit",
+            "name": "forced rise",
             "pressure": "8.40",
             "pump": "pressure",
             "seconds": "3.00",

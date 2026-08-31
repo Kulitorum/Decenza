@@ -551,10 +551,42 @@ Matches de1app's `pressure_to_advanced_list()`:
 |-------|------|-----------|-------|
 | Preinfusion Boost | flow | tempStart, 2s | Only when tempStart != tempPreinfuse |
 | Preinfusion | flow | tempPreinfuse, exit pressure_over | |
-| Forced Rise | pressure | espressoPressure, 3s, no limiter | When holdTime > 3 |
+| Forced Rise | pressure | espressoPressure, 3s, limiter when `maximum_flow > 0` | When holdTime > 3 |
 | Hold | pressure | espressoPressure, with limiter | |
-| Forced Rise | pressure | espressoPressure, 3s | When holdTime was short and declineTime > 3 |
+| Forced Rise | pressure | espressoPressure, 3s, limiter when `maximum_flow > 0` | When holdTime was short and declineTime > 3 |
 | Decline | pressure | pressureEnd, smooth, with limiter | When simpleDeclineTime > 0 |
+
+### Every pressure step carries a flow limit
+
+`Profile::applyDefaultPressureFlowLimit()` gives any pressure step with no limiter
+`Profile::kDefaultPressureFlowLimit` (8 mL/s), and defaults a `settings_2a` profile's scalar
+`maximum_flow` the same way. Decent's second machine reaches ~20 mL/s where the DE1 manages 7-8,
+so an unlimited pressure step pours differently on the two. de1app ships the same default
+(`skialpine/de1app@fdd091f3`), where it is user-overridable and its own comment notes 7-7.5 may
+track the DE1 better — so move the number only with upstream.
+
+`ProfileManager::setCurrentProfile()` is the only caller, and the only place `m_currentProfile` is
+assigned — `currentProfileAssignedOnlyBySetCurrentProfile` fails the build if a new path assigns
+it directly. That gate exists because the cap was first wired by mirroring de1app's two call
+sites, and Decenza turned out to have six ways a profile becomes current; four brewed uncapped.
+
+Not called from a parse: a stored profile (a shot's record of what it was pulled with, an import
+being compared for de-duplication) must read back exactly what it says. Not called after an editor
+save either — de1app caps at load only, so its plugins write uncapped frames on save;
+`tst_recipeeditorapppath` compares against those plugins and enforces it.
+
+In `loadProfile()` the hand-over sits ABOVE the two repair write-backs (recipe-block strip,
+`espresso_temperature`), so both of them deliberately serialize the local `candidate` rather than
+`m_currentProfile`: the cap must reach the editor and the machine and must never be persisted by
+loading. Writing the capped copy is silent corruption rather than untidiness — `collectParityErrors()`
+only walks keys present in the BEFORE object, so a limiter ADDED to a step that had none is invisible
+to the gate and the file is rewritten with a limit the author never chose. Two tests hold this:
+`loadDoesNotPersistTheDefaultFlowLimitIntoTheUsersFile` covers the encoding upgrade, which runs
+before the hand-over, and `loadDoesNotPersistTheCapThroughTheRepairWriteBacks` covers the two that
+run after it.
+
+de1app dropped "without limit" from the forced-rise frame name once it started limiting it. Both
+spellings are live — see `ProfileFrame::isForcedRiseName()`.
 
 ### Flow Profile Frames (settings_2b)
 

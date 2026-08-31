@@ -314,7 +314,10 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
     QString tempPath = profilesPath() + "/_current.json";
     if (QFile::exists(tempPath)) {
         qDebug() << "Loading modified profile from temp file:" << tempPath;
-        m_currentProfile = Profile::loadFromFile(tempPath);
+        // Restored straight from disk without going through loadProfile(), and uploaded
+        // below — the path upstream added its second call site for (de1plus/gui.tcl:2078).
+        setCurrentProfile(Profile::loadFromFile(tempPath),
+                          QStringLiteral("startup restore of _current.json"));
         m_profileModified = true;
         // Get the base profile name from settings
         if (m_settings) {
@@ -1772,8 +1775,19 @@ bool ProfileManager::loadProfile(const QString& profileName) {
                               candidate);
     }
 
+    // `candidate` stays live below this line, and the two write-backs that follow
+    // deliberately serialize IT rather than m_currentProfile: setCurrentProfile() caps
+    // unlimited pressure steps, and that cap must never reach the user's file by loading.
+    //
+    // What the parity gate does with the capped copy depends on how the stored step is
+    // spelled, and neither outcome is acceptable. Where the step carries an explicit
+    // limiter — which is every profile Decenza itself wrote, since toJson() always emits
+    // one — `0.00 -> 8.00` is an altered scalar, the write is Refused, and a repair meant
+    // to run once re-warns on every load forever. Where it does not, collectParityErrors()
+    // walks only the keys the BEFORE object had, so an ADDED limiter is invisible, parity
+    // passes, and the file is rewritten with a limit the author never chose.
     if (found)
-        m_currentProfile = candidate;
+        setCurrentProfile(candidate, QStringLiteral("loadProfile ") + resolvedName);
 
     // Persist the removal of a stored `recipe` block, so it does not survive on disk
     // on a profile the user never re-saves.
@@ -1788,8 +1802,9 @@ bool ProfileManager::loadProfile(const QString& profileName) {
     // refuse the very write that removes it.
     if (found && m_currentProfile.recipeBlockStripped() && !m_currentProfile.isReadOnly()) {
         QStringList parity;
+        // `candidate`, not m_currentProfile — see the hand-over above.
         switch (writeProfileBackIfLossless(resolvedName, path, origin == Origin::Storage,
-                                           m_currentProfile, QString(), &parity)) {
+                                           candidate, QString(), &parity)) {
         case WriteBack::Written:
             qInfo() << "ProfileManager::loadProfile: removed stored recipe block from"
                     << resolvedName;
@@ -1837,8 +1852,9 @@ bool ProfileManager::loadProfile(const QString& profileName) {
         // through the shared helper is what makes the read and the write agree on
         // where the profile actually lives.
         QStringList parity;
+        // `candidate`, not m_currentProfile — see the hand-over above.
         switch (writeProfileBackIfLossless(resolvedName, path, origin == Origin::Storage,
-                                           m_currentProfile,
+                                           candidate,
                                            QStringLiteral("espresso_temperature"), &parity)) {
         case WriteBack::Written:
             qInfo() << "ProfileManager::loadProfile: repaired stale espresso_temperature"
@@ -1905,11 +1921,7 @@ bool ProfileManager::loadProfile(const QString& profileName) {
     resetBrewOverridesForLoadedProfile();
     applyRecommendedDoseIfProfileOwnsIt();
 
-    if (m_machineState) {
-        m_machineState->setTargetWeight(targetWeight());
-        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
-        m_machineState->setProfileType(m_currentProfile.profileType());
-    }
+    syncMachineStateToCurrentProfile();
 
     // Upload to machine if connected (for frame-based mode)
     if (m_currentProfile.mode() == Profile::Mode::FrameBased) {
@@ -1944,7 +1956,8 @@ bool ProfileManager::loadProfileFromJson(const QString& jsonContent) {
     m_lastUploadFailureReason.clear();
     updateProfileUploadRetrying();
 
-    m_currentProfile = Profile::loadFromJsonString(jsonContent);
+    setCurrentProfile(Profile::loadFromJsonString(jsonContent),
+                      QStringLiteral("loadProfileFromJson"));
 
     if (m_currentProfile.title().isEmpty() || m_currentProfile.steps().isEmpty()) {
         qWarning() << "loadProfileFromJson: Failed to parse profile JSON";
@@ -1963,11 +1976,7 @@ bool ProfileManager::loadProfileFromJson(const QString& jsonContent) {
     // New profile, no overrides: the caller (e.g. shot load) re-applies its own.
     resetBrewOverridesForLoadedProfile();
 
-    if (m_machineState) {
-        m_machineState->setTargetWeight(targetWeight());
-        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
-        m_machineState->setProfileType(m_currentProfile.profileType());
-    }
+    syncMachineStateToCurrentProfile();
 
     // Upload to machine if connected (for frame-based mode)
     if (m_currentProfile.mode() == Profile::Mode::FrameBased) {
@@ -2957,16 +2966,7 @@ void ProfileManager::uploadRecipeProfile(const QVariantMap& recipeParams) {
     }
 
     // Sync stop targets to MachineState so SAW/volume checks use current values
-    if (m_machineState) {
-        // Through the ladder, not the raw profile value: the overrides were
-        // just cleared so these resolve identically when idle, but mid-shot
-        // targetWeight() honours the latch while the raw read would shove a
-        // new target at the machine during the pour (reachable from MCP /
-        // the web editor, which can save a profile at any time).
-        m_machineState->setTargetWeight(targetWeight());
-        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
-        m_machineState->setProfileType(m_currentProfile.profileType());
-    }
+    syncMachineStateToCurrentProfile();
 
     // Mark as modified
     if (!m_profileModified) {
@@ -3195,7 +3195,8 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
     recipe.applyEditorDefaults();
     recipe.clamp();  // Ensure values are within hardware limits
 
-    m_currentProfile = RecipeGenerator::createProfile(recipe, title);
+    setCurrentProfile(RecipeGenerator::createProfile(recipe, title),
+                      QStringLiteral("createNewProfileWithEditorType"));
     m_baseProfileName = "";
     m_profileModified = true;
 
@@ -3203,16 +3204,7 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
         m_settings->app()->setSelectedFavoriteProfile(-1);
         m_settings->brew()->clearAllBrewOverrides();
     }
-    if (m_machineState) {
-        // Through the ladder, not the raw profile value: the overrides were
-        // just cleared so these resolve identically when idle, but mid-shot
-        // targetWeight() honours the latch while the raw read would shove a
-        // new target at the machine during the pour (reachable from MCP /
-        // the web editor, which can save a profile at any time).
-        m_machineState->setTargetWeight(targetWeight());
-        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
-        m_machineState->setProfileType(m_currentProfile.profileType());
-    }
+    syncMachineStateToCurrentProfile();
 
     emit currentProfileChanged();
     emit profileModifiedChanged();
@@ -3260,17 +3252,17 @@ void ProfileManager::convertCurrentProfileToAdvanced() {
 }
 
 void ProfileManager::createNewProfile(const QString& title) {
-    // Create a new profile with a single default frame
-    m_currentProfile = Profile();
-    m_currentProfile.setTitle(title);
-    m_currentProfile.setAuthor("");
-    m_currentProfile.setProfileNotes("");
-    m_currentProfile.setBeverageType("espresso");
-    m_currentProfile.setProfileType("settings_2c");
-    m_currentProfile.setTargetWeight(36.0);
-    m_currentProfile.setTargetVolume(0.0);
-    m_currentProfile.setEspressoTemperature(93.0);
-
+    // Built locally and handed over, because setCurrentProfile() owns the assignment —
+    // and its cap matters here: the default frame is a PRESSURE frame with no limiter.
+    Profile profile;
+    profile.setTitle(title);
+    profile.setAuthor("");
+    profile.setProfileNotes("");
+    profile.setBeverageType("espresso");
+    profile.setProfileType("settings_2c");
+    profile.setTargetWeight(36.0);
+    profile.setTargetVolume(0.0);
+    profile.setEspressoTemperature(93.0);
 
     // Add a single default extraction frame
     ProfileFrame defaultFrame;
@@ -3284,9 +3276,10 @@ void ProfileManager::createNewProfile(const QString& title) {
     defaultFrame.seconds = 60.0;
     defaultFrame.volume = 0;
     defaultFrame.exitIf = false;
-    if (!m_currentProfile.addStep(defaultFrame)) {
+    if (!profile.addStep(defaultFrame)) {
         qWarning() << "createNewBlankProfile: failed to add default frame";
     }
+    setCurrentProfile(std::move(profile), QStringLiteral("createNewProfile"));
 
     m_baseProfileName = "";
     m_profileModified = true;
@@ -3295,16 +3288,7 @@ void ProfileManager::createNewProfile(const QString& title) {
         m_settings->app()->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
         m_settings->brew()->clearAllBrewOverrides();
     }
-    if (m_machineState) {
-        // Through the ladder, not the raw profile value: the overrides were
-        // just cleared so these resolve identically when idle, but mid-shot
-        // targetWeight() honours the latch while the raw read would shove a
-        // new target at the machine during the pour (reachable from MCP /
-        // the web editor, which can save a profile at any time).
-        m_machineState->setTargetWeight(targetWeight());
-        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
-        m_machineState->setProfileType(m_currentProfile.profileType());
-    }
+    syncMachineStateToCurrentProfile();
 
     emit currentProfileChanged();
     emit profileModifiedChanged();
@@ -3335,6 +3319,14 @@ void ProfileManager::addFrame(int afterIndex) {
     newFrame.seconds = 30.0;
     newFrame.volume = 0;
     newFrame.exitIf = false;
+    // A pressure step's flow limit is never off. This frame is added straight into the
+    // live profile rather than through setCurrentProfile(), so it is not capped for it,
+    // and an uncapped step both reaches the DE1 with no limiter and renders as "0.00 mL/s"
+    // in an editor that no longer offers "off".
+    newFrame.maxFlowOrPressure = Profile::kDefaultPressureFlowLimit;
+    newFrame.maxFlowOrPressureRange = m_currentProfile.maximumFlowRangeAdvanced() > 0.0
+                                          ? m_currentProfile.maximumFlowRangeAdvanced()
+                                          : 0.6;
 
     bool added = false;
     if (afterIndex < 0 || static_cast<qsizetype>(afterIndex) >= m_currentProfile.steps().size()) {
@@ -3555,8 +3547,29 @@ void ProfileManager::applyFlowCalibration() {
 
 // === Private helpers ===
 
+void ProfileManager::setCurrentProfile(Profile profile, const QString& context) {
+    const int capped = profile.applyDefaultPressureFlowLimit();
+    m_currentProfile = std::move(profile);
+    if (capped <= 0) return;
+    // qInfo, not qDebug: this changes how the shot pours and can reach the user's file on
+    // a later save, so it belongs in the log a user (or their AI) reads when asking why a
+    // profile behaves differently than it used to.
+    qInfo() << "ProfileManager:" << context << "- capped" << capped
+            << "unlimited pressure step(s) in" << m_currentProfile.title()
+            << "at" << Profile::kDefaultPressureFlowLimit
+            << "mL/s (de1app default; not written to disk unless the profile is saved)";
+}
+
+void ProfileManager::syncMachineStateToCurrentProfile() {
+    if (!m_machineState) return;
+    m_machineState->setTargetWeight(targetWeight());
+    m_machineState->setTargetVolume(m_currentProfile.targetVolume());
+    m_machineState->setProfileType(m_currentProfile.profileType());
+}
+
 void ProfileManager::loadDefaultProfile() {
-    m_currentProfile = Profile::loadFromFile(QStringLiteral(":/profiles/default.json"));
+    setCurrentProfile(Profile::loadFromFile(QStringLiteral(":/profiles/default.json")),
+                      QStringLiteral("loadDefaultProfile"));
     if (m_settings) {
         m_settings->app()->setSelectedFavoriteProfile(-1);
     }

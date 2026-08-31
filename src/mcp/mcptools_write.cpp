@@ -12,6 +12,23 @@
 #include "../core/yieldspec.h"
 #include "../history/bagid.h"
 #include "../network/beanbase_blob.h"
+
+namespace {
+// A setting stored as a scaled integer (hundredths of a mL/s, tenths of a degree)
+// arrives here as the real-world double. static_cast TRUNCATES, and binary floating
+// point puts the product just under the tick often enough to matter: 0.57 * 100 is
+// 56.999999999999993, so a truncating write stored 56 and the value read back as
+// 0.56. de1app fixed the same defect on its own steam-flow entry
+// (skialpine/de1app@fdd091f3) by moving int() -> round().
+//
+// One helper rather than a qRound at each of the six call sites: the sites differ
+// only in scale, and six copies of a rounding rule are six chances to grow a
+// seventh that truncates.
+int scaledSettingValue(double realWorldValue, double scale)
+{
+    return qRound(realWorldValue * scale);
+}
+}  // namespace
 #include "../network/beanbaseclient.h"
 #include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
@@ -832,7 +849,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 updated << "steamTimeout";
             }
             if (args.contains("steamFlowMlPerSec")) {
-                int v = static_cast<int>(args["steamFlowMlPerSec"].toDouble() * 100.0);
+                int v = scaledSettingValue(args["steamFlowMlPerSec"].toDouble(), 100.0);
                 addSetter([settings, v]() { settings->brew()->setSteamFlow(v); });
                 updated << "steamFlowMlPerSec";
             }
@@ -875,7 +892,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 updated << "waterVolumeMode";
             }
             if (args.contains("hotWaterFlowRateMlPerSec")) {
-                int v = static_cast<int>(args["hotWaterFlowRateMlPerSec"].toDouble() * 10.0);
+                int v = scaledSettingValue(args["hotWaterFlowRateMlPerSec"].toDouble(), 10.0);
                 auto* hw = settings->hardware();
                 addSetter([hw, v]() { hw->setHotWaterFlowRate(v); });
                 updated << "hotWaterFlowRateMlPerSec";
@@ -1446,22 +1463,22 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             {
                 auto* hw = settings->hardware();
                 if (args.contains("heaterIdleTempC")) {
-                    int v = static_cast<int>(args["heaterIdleTempC"].toDouble() * 10.0);
+                    int v = scaledSettingValue(args["heaterIdleTempC"].toDouble(), 10.0);
                     addSetter([hw, v]() { hw->setHeaterIdleTemp(v); });
                     updated << "heaterIdleTempC";
                 }
                 if (args.contains("heaterWarmupFlowMlPerSec")) {
-                    int v = static_cast<int>(args["heaterWarmupFlowMlPerSec"].toDouble() * 10.0);
+                    int v = scaledSettingValue(args["heaterWarmupFlowMlPerSec"].toDouble(), 10.0);
                     addSetter([hw, v]() { hw->setHeaterWarmupFlow(v); });
                     updated << "heaterWarmupFlowMlPerSec";
                 }
                 if (args.contains("heaterTestFlowMlPerSec")) {
-                    int v = static_cast<int>(args["heaterTestFlowMlPerSec"].toDouble() * 10.0);
+                    int v = scaledSettingValue(args["heaterTestFlowMlPerSec"].toDouble(), 10.0);
                     addSetter([hw, v]() { hw->setHeaterTestFlow(v); });
                     updated << "heaterTestFlowMlPerSec";
                 }
                 if (args.contains("heaterWarmupTimeoutSec")) {
-                    int v = static_cast<int>(args["heaterWarmupTimeoutSec"].toDouble() * 10.0);
+                    int v = scaledSettingValue(args["heaterWarmupTimeoutSec"].toDouble(), 10.0);
                     addSetter([hw, v]() { hw->setHeaterWarmupTimeout(v); });
                     updated << "heaterWarmupTimeoutSec";
                 }

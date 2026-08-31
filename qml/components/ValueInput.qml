@@ -14,6 +14,9 @@ Item {
     property real to: 100
     property real stepSize: 1
     property real fineStepSize: 0  // Optional lower gear (e.g., 1 when stepSize is 10). 0 = disabled.
+    // Where a TYPED 0 lands. Only the typed path needs it — every other path (+/-, drag,
+    // scrubber) goes through adjustValueWithStep(), which already floors at `from`.
+    property real snapZeroTo: 0
     property int decimals: stepSize >= 1 ? 0 : (stepSize >= 0.1 ? 1 : 2)
     readonly property bool hasFineGear: fineStepSize > 0 && fineStepSize < stepSize
 
@@ -702,6 +705,7 @@ Item {
                             function commitText() {
                                 var parsed = parseFloat(text)
                                 if (!isNaN(parsed)) {
+                                    if (parsed === 0 && root.snapZeroTo > 0) parsed = root.snapZeroTo
                                     parsed = Math.max(root.from, Math.min(root.to, parsed))
                                     var roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
                                     parsed = Math.round(parsed / roundTo) * roundTo

@@ -3,6 +3,7 @@
 #include <QVariantMap>
 
 #include "profile/recipeparams.h"
+#include "profile/profile.h"
 
 // Test RecipeParams serialization, validation, clamping, and frameAffectingFieldsEqual.
 // Expected defaults from de1app D-Flow/A-Flow stock profiles.
@@ -170,11 +171,17 @@ private slots:
 
     void clampFlowRange() {
         RecipeParams params;
-        params.pourFlow = 15.0;  // Over 10 mL/s max
+        // The ceiling admits a higher-flow machine's profiles so they survive a round
+        // trip through the editor unclamped — see Profile::kMaxSettableFlow.
+        params.pourFlow = 15.0;
         params.holdFlow = -1.0;
         params.clamp();
-        QCOMPARE(params.pourFlow, 10.0);
+        QCOMPARE(params.pourFlow, 15.0);
         QCOMPARE(params.holdFlow, 0.0);
+
+        params.pourFlow = 25.0;  // Over the ceiling
+        params.clamp();
+        QCOMPARE(params.pourFlow, Profile::kMaxSettableFlow);
     }
 
     void clampTemperatureRange() {
@@ -208,12 +215,34 @@ private slots:
         RecipeParams params;
         params.targetWeight = -10.0;
         params.infusePressure = 15.0;
-        params.pourFlow = 20.0;
+        // Above kMaxSettableFlow, not merely above the old 10 — 20 is now the legal
+        // ceiling, so the previous value here would assert that a valid recipe is invalid.
+        params.pourFlow = Profile::kMaxSettableFlow + 5.0;
         params.infuseTime = -1.0;
         params.preinfuseFrameCount = 25;
 
         QStringList issues = params.validate();
         QVERIFY(issues.size() >= 5);
+    }
+
+    void clampProducesValuesValidateAccepts() {
+        // The two carried separate copies of the same ceilings and drifted: clamp() and
+        // the editors were widened to 20 while validate() stayed at 10/12, so a legally
+        // authored high-flow recipe logged "out of range" on every save. One assertion
+        // ties them together.
+        RecipeParams params;
+        params.pourFlow = 99.0;
+        params.holdFlow = 99.0;
+        params.flowEnd = 99.0;
+        params.preinfusionFlowRate = 99.0;
+        params.limiterValue = 99.0;
+        params.limiterRange = 99.0;
+        params.espressoPressure = 99.0;
+        params.targetWeight = 9999.0;
+        params.clamp();
+
+        const QStringList issues = params.validate();
+        QVERIFY2(issues.isEmpty(), qPrintable(issues.join("; ")));
     }
 
     void validateSentinelPreinfuseFrameCount() {
