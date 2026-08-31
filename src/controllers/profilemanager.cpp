@@ -1779,10 +1779,13 @@ bool ProfileManager::loadProfile(const QString& profileName) {
     // deliberately serialize IT rather than m_currentProfile: setCurrentProfile() caps
     // unlimited pressure steps, and that cap must never reach the user's file by loading.
     //
-    // Writing the capped copy is not merely untidy, it is silent corruption. The parity
-    // gate cannot catch it: collectParityErrors() only walks keys present in the BEFORE
-    // object (profile.cpp), so a limiter ADDED to a step that had none is invisible to it,
-    // parity passes, and the file is rewritten with a limit the author never chose.
+    // What the parity gate does with the capped copy depends on how the stored step is
+    // spelled, and neither outcome is acceptable. Where the step carries an explicit
+    // limiter — which is every profile Decenza itself wrote, since toJson() always emits
+    // one — `0.00 -> 8.00` is an altered scalar, the write is Refused, and a repair meant
+    // to run once re-warns on every load forever. Where it does not, collectParityErrors()
+    // walks only the keys the BEFORE object had, so an ADDED limiter is invisible, parity
+    // passes, and the file is rewritten with a limit the author never chose.
     if (found)
         setCurrentProfile(candidate, QStringLiteral("loadProfile ") + resolvedName);
 
@@ -1849,9 +1852,7 @@ bool ProfileManager::loadProfile(const QString& profileName) {
         // through the shared helper is what makes the read and the write agree on
         // where the profile actually lives.
         QStringList parity;
-        // `candidate`, not m_currentProfile — see the hand-over above. Writing the capped
-        // copy would also make this repair fail forever: the added limiter is a parity
-        // mismatch, so the write is Refused and re-attempted on every single load.
+        // `candidate`, not m_currentProfile — see the hand-over above.
         switch (writeProfileBackIfLossless(resolvedName, path, origin == Origin::Storage,
                                            candidate,
                                            QStringLiteral("espresso_temperature"), &parity)) {

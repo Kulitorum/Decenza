@@ -551,9 +551,9 @@ Matches de1app's `pressure_to_advanced_list()`:
 |-------|------|-----------|-------|
 | Preinfusion Boost | flow | tempStart, 2s | Only when tempStart != tempPreinfuse |
 | Preinfusion | flow | tempPreinfuse, exit pressure_over | |
-| Forced Rise | pressure | espressoPressure, 3s, with limiter | When holdTime > 3 |
+| Forced Rise | pressure | espressoPressure, 3s, limiter when `maximum_flow > 0` | When holdTime > 3 |
 | Hold | pressure | espressoPressure, with limiter | |
-| Forced Rise | pressure | espressoPressure, 3s, with limiter | When holdTime was short and declineTime > 3 |
+| Forced Rise | pressure | espressoPressure, 3s, limiter when `maximum_flow > 0` | When holdTime was short and declineTime > 3 |
 | Decline | pressure | pressureEnd, smooth, with limiter | When simpleDeclineTime > 0 |
 
 ### Every pressure step carries a flow limit
@@ -575,9 +575,15 @@ being compared for de-duplication) must read back exactly what it says. Not call
 save either — de1app caps at load only, so its plugins write uncapped frames on save;
 `tst_recipeeditorapppath` compares against those plugins and enforces it.
 
-In `loadProfile()` the hand-over sits below the notes backfill, i.e. after every on-disk write in
-that function: the cap must reach the editor and the machine and must never be persisted by loading.
-`loadDoesNotPersistTheDefaultFlowLimitIntoTheUsersFile` is what holds that ordering.
+In `loadProfile()` the hand-over sits ABOVE the two repair write-backs (recipe-block strip,
+`espresso_temperature`), so both of them deliberately serialize the local `candidate` rather than
+`m_currentProfile`: the cap must reach the editor and the machine and must never be persisted by
+loading. Writing the capped copy is silent corruption rather than untidiness — `collectParityErrors()`
+only walks keys present in the BEFORE object, so a limiter ADDED to a step that had none is invisible
+to the gate and the file is rewritten with a limit the author never chose. Two tests hold this:
+`loadDoesNotPersistTheDefaultFlowLimitIntoTheUsersFile` covers the encoding upgrade, which runs
+before the hand-over, and `loadDoesNotPersistTheCapThroughTheRepairWriteBacks` covers the two that
+run after it.
 
 de1app dropped "without limit" from the forced-rise frame name once it started limiting it. Both
 spellings are live — see `ProfileFrame::isForcedRiseName()`.

@@ -200,11 +200,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
     if (holdTime > 0) {
         if (holdTime > 3) {
             ProfileFrame rise;
-            // Named for what it IS: the limiter below is conditional, so a profile
-            // with no flow limit still produces a genuinely unlimited rise, and the
-            // legacy name is the accurate one there. isForcedRiseName() matches both.
-            rise.name = maximumFlow > 0 ? ProfileFrame::kForcedRiseName
-                                         : ProfileFrame::kForcedRiseWithoutLimitName;
+            rise.name = ProfileFrame::kForcedRiseName;
             rise.temperature = temp2;
             rise.sensor = "coffee";
             rise.pump = "pressure";
@@ -248,11 +244,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
         // possible decrement) and decline is long enough to split off 3s
         if (holdTime < 3 && declineTime > 3) {
             ProfileFrame rise;
-            // Named for what it IS: the limiter below is conditional, so a profile
-            // with no flow limit still produces a genuinely unlimited rise, and the
-            // legacy name is the accurate one there. isForcedRiseName() matches both.
-            rise.name = maximumFlow > 0 ? ProfileFrame::kForcedRiseName
-                                         : ProfileFrame::kForcedRiseWithoutLimitName;
+            rise.name = ProfileFrame::kForcedRiseName;
             rise.temperature = temp3;
             rise.sensor = "coffee";
             rise.pump = "pressure";
