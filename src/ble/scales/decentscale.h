@@ -42,7 +42,9 @@ private:
 #ifdef DECENZA_TESTING
     friend class tst_ScaleProtocol;
 #endif
-    void parseWeightData(const QByteArray& data);
+    bool parseWeightData(const QByteArray& data);
+    // See scaleFrameShapeLine() for the once-per-shape, capped policy.
+    void logFrameShapeOnce(const QString& shape, const QByteArray& data);
     void sendCommand(const QByteArray& command);
     void sendHeartbeat();
     void enableWeightNotifications(const QString& reason);
@@ -119,4 +121,9 @@ private:
     // cleared. Without that flush the tally would surface on the next connect's
     // first poll, dating this connection's polls to the next one.
     LogCollapse m_pollLog{LogCollapse::kChangesOnly};
+
+    // Frame shapes the parser did not decode. EPISODIC, and keyed by shapes the
+    // driver does not enumerate, so onTransportDisconnected() ends the run with
+    // flushAll() (logcollapse.h).
+    LogCollapse m_frameShapeLog{LogCollapse::kChangesOnly};
 };

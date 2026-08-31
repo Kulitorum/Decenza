@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ble/scaledevice.h"
+#include "core/logcollapse.h"
 
 #include <QTimer>
 
@@ -75,6 +76,8 @@ private:
     friend class tst_UsbDecentScale;
 #endif
     void processBuffer();
+    // See scaleFrameShapeLine() for the once-per-shape, capped policy.
+    void logFrameShapeOnce(const QString& shape, const QByteArray& data);
     void processPacket(const QByteArray& packet);
     void sendCommand(const QByteArray& commandData);
 
@@ -85,6 +88,10 @@ private:
 
     QByteArray m_buffer;
     QTimer m_heartbeatTimer;
+
+    // Frame shapes the framer could not decode. EPISODIC — a port closes — so
+    // close() ends the run with flushAll().
+    LogCollapse m_frameShapeLog{LogCollapse::kChangesOnly};
 
 #ifdef Q_OS_ANDROID
     QTimer m_readTimer;

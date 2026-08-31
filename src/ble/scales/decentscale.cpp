@@ -119,6 +119,10 @@ void DecentScale::onTransportDisconnected() {
         if (collapsed.suppressed > 0)
             DECENT_LOG(batteryPollText() + LogCollapse::suffix(collapsed));
     }
+    for (const auto& [shape, collapsed] :
+         m_frameShapeLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
+        DECENT_LOG(shape + LogCollapse::suffix(collapsed));
+    }
     setConnected(false);
 }
 
@@ -320,26 +324,69 @@ void DecentScale::armWatchdogIfEnableNeverIssues() {
 void DecentScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUuid,
                                           const QByteArray& value) {
     if (characteristicUuid == Scale::Decent::READ) {
-        tickleWatchdog();
-        parseWeightData(value);
+        // Only a frame the parser DECODED counts as the feed being alive. The
+        // tickle used to run first and unconditionally, so a scale sending
+        // nothing this driver can read -- one left in ADS debug mode, or framing
+        // in a way we do not decode -- kept the watchdog satisfied forever: the
+        // app reported connected and healthy while the weight sat frozen and
+        // stop-at-weight never fired. The watchdog exists to catch exactly that
+        // and was being fed by the frames that caused it.
+        if (parseWeightData(value))
+            tickleWatchdog();
     }
 }
 
-void DecentScale::parseWeightData(const QByteArray& data) {
-    if (data.size() < 7) return;
+void DecentScale::logFrameShapeOnce(const QString& shape, const QByteArray& data) {
+    const QString line = scaleFrameShapeLine(m_frameShapeLog, shape, data,
+                                             QDateTime::currentMSecsSinceEpoch());
+    if (!line.isEmpty())
+        DECENT_LOG(line);
+}
+
+// Returns true when the frame was decoded, which is what the caller treats as
+// the weight feed being alive.
+bool DecentScale::parseWeightData(const QByteArray& data) {
+    if (data.size() < 2) {
+        logFrameShapeOnce(QString("Undersized frame, %1 bytes").arg(data.size()), data);
+        return false;
+    }
 
     const uint8_t* d = reinterpret_cast<const uint8_t*>(data.constData());
 
     uint8_t command = d[1];
+
+    // Dispatch on LENGTH before checksum, so a frame that is not a 7-byte packet
+    // never reaches the v1 auto-disable counter below.
+    //
+    // The exactness is enforced here, not by notifiedFrameLength(), which asks
+    // only whether enough bytes have arrived -- the right question for the USB
+    // stream framer, the wrong one for a notification, which carries exactly one
+    // frame. Without this a 12-byte frame of any other type would be read as a
+    // 7-byte packet and spend the auto-disable budget.
+    const qsizetype frameLen = DecentScaleProtocol::notifiedFrameLength(command, data.size());
+    if (frameLen != data.size()) {
+        logFrameShapeOnce(QString("Undecodable frame, type 0x%1, %2 bytes")
+                              .arg(command, 2, 16, QChar('0'))
+                              .arg(data.size()),
+                          data);
+        return false;
+    }
+    if (command == DecentScaleProtocol::TypeAdsDebug) {
+        // Not decoded — nothing in the app consumes ADS internals. Recorded so a
+        // submitted log shows the scale was left in ADS debug mode, which is
+        // settable over either transport and persists until cleared or reboot,
+        // so Decenza can meet a scale already in it.
+        logFrameShapeOnce(QStringLiteral("ADS debug frame (type 0x25)"), data);
+        return false;
+    }
 
     // Validate XOR checksum on all packet types except LED response (0x0A),
     // which uses all 7 bytes for data and has no room for a checksum.
     // See: https://github.com/Kulitorum/Decenza/issues/560
     // Original Decent Scale (v1) does not compute checksums correctly — auto-disable
     // after consecutive failures. See: https://github.com/Kulitorum/Decenza/issues/630
-    if (command != 0x0A && !m_checksumDisabled) {
-        uint8_t expected = DecentScaleProtocol::calculateXor(data);
-        if (expected != d[6]) {
+    if (command != DecentScaleProtocol::TypeLedResponse && !m_checksumDisabled) {
+        if (!DecentScaleProtocol::checksumMatches(data, frameLen)) {
             m_consecutiveChecksumFailures++;
             if (m_consecutiveChecksumFailures >= kChecksumFailureThreshold) {
                 m_checksumDisabled = true;
@@ -349,7 +396,7 @@ void DecentScale::parseWeightData(const QByteArray& data) {
                             .arg(command, 2, 16, QChar('0'))
                             .arg(m_consecutiveChecksumFailures)
                             .arg(kChecksumFailureThreshold));
-                return;
+                return false;
             }
         } else {
             m_consecutiveChecksumFailures = 0;
@@ -361,7 +408,7 @@ void DecentScale::parseWeightData(const QByteArray& data) {
         int16_t weightRaw = (static_cast<int16_t>(d[2]) << 8) | d[3];
         double weight = weightRaw / 10.0;  // Weight in grams
         setWeight(weight);
-    } else if (command == 0x0A && d[0] == 0x03) {
+    } else if (command == DecentScaleProtocol::TypeLedResponse && d[0] == DecentScaleProtocol::PacketHeader) {
         // LED response packet (openscale/HDS format):
         // [0]=0x03 header, [1]=0x0A type, [2-3]=weight, [4]=battery, [5-6]=firmware version
         // Battery: 0-100 = percentage, 0xFF = charging
@@ -432,7 +479,17 @@ void DecentScale::parseWeightData(const QByteArray& data) {
         // Button pressed
         int button = d[2];
         emit buttonPressed(button);
+    } else {
+        // A 7-byte frame of a type this driver has no branch for. Its checksum
+        // was valid, so the scale is framing correctly and we simply do not read
+        // this one -- distinct from the undecodable shapes above, and not
+        // evidence that the weight feed is alive.
+        logFrameShapeOnce(QString("Unhandled frame type 0x%1")
+                              .arg(command, 2, 16, QChar('0')),
+                          data);
+        return false;
     }
+    return true;
 }
 
 void DecentScale::sendKeepAlive() {
