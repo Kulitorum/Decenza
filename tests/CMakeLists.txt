@@ -1109,7 +1109,7 @@ set_target_properties(decenza_a11ylib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX 
 # The .mm must opt OUT of the PCH: decenza_testlib's is C++-only, and CMake still
 # passes -include-pch to Objective-C++ compile lines, which clang refuses with
 # "Objective-C was disabled in precompiled file ... but is currently enabled".
-# Same property, same reason as the top-level CMakeLists uses for its five .mm.
+# Same property, same reason as the top-level CMakeLists uses for its .mm files.
 if(APPLE)
     set_source_files_properties(${DECENZA_SCREENREADER_PROBE}
                                 PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

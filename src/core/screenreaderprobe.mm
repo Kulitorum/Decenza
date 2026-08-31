@@ -23,9 +23,10 @@
 // is compiled only by the iOS workflow and was not exercised when written. If
 // an iOS accessibility report contradicts it, suspect this first.
 //
-// Neither call requires the app to be trusted for accessibility control, so
-// there is no permission prompt and no failure mode where we get a wrong answer
-// because a grant is missing.
+// Neither call appears to require the app to be trusted for accessibility
+// control — no prompt was seen in testing, and unlike the AXUIElement family
+// these are plain observable properties. Stated as an observation, not as
+// something Apple documents: no doc was found saying either way.
 std::optional<bool> decenzaPlatformScreenReaderActive()
 {
 #if TARGET_OS_IOS

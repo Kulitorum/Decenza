@@ -137,6 +137,18 @@ protected:
     // AccessibilityManager and override these to record calls without touching
     // real Qt accessibility / TTS state.
     virtual bool isScreenReaderActive() const;
+
+    // Where isScreenReaderActive()'s last answer came from. Set by it, read only
+    // by the route logging — a `true` the platform CONFIRMED and a `true` guessed
+    // from QAccessible::isActive() are the same bool and very different evidence,
+    // and collapsing them is what made the original silence unreadable: the log
+    // said path=platform either way. Linux still takes the fallback and is known
+    // wrong there, so this is the line that tells a reader which one they got.
+    // mutable because isScreenReaderActive() is const; a test overriding that
+    // virtual leaves this at Fallback, which is honest — the probe did not run.
+    enum class ScreenReaderSource { Fallback, PlatformProbe };
+    QString screenReaderSourceName() const;
+    mutable ScreenReaderSource m_screenReaderSource = ScreenReaderSource::Fallback;
     virtual void dispatchPlatformAnnouncement(const QString& text, bool assertive);
     virtual void dispatchTtsAnnouncement(const QString& text, bool interrupt);
 
