@@ -1,5 +1,6 @@
 #include <QtTest>
 #include "core/settings.h"
+#include "core/screenreaderprobe.h"
 #include <QSignalSpy>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -91,6 +92,48 @@ private:
     QVariant m_origExtractionMode;
 
 private slots:
+
+    // The probe must have an answer on the platforms that implement one, and
+    // must have NO answer on the platforms that deliberately do not.
+    //
+    // This is not testing what NSWorkspace/SPI_GETSCREENREADER return — that
+    // needs a real reader and is verified by hand. It tests the #ifdef chain,
+    // where a mistake is silent and severe in one direction: a platform that
+    // wrongly returns `true` makes AccessibilityManager believe a screen reader
+    // is present everywhere and mute its own TTS for good, which is the exact
+    // bug this probe was written to fix, aimed at a different platform. The
+    // nullopt half is the one CI actually exercises, since CI is Linux.
+    // An engaged optional{false} and a nullopt are NOT the same answer, and the
+    // one Windows bug this code has had lived precisely in confusing them: a
+    // SPI_GETSCREENREADER call that succeeds while Narrator runs writes FALSE,
+    // and treating that as "no reader" short-circuits the Qt fallback and makes
+    // the app talk over Narrator. Pin all three cases so the distinction is
+    // visible to whoever edits the probe next.
+    void resolvingAScreenReaderAnswerKeepsNoAnswerDistinctFromNo()
+    {
+        // The platform answered: its answer wins, whatever Qt thinks.
+        QCOMPARE(decenzaResolveScreenReaderActive(std::optional<bool>(true), false), true);
+        QCOMPARE(decenzaResolveScreenReaderActive(std::optional<bool>(false), true), false);
+        // The platform declined: Qt decides.
+        QCOMPARE(decenzaResolveScreenReaderActive(std::nullopt, true), true);
+        QCOMPARE(decenzaResolveScreenReaderActive(std::nullopt, false), false);
+    }
+
+    void theScreenReaderProbeAnswersOnlyWherePlatformCodeExists()
+    {
+        const std::optional<bool> answer = decenzaPlatformScreenReaderActive();
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS) || defined(Q_OS_WIN)
+        QVERIFY2(answer.has_value(),
+                 "this platform implements a screen-reader probe, so it must return an "
+                 "answer rather than falling back to QAccessible::isActive()");
+#else
+        QVERIFY2(!answer.has_value(),
+                 "this platform has no screen-reader probe, so it must return nullopt and "
+                 "leave the caller on QAccessible::isActive() — returning a value here would "
+                 "silently decide the routing for every announcement");
+#endif
+    }
+
     void init() { QTest::failOnWarning();
         // Snapshot every key AccessibilityManager::saveSettings() touches so
         // setEnabled / setTtsEnabled writes during a test don't permanently

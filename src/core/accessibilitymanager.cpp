@@ -14,6 +14,7 @@
 #endif
 
 #include "core/accessibilitylogging.h"
+#include "core/screenreaderprobe.h"
 
 std::atomic<int> AccessibilityManager::s_instanceCount{0};
 
@@ -482,8 +483,8 @@ void AccessibilityManager::routeAnnouncement(const QString& text, bool interrupt
         // VoiceOver). dispatchPlatformAnnouncement() handles the empty-window
         // null guard internally and logs path=dropped if it can't deliver.
         dispatchPlatformAnnouncement(text, interrupt);
-        A11Y_INFO_STDERR("Route", QStringLiteral("path=platform isActive=true len=%1 preview=%2")
-                                      .arg(text.size()).arg(preview));
+        A11Y_INFO_STDERR("Route", QStringLiteral("path=platform source=%1 len=%2 preview=%3")
+                                      .arg(screenReaderSourceName()).arg(text.size()).arg(preview));
         return;
     }
 
@@ -523,8 +524,8 @@ void AccessibilityManager::announceCoaching(const QString& text, bool interrupt)
     const QString preview = a11yLogPreview(text);
     if (isScreenReaderActive()) {
         dispatchPlatformAnnouncement(text, interrupt);
-        A11Y_INFO_STDERR("Route", QStringLiteral("path=platform coaching=true len=%1 preview=%2")
-                                      .arg(text.size()).arg(preview));
+        A11Y_INFO_STDERR("Route", QStringLiteral("path=platform coaching=true source=%1 len=%2 preview=%3")
+                                      .arg(screenReaderSourceName()).arg(text.size()).arg(preview));
         return;
     }
     // dispatchTtsAnnouncement() handles the m_tts null check internally (and
@@ -534,10 +535,34 @@ void AccessibilityManager::announceCoaching(const QString& text, bool interrupt)
                                   .arg(text.size()).arg(preview));
 }
 
+QString AccessibilityManager::screenReaderSourceName() const
+{
+    // "platform-probe" means a real API said a reader is running (VoiceOver,
+    // SPI_GETSCREENREADER). "qt-fallback" means nobody could say and we used
+    // QAccessible::isActive(), which reports ATTACHMENT, not speech — the thing
+    // that left this app silent. On Linux the fallback is known wrong. If a
+    // silence report carries source=qt-fallback, that is the cause, not a clue.
+    return m_screenReaderSource == ScreenReaderSource::PlatformProbe
+               ? QStringLiteral("platform-probe")
+               : QStringLiteral("qt-fallback");
+}
+
 bool AccessibilityManager::isScreenReaderActive() const
 {
 #ifndef QT_NO_ACCESSIBILITY
-    return QAccessible::isActive();
+    // Ask the platform whether a reader is actually RUNNING before falling back
+    // to Qt's "an assistive client attached" flag. See screenreaderprobe.h —
+    // the two are different questions, and answering routing with the second
+    // one is what left this app silent on a Mac with VoiceOver off.
+    const std::optional<bool> platform = decenzaPlatformScreenReaderActive();
+    // A platform that answered decided this; anything else (Android, where
+    // isActive() is a good proxy; Linux, where it is not — see the header; or a
+    // platform call that declined to answer) falls back to Qt. The route log
+    // reports which, so the two are distinguishable in a submitted log rather
+    // than both reading as a confirmed platform decision.
+    m_screenReaderSource = platform ? ScreenReaderSource::PlatformProbe
+                                    : ScreenReaderSource::Fallback;
+    return decenzaResolveScreenReaderActive(platform, QAccessible::isActive());
 #else
     return false;
 #endif
@@ -602,8 +627,8 @@ void AccessibilityManager::announceLabel(const QString& text)
     // must not double-speak. Same fix as announce().
     if (isScreenReaderActive()) {
         dispatchPlatformAnnouncement(text, /*assertive=*/false);
-        A11Y_INFO_STDERR("Route", QStringLiteral("announceLabel path=platform isActive=true len=%1 preview=%2")
-                                      .arg(text.size()).arg(a11yLogPreview(text)));
+        A11Y_INFO_STDERR("Route", QStringLiteral("announceLabel path=platform source=%1 len=%2 preview=%3")
+                                      .arg(screenReaderSourceName()).arg(text.size()).arg(a11yLogPreview(text)));
         return;
     }
 

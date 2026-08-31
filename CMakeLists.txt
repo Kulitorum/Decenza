@@ -882,7 +882,10 @@ if(APPLE)
         src/ble/transport/corebluetooth/corebluetoothscalebletransport.mm
         src/ble/applebtstate.mm
         src/screensaver/iosbrightness.mm
+        src/core/screenreaderprobe.mm
     )
+else()
+    list(APPEND SOURCES src/core/screenreaderprobe.cpp)
 endif()
 
 # iOS-only: SFSafariViewController bridge for opening URLs without universal-link interception
@@ -1678,7 +1681,7 @@ endif()
 #          but is currently enabled
 #
 # SKIP_PRECOMPILE_HEADERS is the property that actually means "do not apply a
-# PCH to this source". Five files (three APPLE, two IOS) are not worth a second
+# PCH to this source". Six files (four APPLE, two IOS) are not worth a second
 # ~28 MB ObjC++ artefact, so they simply go without.
 #
 # Derived from SOURCES rather than hand-listed: the .mm files are added inside
