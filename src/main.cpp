@@ -2143,11 +2143,7 @@ int main(int argc, char *argv[])
     usbScaleManager.startPolling();
 #endif
 
-    // nullptr explicitly: the constructor's parent is deliberately not defaulted,
-    // so that this type is NOT default-constructible and Qt's QML_SINGLETON
-    // registration reaches its create() factory instead of newing its own second
-    // instance. See accessibilitymanager.h.
-    AccessibilityManager accessibilityManager(nullptr);
+    AccessibilityManager accessibilityManager;
     accessibilityManager.setTranslationManager(&translationManager);
 
     // Steam-coach voice: the coach emits speakRequested only when its own audio
@@ -3927,10 +3923,7 @@ int main(int argc, char *argv[])
     BatteryManagerForeign::s_singletonInstance = &batteryManager;
     MemoryMonitorForeign::s_singletonInstance = &memoryMonitor;
     memoryMonitor.setEngine(&engine);
-    // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in accessibilitymanager.h),
-    // not a context property: only a compile-time registration reaches qmllint,
-    // qmlcachegen and the language server. main owns the instance and publishes it.
-    AccessibilityManager::setQmlInstance(&accessibilityManager);
+    AccessibilityManagerForeign::s_singletonInstance = &accessibilityManager;
     ProfileStorageForeign::s_singletonInstance = &profileStorage;
     WeatherManagerForeign::s_singletonInstance = &weatherManager;
     CrashReporterForeign::s_singletonInstance = &crashReporter;

@@ -2,13 +2,11 @@
 #define ACCESSIBILITYMANAGER_H
 
 #include <atomic>
-#include <type_traits>
 #include <QObject>
 #include <QPointer>
 #include <QTextToSpeech>
 #include <QSoundEffect>
 #include "appsettings.h"
-#include <QtQml/qqmlregistration.h>
 
 #ifndef QT_NO_ACCESSIBILITY
 #include <QAccessible>
@@ -30,8 +28,6 @@ class AccessibilityManager : public QObject
     // Registering the type is necessary but NOT sufficient: main.cpp must also call
     // qml_register_types_Decenza() explicitly, or no declarative type in this module reaches the
     // runtime registry at all. See the comment at that call site.
-    QML_ELEMENT
-    QML_SINGLETON
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(bool ttsEnabled READ ttsEnabled WRITE setTtsEnabled NOTIFY ttsEnabledChanged)
     Q_PROPERTY(bool tickEnabled READ tickEnabled WRITE setTickEnabled NOTIFY tickEnabledChanged)
@@ -45,23 +41,8 @@ class AccessibilityManager : public QObject
     Q_PROPERTY(QString extractionAnnouncementMode READ extractionAnnouncementMode WRITE setExtractionAnnouncementMode NOTIFY extractionAnnouncementModeChanged)
 
 public:
-    // `parent` is deliberately NOT defaulted, and the static_assert below holds
-    // it that way. Qt picks a QML_SINGLETON's construction mode by testing
-    // is_default_constructible BEFORE it looks for a create() factory
-    // (qtdeclarative/src/qml/qml/qqmlprivate.h:161-164), so a default-
-    // constructible singleton silently gets `new T` and its create() is never
-    // called at all. That shipped: build 3575 logged a second instance built by
-    // the QML engine during engine.load(), which meant QML's AccessibilityManager
-    // was Qt's orphan while main.cpp's wiring — the MCP server, announceCoaching —
-    // pointed at a different object, each with its own live TTS engine.
-    explicit AccessibilityManager(QObject *parent);
+    explicit AccessibilityManager(QObject *parent = nullptr);
     ~AccessibilityManager();
-
-    // QML_SINGLETON hooks. The engine does not create this object: main.cpp owns it on the stack
-    // and wires it into the MCP server and the live-coaching signal path before QML exists, so
-    // main publishes the instance and create() hands that same one back.
-    static void setQmlInstance(AccessibilityManager *instance);
-    static AccessibilityManager *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
 
 #ifdef DECENZA_TESTING
     // Test-only ctor sentinel: skip QTextToSpeech / QSoundEffect construction
@@ -192,14 +173,9 @@ public:
         QSettings& primary, QSettings& legacy);
 
 private:
-    // The instance create() hands to the engine. Not owned here — main's stack object outlives
-    // the engine, which is why create() pins CppOwnership.
-    static AccessibilityManager *s_qmlInstance;
-
-    // How many have been built. The app owns exactly one (main.cpp's stack
-    // object, published via setQmlInstance); create() never constructs and the
-    // type is not QML-creatable, so a second is a defect. See the constructor
-    // for what the second one costs and why this counter exists at all.
+    // How many have been built. The app owns exactly one — main.cpp's stack
+    // object, handed to QML through AccessibilityManagerForeign — so a second is
+    // a defect. See the constructor for what the second one costs.
     static std::atomic<int> s_instanceCount;
 
     void loadSettings();
@@ -236,16 +212,5 @@ private:
 
     TranslationManager* m_translationManager = nullptr;
 };
-
-// Qt tests is_default_constructible BEFORE HasSingletonFactory when choosing a
-// QML_SINGLETON's construction mode (qqmlprivate.h:161-164). If this type ever
-// becomes default-constructible again, Qt stops calling create() and silently
-// builds its own second instance instead — with no compiler, qmllint or test
-// complaint. tst_qmlregistration asserts every factory-bearing singleton carries
-// one of these; docs/CLAUDE_MD/QML_GOTCHAS.md has the account.
-static_assert(!std::is_default_constructible_v<AccessibilityManager>,
-              "AccessibilityManager is a QML_SINGLETON with a create() factory: it must NOT be "
-              "default-constructible, or Qt will 'new' its own instance and never call create(). "
-              "Do not give the constructor a defaulted parent.");
 
 #endif // ACCESSIBILITYMANAGER_H

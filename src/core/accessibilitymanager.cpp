@@ -17,39 +17,7 @@
 
 #include "core/accessibilitylogging.h"
 
-AccessibilityManager *AccessibilityManager::s_qmlInstance = nullptr;
 std::atomic<int> AccessibilityManager::s_instanceCount{0};
-
-void AccessibilityManager::setQmlInstance(AccessibilityManager *instance)
-{
-    s_qmlInstance = instance;
-}
-
-AccessibilityManager *AccessibilityManager::create(QQmlEngine *qmlEngine, QJSEngine *jsEngine)
-{
-    Q_UNUSED(qmlEngine)
-    Q_UNUSED(jsEngine)
-    if (!s_qmlInstance) {
-        // Reached only if QML resolves the singleton before main.cpp published the instance.
-        // Name the missing call: the symptom otherwise is every accessibility binding in the UI
-        // reading as undefined, which looks like an accessibility bug and is not.
-        A11Y_WARN_STDERR("Singleton",
-            QStringLiteral("QML asked for the singleton before setQmlInstance() was called. "
-                           "Publish the instance before QQmlEngine::load()."));
-        return nullptr;
-    }
-    // No second-engine guard here, unlike TranslationManager::create() — deliberately, not by
-    // oversight. That one declines a second engine because `translate` is a QJSValue bound to
-    // exactly one QJSEngine. AccessibilityManager holds no per-engine state: every property is a
-    // plain value and every method is a Q_INVOKABLE, so the debug-build GHC simulator engine
-    // sharing main's instance is correct rather than a hazard. Add a guard here only if this
-    // class gains a QJSValue or QJSEngine member.
-    //
-    // The engine would otherwise take ownership of what it is handed and delete a stack object
-    // owned by main().
-    QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
-    return s_qmlInstance;
-}
 
 AccessibilityManager::AccessibilityManager(QObject *parent)
     : QObject(parent)
@@ -66,11 +34,13 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
     // when it picks a QML_SINGLETON's construction mode (qqmlprivate.h:161-164),
     // and this class's constructor took `QObject *parent = nullptr`. So Qt chose
     // `new T` (:190), create() was never called, and the instance main.cpp
-    // published through setQmlInstance() was ignored — QML talked to Qt's orphan
+    // main.cpp published was ignored — QML talked to Qt's orphan
     // while the MCP server and announceCoaching held main.cpp's object, each with
-    // its own live QTextToSpeech. The constructor's parent is no longer defaulted,
-    // a static_assert in the header holds it that way, and
-    // tst_qmlregistration asserts every factory-bearing singleton carries one.
+    // its own live QTextToSpeech. Closed by moving the registration to a
+    // QML_FOREIGN wrapper (AccessibilityManagerForeign, contextsingletons_qml.h),
+    // which is what Qt documents for exposing an object the app already owns and
+    // which cannot hit this at all — a foreign type takes Qt's FactoryWrapper
+    // branch before constructibility is ever tested.
     // docs/CLAUDE_MD/QML_GOTCHAS.md has the full account.
     //
     // So this is now a REGRESSION guard for a closed bug rather than a hunt for an
@@ -95,7 +65,8 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
     if (instanceOrdinal > 1) {
         A11Y_WARN_STDERR("Lifetime",
             QStringLiteral("instance %1 constructed — the app owns exactly one (main.cpp, "
-                           "published via setQmlInstance). This one builds a second TTS "
+                           "handed to QML through AccessibilityManagerForeign). This one "
+                           "builds a second TTS "
                            "engine that QML will never reach. The known cause was a "
                            "default-constructible QML_SINGLETON letting Qt build its own "
                            "(see QML_GOTCHAS.md); check that first.")

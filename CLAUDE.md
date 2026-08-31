@@ -179,9 +179,11 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
   Qt tests `is_default_constructible` BEFORE the factory (`qqmlprivate.h:161-164`), so it does
   `new T` and the published instance is ignored — QML then talks to Qt's orphan while C++ holds a
   different object. Registration and qmllint cannot see this: both objects are the same TYPE. It
-  shipped, giving `AccessibilityManager` two live TTS engines. Every factory-bearing singleton now
-  carries a `static_assert(!std::is_default_constructible_v<T>)`, and `tst_qmlregistration`
-  asserts a new one cannot skip it.
+  shipped, giving `AccessibilityManager` two live TTS engines. For an object main() owns, Qt's
+  documented answer is a `QML_FOREIGN` wrapper (`contextsingletons_qml.h`), which cannot reach the
+  trap — prefer it. The five still registered on the class carry a
+  `static_assert(!std::is_default_constructible_v<T>)`, and `tst_qmlregistration` asserts a new
+  one cannot skip it.
 - **A registered singleton with no instance is TRUTHY, not `undefined`.** `typeof X !== "undefined"
   && X` passes and the first member call throws. Qt builds the type wrapper whether or not
   `singletonInstance()` returned anything; only the member read degrades to `undefined`. Guard the

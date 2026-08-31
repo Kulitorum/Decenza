@@ -78,6 +78,7 @@
 #include <QtQml/QQmlEngine>
 #include <QtQml/QJSEngine>
 
+#include "core/accessibilitymanager.h"
 #include "../ble/de1device.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../ble/blemanager.h"
@@ -221,6 +222,27 @@ public:
     static DE1Device* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "DE1Device");
+    }
+};
+
+// The screen-reader surface: 149 announce() calls, 11 announceLabel() and the whole
+// Accessibility settings tab. Registered here rather than on the class because the class
+// itself carried QML_ELEMENT + QML_SINGLETON with a defaulted-parent constructor, which is
+// the one shape Qt resolves to `new T` — its create() was never called and QML spent a month
+// talking to an engine-built orphan while the MCP server and announceCoaching held main's
+// object, each with a live QTextToSpeech. A foreign wrapper cannot reach that branch.
+struct AccessibilityManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(AccessibilityManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(AccessibilityManager)
+
+public:
+    inline static AccessibilityManager* s_singletonInstance = nullptr;
+    static AccessibilityManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "AccessibilityManager");
     }
 };
 
