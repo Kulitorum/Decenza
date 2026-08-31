@@ -471,10 +471,12 @@ are called only from C++. Diff the two `public slots:` blocks when you write one
 ## A `QML_SINGLETON` with a defaulted `parent` never calls its own `create()`
 
 Qt chooses a singleton's construction mode in `singletonConstructionMode()`
-(`qtdeclarative/src/qml/qml/qqmlprivate.h:155-167`), and the ORDER of its tests is the trap:
+(`qtdeclarative/src/qml/qml/qqmlprivate.h:155-167`), and the ORDER of its tests is the trap.
+Abridged to the three branches that matter — read the source for the real thing, this drops the
+leading `is_base_of<QObject, T>` branch, the trailing `return None`, and the `::value` suffixes:
 
 ```cpp
-if constexpr (!std::is_same_v<T, WrapperT> && HasSingletonFactory<T, WrapperT>)
+if constexpr (!std::is_same_v<T, WrapperT> && HasSingletonFactory<T, WrapperT>::value)
     return SingletonConstructionMode::FactoryWrapper;   // QML_FOREIGN — safe
 if constexpr (std::is_default_constructible<T>::value)
     return SingletonConstructionMode::Constructor;      // new T   <-- WINS
@@ -503,10 +505,24 @@ and several here rely on that. The defect is specifically "declares a factory AN
 default-constructible", where the factory silently loses. `QML_FOREIGN` wrappers are safe too —
 `T != WrapperT` takes the `FactoryWrapper` branch first, whatever the foreign type looks like.
 
-Two things hold the line, and you want both: a `static_assert(!std::is_default_constructible_v<T>)`
-after the class (compile-time, but only where someone knew to write it), and
-`scripts/check_qml_singletons.py` in the per-PR `text-invariants` job, which covers a NEW
-singleton whose author never knew the rule existed.
+**Why the existing checks could not see it, which is the part worth remembering.** The type was
+registered correctly — qmllint resolved every member, because both objects are the same TYPE and
+qmllint has no concept of an instance. `tst_qmlregistration.cpp` models two halves, the macros that
+register the type and the `setQmlInstance()` call that publishes the instance, and BOTH were
+present and correct. The publish line was right and pointless at once: nothing ever asked for it.
+That third condition — does Qt actually reach the factory — is what no check expressed.
+
+Two things hold the line now. Every factory-bearing singleton carries
+`static_assert(!std::is_default_constructible_v<T>)` beside the class, which makes the compiler
+prove it. And `tst_qmlregistration.cpp` asserts that a singleton declaring `create()` HAS such an
+assert — the one case no compile-time check can cover, since an author who does not know the rule
+does not write the assert. It lives there rather than in a standalone script because that file
+already enumerates every `QML_SINGLETON` robustly, reconciling its parse against an independent
+declaration count and failing on anything it could not read.
+
+One consequence of the fix worth knowing: `create()` is now the LIVE path, so it matters that
+`setQmlInstance()` runs before `engine.load()` (main.cpp does). If it ever did not, `create()`
+returns `nullptr` and you land in the next trap below rather than this one.
 
 ## A registered singleton with no instance is TRUTHY, not `undefined`
 

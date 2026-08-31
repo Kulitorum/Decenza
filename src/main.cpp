@@ -911,9 +911,10 @@ int main(int argc, char *argv[])
     app.setApplicationName("Decenza");
     app.setApplicationVersion(VERSION_STRING);
 
-    // Both migrations must complete here — before Settings (line ~1046) and
-    // AccessibilityManager (line ~1788) are constructed, since both read the
-    // store these populate.
+    // Both migrations must complete here — before Settings and
+    // AccessibilityManager are constructed, since both read the store these
+    // populate. (Deliberately no line numbers: the two this carried had drifted
+    // by ~130 and ~360 lines respectively.)
     //
     // Store migration runs FIRST so that the app-name migration below finds its
     // own done-flag: that flag used to live in the legacy DE1Qt store, and this

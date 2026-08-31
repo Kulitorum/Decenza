@@ -268,6 +268,81 @@ private slots:
                 << d.header << d.cppName << d.registryName << d.qmlName << d.publishExpr;
     }
 
+    // A QML_SINGLETON that declares a create() factory must assert it is not
+    // default-constructible, and the assert has to live beside the class.
+    //
+    // Qt picks the construction mode in singletonConstructionMode()
+    // (qtdeclarative/src/qml/qml/qqmlprivate.h:155-167) and tests
+    // is_default_constructible BEFORE it looks for the factory (:161-164). A
+    // default-constructible singleton therefore gets `new T` at :190 and its
+    // create() is never called at all — so main.cpp's published instance is
+    // ignored and QML silently talks to an object Qt made instead.
+    //
+    // Decenza shipped that. AccessibilityManager's only constructor took
+    // `QObject *parent = nullptr`, so every QML announcement reached Qt's orphan
+    // while the MCP server and the coaching signal held main.cpp's object, each
+    // with its own live QTextToSpeech. Nothing diagnosed it: the factory still
+    // compiled and still looked wired.
+    //
+    // Asserted here rather than re-derived: this test cannot evaluate C++
+    // default-constructibility, but the COMPILER can, and does, wherever the
+    // static_assert is written. What this slot enforces is that a new singleton
+    // cannot be added without one — which is the case no compile-time check can
+    // cover, because the author who does not know the rule does not write the
+    // assert. The five types that carry a factory besides AccessibilityManager
+    // are safe only because their constructors happen to require arguments; the
+    // asserts turn that coincidence into a stated invariant.
+    void aSingletonWithAFactoryAssertsItIsNotDefaultConstructible_data()
+    {
+        QTest::addColumn<QString>("header");
+        QTest::addColumn<QString>("cppName");
+        QList<ScanProblem> problems;
+        int declaredTotal = 0;
+        const auto decls = scanSingletons(&problems, &declaredTotal);
+
+        // Same blindness reconciliation the sibling slot does: a declaration the
+        // scan dropped is checked by nothing, and would leave this green.
+        for (const auto& p : problems)
+            QFAIL(qPrintable(QStringLiteral("%1:%2 declares QML_SINGLETON but the scan could not "
+                             "parse it (%3), so it was checked by nothing.")
+                             .arg(p.header).arg(p.line, 0, 10).arg(p.why)));
+        QCOMPARE(qsizetype(declaredTotal), decls.size());
+
+        for (const auto& d : decls)
+            QTest::newRow(qPrintable(d.qmlName)) << d.header << d.cppName;
+    }
+
+    void aSingletonWithAFactoryAssertsItIsNotDefaultConstructible()
+    {
+        QFETCH(QString, header);
+        QFETCH(QString, cppName);
+
+        // `header` is repo-relative (scanSingletons stores it that way for
+        // failure messages), so resolve it the way every other slot here does.
+        const QString src =
+            readOrEmpty(QStringLiteral(DECENZA_SOURCE_DIR) + QLatin1Char('/') + header);
+        QVERIFY2(!src.isEmpty(), qPrintable(QStringLiteral("could not read %1").arg(header)));
+
+        // Only types that declare their OWN factory are at risk. A singleton with
+        // no create() is meant to be engine-constructed — that is the correct
+        // Constructor mode — and a QML_FOREIGN wrapper takes Qt's FactoryWrapper
+        // branch (:159-160) before the default-constructible test is ever reached.
+        if (!src.contains(QStringLiteral("create(QQmlEngine"))
+            || src.contains(QStringLiteral("QML_FOREIGN(")))
+            QSKIP("no own create() factory, or QML_FOREIGN — not reachable by this defect");
+
+        const QString expected =
+            QStringLiteral("static_assert(!std::is_default_constructible_v<%1>").arg(cppName);
+        QVERIFY2(src.contains(expected),
+                 qPrintable(QStringLiteral(
+                     "%1 declares create() but %2 has no "
+                     "static_assert(!std::is_default_constructible_v<%2>). Qt tests "
+                     "is_default_constructible BEFORE the factory (qqmlprivate.h:161-164), so if "
+                     "this type is ever default-constructible Qt will 'new' its own instance and "
+                     "never call create() — silently. Add the assert beside the class.")
+                     .arg(header, cppName)));
+    }
+
     void everyQmlSingletonIsRegisteredAndPublished()
     {
         QFETCH(QString, header);

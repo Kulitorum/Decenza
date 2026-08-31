@@ -241,7 +241,8 @@ private:
 // QML_SINGLETON's construction mode (qqmlprivate.h:161-164). If this type ever
 // becomes default-constructible again, Qt stops calling create() and silently
 // builds its own second instance instead — with no compiler, qmllint or test
-// complaint. See scripts/check_qml_singletons.py for the tree-wide check.
+// complaint. tst_qmlregistration asserts every factory-bearing singleton carries
+// one of these; docs/CLAUDE_MD/QML_GOTCHAS.md has the account.
 static_assert(!std::is_default_constructible_v<AccessibilityManager>,
               "AccessibilityManager is a QML_SINGLETON with a create() factory: it must NOT be "
               "default-constructible, or Qt will 'new' its own instance and never call create(). "

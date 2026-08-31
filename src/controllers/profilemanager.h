@@ -1,5 +1,6 @@
 #pragma once
 
+#include <type_traits>
 #include <utility>
 
 #include <QObject>
@@ -763,3 +764,16 @@ private:
     friend class tst_McpToolsWrite;
 #endif
 };
+
+// Qt tests is_default_constructible BEFORE HasSingletonFactory when it picks a QML_SINGLETON's
+// construction mode (qtdeclarative/src/qml/qml/qqmlprivate.h:161-164). A default-constructible
+// singleton therefore gets `new T` (:190) and its create() is never called — dead code that
+// still compiles, with no diagnostic from the compiler, moc, qmllint or the suite. Decenza
+// shipped exactly that for AccessibilityManager; see docs/CLAUDE_MD/QML_GOTCHAS.md.
+//
+// ProfileManager is safe today only because its constructor requires arguments. That is incidental, so
+// assert it: adding a default to every parameter would silently detach QML from the published
+// instance again.
+static_assert(!std::is_default_constructible_v<ProfileManager>,
+              "ProfileManager is a QML_SINGLETON with a create() factory: it must NOT be "
+              "default-constructible, or Qt will 'new' its own instance and never call create().");
