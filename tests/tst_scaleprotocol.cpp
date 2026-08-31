@@ -11,6 +11,7 @@
 #include "ble/transport/scalebletransport.h"
 #include "ble/protocol/de1characteristics.h"
 #include "ble/protocol/decentscaleprotocol.h"
+#include "messagecapture.h"
 
 // Test BLE packet parsing for scale implementations.
 // Feeds raw byte arrays through onCharacteristicChanged() (public slot)
@@ -588,6 +589,84 @@ private slots:
             scale.onCharacteristicChanged(Scale::Decent::READ, badPkt);
         }
         QCOMPARE(spy.count(), 0);
+    }
+
+    // Build the 41-byte ADS debug frame the firmware sends while debug mode is
+    // on (openscale include/usbcomm.h buildAdsDebugPacket): type 0x25, checksum
+    // over bytes 0-39 in byte 40.
+    static QByteArray buildDecentAdsDebugFrame(uint8_t marker = 0x11) {
+        QByteArray pkt(41, 0);
+        pkt[0] = 0x03;
+        pkt[1] = 0x25;
+        pkt[5] = static_cast<char>(marker);  // a timestamp byte, i.e. volatile payload
+        uint8_t xorSum = 0;
+        for (int i = 0; i < 40; i++)
+            xorSum ^= static_cast<uint8_t>(pkt[i]);
+        pkt[40] = static_cast<char>(xorSum);
+        return pkt;
+    }
+
+    void decentAdsDebugFrameDoesNotDisableChecksumValidation() {
+        // A 41-byte debug frame is not a 7-byte packet, so it must not reach the
+        // v1 auto-disable counter. It used to: the checksum was computed over
+        // data.size() and compared against byte 6 (a timestamp byte), so five
+        // frames retired checksum validation and reported the HDS as an original
+        // Decent Scale.
+        DecentScale scale(nullptr);
+        MessageCapture capture;
+
+        for (int i = 0; i < DecentScale::kChecksumFailureThreshold + 2; i++)
+            scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentAdsDebugFrame(uint8_t(i)));
+
+        QCOMPARE(capture.count(QStringLiteral("Checksum validation disabled")), 0);
+
+        // Checksum validation is still live: a corrupt weight packet still drops.
+        QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
+        auto bad = buildDecentWeightPacket(42.0);
+        bad[6] = static_cast<char>(static_cast<uint8_t>(bad[6]) ^ 0xFF);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*dropping packet.*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, bad);
+        QCOMPARE(spy.count(), 0);
+    }
+
+    void decentUndecodedFrameLoggedOnceWithItsBytes() {
+        // One line per shape, carrying the hex, and nothing on repeats — the
+        // payload here changes every frame, which is exactly what defeats a
+        // text-keyed suppressor if the hex is left in the repeat line.
+        DecentScale scale(nullptr);
+        MessageCapture capture;
+
+        for (int i = 0; i < 20; i++)
+            scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentAdsDebugFrame(uint8_t(i)));
+        // A length no notify produces: a different shape, so one more line.
+        scale.onCharacteristicChanged(Scale::Decent::READ, QByteArray::fromHex("030a03"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, QByteArray::fromHex("030a04"));
+
+        MessageCapture::Entry entry;
+        QVERIFY(capture.single(QStringLiteral("ADS debug frame"), &entry));
+        QVERIFY(entry.text.contains(QStringLiteral("03 25")));
+        QCOMPARE(capture.count(QStringLiteral("Short frame for type 0x0a")), 1);
+    }
+
+    void decentOriginalScaleAutoDisableStillReachedByShortFrames() {
+        // The v1 accommodation (#630) must survive the length gate: the original
+        // scale only ever sends 7-byte frames, and those still count.
+        DecentScale scale(nullptr);
+        QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
+
+        auto bad = buildDecentWeightPacket(42.0);
+        bad[6] = static_cast<char>(static_cast<uint8_t>(bad[6]) ^ 0xFF);
+        for (int i = 0; i < DecentScale::kChecksumFailureThreshold - 1; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*dropping packet.*"));
+            // Interleave a debug frame: it must not reset or advance the counter.
+            scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentAdsDebugFrame(uint8_t(i)));
+            scale.onCharacteristicChanged(Scale::Decent::READ, bad);
+        }
+        QCOMPARE(spy.count(), 0);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Checksum validation disabled.*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, bad);
+        QCOMPARE(spy.last().at(0).toDouble(), 42.0);
     }
 
     void decentLedResponseSkipsChecksum() {

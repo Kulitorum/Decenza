@@ -13,6 +13,14 @@ namespace DecentScaleProtocol {
 // framer keys on it to tell a command from text.
 inline constexpr char PacketHeader = 0x03;
 
+// Frame type (byte 1) of the notified frames whose length or checksum rule
+// differs from the ordinary 7-byte packet.
+inline constexpr uint8_t TypeLedResponse = 0x0A;  // 7 bytes, no checksum: bytes 5-6 are the firmware version
+inline constexpr uint8_t TypeAdsDebug = 0x25;     // 41 bytes, checksum in byte 40
+
+inline constexpr qsizetype StandardFrameLength = 7;
+inline constexpr qsizetype AdsDebugFrameLength = 41;
+
 // XOR checksum: XOR of all bytes except the last (byte 6 in a 7-byte packet).
 inline uint8_t calculateXor(const QByteArray& data) {
     uint8_t result = 0;
@@ -20,6 +28,38 @@ inline uint8_t calculateXor(const QByteArray& data) {
         result ^= static_cast<uint8_t>(data[i]);
     }
     return result;
+}
+
+// Length of the frame `command` occupies, or 0 when neither the type nor the
+// length is one this protocol notifies.
+//
+// Sourced from the firmware, not inferred: every openscale notify goes through
+// bleNotifyReadPacket() and there are exactly eight call sites -- seven at 7
+// bytes (weight 0xCE/0xCA, button 0xAA, voltage, heartbeat, gyro, power-off
+// 0x2A, LED response 0x0A) and one at 41 (ADS debug 0x25), openscale
+// include/ble.h:534-618. de1app 3abea2fb concluded the scale also notifies
+// 2/4/8/12/16-byte frames; those lengths are its own host-to-scale COMMAND
+// frames (decentCommandFrameLength, openscale include/decent_protocol_frame.h),
+// so do not widen this on that evidence.
+inline qsizetype notifiedFrameLength(uint8_t command, qsizetype available) {
+    const qsizetype expected =
+        (command == TypeAdsDebug) ? AdsDebugFrameLength : StandardFrameLength;
+    return available >= expected ? expected : 0;
+}
+
+// True when the trailing XOR byte of the first `frameLen` bytes matches.
+//
+// frameLen is required because calculateXor() runs to data.size()-1: handed a
+// frame LONGER than the packet, it XORs bytes the checksum never covered and
+// compares the result against the wrong byte. That mismatch is indistinguishable
+// from a scale computing XOR wrongly, which is what the v1 auto-disable path
+// exists to detect (issue #630) -- so a 41-byte debug frame could retire
+// checksum validation for the session and report an HDS as an original scale.
+inline bool checksumMatches(const QByteArray& data, qsizetype frameLen) {
+    if (data.size() < frameLen || frameLen < 2)
+        return false;
+    const QByteArray frame = data.left(frameLen);
+    return static_cast<uint8_t>(frame[frameLen - 1]) == calculateXor(frame);
 }
 
 // HDS LED responses carry the firmware triple in their last two bytes: the

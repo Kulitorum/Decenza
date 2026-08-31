@@ -119,6 +119,12 @@ void DecentScale::onTransportDisconnected() {
         if (collapsed.suppressed > 0)
             DECENT_LOG(batteryPollText() + LogCollapse::suffix(collapsed));
     }
+    // Same run end for the frame-shape collapse, which is keyed by shapes it
+    // does not enumerate — hence flushAll rather than flush.
+    for (const auto& [shape, collapsed] :
+         m_frameShapeLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
+        DECENT_LOG(shape + LogCollapse::suffix(collapsed));
+    }
     setConnected(false);
 }
 
@@ -325,21 +331,54 @@ void DecentScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUu
     }
 }
 
+// Logs one frame shape once, with its raw bytes, then stays quiet about it.
+//
+// The hex goes only on the first sighting: a line carrying volatile payload is
+// a line no text-keyed suppressor can ever collapse, which is how de1app
+// 3abea2fb turned a once-per-second event into 589 log lines out of 597.
+void DecentScale::logFrameShapeOnce(const QString& shape, const QByteArray& data) {
+    if (m_frameShapeLog.shouldLog(shape, shape, QDateTime::currentMSecsSinceEpoch(), nullptr)) {
+        DECENT_LOG(QString("%1: %2").arg(shape, QString::fromLatin1(data.toHex(' '))));
+    }
+}
+
 void DecentScale::parseWeightData(const QByteArray& data) {
-    if (data.size() < 7) return;
+    if (data.size() < 2) {
+        logFrameShapeOnce(QString("Undersized frame, %1 bytes").arg(data.size()), data);
+        return;
+    }
 
     const uint8_t* d = reinterpret_cast<const uint8_t*>(data.constData());
 
     uint8_t command = d[1];
+
+    // Dispatch on LENGTH before checksum, so a frame that is not a 7-byte
+    // packet never reaches the v1 auto-disable counter below. The 41-byte ADS
+    // debug frame (0x25) is the one such frame the firmware really sends; it is
+    // reachable because DEBUG_CONTINUOUS persists until cleared or reboot and
+    // any client on the multi-client scale can set it.
+    const qsizetype frameLen = DecentScaleProtocol::notifiedFrameLength(command, data.size());
+    if (frameLen == 0) {
+        logFrameShapeOnce(QString("Short frame for type 0x%1, %2 bytes")
+                              .arg(command, 2, 16, QChar('0'))
+                              .arg(data.size()),
+                          data);
+        return;
+    }
+    if (command == DecentScaleProtocol::TypeAdsDebug) {
+        // Not decoded — nothing in the app consumes ADS internals. Recorded so a
+        // submitted log shows the scale was left in debug mode.
+        logFrameShapeOnce(QStringLiteral("ADS debug frame (type 0x25)"), data.left(frameLen));
+        return;
+    }
 
     // Validate XOR checksum on all packet types except LED response (0x0A),
     // which uses all 7 bytes for data and has no room for a checksum.
     // See: https://github.com/Kulitorum/Decenza/issues/560
     // Original Decent Scale (v1) does not compute checksums correctly — auto-disable
     // after consecutive failures. See: https://github.com/Kulitorum/Decenza/issues/630
-    if (command != 0x0A && !m_checksumDisabled) {
-        uint8_t expected = DecentScaleProtocol::calculateXor(data);
-        if (expected != d[6]) {
+    if (command != DecentScaleProtocol::TypeLedResponse && !m_checksumDisabled) {
+        if (!DecentScaleProtocol::checksumMatches(data, frameLen)) {
             m_consecutiveChecksumFailures++;
             if (m_consecutiveChecksumFailures >= kChecksumFailureThreshold) {
                 m_checksumDisabled = true;
@@ -361,7 +400,7 @@ void DecentScale::parseWeightData(const QByteArray& data) {
         int16_t weightRaw = (static_cast<int16_t>(d[2]) << 8) | d[3];
         double weight = weightRaw / 10.0;  // Weight in grams
         setWeight(weight);
-    } else if (command == 0x0A && d[0] == 0x03) {
+    } else if (command == DecentScaleProtocol::TypeLedResponse && d[0] == DecentScaleProtocol::PacketHeader) {
         // LED response packet (openscale/HDS format):
         // [0]=0x03 header, [1]=0x0A type, [2-3]=weight, [4]=battery, [5-6]=firmware version
         // Battery: 0-100 = percentage, 0xFF = charging

@@ -43,6 +43,9 @@ private:
     friend class tst_ScaleProtocol;
 #endif
     void parseWeightData(const QByteArray& data);
+    // Logs an unrecognized or undecoded frame once per shape — see the
+    // definition for why the raw hex appears only on the first sighting.
+    void logFrameShapeOnce(const QString& shape, const QByteArray& data);
     void sendCommand(const QByteArray& command);
     void sendHeartbeat();
     void enableWeightNotifications(const QString& reason);
@@ -119,4 +122,13 @@ private:
     // cleared. Without that flush the tally would surface on the next connect's
     // first poll, dating this connection's polls to the next one.
     LogCollapse m_pollLog{LogCollapse::kChangesOnly};
+
+    // Frame shapes the parser did not decode — a length no notify produces, or
+    // the ADS debug frame. One line per shape with its raw bytes; repeats are
+    // the whole point, since the alternative is a per-packet line at whatever
+    // rate the scale sends.
+    //
+    // EPISODIC, and keyed by shapes the driver does not enumerate, so
+    // onTransportDisconnected() ends the run with flushAll() (logcollapse.h).
+    LogCollapse m_frameShapeLog{LogCollapse::kChangesOnly};
 };
