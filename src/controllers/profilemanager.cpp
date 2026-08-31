@@ -28,8 +28,6 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QTimer>
-#include <QQmlEngine>
-#include <QJSEngine>
 #include <algorithm>
 #include <cmath>
 #include <tuple>

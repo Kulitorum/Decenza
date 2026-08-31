@@ -49,11 +49,8 @@
 #include "../core/datamigrationclient.h"
 #include "../core/databasebackupmanager.h"
 
-#include <QtQml/qqmlregistration.h>
 
 class QNetworkAccessManager;
-class QQmlEngine;
-class QJSEngine;
 class Settings;
 class DE1Device;
 class MachineState;
@@ -70,29 +67,27 @@ struct ShotSample;
 class MainController : public QObject {
     Q_OBJECT
 
-    // A compile-time-registered QML singleton. The macros are what put the type in the module's
-    // generated Decenza.qmltypes — the only place qmllint, qmlcachegen and the language server
-    // learn about C++ types. This replaced a setContextProperty, which exists only at runtime and
-    // is therefore invisible to all three: it was the largest source of unresolvable names
-    // REMAINING once TranslationManager and Settings had migrated (design.md records those at
-    // 3,459 and 1,335 against this one's 879 — and the 879 anchor was itself stale; the measured
-    // reduction was 916).
+    // Registered to QML by MainControllerForeign (core/contextsingletons_qml.h), not by macros
+    // on this class. That registration is what puts the type in the module's generated
+    // Decenza.qmltypes — the only place qmllint, qmlcachegen and the language server learn about
+    // C++ types. It replaced a setContextProperty, which exists only at runtime and is therefore
+    // invisible to all three: it was the largest source of unresolvable names REMAINING once
+    // TranslationManager and Settings had migrated (design.md records those at 3,459 and 1,335
+    // against this one's 879 — and the 879 anchor was itself stale; the measured reduction was
+    // 916).
     //
     // Registering the type is necessary but NOT sufficient: main.cpp must also call
     // qml_register_types_Decenza() explicitly, or no declarative type in this module reaches the
     // runtime registry at all. See the comment at that call site.
     //
-    // Direct macros rather than the QML_FOREIGN wrapper Settings uses.
-    //
-    // Be careful with the reason, because the rule as written in settings_qml.h does not hold.
-    // That file says a <QtQml/...> include in a header compiled by saw_parity "is a build break".
-    // Measured on this branch: it is not. saw_parity compiles coffeebagstorage.cpp and
-    // equipmentstorage.cpp, shot_eval reaches shothistorystorage.h, all three headers now carry
-    // qqmlregistration.h, and both tools link and run — QML_ELEMENT/QML_UNCREATABLE expand to
-    // Q_CLASSINFO plus friend declarations, which need no Qml symbols, and the header resolves
-    // through Qt6::Core's own include paths. So the wrapper was not forced by what that comment
-    // claims forced it. Recorded in bugs-found.md rather than rewritten here: settings_qml.h is a
-    // merged, reviewed decision and re-deciding it is not this change's business.
+    // This class used to carry QML_ELEMENT/QML_SINGLETON directly, and a long note here argued
+    // that direct macros were fine because settings_qml.h's stated reason for the wrapper (a
+    // <QtQml/...> include being "a build break" in saw_parity) was measurably false. That
+    // measurement still stands, but it was never the reason that mattered: Qt tests
+    // is_default_constructible BEFORE it looks for a create() factory (qqmlprivate.h:161-164), so
+    // a directly-registered singleton whose constructor gains a defaulted parameter silently gets
+    // `new T` and its factory is never called. AccessibilityManager shipped exactly that. The
+    // wrapper shape cannot reach that branch at all — see docs/CLAUDE_MD/QML_GOTCHAS.md.
     //
     // What IS true and worth checking before copying either shape: a class registered directly
     // needs a complete type for every pointer parameter of its Q_INVOKABLE/signal/slot signatures,

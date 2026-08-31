@@ -4,7 +4,6 @@
 #include <QPointer>
 #include <QTimer>
 #include <QElapsedTimer>
-#include <QtQml/qqmlregistration.h>
 #include "../ble/protocol/de1characteristics.h"
 
 class DE1Device;
@@ -12,8 +11,6 @@ class ScaleDevice;
 class Profile;
 class Settings;
 class ShotTimingController;
-class QQmlEngine;
-class QJSEngine;
 
 class MachineState : public QObject {
     Q_OBJECT
@@ -30,10 +27,10 @@ class MachineState : public QObject {
     // singleton INSIDE the instance guard — qqmltypewrapper.cpp:320,
     // `if (QObject *qobjectSingleton = enginePrivate->singletonInstance<QObject*>(type))`, with
     // the enum branch within it. The old uncreatable-type registration took the `else` at :361,
-    // which needs no instance at all. So the 155 `MachineState.Phase.X` reads in qml/ (on 153
-    // lines) used to be instance-independent constants and now depend on setQmlInstance().
+    // which needs no instance at all. So the 157 `MachineState.Phase.X` reads in qml/ (on 155
+    // lines) used to be instance-independent constants and now depend on the publish below.
     //
-    // Miss that call and `MachineState.Phase` is `undefined`, so reading `.Pouring` off it
+    // Miss that publish and `MachineState.Phase` is `undefined`, so reading `.Pouring` off it
     // THROWS a TypeError with a file and line — these sites are the loud ones. The quiet damage
     // is elsewhere in the same failure: `Connections { target: MachineState }` (20+ sites)
     // resolves its target to null and simply never connects, and plain reads like

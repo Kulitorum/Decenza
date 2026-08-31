@@ -9,7 +9,6 @@
 #include <QPointer>
 #include <QSet>
 #include <QStringList>
-#include <QtQml/qqmlregistration.h>
 
 class QQmlEngine;
 class QThread;
@@ -18,10 +17,11 @@ class Settings;
 class TranslationManager : public QObject {
     Q_OBJECT
 
-    // Registered as a QML singleton at COMPILE time, which is what lets qmllint (and
-    // qmlcachegen, and the language server) resolve `TranslationManager` in the 3,668 QML
-    // references to it. The macros are the load-bearing part: qmltyperegistrar reads them out
-    // of the moc output and writes the type into the module's generated Decenza.qmltypes, and
+    // Registered as a QML singleton at COMPILE time — by TranslationManagerForeign
+    // (core/contextsingletons_qml.h), not by macros on this class — which is what lets qmllint
+    // (and qmlcachegen, and the language server) resolve `TranslationManager` in the 3,668 QML
+    // references to it. The registration is the load-bearing part: qmltyperegistrar reads the
+    // wrapper's macros out of the moc output and writes the type into Decenza.qmltypes, and
     // that file is qmllint's only source of truth about C++ types. A runtime
     // qmlRegisterSingletonInstance() call is invisible to all three tools — before this, that
     // .qmltypes contained nothing but `Module {}` and every use of a C++ name in QML was an

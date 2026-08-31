@@ -12,18 +12,18 @@
 #include <QAccessible>
 #endif
 
-class QQmlEngine;
-class QJSEngine;
 class TranslationManager;
 
 class AccessibilityManager : public QObject
 {
     Q_OBJECT
 
-    // A compile-time-registered QML singleton. The macros are what put the type in the module's
-    // generated Decenza.qmltypes — the only place qmllint, qmlcachegen and the language server
-    // learn about C++ types. A runtime qmlRegisterSingletonInstance() would be invisible to all
-    // three, which is why this replaced a setContextProperty.
+    // Registered to QML by AccessibilityManagerForeign (core/contextsingletons_qml.h), not by
+    // macros on this class — see that struct for why, and docs/CLAUDE_MD/QML_GOTCHAS.md for the
+    // bug that moved it. The registration is what puts the type in the module's generated
+    // Decenza.qmltypes — the only place qmllint, qmlcachegen and the language server learn about
+    // C++ types. A runtime qmlRegisterSingletonInstance() would be invisible to all three, which
+    // is why this replaced a setContextProperty.
     //
     // Registering the type is necessary but NOT sufficient: main.cpp must also call
     // qml_register_types_Decenza() explicitly, or no declarative type in this module reaches the

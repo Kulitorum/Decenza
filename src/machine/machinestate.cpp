@@ -15,8 +15,6 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QMetaEnum>
-#include <QQmlEngine>
-#include <QJSEngine>
 
 MachineState::MachineState(DE1Device* device, QObject* parent)
     : QObject(parent)

@@ -508,7 +508,7 @@ default-constructible", where the factory silently loses. `QML_FOREIGN` wrappers
 **Why the existing checks could not see it, which is the part worth remembering.** The type was
 registered correctly — qmllint resolved every member, because both objects are the same TYPE and
 qmllint has no concept of an instance. `tst_qmlregistration.cpp` models two halves, the macros that
-register the type and the `setQmlInstance()` call that publishes the instance, and BOTH were
+register the type and the publish call that supplies the instance, and BOTH were
 present and correct. The publish line was right and pointless at once: nothing ever asked for it.
 That third condition — does Qt actually reach the factory — is what no check expressed.
 
@@ -528,7 +528,7 @@ Every singleton that hands QML an object the app already owns now uses that wrap
 to 155 QML sites and enum reads on a singleton resolve INSIDE the instance guard
 (`qqmltypewrapper.cpp:320`), where a failure is runtime-only. It converts cleanly:
 `QML_FOREIGN` registers the foreign class's metaobject, so the generated `Decenza.qmltypes`
-carries the identical `Enum { name: "Phase" }` block with all 17 values before and after. If you
+carries the identical `Enum { name: "Phase" }` block with all 16 values before and after. If you
 are ever tempted to assume that, diff the qmltypes — it is one build and it answers the question.
 
 `WebDebugLogger` stays registered on the class, correctly: it owns its own instance rather than
@@ -538,9 +538,9 @@ and `tst_qmlregistration.cpp` asserts that any singleton declaring its own `crea
 that assert — the case no compile-time check can cover, since an author who does not know the
 rule does not write it.
 
-One consequence of the fix worth knowing: `create()` is now the LIVE path, so it matters that
-`setQmlInstance()` runs before `engine.load()` (main.cpp does). If it ever did not, `create()`
-returns `nullptr` and you land in the next trap below rather than this one.
+One consequence worth knowing: the wrapper's `create()` is the LIVE path, so it matters that
+`main.cpp` assigns `XForeign::s_singletonInstance` before `engine.load()` (it does). If it ever
+did not, `create()` returns `nullptr` and you land in the next trap below rather than this one.
 
 ## A registered singleton with no instance is TRUTHY, not `undefined`
 

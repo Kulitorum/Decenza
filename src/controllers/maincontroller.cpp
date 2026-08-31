@@ -71,8 +71,6 @@
 #include "../core/storagelogging.h"
 #include <QEventLoop>
 #include <QTimer>
-#include <QQmlEngine>
-#include <QJSEngine>
 
 // ShotSettings drift: the DE1 reporting back something other than what we
 // commanded, and the resend ladder that answers it. Aliased rather than typing

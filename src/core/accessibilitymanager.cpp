@@ -1,6 +1,4 @@
 #include "accessibilitymanager.h"
-#include <QQmlEngine>
-#include <QJSEngine>
 #include "translationmanager.h"
 #include "settings.h"
 #include <QDebug>

@@ -3851,10 +3851,10 @@ int main(int argc, char *argv[])
     // most of the app, so it deliberately stays free of QtQml. Same publish-the-instance shape:
     // main owns `settings` and hands it out long before QML exists.
     SettingsForeign::s_singletonInstance = &settings;
-    // A compile-time-registered QML singleton (QML_ELEMENT + QML_SINGLETON in
-    // translationmanager.h), NOT a context property. The engine does not construct it — it is
+    // A compile-time-registered QML singleton (TranslationManagerForeign in
+    // contextsingletons_qml.h), NOT a context property. The engine does not construct it — it is
     // the stack object above, already wired into BLE, MCP, AI, backup and accessibility — so
-    // main publishes the instance and TranslationManager::create() hands it back.
+    // main publishes the instance and the wrapper's create() hands it back.
     //
     // Registering at compile time is what lets qmllint resolve the 3,668 QML references to this
     // name; a runtime qmlRegisterSingletonInstance() would not, because qmltyperegistrar never
@@ -3906,8 +3906,8 @@ int main(int argc, char *argv[])
     ShotDataModelForeign::s_singletonInstance = &shotDataModel;
     SteamDataModelForeign::s_singletonInstance = &steamDataModel;
     SteamHealthTrackerForeign::s_singletonInstance = &steamHealthTracker;
-    // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in maincontroller.h), not a
-    // context property — same reason as AccessibilityManager below. The largest win remaining
+    // Compile-time QML singleton (MainControllerForeign in contextsingletons_qml.h), not a
+    // context property — same reason as every other publish in this block. The largest win remaining
     // after TranslationManager and Settings; measured reduction 916 unqualified warnings.
     //
     // BOTH halves are load-bearing and only one of them is visible to static tooling: the macros

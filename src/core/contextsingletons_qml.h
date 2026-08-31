@@ -129,8 +129,15 @@
 // AppInfo singleton that would have been a second caller. Review deleted AppInfo (its values had
 // owners already — see main.cpp), which left the extraction with one caller and no justification,
 // so it came back here.
+// `consequence` names what a reader will SEE when the instance is missing, in that singleton's
+// own terms. The hand-rolled create()s this replaced each carried their own ("every translated
+// string will be undefined", "most of the UI reading as undefined"), and a single generic
+// sentence lost the part that tells someone which dozen apparently-unrelated bugs share one
+// missing line. One definition of the CHECK, per-caller wording of the SYMPTOM.
 template <typename T>
-T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName)
+T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName,
+                             const char* consequence = "Every binding on this name will be "
+                                                       "undefined.")
 {
     // Checked, not asserted. QT_FORCE_ASSERTS is only defined for sanitizer builds
     // (CMakeLists.txt), so Q_ASSERT compiles out of a shipped Release — and this is the one
@@ -138,8 +145,8 @@ T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName
     // MEMBER READ on the name reads undefined, and nothing says why. (The name itself stays a
     // truthy object — see the note on decenzaOptionalSingleton() below.)
     if (!instance) {
-        qCritical("%s: QML asked for the singleton before main() published it. Every binding on "
-                  "this name will be undefined. Publish it before QQmlEngine::load().", qmlName);
+        qCritical("%s: QML asked for the singleton before main() published it. %s "
+                  "Publish it before QQmlEngine::load().", qmlName, consequence);
         return nullptr;
     }
     if (engine->thread() != instance->thread()) {
@@ -246,7 +253,10 @@ public:
     inline static AccessibilityManager* s_singletonInstance = nullptr;
     static AccessibilityManager* create(QQmlEngine*, QJSEngine* engine)
     {
-        return decenzaPublishedSingleton(s_singletonInstance, engine, "AccessibilityManager");
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "AccessibilityManager",
+                                 "Every accessibility binding in the UI reads "
+                                 "undefined, which looks like an accessibility bug and "
+                                 "is not.");
     }
 };
 
@@ -263,11 +273,17 @@ public:
     inline static MainController* s_singletonInstance = nullptr;
     static MainController* create(QQmlEngine*, QJSEngine* engine)
     {
-        return decenzaPublishedSingleton(s_singletonInstance, engine, "MainController");
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "MainController",
+                                 "Most of the UI will read as undefined, which looks "
+                                 "like a dozen unrelated bugs rather than one missing "
+                                 "line.");
     }
 };
 
-// Owned by MainController, not by main() — the publish still happens in main.cpp.
+// Owned by MainController, not by main() — the publish still happens in main.cpp, reading
+// mainController.profileManager(). That pointer is assigned once in MainController's constructor
+// and never reassigned or deleted, which is what makes publishing it safe; if MainController ever
+// recreates m_profileManager, this publish strands a dangling pointer with no diagnostic.
 struct ProfileManagerForeign
 {
     Q_GADGET
@@ -335,7 +351,10 @@ public:
     inline static MachineState* s_singletonInstance = nullptr;
     static MachineState* create(QQmlEngine*, QJSEngine* engine)
     {
-        return decenzaPublishedSingleton(s_singletonInstance, engine, "MachineState");
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "MachineState",
+                                 "Every phase-driven binding reads undefined and every "
+                                 "Connections{target:MachineState} silently never "
+                                 "connects.");
     }
 };
 

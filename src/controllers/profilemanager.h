@@ -8,7 +8,6 @@
 #include <QMap>
 #include <QHash>
 #include <QSet>
-#include <QtQml/qqmlregistration.h>
 #include "../profile/profile.h"
 
 class Settings;
@@ -16,8 +15,6 @@ class DE1Device;
 class MachineState;
 class ProfileStorage;
 class SteamHeaterPolicy;
-class QQmlEngine;
-class QJSEngine;
 
 // Profile source enumeration (moved from maincontroller.h)
 enum class ProfileSource {

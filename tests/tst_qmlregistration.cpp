@@ -289,13 +289,18 @@ private slots:
     // static_assert is written. What this slot enforces is that a new singleton
     // cannot be added without one — which is the case no compile-time check can
     // cover, because the author who does not know the rule does not write the
-    // assert. The five types that carry a factory besides AccessibilityManager
-    // are safe only because their constructors happen to require arguments; the
-    // asserts turn that coincidence into a stated invariant.
+    // assert. Note how few types this covers now, and why that is correct: every
+    // singleton handing QML an object main() owns is a QML_FOREIGN wrapper, and
+    // those are immune structurally — T != WrapperT takes the FactoryWrapper
+    // branch at qqmlprivate.h:159-160, BEFORE default-constructibility is tested
+    // at :161 — so they are skipped here and carry no assert. What is left is the
+    // singleton that owns its own instance and so declares create() on itself;
+    // today that is WebDebugLogger alone. This slot exists for the NEXT one.
     void aSingletonWithAFactoryAssertsItIsNotDefaultConstructible_data()
     {
         QTest::addColumn<QString>("header");
         QTest::addColumn<QString>("cppName");
+        QTest::addColumn<bool>("isForeign");
         QList<ScanProblem> problems;
         int declaredTotal = 0;
         const auto decls = scanSingletons(&problems, &declaredTotal);
@@ -308,14 +313,21 @@ private slots:
                              .arg(p.header).arg(p.line, 0, 10).arg(p.why)));
         QCOMPARE(qsizetype(declaredTotal), decls.size());
 
+        // registryName is the QML_FOREIGN target when the declaration has one, else the class
+        // itself — computed per DECLARATION by scanSingletons(). Passing it matters: a file-wide
+        // search for "QML_FOREIGN(" would see the ~30 neighbouring wrappers in
+        // contextsingletons_qml.h and skip a new DIRECT singleton added to that same file, which
+        // is exactly where one would be added and exactly the shape this slot exists to catch.
         for (const auto& d : decls)
-            QTest::newRow(qPrintable(d.qmlName)) << d.header << d.cppName;
+            QTest::newRow(qPrintable(d.qmlName))
+                << d.header << d.cppName << (d.registryName != d.cppName);
     }
 
     void aSingletonWithAFactoryAssertsItIsNotDefaultConstructible()
     {
         QFETCH(QString, header);
         QFETCH(QString, cppName);
+        QFETCH(bool, isForeign);
 
         // `header` is repo-relative (scanSingletons stores it that way for
         // failure messages), so resolve it the way every other slot here does.
@@ -327,13 +339,14 @@ private slots:
         // no create() is meant to be engine-constructed — that is the correct
         // Constructor mode — and a QML_FOREIGN wrapper takes Qt's FactoryWrapper
         // branch (:159-160) before the default-constructible test is ever reached.
-        if (!src.contains(QStringLiteral("create(QQmlEngine"))
-            || src.contains(QStringLiteral("QML_FOREIGN(")))
-            QSKIP("no own create() factory, or QML_FOREIGN — not reachable by this defect");
+        if (isForeign)
+            QSKIP("QML_FOREIGN — takes Qt's FactoryWrapper branch, not reachable by this defect");
+        if (!sourceWithoutComments(src).contains(QStringLiteral("create(QQmlEngine")))
+            QSKIP("no own create() factory — Qt is meant to construct it");
 
         const QString expected =
             QStringLiteral("static_assert(!std::is_default_constructible_v<%1>").arg(cppName);
-        QVERIFY2(src.contains(expected),
+        QVERIFY2(sourceWithoutComments(src).contains(expected),
                  qPrintable(QStringLiteral(
                      "%1 declares create() but %2 has no "
                      "static_assert(!std::is_default_constructible_v<%2>). Qt tests "

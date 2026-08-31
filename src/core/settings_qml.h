@@ -20,6 +20,7 @@
 // qml_register_types_Decenza() explicitly, or none of this module's declarative types reach the
 // runtime registry. See the comment at that call site; it is a Qt guard that this app trips.
 
+#include "core/contextsingletons_qml.h"
 #include <QtQml/qqmlregistration.h>
 #include <QtQml/QQmlEngine>
 #include <QtQml/QJSEngine>
@@ -43,32 +44,14 @@ public:
 
     static Settings* create(QQmlEngine*, QJSEngine* engine)
     {
-        // Checked, not asserted. QT_FORCE_ASSERTS is only defined for sanitizer builds
-        // (CMakeLists.txt), so Q_ASSERT compiles out of a shipped Release — and this is the one
-        // condition where that matters: with the instance unpublished, create() returns null,
-        // every Settings.<domain>.<prop> in the app reads undefined, and nothing says why.
-        // TranslationManager::create() and AccessibilityManager::create() report the same fault
-        // the same way; three copies of this pattern should not have three failure policies.
-        if (!s_singletonInstance) {
-            qCritical("Settings: QML asked for the singleton before "
-                      "SettingsForeign::s_singletonInstance was published. Every "
-                      "Settings.<domain>.<prop> binding will be undefined. Publish it before "
-                      "QQmlEngine::load().");
-            return nullptr;
-        }
-        if (engine->thread() != s_singletonInstance->thread()) {
-            qCritical("Settings: the QML engine and the Settings instance are on different "
-                      "threads; QML property access would be unsafe.");
-            return nullptr;
-        }
-
         // Qt's own example additionally asserts that only ONE engine ever reaches the singleton.
         // Deliberately omitted: this app runs a second QQmlEngine for the GHC simulator window in
         // debug builds, and that engine is given `Settings` as a context property, which resolves
         // ahead of a type name. Either way it would be the same object — main's — so sharing it
         // is what already happens today and the assert would only fire on a correct program.
-        QJSEngine::setObjectOwnership(s_singletonInstance, QJSEngine::CppOwnership);
-        return s_singletonInstance;
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "Settings",
+                                         "Every Settings.<domain>.<prop> binding will be "
+                                         "undefined.");
     }
 };
 
