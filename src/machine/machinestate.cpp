@@ -18,33 +18,6 @@
 #include <QQmlEngine>
 #include <QJSEngine>
 
-MachineState *MachineState::s_qmlInstance = nullptr;
-
-void MachineState::setQmlInstance(MachineState *instance)
-{
-    s_qmlInstance = instance;
-}
-
-MachineState *MachineState::create(QQmlEngine *qmlEngine, QJSEngine *jsEngine)
-{
-    Q_UNUSED(qmlEngine)
-    Q_UNUSED(jsEngine)
-    if (!s_qmlInstance) {
-        // Reached only if QML resolves the singleton before main.cpp published the instance.
-        // Name the missing call: the symptom otherwise is every phase-driven binding in the app
-        // reading as undefined, which looks like a dozen unrelated bugs rather than one missing
-        // line.
-        qCritical("MachineState: QML asked for the singleton before "
-                  "MachineState::setQmlInstance() was called. Publish the instance before "
-                  "QQmlEngine::load().");
-        return nullptr;
-    }
-    // No per-engine state here, so no second-engine guard — same reasoning as MainController.
-    // The engine would otherwise take ownership of a stack object owned by main().
-    QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
-    return s_qmlInstance;
-}
-
 MachineState::MachineState(DE1Device* device, QObject* parent)
     : QObject(parent)
     , m_device(device)

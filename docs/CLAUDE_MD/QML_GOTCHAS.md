@@ -520,20 +520,23 @@ before constructibility is ever tested: the trap is unreachable. That is the sha
 `contextsingletons_qml.h` already used for `Settings`, `DE1Device` and `ScreensaverManager`, and
 `AccessibilityManager` now uses it too. Prefer it for anything main() owns.
 
-The five singletons still registered on the class itself (`MainController`, `ProfileManager`,
-`TranslationManager`, `MachineState`, `WebDebugLogger`) are safe because their constructors
-require arguments — and each now carries `static_assert(!std::is_default_constructible_v<T>)` so
-that is a stated invariant rather than a coincidence. `tst_qmlregistration.cpp` asserts a
-singleton declaring `create()` HAS that assert, which is the case no compile-time check can cover:
-an author who does not know the rule does not write it. It lives there rather than in a standalone
-script because that file already enumerates every `QML_SINGLETON` robustly, reconciling its parse
-against an independent declaration count and failing on anything it could not read.
+Every singleton that hands QML an object the app already owns now uses that wrapper —
+`AccessibilityManager`, `MainController`, `ProfileManager`, `TranslationManager` and
+`MachineState` — so none of them can reach this trap at all.
 
-Converting those five to foreign wrappers too would make the trap unreachable everywhere. It was
-deliberately NOT done in one go: `MachineState` exposes `Q_ENUM(Phase)` to 155 QML sites and enum
-resolution runs inside the singleton's instance guard (see that header), no foreign singleton here
-exposes an enum yet, and the failure mode is runtime-only. Worth doing as its own change with its
-own beta soak, not bundled with a bug fix.
+`MachineState` was the one worth checking rather than assuming, because it exposes `Q_ENUM(Phase)`
+to 155 QML sites and enum reads on a singleton resolve INSIDE the instance guard
+(`qqmltypewrapper.cpp:320`), where a failure is runtime-only. It converts cleanly:
+`QML_FOREIGN` registers the foreign class's metaobject, so the generated `Decenza.qmltypes`
+carries the identical `Enum { name: "Phase" }` block with all 17 values before and after. If you
+are ever tempted to assume that, diff the qmltypes — it is one build and it answers the question.
+
+`WebDebugLogger` stays registered on the class, correctly: it owns its own instance rather than
+being handed one, so there is nothing for `main()` to publish and the foreign shape does not
+apply. It keeps a private constructor and a `static_assert(!std::is_default_constructible_v<T>)`,
+and `tst_qmlregistration.cpp` asserts that any singleton declaring its own `create()` carries
+that assert — the case no compile-time check can cover, since an author who does not know the
+rule does not write it.
 
 One consequence of the fix worth knowing: `create()` is now the LIVE path, so it matters that
 `setQmlInstance()` runs before `engine.load()` (main.cpp does). If it ever did not, `create()`

@@ -181,9 +181,9 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
   different object. Registration and qmllint cannot see this: both objects are the same TYPE. It
   shipped, giving `AccessibilityManager` two live TTS engines. For an object main() owns, Qt's
   documented answer is a `QML_FOREIGN` wrapper (`contextsingletons_qml.h`), which cannot reach the
-  trap — prefer it. The five still registered on the class carry a
-  `static_assert(!std::is_default_constructible_v<T>)`, and `tst_qmlregistration` asserts a new
-  one cannot skip it.
+  trap — every such singleton now uses one. A singleton that owns its own instance keeps its own
+  `create()` plus a `static_assert(!std::is_default_constructible_v<T>)`, and
+  `tst_qmlregistration` asserts a new one cannot skip it.
 - **A registered singleton with no instance is TRUTHY, not `undefined`.** `typeof X !== "undefined"
   && X` passes and the first member call throws. Qt builds the type wrapper whether or not
   `singletonInstance()` returned anything; only the member read degrades to `undefined`. Guard the

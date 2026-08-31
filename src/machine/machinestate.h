@@ -1,6 +1,5 @@
 #pragma once
 
-#include <type_traits>
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
@@ -19,9 +18,9 @@ class QJSEngine;
 class MachineState : public QObject {
     Q_OBJECT
 
-    // Compile-time QML registration, replacing BOTH the setContextProperty("MachineState", …)
-    // and the qmlRegisterUncreatableType<MachineState>(…, "MachineStateType") that main.cpp used
-    // to do. The two existed because a context property shadows a type of the same name, so the
+    // Registered to QML by MachineStateForeign (core/contextsingletons_qml.h), replacing BOTH
+    // the setContextProperty("MachineState", …) and the
+    // qmlRegisterUncreatableType<MachineState>(…, "MachineStateType") that main.cpp used to do. The two existed because a context property shadows a type of the same name, so the
     // enums had to be reached under a second, invented name. A QML_SINGLETON needs no such
     // split: `MachineState.Phase.Pouring` resolves through the singleton, and unlike either of
     // the runtime calls it is visible to qmllint, qmlcachegen and the language server. Full
@@ -42,8 +41,11 @@ class MachineState : public QObject {
     // logging only their own "cannot start" line. If you are ever debugging that, look at the
     // Connections, not at the enums. tst_qmlregistration asserts the publish call for exactly
     // this reason.
-    QML_ELEMENT
-    QML_SINGLETON
+    //
+    // The enum survives the move to a foreign wrapper: QML_FOREIGN registers THIS class's
+    // metaobject, so Q_ENUM(Phase) is exported exactly as before — verified against the
+    // generated Decenza.qmltypes, which carries the same `Enum { name: "Phase" }` block with
+    // all its values either way.
 
     Q_PROPERTY(Phase phase READ phase NOTIFY phaseChanged)
     Q_PROPERTY(bool isFlowing READ isFlowing NOTIFY phaseChanged)
@@ -111,11 +113,6 @@ public:
     double preinfusionVolume() const { return m_preinfusionVolume; }
     double pourVolume() const { return m_pourVolume; }
     bool standbySwitchOpen() const { return m_standbySwitchOpen; }
-    // QML_SINGLETON hooks. The engine does not create this object: main.cpp builds it on the
-    // stack and publishes the pointer before QQmlEngine::load(). See maincontroller.h.
-    static void setQmlInstance(MachineState *instance);
-    static MachineState *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
-
     ScaleDevice* scale() const;
     void setScale(ScaleDevice* scale);
     QString activeScaleType() const;
@@ -202,7 +199,6 @@ private slots:
     void onTimingControllerTareComplete();
 
 private:
-    static MachineState *s_qmlInstance;
 
     // Install the serving-scale provider on SettingsCalibration, which resolves the SAW
     // pool key for every consumer. Called from setSettings() ONLY, and once is enough:
@@ -302,15 +298,3 @@ private:
 #endif
 };
 
-// Qt tests is_default_constructible BEFORE HasSingletonFactory when it picks a QML_SINGLETON's
-// construction mode (qtdeclarative/src/qml/qml/qqmlprivate.h:161-164). A default-constructible
-// singleton therefore gets `new T` (:190) and its create() is never called — dead code that
-// still compiles, with no diagnostic from the compiler, moc, qmllint or the suite. Decenza
-// shipped exactly that for AccessibilityManager; see docs/CLAUDE_MD/QML_GOTCHAS.md.
-//
-// MachineState is safe today only because its constructor requires arguments. That is incidental, so
-// assert it: adding a default to every parameter would silently detach QML from the published
-// instance again.
-static_assert(!std::is_default_constructible_v<MachineState>,
-              "MachineState is a QML_SINGLETON with a create() factory: it must NOT be "
-              "default-constructible, or Qt will 'new' its own instance and never call create().");

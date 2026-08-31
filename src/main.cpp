@@ -3859,7 +3859,7 @@ int main(int argc, char *argv[])
     // Registering at compile time is what lets qmllint resolve the 3,668 QML references to this
     // name; a runtime qmlRegisterSingletonInstance() would not, because qmltyperegistrar never
     // sees it. That is the whole point of the migration, not a side effect of it.
-    TranslationManager::setQmlInstance(&translationManager);
+    TranslationManagerForeign::s_singletonInstance = &translationManager;
     // MUST be called explicitly, and this is not optional bookkeeping — without it the
     // declarative registration above never runs and every translated string in the app is
     // `undefined`. Qt registers a module's compile-time types lazily, on first import, behind
@@ -3902,7 +3902,7 @@ int main(int argc, char *argv[])
     // about the FlowScale *fallback*, which is a different thing. Publishing an unread name is
     // not free: a context property is invisible to qmllint, so it cannot be told apart from a
     // typo at the call sites that never came.
-    MachineState::setQmlInstance(&machineState);
+    MachineStateForeign::s_singletonInstance = &machineState;
     ShotDataModelForeign::s_singletonInstance = &shotDataModel;
     SteamDataModelForeign::s_singletonInstance = &steamDataModel;
     SteamHealthTrackerForeign::s_singletonInstance = &steamHealthTracker;
@@ -3914,8 +3914,8 @@ int main(int argc, char *argv[])
     // put the TYPE in the registry, this call publishes the INSTANCE. Delete this line and the
     // build, qmllint and the whole suite stay green while every MainController.* binding in the
     // app resolves to null. tst_qmlregistration asserts this call exists, for that reason.
-    MainController::setQmlInstance(&mainController);
-    ProfileManager::setQmlInstance(mainController.profileManager());
+    MainControllerForeign::s_singletonInstance = &mainController;
+    ProfileManagerForeign::s_singletonInstance = mainController.profileManager();
     // ScreensaverManager: QML's name for ScreensaverVideoManager. See contextsingletons_qml.h.
     ScreensaverManagerForeign::s_singletonInstance = &screensaverManager;
     AutoWakeManagerForeign::s_singletonInstance = &autoWakeManager;

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <type_traits>
 #include <QObject>
 #include <QVariantList>
 #include <QMap>
@@ -100,8 +99,6 @@ class MainController : public QObject {
     // because moc must build a metatype for each. That is what forced real #includes into
     // visualizeruploader.h, and what defers ShotDataModel/SteamDataModel (their registerFastSeries
     // would drag <QQuickItem> into every consumer of this header).
-    QML_ELEMENT
-    QML_SINGLETON
 
     // Non-profile QML properties (profile properties are on ProfileManager)
     //
@@ -220,13 +217,6 @@ public:
                            MachineState* machineState, ShotDataModel* shotDataModel,
                            ProfileStorage* profileStorage = nullptr,
                            QObject* parent = nullptr);
-
-    // QML_SINGLETON hooks. The engine does not create this object: main.cpp builds it on the
-    // stack with five collaborators the constructor requires, and wires it into the MCP server,
-    // the ShotServer and the machine signal path long before QML exists. So main publishes the
-    // instance and create() hands that same one back.
-    static void setQmlInstance(MainController *instance);
-    static MainController *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
 
     // ProfileManager accessor
     ProfileManager* profileManager() const { return m_profileManager; }
@@ -638,7 +628,6 @@ private slots:
 private:
     // The instance create() hands to the engine. Not owned here — main's stack object outlives
     // the engine, which is why create() pins CppOwnership.
-    static MainController *s_qmlInstance;
 
     void applyAllSettings();
     void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride = 0,
@@ -938,15 +927,3 @@ private:
     DatabaseBackupManager* m_backupManager = nullptr;
 };
 
-// Qt tests is_default_constructible BEFORE HasSingletonFactory when it picks a QML_SINGLETON's
-// construction mode (qtdeclarative/src/qml/qml/qqmlprivate.h:161-164). A default-constructible
-// singleton therefore gets `new T` (:190) and its create() is never called — dead code that
-// still compiles, with no diagnostic from the compiler, moc, qmllint or the suite. Decenza
-// shipped exactly that for AccessibilityManager; see docs/CLAUDE_MD/QML_GOTCHAS.md.
-//
-// MainController is safe today only because its constructor requires arguments. That is incidental, so
-// assert it: adding a default to every parameter would silently detach QML from the published
-// instance again.
-static_assert(!std::is_default_constructible_v<MainController>,
-              "MainController is a QML_SINGLETON with a create() factory: it must NOT be "
-              "default-constructible, or Qt will 'new' its own instance and never call create().");

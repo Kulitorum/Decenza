@@ -1,6 +1,5 @@
 #pragma once
 
-#include <type_traits>
 #include <utility>
 
 #include <QObject>
@@ -79,8 +78,6 @@ class ProfileManager : public QObject {
     // main.cpp used to do. A context property is invisible to qmllint, qmlcachegen and the
     // language server, so every `ProfileManager.x` in QML was unchecked. Full rationale in
     // src/controllers/maincontroller.h.
-    QML_ELEMENT
-    QML_SINGLETON
 
     Q_PROPERTY(QString currentProfileName READ currentProfileName NOTIFY currentProfileChanged)
     // The UNDECORATED title — what `shots.profile_name` is written from
@@ -149,11 +146,6 @@ class ProfileManager : public QObject {
     Q_PROPERTY(bool isCurrentProfileReadOnly READ isCurrentProfileReadOnly NOTIFY currentProfileChanged)
 
 public:
-    // QML_SINGLETON hooks. The engine does not create this object: MainController owns it and
-    // main.cpp publishes the pointer before QQmlEngine::load(). See maincontroller.h.
-    static void setQmlInstance(ProfileManager *instance);
-    static ProfileManager *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
-
     // `steamHeaterPolicy` is THE steam-target derivation (see steamheaterpolicy.h).
     // Passing it is how uploadCurrentProfile() avoids re-deriving the steam
     // temperature itself, which it used to do from an incomplete set of inputs.
@@ -639,7 +631,6 @@ private:
     // Shared body of the two profileDialInDiff* invokables.
     static QVariantMap dialInDiffFor(const Profile& p);
 
-    static ProfileManager *s_qmlInstance;
 
     // Current profile's frames with every temperature shifted so the reference
     // temperature (espressoTemperature) becomes targetTemp. Single source of truth
@@ -765,15 +756,3 @@ private:
 #endif
 };
 
-// Qt tests is_default_constructible BEFORE HasSingletonFactory when it picks a QML_SINGLETON's
-// construction mode (qtdeclarative/src/qml/qml/qqmlprivate.h:161-164). A default-constructible
-// singleton therefore gets `new T` (:190) and its create() is never called — dead code that
-// still compiles, with no diagnostic from the compiler, moc, qmllint or the suite. Decenza
-// shipped exactly that for AccessibilityManager; see docs/CLAUDE_MD/QML_GOTCHAS.md.
-//
-// ProfileManager is safe today only because its constructor requires arguments. That is incidental, so
-// assert it: adding a default to every parameter would silently detach QML from the published
-// instance again.
-static_assert(!std::is_default_constructible_v<ProfileManager>,
-              "ProfileManager is a QML_SINGLETON with a create() factory: it must NOT be "
-              "default-constructible, or Qt will 'new' its own instance and never call create().");

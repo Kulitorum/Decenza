@@ -103,33 +103,6 @@ static bool isRetryableUploadFailure(const QString& reason) {
 }
 
 
-ProfileManager *ProfileManager::s_qmlInstance = nullptr;
-
-void ProfileManager::setQmlInstance(ProfileManager *instance)
-{
-    s_qmlInstance = instance;
-}
-
-ProfileManager *ProfileManager::create(QQmlEngine *qmlEngine, QJSEngine *jsEngine)
-{
-    Q_UNUSED(qmlEngine)
-    Q_UNUSED(jsEngine)
-    if (!s_qmlInstance) {
-        // Reached only if QML resolves the singleton before main.cpp published the instance.
-        // Name the missing call: the symptom otherwise is every profile-related binding in the
-        // UI reading as undefined, which looks like a dozen unrelated bugs rather than one
-        // missing line.
-        qCritical("ProfileManager: QML asked for the singleton before "
-                  "ProfileManager::setQmlInstance() was called. Publish the instance before "
-                  "QQmlEngine::load().");
-        return nullptr;
-    }
-    // No per-engine state here, so no second-engine guard — same reasoning as MainController.
-    // The engine would otherwise take ownership of an object MainController owns and delete it.
-    QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
-    return s_qmlInstance;
-}
-
 ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                                MachineState* machineState,
                                ProfileStorage* profileStorage,

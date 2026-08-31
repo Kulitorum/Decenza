@@ -79,6 +79,10 @@
 #include <QtQml/QJSEngine>
 
 #include "core/accessibilitymanager.h"
+#include "../machine/machinestate.h"
+#include "core/translationmanager.h"
+#include "../controllers/profilemanager.h"
+#include "../controllers/maincontroller.h"
 #include "../ble/de1device.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../ble/blemanager.h"
@@ -243,6 +247,95 @@ public:
     static AccessibilityManager* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "AccessibilityManager");
+    }
+};
+
+// The largest name in the app after DE1Device. No per-engine state, so the shared publish
+// helper is the whole of create().
+struct MainControllerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(MainController)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(MainController)
+
+public:
+    inline static MainController* s_singletonInstance = nullptr;
+    static MainController* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "MainController");
+    }
+};
+
+// Owned by MainController, not by main() — the publish still happens in main.cpp.
+struct ProfileManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(ProfileManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(ProfileManager)
+
+public:
+    inline static ProfileManager* s_singletonInstance = nullptr;
+    static ProfileManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "ProfileManager");
+    }
+};
+
+// The one singleton here with genuine per-engine state, so its create() does MORE than publish.
+// `translate` is a QJSValue bound to exactly one QJSEngine and setJsEngine() qFatal()s rather
+// than rebind, so a second engine has to be declined rather than served — this app really does
+// run one, the GHC simulator window in desktop debug builds. Preserved verbatim from the
+// class's own create(); only the publish half moved into the shared helper.
+struct TranslationManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(TranslationManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(TranslationManager)
+
+public:
+    inline static TranslationManager* s_singletonInstance = nullptr;
+    static TranslationManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        TranslationManager* const published =
+            decenzaPublishedSingleton(s_singletonInstance, engine, "TranslationManager");
+        if (!published)
+            return nullptr;
+        QJSEngine* const bound = published->boundJsEngine();
+        if (bound && bound != engine) {
+            qCritical("TranslationManager: a second QQmlEngine asked for this singleton. "
+                      "`translate` is bound to the engine main.cpp wired and cannot be rebound, "
+                      "so this engine gets no TranslationManager and its translated strings will "
+                      "be undefined. A second engine needing translations needs its own "
+                      "instance.");
+            return nullptr;
+        }
+        if (!bound)
+            published->setJsEngine(engine);
+        return published;
+    }
+};
+
+// The only foreign singleton here that exposes an enum: Q_ENUM(Phase), read as
+// MachineState.Phase.X at 155 QML sites. QML_FOREIGN registers the foreign class's metaobject,
+// so the enum is exported exactly as it was when the macros sat on the class — checked against
+// the generated Decenza.qmltypes before and after. Note enum reads on a singleton resolve
+// INSIDE the instance guard (qqmltypewrapper.cpp:320), so they depend on this publish; see
+// machinestate.h for what that costs if the publish is ever missed.
+struct MachineStateForeign
+{
+    Q_GADGET
+    QML_FOREIGN(MachineState)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(MachineState)
+
+public:
+    inline static MachineState* s_singletonInstance = nullptr;
+    static MachineState* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "MachineState");
     }
 };
 

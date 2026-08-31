@@ -1,6 +1,5 @@
 #pragma once
 
-#include <type_traits>
 #include <QObject>
 #include <QJSValue>
 #include <QNetworkAccessManager>
@@ -27,8 +26,6 @@ class TranslationManager : public QObject {
     // qmlRegisterSingletonInstance() call is invisible to all three tools — before this, that
     // .qmltypes contained nothing but `Module {}` and every use of a C++ name in QML was an
     // unqualified-access warning.
-    QML_ELEMENT
-    QML_SINGLETON
 
     // Current language settings
     Q_PROPERTY(QString currentLanguage READ currentLanguage WRITE setCurrentLanguage NOTIFY currentLanguageChanged)
@@ -86,14 +83,6 @@ class TranslationManager : public QObject {
 public:
     explicit TranslationManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
     ~TranslationManager() override;
-
-    // QML_SINGLETON hooks. The engine does NOT create this object: main.cpp owns it on the
-    // stack and wires it into eight other subsystems (BLE, MCP, AI, backup, accessibility …)
-    // long before the engine exists, so there is no way to hand construction to QML. Instead
-    // main.cpp publishes the instance with setQmlInstance() and create() hands that same object
-    // back — the pattern Qt provides for exactly this case.
-    static void setQmlInstance(TranslationManager* instance);
-    static TranslationManager* create(QQmlEngine* qmlEngine, QJSEngine* jsEngine);
 
     // Properties
     QString currentLanguage() const;
@@ -336,7 +325,6 @@ private slots:
 private:
     // The instance create() hands to the engine. Not owned here — main.cpp's stack object
     // outlives the engine, which is why create() must also pin CppOwnership.
-    static TranslationManager* s_qmlInstance;
 
     void loadTranslations();
     // Every verdict-returning helper below is [[nodiscard]], and CMake promotes a discarded
@@ -617,15 +605,3 @@ inline QString translateOrFallback(TranslationManager* manager,
     return translateOrFallback(manager, QString::fromUtf8(key), QString::fromUtf8(fallback));
 }
 
-// Qt tests is_default_constructible BEFORE HasSingletonFactory when it picks a QML_SINGLETON's
-// construction mode (qtdeclarative/src/qml/qml/qqmlprivate.h:161-164). A default-constructible
-// singleton therefore gets `new T` (:190) and its create() is never called — dead code that
-// still compiles, with no diagnostic from the compiler, moc, qmllint or the suite. Decenza
-// shipped exactly that for AccessibilityManager; see docs/CLAUDE_MD/QML_GOTCHAS.md.
-//
-// TranslationManager is safe today only because its constructor requires arguments. That is incidental, so
-// assert it: adding a default to every parameter would silently detach QML from the published
-// instance again.
-static_assert(!std::is_default_constructible_v<TranslationManager>,
-              "TranslationManager is a QML_SINGLETON with a create() factory: it must NOT be "
-              "default-constructible, or Qt will 'new' its own instance and never call create().");

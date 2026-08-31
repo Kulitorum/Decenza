@@ -92,37 +92,6 @@ namespace {
 constexpr auto kDriftGiveUpLogKey = QLatin1String("shotSettingsDriftGiveUp");
 }  // namespace
 
-MainController *MainController::s_qmlInstance = nullptr;
-
-void MainController::setQmlInstance(MainController *instance)
-{
-    s_qmlInstance = instance;
-}
-
-MainController *MainController::create(QQmlEngine *qmlEngine, QJSEngine *jsEngine)
-{
-    Q_UNUSED(qmlEngine)
-    Q_UNUSED(jsEngine)
-    if (!s_qmlInstance) {
-        // Reached only if QML resolves the singleton before main.cpp published the instance.
-        // Name the missing call: the symptom otherwise is most of the UI reading as undefined,
-        // which looks like a dozen unrelated bugs rather than one missing line.
-        qCritical("MainController: QML asked for the singleton before "
-                  "MainController::setQmlInstance() was called. Publish the instance before "
-                  "QQmlEngine::load().");
-        return nullptr;
-    }
-    // No second-engine guard, matching AccessibilityManager and for the same reason: this class
-    // holds no per-engine state. TranslationManager needs one only because `translate` is a
-    // QJSValue bound to one QJSEngine. Add a guard here only if this class gains a QJSValue or
-    // QJSEngine member.
-    //
-    // The engine would otherwise take ownership of what it is handed and delete a stack object
-    // owned by main().
-    QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
-    return s_qmlInstance;
-}
-
 void MainController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
 {
     if (!m_hdsFirmwareUpdate)
