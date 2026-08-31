@@ -1171,10 +1171,7 @@ private slots:
         QCOMPARE(p.steps()[1].pressure, 9.2);
         QCOMPARE(p.steps()[1].seconds, 3.0);
         QVERIFY(!p.steps()[1].exitIf);
-        // The rise is limited like the hold and decline: de1app stopped leaving it
-        // unlimited so a high-flow machine cannot push unbounded flow while pressure
-        // ramps (skialpine/de1app@fdd091f3).
-        QCOMPARE(p.steps()[1].maxFlowOrPressure, 6.0);
+        QCOMPARE(p.steps()[1].maxFlowOrPressure, 6.0);  // limited now, not 0
 
         // Frame 2: hold (pressure pump, remaining time)
         QCOMPARE(p.steps()[2].pump, QString("pressure"));
@@ -1258,36 +1255,38 @@ private slots:
 
     void unlimitedPressureStepGetsTheDefaultFlowLimit() {
         Profile p = advancedProfileWith({pressureStep(0.0)});
-        QVERIFY(p.applyDefaultPressureFlowLimit());
+        // A non-default range, so the assertion below distinguishes "took the profile's
+        // range" from "hard-coded 1.0" — Profile's own default for that member IS 1.0,
+        // so the two are indistinguishable at the default.
+        p.setMaximumFlowRangeDefault(0.4);
+        QCOMPARE(p.applyDefaultPressureFlowLimit(), 1);
         QCOMPARE(p.steps()[0].maxFlowOrPressure, Profile::kDefaultPressureFlowLimit);
-        // A limiter with no range engages instantly; the profile's default range is what
-        // de1app hands the DE1 alongside the value.
-        QVERIFY(p.steps()[0].maxFlowOrPressureRange > 0.0);
+        // A limiter with no range engages instantly.
+        QCOMPARE(p.steps()[0].maxFlowOrPressureRange, 0.4);
     }
 
     void explicitPressureLimitSurvivesNormalization() {
         Profile p = advancedProfileWith({pressureStep(2.5)});
-        QVERIFY(!p.applyDefaultPressureFlowLimit());
+        QCOMPARE(p.applyDefaultPressureFlowLimit(), 0);
         QCOMPARE(p.steps()[0].maxFlowOrPressure, 2.5);
     }
 
     void flowStepKeepsItsOffPressureLimit() {
-        // On a flow step the limiter is a PRESSURE limit, where off is still legal —
-        // capping it would silently add a 8 bar ceiling to every unlimited flow step.
+        // Capping here would silently add an 8 bar ceiling to every unlimited flow step.
         ProfileFrame f;
         f.name = "pour";
         f.pump = "flow";
         f.flow = 2.0;
         f.maxFlowOrPressure = 0.0;
         Profile p = advancedProfileWith({f});
-        QVERIFY(!p.applyDefaultPressureFlowLimit());
+        QCOMPARE(p.applyDefaultPressureFlowLimit(), 0);
         QCOMPARE(p.steps()[0].maxFlowOrPressure, 0.0);
     }
 
     void simplePressureProfileDefaultsItsScalarAndItsFrames() {
-        // settings_2a's flow limit is the scalar maximum_flow, and the frames are
-        // generated from it — so defaulting the scalar has to happen before generation
-        // or a regeneration puts the unlimited frames straight back.
+        // settings_2a's flow limit is the scalar maximum_flow, and regenerateSimpleFrames()
+        // rebuilds the frames from it — so the scalar has to be defaulted too, or the next
+        // regeneration restores the unlimited frames.
         QJsonObject obj;
         obj["title"] = "Unlimited Pressure";
         obj["legacy_profile_type"] = "settings_2a";
@@ -1301,9 +1300,41 @@ private slots:
         Profile p = Profile::fromJson(QJsonDocument(obj));
         QCOMPARE(p.maximumFlow(), 0.0);
 
-        QVERIFY(p.applyDefaultPressureFlowLimit());
+        QVERIFY(p.applyDefaultPressureFlowLimit() > 0);
         QCOMPARE(p.maximumFlow(), Profile::kDefaultPressureFlowLimit);
 
+        p.regenerateSimpleFrames();
+        int pressureFrames = 0;
+        for (const ProfileFrame& f : p.steps()) {
+            if (f.pump != QLatin1String("pressure")) continue;
+            pressureFrames++;
+            QCOMPARE(f.maxFlowOrPressure, Profile::kDefaultPressureFlowLimit);
+        }
+        // Or the loop body never runs and this passes on an empty frame list.
+        QVERIFY2(pressureFrames >= 2, "expected forced-rise + hold + decline");
+    }
+
+    void simplePressureScalarSurvivesARegenerateOnItsOwn() {
+        // The frame walk cannot mask the scalar branch here: the stored frames already
+        // carry a limiter, so only the scalar default can be what survives regeneration.
+        // Without that branch, regenerateSimpleFrames() rebuilds from maximum_flow == 0
+        // and every frame comes back unlimited.
+        QJsonObject obj;
+        obj["title"] = "Limited Frames, Unlimited Scalar";
+        obj["legacy_profile_type"] = "settings_2a";
+        obj["espresso_temperature"] = 93.0;
+        obj["espresso_hold_time"] = 10.0;
+        obj["espresso_pressure"] = 9.0;
+        obj["espresso_decline_time"] = 20.0;
+        obj["maximum_flow"] = 0.0;
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        p.regenerateSimpleFrames();
+        QList<ProfileFrame> limited = p.steps();
+        for (ProfileFrame& f : limited) f.maxFlowOrPressure = 5.0;
+        p.setSteps(limited);
+
+        QCOMPARE(p.applyDefaultPressureFlowLimit(), 1);  // scalar only; no frame touched
         p.regenerateSimpleFrames();
         for (const ProfileFrame& f : p.steps()) {
             if (f.pump != QLatin1String("pressure")) continue;

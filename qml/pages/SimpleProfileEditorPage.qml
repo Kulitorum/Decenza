@@ -501,9 +501,9 @@ T.Page {
                                     Layout.fillWidth: true; valueColor: Theme.flowColor
                                     visible: editorPage.isFlow ? editorPage.val(editorPage.recipe.holdTime, 10) > 0 : true
                                     accessibleName: editorPage.isFlow ? TranslationManager.translate("simpleProfileEditor.holdFlow", "Hold flow") : TranslationManager.translate("simpleProfileEditor.flowLimit", "Flow limit")
-                                    // Pressure profile: this is the flow LIMIT, which can no
-                                    // longer be off — floors at 0.1, a typed 0 snaps to the
-                                    // default. Flow profile: this is the flow goal, unchanged.
+                                    // Pressure profile: the flow LIMIT, which can no longer be
+                                    // off. Flow profile: still the flow goal (its ceiling rises
+                                    // with maxSettableFlow).
                                     from: 0.1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"
                                     snapZeroTo: editorPage.isFlow ? 0 : ProfileManager.defaultPressureFlowLimit
                                     value: editorPage.isFlow ? editorPage.val(editorPage.recipe.holdFlow, 2.2) : editorPage.val(editorPage.recipe.limiterValue, 3.5)

@@ -553,7 +553,6 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
     // Rise and hold frame (pressure pump)
     double holdTime = recipe.holdTime;
     if (holdTime > 0) {
-        // If hold time > 3s, split off a 3s forced rise first
         if (holdTime > 3) {
             ProfileFrame rise;
             rise.name = ProfileFrame::kForcedRiseName;
@@ -565,9 +564,8 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
             rise.seconds = 3.0;
             rise.volume = 0;
             rise.exitIf = false;
-            // The rise used to be deliberately unlimited. de1app now limits it like the
-            // hold and decline below, so a high-flow machine cannot push unbounded flow
-            // while pressure ramps (skialpine/de1app@fdd091f3).
+            // Limited like the hold and decline: an unlimited rise lets a high-flow
+            // machine push unbounded flow while pressure ramps (de1app@fdd091f3).
             if (recipe.limiterValue > 0) {
                 rise.maxFlowOrPressure = recipe.limiterValue;
                 rise.maxFlowOrPressureRange = recipe.limiterRange;

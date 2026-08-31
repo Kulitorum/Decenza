@@ -462,26 +462,34 @@ public:
     // === Flow limits ===
     // The flow limit (mL/s) every pressure step gets when it carries none. Decent's
     // second machine reaches ~20 mL/s where the DE1 manages 7-8, so an unlimited
-    // pressure step pours differently on the two; capping at 8 makes a shared profile
-    // behave the same on both. de1app applies the identical cap in select_profile and
-    // at startup (skialpine/de1app@fdd091f3), so this number is a compatibility
-    // constant, not a tuning knob — changing it here alone reopens the divergence.
+    // pressure step pours differently on the two; capping makes a shared profile behave
+    // the same on both. de1app ships this same default (de1plus/profile.tcl,
+    // skialpine/de1app@fdd091f3), where it is user-overridable and its own comment notes
+    // 7-7.5 may track the DE1 better — so treat the number as provisional but move it
+    // only WITH upstream: changing it here alone reopens the divergence.
     static constexpr double kDefaultPressureFlowLimit = 8.0;
 
-    // Ceiling for an editable flow goal or flow limit. Above the DE1's own maximum on
-    // purpose: it is what lets a profile authored on a higher-flow machine open and save
-    // here without being clamped to a value its author never chose. The DE1 runs at its
-    // own maximum when asked for more. Note the BLE frame encoding (U8P4) saturates at
-    // 15.9375 mL/s — a wire property shared with de1app, not a Decenza limit.
+    // Ceiling for an editable flow goal or flow limit — upstream's max_flowrate_v11
+    // (de1plus/machine.tcl:161, raised 8 -> 20 in the same commit). Above the DE1's own
+    // maximum on purpose: it is what lets a profile authored on a higher-flow machine
+    // open and save here without being clamped to a value its author never chose. Note
+    // the BLE frame encoding (U8P4) saturates at 15.9375 mL/s (binarycodec.cpp:7), so
+    // nothing above that reaches a machine over the current frame format in either app.
     static constexpr double kMaxSettableFlow = 20.0;
 
-    // Give every unlimited pressure step the default flow limit, in memory. Returns
-    // true if anything changed.
+    // Give every unlimited pressure step the default flow limit, in memory. Returns how
+    // many steps changed, so the caller can say so — the substitution can reach the
+    // user's saved file on a later save, and a silent one leaves a support conversation
+    // with no evidence.
     //
     // Call it where a profile becomes the CURRENT profile, never inside a parse: a
     // stored profile — a shot's record of what it was pulled with, an import being
     // compared for de-duplication — must keep reading back exactly what it says.
-    bool applyDefaultPressureFlowLimit();
+    //
+    // The frame walk is deliberately type-agnostic where upstream restricts it to
+    // settings_2c/2c2. A superset cannot under-apply, and Decenza generates pressure
+    // frames (A-Flow) for types upstream's guard would skip.
+    int applyDefaultPressureFlowLimit();
 
     // Compare two profiles for functional equality (frame sequence only).
     // Profile-level limits (maximumPressure, maximumFlow, etc.) are excluded.

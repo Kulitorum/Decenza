@@ -14,11 +14,8 @@ Item {
     property real to: 100
     property real stepSize: 1
     property real fineStepSize: 0  // Optional lower gear (e.g., 1 when stepSize is 10). 0 = disabled.
-    // Where a TYPED 0 lands, for a control whose zero used to mean "off" and whose off
-    // state has been withdrawn. 0 = disabled, which is every caller but a pressure step's
-    // flow limit. Only the typed path needs it: `from` already floors the +/- buttons,
-    // the drag and the scrubber, and de1app floors those at 0.1 while snapping a typed 0
-    // to the default limit — this is what lets us do both.
+    // Where a TYPED 0 lands. Only the typed path needs it — every other path (+/-, drag,
+    // scrubber) goes through adjustValueWithStep(), which already floors at `from`.
     property real snapZeroTo: 0
     property int decimals: stepSize >= 1 ? 0 : (stepSize >= 0.1 ? 1 : 2)
     readonly property bool hasFineGear: fineStepSize > 0 && fineStepSize < stepSize

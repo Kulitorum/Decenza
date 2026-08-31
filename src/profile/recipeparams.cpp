@@ -129,10 +129,13 @@ QStringList RecipeParams::validate() const {
     checkPressure(espressoPressure, "espressoPressure");
     checkPressure(pressureEnd, "pressureEnd");
 
-    // Flow bounds (0-10 mL/s)
+    // Flow bounds. Same ceiling as clamp() — stating it twice is how they drifted:
+    // clamp() and the editors were widened to 20 and this was left at 10, so every save
+    // of a legally-authored high-flow recipe logged a false "out of range".
     auto checkFlow = [&](double f, const char* name) {
-        if (f < 0 || f > 10)
-            issues << QString("%1 out of range [0, 10]: %2").arg(name).arg(f);
+        if (f < 0 || f > Profile::kMaxSettableFlow)
+            issues << QString("%1 out of range [0, %2]: %3")
+                          .arg(name).arg(Profile::kMaxSettableFlow).arg(f);
     };
     checkFlow(pourFlow, "pourFlow");
     checkFlow(holdFlow, "holdFlow");
@@ -150,8 +153,8 @@ QStringList RecipeParams::validate() const {
     if (infuseWeight < 0) issues << "infuseWeight is negative";
 
     // Limiter bounds
-    if (limiterValue < 0 || limiterValue > 12)
-        issues << "limiterValue out of range [0, 12]";
+    if (limiterValue < 0 || limiterValue > Profile::kMaxSettableFlow)
+        issues << QString("limiterValue out of range [0, %1]").arg(Profile::kMaxSettableFlow);
     if (limiterRange < 0 || limiterRange > 10)
         issues << "limiterRange out of range [0, 10]";
 
@@ -176,9 +179,6 @@ void RecipeParams::clamp() {
     for (double* p : {&infusePressure, &pourPressure, &espressoPressure, &pressureEnd})
         clampVal(*p, 0.0, 12.0);
 
-    // Flows (0 - Profile::kMaxSettableFlow). The ceiling is above the DE1's own maximum
-    // so a profile authored on a higher-flow machine survives a round trip through the
-    // editor unclamped; the machine runs at its own maximum regardless.
     for (double* f : {&pourFlow, &holdFlow, &flowEnd, &preinfusionFlowRate})
         clampVal(*f, 0.0, Profile::kMaxSettableFlow);
 

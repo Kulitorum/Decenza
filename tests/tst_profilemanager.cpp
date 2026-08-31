@@ -3529,6 +3529,118 @@ private slots:
         QFile::remove(path);
     }
 
+    void currentProfileAssignedOnlyBySetCurrentProfile() {
+        // Six paths made a profile current, each with its own bookkeeping, and the
+        // load-time pressure-flow cap was wired into two of them — so four brewed
+        // uncapped. The fix was one assignment site, and this is what keeps it one:
+        // add a seventh path and it goes red rather than silently missing the cap.
+        QFile f(QStringLiteral(DECENZA_SOURCE_DIR "/src/controllers/profilemanager.cpp"));
+        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "could not read profilemanager.cpp — this test is now blind");
+        const QString src = QString::fromUtf8(f.readAll());
+
+        const QString setter = QStringLiteral("void ProfileManager::setCurrentProfile(");
+        const qsizetype setterAt = src.indexOf(setter);
+        QVERIFY2(setterAt >= 0, "setCurrentProfile() not found — renamed or removed; "
+                                "this test is now blind");
+
+        // Every whole-profile assignment. Field setters (m_currentProfile.setX) do not
+        // match: the needle carries the space and `=` that only a whole assignment has.
+        const QString needle = QStringLiteral("m_currentProfile = ");
+        QList<qsizetype> sites;
+        for (qsizetype at = src.indexOf(needle); at >= 0; at = src.indexOf(needle, at + 1))
+            sites << at;
+
+        QCOMPARE(sites.size(), 1);
+        // And it is the one inside the setter, not somewhere that happens to be alone.
+        QVERIFY2(sites.first() > setterAt,
+                 "m_currentProfile is assigned outside setCurrentProfile()");
+        QVERIFY2(sites.first() - setterAt < 600,
+                 "the only assignment is far from setCurrentProfile()'s body — check it "
+                 "has not drifted into another function");
+    }
+
+    void loadDoesNotPersistTheDefaultFlowLimitIntoTheUsersFile() {
+        // The cap is in-memory only: it must reach the editor and the machine and must
+        // never be written by loading. Nothing but the call's POSITION in loadProfile()
+        // enforces that — move it above a write, or into Profile::fromJson(), and the
+        // user's file silently gains a limiter its author never set.
+        //
+        // The legacy-encoded fixture is the point: it is the variant that DOES trigger an
+        // on-disk write (the encoding upgrade), so the file being unchanged in the limiter
+        // is evidence rather than an accident of nothing having been written.
+        McpTestFixture f;
+        const QString path = f.profileManager.userProfilesPath() + "/uncapped_pressure_xyz.json";
+        QDir().mkpath(f.profileManager.userProfilesPath());
+
+        QJsonObject flowStep{
+            {"name", "preinfusion"}, {"pump", "flow"},    {"transition", "fast"},
+            {"sensor", "coffee"},    {"temperature", 92.0}, {"seconds", 20.0},
+            {"volume", 100.0},       {"flow", 4.0},       {"pressure", 1.0},
+        };
+        QJsonObject pressureStep{
+            {"name", "rise and hold"}, {"pump", "pressure"}, {"transition", "fast"},
+            {"sensor", "coffee"},      {"temperature", 92.0}, {"seconds", 25.0},
+            {"volume", 100.0},         {"flow", 0.0},       {"pressure", 9.0},
+            {"limiter", QJsonObject{{"value", 0.0}, {"range", 0.0}}},  // explicitly off
+        };
+        QJsonObject obj{
+            {"title", "Uncapped Pressure Test"}, {"author", "Decent"},
+            {"type", "advanced"},   {"legacy_profile_type", "settings_2c"},
+            {"beverage_type", "espresso"}, {"version", "2"},
+            {"espresso_temperature", 92.0},
+            {"target_weight", 36.0},   // number, not "36.0" — triggers the encoding upgrade
+            {"target_volume", 0.0},
+            {"steps", QJsonArray{flowStep, pressureStep}},
+        };
+        {
+            QFile out(path);
+            QVERIFY(out.open(QIODevice::WriteOnly));
+            out.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+        }
+
+        f.profileManager.loadProfile("uncapped_pressure_xyz");
+
+        // In memory: capped.
+        const QList<ProfileFrame>& steps = f.profileManager.currentProfile().steps();
+        QCOMPARE(steps.size(), 2);
+        QCOMPARE(steps[1].maxFlowOrPressure, Profile::kDefaultPressureFlowLimit);
+        QCOMPARE(steps[0].maxFlowOrPressure, 0.0);  // flow step's pressure limit stays off
+
+        QFile after(path);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        const QJsonObject onDisk = QJsonDocument::fromJson(after.readAll()).object();
+        after.close();
+
+        // Non-vacuous: prove the upgrade rewrote the file, so "the limiter is still 0"
+        // is a statement about the cap and not about nothing having happened.
+        QVERIFY2(onDisk["target_weight"].isString(),
+                 "fixture did not trigger the encoding upgrade — this test proves nothing");
+
+        const QJsonObject diskPressure = onDisk["steps"].toArray()[1].toObject();
+        QCOMPARE(profileJsonToDouble(diskPressure["limiter"].toObject()["value"], -1.0), 0.0);
+    }
+
+    void loadProfileCapsUnlimitedPressureStepsEndToEnd() {
+        // The end-to-end contract on the shipped fallback: default.json is settings_2a
+        // with maximum_flow "0.00" and every pressure frame at limiter 0. Delete the call
+        // in loadProfile() and nothing else in the suite goes red.
+        McpTestFixture f;
+        f.profileManager.loadProfile("default");
+
+        const Profile& p = f.profileManager.currentProfile();
+        QCOMPARE(p.maximumFlow(), Profile::kDefaultPressureFlowLimit);
+
+        int pressureFrames = 0;
+        for (const ProfileFrame& step : p.steps()) {
+            if (step.pump != QLatin1String("pressure")) continue;
+            pressureFrames++;
+            QVERIFY2(step.maxFlowOrPressure > 0.0,
+                     qPrintable("uncapped pressure step: " + step.name));
+        }
+        QVERIFY2(pressureFrames >= 2, "default.json should carry several pressure frames");
+    }
+
     void loadDoesNotPersistBackfilledNotesIntoTheUsersFile() {
         // The notes backfill injects the BUILT-IN's notes into the in-memory profile.
         // No write in loadProfile may persist them: the user's file would gain text

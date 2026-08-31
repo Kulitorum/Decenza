@@ -149,8 +149,8 @@ def main():
             res = subprocess.run(["tclsh", ORACLE, de1plus, src, profile, suffix] + argv,
                                  capture_output=True, text=True)
             if res.returncode != 0 or not res.stdout.strip():
-                print("  FAIL %-28s %-18s %s" % (base, key,
-                                                 res.stderr.strip().splitlines()[:1]))
+                why = res.stderr.strip() or "(no stderr; rc=%d)" % res.returncode
+                print("  FAIL %-28s %-18s %s" % (base, key, why))
                 failed += 1
                 continue
 
@@ -165,6 +165,10 @@ def main():
             written += 1
 
     print("edit matrix: %d goldens written, %d failed" % (written, failed))
+    # Non-zero on any failure: the goldens are deleted before regeneration, so a wholesale
+    # failure leaves the corpus EMPTY, and exiting 0 lets a caller chain past that.
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -91,10 +91,8 @@ class ProfileManager : public QObject {
     Q_PROPERTY(double brewByRatioDose READ brewByRatioDose NOTIFY targetWeightChanged)
     Q_PROPERTY(double brewByRatio READ brewByRatio NOTIFY targetWeightChanged)
 
-    // The two flow numbers the editors need. Read-only and CONSTANT: they are
-    // compatibility constants shared with de1app (Profile::kDefaultPressureFlowLimit,
-    // Profile::kMaxSettableFlow), and a QML file that spelled either one itself would be
-    // free to drift from the C++ that enforces it.
+    // Exposed so no QML file spells these numbers itself and drifts from the C++ that
+    // enforces them.
     Q_PROPERTY(double defaultPressureFlowLimit READ defaultPressureFlowLimit CONSTANT)
     Q_PROPERTY(double maxSettableFlow READ maxSettableFlow CONSTANT)
     Q_PROPERTY(QVariantList availableProfiles READ availableProfiles NOTIFY profilesChanged)
@@ -644,6 +642,29 @@ private:
     QList<ProfileFrame> framesShiftedToTemperature(double targetTemp) const;
 
     void loadDefaultProfile();
+
+    // THE one place m_currentProfile is assigned. Every path that makes a profile current
+    // goes through here, and `currentProfileAssignedOnlyBySetCurrentProfile`
+    // (tst_profilemanager) fails the build if a new one does not.
+    //
+    // It exists because the alternative was measured and failed: the load-time pressure
+    // flow cap was first wired by mirroring de1app's two call sites, and Decenza turned
+    // out to have SIX ways a profile becomes current — startup's _current.json restore,
+    // the default profile and both new-profile paths were left uncapped, brewing
+    // uncapped shots while every other profile in the library was capped.
+    //
+    // `context` names the path in the log, so a support log says which one applied it.
+    void setCurrentProfile(Profile profile, const QString& context);
+
+    // Push the current profile's stop targets and type at MachineState. Six hand-written
+    // copies of these three lines, three carrying the same comment, before this existed.
+    //
+    // Through the ladder (targetWeight()), not the raw profile value: they resolve
+    // identically when idle, but mid-shot targetWeight() honours the latch while the raw
+    // read would shove a new target at the machine during the pour (reachable from MCP /
+    // the web editor, which can save a profile at any time). So settle brew overrides
+    // BEFORE calling this — the ladder reads them.
+    void syncMachineStateToCurrentProfile();
 
     // Rewrite a just-loaded profile in the canonical encoding, but only where that
     // is provably lossless. Runs on load rather than as a one-time migration: the

@@ -94,13 +94,22 @@ if {[llength $edits] == 0 || [llength $edits] % 2 != 0} {
 # editor sees the frames — so the plugin's prep reads capped frames and writes them
 # back. Model that here by sourcing profile.tcl and calling the real proc rather
 # than transcribing the rule: a transcription goes stale on a de1app bump and
-# quietly changes the oracle. The package provides satisfy profile.tcl's requires
-# without loading the app, matching de1app_pack_oracle.tcl.
+# quietly changes the oracle.
+#
+# Copied from de1app_pack_oracle.tcl (they satisfy binary.tcl's requires); profile.tcl
+# itself needs only huddle and json from tcllib.
 package provide lambda 1.0
 package provide de1_event 1.0
 package provide de1_logging 1.0
 package provide de1_profile 2.0
 source $de1plus/profile.tcl
+
+# A rename upstream would otherwise surface as a bare "invalid command name".
+if {[info procs ::profile::apply_default_flow_limit_to_pressure_steps] eq ""} {
+    error "de1app has no ::profile::apply_default_flow_limit_to_pressure_steps —\
+           renamed or removed since skialpine/de1app@fdd091f3; the oracle would\
+           silently generate uncapped goldens"
+}
 
 set fh [open $plugin_src r]; fconfigure $fh -encoding utf-8
 set src [read $fh]; close $fh
@@ -132,8 +141,12 @@ regexp -line {^profile_title\s+\{(.*)\}$} $content -> title
 set ::settings(profile_title) $title
 
 # The cap keys off the profile type, so it has to be in ::settings before the call.
-set ptype ""
-regexp -line {^settings_profile_type\s+(\S+)$} $content -> ptype
+# Unchecked, a missed match leaves ptype empty, no branch of the proc matches, and it
+# returns normally — writing uncapped goldens with exit status 0.
+if {![regexp -line {^settings_profile_type\s+(\S+)$} $content -> ptype]} {
+    error "no settings_profile_type in $profile — the cap keys off it and would\
+           silently no-op"
+}
 set ::settings(settings_profile_type) $ptype
 ::profile::apply_default_flow_limit_to_pressure_steps
 

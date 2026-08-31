@@ -198,7 +198,6 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
 
     // Rise and hold frame (pressure pump)
     if (holdTime > 0) {
-        // If hold time > 3s, split off a 3s forced rise first
         if (holdTime > 3) {
             ProfileFrame rise;
             rise.name = ProfileFrame::kForcedRiseName;
@@ -211,9 +210,8 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
             rise.seconds = 3.0;
             rise.volume = 0;
             rise.exitIf = false;
-            // The rise used to be deliberately unlimited. de1app now limits it like the
-            // hold and decline below, so a high-flow machine cannot push unbounded flow
-            // while pressure ramps (skialpine/de1app@fdd091f3).
+            // Limited like the hold and decline: an unlimited rise lets a high-flow
+            // machine push unbounded flow while pressure ramps (de1app@fdd091f3).
             if (maximumFlow > 0) {
                 rise.maxFlowOrPressure = maximumFlow;
                 rise.maxFlowOrPressureRange = maximumFlowRange;
@@ -2215,18 +2213,18 @@ int Profile::countPreinfuseFramesWithForcedRise(const QList<ProfileFrame>& steps
     return count;
 }
 
-bool Profile::applyDefaultPressureFlowLimit() {
+int Profile::applyDefaultPressureFlowLimit() {
     const double range = m_maximumFlowRangeDefault > 0.0 ? m_maximumFlowRangeDefault : 1.0;
-    bool changed = false;
+    int changed = 0;
 
-    // settings_2a's single flow-limit knob is the scalar, and materializedSteps() builds
-    // the frames from it — so the scalar has to be defaulted BEFORE the frame walk below,
-    // or a regeneration would put the unlimited frames straight back.
+    // settings_2a has no per-frame limiter — its one knob is the scalar, and
+    // regenerateSimpleFrames() rebuilds the frames from it. Default it too, or the next
+    // regeneration restores the unlimited frames the loop below just fixed.
     if (m_profileType == QLatin1String("settings_2a") && m_maximumFlow <= 0.0) {
         m_maximumFlow = kDefaultPressureFlowLimit;
         if (m_maximumFlowRangeDefault <= 0.0) m_maximumFlowRangeDefault = range;
         if (m_maximumFlowRangeAdvanced <= 0.0) m_maximumFlowRangeAdvanced = range;
-        changed = true;
+        changed++;
     }
 
     for (ProfileFrame& step : m_steps) {
@@ -2235,7 +2233,7 @@ bool Profile::applyDefaultPressureFlowLimit() {
         if (step.maxFlowOrPressure > 0.0) continue;
         step.maxFlowOrPressure = kDefaultPressureFlowLimit;
         if (step.maxFlowOrPressureRange <= 0.0) step.maxFlowOrPressureRange = range;
-        changed = true;
+        changed++;
     }
 
     return changed;
