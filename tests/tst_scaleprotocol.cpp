@@ -609,9 +609,10 @@ private slots:
     void decentAdsDebugFrameDoesNotDisableChecksumValidation() {
         // A 41-byte debug frame is not a 7-byte packet, so it must not reach the
         // v1 auto-disable counter. It used to: the checksum was computed over
-        // data.size() and compared against byte 6 (a timestamp byte), so five
-        // frames retired checksum validation and reported the HDS as an original
-        // Decent Scale.
+        // data.size() and compared against byte 6, which in this frame is the
+        // high byte of the raw ADC reading (openscale include/usbcomm.h:601-612
+        // puts the timestamp in 2-5 and rawValue in 6-9). Five frames retired
+        // checksum validation and reported the HDS as an original Decent Scale.
         DecentScale scale(nullptr);
         MessageCapture capture;
 
@@ -636,21 +637,47 @@ private slots:
         DecentScale scale(nullptr);
         MessageCapture capture;
 
-        for (int i = 0; i < 20; i++)
+        const QByteArray first = buildDecentAdsDebugFrame(0x41);
+        scale.onCharacteristicChanged(Scale::Decent::READ, first);
+        for (int i = 0; i < 19; i++)
             scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentAdsDebugFrame(uint8_t(i)));
-        // A length no notify produces: a different shape, so one more line.
+        // A length no notify produces. Two of them: the first is a new shape and
+        // logs, the second shares that shape and must not.
         scale.onCharacteristicChanged(Scale::Decent::READ, QByteArray::fromHex("030a03"));
         scale.onCharacteristicChanged(Scale::Decent::READ, QByteArray::fromHex("030a04"));
 
         MessageCapture::Entry entry;
         QVERIFY(capture.single(QStringLiteral("ADS debug frame"), &entry));
-        QVERIFY(entry.text.contains(QStringLiteral("03 25")));
-        QCOMPARE(capture.count(QStringLiteral("Short frame for type 0x0a")), 1);
+        // The whole frame, not just its header: "03 25" opens every one of these,
+        // so asserting on that would pass even if the line carried two bytes.
+        // The claim under test is that the FIRST sighting carries the volatile
+        // payload -- and that the 19 frames after it, whose payload differs, add
+        // no line at all.
+        QVERIFY(entry.text.contains(QString::fromLatin1(first.toHex(' '))));
+        QCOMPARE(capture.count(QStringLiteral("Undecodable frame, type 0x0a")), 1);
+
+        // Past the cap, every further shape folds into one key. Without this the
+        // key space is the command byte x the length, so a corrupted stream
+        // emits a line per shape live and another per shape at the flush --
+        // which is the flood the collapse was added to prevent, arriving by a
+        // different route.
+        capture.clear();
+        for (int type = 0x50; type < 0x60; type++) {
+            QByteArray odd(3, 0);
+            odd[0] = 0x03;
+            odd[1] = static_cast<char>(type);
+            scale.onCharacteristicChanged(Scale::Decent::READ, odd);
+        }
+        QCOMPARE(capture.count(QStringLiteral("Further undecoded frame shapes")), 1);
+        QVERIFY(capture.count(QStringLiteral("Undecodable frame, type 0x5")) <= 3);
     }
 
     void decentOriginalScaleAutoDisableStillReachedByShortFrames() {
-        // The v1 accommodation (#630) must survive the length gate: the original
-        // scale only ever sends 7-byte frames, and those still count.
+        // The v1 accommodation (#630) must survive the length gate. What is
+        // asserted is narrow and checkable: a 7-byte frame with a bad checksum
+        // still advances the counter to its threshold, with debug frames
+        // interleaved. (Whether a v1 scale sends anything BUT 7-byte frames is
+        // not established here — its firmware is not in ../openscale.)
         DecentScale scale(nullptr);
         QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
 
@@ -760,12 +787,19 @@ private slots:
     // ==========================================
 
     void oversizedPacketNoCrash() {
-        // 255-byte junk packet should not crash any scale
+        // 255-byte junk packet should not crash any scale, and must not be
+        // charged to the checksum counter: 255 bytes is not the frame length
+        // type 0x42 occupies, so it is reported as an undecodable shape rather
+        // than as a scale computing XOR wrongly. Before the length gate this
+        // warned "Invalid checksum", which is how junk spent the v1
+        // auto-disable budget (#630).
         QByteArray oversized(255, 0x42);
 
         DecentScale decent(nullptr);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*"));
+        MessageCapture capture;
         decent.onCharacteristicChanged(Scale::Decent::READ, oversized);
+        QCOMPARE(capture.count(QStringLiteral("Invalid checksum")), 0);
+        QCOMPARE(capture.count(QStringLiteral("Undecodable frame, type 0x42")), 1);
 
         BookooScale bookoo(nullptr);
         bookoo.onCharacteristicChanged(Scale::Bookoo::STATUS, oversized);

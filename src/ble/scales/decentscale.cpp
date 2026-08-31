@@ -119,8 +119,6 @@ void DecentScale::onTransportDisconnected() {
         if (collapsed.suppressed > 0)
             DECENT_LOG(batteryPollText() + LogCollapse::suffix(collapsed));
     }
-    // Same run end for the frame-shape collapse, which is keyed by shapes it
-    // does not enumerate — hence flushAll rather than flush.
     for (const auto& [shape, collapsed] :
          m_frameShapeLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
         DECENT_LOG(shape + LogCollapse::suffix(collapsed));
@@ -331,15 +329,11 @@ void DecentScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUu
     }
 }
 
-// Logs one frame shape once, with its raw bytes, then stays quiet about it.
-//
-// The hex goes only on the first sighting: a line carrying volatile payload is
-// a line no text-keyed suppressor can ever collapse, which is how de1app
-// 3abea2fb turned a once-per-second event into 589 log lines out of 597.
 void DecentScale::logFrameShapeOnce(const QString& shape, const QByteArray& data) {
-    if (m_frameShapeLog.shouldLog(shape, shape, QDateTime::currentMSecsSinceEpoch(), nullptr)) {
-        DECENT_LOG(QString("%1: %2").arg(shape, QString::fromLatin1(data.toHex(' '))));
-    }
+    const QString line = scaleFrameShapeLine(m_frameShapeLog, shape, data,
+                                             QDateTime::currentMSecsSinceEpoch());
+    if (!line.isEmpty())
+        DECENT_LOG(line);
 }
 
 void DecentScale::parseWeightData(const QByteArray& data) {
@@ -352,14 +346,17 @@ void DecentScale::parseWeightData(const QByteArray& data) {
 
     uint8_t command = d[1];
 
-    // Dispatch on LENGTH before checksum, so a frame that is not a 7-byte
-    // packet never reaches the v1 auto-disable counter below. The 41-byte ADS
-    // debug frame (0x25) is the one such frame the firmware really sends; it is
-    // reachable because DEBUG_CONTINUOUS persists until cleared or reboot and
-    // any client on the multi-client scale can set it.
+    // Dispatch on LENGTH before checksum, so a frame that is not a 7-byte packet
+    // never reaches the v1 auto-disable counter below.
+    //
+    // The exactness is enforced here, not by notifiedFrameLength(), which asks
+    // only whether enough bytes have arrived -- the right question for the USB
+    // stream framer, the wrong one for a notification, which carries exactly one
+    // frame. Without this a 12-byte frame of any other type would be read as a
+    // 7-byte packet and spend the auto-disable budget.
     const qsizetype frameLen = DecentScaleProtocol::notifiedFrameLength(command, data.size());
-    if (frameLen == 0) {
-        logFrameShapeOnce(QString("Short frame for type 0x%1, %2 bytes")
+    if (frameLen != data.size()) {
+        logFrameShapeOnce(QString("Undecodable frame, type 0x%1, %2 bytes")
                               .arg(command, 2, 16, QChar('0'))
                               .arg(data.size()),
                           data);
@@ -367,8 +364,10 @@ void DecentScale::parseWeightData(const QByteArray& data) {
     }
     if (command == DecentScaleProtocol::TypeAdsDebug) {
         // Not decoded — nothing in the app consumes ADS internals. Recorded so a
-        // submitted log shows the scale was left in debug mode.
-        logFrameShapeOnce(QStringLiteral("ADS debug frame (type 0x25)"), data.left(frameLen));
+        // submitted log shows the scale was left in ADS debug mode, which is
+        // settable over either transport and persists until cleared or reboot,
+        // so Decenza can meet a scale already in it.
+        logFrameShapeOnce(QStringLiteral("ADS debug frame (type 0x25)"), data);
         return;
     }
 

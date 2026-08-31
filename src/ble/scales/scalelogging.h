@@ -1,6 +1,9 @@
 #pragma once
 
+#include "core/logcollapse.h"
 #include "core/logtags.h"
+
+#include <QByteArray>
 
 #include <QDebug>
 #include <QString>
@@ -83,3 +86,34 @@
 #define SCALE_LOG(prefix, msg)  SCALE_LOG_TAGGED("BLE " prefix, msg)
 #define SCALE_INFO(prefix, msg) SCALE_INFO_TAGGED("BLE " prefix, msg)
 #define SCALE_WARN(prefix, msg) SCALE_WARN_TAGGED("BLE " prefix, msg)
+
+// ---- Undecoded frames --------------------------------------------------
+
+// The line to log for a frame shape the driver did not decode, or a null
+// QString when the caller must stay silent. Emission stays with the caller
+// because the *_TAGGED macros need the driver's own tag and its logMessage
+// signal.
+//
+// One definition because two drivers need the same POLICY, and the policy is
+// entirely about not making noise:
+//
+//   - Raw hex on the FIRST sighting of a shape and never on a repeat. Volatile
+//     payload in a repeat line is what a text-keyed suppressor cannot collapse,
+//     which is the defect de1app 3abea2fb diagnosed and fixed -- 589 lines of a
+//     597-line log, from a once-per-second event.
+//   - At most kMaxShapes distinct shapes per run. The collapse bounds repeats
+//     WITHIN a shape and nothing bounded the number of shapes: a corrupted
+//     command byte varies the key, so an unbounded key space would emit a line
+//     per shape live and another per shape when the run is flushed. Past the
+//     cap every further shape folds into one key, so both counts are bounded by
+//     kMaxShapes + 1 whatever arrives on the wire.
+inline constexpr int kMaxFrameShapes = 4;
+
+inline QString scaleFrameShapeLine(LogCollapse& collapse, const QString& shape,
+                                   const QByteArray& data, qint64 nowMs) {
+    const bool capped = collapse.keyCount() >= kMaxFrameShapes && !collapse.hasKey(shape);
+    const QString key = capped ? QStringLiteral("Further undecoded frame shapes") : shape;
+    if (!collapse.shouldLog(key, key, nowMs, nullptr))
+        return {};
+    return QStringLiteral("%1: %2").arg(key, QString::fromLatin1(data.toHex(' ')));
+}

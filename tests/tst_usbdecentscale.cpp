@@ -4,6 +4,7 @@
 
 #include "usb/usbdecentscale.h"
 #include "ble/protocol/decentscaleprotocol.h"
+#include "messagecapture.h"
 
 class RecordingUsbDecentScale : public UsbDecentScale {
 public:
@@ -55,6 +56,55 @@ private slots:
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Half Decent Scale \\(USB\\) DISCONNECTED"));
         scale.setTestConnected(false);
+    }
+
+    void adsDebugFrameIsConsumedWholeNotResyncedThrough() {
+        // The 41-byte ADS debug frame (openscale include/usbcomm.h
+        // buildAdsDebugPacket) is not a 7-byte packet. Byte-at-a-time resync
+        // walked through it, and every 7-byte window it tried was a chance to
+        // find a checksum that happened to match. This frame carries such a
+        // window on purpose: bytes 8-14 are a well-formed 50.0 g weight packet,
+        // which the old framer would have emitted as a real weighing.
+        RecordingUsbDecentScale scale;
+        QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
+        MessageCapture capture;
+
+        QByteArray frame(DecentScaleProtocol::AdsDebugFrameLength, 0);
+        frame[0] = 0x03;
+        frame[1] = static_cast<char>(DecentScaleProtocol::TypeAdsDebug);
+        const QByteArray planted = buildUsbWeightPacket(50.0);
+        frame.replace(8, planted.size(), planted);
+        uint8_t xorSum = 0;
+        for (int i = 0; i < DecentScaleProtocol::AdsDebugFrameLength - 1; i++)
+            xorSum ^= static_cast<uint8_t>(frame[i]);
+        frame[DecentScaleProtocol::AdsDebugFrameLength - 1] = static_cast<char>(xorSum);
+
+        scale.m_buffer = frame;
+        scale.processBuffer();
+
+        QCOMPARE(spy.count(), 0);
+        QVERIFY(scale.m_buffer.isEmpty());
+        MessageCapture::Entry entry;
+        QVERIFY(capture.single(QStringLiteral("ADS debug frame"), &entry));
+        QVERIFY(entry.text.contains(QStringLiteral("03 25")));
+
+        // The framer still frames: a real packet arriving next is parsed.
+        scale.m_buffer = buildUsbWeightPacket(42.0);
+        scale.processBuffer();
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.last().at(0).toDouble(), 42.0);
+    }
+
+private:
+    static QByteArray buildUsbWeightPacket(double grams) {
+        const int16_t raw = static_cast<int16_t>(qRound(grams * 10.0));
+        QByteArray pkt(DecentScaleProtocol::StandardFrameLength, 0);
+        pkt[0] = 0x03;
+        pkt[1] = static_cast<char>(0xCE);
+        pkt[2] = static_cast<char>((raw >> 8) & 0xFF);
+        pkt[3] = static_cast<char>(raw & 0xFF);
+        pkt[6] = static_cast<char>(DecentScaleProtocol::calculateXor(pkt));
+        return pkt;
     }
 };
 

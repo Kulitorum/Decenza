@@ -6,6 +6,7 @@
 #include "usb/androidusbscalehelper.h"
 #endif
 
+#include <QDateTime>
 #include <QDebug>
 
 // Alias over the shared macro (ble/scales/scalelogging.h) — the [Scale] marker
@@ -203,6 +204,14 @@ void UsbDecentScale::close()
 
     m_buffer.clear();
 
+    // Run end for the frame-shape collapse, which is keyed by shapes this
+    // driver does not enumerate — hence flushAll (core/logcollapse.h). Without
+    // it a port's tally would surface on the next port's first odd frame.
+    for (const auto& [shape, collapsed] :
+         m_frameShapeLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
+        USB_SCALE_LOG(shape + LogCollapse::suffix(collapsed));
+    }
+
     if (!m_firmwareVersion.isEmpty()) {
         m_firmwareVersion.clear();
         emit firmwareVersionChanged();
@@ -295,27 +304,59 @@ void UsbDecentScale::processBuffer()
         }
 
         // Need at least 7 bytes for a complete packet
-        if (m_buffer.size() < 7) {
+        if (m_buffer.size() < DecentScaleProtocol::StandardFrameLength) {
             return;
         }
 
-        QByteArray packet = m_buffer.left(7);
+        const uint8_t command = static_cast<uint8_t>(m_buffer[1]);
+        const qsizetype frameLen =
+            DecentScaleProtocol::notifiedFrameLength(command, m_buffer.size());
+        if (frameLen == 0) {
+            // A frame longer than what has arrived — today only the 41-byte ADS
+            // debug frame. Wait for the rest rather than resyncing through it.
+            return;
+        }
+
+        if (command == DecentScaleProtocol::TypeAdsDebug) {
+            // Consumed whole, not decoded: nothing in the app reads ADS
+            // internals. Byte-at-a-time resync used to chew through all 41
+            // bytes in silence, and each 7-byte window it tried had a 1-in-256
+            // chance of a checksum that happened to match — a fabricated weight
+            // or button event out of debug telemetry.
+            if (DecentScaleProtocol::checksumMatches(m_buffer, frameLen)) {
+                logFrameShapeOnce(QStringLiteral("ADS debug frame (type 0x25)"),
+                                  m_buffer.left(frameLen));
+                m_buffer.remove(0, frameLen);
+                continue;
+            }
+            // Checksum fails, so this 0x03 0x25 is payload rather than a frame
+            // start. Resync, reported by the same line as any other bad
+            // checksum below rather than a second one saying the same thing.
+            logFrameShapeOnce(QString("Bad checksum on type 0x%1, resyncing")
+                                  .arg(command, 2, 16, QChar('0')),
+                              m_buffer.left(frameLen));
+            m_buffer.remove(0, 1);
+            continue;
+        }
+
+        QByteArray packet = m_buffer.left(frameLen);
 
         // Validate XOR checksum — skip for LED response (0x0A) which uses
         // all 7 bytes for data (byte 6 is firmware version, not checksum)
-        uint8_t command = static_cast<uint8_t>(packet[1]);
-        if (command != 0x0A) {
-            uint8_t expected = DecentScaleProtocol::calculateXor(packet);
-            uint8_t actual = static_cast<uint8_t>(packet[6]);
-            if (expected != actual) {
-                // Bad checksum — skip this byte and try again
-                m_buffer.remove(0, 1);
-                continue;
-            }
+        if (command != DecentScaleProtocol::TypeLedResponse
+            && !DecentScaleProtocol::checksumMatches(packet, frameLen)) {
+            // Bad checksum — skip this byte and try again. Logged once per
+            // shape: a stream this driver cannot frame was otherwise discarded
+            // in total silence.
+            logFrameShapeOnce(QString("Bad checksum on type 0x%1, resyncing")
+                                  .arg(command, 2, 16, QChar('0')),
+                              packet);
+            m_buffer.remove(0, 1);
+            continue;
         }
 
         // Valid packet — consume and process
-        m_buffer.remove(0, 7);
+        m_buffer.remove(0, frameLen);
         processPacket(packet);
     }
 
@@ -324,6 +365,14 @@ void UsbDecentScale::processBuffer()
         USB_SCALE_WARN(QStringLiteral("Buffer overflow, discarding %1 bytes").arg(m_buffer.size()));
         m_buffer.clear();
     }
+}
+
+void UsbDecentScale::logFrameShapeOnce(const QString& shape, const QByteArray& data)
+{
+    const QString line = scaleFrameShapeLine(m_frameShapeLog, shape, data,
+                                             QDateTime::currentMSecsSinceEpoch());
+    if (!line.isEmpty())
+        USB_SCALE_LOG(line);
 }
 
 void UsbDecentScale::processPacket(const QByteArray& packet)

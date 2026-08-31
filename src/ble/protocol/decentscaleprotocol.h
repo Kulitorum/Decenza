@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QString>
+#include <QtGlobal>
 #include "core/hdsfirmwarecatalog.h"
 #include <cstdint>
 
@@ -15,8 +16,14 @@ inline constexpr char PacketHeader = 0x03;
 
 // Frame type (byte 1) of the notified frames whose length or checksum rule
 // differs from the ordinary 7-byte packet.
-inline constexpr uint8_t TypeLedResponse = 0x0A;  // 7 bytes, no checksum: bytes 5-6 are the firmware version
-inline constexpr uint8_t TypeAdsDebug = 0x25;     // 41 bytes, checksum in byte 40
+//
+// 0x0A is the LED response, whose bytes 5-6 are the firmware version rather
+// than a checksum. It is also buildHeartBeatPacket's type (openscale
+// include/decent_protocol.h:76), where those bytes are 0x00 0x0A -- so if
+// sendBleHeartBeat() ever gains a caller (it has none today) this driver will
+// read a heartbeat as firmware "0.0.10" on a charging scale.
+inline constexpr uint8_t TypeLedResponse = 0x0A;
+inline constexpr uint8_t TypeAdsDebug = 0x25;  // 41 bytes, checksum in byte 40
 
 inline constexpr qsizetype StandardFrameLength = 7;
 inline constexpr qsizetype AdsDebugFrameLength = 41;
@@ -30,17 +37,25 @@ inline uint8_t calculateXor(const QByteArray& data) {
     return result;
 }
 
-// Length of the frame `command` occupies, or 0 when neither the type nor the
-// length is one this protocol notifies.
+// How many bytes the frame for `command` needs, or 0 when fewer than that have
+// arrived. It is a MINIMUM check: every type but 0x25 maps to 7, so an unknown
+// type is not rejected here. A packet-oriented caller that wants exactness must
+// compare the result against its own frame size; a stream framer must not,
+// since its buffer legitimately holds more than one frame.
 //
 // Sourced from the firmware, not inferred: every openscale notify goes through
-// bleNotifyReadPacket() and there are exactly eight call sites -- seven at 7
-// bytes (weight 0xCE/0xCA, button 0xAA, voltage, heartbeat, gyro, power-off
-// 0x2A, LED response 0x0A) and one at 41 (ADS debug 0x25), openscale
-// include/ble.h:534-618. de1app 3abea2fb concluded the scale also notifies
-// 2/4/8/12/16-byte frames; those lengths are its own host-to-scale COMMAND
-// frames (decentCommandFrameLength, openscale include/decent_protocol_frame.h),
-// so do not widen this on that evidence.
+// bleNotifyReadPacket() (openscale include/ble.h:535) and there are exactly
+// eight call sites, :558-615 -- seven at 7 bytes (weight 0xCE, button 0xAA,
+// voltage, heartbeat, gyro, power-off 0x2A, LED response 0x0A) and one at 41
+// (ADS debug 0x25). 0xCA is not among them; this driver accepts it as a weight
+// type anyway.
+//
+// de1app 3abea2fb reports the scale also notifying 2/4/8/12/16-byte frames.
+// Two of those are host-to-scale COMMAND lengths (decentCommandFrameLength,
+// openscale include/decent_protocol_frame.h:52-126, which returns 1-7 and never
+// 8, 12 or 16), and the other three are unexplained by this firmware. Undecoded
+// lengths are logged rather than parsed, so do not widen this table until one
+// of them has a source.
 inline qsizetype notifiedFrameLength(uint8_t command, qsizetype available) {
     const qsizetype expected =
         (command == TypeAdsDebug) ? AdsDebugFrameLength : StandardFrameLength;
@@ -50,14 +65,14 @@ inline qsizetype notifiedFrameLength(uint8_t command, qsizetype available) {
 // True when the trailing XOR byte of the first `frameLen` bytes matches.
 //
 // frameLen is required because calculateXor() runs to data.size()-1: handed a
-// frame LONGER than the packet, it XORs bytes the checksum never covered and
-// compares the result against the wrong byte. That mismatch is indistinguishable
-// from a scale computing XOR wrongly, which is what the v1 auto-disable path
-// exists to detect (issue #630) -- so a 41-byte debug frame could retire
-// checksum validation for the session and report an HDS as an original scale.
+// buffer longer than the frame it XORs bytes the checksum never covered and
+// compares the result against the wrong byte.
+//
+// Callers must pass a frameLen the buffer actually holds. A false return means
+// the checksum FAILED, and callers spend that against the v1 auto-disable
+// budget (#630) -- so it must never also mean "could not be evaluated".
 inline bool checksumMatches(const QByteArray& data, qsizetype frameLen) {
-    if (data.size() < frameLen || frameLen < 2)
-        return false;
+    Q_ASSERT(frameLen >= 2 && data.size() >= frameLen);
     const QByteArray frame = data.left(frameLen);
     return static_cast<uint8_t>(frame[frameLen - 1]) == calculateXor(frame);
 }
