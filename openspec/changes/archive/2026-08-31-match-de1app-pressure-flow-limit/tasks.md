@@ -54,4 +54,4 @@
 ## 7. Docs
 - [x] 7.1 Wiki manual: pressure steps always have a flow limit (short — 3-5 sentences).
 - [x] 7.2 `docs/CLAUDE_MD/RECIPE_PROFILES.md`: record the default and where it is applied.
-- [ ] 7.3 `openspec archive match-de1app-pressure-flow-limit` as the last commit on the branch.
+- [x] 7.3 `openspec archive match-de1app-pressure-flow-limit` as the last commit on the branch.
