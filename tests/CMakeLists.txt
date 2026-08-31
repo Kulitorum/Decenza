@@ -1092,10 +1092,28 @@ target_link_libraries(decenza_weightlib PUBLIC decenza_testlib)
 # ProfileStorage::staticMetaObject. Merging libraries whose consumer sets differ
 # is therefore not free whenever the sources carry Q_OBJECT.
 find_package(Qt6 REQUIRED COMPONENTS TextToSpeech Multimedia Quick)
+# The screen-reader probe travels with AccessibilityManager: isScreenReaderActive()
+# calls it, so a target that compiles the manager must supply it or fail to link.
+# Same APPLE/else split as the app target in the top-level CMakeLists.
+if(APPLE)
+    set(DECENZA_SCREENREADER_PROBE ${CMAKE_SOURCE_DIR}/src/core/screenreaderprobe.mm)
+else()
+    set(DECENZA_SCREENREADER_PROBE ${CMAKE_SOURCE_DIR}/src/core/screenreaderprobe.cpp)
+endif()
+
 add_library(decenza_a11ylib STATIC
     ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
+    ${DECENZA_SCREENREADER_PROBE}
 )
 set_target_properties(decenza_a11ylib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+# The .mm must opt OUT of the PCH: decenza_testlib's is C++-only, and CMake still
+# passes -include-pch to Objective-C++ compile lines, which clang refuses with
+# "Objective-C was disabled in precompiled file ... but is currently enabled".
+# Same property, same reason as the top-level CMakeLists uses for its five .mm.
+if(APPLE)
+    set_source_files_properties(${DECENZA_SCREENREADER_PROBE}
+                                PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+endif()
 target_link_libraries(decenza_a11ylib PUBLIC
     decenza_testlib Qt6::TextToSpeech Qt6::Multimedia Qt6::Quick
 )

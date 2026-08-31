@@ -14,6 +14,7 @@
 #endif
 
 #include "core/accessibilitylogging.h"
+#include "core/screenreaderprobe.h"
 
 std::atomic<int> AccessibilityManager::s_instanceCount{0};
 
@@ -537,6 +538,12 @@ void AccessibilityManager::announceCoaching(const QString& text, bool interrupt)
 bool AccessibilityManager::isScreenReaderActive() const
 {
 #ifndef QT_NO_ACCESSIBILITY
+    // Ask the platform whether a reader is actually RUNNING before falling back
+    // to Qt's "an assistive client attached" flag. See screenreaderprobe.h —
+    // the two are different questions, and answering routing with the second
+    // one is what left this app silent on a Mac with VoiceOver off.
+    if (const std::optional<bool> platform = decenzaPlatformScreenReaderActive())
+        return *platform;
     return QAccessible::isActive();
 #else
     return false;

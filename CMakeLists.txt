@@ -882,7 +882,10 @@ if(APPLE)
         src/ble/transport/corebluetooth/corebluetoothscalebletransport.mm
         src/ble/applebtstate.mm
         src/screensaver/iosbrightness.mm
+        src/core/screenreaderprobe.mm
     )
+else()
+    list(APPEND SOURCES src/core/screenreaderprobe.cpp)
 endif()
 
 # iOS-only: SFSafariViewController bridge for opening URLs without universal-link interception
