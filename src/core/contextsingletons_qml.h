@@ -78,6 +78,11 @@
 #include <QtQml/QQmlEngine>
 #include <QtQml/QJSEngine>
 
+#include "core/accessibilitymanager.h"
+#include "../machine/machinestate.h"
+#include "core/translationmanager.h"
+#include "../controllers/profilemanager.h"
+#include "../controllers/maincontroller.h"
 #include "../ble/de1device.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../ble/blemanager.h"
@@ -124,8 +129,15 @@
 // AppInfo singleton that would have been a second caller. Review deleted AppInfo (its values had
 // owners already — see main.cpp), which left the extraction with one caller and no justification,
 // so it came back here.
+// `consequence` names what a reader will SEE when the instance is missing, in that singleton's
+// own terms. The hand-rolled create()s this replaced each carried their own ("every translated
+// string will be undefined", "most of the UI reading as undefined"), and a single generic
+// sentence lost the part that tells someone which dozen apparently-unrelated bugs share one
+// missing line. One definition of the CHECK, per-caller wording of the SYMPTOM.
 template <typename T>
-T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName)
+T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName,
+                             const char* consequence = "Every binding on this name will be "
+                                                       "undefined.")
 {
     // Checked, not asserted. QT_FORCE_ASSERTS is only defined for sanitizer builds
     // (CMakeLists.txt), so Q_ASSERT compiles out of a shipped Release — and this is the one
@@ -133,8 +145,8 @@ T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName
     // MEMBER READ on the name reads undefined, and nothing says why. (The name itself stays a
     // truthy object — see the note on decenzaOptionalSingleton() below.)
     if (!instance) {
-        qCritical("%s: QML asked for the singleton before main() published it. Every binding on "
-                  "this name will be undefined. Publish it before QQmlEngine::load().", qmlName);
+        qCritical("%s: QML asked for the singleton before main() published it. %s "
+                  "Publish it before QQmlEngine::load().", qmlName, consequence);
         return nullptr;
     }
     if (engine->thread() != instance->thread()) {
@@ -221,6 +233,128 @@ public:
     static DE1Device* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "DE1Device");
+    }
+};
+
+// The screen-reader surface: 149 announce() calls, 11 announceLabel() and the whole
+// Accessibility settings tab. Registered here rather than on the class because the class
+// itself carried QML_ELEMENT + QML_SINGLETON with a defaulted-parent constructor, which is
+// the one shape Qt resolves to `new T` — its create() was never called and QML spent a month
+// talking to an engine-built orphan while the MCP server and announceCoaching held main's
+// object, each with a live QTextToSpeech. A foreign wrapper cannot reach that branch.
+struct AccessibilityManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(AccessibilityManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(AccessibilityManager)
+
+public:
+    inline static AccessibilityManager* s_singletonInstance = nullptr;
+    static AccessibilityManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "AccessibilityManager",
+                                 "Every accessibility binding in the UI reads "
+                                 "undefined, which looks like an accessibility bug and "
+                                 "is not.");
+    }
+};
+
+// The largest name in the app after DE1Device. No per-engine state, so the shared publish
+// helper is the whole of create().
+struct MainControllerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(MainController)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(MainController)
+
+public:
+    inline static MainController* s_singletonInstance = nullptr;
+    static MainController* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "MainController",
+                                 "Most of the UI will read as undefined, which looks "
+                                 "like a dozen unrelated bugs rather than one missing "
+                                 "line.");
+    }
+};
+
+// Owned by MainController, not by main() — the publish still happens in main.cpp, reading
+// mainController.profileManager(). That pointer is assigned once in MainController's constructor
+// and never reassigned or deleted, which is what makes publishing it safe; if MainController ever
+// recreates m_profileManager, this publish strands a dangling pointer with no diagnostic.
+struct ProfileManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(ProfileManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(ProfileManager)
+
+public:
+    inline static ProfileManager* s_singletonInstance = nullptr;
+    static ProfileManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "ProfileManager");
+    }
+};
+
+// The one singleton here with genuine per-engine state, so its create() does MORE than publish.
+// `translate` is a QJSValue bound to exactly one QJSEngine and setJsEngine() qFatal()s rather
+// than rebind, so a second engine has to be declined rather than served — this app really does
+// run one, the GHC simulator window in desktop debug builds. Preserved verbatim from the
+// class's own create(); only the publish half moved into the shared helper.
+struct TranslationManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(TranslationManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(TranslationManager)
+
+public:
+    inline static TranslationManager* s_singletonInstance = nullptr;
+    static TranslationManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        TranslationManager* const published =
+            decenzaPublishedSingleton(s_singletonInstance, engine, "TranslationManager");
+        if (!published)
+            return nullptr;
+        QJSEngine* const bound = published->boundJsEngine();
+        if (bound && bound != engine) {
+            qCritical("TranslationManager: a second QQmlEngine asked for this singleton. "
+                      "`translate` is bound to the engine main.cpp wired and cannot be rebound, "
+                      "so this engine gets no TranslationManager and its translated strings will "
+                      "be undefined. A second engine needing translations needs its own "
+                      "instance.");
+            return nullptr;
+        }
+        if (!bound)
+            published->setJsEngine(engine);
+        return published;
+    }
+};
+
+// The only foreign singleton here that exposes an enum: Q_ENUM(Phase), read as
+// MachineState.Phase.X at 155 QML sites. QML_FOREIGN registers the foreign class's metaobject,
+// so the enum is exported exactly as it was when the macros sat on the class — checked against
+// the generated Decenza.qmltypes before and after. Note enum reads on a singleton resolve
+// INSIDE the instance guard (qqmltypewrapper.cpp:320), so they depend on this publish; see
+// machinestate.h for what that costs if the publish is ever missed.
+struct MachineStateForeign
+{
+    Q_GADGET
+    QML_FOREIGN(MachineState)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(MachineState)
+
+public:
+    inline static MachineState* s_singletonInstance = nullptr;
+    static MachineState* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "MachineState",
+                                 "Every phase-driven binding reads undefined and every "
+                                 "Connections{target:MachineState} silently never "
+                                 "connects.");
     }
 };
 

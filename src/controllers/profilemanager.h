@@ -8,7 +8,6 @@
 #include <QMap>
 #include <QHash>
 #include <QSet>
-#include <QtQml/qqmlregistration.h>
 #include "../profile/profile.h"
 
 class Settings;
@@ -16,8 +15,6 @@ class DE1Device;
 class MachineState;
 class ProfileStorage;
 class SteamHeaterPolicy;
-class QQmlEngine;
-class QJSEngine;
 
 // Profile source enumeration (moved from maincontroller.h)
 enum class ProfileSource {
@@ -78,8 +75,6 @@ class ProfileManager : public QObject {
     // main.cpp used to do. A context property is invisible to qmllint, qmlcachegen and the
     // language server, so every `ProfileManager.x` in QML was unchecked. Full rationale in
     // src/controllers/maincontroller.h.
-    QML_ELEMENT
-    QML_SINGLETON
 
     Q_PROPERTY(QString currentProfileName READ currentProfileName NOTIFY currentProfileChanged)
     // The UNDECORATED title — what `shots.profile_name` is written from
@@ -148,11 +143,6 @@ class ProfileManager : public QObject {
     Q_PROPERTY(bool isCurrentProfileReadOnly READ isCurrentProfileReadOnly NOTIFY currentProfileChanged)
 
 public:
-    // QML_SINGLETON hooks. The engine does not create this object: MainController owns it and
-    // main.cpp publishes the pointer before QQmlEngine::load(). See maincontroller.h.
-    static void setQmlInstance(ProfileManager *instance);
-    static ProfileManager *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
-
     // `steamHeaterPolicy` is THE steam-target derivation (see steamheaterpolicy.h).
     // Passing it is how uploadCurrentProfile() avoids re-deriving the steam
     // temperature itself, which it used to do from an incomplete set of inputs.
@@ -638,7 +628,6 @@ private:
     // Shared body of the two profileDialInDiff* invokables.
     static QVariantMap dialInDiffFor(const Profile& p);
 
-    static ProfileManager *s_qmlInstance;
 
     // Current profile's frames with every temperature shifted so the reference
     // temperature (espressoTemperature) becomes targetTemp. Single source of truth
@@ -763,3 +752,4 @@ private:
     friend class tst_McpToolsWrite;
 #endif
 };
+

@@ -468,6 +468,80 @@ Three rules when writing one:
 shipped with 9 of `ScaleDevice`'s 12 forwarded, and nothing caught it because the three omitted
 are called only from C++. Diff the two `public slots:` blocks when you write one.
 
+## A `QML_SINGLETON` with a defaulted `parent` never calls its own `create()`
+
+Qt chooses a singleton's construction mode in `singletonConstructionMode()`
+(`qtdeclarative/src/qml/qml/qqmlprivate.h:155-167`), and the ORDER of its tests is the trap.
+Abridged to the three branches that matter — read the source for the real thing, this drops the
+leading `is_base_of<QObject, T>` branch, the trailing `return None`, and the `::value` suffixes:
+
+```cpp
+if constexpr (!std::is_same_v<T, WrapperT> && HasSingletonFactory<T, WrapperT>::value)
+    return SingletonConstructionMode::FactoryWrapper;   // QML_FOREIGN — safe
+if constexpr (std::is_default_constructible<T>::value)
+    return SingletonConstructionMode::Constructor;      // new T   <-- WINS
+if constexpr (HasSingletonFactory<T>::value)
+    return SingletonConstructionMode::Factory;          // T::create(q, j)
+```
+
+Default-constructibility is tested **before** the factory. So this is enough to disable
+`create()` entirely:
+
+```cpp
+explicit MyThing(QObject *parent = nullptr);   // default-constructible -> Qt does `new T`
+explicit MyThing(QObject *parent);             // correct: Qt reaches create()
+```
+
+Nothing diagnoses it. The factory still compiles, still looks wired, and simply never runs —
+no compiler warning, no moc error, no qmllint diagnostic, no failing test. **It shipped here.**
+`AccessibilityManager::create()` published main.cpp's instance to QML; Qt ignored it and built
+its own during `engine.load()`. QML's `AccessibilityManager` was therefore Qt's orphan, while
+`mcpServer.setAccessibilityManager()` and the `announceCoaching` connection pointed at
+main.cpp's object — two live objects, each with its own `QTextToSpeech`. It surfaced only
+because an instance counter was added to chase a duplicated TTS log line (build 3575).
+
+Note what this does NOT mean: a singleton with **no** `create()` is *meant* to be built by Qt,
+and several here rely on that. The defect is specifically "declares a factory AND is
+default-constructible", where the factory silently loses. `QML_FOREIGN` wrappers are safe too —
+`T != WrapperT` takes the `FactoryWrapper` branch first, whatever the foreign type looks like.
+
+**Why the existing checks could not see it, which is the part worth remembering.** The type was
+registered correctly — qmllint resolved every member, because both objects are the same TYPE and
+qmllint has no concept of an instance. `tst_qmlregistration.cpp` models two halves, the macros that
+register the type and the publish call that supplies the instance, and BOTH were
+present and correct. The publish line was right and pointless at once: nothing ever asked for it.
+That third condition — does Qt actually reach the factory — is what no check expressed.
+
+**The fix Qt actually documents is not a guard at all.** `qmlsingletons.qdoc`'s "Exposing an
+existing object as a singleton" — which is exactly this case, an object `main()` already owns —
+prescribes a `QML_FOREIGN` wrapper struct holding `s_singletonInstance`, with `create()` on the
+WRAPPER. A foreign type has `T != WrapperT`, so it takes the `FactoryWrapper` branch at `:159`
+before constructibility is ever tested: the trap is unreachable. That is the shape
+`contextsingletons_qml.h` already used for `Settings`, `DE1Device` and `ScreensaverManager`, and
+`AccessibilityManager` now uses it too. Prefer it for anything main() owns.
+
+Every singleton that hands QML an object the app already owns now uses that wrapper —
+`AccessibilityManager`, `MainController`, `ProfileManager`, `TranslationManager` and
+`MachineState` — so none of them can reach this trap at all.
+
+`MachineState` was the one worth checking rather than assuming, because it exposes `Q_ENUM(Phase)`
+to 155 QML sites and enum reads on a singleton resolve INSIDE the instance guard
+(`qqmltypewrapper.cpp:320`), where a failure is runtime-only. It converts cleanly:
+`QML_FOREIGN` registers the foreign class's metaobject, so the generated `Decenza.qmltypes`
+carries the identical `Enum { name: "Phase" }` block with all 16 values before and after. If you
+are ever tempted to assume that, diff the qmltypes — it is one build and it answers the question.
+
+`WebDebugLogger` stays registered on the class, correctly: it owns its own instance rather than
+being handed one, so there is nothing for `main()` to publish and the foreign shape does not
+apply. It keeps a private constructor and a `static_assert(!std::is_default_constructible_v<T>)`,
+and `tst_qmlregistration.cpp` asserts that any singleton declaring its own `create()` carries
+that assert — the case no compile-time check can cover, since an author who does not know the
+rule does not write it.
+
+One consequence worth knowing: the wrapper's `create()` is the LIVE path, so it matters that
+`main.cpp` assigns `XForeign::s_singletonInstance` before `engine.load()` (it does). If it ever
+did not, `create()` returns `nullptr` and you land in the next trap below rather than this one.
+
 ## A registered singleton with no instance is TRUTHY, not `undefined`
 
 This is the trap behind `decenzaOptionalSingleton()`, and the guard everyone writes is wrong:

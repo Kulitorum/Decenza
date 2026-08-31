@@ -9,7 +9,6 @@
 #include <QPointer>
 #include <QSet>
 #include <QStringList>
-#include <QtQml/qqmlregistration.h>
 
 class QQmlEngine;
 class QThread;
@@ -18,16 +17,15 @@ class Settings;
 class TranslationManager : public QObject {
     Q_OBJECT
 
-    // Registered as a QML singleton at COMPILE time, which is what lets qmllint (and
-    // qmlcachegen, and the language server) resolve `TranslationManager` in the 3,668 QML
-    // references to it. The macros are the load-bearing part: qmltyperegistrar reads them out
-    // of the moc output and writes the type into the module's generated Decenza.qmltypes, and
+    // Registered as a QML singleton at COMPILE time — by TranslationManagerForeign
+    // (core/contextsingletons_qml.h), not by macros on this class — which is what lets qmllint
+    // (and qmlcachegen, and the language server) resolve `TranslationManager` in the 3,668 QML
+    // references to it. The registration is the load-bearing part: qmltyperegistrar reads the
+    // wrapper's macros out of the moc output and writes the type into Decenza.qmltypes, and
     // that file is qmllint's only source of truth about C++ types. A runtime
     // qmlRegisterSingletonInstance() call is invisible to all three tools — before this, that
     // .qmltypes contained nothing but `Module {}` and every use of a C++ name in QML was an
     // unqualified-access warning.
-    QML_ELEMENT
-    QML_SINGLETON
 
     // Current language settings
     Q_PROPERTY(QString currentLanguage READ currentLanguage WRITE setCurrentLanguage NOTIFY currentLanguageChanged)
@@ -85,14 +83,6 @@ class TranslationManager : public QObject {
 public:
     explicit TranslationManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
     ~TranslationManager() override;
-
-    // QML_SINGLETON hooks. The engine does NOT create this object: main.cpp owns it on the
-    // stack and wires it into eight other subsystems (BLE, MCP, AI, backup, accessibility …)
-    // long before the engine exists, so there is no way to hand construction to QML. Instead
-    // main.cpp publishes the instance with setQmlInstance() and create() hands that same object
-    // back — the pattern Qt provides for exactly this case.
-    static void setQmlInstance(TranslationManager* instance);
-    static TranslationManager* create(QQmlEngine* qmlEngine, QJSEngine* jsEngine);
 
     // Properties
     QString currentLanguage() const;
@@ -335,7 +325,6 @@ private slots:
 private:
     // The instance create() hands to the engine. Not owned here — main.cpp's stack object
     // outlives the engine, which is why create() must also pin CppOwnership.
-    static TranslationManager* s_qmlInstance;
 
     void loadTranslations();
     // Every verdict-returning helper below is [[nodiscard]], and CMake promotes a discarded
@@ -615,3 +604,4 @@ inline QString translateOrFallback(TranslationManager* manager,
                                    const char* key, const char* fallback) {
     return translateOrFallback(manager, QString::fromUtf8(key), QString::fromUtf8(fallback));
 }
+

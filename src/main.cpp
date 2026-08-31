@@ -911,9 +911,10 @@ int main(int argc, char *argv[])
     app.setApplicationName("Decenza");
     app.setApplicationVersion(VERSION_STRING);
 
-    // Both migrations must complete here — before Settings (line ~1046) and
-    // AccessibilityManager (line ~1788) are constructed, since both read the
-    // store these populate.
+    // Both migrations must complete here — before Settings and
+    // AccessibilityManager are constructed, since both read the store these
+    // populate. (Deliberately no line numbers: the two this carried had drifted
+    // by ~130 and ~360 lines respectively.)
     //
     // Store migration runs FIRST so that the app-name migration below finds its
     // own done-flag: that flag used to live in the legacy DE1Qt store, and this
@@ -3850,15 +3851,15 @@ int main(int argc, char *argv[])
     // most of the app, so it deliberately stays free of QtQml. Same publish-the-instance shape:
     // main owns `settings` and hands it out long before QML exists.
     SettingsForeign::s_singletonInstance = &settings;
-    // A compile-time-registered QML singleton (QML_ELEMENT + QML_SINGLETON in
-    // translationmanager.h), NOT a context property. The engine does not construct it — it is
+    // A compile-time-registered QML singleton (TranslationManagerForeign in
+    // contextsingletons_qml.h), NOT a context property. The engine does not construct it — it is
     // the stack object above, already wired into BLE, MCP, AI, backup and accessibility — so
-    // main publishes the instance and TranslationManager::create() hands it back.
+    // main publishes the instance and the wrapper's create() hands it back.
     //
     // Registering at compile time is what lets qmllint resolve the 3,668 QML references to this
     // name; a runtime qmlRegisterSingletonInstance() would not, because qmltyperegistrar never
     // sees it. That is the whole point of the migration, not a side effect of it.
-    TranslationManager::setQmlInstance(&translationManager);
+    TranslationManagerForeign::s_singletonInstance = &translationManager;
     // MUST be called explicitly, and this is not optional bookkeeping — without it the
     // declarative registration above never runs and every translated string in the app is
     // `undefined`. Qt registers a module's compile-time types lazily, on first import, behind
@@ -3901,20 +3902,20 @@ int main(int argc, char *argv[])
     // about the FlowScale *fallback*, which is a different thing. Publishing an unread name is
     // not free: a context property is invisible to qmllint, so it cannot be told apart from a
     // typo at the call sites that never came.
-    MachineState::setQmlInstance(&machineState);
+    MachineStateForeign::s_singletonInstance = &machineState;
     ShotDataModelForeign::s_singletonInstance = &shotDataModel;
     SteamDataModelForeign::s_singletonInstance = &steamDataModel;
     SteamHealthTrackerForeign::s_singletonInstance = &steamHealthTracker;
-    // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in maincontroller.h), not a
-    // context property — same reason as AccessibilityManager below. The largest win remaining
+    // Compile-time QML singleton (MainControllerForeign in contextsingletons_qml.h), not a
+    // context property — same reason as every other publish in this block. The largest win remaining
     // after TranslationManager and Settings; measured reduction 916 unqualified warnings.
     //
     // BOTH halves are load-bearing and only one of them is visible to static tooling: the macros
     // put the TYPE in the registry, this call publishes the INSTANCE. Delete this line and the
     // build, qmllint and the whole suite stay green while every MainController.* binding in the
     // app resolves to null. tst_qmlregistration asserts this call exists, for that reason.
-    MainController::setQmlInstance(&mainController);
-    ProfileManager::setQmlInstance(mainController.profileManager());
+    MainControllerForeign::s_singletonInstance = &mainController;
+    ProfileManagerForeign::s_singletonInstance = mainController.profileManager();
     // ScreensaverManager: QML's name for ScreensaverVideoManager. See contextsingletons_qml.h.
     ScreensaverManagerForeign::s_singletonInstance = &screensaverManager;
     AutoWakeManagerForeign::s_singletonInstance = &autoWakeManager;
@@ -3922,10 +3923,7 @@ int main(int argc, char *argv[])
     BatteryManagerForeign::s_singletonInstance = &batteryManager;
     MemoryMonitorForeign::s_singletonInstance = &memoryMonitor;
     memoryMonitor.setEngine(&engine);
-    // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in accessibilitymanager.h),
-    // not a context property: only a compile-time registration reaches qmllint,
-    // qmlcachegen and the language server. main owns the instance and publishes it.
-    AccessibilityManager::setQmlInstance(&accessibilityManager);
+    AccessibilityManagerForeign::s_singletonInstance = &accessibilityManager;
     ProfileStorageForeign::s_singletonInstance = &profileStorage;
     WeatherManagerForeign::s_singletonInstance = &weatherManager;
     CrashReporterForeign::s_singletonInstance = &crashReporter;

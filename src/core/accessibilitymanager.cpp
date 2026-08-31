@@ -1,6 +1,4 @@
 #include "accessibilitymanager.h"
-#include <QQmlEngine>
-#include <QJSEngine>
 #include "translationmanager.h"
 #include "settings.h"
 #include <QDebug>
@@ -17,39 +15,7 @@
 
 #include "core/accessibilitylogging.h"
 
-AccessibilityManager *AccessibilityManager::s_qmlInstance = nullptr;
 std::atomic<int> AccessibilityManager::s_instanceCount{0};
-
-void AccessibilityManager::setQmlInstance(AccessibilityManager *instance)
-{
-    s_qmlInstance = instance;
-}
-
-AccessibilityManager *AccessibilityManager::create(QQmlEngine *qmlEngine, QJSEngine *jsEngine)
-{
-    Q_UNUSED(qmlEngine)
-    Q_UNUSED(jsEngine)
-    if (!s_qmlInstance) {
-        // Reached only if QML resolves the singleton before main.cpp published the instance.
-        // Name the missing call: the symptom otherwise is every accessibility binding in the UI
-        // reading as undefined, which looks like an accessibility bug and is not.
-        A11Y_WARN_STDERR("Singleton",
-            QStringLiteral("QML asked for the singleton before setQmlInstance() was called. "
-                           "Publish the instance before QQmlEngine::load()."));
-        return nullptr;
-    }
-    // No second-engine guard here, unlike TranslationManager::create() — deliberately, not by
-    // oversight. That one declines a second engine because `translate` is a QJSValue bound to
-    // exactly one QJSEngine. AccessibilityManager holds no per-engine state: every property is a
-    // plain value and every method is a Q_INVOKABLE, so the debug-build GHC simulator engine
-    // sharing main's instance is correct rather than a hazard. Add a guard here only if this
-    // class gains a QJSValue or QJSEngine member.
-    //
-    // The engine would otherwise take ownership of what it is handed and delete a stack object
-    // owned by main().
-    QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
-    return s_qmlInstance;
-}
 
 AccessibilityManager::AccessibilityManager(QObject *parent)
     : QObject(parent)
@@ -58,30 +24,36 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
     // third store that broke accessibility backup/restore and survived factory
     // reset. Existing values are carried over by migrateLegacyStore().
 {
-    // Exactly one of these should ever exist, and on build 3574 more than one
-    // did: the 2026-08-30T15:41:41 session logs initTts()'s "Available TTS
-    // engines" at 0.798 s and again at 1.802 s, with no "initTts() called again"
-    // warning between them — so both calls found m_tts null, which one object
-    // cannot do outside shutdown() (not called; its line is absent). "App
-    // started" appears once, so it is not a second process either. The second
-    // construction site is not identified, and this counter is here to name it
-    // rather than to guess at it.
+    // Exactly one of these should ever exist. Builds 3574 and 3575 had two, and
+    // this counter is what named the second — it fired on 3575 and the cause is
+    // now known and closed: the QML engine was constructing its own.
     //
-    // It is not merely noise. The second instance builds its own QTextToSpeech
-    // — a live Android TTS binding with its own stateChanged handler — while
-    // setQmlInstance() publishes only main.cpp's object, so a screen-reader user
-    // can end up with the locale on one engine and the announcements on the
-    // other, or with both speaking.
+    // Qt tests is_default_constructible BEFORE it looks for a create() factory
+    // when it picks a QML_SINGLETON's construction mode (qqmlprivate.h:161-164),
+    // and this class's constructor took `QObject *parent = nullptr`. So Qt chose
+    // `new T` (:190), create() was never called, and the instance main.cpp
+    // main.cpp published was ignored — QML talked to Qt's orphan
+    // while the MCP server and announceCoaching held main.cpp's object, each with
+    // its own live QTextToSpeech. Closed by moving the registration to a
+    // QML_FOREIGN wrapper (AccessibilityManagerForeign, contextsingletons_qml.h),
+    // which is what Qt documents for exposing an object the app already owns and
+    // which cannot hit this at all — a foreign type takes Qt's FactoryWrapper
+    // branch before constructibility is ever tested.
+    // docs/CLAUDE_MD/QML_GOTCHAS.md has the full account.
     //
-    // Atomic because the construction site this exists to name is precisely the
-    // one we cannot see, so it cannot be assumed to be on the GUI thread — a
-    // counter that races is a second unreliable witness on top of the bug.
+    // So this is now a REGRESSION guard for a closed bug rather than a hunt for an
+    // open one, and that is why it stays: the failure it catches is silent, and it
+    // costs an int.
     //
     // Never decremented, deliberately: the production object is main.cpp's stack
     // object and lives for the process, so there is no construct-destroy-construct
     // path to confuse this with a second live instance. The test-only
     // TestSkipAudioInit constructor does not increment at all — tests legitimately
     // build many, and counting them would bury the real signal in permanent noise.
+    //
+    // Atomic is now belt-and-braces rather than necessary — the construction that
+    // caused this was Qt's, on the GUI thread during engine.load() — but it costs
+    // nothing and a counter that races would be a poor witness.
     //
     // Kept permanently rather than as a probe: it asserts an invariant that
     // holds today, costs an int, and says nothing at all when the app is well.
@@ -91,8 +63,11 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
     if (instanceOrdinal > 1) {
         A11Y_WARN_STDERR("Lifetime",
             QStringLiteral("instance %1 constructed — the app owns exactly one (main.cpp, "
-                           "published via setQmlInstance). This one builds a second TTS "
-                           "engine that QML will never reach. Backtrace the caller.")
+                           "handed to QML through AccessibilityManagerForeign). This one "
+                           "builds a second TTS "
+                           "engine that QML will never reach. The known cause was a "
+                           "default-constructible QML_SINGLETON letting Qt build its own "
+                           "(see QML_GOTCHAS.md); check that first.")
                 .arg(instanceOrdinal));
     }
 
