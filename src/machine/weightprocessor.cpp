@@ -4,7 +4,6 @@
 #include "sawprediction.h"
 #include <QtMath>
 #include <QDebug>
-#include <algorithm>
 #include <chrono>
 
 // Aliases, not copies — see sawlogging.h. This class runs on a worker thread and
@@ -306,12 +305,19 @@ void WeightProcessor::processWeight(double weight)
         m_rateRecent[m_rateRecentNext] = measured;
         m_rateRecentNext = (m_rateRecentNext + 1) % kRateRecentWindows;
         if (m_rateRecentCount < kRateRecentWindows) ++m_rateRecentCount;
+        // Spelled out rather than std::sort over the ring: GCC 13 at -O3 rejects a sort
+        // of a 3-element array under -Werror=array-bounds, because
+        // __final_insertion_sort names `__first + 16` in a branch that a range this
+        // short cannot reach. Clang does not, so it is a Linux-only build break — which
+        // is how it reached CI (run 33570498092). Three elements do not need a sort.
+        //
         // Upper of the two while filling. Pinned so it cannot flip silently, NOT argued
         // as safer: a larger interval under-reads flow, so SAW fires late.
-        int sorted[kRateRecentWindows];
-        std::copy(m_rateRecent, m_rateRecent + m_rateRecentCount, sorted);
-        std::sort(sorted, sorted + m_rateRecentCount);
-        const int committed = sorted[m_rateRecentCount / 2];
+        const int committed =
+            m_rateRecentCount == 1 ? m_rateRecent[0]
+          : m_rateRecentCount == 2 ? qMax(m_rateRecent[0], m_rateRecent[1])
+          : qMax(qMin(m_rateRecent[0], m_rateRecent[1]),
+                 qMin(qMax(m_rateRecent[0], m_rateRecent[1]), m_rateRecent[2]));
 
         // Silent while the estimator is stable. Both tails speak: a starved window and
         // the catch-up window behind it are one episode, and the catch-up one moves
