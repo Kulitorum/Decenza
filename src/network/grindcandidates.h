@@ -2,6 +2,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QSet>
 #include <QString>
 #include <QStringList>
@@ -54,17 +55,44 @@ struct Inputs {
                                  // the caller)
 };
 
-// Decimal places come from the STEP, not the value (1.0 -> 0, 0.5 -> 1,
-// 0.25 -> 2), mirroring GrindRowSource._stepDecimals. Bounded via the 3-decimal
-// round-trip so a float-dirty step (0.1 + 0.2) cannot produce a 17-decimal
-// label.
-inline int stepDecimals(double step)
+// Decimal places for a stepped label: the STEP's precision, but NEVER fewer than
+// the VALUE already has. Bounded via the 3-decimal round-trip so a float-dirty
+// step (0.1 + 0.2) cannot produce a 17-decimal label.
+//
+// The max with the value is not a refinement, it is #1713. Step alone reformats a
+// user's own setting out of existence: history too thin to derive a step falls
+// back to 1.0, which is 0 decimals, so a recorded "1.1" renders as "1" — absent
+// from the datalist, and silently rewritten by the n=0 suggestion. This function
+// took the step alone while its comment claimed it mirrored
+// GrindRowSource._stepDecimals, which has taken the max since #1713; the app
+// wheel offered 0.1/1.1/2.1 for a record whose web datalist offered 0/1/2.
+//
+// `currentValue` defaults to empty only so the signature stays usable step-only.
+// There is exactly one caller today and it passes the value. The RPM window is
+// NOT one — it steps in qint64 and never formats decimals at all.
+inline int decimalsOf(double x)
 {
-    QString s = QString::number(step, 'f', 3);
+    QString s = QString::number(x, 'f', 3);
     while (s.endsWith(QLatin1Char('0'))) s.chop(1);
     if (s.endsWith(QLatin1Char('.'))) s.chop(1);
     const qsizetype dot = s.indexOf(QLatin1Char('.'));
     return dot < 0 ? 0 : static_cast<int>(s.size() - dot - 1);
+}
+
+inline int stepDecimals(double step, const QString& currentValue = QString())
+{
+    int d = decimalsOf(step);
+    const QString v = currentValue.trimmed();
+    // Same guard as the QML: only a plain numeric value contributes its
+    // precision. "coarse" or "1+4" has none to preserve here.
+    static const QRegularExpression plainNumeric(QStringLiteral("^-?\\d+(\\.\\d+)?$"));
+    if (!v.isEmpty() && plainNumeric.match(v).hasMatch()) {
+        bool ok = false;
+        const double parsed = v.toDouble(&ok);
+        if (ok)
+            d = qMax(d, decimalsOf(parsed));
+    }
+    return d;
 }
 
 // Format a stepped value at the step's precision, trailing zeros stripped so
@@ -102,7 +130,7 @@ inline QJsonObject build(SettingsDye* dye, const Inputs& in)
         return out;
 
     const double step = in.grindStep > 0.0 ? in.grindStep : 1.0;
-    const int decimals = stepDecimals(step);
+    const int decimals = stepDecimals(step, in.current);
 
     QJsonArray grind;
     if (!in.current.isEmpty()) {

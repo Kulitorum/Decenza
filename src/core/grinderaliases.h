@@ -355,18 +355,26 @@ inline QStringList modelsForBrand(const QString& brand)
 // gracefully falls back to a default-constructed entry's notation
 // (NumericWithSuffix) so unknown grinders behave like plain numeric.
 //
-// Memoized on the last (brand, model): GrindRowSource.grindRowsFor() builds 801
-// rows (grindWindowSteps: 400) and every one reaches here through
-// SettingsDye::stepGrinderSetting with the grinder fixed — 801 linear scans of a
-// 93-entry table, two case-insensitive QString compares each, on the main thread
-// in front of the picker painting.
+// Memoized on the last (brand, model), for ONE caller: SettingsDye::
+// grinderIsClickIndexed(), which GrindRowSource.stepGrind() reaches per row on
+// the custom-grinder JS fallback. A grinder outside the registry misses, so each
+// call walks all 93 entries — the worst case, not the cheapest, which is why
+// NEGATIVE results are cached too. A window of ±400 steps around a small value
+// puts several hundred of those in front of the picker painting.
 //
-// NEGATIVE results are cached too: a custom grinder matches nothing, so it walks
-// all 93 entries and is the worst caller, not the cheapest.
+// It is NOT justified by the 801-row loop, and an earlier version of this comment
+// said it was. stepGrinderSettingRange() resolves the grinder once for the whole
+// wheel, so the per-row path through stepGrinderSetting no longer exists — see
+// that function, which records that memoizing this lookup did nothing for the
+// loop, because the cost there was the crossings rather than the work behind them.
+// The two statements only look contradictory if this one still claims the loop.
 //
-// thread_local because dialing_blocks and the ShotServer reach the registry from
-// their own threads. Cached pointers never dangle — allGrinders() returns a
-// function-local static by reference.
+// thread_local because dialing_blocks reaches the registry from a background
+// thread (dialing_blocks.cpp:1170). NOT the ShotServer, which an earlier draft
+// also named: it is parented to MainController and handleGrindCandidatesApi has
+// no thread wrapper, unlike its siblings in that file, so it runs on the main
+// thread. Cached pointers never dangle — allGrinders() returns a function-local
+// static by reference.
 inline const GrinderEntry* findEntry(const QString& brand, const QString& model)
 {
     struct Memo {

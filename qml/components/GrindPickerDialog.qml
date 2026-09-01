@@ -107,9 +107,15 @@ DecenzaDialog {
     //
     // The original trigger was the distinct-value cache warming a moment after
     // the first open. That cache is gone and the reads are live, so that exact
-    // sequence cannot recur — but the snapshot is still right: rowSource.grindStep
-    // now moves on historyDataChanged(), and a shot saved while the picker is
-    // open would otherwise rebuild the model under the user's finger.
+    // sequence cannot recur, and the snapshot is what keeps it that way: nothing
+    // here subscribes to anything, so nothing can move the model mid-gesture.
+    //
+    // An earlier version of this said "rowSource.grindStep now moves on
+    // historyDataChanged()". It does not, and never did — that signal appears
+    // nowhere in qml/ except in the sentence claiming it. grindStep() is a plain
+    // function called from _rebuildRows(), so the rows change only when a handler
+    // asks. Kept as a correction because the wrong version reads as a live
+    // subscription a future edit would try to preserve.
     property var _grindRows: []
     property var _rpmRows: []
 

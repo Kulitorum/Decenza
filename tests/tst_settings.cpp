@@ -2814,6 +2814,43 @@ private slots:
         QVERIFY(g.contains("1.5"));
     }
 
+    // #1713 on the web surface: the datalist must keep the precision the user's
+    // OWN value already has, not just the step's.
+    //
+    // stepDecimals() took the step alone while its comment claimed it mirrored
+    // GrindRowSource._stepDecimals, which has taken the max with the value since
+    // #1713. The failure is not a rounding nit: with history too thin to derive a
+    // step, grindStep is 0 and the endpoint falls back to 1.0 = zero decimals, so
+    // a recorded "1.1" formats to "1". The user's own setting vanishes from the
+    // dropdown AND the n=0 suggestion silently rewrites it, which is exactly the
+    // reported shape of #1713.
+    void grindCandidates_keepsThePrecisionOfTheUsersOwnValue() {
+        GrindCandidates::Inputs in;
+        in.brand = "Niche"; in.model = "Zero";
+        in.current = "1.1";
+        in.grindStep = 0.0;   // too thin to derive -> the 1.0 fallback, 0 decimals
+        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
+
+        // The value itself survives, at its own precision.
+        QVERIFY2(g.contains("1.1"), qPrintable("datalist lost the user's value: " + g.join(',')));
+        // And the whole lattice carries that precision rather than collapsing to
+        // integers - "1" appearing at all would mean 1.1 was reformatted away.
+        QVERIFY2(g.contains("0.1"), qPrintable(g.join(',')));
+        QVERIFY2(g.contains("2.1"), qPrintable(g.join(',')));
+        QVERIFY2(!g.contains("1"), qPrintable("1.1 was reformatted to 1: " + g.join(',')));
+
+        // A step FINER than the value still wins - the max runs both ways.
+        in.grindStep = 0.25;
+        const QStringList q = grindOf(GrindCandidates::build(m_settings.dye(), in));
+        QVERIFY2(q.contains("1.35"), qPrintable(q.join(',')));
+
+        // A non-numeric value contributes no precision and must not throw the
+        // step's own decimals away.
+        in.current = "coarse"; in.grindStep = 0.5;
+        const QStringList c = grindOf(GrindCandidates::build(m_settings.dye(), in));
+        QVERIFY(!c.isEmpty());
+    }
+
     void grindCandidates_positiveAnchorHasNoNegatives() {
         GrindCandidates::Inputs in;
         in.brand = "Niche"; in.model = "Zero";
