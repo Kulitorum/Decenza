@@ -7,6 +7,8 @@
 #include "ble/scales/bookooscale.h"
 #include "ble/scales/difluidscale.h"
 #include "ble/scales/acaiascale.h"
+#include "ble/scales/skalescale.h"
+#include "ble/protocol/skalescaleprotocol.h"
 #include "ble/blegattqueue.h"
 #include "ble/transport/scalebletransport.h"
 #include "ble/protocol/de1characteristics.h"
@@ -713,6 +715,79 @@ private slots:
 
         QVERIFY(spy.count() >= 1);
         QCOMPARE(spy.last().at(0).toInt(), 60);
+    }
+
+    // ==========================================
+    // SkaleScale: mantissa/exponent weight frames
+    // ==========================================
+
+    void skaleWeightMantissaExponent_data() {
+        QTest::addColumn<QByteArray>("frame");
+        QTest::addColumn<double>("grams");
+
+        // The Atomax SDK decode and its worked examples come from
+        // decentespresso/decaid#712. Exponent -1 is the case every observed
+        // scale sends and the only one the old bytes-1-2-divided-by-ten parser
+        // got right; the rest were wrong by a factor of ten or a hundred.
+        QTest::newRow("exponent -2 (fractional)") << QByteArray::fromHex("00D20400FE") << 12.34;
+        QTest::newRow("exponent -1 (the common case)") << QByteArray::fromHex("00E80300FF") << 100.0;
+        QTest::newRow("exponent +1") << QByteArray::fromHex("007B000001") << 1230.0;
+        QTest::newRow("negative, 24-bit sign extension") << QByteArray::fromHex("00C9FDFFFF") << -56.7;
+    }
+
+    void skaleWeightMantissaExponent() {
+        QFETCH(QByteArray, frame);
+        QFETCH(double, grams);
+
+        SkaleScale scale(nullptr);
+        QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
+        scale.onCharacteristicChanged(Scale::Skale::WEIGHT, frame);
+
+        QVERIFY(spy.count() >= 1);
+        QCOMPARE(spy.last().at(0).toDouble(), grams);
+    }
+
+    void skaleRejectsFramesItCannotDecode_data() {
+        QTest::addColumn<QByteArray>("frame");
+
+        // Anything but a 5-byte frame. The old parser took any frame of 3 bytes
+        // or more, so a truncated notification produced a weight.
+        QTest::newRow("truncated to 3 bytes") << QByteArray::fromHex("00D204");
+        QTest::newRow("legacy 4-byte") << QByteArray::fromHex("00D20400");
+        QTest::newRow("oversized 6-byte") << QByteArray::fromHex("00D20400FE00");
+        QTest::newRow("empty") << QByteArray();
+        // An exponent no gram reading needs. It reaches stop-at-weight, so an
+        // implausible one is refused rather than turned into 10^127.
+        QTest::newRow("absurd exponent") << QByteArray::fromHex("00D204007F");
+    }
+
+    void skaleRejectsFramesItCannotDecode() {
+        QFETCH(QByteArray, frame);
+
+        SkaleScale scale(nullptr);
+        QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
+        MessageCapture capture;
+
+        scale.onCharacteristicChanged(Scale::Skale::WEIGHT, frame);
+
+        QCOMPARE(spy.count(), 0);
+        QCOMPARE(capture.count(QStringLiteral("Undecodable weight frame")), 1);
+    }
+
+    void skaleUndecodableFramesAreLoggedOncePerShape() {
+        // Same policy as the Decent driver: the hex on the first sighting of a
+        // shape and nothing on repeats, so a scale streaming frames we cannot
+        // read cannot flood the log.
+        SkaleScale scale(nullptr);
+        MessageCapture capture;
+
+        for (int i = 0; i < 20; i++) {
+            QByteArray odd = QByteArray::fromHex("00D204");
+            odd[2] = static_cast<char>(i);  // volatile payload, constant shape
+            scale.onCharacteristicChanged(Scale::Skale::WEIGHT, odd);
+        }
+
+        QCOMPARE(capture.count(QStringLiteral("Undecodable weight frame, 3 bytes")), 1);
     }
 
     // ==========================================

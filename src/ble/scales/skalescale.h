@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../scaledevice.h"
+#include "core/logcollapse.h"
 #include "../transport/scalebletransport.h"
 #include <QTimer>
 
@@ -40,9 +41,18 @@ private slots:
     void onCharacteristicChanged(const QBluetoothUuid& characteristicUuid, const QByteArray& value);
 
 private:
+#ifdef DECENZA_TESTING
+    friend class tst_ScaleProtocol;
+#endif
     void sendCommand(uint8_t cmd);
+    // See scaleFrameShapeLine() for the once-per-shape, capped policy.
+    void logFrameShapeOnce(const QString& shape, const QByteArray& data);
 
     ScaleBleTransport* m_transport = nullptr;
+    
+    // Weight frames the decoder could not read. EPISODIC — a connection ends — so
+    // onTransportDisconnected() ends the run with flushAll().
+    LogCollapse m_frameShapeLog{LogCollapse::kChangesOnly};
     QString m_name = "Skale";
     bool m_serviceFound = false;
     bool m_characteristicsReady = false;

@@ -1275,6 +1275,7 @@ add_decenza_test(tst_scaleprotocol
     ${CMAKE_SOURCE_DIR}/src/ble/scales/bookooscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/difluidscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/acaiascale.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/scales/skalescale.cpp
 )
 
 if(NOT IOS)

@@ -1,6 +1,8 @@
 #include "skalescale.h"
 #include "../protocol/de1characteristics.h"
+#include "../protocol/skalescaleprotocol.h"
 #include "scalelogging.h"
+#include <QDateTime>
 #include <QTimer>
 
 #define SKALE_LOG(msg)  SCALE_LOG("SkaleScale", msg)
@@ -64,6 +66,11 @@ void SkaleScale::onTransportConnected() {
 
 void SkaleScale::onTransportDisconnected() {
     SKALE_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    // Run end for the frame-shape collapse (core/logcollapse.h).
+    for (const auto& [shape, collapsed] :
+         m_frameShapeLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
+        SKALE_LOG(shape + LogCollapse::suffix(collapsed));
+    }
     setConnected(false);
 }
 
@@ -133,12 +140,15 @@ void SkaleScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servic
 void SkaleScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUuid,
                                          const QByteArray& value) {
     if (characteristicUuid == Scale::Skale::WEIGHT) {
-        // Skale weight format: byte 0 = type, bytes 1-2 = unsigned short weight (10ths of gram)
-        if (value.size() >= 3) {
-            const uint8_t* d = reinterpret_cast<const uint8_t*>(value.constData());
-            int16_t weightRaw = static_cast<int16_t>((d[2] << 8) | d[1]);
-            double weight = weightRaw / 10.0;
-            setWeight(weight);
+        // Dispatch on length, then decode mantissa and exponent — see
+        // SkaleScaleProtocol. The old parser accepted any frame of 3 bytes or
+        // more and read two of them, so a truncated notification produced a
+        // reading and a 5-byte frame's exponent was never consulted.
+        if (const auto grams = SkaleScaleProtocol::decodeWeightGrams(value)) {
+            setWeight(*grams);
+        } else {
+            logFrameShapeOnce(QString("Undecodable weight frame, %1 bytes").arg(value.size()),
+                              value);
         }
     } else if (characteristicUuid == Scale::Skale::BUTTON) {
         // Button press notification
@@ -146,6 +156,14 @@ void SkaleScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUui
             emit buttonPressed(value[0]);
         }
     }
+}
+
+void SkaleScale::logFrameShapeOnce(const QString& shape, const QByteArray& data)
+{
+    const QString line = scaleFrameShapeLine(m_frameShapeLog, shape, data,
+                                             QDateTime::currentMSecsSinceEpoch());
+    if (!line.isEmpty())
+        SKALE_LOG(line);
 }
 
 void SkaleScale::sendCommand(uint8_t cmd) {
