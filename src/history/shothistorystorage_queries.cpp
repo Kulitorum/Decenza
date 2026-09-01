@@ -1147,21 +1147,28 @@ static double deriveGrindStep(const QList<double>& sortedDistinct)
 // where grindStep() prefers the pool to a blind 1.0 default. Both are second
 // attempts after a scoped one failed, never a first choice.
 //
-// Cost, measured with a fresh connection per run: 3.3 ms median / 87 ms worst on
-// a real 1,124-shot / 18.5 MB database; 37 ms median / 41 ms worst on a 16x copy
-// (17,984 shots / 157 MB). The more expensive of the two read shapes in this file
-// — a correlated equipment_id IN (SELECT ...) subquery over `shots`, whose cost
-// tracks table BYTES because a page read drags the profile_json and debug_log
-// blobs along. Two call paths reach it, and the frequency argument has to cover
-// both: GrindRowSource.grindStep() and the ShotServer's grind-candidates
-// endpoint build a picker's rows, while queryGrinderContext (below) builds the
-// AI dialing/advisor context. Neither is per frame, per keystroke, or a binding.
+// Served by idx_shots_equip_grind (migration 40). Without it this is a full
+// `SCAN shots` whose cost tracks table BYTES, not row count, because a page read
+// drags profile_json and debug_log along. Indexed, the plan is `SEARCH shots
+// USING COVERING INDEX` and the table is never opened.
+//
+// Measured: 435 ms and 483 ms for this and its RPM twin on a 5,788-shot Android
+// database (user log 2026-09-01) — a ~0.9 s hang, since
+// GrindPickerDialog.onAboutToShow calls both before painting. Desktop SQLite on
+// synthetic copies: 3.6 / 5.1 / 10.5 ms at 13.6 / 24.2 / 61.1 MB before, 0.17 ms
+// after. Do not judge an unindexed variant by the desktop figures — the gap
+// between 10.5 ms and 483 ms is the machine this has to hold for.
+//
+// Three call paths reach it: GrindRowSource.grindStep() and the ShotServer's
+// grind-candidates endpoint build a picker's rows, while queryGrinderContext
+// (below) builds the AI dialing/advisor context. None is per frame, per
+// keystroke, or a binding.
 //
 // (Until #1725 the QML side WAS a binding, and this sentence described it as
-// one; the cost is unchanged but the frequency is not, so do not read the old
-// shape back into it. It then listed only the two picker callers, which read as
-// exhaustive and was not — queryGrinderContext returns early on an EMPTY model,
-// which is a narrower thing than never calling this.)
+// one; do not read the old shape back into it. It then listed only the two
+// picker callers, which read as exhaustive and was not — queryGrinderContext
+// returns early on an EMPTY model, which is a narrower thing than never
+// calling this.)
 //
 // `queryOk` reports whether the QUERY ran, not whether it found anything. A failed
 // query and a grinder with no numeric history both yield an empty list, and the
@@ -1215,10 +1222,11 @@ static QList<double> grinderWideNumericSettings(QSqlDatabase& db, const QString&
 // all-grinders branch, because pooling RPMs across different grinders describes
 // no real dial. Both callers guard for that.
 //
-// Same shape and same cost as grinderWideNumericSettings above (3.3 ms median /
-// 87 ms worst on a real 18.5 MB database), over the integer rpm column instead of
-// the text one. `queryOk` reports whether the query RAN, so the caller can tell a
-// failure from a grinder that simply has no recorded RPMs.
+// Same shape and same cost as grinderWideNumericSettings above — see its comment
+// for the measurements and for why the covering index matters more on slow
+// storage. Served by idx_shots_equip_rpm (migration 40), over the integer rpm
+// column instead of the text one. `queryOk` reports whether the query RAN, so the
+// caller can tell a failure from a grinder that simply has no recorded RPMs.
 static QList<double> grinderWideRpms(QSqlDatabase& db, const QString& grinderModel,
                                      bool* queryOk = nullptr)
 {

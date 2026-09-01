@@ -73,6 +73,18 @@ public:
         return m_schemaVersionAtStartKnown && m_schemaVersionAtStart < v && m_schemaVersion >= v;
     }
 
+    // The version a database lands on after the full migration chain. BUMP THIS
+    // WITH EVERY NEW MIGRATION. It exists because the tests spelled the terminal
+    // version as a bare literal in 24 places across two files, so every migration
+    // had to find and edit all 24 — and a missed one fails as "expected 39, got
+    // 40", which reads like a migration bug rather than a stale test.
+    //
+    // runMigrations()' blocks deliberately keep their own literals: each stamps
+    // the version IT introduces, which must not move when a later migration is
+    // added. This is not their source — it is the total they must reach, and
+    // freshDbCreatesSchema() is what checks that they do.
+    static constexpr int kCurrentSchemaVersion = 40;
+
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
     // Actual shot ID delivered via shotSaved() signal.

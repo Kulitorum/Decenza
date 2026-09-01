@@ -416,18 +416,16 @@ QStringList SettingsDye::knownGrinderModels(const QString& brand) const {
     return GrinderAliases::modelsForBrand(brand);
 }
 
-QString SettingsDye::stepGrinderSetting(const QString& brand, const QString& model,
-                                        const QString& current, double deltaUnits,
-                                        int decimals) const {
-    // Registry-only: a custom grinder (no match) returns "" so the caller keeps
-    // its plain-numeric / letter / history fallback, exactly as before.
-    const GrinderAliases::GrinderEntry* entry = GrinderAliases::findEntry(brand, model);
-    if (!entry)
-        return QString();
-    const auto linear = GrinderAliases::parseGrinderSetting(*entry, current);
-    if (!linear)
-        return QString();  // unparseable (e.g. pure letters) → caller's fallback
-    const double stepped = *linear + deltaUnits;
+// The per-delta half of stepGrinderSetting, once the grinder and the current
+// value are already resolved. Extracted rather than duplicated because
+// stepGrinderSettingRange() below resolves both ONCE and then calls this 801
+// times; a second copy of these rules is exactly the drift CLAUDE.md forbids,
+// and the two callers must agree row-for-row or the wheel and the web
+// datalist disagree about the same dial.
+QString SettingsDye::stepFromParsed(const GrinderAliases::GrinderEntry& entry,
+                                    double linear, const QString& current,
+                                    double deltaUnits, int decimals) {
+    const double stepped = linear + deltaUnits;
     // Below-zero candidates are skipped only on click-indexed (Compound)
     // grinders, keyed on the grinder's registry notation — NOT the current
     // value's written form — because a negative linear position is meaningless
@@ -435,7 +433,7 @@ QString SettingsDye::stepGrinderSetting(const QString& brand, const QString& mod
     // plain-numeric grinder can be a stepless collar whose zero is a user-set
     // calibration reference (Niche Zero), where dialling finer than zero is a
     // real operation, so negatives pass through.
-    if (stepped < 0.0 && entry->notation == GrinderAliases::SettingNotation::Compound)
+    if (stepped < 0.0 && entry.notation == GrinderAliases::SettingNotation::Compound)
         return QString();  // below the click-indexed dial floor → skip this row
 
     // Compound rotation ("a+b") renders in its own notation (rev/position
@@ -443,9 +441,9 @@ QString SettingsDye::stepGrinderSetting(const QString& brand, const QString& mod
     // compound-notation grinder whose setting is recorded as a plain number
     // (parseGrinderSetting accepts that — some Mignon users log "0.5") keeps the
     // numeric form instead of being re-notated to "0+0.5".
-    if (entry->notation == GrinderAliases::SettingNotation::Compound
+    if (entry.notation == GrinderAliases::SettingNotation::Compound
         && current.contains(QLatin1Char('+')))
-        return GrinderAliases::formatGrinderSetting(*entry, stepped);
+        return GrinderAliases::formatGrinderSetting(entry, stepped);
 
     // Plain-numeric: honor the caller's step precision (the grind widget passes
     // the decimals of its history-derived step, up to 2), not
@@ -458,6 +456,60 @@ QString SettingsDye::stepGrinderSetting(const QString& brand, const QString& mod
         if (s.endsWith(QLatin1Char('.'))) s.chop(1);
     }
     return s;
+}
+
+QString SettingsDye::stepGrinderSetting(const QString& brand, const QString& model,
+                                        const QString& current, double deltaUnits,
+                                        int decimals) const {
+    // Registry-only: a custom grinder (no match) returns "" so the caller keeps
+    // its plain-numeric / letter / history fallback, exactly as before.
+    const GrinderAliases::GrinderEntry* entry = GrinderAliases::findEntry(brand, model);
+    if (!entry)
+        return QString();
+    const auto linear = GrinderAliases::parseGrinderSetting(*entry, current);
+    if (!linear)
+        return QString();  // unparseable (e.g. pure letters) → caller's fallback
+    return stepFromParsed(*entry, *linear, current, deltaUnits, decimals);
+}
+
+// One call for a whole wheel, instead of one per row.
+//
+// GrindRowSource.grindRowsFor() builds 801 candidates (grindWindowSteps: 400)
+// and every one crossed into C++ to re-resolve the same grinder and re-parse the
+// same current value. The QML profiler measured that loop at 186 ms over 8020
+// calls across ten opens — 63% of the picker's whole open — and a memo on the
+// registry lookup did not touch it, because the cost is the 801 crossings and
+// their argument marshalling, not the work behind them. Measured again after
+// memoizing the decimal count inside the loop: no change. The only thing that
+// helps is not making the calls.
+//
+// Returns exactly what stepGrinderSetting would return for each n in
+// [fromN, toN], INCLUDING the empty strings — the caller distinguishes "the
+// catalog declined this row" from "the catalog produced a value" and falls back
+// per row, so collapsing the empties here would silently drop its JS branches.
+QStringList SettingsDye::stepGrinderSettingRange(const QString& brand, const QString& model,
+                                                 const QString& current, double stepUnits,
+                                                 int fromN, int toN, int decimals) const {
+    QStringList out;
+    if (toN < fromN)
+        return out;
+    out.reserve(toN - fromN + 1);
+
+    const GrinderAliases::GrinderEntry* entry = GrinderAliases::findEntry(brand, model);
+    const std::optional<double> linear =
+        entry ? GrinderAliases::parseGrinderSetting(*entry, current) : std::optional<double>{};
+    // A custom grinder or an unparseable value declines every row, exactly as
+    // stepGrinderSetting does one at a time. Fill rather than return short: the
+    // caller indexes by n and a shorter list would silently shift the window.
+    if (!entry || !linear) {
+        for (int n = fromN; n <= toN; ++n)
+            out.append(QString());
+        return out;
+    }
+
+    for (int n = fromN; n <= toN; ++n)
+        out.append(stepFromParsed(*entry, *linear, current, n * stepUnits, decimals));
+    return out;
 }
 
 QStringList SettingsDye::knownBasketBrands() const {

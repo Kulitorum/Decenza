@@ -2814,6 +2814,43 @@ private slots:
         QVERIFY(g.contains("1.5"));
     }
 
+    // #1713 on the web surface: the datalist must keep the precision the user's
+    // OWN value already has, not just the step's.
+    //
+    // stepDecimals() took the step alone while its comment claimed it mirrored
+    // GrindRowSource._stepDecimals, which has taken the max with the value since
+    // #1713. The failure is not a rounding nit: with history too thin to derive a
+    // step, grindStep is 0 and the endpoint falls back to 1.0 = zero decimals, so
+    // a recorded "1.1" formats to "1". The user's own setting vanishes from the
+    // dropdown AND the n=0 suggestion silently rewrites it, which is exactly the
+    // reported shape of #1713.
+    void grindCandidates_keepsThePrecisionOfTheUsersOwnValue() {
+        GrindCandidates::Inputs in;
+        in.brand = "Niche"; in.model = "Zero";
+        in.current = "1.1";
+        in.grindStep = 0.0;   // too thin to derive -> the 1.0 fallback, 0 decimals
+        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
+
+        // The value itself survives, at its own precision.
+        QVERIFY2(g.contains("1.1"), qPrintable("datalist lost the user's value: " + g.join(',')));
+        // And the whole lattice carries that precision rather than collapsing to
+        // integers - "1" appearing at all would mean 1.1 was reformatted away.
+        QVERIFY2(g.contains("0.1"), qPrintable(g.join(',')));
+        QVERIFY2(g.contains("2.1"), qPrintable(g.join(',')));
+        QVERIFY2(!g.contains("1"), qPrintable("1.1 was reformatted to 1: " + g.join(',')));
+
+        // A step FINER than the value still wins - the max runs both ways.
+        in.grindStep = 0.25;
+        const QStringList q = grindOf(GrindCandidates::build(m_settings.dye(), in));
+        QVERIFY2(q.contains("1.35"), qPrintable(q.join(',')));
+
+        // A non-numeric value contributes no precision and must not throw the
+        // step's own decimals away.
+        in.current = "coarse"; in.grindStep = 0.5;
+        const QStringList c = grindOf(GrindCandidates::build(m_settings.dye(), in));
+        QVERIFY(!c.isEmpty());
+    }
+
     void grindCandidates_positiveAnchorHasNoNegatives() {
         GrindCandidates::Inputs in;
         in.brand = "Niche"; in.model = "Zero";
@@ -3160,6 +3197,122 @@ private slots:
         QCOMPARE(m_settings.theme()->activeThemeName(), QStringLiteral("qml-chain-written"));
         // The binding followed the change, so the sub-object's NOTIFY reaches QML too.
         QCOMPARE(obj->property("themeName").toString(), QStringLiteral("qml-chain-written"));
+    }
+
+    // GrinderAliases::findEntry() memoizes its last (brand, model) lookup. Its
+    // failure shape is a STALE HIT: answer the second grinder with the first
+    // one's entry. Nothing else in the suite alternates grinders within one call
+    // sequence, so nothing else can catch it.
+    //
+    // Asserted through stepGrinderSetting() because the notation reached through
+    // the memo is what the picker consumes, and the grinders below disagree
+    // about it.
+    void findEntryMemoDoesNotServeAStaleGrinder() {
+        SettingsDye* dye = m_settings.dye();
+
+        // Alternate, so every call but the first is a memo hit for the WRONG
+        // grinder if the key is ignored. Repeated to outlive a one-deep memo
+        // that happens to be refreshed by the previous line.
+        for (int i = 0; i < 3; ++i) {
+            QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 2.0), QString("22"));
+            QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "1+4", 1.0),
+                     QString("1+5"));
+        }
+
+        // Same brand, different model: the MODEL half of the key alone must
+        // invalidate. The pair has to DISAGREE or the assertion proves nothing —
+        // Niche Zero and Duo are both NumericWithSuffix, so "5"+1 is "6" either
+        // way and this passed with the model dropped from the key.
+        //
+        // 1Zpresso J-Max and K-Max are both Compound but carry at 30 vs 90
+        // positions/rev, so 0+29 stepped by 1 reaches 30 = a full revolution on
+        // one and 30 into the first on the other.
+        for (int i = 0; i < 3; ++i) {
+            QCOMPARE(dye->stepGrinderSetting("1Zpresso", "J-Max", "0+29", 1.0), QString("1+0"));
+            QCOMPARE(dye->stepGrinderSetting("1Zpresso", "K-Max", "0+29", 1.0), QString("0+30"));
+        }
+
+        // A negative result is cached too — the custom-grinder case, which is
+        // the WORST caller (it walks the whole table) and so the one most worth
+        // memoizing. It must stay "" on repeat, and must not poison the next
+        // real lookup.
+        for (int i = 0; i < 3; ++i)
+            QCOMPARE(dye->stepGrinderSetting("Homebuilt", "No Such Grinder", "20", 2.0), QString());
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 2.0), QString("22"));
+
+        // Case-insensitivity is the lookup's contract; the memo compares keys
+        // exactly, so a differently-cased repeat must MISS and re-resolve rather
+        // than fall through to nullptr.
+        QCOMPARE(dye->stepGrinderSetting("turin", "df83v", "20", 2.0), QString("22"));
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 2.0), QString("22"));
+    }
+
+    // stepGrinderSettingRange must be indistinguishable from calling
+    // stepGrinderSetting once per row. The picker builds its wheel from the
+    // batch form and falls back per row on an empty entry, so a divergence in
+    // EITHER direction is a wrong wheel: a spurious value hides the JS fallback
+    // that should have run, and a spurious empty invents a fallback row.
+    //
+    // Both forms now share stepFromParsed(), so this is the test that keeps the
+    // extraction honest — it is the only thing that would catch the batch loop
+    // drifting from the single-row rules.
+    void stepGrinderSettingRangeMatchesTheSingleRowForm_data() {
+        QTest::addColumn<QString>("brand");
+        QTest::addColumn<QString>("model");
+        QTest::addColumn<QString>("current");
+        QTest::addColumn<double>("step");
+        QTest::addColumn<int>("decimals");
+
+        // Registry plain-numeric, including a step that reaches below zero (a
+        // stepless collar keeps negatives; the batch must not clamp them away).
+        QTest::newRow("niche-zero-0.25")   << "Niche" << "Zero" << "8"    << 0.25 << 2;
+        QTest::newRow("niche-zero-below0") << "Niche" << "Zero" << "0.5"  << 0.25 << 2;
+        // Compound, in its own notation — exercises rev carry AND the
+        // click-indexed below-floor skip, which is where empties come from.
+        QTest::newRow("mignon-compound")   << "Eureka" << "Mignon Specialita" << "1+4" << 1.0 << 1;
+        QTest::newRow("mignon-floor")      << "Eureka" << "Mignon Specialita" << "0+2" << 1.0 << 1;
+        // Compound grinder recorded as a plain number: must stay numeric, not
+        // be re-notated — a rule that lives in stepFromParsed and could be lost.
+        QTest::newRow("mignon-plain")      << "Eureka" << "Mignon Specialita" << "2.5" << 0.5 << 2;
+        // Different revolution length, so a shared-entry bug shows up.
+        QTest::newRow("jmax-compound")     << "1Zpresso" << "J-Max" << "0+29" << 1.0 << 1;
+        // Not in the registry: every row must decline, and the list must still
+        // be full length or the caller's window silently shifts.
+        QTest::newRow("custom-grinder")    << "Homebuilt" << "No Such" << "20" << 0.5 << 1;
+        // In the registry but unparseable (pure letters) — same, via the other
+        // early return.
+        QTest::newRow("unparseable")       << "Niche" << "Zero" << "AB" << 1.0 << 1;
+        QTest::newRow("empty-current")     << "Niche" << "Zero" << ""   << 1.0 << 1;
+    }
+
+    void stepGrinderSettingRangeMatchesTheSingleRowForm() {
+        QFETCH(QString, brand);
+        QFETCH(QString, model);
+        QFETCH(QString, current);
+        QFETCH(double, step);
+        QFETCH(int, decimals);
+
+        SettingsDye* dye = m_settings.dye();
+        // Narrower than the picker's ±400 so the table stays quick; the loop is
+        // uniform in n, so the window width is not what could break.
+        const int span = 12;
+        const QStringList batch =
+            dye->stepGrinderSettingRange(brand, model, current, step, -span, span, decimals);
+
+        QCOMPARE(batch.size(), 2 * span + 1);
+        for (int n = -span; n <= span; ++n) {
+            const QString one = dye->stepGrinderSetting(brand, model, current, n * step, decimals);
+            QCOMPARE(batch.at(n + span), one);
+        }
+    }
+
+    // Degenerate window: toN < fromN yields an empty list rather than a
+    // one-element one. The caller indexes by offset, so an off-by-one here
+    // shifts every row of the wheel.
+    void stepGrinderSettingRangeHandlesAnEmptyWindow() {
+        SettingsDye* dye = m_settings.dye();
+        QVERIFY(dye->stepGrinderSettingRange("Niche", "Zero", "8", 0.25, 1, 0, 2).isEmpty());
+        QCOMPARE(dye->stepGrinderSettingRange("Niche", "Zero", "8", 0.25, 0, 0, 2).size(), 1);
     }
 
 };
