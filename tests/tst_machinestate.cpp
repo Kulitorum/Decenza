@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QRegularExpression>
 
 #include "machine/machinestate.h"
 #include "ble/de1device.h"
@@ -200,6 +201,38 @@ private slots:
         // Second hot water: should be reset
         f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
         QCOMPARE(f.state.m_pourVolume, 0.0);
+    }
+
+    // ==========================================
+    // Hot water tare
+    // ==========================================
+
+    // The tare is scheduled a moment after flow starts, to keep it off the timer
+    // commands' heels. Weight samples arrive in between carrying the PREVIOUS pour's
+    // zero (a field log read -138.40 g, 56 ms before its own tare fired). Skipping them
+    // is right; reporting "Tare not completed" is not — that names a tare that failed,
+    // and this one had not been sent yet. init() calls QTest::failOnWarning(), so the
+    // silence is asserted.
+    void hotWaterTareInFlightIsNotReportedAsAFailedTare() {
+        TestFixture f;
+
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        QVERIFY(f.state.m_hotWaterTarePending);   // scheduled, not yet sent
+        QVERIFY(!f.state.m_tareCompleted);
+        f.state.checkStopAtWeightHotWater(-138.4);
+    }
+
+    // ...and the warning is still there for a tare that really did not complete: the
+    // gate is the pendency, not the phase.
+    void hotWaterTareNeverCompletedStillWarns() {
+        TestFixture f;
+
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.state.m_hotWaterTarePending = false;    // the scheduled tare has run
+        QVERIFY(!f.state.m_tareCompleted);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Tare not completed"));
+        f.state.checkStopAtWeightHotWater(-138.4);
     }
 
     // ==========================================

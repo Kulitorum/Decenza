@@ -538,6 +538,8 @@ void MachineState::updatePhase() {
 
                 m_tareCompleted = false;
                 m_waitingForTare = false;
+                m_hotWaterTarePending = false;
+                m_lastHotWaterTareWarnMs = 0;
                 if (m_tareTimeoutTimer)
                     m_tareTimeoutTimer->stop();
 
@@ -554,7 +556,12 @@ void MachineState::updatePhase() {
                 // Delay 200ms after resetTimer/startTimer to avoid BLE command contention —
                 // WriteWithoutResponse can silently drop packets when sent in rapid succession.
                 if (m_phase == Phase::HotWater) {
+                    m_hotWaterTarePending = true;
                     QTimer::singleShot(200, this, [this]() {
+                        // Cleared on BOTH paths: the early return leaves no tare coming,
+                        // and a pending flag that outlives its tare would silence the
+                        // warning for the rest of the pour.
+                        m_hotWaterTarePending = false;
                         if (m_phase != Phase::HotWater) return;  // Operation ended before timer fired
                         tareScale();
                         qDebug() << "=== TARE: Hot Water started (200ms after timer cmds) ===";
@@ -966,14 +973,24 @@ void MachineState::onScaleWeightChanged(double weight) {
 void MachineState::checkStopAtWeightHotWater(double weight) {
     if (m_stopAtWeightTriggered) return;
     if (!m_tareCompleted) {
-        // Throttle this warning to every 5s to avoid log spam at 5Hz
-        static qint64 s_lastTareWarnMs = 0;
-        qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-        if (nowMs - s_lastTareWarnMs >= 5000) {
-            SAW_WARN_STDERR("HotWater",
-                QStringLiteral("Tare not completed — skipping stop-at-weight check, weight=%1 g")
-                    .arg(weight, 0, 'f', 2));
-            s_lastTareWarnMs = nowMs;
+        // Not yet SENT is not the same as failed. The tare is scheduled a moment after
+        // flow starts, and the samples arriving in between still carry the last pour's
+        // zero (a logged one read -138.40 g, 56 ms before its own tare fired). Skipping
+        // them is right; warning about them is not — it named a condition that had not
+        // had its chance to happen yet.
+        if (!m_hotWaterTarePending) {
+            // Throttle this warning to every 5s to avoid log spam at 5Hz. A MEMBER, not
+            // a function-local static: a process-wide throttle outlives every object in
+            // the process, so whichever caller reached this line first in the last five
+            // seconds decides whether anyone else gets a line — which in a test binary
+            // means one test can silence another's expected warning.
+            qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+            if (nowMs - m_lastHotWaterTareWarnMs >= 5000) {
+                SAW_WARN_STDERR("HotWater",
+                    QStringLiteral("Tare not completed — skipping stop-at-weight check, weight=%1 g")
+                        .arg(weight, 0, 'f', 2));
+                m_lastHotWaterTareWarnMs = nowMs;
+            }
         }
         return;
     }

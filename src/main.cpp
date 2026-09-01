@@ -1487,6 +1487,17 @@ int main(int argc, char *argv[])
                          emit machineState.sawBypassed();
                      });
 
+    // WeightProcessor → ShotDataModel: re-anchor the graph on the zero that actually
+    // arrived. MachineState::tareCompleted already clears the pre-tare samples, but it
+    // fires when the tare COMMAND goes out; the scale's zeroed sample lands tens of ms
+    // later, and any pre-tare reading in between is appended after that clear. It then
+    // becomes the spike filter's anchor there — a logged shot rejected the real 0.1 g
+    // against a stale 141.1 g at 534 g/s, three times. Same event as WeightProcessor's
+    // own tare wait, so the two cannot disagree about when the zero landed.
+    // &shotDataModel as context puts it on the main thread.
+    QObject::connect(&weightProcessor, &WeightProcessor::tareLanded,
+                     &shotDataModel, [&shotDataModel]() { shotDataModel.clearWeightData(); });
+
     // WeightProcessor → ShotDataModel: mark stop time on graph.
     // Using &shotDataModel as context ensures lambda runs on the main thread.
     QObject::connect(&weightProcessor, &WeightProcessor::stopNow,
